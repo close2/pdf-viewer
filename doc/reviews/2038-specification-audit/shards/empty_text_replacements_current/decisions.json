@@ -1,0 +1,22 @@
+{
+  "reviews": [
+    {
+      "decision": "Treat explicit empty /ActualText as present replacement text, distinct from key absence",
+      "verdict": "Likely required reader behavior. §14.9.4 states the value shall be used as a character replacement; () is a text string with zero characters, and no clause or erratum supplies an absent-value exception. Current code discards it before readback can replace the enclosed content.",
+      "basis": "EC3 §14.9.4 physical 815–816 / printed 800–801; Table 355 physical 740–741 / printed 725–726; source page-800 Issue #483 annotation adds Artifact property-list route but leaves semantics unchanged.",
+      "test": "drafts/empty_actualtext.rs provides independent absent, nonempty-hyphen, and empty controls for Span, Artifact, and structure-element locations. A discretionary line-end hyphen is the credible producer use: empty ActualText should join `co-` / `operate` into `cooperate`. Property-list fixtures are untagged/no-MCID; structure uses one MCID. Parent should execute before promotion."
+    },
+    {
+      "decision": "Do not equate empty /Alt or /E with absent on the basis of /ActualText",
+      "verdict": "Unresolved empty-input handling, not a demonstrated reader defect. §14.9.3 calls Alt a whole word or phrase substitution; §14.9.5 defines E as a word or phrase substitution with boundary breaks. Neither says an empty value means fallback, means an empty phrase, or requires reader rejection.",
+      "basis": "EC3 §14.9.3 physical 815 / printed 800; §14.9.5 physical 816 / printed 801; Table 355 physical 740 / printed 725. No direct applicable erratum was identified."
+    },
+    {
+      "decision": "Errata qualification",
+      "verdict": "#483 adds Artifact-tag property-list ActualText; #356 corrects 'Actual Text' to 'ActualText'; #364 adds/renumbers the space example. These amendments expand the source/path and correct examples but do not resolve empty value semantics.",
+      "basis": "Direct annotation dictionaries and page overlays on physical 815–816; see features.json for object IDs and exact amendment text."
+    }
+  ],
+  "exclusions": ["B12 structure-element ActualText coverage across multiple/descendant content items", "B01/B02/B31 language escape and empty-Lang cases"],
+  "test_drafts": ["drafts/empty_actualtext.rs"]
+}

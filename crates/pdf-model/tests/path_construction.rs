@@ -396,9 +396,9 @@ fn a_clip_built_from_a_disregarded_path_admits_nothing() {
 
 /// A `W` with no path in front of it is the other case, and leaves the clip alone.
 ///
-/// §8.5.3.1 makes a painting operator with no current path an error; blanking everything
-/// after it would be a worse answer to a malformed file than ignoring it, and the two cases
-/// are distinguished by whether a path was stated at all rather than by what is left of one.
+/// Effective §8.5.3.1 (EC3 issue #549) says a painting operator with no current
+/// path is ignored. This is distinct from an explicitly stated path enclosing no
+/// area: only the latter establishes an empty clipping region.
 #[test]
 fn a_clip_with_no_path_at_all_is_not_an_empty_clip() {
     let document =
@@ -416,10 +416,9 @@ fn a_clip_with_no_path_at_all_is_not_an_empty_clip() {
     assert_eq!(clip, None, "no path was stated, so no clip is built");
 }
 
-/// And it is not reported, on the argument ADR 0563 makes for `h` on an empty path: the clip
-/// is what it was and no mark is lost, so a report would only take the page out of the
-/// oracle's judgement (trap 11). `issue14438.pdf` states exactly this and nothing else, and
-/// all four references draw it as this tree does.
+/// The ignored operation leaves the page complete. EC3 issue #549 explicitly
+/// replaces the earlier error instruction; the current outcome agrees with that
+/// correction. ADR 0563 provides historical context for the reporting policy.
 #[test]
 fn a_clip_with_no_path_in_front_of_it_costs_the_page_nothing_to_report() {
     assert_eq!(reports("W n 0 0 100 100 re f"), vec![]);

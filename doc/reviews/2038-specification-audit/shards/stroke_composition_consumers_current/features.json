@@ -1,0 +1,39 @@
+{
+  "baseline": "b901326c",
+  "scope": "Follow-up to B39 only: same-object alpha compositing through hardware render-raster lanes and render-gpu, plus a valid PDF content-stream consumer path through pdf-model to render-cpu. Drafts only; no Cargo or GPU execution in this shard.",
+  "source": {
+    "clause": "ISO 32000-2:2020 §11.6.2 Specifying source and backdrop colours",
+    "locator": "printed pp.415–416 / physical pp.430–431 (verified footer in primary EC3 PDF)",
+    "requirement": "A single graphics object is one elementary transparency object; all of its parts are one element of the transparency stack and parts of that object shall not composite with one another, even when the object's description appears to overlap.",
+    "errata_scope": "EC3 #103 changes the opaque-model dash/subpath wording in §8.5.3.2; parent review explicitly declined to extend that mark to a blanket exception from §11.6.2's independent one-object transparency rule.",
+    "independent_oracle": "Black source at alpha 0.5 over opaque white gives red 127–128 at the fully covered interior sample. If the same transparent object composites its contained degenerate subpath over its own already-painted line, that interior instead approaches 64. The assertion is at a point wholly inside the ordinary width-8 stroke, so it is independent of whether the degenerate subpath itself must paint a mark."
+  },
+  "current_evidence": {
+    "cpu_direct": "crates/render-cpu/tests/transparent_degenerate_spec_audit.rs::a_degenerate_subpath_does_not_composite_twice_with_the_same_stroke_object fails at red 64 versus allowed 127–129; same-path ordinary line control is 127–129. This direct DisplayList witness is the already-recorded B39 and is not duplicated here.",
+    "owner_review": "doc/reviews/2038-specification-audit/shards/stroke_fill_geometry_current/parent-review.json identifies B39, qualifies EC3 #103 correctly, and records that hardware/GPU and PDF-consumer follow-up remain pending."
+  },
+  "drafts": [
+    {
+      "path": "drafts/render_raster_transparent_same_object.rs",
+      "route": "Same command list through hardware GPU and compute coverage lanes in QuorraRasterizer; installs the shared GPU lock hook before device bring-up; each lane checks an ordinary-line positive control and the same-command degenerate-subpath case against the literal single-application pixel oracle.",
+      "independent_identity": "Test name and binary target are render-raster lane coverage; CPU remains the separate existing raw-render-cpu test."
+    },
+    {
+      "path": "drafts/render_gpu_transparent_same_object.rs",
+      "route": "Same command list through direct headless render-gpu::GpuRasterizer under the existing Hold::unless_software device lock convention; it asserts its own line control and alpha sample rather than only comparing with CPU.",
+      "independent_identity": "Separate render-gpu integration-test binary; source-derived exact pixel range is asserted on that backend."
+    },
+    {
+      "path": "drafts/pdf_content_cpu_transparent_same_object.rs",
+      "route": "An exact-xref PDF 2.0 file with page content, one /ExtGState /CA 0.5, round-capped width-8 ordinary line and a fully contained degenerate closed subpath all painted by one S operator; PDF model interprets it and CPU rasterizes the resulting display list.",
+      "independent_identity": "Checks parser recovery is false, one stroke command still contains MoveTo/LineTo/MoveTo/Close, the report is empty, and the source-derived line-interior sample remains 127–128. The no-degenerate PDF is the same-object PDF positive control."
+    }
+  ],
+  "limits": [
+    "All three Rust files are unexecuted scratch drafts.",
+    "Hardware render-raster lanes are specifically GPU and Compute; CPU is already covered by the current direct test.",
+    "The render-gpu direct test follows the repository's headless GPU integration convention and does not claim presentation-surface behavior.",
+    "The PDF control establishes the PDF parser-to-CPU consumer path for this geometry; it does not cover every path join/cap or every source alpha configuration.",
+    "No claim is made about whether an isolated zero-length subpath produces a dot, or about opaque handling of EC3 #103's subpath/dash case."
+  ]
+}

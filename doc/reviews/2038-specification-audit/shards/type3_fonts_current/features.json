@@ -1,0 +1,65 @@
+{
+  "scope": "Bounded review of ISO 32000-2:2020(E) §§9.6.2.3, 9.6.4 Type 3 entries relevant to glyph sizing/width/bounds and §9.6.5.3, including only directly relevant EC3 corrections. Not whole-clause certification.",
+  "features": [
+    {
+      "clause": "9.6.4 Table 110; §§9.6.5.1, 9.6.5.3",
+      "title": "Type 3 code-to-name mapping and required Encoding form",
+      "source": "Primary Table 110, physical p.333 / printed p.318, requires /Encoding to be a dictionary. §9.6.5.3, physical p.348 / printed p.333, says the code-to-glyph-name mapping is entirely defined by that entry and Type 3 has no default glyph name. §9.6.4 steps a-b say obtain the name from Encoding, then paint nothing when CharProcs lacks the key.",
+      "errata": "No direct EC3 amendment to §9.6.5.3 found in the inspected EC3 transcription. EC3 #111 edits §9.6.4 glyph descriptions from streams to objects and adds NOTE 2 on operator categories; unrelated to Encoding form. EC3 #128 changes glyph Resources lookup, also unrelated to mapping.",
+      "ledger": "doc/conformance/ledger.toml §9.6.5.3 (implemented), code crates/pdf-model/src/type3.rs; ledger links tests in crates/pdf-model/tests/type3.rs and type3_residual_audit.rs. The ledger note incorrectly says a direct named Encoding is permitted for Type 3 based on §9.6.5.1; Table 110's more specific required dictionary form makes those tests tolerance evidence only.",
+      "implementation": "Type3Font::read parses an Encoding dictionary and Differences; Type3Font::glyph maps the byte through the resulting code/name map then looks up CharProcs. Missing name/key returns no glyph, as §9.6.4 step b specifies. Direct names are also accepted as a reader extension in type3.rs.",
+      "assertions": "The default public Fixture in tests/type3.rs has an exact xref, required Encoding dictionary object with Differences [97 /square /triangle], matching CharProcs, FirstChar/LastChar/Widths, and distinct painted glyphs. type3_residual_audit.rs::an_encoding_omission_does_not_select_notdef_or_another_charproc exercises an omitted code with distinguishable /.notdef and other CharProcs and asserts no fallback. Three named-Encoding tests instead use a direct name; they assert current permissive/refusal behavior on producer-invalid Type 3 dictionaries and must be labelled tolerance/report-policy tests, never valid-input conformance.",
+      "verdict": "Conforming dictionary mapping and no-default behavior have direct implementation and public assertion evidence in sampled paths. No new reader behavior defect identified. Existing named Encoding assertions overstate normative validity unless labelled as tolerance behavior.",
+      "residuals": "No exhaustive malformed Encoding policy or all Differences array forms audited. Table 110 requires dictionary producer form; the standard does not thereby require a reader to reject or accept the malformed direct-name form.",
+      "related_adrs": ["ADR 0892", "ADR 0438", "ADR 0439"]
+    },
+    {
+      "clause": "9.6.4 Table 110; Table 111; §9.2.4",
+      "title": "Glyph-space widths, FontMatrix and horizontal text advance",
+      "source": "Table 110, physical p.333 / printed p.318, places Type 3 Widths in glyph space interpreted by FontMatrix; if the matrix rotates, only the horizontal component of transformed width is used; codes outside FirstChar..LastChar have width zero. §9.2.4 requires an explicit FontMatrix for Type 3.",
+      "errata": "EC3 #43 corrects Table 111 operand-label grammar, not this width rule. EC3 #144 corrects §9.6.4's example LastChar from 104 to 98; the public fixture uses 98. No inspected EC3 change alters the width/matrix rule.",
+      "ledger": "§9.6.4 row in doc/conformance/ledger.toml; implementation crates/pdf-model/src/type3.rs::Type3Font::advance and read; public tests type3.rs::a_width_advances_through_the_font_matrix and type3_spec_audit.rs rotated-matrix case; internal unit type3.rs::a_width_is_read_through_the_font_matrix.",
+      "implementation": "advance indexes the declared widths from FirstChar, defaults to zero outside the vector, and multiplies by FontMatrix.a. Glyph rendering composes font matrix with text transform. A noninvertible present FontMatrix is rejected by the model; the bounded tests cover zero-matrix rationale and rotated horizontal advance.",
+      "assertions": "The public two-glyph test observes the second glyph's position: width 1000 at size 10 moves 10 with matrix .001 and 100 with matrix .01. Internal test separately compares widths 1 under unit and .001 matrices and checks both adjacent out-of-range codes are zero. Rotation test checks that advance remains horizontal and includes a scale control.",
+      "verdict": "Good independent public geometry assertion plus direct model unit evidence for the sampled advance rule. No gap found in these cases.",
+      "residuals": "No independent audit of every malformed width-array shape or affine matrix family. These tests do not certify all Table 110 entries.",
+      "related_adrs": ["ADR 0216", "ADR 0892"]
+    },
+    {
+      "clause": "9.6.4 Table 110 and Table 111",
+      "title": "FontBBox and glyph d1 bounding boxes describe mark extents",
+      "source": "Table 110 FontBBox is the font's glyph-space bounding box enclosing marks; when nonzero it is to be accurate. Table 111 d1 bbox likewise describes glyph marks. Both tables state that marks outside the stated box make behavior implementation-dependent. They do not impose a reader clipping rule.",
+      "errata": "EC3 #43 makes operand labels grammatical; no substantive change to the bounds. EC3 #111 adds NOTE 2 that any operator category is available subject to this clause's restrictions.",
+      "ledger": "§9.6.4 Type 3 row; implementation crates/pdf-model/src/type3.rs and content/text/type3.rs. Public assertions are in crates/pdf-model/tests/type3.rs.",
+      "implementation": "Normal Type 3 glyph painting does not clip marks to FontBBox or d1's bbox. FontBBox is used as a glyph extent in specific downstream paths (for example redaction), while display-list rendering follows glyph operators. This behavior is compatible with the source's explicit implementation-dependent result for out-of-box marks.",
+      "assertions": "Existing test an_uncoloured_glyph_that_fills_and_strokes_uses_both_inherited_colours declares [0 0 750 750] in both font and d1 bounds but strokes the same rectangle with 72-unit width, yielding extents [-36,-36]..[786,786] (square miter joins). Existing inline-image d0 test maps a unit image square by [750 0 200 375 0 0], reaching x=950; the other glyph reaches y=750. Its original FontBBox stopped at 750 in x. The scratch patch corrects these producer fixtures; width stays 1000, and exact xref/no-recovery assertion is added to the fixture helper.",
+      "verdict": "No renderer defect follows from the old test bounds: their behavior is implementation-dependent under the standard. Patch corrects fixture claims so those tests exercise valid reported bounds. It does not assert clipping or behavior outside bounds.",
+      "residuals": "The original d1 case also tests fill/stroke color behavior, not bound enforcement. The new image FontBBox encloses both glyphs ([0 0 950 750]); the stroked glyph box is [-36 -36 786 786]. No assertion requires an implementation to clip to either bounds field.",
+      "related_adrs": ["ADR 0216", "ADR 0019", "ADR 0252", "ADR 0253"]
+    },
+    {
+      "clause": "9.6.2.3",
+      "title": "Multiple master Type 1 instances",
+      "source": "Primary §9.6.2.3, physical p.315 / printed p.300: MMType1 instances use the Type 1 dictionary entries with /Subtype MMType1; embedded instance is an ordinary Type 1 font program. BaseFont space-to-underscore convention is expressly not prescribed by this specification.",
+      "errata": "No directly applicable EC3 amendment identified in the inspected clause. Nearby #47/#48 concern §9.6.2.1 standard-14 availability, not MMType1 instance semantics.",
+      "ledger": "doc/conformance/ledger.toml §9.6.2.3 says loader does not branch on simple-font subtype and records the ordinary Type 1 program route; BaseFont naming convention is not prescribed.",
+      "implementation": "crates/pdf-font/src/loading.rs simple-font route selects Type 3/Type 0 specially, then loads other simple font programs through the Type 1/TrueType program selection path; no MMType1-specific program parser or BaseFont instance-name parser was found.",
+      "assertions": "Ledger test a_simple_fonts_subtype_selects_nothing feeds the same deliberately invalid program bytes to Type1, MMType1 and TrueType and compares failure route; it tests dispatch, not a successful MMType1 instance. No successful embedded MMType1 instance test found in the bounded search.",
+      "verdict": "Implementation route is consistent with snapshot instance being an ordinary Type 1 program; no evidence of a functional gap. Current test is narrowly a dispatch test, so ledger wording must not imply successful MMType1 fixture conformance coverage.",
+      "residuals": "No successful real MMType1 instance/program test was added: obtaining a conforming embedded fixture is beyond this bounded shard. The spec does not mandate parsing the non-prescribed BaseFont naming convention.",
+      "related_adrs": []
+    },
+    {
+      "clause": "9.6.4 cache behavior (implementation choice)",
+      "title": "Reuse of Type 3 glyph descriptions",
+      "source": "The audited ISO requirements specify glyph streams and their execution, not a Type 3-specific glyph cache.",
+      "errata": "No relevant EC3 amendment.",
+      "ledger": "Cache statement is in ADR 0018/0427, not a normative requirement row.",
+      "implementation": "Nested glyph streams use Document's decoded stream cache through the same content stream path; no separate Type 3 glyph-result cache was found.",
+      "assertions": "Generic decoded-stream memo tests measure repeated decode and charging, not a Type 3 glyph raster cache.",
+      "verdict": "No conformance gap: cache strategy is an implementation choice and relevant bounded ADR rationale remains plausible.",
+      "residuals": "No performance benchmark repeated; outside normative audit scope.",
+      "related_adrs": ["ADR 0018", "ADR 0427"]
+    }
+  ]
+}

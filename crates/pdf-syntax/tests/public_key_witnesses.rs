@@ -39,6 +39,14 @@
 //! `TestPublicKeyEncryption` states for the page, and the clause's algorithm is what has to produce
 //! it.
 //!
+//! # Independent default-filter witnesses
+//!
+//! The audit adds generated s5 documents with shared and distinct stream/string defaults.
+//! OpenSSL produces their CMS envelopes and AESV2 data; a separate script extracts and
+//! decrypts the retained PDF bytes against literal plaintext. These are generated controls,
+//! not `PDFBox` documents. The scripts and hashes are recorded in the round 2038 audit shard
+//! `dual_public_key_default_filters`.
+//!
 //! # The fifth document
 //!
 //! `3006236.pdf` of the `SafeDocs` crawl is the fifth document in the corpus census that names
@@ -753,4 +761,59 @@ fn an_elliptic_curve_recipient_opens_a_key_agreement_list() {
         Err(SyntaxError::RecipientRequired) => {}
         other => panic!("an RSA certificate the list does not name is asked for again: {other:?}"),
     }
+}
+
+// EC3 Tables20/27: each default filter owns its recipient array and key.
+// OpenSSL-generated fixtures and independent verification live in audit evidence.
+#[test]
+fn separate_stmf_and_strf_defaults_use_their_own_recipient_keys() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/public_key_witnesses/stmf-strf-distinct-defaults.pdf");
+    let bytes = std::fs::read(&path).expect("generated CMS-backed fixture");
+    let document =
+        Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer"))
+            .expect("testnutzer is a recipient in each independent default-filter list");
+    assert!(
+        !document.was_recovered(),
+        "the exact-xref fixture needs no recovery"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
+
+    let catalog = document.catalog().expect("catalog");
+    assert_eq!(
+        catalog.get("Lang").and_then(Object::as_string),
+        Some(&b"fr-FR"[..]),
+        "the Catalog string decrypts with the distinct StrF-derived key"
+    );
+
+    let content = page_content(&document);
+    assert!(
+        holds(&content, "(Stream key) Tj"),
+        "the page stream decrypts with the StmF-derived key"
+    );
+    assert_eq!(content, b"BT /F1 12 Tf 20 50 Td (Stream key) Tj ET");
+}
+
+#[test]
+fn one_shared_default_filter_decrypts_both_strings_and_streams_as_control() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/public_key_witnesses/stmf-strf-shared-defaults.pdf");
+    let bytes = std::fs::read(&path).expect("generated shared-default control");
+    let document =
+        Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer"))
+            .expect("testnutzer is in the shared default-filter list");
+    assert!(
+        !document.was_recovered(),
+        "the exact-xref control needs no recovery"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
+
+    let catalog = document.catalog().expect("catalog");
+    assert_eq!(
+        catalog.get("Lang").and_then(Object::as_string),
+        Some(&b"fr-FR"[..])
+    );
+    let content = page_content(&document);
+    assert!(holds(&content, "(Stream key) Tj"));
+    assert_eq!(content, b"BT /F1 12 Tf 20 50 Td (Stream key) Tj ET");
 }

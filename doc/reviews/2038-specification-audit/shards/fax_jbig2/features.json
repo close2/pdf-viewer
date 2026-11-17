@@ -1,0 +1,222 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": {
+    "baseline": "b901326c (worktree HEAD 9a54effa is one audit bookkeeping commit above it)",
+    "source": {
+      "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+      "clause_pages": [
+        {
+          "clause": "7.4.6",
+          "printed": 43,
+          "physical": 58,
+          "table_11_printed": 44,
+          "table_11_physical": 59
+        },
+        {
+          "clause": "7.4.7",
+          "printed": [
+            45,
+            46
+          ],
+          "physical": [
+            60,
+            61
+          ],
+          "table_12_printed": 46,
+          "table_12_physical": 61
+        }
+      ],
+      "errata": "EC3 source PDF checked directly; errata_annotations.json has no substantive annotation for either clause (the matches are table-of-contents entries only).",
+      "scope": "No current scope-ratification exclusion found for either clause."
+    },
+    "clauses": [
+      {
+        "clause": "7.4.6",
+        "title": "CCITTFaxDecode filter",
+        "features": [
+          {
+            "requirement": "Decode Group 3 or Group 4 facsimile data per T.4/T.6; output is bilevel image samples (Table 87 also requires 1-bit samples).",
+            "implementation": "crates/pdf-model/src/image/ccitt.rs::ccitt_bilevel -> pdf_sandbox::Request::Ccitt -> crates/pdf-sandbox/src/decode.rs::ccitt -> custom crates/pdf-ccitt decoder; image decode unpacks one bit per sample.",
+            "assertions": [
+              "crates/pdf-model/tests/ccitt.rs::black_is_1_gives_the_exact_complement",
+              "crates/pdf-ccitt/tests/coding.rs (T.4 figure cases and direct row assertions)"
+            ],
+            "verdict": "route and selected assertions reviewed; full T.4/T.6 code-space audit and test execution remain outside this shard"
+          },
+          {
+            "requirement": "Bit-oriented stream; unencoded lines are padded to byte boundaries; encoded data is ordinarily continuous; EncodedByteAlign optionally skips zero fill to a byte boundary before each encoded line; at EOD skip to next byte boundary.",
+            "implementation": "crates/pdf-ccitt/src/lib.rs::Decoder::run and bits.rs alignment/bit reader; inline extent is separately found by pdf-syntax filter helpers.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs::byte_aligned_lines_skip_their_padding",
+              "crates/pdf-model/tests/inline_images.rs::a_group_4_fax_ends_at_its_end_of_block_pattern"
+            ],
+            "residuals": "The aligned-lines unit fixture does not combine EOL, fill and byte alignment; no assertion here independently establishes every bit-boundary combination."
+          },
+          {
+            "requirement": "No error correction or resynchronization, except Table 11 DamagedRowsBeforeError.",
+            "implementation": "Custom decoder reports first damage beyond tolerance; it only searches for EOL when concealment applies. Worker retains delivered rows and reader leaves later rows unpainted and reports shortfall.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs::a_run_past_the_end_of_the_line_is_damage",
+              "crates/pdf-model/tests/ccitt_bound.rs::damaged_data_draws_the_lines_before_the_damage_and_says_so",
+              "::a_damaged_row_is_concealed_as_the_row_above_where_the_entry_applies",
+              "::at_zero_the_damaged_row_ends_the_decode_where_the_entry_applies"
+            ],
+            "verdict": "implementation and source-level assertions reviewed; visual fill after filter error is a documented reader policy, not specified by 7.4.6"
+          },
+          {
+            "requirement": "Table 11 K: negative=Group 4, zero=Group 3 1D, positive=Group 3 mixed; distinguish sign only; default 0.",
+            "implementation": "pdf-ccitt/src/lib.rs::Coding::from_k and mixed-mode tag-bit handling.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs (Group 3 and Group 4 helpers/cases)"
+            ],
+            "residuals": "No independently reviewed assertion compares two distinct positive K values on the same valid mixed-mode bitstream."
+          },
+          {
+            "requirement": "Table 11 EndOfLine: EOL patterns always accepted; when true they shall be present; default false.",
+            "implementation": "Decoder::end_of_lines recognizes EOL regardless of flag; flag is forwarded from DecodeParms. Decoder does not enforce EOL presence except while DamagedRowsBeforeError is actively locating damage.",
+            "assertions": [
+              "crates/pdf-model/tests/ccitt_bound.rs::a_damaged_row_is_concealed_as_the_row_above_where_the_entry_applies",
+              "crates/pdf-model/tests/inline_images.rs::a_group_3_fax_ends_on_six_end_of_lines_rather_than_two"
+            ],
+            "residuals": "The 'shall be present' sentence is producer-side input validity. Do not infer a required reader refusal from the current lack of enforcement."
+          },
+          {
+            "requirement": "Table 11 EncodedByteAlign: true skips extra encoded bits to start each line at a byte boundary; false default.",
+            "implementation": "DecodeParms default false; worker passes flag to pdf-ccitt; decoder aligns before line/EOL processing.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs::byte_aligned_lines_skip_their_padding"
+            ],
+            "residuals": "No PDF reader-level test was seen for byte alignment; worker unit test covers the actual decoder."
+          },
+          {
+            "requirement": "Table 11 Columns: pixel width; if not divisible by 8 adjust unencoded width to next multiple of 8; default 1728.",
+            "implementation": "ccitt_bilevel reads default 1728, accepts image Width or its byte-rounded width, decodes at Columns, and image unpack reads Width samples on same padded stride.",
+            "assertions": [
+              "crates/pdf-model/tests/ccitt_bound.rs::columns_may_be_the_width_rounded_up_to_a_byte_boundary",
+              "::a_columns_that_is_not_the_padded_width_is_refused"
+            ],
+            "residuals": "Rejecting differences larger than padding is a cross-clause consistency interpretation (§7.3.8.2), not a separate explicit rejection sentence in §7.4.6."
+          },
+          {
+            "requirement": "Table 11 Rows: height in scan lines; absent/zero means height not predetermined and data terminates at EOB or filter-data exhaustion; default 0.",
+            "implementation": "ccitt_rows uses PDF image Height when Rows=0, and Height when EndOfBlock=true; uses stated Rows only when EndOfBlock=false.",
+            "assertions": [
+              "crates/pdf-model/src/image/ccitt.rs::end_of_block_overrides_the_rows_parameter",
+              "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_false_stops_at_rows_and_blanks_the_rest_out_loud"
+            ],
+            "residuals": "Potentially conflates image grid Height with filter termination: with EndOfBlock true it bounds worker rows to Height, while the table says EOB overrides Rows. The current test end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image uses FOUR_BLACK_LINES without Group 3 RTC/EOB and expects silent completion. This establishes sample handling of Rows, not correct handling of a required EOB. Whether ignoring bytes after the image grid is acceptable for mismatched image/data is unresolved; do not call the assertion a valid EOB control."
+          },
+          {
+            "requirement": "Table 11 EndOfBlock: default true expects EOFB/RTC appropriate to K and overrides Rows; false stops on Rows or input exhaustion, whichever first.",
+            "implementation": "Group4 expects two EOLs as EOFB; Group3 expects six as RTC; EOB false stops on stated effective row bound or exhaustion.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs::the_decode_ends_on_the_pattern_the_rows_or_the_data",
+              "crates/pdf-model/tests/inline_images.rs::a_group_4_fax_ends_at_its_end_of_block_pattern",
+              "::a_group_3_fax_ends_on_six_end_of_lines_rather_than_two",
+              "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_false_stops_at_rows_and_blanks_the_rest_out_loud"
+            ],
+            "residuals": "The direct EOB test checks row counts on streams containing EOB, but no PDF integration case reviewed combines a valid RTC/EOFB with Rows less than data-row count and proves EOB overrides Rows. The current paired Rows fixture omits EOB under true."
+          },
+          {
+            "requirement": "Table 11 BlackIs1: 1 means black and 0 white, reverse of normal PDF sample convention; default false.",
+            "implementation": "Worker CcittRows applies the flag while packing runs; default parsed false.",
+            "assertions": [
+              "crates/pdf-model/tests/ccitt.rs::black_is_1_gives_the_exact_complement"
+            ],
+            "verdict": "strong sample assertion: same encoded bytes, output rasters are exact complements"
+          },
+          {
+            "requirement": "Table 11 DamagedRowsBeforeError: default 0; applies only for EndOfLine=true and K>=0; find damaged row end at EOL and copy previous clean row, otherwise white.",
+            "implementation": "pdf-ccitt enforces the applicability predicate and concealment; worker reports delivered/concealed counts; reader reports the choice.",
+            "assertions": [
+              "crates/pdf-ccitt/tests/coding.rs::a_damaged_row_is_the_previous_row_and_the_decode_goes_on",
+              "::a_second_damaged_row_in_a_row_is_white_and_the_count_is_the_limit",
+              "::the_tolerance_is_inert_where_the_entry_does_not_apply",
+              "crates/pdf-model/tests/ccitt_bound.rs::damaged_rows_is_inert_where_end_of_line_is_false",
+              "::a_damaged_row_is_concealed_as_the_row_above_where_the_entry_applies",
+              "::at_zero_the_damaged_row_ends_the_decode_where_the_entry_applies"
+            ],
+            "residuals": "The prior-row/white substitution is asserted with hand-encoded T.4 lines. A full independent audit of the T.4/T.6 coding repertoire is not claimed."
+          },
+          {
+            "requirement": "Notes 1-4: monochrome-only use (Note 1), encoding details deferred to ITU (Note 2), byte-fill convenience note (Note 3), compression ratios (Note 4).",
+            "implementation": "Reader emits bilevel rows; T.4/T.6 code is in pdf-ccitt. Notes 3-4 make no separate reader behavior requirement.",
+            "assertions": [
+              "ccitt.rs exact complement and raster output",
+              "coding.rs T.4 figure tests"
+            ],
+            "verdict": "notes distinguished from normative requirements; no blanket codec certification"
+          }
+        ]
+      },
+      {
+        "clause": "7.4.7",
+        "title": "JBIG2Decode filter",
+        "features": [
+          {
+            "requirement": "Decode ISO/IEC 14492:2019 JBIG2, excluding colour palette coding; PDF image XObject data is bitonal; no segment type 54; all segment/file COLEXTFLAG values zero.",
+            "implementation": "pdf-model::jbig2_bilevel sends image stream and globals to hayro_jbig2::Image::new_embedded; returns bilevel; output is unpacked as 1-bit samples. Codec pinned to close2/hayro commit documented in ADR 2102.",
+            "assertions": [
+              "crates/pdf-sandbox/tests/confinement.rs::the_specifications_own_example_decodes",
+              "crates/pdf-model/tests/jbig2.rs::every_jbig2_coding_mode_decodes_to_the_same_image",
+              "crates/pdf-sandbox/tests/t88_conformance.rs (selected T.88 cases)"
+            ],
+            "residuals": "The T.88 Annex K harness is informative evidence and not a normative oracle; producer exclusions do not by themselves imply a reader must reject an out-of-scope input. The shared-family equality test can pass if every decode is the same wrong image; ISO sample has only structural/geometry assertions, not full expected sample bytes."
+          },
+          {
+            "requirement": "Only page 1 of a multi-page JBIG2 bitstream is used for a PDF image XObject; globals may be shared across XObjects.",
+            "implementation": "Each request is one embedded page stream plus separately decoded JBIG2Globals stream; dimensions checked against image dictionary.",
+            "assertions": [
+              "crates/pdf-sandbox/tests/confinement.rs ISO sample global/page split",
+              "crates/pdf-model/tests/jbig2.rs corpus page renders"
+            ],
+            "residuals": "No reviewed reader-level fixture shares one globals stream across two image XObjects or discriminates a multi-page framed source."
+          },
+          {
+            "requirement": "JBIG2Decode shall not be used with inline images.",
+            "implementation": "No reader rejection; inline-image machinery may still route bytes through filter decoder.",
+            "assertions": [
+              "No clause-specific negative reader test found"
+            ],
+            "verdict": "producer requirement; no reader rejection required on this evidence"
+          },
+          {
+            "requirement": "Embedded PDF organization: D.3; no optional 2-byte marker; sequential D.1; omit file header/EOP/EOF; image stream carries page's segments with page association rewritten to 1; page-0 segments in a separate JBIG2Globals stream even for a single reference.",
+            "implementation": "Worker passes streams to new_embedded(data, globals); PDF dictionary resolution reads JBIG2Globals stream and decodes its own filters; the ISO worked-example constants split page and global segment streams.",
+            "assertions": [
+              "crates/pdf-sandbox/tests/confinement.rs::the_specifications_own_example_decodes",
+              "crates/pdf-sandbox/src/decode.rs unit tests for whole-segment truncation"
+            ],
+            "residuals": "The standard-supplied split is tested at worker protocol, not through Document/image rendering. Exact-xref reader integration draft supplied in this shard. Segment-order recommendation (Note 3) is not a MUST."
+          },
+          {
+            "requirement": "Table 12 JBIG2Globals is optional stream containing global/page-0 segments; stream shall be separate even if only one image refers; may be shared.",
+            "implementation": "pdf-model/src/image/jbig2.rs resolves key through Document::get_key, decodes stream filters, and passes bytes; malformed provided stream reports. A present non-stream value currently falls through as absent.",
+            "assertions": [
+              "ISO example's split worker test; no reviewed PDF-level type/indirect-ref/shared-stream assertion"
+            ],
+            "residuals": "Table 12's value type is stream; how reader handles malformed wrong-type optional values is not specified as a required rejection in the clause."
+          },
+          {
+            "requirement": "Notes: informative bit-plane description, decoder behavior defined by JBIG2 standard, no standard encoder, image characteristics/caution, multi-page/global use context, segments in increasing order recommended.",
+            "implementation": "Codec delegates decoding to pinned JBIG2 implementation; no encoder in scope.",
+            "assertions": [
+              "ISO worked-example decoder test",
+              "extended-template test"
+            ],
+            "verdict": "informative notes and recommendation separated from SHALL requirements"
+          },
+          {
+            "requirement": "Clause worked example: 52×66 image; split globals/page streams; Filter chain ASCIIHexDecode then JBIG2Decode; ASCIIHex source and globals contents are printed.",
+            "implementation": "Worker test embeds printed bytes as direct Request::Jbig2 and asserts 52×66, nonblank/non-solid output and two same-sized, non-square marks.",
+            "assertions": [
+              "crates/pdf-sandbox/tests/confinement.rs::the_specifications_own_example_decodes"
+            ],
+            "residuals": "Worker-only test does not exercise PDF parsing, exact xref, filter cascade, DecodeParms resolution, dictionary dimensions, or color/unpack. Draft reader integration fixture is provided; it uses geometry assertions because the printed example does not publish a sample bitmap."
+          }
+        ]
+      }
+    ],
+    "test_changes_since_prior": "No tracked change in the reviewed codec, reader, worker, or test paths between b901326c and audit HEAD 9a54effa. This shard reviewed baseline assertions; no test was run here."
+  }
+}

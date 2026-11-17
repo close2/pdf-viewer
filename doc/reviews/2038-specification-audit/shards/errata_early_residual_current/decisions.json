@@ -1,0 +1,18 @@
+{
+  "reconsiderations": [
+    {
+      "decision": "Issue IDs as audit coverage keys",
+      "result": "Do not equate missing `#N` text with missing behavior coverage. The physical-PDF scan found 165 unique issue IDs; existing shards already review several absent-ledger IDs such as #302/#309/#310/#311 and #135's catalog-language semantics without citing their exact issue number.",
+      "action": "Keep issue coverage as a traceability index. For #114 add a granular feature mapping and a valid indirect-uncompressed-object test; do not add a reader rejection rule for invalid compressed references."
+    },
+    {
+      "decision": "#25 public-key file-key sentinel condition",
+      "result": "Retain. The corrected notes narrow step (c) to the default stream filter/document-level key with metadata plaintext; implementation uses the StmF filter's EncryptMetadata state for the public-key document key and omits the sentinel for s3/s4 and own-filter keys. Existing external ExposedMeta witnesses exercise the key path; no behavior mismatch was found.",
+      "action": "No required behavior change. Preserve #25 as a source citation in owner evidence if that shard is revised."
+    },
+    {
+      "decision": "#110/#439 encrypted catalog and object streams",
+      "result": "Retain distinct scope. #110 is an informative note about object-stream processing to access metadata; #439 separately inserts the normative encrypted-catalog exclusion. The latter is already reviewed in file_security_framing_current. Do not turn #110 into a general catalog-in-object-stream prohibition."
+    }
+  ]
+}

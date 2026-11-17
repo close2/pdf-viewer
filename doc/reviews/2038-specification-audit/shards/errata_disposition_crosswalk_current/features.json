@@ -1,0 +1,27 @@
+[
+  {
+    "feature": "Grouped EC3 annotation markers",
+    "clauses": [
+      "9.6.2.1",
+      "12.3.2.4",
+      "14.8.4.8.3",
+      "L"
+    ],
+    "source": "Direct primary/Subj scan360IDs. Early165 and late207 inventories intersect16; union356. Missing48,71,288,336 are later markers in grouped subjects.",
+    "disposition": "D46: older issue indexes are incomplete despite all-marker descriptions. Current360-ID census remains correct. New builder records every primary/Subj marker and provenance; historical snapshots are retained.",
+    "limits": "Census is not semantic disposition or every annotation. Contents-only/T-only markers outside this method. Source/disposition/assertion field shapes remain discovery metadata."
+  },
+  {
+    "feature": "Named destination optional structure target",
+    "issues": [
+      162,
+      288
+    ],
+    "clauses": [
+      "12.3.2.4"
+    ],
+    "source": "Primary physical459/444 grouped replacement changes destination-value alternatives and corrects action-table references.",
+    "disposition": "Current ledger and resolver implement optionalSD with preferred structure target and D fallback. Existing test has literal page/view assertions for both dictionary and tree paths.",
+    "limits": "Unit resolver fixture has minimal structure tree; no claim of complete valid tagged PDF or public-host activation in this review."
+  }
+]

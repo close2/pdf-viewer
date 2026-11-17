@@ -1,0 +1,5 @@
+{
+  "correction": "Earlier bidirectional paraphrases of#83/#440 withdrawn. Two mirrored table views describe one edge, not two containment directions.",
+  "verification": "EmbeddedJuly2024xlsx columnsParent/rowsChild: M33P\u2192Table0..n;AH10Table\u2192Pforbidden;AC41WP\u2192Figure0..n;AP28Figure\u2192WPforbidden. Source annotations on physical962,979,985 freshly read.",
+  "impact": "No prior Documentwrapper/Ruby test relied on the mistaken edges. Wholematrix remains residual; no new productdefect asserted."
+}

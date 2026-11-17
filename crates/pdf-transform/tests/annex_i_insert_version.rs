@@ -67,6 +67,10 @@ fn inserted_version(destination_version: &str, incoming_version: &str) -> Option
 
     let output = insert_page(&destination, &incoming);
     let updated = Document::open(output).expect("the update reads back");
+    assert!(
+        !updated.was_recovered(),
+        "written xref is valid without repair"
+    );
     assert_eq!(
         Pages::new(&updated).len(),
         2,
@@ -87,8 +91,8 @@ fn inserting_an_older_pdf_keeps_the_destination_version() {
 
 #[test]
 fn inserting_a_newer_pdf_uses_the_newer_version() {
-    // Annex I.2 recommends the maximum after insertion. This currently exposes the missing
-    // upgrade from a 1.7 destination when a PDF 2.0 page is inserted.
+    // Annex I.2 recommends the maximum after insertion: a 1.7 destination is upgraded
+    // when a PDF 2.0 page is inserted.
     assert_eq!(
         inserted_version("1.7", "2.0"),
         Some(Version { major: 2, minor: 0 })

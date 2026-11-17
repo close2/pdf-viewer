@@ -1,0 +1,10 @@
+{
+  "baseline": "b901326c",
+  "source": "Parent read primary 764/749 logical-order rule, Figure/Form/Formula restrictions and Table 381 on 803\u2013804/788\u2013789, and previously checked effective Table 377 on 1013\u20131014. Actual current statuses checked individually.",
+  "assertions": "Public Viewer query into AccessKit build: flat-parent control ABC passes; model logical text for interleaved MCR/Span/MCR remains ABC; parser recovery, xref chain and interpretation completeness guards pass. AccessKit TextRun traversal returns ACB, expected ABC.",
+  "finding": "B43 is a public accessibility-tree projection failure. The intermediate answer loses relative positions between own content and children; consumer explicitly emits own lines first. No real platform bus is exercised.",
+  "decisions": "Retain ADR 0084 model ordering and ADR 0214 separate-own-text anti-duplication rule; ADR 0394 line/caret representation needs an ordered mixed-content carrier. No ADR specifically justifies generic own-lines-first; ADR 1489 is form-control-specific.",
+  "qualification": "14.8.3.1 is implemented as introductory framing, not inapplicable; .3.2 is conditionally inapplicable. Reflow is permitted, not contradictory to source, but no missing current layout consumer was established. Do not equate BBox accessibility geometry with Width/Height layout extents.",
+  "execution": "accessibility-order-wave40b.log: 1 FAIL after lint cleanup; quality-wave40b.log: accessibility all-targets Clippy PASS.",
+  "scope": "Partial review only; no whole-clause certification."
+}

@@ -1,0 +1,47 @@
+{
+  "baseline": "b901326c",
+  "scope": [
+    {
+      "section": "12.5.6.7",
+      "title": "Line annotations",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"Line geometry /L and leader /LL /LLE /LLO","normative_reader_or_producer":"read /L; when /LL is present draw the leader endpoints at /L, with /LL signed direction and /LLO offset; /LLE extends leader ends","implementation":"pdf-model/src/annotation.rs and view/markup.rs","evidence":"line_ending_endpoint_spec_audit.rs; annotations.rs leader geometry tests","assessment":"covered with independent endpoint and sign controls"},
+        {"feature":"line ending styles /LE and colors /IC","normative_reader_or_producer":"render the two endpoint styles at the /L coordinates; apply /IC to filled line ending shapes","implementation":"pdf-model/src/annotation.rs, appearance.rs","evidence":"line_ending_endpoint_spec_audit.rs and annotations.rs line ending tests","assessment":"covered; EC3 Issue #515 adds RClosedArrow to filled shapes"},
+        {"feature":"caption /Cap, /CP, /CO and /Measure","normative_reader_or_producer":"use caption positioning and offset when caption is enabled; /Measure supplies measurement metadata","implementation":"pdf-model/src/annotation.rs and view/markup.rs","evidence":"annotations.rs caption and measurement tests","assessment":"current focused assertions exist; no gap identified in this bounded pass"},
+        {"feature":"associated note popup","normative_reader_or_producer":"a line annotation that is opened displays its associated popup note","implementation":"pdf-model/src/popup.rs; viewer-core activation and popup query","evidence":"viewer-core/tests/line_annotation_popup_spec_audit.rs","assessment":"public integration test covers initial closed state, activation, association, body and title"}
+      ]
+    },
+    {
+      "section": "12.5.6.10",
+      "title": "Text markup annotations",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"Highlight, Underline, Squiggly and StrikeOut marks","normative_reader_or_producer":"render the distinct mark for the selected subtype","implementation":"pdf-model/src/annotation.rs and view/markup.rs","evidence":"pdf-model/tests/annotations.rs each_text_markup_draws_its_own_mark and scaling tests","assessment":"direct subtype assertions exist"},
+        {"feature":"QuadPoints geometry and orientation","normative_reader_or_producer":"consume each 8-coordinate quadrilateral with x1y1→x2y2 as the text edge; producer requires each quad to encompass a word or contiguous words","implementation":"pdf-model/src/view/markup.rs","evidence":"pdf-model/tests/text_markup_orientation_audit.rs horizontal, rotated and trapezoid controls","assessment":"reader geometry assertions distinguish edge and four-corner geometry; no reader repair obligation found for producer word-enclosure rule"},
+        {"feature":"associated popup on open","normative_reader_or_producer":"when opened, each of the four text-markup annotations displays its associated note popup","implementation":"pdf-model/src/popup.rs and viewer-core popup activation","evidence":"model popup tests cover data, but no public viewer integration test found for these four subtypes","assessment":"public integration gap; standalone draft supplied"}
+      ]
+    },
+    {
+      "section": "12.5.6.19",
+      "title": "Widget annotations",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"field widget appearance and interaction","normative_reader_or_producer":"render the field widget appearance and support the field interaction routes in scope","implementation":"pdf-model/src/annotation.rs, form field/view code, viewer-core interaction","evidence":"widget_annotation_spec_audit.rs and forms tests","assessment":"targeted runtime and appearance assertions exist"},
+        {"feature":"Table 191 highlighting /H and /D precedence","normative_reader_or_producer":"default /H is I; N/I/O/P/T have their stated effect; every mode except P overrides a down appearance","implementation":"pdf-model/src/annotation.rs highlight selection","evidence":"annotations.rs a_widgets_highlighting_mode_overrides_its_down_appearance; widget_annotation_spec_audit.rs omitted /H with down stream","assessment":"pixel assertions cover N/O/P/default-I and distinguish stored normal/down appearances"},
+        {"feature":"Table 192 MK dynamic appearance characteristics","normative_reader_or_producer":"apply the listed rotation, border/background colors, captions, icons, icon fit and text-position characteristics as relevant","implementation":"pdf-model/src/appearance.rs","evidence":"annotations.rs widget MK/icon/caption assertions","assessment":"no discrete gap identified in changed bounded rows"}
+      ]
+    },
+    {
+      "section": "12.5.6.23",
+      "title": "Redaction annotations",
+      "ledger_status": "departed",
+      "features": [
+        {"feature":"redaction application removes identified content","normative_reader_or_producer":"a processor offering interactive redaction shall provide removal and destroy identified image data; clipping/masking alone is insufficient","implementation":"pdf-transform/src/redact.rs and redact/overlay.rs","evidence":"pdf-transform/tests/redaction_is_removal.rs extraction, stream, image, path, revision and annotation checks","assessment":"removal path has direct retained-output and extraction assertions; no masking-only path found"},
+        {"feature":"region selection via QuadPoints or Rect","normative_reader_or_producer":"QuadPoints may mark content regions; otherwise Rect is used","implementation":"pdf-transform/src/redact.rs","evidence":"redaction_is_removal.rs region geometry cases","assessment":"focused geometry and removal tests exist"},
+        {"feature":"post-removal /RO artwork","normative_reader_or_producer":"if present, /RO is drawn after removal and takes precedence over IC/OverlayText/DA/Q","implementation":"pdf-transform/src/redact/overlay.rs","evidence":"redaction_projection_spec_audit.rs and redaction_is_removal.rs","assessment":"post-removal ordering and safety constraints are tested; current scope draws /RO"},
+        {"feature":"/OverlayText and /IC authoring overlay","normative_reader_or_producer":"interactive producer/application feature subject to owner-ratified scope; current owner scope excludes composition of these entries","implementation":"not composed by transform; a departure is reported","evidence":"ADR 2869, scope ratifications A834/A842, report and redaction tests","assessment":"ledger departure remains appropriate for /OverlayText and /IC; do not classify /RO as the same departure"}
+      ]
+    }
+  ]
+}

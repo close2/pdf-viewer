@@ -1,0 +1,29 @@
+{
+  "scope_note": "Selected ADR review only; no full-clause or whole-ADR certification.",
+  "decisions": [
+    {
+      "adr": "0892",
+      "topic": "Type 3 named Encoding values",
+      "review": "Retain the permissive-reader decision, but make its claim boundary explicit. §9.6.4 Table 110 requires a Type 3 Encoding dictionary, so direct-name test fixtures are producer-invalid. §9.6.4 step a and §9.6.5.1 still explain what a generic named encoding means, but do not override Table 110's required Type 3 dictionary form. The tests pin compatibility behavior for documents already encountered, not normative reader acceptance.",
+      "disposition": "Scratch patch labels all direct-name cases as tolerance or report-policy tests. No forced rejection change proposed."
+    },
+    {
+      "adr": "0216",
+      "topic": "Text placement and Type 3 FontBBox",
+      "review": "The public selection geometry tests treat Type 3 text in text space; FontBBox's glyph-space role should not be conflated with normal rendering clip bounds. Table 110's outside-box behavior is explicitly implementation-dependent.",
+      "disposition": "Old test fixtures are corrected to state sufficient FontBBox and d1 extents; no clipping behavior is introduced."
+    },
+    {
+      "adr": "0018 and 0427",
+      "topic": "Type 3 glyph description caching",
+      "review": "The reviewed clauses impose no dedicated result-cache requirement. Current glyph stream execution reuses the document decoded-stream cache, while the generic cache test measures decode hits/charges. No new normative or correctness gap found.",
+      "disposition": "Retain as implementation/performance rationale, not conformance claims."
+    },
+    {
+      "adr": "0252 and 0253",
+      "topic": "Errata source treatment",
+      "review": "EC3 #111 changes glyph descriptions to objects and adds NOTE 2's operator-category permission subject to clause restrictions; #128 changes Type 3 resource lookup. Neither alters this shard's Encoding requirement or outside-bounds policy.",
+      "disposition": "No proposed ADR amendment; source references are retained as context only."
+    }
+  ]
+}

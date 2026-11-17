@@ -1,0 +1,73 @@
+[
+  {
+    "decision": "Do not call a family conformant merely because its ledger status is implemented or all child statuses are settled. Keep each child finding and consumer boundary visible.",
+    "effective_source": "\u00a714.7.1 and \u00a714.8.1 frame their families; substantive requirements are in the child clauses and tables. \u00a714.7.7 is an example. \u00a714.8.4 is only a heading. \u00a714.8.3.1 is framing; .3.2 has no current reflow destination.",
+    "current_evidence": "The ledger's child rows identify distinct readers, producers, and public consumers. `features.json` maps each broad row to those specific sibling reviews and preserves their residuals.",
+    "related_adrs": [
+      "ADR 0214",
+      "ADR 1535"
+    ],
+    "residual": "No full-clause or whole-family certification."
+  },
+  {
+    "decision": "Do not duplicate the test. Treat B43 as a consumer projection failure, not malformed input and not a producer-constraint violation.",
+    "effective_source": "\u00a714.8.2.5.1 says logical order is depth-first; \u00a714.8.4.7.1 permits inline elements and actual content in arbitrary combination/order. EC3 #133 moves Link to .7.3 and Ruby/warichu to .7.4; it does not change the general ordering text.",
+    "current_evidence": "`structure_layout_remaining_current/findings.txt` documents the parent's promoted test `interleaved_struct_content_spec_audit`: valid exact-xref `/K` sequence A, child B, C; model and flat control ABC; public AccessKit traversal ACB. Current no-recovery/complete interpretation checks pass.",
+    "related_adrs": [
+      "ADR 0394",
+      "ADR 1489"
+    ],
+    "residual": "Scope is the public AccessKit path with interleaved own MCR and child element content; this does not establish every adapter's behavior."
+  },
+  {
+    "decision": "No new invalid-unmarked-content case or duplicated test. Preserve the existing classification and consumer policy distinction.",
+    "effective_source": "\u00a714.8.2.2.2 says content outside the structure tree is an artifact even without an Artifact marked-content tag. EC3 #484 turns the two explicit marking forms from shall text into explanatory notes; #483 allows ActualText on an Artifact property list.",
+    "current_evidence": "`artifact_reporting_audit.rs`, `accessibility.rs` tests, tagged-copy tests and the parent's current ledger note cover declared vs inferred status, MarkInfo qualification, and annotation appearance handling.",
+    "related_adrs": [
+      "ADR 1100",
+      "ADR 1163"
+    ],
+    "residual": "Different tagged-PDF processors may choose different content-processing policies; source does not prescribe universal suppression."
+  },
+  {
+    "decision": "An absent NS must remain PDF 1.7; do not infer PDF2. Namespace validity requirements on producer documents are surfaced through reporting, not generalized into a mandatory reader rejection.",
+    "effective_source": "\u00a714.8.6.1 sets the PDF 1.7 URI as the default for absent NS and defines PDF 2.0's distinct URI. \u00a714.8.6.2 governs transitive role maps. \u00a714.8.6.3 separately names MathML. EC3 #133 and #452 shift other child numbers but not these namespaces.",
+    "current_evidence": "`structure_types/findings.txt` records tests for absent NS, explicit PDF2 URI, foreign namespace, root/local maps, cross-namespace role-map chains, and MathML identity.",
+    "related_adrs": [
+      "ADR 0201",
+      "ADR 2028",
+      "ADR 1509",
+      "ADR 0785"
+    ],
+    "residual": "Sampled namespace cases are not a full namespace-dictionary or malformed-role-map certification."
+  },
+  {
+    "decision": "Do not require reader rejection for a producer's invalid owner field. Revisit if a reflow or layout-export consumer is added; no claim that reflow is forbidden by ISO.",
+    "effective_source": "\u00a714.8.5.4.1 defines layout attributes as parameters used by the producer's layout process; its SHALL addresses definitions of attribute objects. EC3 #223/#226 replace Table 377 on physical pages 1013\u20131014.",
+    "current_evidence": "Ledger row 14.8.5.4.1 is inapplicable; layout sibling audit checks the effective table and consumer paths. This app draws existing page content and has no layout/export authoring pass that applies the producer rule.",
+    "related_adrs": [
+      "ADR 1535",
+      "ADR 0301"
+    ],
+    "residual": "Conditional on current product scope and destination, not a claim about every future PDF processor."
+  },
+  {
+    "decision": "No redundant fixture. Preserve explicit unreviewed residuals for content forms/permutations outside the example.",
+    "effective_source": "\u00a714.7.7 is an example; its text describes role/class maps, ParentTree, IDTree, page association and nonzero generation reference.",
+    "current_evidence": "Parent directly inspected the assertions in `logical_structure_example.rs::the_clauses_worked_example_reads_as_the_structure_it_describes` and found those aspects asserted.",
+    "related_adrs": [
+      "ADR 0072",
+      "ADR 0273"
+    ],
+    "residual": "An example cannot stand in for every producer constraint, error path, or content-item permutation."
+  },
+  {
+    "decision": "Carry B03/B04 as confirmed current defects with parent evidence; do not leave them as pending candidates or convert them into a general unbounded-reader requirement.",
+    "effective_source": "\u00a714.7 tree/content semantics and \u00a714.8.2.5 logical order expose the public consequence when valid deep/wide trees are cut short. No ISO rule requires unbounded processing; the product/API promise is to signal a resource-bound result rather than return it as complete.",
+    "current_evidence": "Parent says B03/B04 are confirmed in current findings/gate results. `structure/logical_structure.rs::Tree::descend` and `structure.rs::children` / `identified_children` have silent depth/fan-out stops; only MAX_ELEMENTS sets `Reading::truncated`. Earlier local drafts were not executed by this agent and are not the execution proof.",
+    "related_adrs": [
+      "ADR 0257"
+    ],
+    "residual": "Exact test bodies/results are in parent records; this shard reports the reconciled outcome and does not rerun Cargo."
+  }
+]

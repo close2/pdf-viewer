@@ -1,0 +1,7 @@
+{
+  "verdict": "Same-document and external APRef routes are built; new direct appearance geometry consumer passes before and after save.",
+  "source": "Parent read physical168 matrix sign (positive counter-clockwise, page Rotate clockwise),489 appearance Matrix/BBox-to-Rect algorithm,572 named pages/FDF optional xref,580–581 named-page references. Effective source/footer review supplements agent locators.",
+  "changes": "Parent removed duplicate font aliases from AcroForm DR and old AP; InheritedOnly exists solely on source page-tree ancestor. Pixel oracle now checks RGBA,200x200 extent, four rotated colors, crop-exterior and outside-widget transparency identically live/saved. Source and saved xrefs must be exact; interpretation complete; text survives. Separate saved AP Group S/CS/I assertions are structural.",
+  "execution": "New integration test PASS; model all-targets Clippy PASS.",
+  "limits": "One local named page and90-degree rotation. External-file host delivery is existing evidence, not exercised by new pixel fixture. Group semantic effects beyond this simple isolated case remain covered only by separate generic tests; no full group transfer certification."
+}

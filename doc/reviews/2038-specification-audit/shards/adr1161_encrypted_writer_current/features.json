@@ -1,0 +1,33 @@
+{
+  "shard": "adr1161_encrypted_writer_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "scope": "Root ADR 1161 output-side Standard Security Handler revision 6; primary §§7.5.7, 7.6.2-.4, 14.4, EC3 #439 and #24. Bounded writer audit, not reader/primitive certification.",
+  "features": [
+    {
+      "id": "r6-algorithms-8-10-emitted-bytes",
+      "source": "ISO 32000-2 sponsored EC3: §7.6.4.4.7-.9, Algorithms 8–10; printed pp. 85–86 / physical pp. 100–101 (Alg8/9/10; footer and page text checked). §7.6.4.3.3 steps d–f describes opening counterpart. EC3 #325 corrects Algorithm 2.B owner/user input; #24 removes erroneous IV wording from ECB operations.",
+      "ledger": "The encrypted writer is ADR 1161's active implementation; the security-algorithm shard identifies R6 output assertions in crates/pdf-syntax/tests/serialize_encrypted.rs as structural and round-trip based, with no fixed independent output vector.",
+      "code": "crates/pdf-syntax/src/crypt.rs::revision6, hash_2b, wrap_key, perms_entry; crates/pdf-syntax/src/serialize.rs::Protected::new; Entropy::Counter in tests.",
+      "assertions": "the_entries_are_the_three_sections_the_algorithms_name checks dictionary fields through the crate's reader, lengths and supplied salt slices, and inequality of U/O digest prefixes. a_written_file_opens_on_either_password_and_refuses_a_third is a valuable integration control but same implementation family. Neither assertion pins the emitted R6 hashes, wrapped keys or encrypted Perms against independently computed bytes.",
+      "verdict": "No behavior defect established. A deterministic independent algorithm vector exposes the remaining oracle gap; draft compares all five R6 byte strings with literal expected values computed by a standalone PyCryptodome script.",
+      "independent_validation": "drafts/r6_writer_vector.py computes Algorithms 8–10 outside Rust implementation. Its Algorithm 2.B calculation was cross-checked by generating an R6 file with installed pikepdf/qpdf, deriving the user hash and unwrapping UE, then decrypting/validating /Perms against P and Tadb. This validates the independent script's interpretation; it does not itself validate this Rust writer until parent runs the Rust draft.",
+      "draft": "drafts/r6_writer_vector_test.rs; intended as a test body in existing integration test file. Expected U, UE, O, OE and Perms given exact Counter(0), passwords reader/keeper, Access::ALL (-4), EncryptMetadata true."
+    },
+    {
+      "id": "output-exceptions-and-entropy",
+      "source": "§7.6.2 cleartext exceptions (Encrypt dictionary, strings in encrypted compressed object stream, signature /Contents); §14.4/§7.6.2 direct unencrypted trailer ID; §7.5.7 and EC3 #439 catalog /Root not in object stream; §7.6.3.3 fresh IV for each string/stream; §7.6.4.4.7-.10 salt, filler, and R6 fields.",
+      "code": "crates/pdf-syntax/src/serialize.rs::Protected::method and write paths, `Written::cleartext`; crypt::SystemEntropy; serialize_encrypted integration tests.",
+      "assertions": "a_signature_contents_string_is_left_alone checks clear signature Contents while Name is read back normally; encrypt_metadata_false_leaves_the_metadata_stream_in_the_clear checks raw XML bytes and dictionary flag; an_object_stream_carries_the_encryption_and_the_catalog_stays_outside_one checks catalog xref location and plaintext recovery; a_refusing_randomness_source_refuses_the_file checks atomic refusal. the_plaintext_is_not_in_the_bytes checks plaintext disappearance and mere /ID token presence, not the ID payload's direct/clear bytes. the_same_plan_and_the_same_entropy_write_the_same_bytes proves determinism for fixed injected entropy, not uniqueness/quality of production OS entropy.",
+      "verdict": "Strong sampled controls for major writer exceptions. Residual assertion limitation: explicit raw-value test that trailer ID values are direct and clear is not present in this file; the current substring assertion is weak. No random-number-quality claim is tested; production delegates to SystemEntropy / platform RNG and the source review did not identify a defect.",
+      "residuals": "I did not inspect every nested /Crypt/Identity or unknown-filter permutation, all encryptable object classes, IV uniqueness at runtime, or platform entropy statistical quality. The fixed vector covers deterministic crypto, not every protection option."
+    },
+    {
+      "id": "tampered-perms-reader-policy",
+      "source": "§7.6.4.3.3 step (f): decrypted bytes 0–3 shall match /P; Algorithm 13 says they should match. A valid conforming writer output must make them agree.",
+      "assertions": "a_tampered_p_loses_to_the_perms_block_this_writer_wrote rewrites /P to -8 but leaves encrypted block for -4 and asserts block wins.",
+      "verdict": "This is an intentionally inconsistent, nonconforming input. It can document local recovery policy but cannot establish a normative precedence rule or independently prove the writer's valid output. The independent vector asserts the emitted Perms bytes, but does not assert malformed mismatch behavior."
+    }
+  ],
+  "unreviewed": ["All permissions bit combinations and all /Crypt choices", "signature contents across object-stream and incremental variants", "runtime uniqueness and statistical quality of system entropy", "full security-handler conformance and all reader algorithms", "writer output for EncryptMetadata=false and alternative credentials against independent vector"]
+}

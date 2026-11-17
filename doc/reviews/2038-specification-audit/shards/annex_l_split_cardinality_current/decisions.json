@@ -1,0 +1,13 @@
+{
+  "scope": "Parent adjudicated current test, superseding unrun draft and rejected page-spanning WT premise.",
+  "decisions": [
+    {
+      "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+      "review": "Table369 physical780/765 requires ordered WP WT WP; WP text is typical rather than mandatory. Table355 physical740/725 makes K optional; arrays must contain one or more children. Source omits K for WP, never uses an empty array. Both WT lines are on page1; unrelated paragraph on page2. Current AnnexL AA27/AA28 delegate via [b], M26 permits P\u2192Warichu.",
+      "execution": "warichu_split_spec_audit: empty-boundary case FAIL, with-text control PASS. Source WP WT WP becomes WT after successful split. Source/output have exact xref, no recovery or cut chain, complete interpretation and expected glyph counts; source ParentTree mapping asserted. No raster or all-matrix certificate.",
+      "validity": "Parent accepts absent optional K with typical-only WP content as a valid boundary representation. This is the explicit source premise; no page-spanning WT assumption. Test asserts successful preservation, not a policy-neutral refusal contract. A future explicit refusal policy needs a separate assertion.",
+      "implementation": "Carry::keep drops elements when kept children are empty; writer serializes surviving children. Retained source edges do not preserve delegated cardinality.",
+      "finding": "2038-B56"
+    }
+  ]
+}

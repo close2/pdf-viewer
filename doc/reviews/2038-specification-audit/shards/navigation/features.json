@@ -1,0 +1,55 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "baseline": "b901326c",
+    "scope": [
+      {
+        "id": "12.3.2.1",
+        "source": "ISO 32000-2:2020 effective text, pp. 441-444; EC3 annotations reflected in /tmp/isoec3.txt",
+        "requirement": "A destination names page, window location and magnification. It may be explicit or indirect and can be attached to outlines, annotations, actions, or OpenAction.",
+        "implementation": "pdf-model::Destination and View carry page target and Table 149 operands; viewer-core resolves page and applies magnification/scroll; OpenAction and local link routes are public observable paths.",
+        "assertions": "Model table-form and null assertions; viewer-core headless OpenAction/retention/history tests; destinations_audit.rs tests a name-tree destination's page+FitV geometry against a direct-array control; destinations_residual_audit.rs tests independent FitBH/FitBV and null coordinate/zoom calculations.",
+        "verdict": "Covered for specified view parameters and tested consumer routes. Not a certification of all action variants or remote-document navigation."
+      },
+      {
+        "id": "12.3.2.2 Table 149",
+        "source": "Effective §12.3.2.2 and Table 149, pp. 441-443",
+        "requirement": "Eight views: XYZ, Fit, FitH/V/R, FitB, FitBH/BV. Coordinates use default user space. Null left/top/zoom retains each current parameter; zero zoom equals null. Bounding box is the smallest enclosing content rectangle bounded by CropBox. Live EC3 overlay changes /FitR's differing-axis instruction to 'interactive processors should use the smaller' (a SHOULD recommendation, not an unconditional SHALL).",
+        "implementation": "View::read/from_keyword parses all eight; Open::apply_view computes fit scale and transformed top-left; content_box clips display-list bounds to the displayed page/crop box.",
+        "assertions": "Model asserts each form and null vs stated zero coordinate. Actual viewer geometry assertions cover FitV, FitBH, FitBV, XYZ nulls, same-page zoom and page change. Assertions use hand-calculated page geometry and controls. Other forms currently have model form assertions; full independent window-geometry coverage of all forms was not established in this pass.",
+        "verdict": "Strong, source-derived implementation evidence. Current existing tests cover the recently disputed FitBH/BV coordinate and null-parameter behavior; this review makes no execution claim."
+      },
+      {
+        "id": "12.3.2.3",
+        "source": "Effective §12.3.2.3, pp. 442-443",
+        "requirement": "A structure destination replaces page ref with structure-element ref. Process kids in array order; descend recursively; use first content/object reference's page; SHOULD continue later kids if earlier branch has no page; if none, first document page.",
+        "implementation": "Destination::resolve and structure_page recurse over /K and resolve MCR/OBJR /Pg with containing element fallback; structure-element destinations fall back to page index zero only after confirming a structure element.",
+        "assertions": "Model test resolves a nested child to page two and distinguishes no-content StructElem fallback from dangling ordinary object. No host interaction assertion specifically for a structure destination found in a named link was reviewed.",
+        "verdict": "Model algorithm has discriminating assertions. Structural destination user-facing route remains a depth limit, not a defect claim."
+      },
+      {
+        "id": "12.3.2.4",
+        "source": "Effective §12.3.2.4, pp. 443-444",
+        "requirement": "PDF 1.1 name objects map through catalog /Dests dictionary; PDF 1.2+ byte strings may map through /Names /Dests name tree; values are arrays or dictionaries with /D (and optional /SD per amended cross-reference). Name/string key comparison uses Annex J.3.4/J.3.3 canonical bytes.",
+        "implementation": "Destination::named performs catalog dictionary then name-tree lookup using decoded key bytes; name tree lookup compares bytes against string keys. /D and /SD handling is shared with GoTo action dictionary handling.",
+        "assertions": "Model test checks name-object catalog entry, string name-tree entry and dictionary /D; model test checks /SD precedence and fallback in both routes. Viewer integration checks name-tree string through OpenAction, verifies selected page/scale/offset against an equivalent direct array. No independent user-facing test of escape-equivalent distinct string spellings was found. Collision case is absent; proposed viewer activation test distinguishes a name-object catalog entry from a byte-string tree entry with the same bytes but different target page/view and direct controls.",
+        "verdict": "Normal name→catalog and string→name-tree routes have assertions. A collision test is needed: current implementation converts strings to dictionary Name keys and checks Catalog/Dests before the string name tree, so same-byte definitions can make a byte-string reference select the name-object mapping. §12.3.2.4 associates strings with the name tree; draft provides an observable exact-xref test."
+      },
+      {
+        "id": "12.4.2",
+        "source": "Effective §12.4.2 title is 'Page labels and indices' per current EC3 overlay (static PDF title remains 'Page labels'); Table 161, pp. 458-459.",
+        "requirement": "Page index is zero-based position. Optional PageLabels number tree must include index 0; each range labels until next range. S selects D/R/r/A/a; no S means prefix only (or empty string); P is text string; St starts numeric portion (default 1, valid >=1).",
+        "implementation": "pdf-model::PageLabels reads the catalog number tree, picks greatest range start <= index and renders style+decoded prefix. Query::PageLabel exposes label; viewer-host::page_entry and Qt/GTK panels consume it, with host fallback 'Page N' when document supplies no label.",
+        "assertions": "Clause example and host audit cover prefix-only/empty and ordinary Roman/decimal labels. Unit test letters_repeat_rather_than_carrying asserts 27=AA, 28=BB, 52=ZZ, 53=aaa. Current official errata issue history and effective errata rendering resolve #432's AA-to-AZ proposal as duplicate/rejected in favor of #593's repeated sequence. Existing model test covers style arithmetic; the draft adds Query/PageEntry visibility only within AA..ZZ and no third-block expectations.",
+        "verdict": "Repeated-letter rule supported by current #593 resolution; #432's earlier approved markup was later reopened, withdrawn as ISO-approved, and closed as duplicate. Current code matches the resolved second-block examples. Local EC3 PDF still visibly carries stale #432 annotation markup; current live errata confirms repeat."
+      }
+    ],
+    "current_execution": "Not executed by this audit agent. Parent owns execution/promotion; test existence and historical target logs are not current execution evidence.",
+    "limits": [
+      "No audit of remote GoToR/GoToE target document resolution, URI fragments beyond the named destination parser call site, outline panel breadth, or all GTK/Qt native pathways.",
+      "No whole-clause or whole-ADR conformance claim.",
+      "Whether a Name object may fall back to a name-tree entry when no catalog mapping exists follows Annex J.3.4 but is not tested here. The collision draft concerns the less ambiguous String-object-to-name-tree mapping and catches coercion into Catalog/Dests.",
+      "Current dynamic errata and issue history post-date the static EC3 PDF annotations; record this source-version discrepancy explicitly. No third-block behavior is asserted by the new test draft."
+    ]
+  }
+}

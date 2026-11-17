@@ -1,0 +1,70 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded review of pending \u00a713.2.7.2 Media players dictionary, \u00a713.2.7.5 Monitor specifier, \u00a713.5 Alternate presentations, and the substantive aggregate context in \u00a713.2. This reuses but does not repeat multimedia_data_current/software-identifier and legacy-media annotation reviews.",
+  "ratified_boundary": {
+    "source": "doc/scope-ratifications.md, Clause 13 entry; Q254/A254; ADR 1946; ADR 1960; ADR 2428",
+    "rule": "Compute and report \u00a713.2.2 viability and hand off a media file at the reader's restrictions level. Do not decode or present audio/video. Playback settings and physical display selection remain features of the excluded player.",
+    "player_trigger": "The owner decides to build the player under the ratified reopening sequence; having decoders alone is insufficient (ADR 2428). No trigger is met here."
+  },
+  "features": [
+    {
+      "clauses": [
+        "13.2",
+        "13.2.1",
+        "13.2.7",
+        "13.2.7.1"
+      ],
+      "source": "\u00a713.2 begins physical p.629 / printed p.614; \u00a713.2.1 describes multimedia playback and its general capabilities. \u00a713.2.7.1, physical p.648 / printed p.633, states that it defines dictionary types referenced by preceding subclauses. These are aggregate/context clauses; no additional implementation is inferred from a heading.",
+      "ledger": "\u00a713.2 is implemented as an aggregate of viability and handoff plus excluded playback rows; \u00a713.2.1 is out-of-scope; \u00a713.2.7 is an aggregate with implemented viability readers and out-of-scope player/presentation pieces.",
+      "applicability": "Viability and delivery of the chosen embedded/external media remain in scope under ratification. Actual playback, external player discovery and control remain excluded. The current aggregate status does not certify every media table or media format.",
+      "code_and_assertions": "pdf-model/src/media.rs::judge computes viability and returns report notes plus a selected clip. viewer-core/src/interact.rs reports those notes and forwards a chosen clip; viewer-core/src/viewer/media.rs applies reader restriction policy and emits Event::Media for the host. viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level directly asserts both a viability report and the exact handoff data. This does not assert that a host player exists, starts, or plays the file."
+    },
+    {
+      "clause": "13.2.7.2",
+      "title": "Media players dictionary",
+      "source": "\u00a713.2.7.2.1, Table 301 and empty-array/set-aside prose, physical pp.648\u2013649 / printed pp.633\u2013634. \u00a713.2.7.2.2's player algorithm is on physical p.649 / printed p.634. Table 301 defines /MU (player must be used), /A (player may be used), /NU (must not be used); NU entries are effectively removed from MU; empty arrays are absent. A non-viable or partially unrecognized player-info entry is treated as absent and logically present in NU. The play-time algorithm uses content-type support, NU, and MU/A under its four conditions.",
+      "ledger": "13.2.7.2 is implemented over .2.1 and .2.2, with the one abstract player used for this product being the host handoff; the software identity of that external player is unknown and none is claimed matched.",
+      "code": [
+        "crates/pdf-model/src/media.rs::players",
+        "player_info_set_aside",
+        "software_identifier_set_aside",
+        "Walk::clip_data"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/media_viability.rs::the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_required tests empty MU, A and NU examples and the nonempty MU refusal for a known type, plus the unknown-type/A condition",
+        "crates/pdf-model/tests/media_viability.rs::a_non_viable_media_player_info_dictionary_is_not_present_in_its_array checks removal before MU emptiness is evaluated",
+        "crates/viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level tests the public chosen-clip path, but does not include a player-set selector in the same fixture"
+      ],
+      "prior_review": "doc/reviews/2038-specification-audit/shards/media_viability/features.json and decisions.json already inspect these rows and arrays. The Table 301 MU-minus-NU edge (MU and NU naming the same candidate, yielding an effective empty set) remains a source-interpretation question: the specification says NU removes candidates from MU but its separate empty-array rule does not say whether subtraction emptiness makes a present MU absent. Do not classify this as a confirmed defect or use a red test without a stronger reading.",
+      "current_assessment": "The product's viability path is a bounded proxy for an unidentified OS-selected player, not a full host player inventory or URI/version/OS comparator. This is explicit in ADR 1960 and the Processor input, which currently exposes only a host-stated interface language. The existing viability tests assess criteria under that profile; the public Event::Media test proves file delivery, not OS application selection. No new test was drafted to repeat prior work."
+    },
+    {
+      "clause": "13.2.7.5",
+      "title": "Monitor specifier",
+      "source": "\u00a713.2.7.5 and Table 304, physical pp.651\u2013652 / printed pp.636\u2013637. Integer values 0\u20136 designate the document-window largest/smallest overlap monitor, primary monitor, greatest color depth, greatest pixel area, greatest height, or greatest width. If monitor selection ties, an implementation-dependent tie break is permitted. Table 294's `/M` uses this specifier for floating or full-screen playback windows, is ignored for other window types, defaults to 0, and unknown values have different MH/BE handling.",
+      "ledger": "13.2.7.5 is out-of-scope under the ratified exclusion because it selects the physical display for playback. Its use as a criterion that can affect viability is separately handled in-scope by the screen-parameter MH/BE decision.",
+      "code": [
+        "crates/pdf-model/src/media.rs::unhonourable",
+        "Walk::media_rendition",
+        "Processor"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/media_viability.rs::screen_parameters_must_honour_make_the_rendition_non_viable_and_best_effort_do_not includes a best-effort /M 2 alongside /W 1, and separately shows an MH /W requirement makes the handoff rendition non-viable. It does not directly exercise /M under MH or monitor tie-breaking.",
+        "Processor carries no monitor inventory and viewer-core passes only the stated interface language. Event::Media contains the media bytes/type, not a display target. No consumer performs monitor selection."
+      ],
+      "applicability": "Selecting a physical screen is player presentation and remains excluded. When a monitor-dependent option is required in MH, viability is assessed under \u00a713.2.2: this handoff cannot tell a host player which monitor to use, so such a required choice may be a reason for non-viability/reporting. BE settings are best-effort and do not veto. No deterministic choice among tied monitors is owed to this application while it does not play media.",
+      "assertion_gap": "Current screen-parameter assertion does not isolate an applicable `/M` MH diagnostic from other entries; code currently handles any MH key generically as unhonourable. This is a test-specificity gap only: no violation of monitor-selection behavior is established. A test of actual monitor choice would cross the excluded player boundary, so no such test is proposed."
+    },
+    {
+      "clause": "13.5",
+      "title": "Alternate presentations",
+      "source": "\u00a713.5, physical pp.655\u2013657 / printed pp.640\u2013642. The subclause says its features are deprecated in PDF 2.0; alternate presentations may be stored through the catalog Name dictionary's AlternatePresentations name tree; as of PDF 1.5 the only type is SlideShow. It expressly says processors are not required to support them. Authors should ensure something useful and meaningful can still be displayed/printed, e.g. by keeping the photographs viewable in a static form. Slideshow resources are a presentation virtual file system and may include images/media/scripts.",
+      "ledger": "13.5 is out-of-scope. This is supported by the explicit no-support requirement plus the excluded slideshow/presentation behavior; the author-facing SHOULD to preserve useful static content is not a reader duty to parse/run the slideshow or synthesize its resources.",
+      "errata": "Do not rely on the errata-read index's untouched label. EC3 #449 on physical p.648 moves a paragraph under the player algorithm heading; #481 on physical p.656 changes NOTE 2 to describe other media objects as file specification dictionaries, typically with an embedded file stream. These clarify organization/storage but do not create a slideshow-processing duty. #414 remains a separate annotation; its effect was not needed to decide this feature's explicit optional-support status.",
+      "implementation_and_assertions": "No AlternatePresentations slideshow parser/runner was found in the model/viewer path and no \u00a713.5 slideshow test was found. Ordinary PDF page content continues through normal page rendering; absence of slideshow support is explicitly permitted. No claim is made that an author-conforming static fallback exists in every document or that the reader validates the author's SHOULD.",
+      "related_scope": "A script action may invoke a slideshow, but that permissive fact does not make presentation support mandatory. Generic JavaScript behavior remains governed by the separate script ratification and viewer API; no new JavaScript API or slideshow support obligation is inferred here."
+    }
+  ],
+  "errata_review": "Primary annotations were checked against the effective PDF, correcting the inventory's untouched labels: #449 on physical p.648 moves a paragraph under the \u00a713.2.7.2.2 algorithm heading; #481 on physical p.656 revises \u00a713.5 NOTE 2's storage description. Neither changes the bounded applicability conclusion above. Table 304 spans physical pp.651\u2013652 / printed pp.636\u2013637; no relevant Table 304 annotation was located.",
+  "partial_scope_limit": "This is a feature-applicability and assertion review only. It does not rerun media viability/handoff tests, validate the full software identifier algorithm, implement/query a physical monitor, certify any actual player's behavior, test slideshow author conformance, or certify the whole of \u00a713.2."
+}

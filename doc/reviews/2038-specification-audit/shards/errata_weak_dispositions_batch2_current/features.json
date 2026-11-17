@@ -1,0 +1,167 @@
+{
+  "shard": "EC3 errata batch 2: #113, #127, #143, #147, #149, #158, #159, #162, #164, #170",
+  "baseline": "b901326c; worktree /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "method": "Candidate JSON used only to locate annotation objects. Read primary PDF annotation targets and current source/ledger/assertions; source locators below identify primary physical pages and printed footer pages separately.",
+  "features": [
+    {
+      "issue": 113,
+      "source": "Primary physical p. 71 / printed p. 56; one StrikeOut in \u00a77.5.4 removes the second occurrence of the sentence requiring each cross-reference subsection to contain a contiguous range. The immediately preceding identical sentence remains.",
+      "ledger": "\u00a77.5.4 Cross-reference table, implemented.",
+      "code": [
+        "crates/pdf-syntax/src/xref.rs::read_classic_table"
+      ],
+      "assertions": [
+        "crates/pdf-syntax/tests/cross_references.rs::a_subsection_displaced_by_one_is_realigned_by_the_objects_own_headers",
+        "crates/pdf-syntax/tests/cross_references.rs::an_absent_index_covers_object_zero_to_size"
+      ],
+      "verdict": "Editorial duplicate deletion; effective requirement remains and no behavior change is required.",
+      "residuals": []
+    },
+    {
+      "issue": 127,
+      "source": "Primary physical pp. 718 and 724 / printed pp. 703 and 709; two StrikeOut/Caret pairs in RichMedia tables correct a citation from Table 315 (3D view) to \u00a713.7.2.3.5 View dictionary.",
+      "ledger": "\u00a713.7.2.3.5 is out-of-scope under the current Clause 13 RichMedia/3D playback exclusion; nearby RichMedia asset extraction is separate.",
+      "code": [
+        "crates/pdf-model/src/attachment/rich_media.rs::assets",
+        "crates/pdf-model/src/appearance.rs::appearance_for_annotation"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/attachment/rich_media.rs unit tests (asset extraction)",
+        "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence"
+      ],
+      "verdict": "Cross-reference repair only. It does not add View-dictionary playback or 3D-view interpretation to the admitted consumer scope.",
+      "residuals": [
+        "The current relevant consumers intentionally expose RichMedia assets and refuse playback/appearance derivation; no test of the corrected View dictionary is expected while that scope boundary stands."
+      ]
+    },
+    {
+      "issue": 143,
+      "source": "Primary physical p. 40 / printed p. 25; one Caret corrects PARENHESIS to PARENTHESIS in \u00a77.3.4.2.",
+      "ledger": "\u00a77.3.4 string objects; syntax implementation is independent of this prose spelling.",
+      "code": [
+        "crates/pdf-syntax/src/lexer.rs"
+      ],
+      "assertions": [
+        "crates/pdf-syntax/tests/literal_strings_names_audit.rs::literal_escape_table_and_nesting_produce_the_stated_bytes",
+        "crates/pdf-syntax/src/lexer.rs::literal_strings_handle_nesting_and_escapes (unit)"
+      ],
+      "verdict": "Editorial spelling correction without a changed parser rule.",
+      "residuals": []
+    },
+    {
+      "issue": 147,
+      "source": "Primary physical p. 71 / printed p. 56; two Carets insert non-negative for the subsection-header integers; one StrikeOut deletes NOTE 3's claim that incremental-update subsections can never begin at object number zero.",
+      "ledger": "\u00a77.5.4 Cross-reference table and \u00a77.5.6 Incremental updates, implemented. The current \u00a77.5.4 ledger note and write.rs::incremental_update_freeing rationale still quote the deleted NOTE 3 as the reason object zero cannot be re-headed.",
+      "code": [
+        "crates/pdf-syntax/src/xref.rs::read_classic_table",
+        "crates/pdf-syntax/src/write.rs::incremental_update_freeing"
+      ],
+      "assertions": [
+        "crates/pdf-syntax/tests/incremental_update.rs::a_freed_object_is_gone_to_the_reader_and_still_in_the_file",
+        "crates/pdf-syntax/tests/cross_references.rs::a_subsection_displaced_by_one_is_realigned_by_the_objects_own_headers"
+      ],
+      "verdict": "One new test PASS for valid object0 incremental subsection, with detached-free control. Current writer uses a permitted alternate mechanism; its impossibility rationale in code/ledger and ADR0803 cites a deleted note.",
+      "residuals": [
+        "New assertion tests reader acceptance, not general free-list validation or a requirement for the writer to choose reheading."
+      ]
+    },
+    {
+      "issue": 149,
+      "source": "Primary physical pp. 22, 23, 70, 73 / printed pp. 7, 8, 55, 58; adds/clarifies cross-reference section and subsection terminology, revises the general table definition to cover information derived from sections, replaces operative \u00a77.5.4 table terminology with section(s), and clarifies Table 15 /Size as one greater than the highest object number across revisions.",
+      "ledger": "\u00a77.5.4\u2013\u00a77.5.6 cross-reference resolution and trailer Size.",
+      "code": [
+        "crates/pdf-syntax/src/xref.rs::read_from_startxref",
+        "crates/pdf-syntax/src/xref.rs::XrefTable::merge_trailer",
+        "crates/pdf-syntax/src/xref.rs::read_classic_table"
+      ],
+      "assertions": [
+        "crates/pdf-syntax/tests/cross_references.rs::each_cross_reference_section_reports_the_trailer_it_states_rather_than_the_merge",
+        "crates/pdf-syntax/tests/cross_references.rs::the_next_object_number_is_past_every_number_a_section_states",
+        "crates/pdf-syntax/tests/incremental_update.rs::an_update_chains_onto_an_update"
+      ],
+      "verdict": "Terminology and Size clarification align with section-chain model. Existing tests distinguish section trailers from merged state and test highest stated object number.",
+      "residuals": [
+        "The exact object-zero update subcase is now tested under T91; no additional #149-specific gap identified."
+      ]
+    },
+    {
+      "issue": 158,
+      "source": "Primary physical p. 561 / printed p. 546; Table 237 /DigestMethod note removes RSA-only scope and DSA/SHA-1 ignore rule, replacing it with the general rule that where a signing mechanism requires a specific digest, this entry shall be ignored.",
+      "ledger": "\u00a712.7.5.5 signature field seed values; current implementation scope excludes signing-time constraints.",
+      "code": [
+        "crates/pdf-model/src/forms_data.rs (signature-field data and seed values)"
+      ],
+      "assertions": [
+        "No dedicated seed-value test was found in current forms_data.rs; existing signature/FieldMDP tests exercise signed transform semantics, not signing-time DigestMethod choice."
+      ],
+      "verdict": "Signing-policy clarification does not create an open-time validation or signature-verification requirement. The current ledger explicitly scopes seed values as signing-time constraints and signing is outside this consumer.",
+      "residuals": [
+        "Revisit if a PDF signing consumer is admitted; no signing test drafted."
+      ]
+    },
+    {
+      "issue": 159,
+      "source": "Primary physical p. 561 / printed p. 546; Table 237 changes DigestMethod to an unordered array, specifies acceptable values as array items, updates the prose connector, and removes the version qualifier from /V capability 3.",
+      "ledger": "\u00a712.7.5.5 seed-value dictionary. Current ledger identifies DigestMethod as a signing-time constraint; no signer is in admitted scope.",
+      "code": [
+        "crates/pdf-model/src/forms_data.rs"
+      ],
+      "assertions": [
+        "No current assertion was found for DigestMethod array order/choice; this is outside the absent signing consumer."
+      ],
+      "verdict": "The changed choice/order language belongs to signing selection and does not require existing reader open-time behavior. Parsing presence does not assert signing semantics.",
+      "residuals": [
+        "No claim that the parser implements the signing-time preference ordering; that consumer remains absent."
+      ]
+    },
+    {
+      "issue": 162,
+      "source": "Primary physical p. 459 / printed p. 444; grouped Issue #162/#288 annotations add a permitted destination dictionary form using /D and optional /SD, with related action-table references.",
+      "ledger": "\u00a712.3.2.4 destinations and related action destination rows.",
+      "code": [
+        "crates/pdf-model/src/destination.rs"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/destination.rs::a_named_destinations_structure_destination_takes_precedence_over_its_page_destination is present in the audit baseline. It checks plain D->page0/Fit, SD->page1/FitH500 via both name/string lookup, and unreadable SD fallback."
+      ],
+      "verdict": "Bounded disposition already reviewed by parent in the current crosswalk and destination shard; no duplicate test added.",
+      "residuals": [
+        "The unit fixture uses a StructElem where a full StructTreeRoot would belong; this is model resolver evidence, not full tagged-PDF validity or public host activation. See prior crosswalk parent review."
+      ]
+    },
+    {
+      "issue": 164,
+      "source": "Primary physical p. 157 / printed p. 142; informative Table 49 note explains extension URL/revision metadata is encrypted normally and may be meaningless when a consumer does not support the developer's encryption algorithm.",
+      "ledger": "\u00a77.12.3 developer extensions dictionary; generic object-string decryption remains in \u00a77.6 parser scope.",
+      "code": [
+        "crates/pdf-syntax/src/document/objects.rs",
+        "crates/pdf-model/src/requirements.rs::DeveloperExtension::read"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/requirements.rs::tests::extensions_are_read_under_their_registered_prefixes",
+        "crates/pdf-model/src/requirements.rs::tests::an_extension_without_a_level_is_not_read"
+      ],
+      "verdict": "Interoperability note, not an obligation to implement arbitrary extension encryption. It is consistent with generic decryption plus parsed extension fields.",
+      "residuals": [
+        "No custom developer encryption handler is claimed or tested."
+      ]
+    },
+    {
+      "issue": 170,
+      "source": "Primary physical p. 553 / printed p. 538; Caret in \u00a712.7.5.2.4 adds that radio-button Off appearance is optional, and if present is named Off in the AP dictionary.",
+      "ledger": "\u00a712.7.5.2.4 is implemented and explicitly claims Off-state handling.",
+      "code": [
+        "crates/pdf-model/src/appearance.rs",
+        "crates/pdf-model/src/forms_data.rs"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/radios_in_unison.rs::the_page_draws_the_same_buttons_the_description_names",
+        "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget"
+      ],
+      "verdict": "Current AP selection and form tests exercise /Off and named on-state behavior; the erratum's added rule is represented in the current ledger and implementation.",
+      "residuals": [
+        "No whole button-field certification implied."
+      ]
+    }
+  ]
+}

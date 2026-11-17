@@ -91,8 +91,8 @@ fn one_line(setup: &str) -> (Vec<f32>, f32) {
 
 /// A dash array reaches the graphics state at all.
 ///
-/// This is the defect: `[4 6] 0 d` is the specification's own example in Table 55 ("3 units
-/// on, 3 units off" is the neighbouring row) and `close-path-bug.pdf` writes exactly it.
+/// Unequal dash and gap lengths distinguish the two operands. Table 55 illustrates
+/// the same alternating-length rule; `[4 6] 0` is an independently chosen example.
 #[test]
 fn a_dash_array_reaches_the_stroke() {
     assert_eq!(one_line("[4 6] 0 d"), (vec![4.0, 6.0], 0.0));

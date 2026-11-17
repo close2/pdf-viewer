@@ -1,0 +1,7 @@
+{
+  "source": "Read primary438 repeated-Do requirement and439 continuation NOTE2 about caching;440–441 group-color rules distinguish recommendations from requirements. Inspected #134 on437 and #619 on436: different tables/rules.",
+  "assertions": "Read group fixture resources, lengths/xrefs, selected pixel/control assertions and soft-mask report-only limitation. Integrated refined repeated-invocation test with explicit initial white, intervening black, second Screen gray, independent literal outputs and exact-xref guards.",
+  "change": "Set test BBox to[0,0,20,20] so the x30 control is truly outside it, not merely outside the painted shape. Test permits backdrop-independent content caching followed by correct per-invocation compositing.",
+  "execution": "New repeated-group test PASS. Model/render-gpu/render-raster all-targets Clippy PASS.",
+  "limits": "No blanket group/color conformance claim. Synthetic press profiles remain minimal; valid ICC consumer control is separately under review."
+}

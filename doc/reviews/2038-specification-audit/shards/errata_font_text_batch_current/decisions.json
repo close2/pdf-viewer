@@ -1,0 +1,25 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "0396",
+      "decision": "Its accepted rationale cites the pre-EC3 standard-14 list and says CourierBoldOblique is the listed spelling. EC3 #384 changes the effective list to Courier-BoldOblique. The contour-direction decision remains supported by §9.3.6/§8.5.3 evidence, but this font-name premise must be corrected in current explanatory text; preserve the ADR as the historical record of what the source said at decision time.",
+      "verdict": "Reaffirm unrelated glyph-winding decision; revise the current source quotation/rationale when promoted."
+    },
+    {
+      "adr": "1916",
+      "decision": "It chooses published AFM pairs for the standard fourteen by the names the clause supplies and documents the CourierBoldOblique/Adobe Courier-BoldOblique alias. The effective source name is now the hyphenated spelling, while the code's dual-name acceptance remains a permissible compatibility choice.",
+      "verdict": "No behavior change warranted from this erratum. Correct current source description; keep historical decision text unless a later ADR amends it."
+    },
+    {
+      "adr": "0253",
+      "decision": "Its subject is the withdrawn standard-14 processor-availability shall in §§9.6.2.1–9.6.2.2, not the later #384 name-list correction. #384 does not reinstate a requirement that every PDF reader provide those fonts.",
+      "verdict": "No revision indicated for the #47/#48 conformance conclusion."
+    },
+    {
+      "adr": "1441",
+      "decision": "Its substitute-ranking policy treats FontWeight/FontStretch/flags as signals for local face selection. EC3 #178's explanatory note does not prescribe a CSS matching algorithm, and #337's descriptor note does not create program-consistency validation behavior.",
+      "verdict": "Keep product-policy boundaries. Do not elevate either note to a mandatory reader algorithm."
+    }
+  ],
+  "no_adr_claims": "No ADR found that makes #44's worked example, #161's informative character list, #165's writer escape syntax, #372's typographic symbol change, #550's lex-before-code rule, or #553's variable-font name-generation reference into a separate product policy. Their normative effects are mapped directly to the corrected clause text above."
+}

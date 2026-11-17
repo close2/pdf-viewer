@@ -39,7 +39,9 @@ fn document(objects: &[&str]) -> Document {
         "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
         objects.len().saturating_add(1)
     );
-    Document::open(out.into_bytes()).expect("a valid fixture")
+    let document = Document::open(out.into_bytes()).expect("a valid fixture");
+    assert!(!document.was_recovered(), "exact xref offsets");
+    document
 }
 
 /// An embedded file specification whose stream is object 4.
@@ -1013,4 +1015,42 @@ fn a_flash_a_windows_media_and_a_program_stream_clip_are_judged_by_their_own_hea
         format!("{wrong:?}").contains("not the ASF file"),
         "{wrong:?}"
     );
+}
+
+// §13.2.4.2 and Table 287: the handoff cannot carry a base URL. This tests
+// the public viability judgement, not actual playback of the fixture bytes.
+#[test]
+fn a_data_base_url_is_required_for_must_honour_and_reported_for_best_effort() {
+    let rendition = |options: &str| {
+        format!("<< /S /MR /C << /S /MCD /CT (video/mp4) /D {EMBEDDED} {options} >> >>")
+    };
+    let base = "(https://media.example.test/catalog/)";
+
+    let mandatory = judged(
+        &rendition(&format!("/MH << /BU {base} >>")),
+        Processor::default(),
+    );
+    assert!(mandatory.chosen().is_none(), "{mandatory:?}");
+    assert!(
+        mandatory.notes().iter().any(|line| {
+            line.contains("Table 287's base URL /BU") && line.contains("not viable")
+        }),
+        "{mandatory:?}"
+    );
+
+    let best_effort = judged(
+        &rendition(&format!("/BE << /BU {base} >>")),
+        Processor::default(),
+    );
+    let (_, clip) = best_effort.chosen().expect("BE does not veto handoff");
+    assert!(
+        clip.unhonoured
+            .iter()
+            .any(|entry| entry.contains("base URL /BU")),
+        "{clip:?}"
+    );
+
+    let ordinary = judged(&rendition(""), Processor::default());
+    let (_, clip) = ordinary.chosen().expect("no URL preference is viable");
+    assert!(clip.unhonoured.is_empty(), "{clip:?}");
 }

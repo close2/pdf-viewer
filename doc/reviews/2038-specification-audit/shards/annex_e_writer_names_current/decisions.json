@@ -1,0 +1,37 @@
+{
+  "baseline": "b901326c",
+  "selected_decisions": [
+    {
+      "subject": "ADR 1461 Annex E writer-side boundary",
+      "decision": "Retain with a narrowed definition of developer-extension output. No current production writer synthesizes a PDF Catalog /Extensions dictionary, Table 49 developer extension dictionary, or private XX data. Archive role-map repair does emit supplied nonstandard structure-type names, but §14.7.3 explicitly allows arbitrary names for structure types; this is a specification-defined case covered by §14.7.3 assertions, not a private-name violation.",
+      "evidence": ["crates/pdf-transform/src/archive/roles.rs::entries/extended", "crates/pdf-transform/src/archive/rewrite/catalogue.rs::extend_the_role_map", "crates/pdf-transform/tests/archive.rs::a_producers_own_types_are_mapped_where_the_operators_table_names_them", "crates/pdf-transform/tests/archive.rs::the_producers_own_role_map_entries_are_kept_and_only_the_unmapped_type_gains_one", "ISO §14.7.3 physical p.742 / printed p.727"],
+      "limit": "The role-map assertions do not exercise Annex E private data or extension declarations. Generic syntax serialization of caller-supplied names is not proof of a writer choosing Annex E name classes."
+    },
+    {
+      "subject": "#340 third-class names",
+      "decision": "Use the Caret replacement as effective: names for private data start with XX, and third-class names cannot be registered in the PDF Names list. No writer route found that emits such data, so no conformance defect or test gap is established for current generated output.",
+      "evidence": "Primary PDF physical p.893 / printed p.878: Caret Contents has the replacement sentence; its paired StrikeOut removes the older 'not necessary to register' wording."
+    },
+    {
+      "subject": "#229 and custom structure names",
+      "decision": "The insertion 'except where otherwise stated in this specification' makes the specific §14.7.3 permission material: writers may use any names for structure types. The archive role-map output uses source-supplied custom names such as Chapter and Sidebar; it need not prefix them under Annex E's general second-class rule. Existing tests cover that repair route and preservation of an existing mapping.",
+      "evidence": "Primary PDF physical p.893 / printed p.878 Caret; §14.7.3 physical p.742 / printed p.727; archive role-map implementation and tests."
+    },
+    {
+      "subject": "#239 ExtensionLevel order",
+      "decision": "The amendment demotes monotonic ordering across developer releases for a BaseVersion to SHOULD. The parser does not validate historical release chronology; that is not a reader defect. No writer emits developer ExtensionLevel records, so the recommendation has no current output witness.",
+      "evidence": "Primary PDF physical p.158 / printed p.143 has two StrikeOut/Caret pairs replacing the shall wording with should wording."
+    },
+    {
+      "subject": "#732 URL presence",
+      "decision": "Table 49's primary annotation changes URL to Required and separately recommends uniqueness; however, §7.12.6 still calls URL optional. Record the effective-source tension without resolving it from the annotation alone. The reader's acceptance of absent URL is tolerance and no current writer outputs Table 49 dictionaries.",
+      "evidence": "Primary PDF physical p.157 / printed p.142: Table 49 StrikeOut/Caret pair replaces Optional with Required; standalone Caret inserts the should-uniqueness sentence. §7.12.6 same effective source still says 'optional URL entry'."
+    },
+    {
+      "subject": "split/merge omission of Catalog /Extensions",
+      "decision": "Retain as a product-policy/traceability question, not a confirmed normative failure. split and merge construct catalogs from whitelists that omit Extensions while copying generic reachable objects; Annex E recommends extension dictionaries but the reviewed text does not explicitly require these transformations to preserve the declaration. No failing writer test is drafted absent an owner-level contract or stronger source duty.",
+      "evidence": ["crates/pdf-transform/src/split.rs::CARRIED/build_catalog", "crates/pdf-transform/src/merge.rs::FIRST_WINS/catalog construction", "Annex E.2 SHOULD sentence recommending developer extension dictionaries", "§7.12.1 optional Catalog Extensions entry"]
+    }
+  ],
+  "test_decision": "No draft. Existing archive role-map tests are the only identified custom-name writer route and cover its §14.7.3 rule. No current output path synthesizes the Annex E target objects. A generic serializer test would assert byte encoding, not Annex E conformance."
+}

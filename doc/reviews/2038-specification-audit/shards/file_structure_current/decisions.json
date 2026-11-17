@@ -1,0 +1,19 @@
+{
+  "decisions": [
+    {
+      "adr": "0803",
+      "slice": "Second free-entry mechanism in incremental deletion",
+      "review": "Parent read deletion section and primary physical72. Keep unlinked free65535 entry policy; new regression uses that source-permitted form. Finding is reader header-offset/recovery behavior, not writerfreeformat."
+    },
+    {
+      "adr": "0809",
+      "slice": "Windowed offset reads and growth",
+      "review": "Parent read section2: offset-started parser windows grow until no dependency reachesend. Retain approach. Fixed HEADER_SEARCH_WINDOW is a distinct capped initial search; the general window-growth rationale does not justify wrong semantics from missing a valid later header."
+    },
+    {
+      "adr": "0121",
+      "slice": "Incremental xref section kind",
+      "review": "Keep same-kind update choice as policy; standard permits other supported kinds. Raw table-output tests supplement paired reader/writer roundtrip. Historical appearance/encryption choices not re-certified here."
+    }
+  ]
+}

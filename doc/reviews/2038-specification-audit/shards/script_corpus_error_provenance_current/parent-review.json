@@ -1,0 +1,9 @@
+{
+  "primary_urls": [
+    "https://raw.githubusercontent.com/adobe/dc-acrobat-sdk-docs/ab3b42a7/docs/library/jsapiref/doc.html",
+    "https://raw.githubusercontent.com/adobe/dc-acrobat-sdk-docs/ab3b42a7/docs/library/jsapiref/JS_API_AcroJSChanges.html"
+  ],
+  "source_limits": "Exact pin fetched by parent. Historical Matrix2D source-file link is only an unavailable older-PDF/search lead; not a verified claim. Reference sample uses a matrix API but does not define all semantics.",
+  "execution": "appearance-matrix-wave52.log:appearance1PASS, Matrix2D1FAIL at constructor ReferenceError. Ordinary JS readback inside target passes; method checks not reached.",
+  "corpus": "Parent independently read JS objects in3representative PDFs with pikepdf. Hashes and static patterns recorded, not a complete dynamic dependency analysis. Large corpus gate counts were checked against actual wave49 log."
+}

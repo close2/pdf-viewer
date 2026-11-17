@@ -1,0 +1,72 @@
+{
+  "reviews": [
+    {
+      "adr": "2818",
+      "decision_slice": "Table 178 /L endpoints under signed leader length; Table 181 polygon and polyline closure, /IC and first/last endpoint geometry",
+      "evidence": "Effective Table 178 printed pp.486-487 and Table 181 printed pp.491-492; `appearance.rs::line/polygon`; `annotations.rs` line controls and `polygon_polyline_spec_audit.rs` exact-xref closure, /IC and endpoint controls; EC3 #444 for Vertices ignored when Path is present.",
+      "verdict": "The reviewed source and current assertions align with the ADR's narrow amended readings: leader length extends from the line proper to /L, and /LE endpoints remain the coordinates named by /L; a Polygon closes its path, a PolyLine does not, and /IC fills PolyLine endings. EC3 #444 is the effective source for PDF 2.0 Path over Vertices and supports the implemented choice. Does not review ADR 2818's other appearance/font/text-markup slices or whole ADR. ADR 0192's unspecified ending dimensions remain an implementation choice and are not superseded by this geometry review.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0278",
+      "decision_slice": "Current Ink /Path versus required /InkList precedence, read against EC3 #444",
+      "evidence": "Table 185 printed p.495 (physical p.510) is annotated by EC3 #444: /InkList shall be ignored if /Path is present. The Caret Rect is immediately after the (Required) wording in the /InkList row; the annotation Contents states the precedence. appearance.rs::ink and the conflict fixture already prefer Path.",
+      "verdict": "ADR 0278 records the historical unresolved-row interpretation, but that conclusion is stale against the effective EC3 correction #444. The current Path-first implementation agrees with corrected Table 185. Preserve ADR 0278 as historical evidence; do not repeat its no-order statement as the current rule. The ledger note and appearance.rs comments that call precedence a local choice should be flagged for owner follow-up. No whole-ADR review.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "1622",
+      "decision_slice": "Use `implemented` with a named choice when declining a `should`; retain the no-mark boundary ratified by A72 for stamp legends and Caret",
+      "evidence": "Table 184 says PDF readers should provide predefined stamp appearances. Table 183 requires a P paragraph glyph to be associated along with the caret but supplies no caret artwork. Owner answer A72 (2026-09-22) expressly places both on the far side of the bound: a chosen quantity is allowed where the clause names the mark, not where it does not. Table166's AP writer rule and \u00a712.5.5's stored-AP route remain independently applicable.",
+      "verdict": "Current source and owner answer support the narrow documented product choice. A no-AP stamp/caret refusal must not be reported as an ISO-mandated reader refusal; these subtype rows are implemented choices under ADR 1622, while a supplied AP still follows \u00a712.5.5. ADR 1367's older `departed` discussion is historical and ADR 1622 explicitly reclassifies the should-based choice; no current contradiction. Whole ADR not reviewed.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0457",
+      "decision_slice": "Caret no-AP construction refusal and explanation for /Sy /P",
+      "evidence": "EC3 #524 corrects /RD from rectangle to array and #608 joins the text to read that the paragraph symbol is displayed along with the caret; Table 183 printed pp.493-494. `annotations.rs::a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol` checks /P, /None, /RD and the reported reason.",
+      "verdict": "The errata reinforce the accompaniment reading rather than introduce caret artwork. A supplied appearance remains a separate stored-AP path. The current refusal is consistent with the owner-ratified product boundary, not an obligation inferred from the source. No whole-ADR review.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0109",
+      "decision_slice": "No synthesized Stamp legend where the standard only recommends predefined stamp icon appearances",
+      "evidence": "Table 184's should language and list of word/legend names; owner answer A72; current no-AP Stamp assertion in annotations.rs; proposed stored-AP regression draft.",
+      "verdict": "No contradiction found in the missing-AP choice. Keep the input-validity boundary explicit: nondegenerate no-AP fixtures violate Table 166's writer rule. The product choice says nothing against displaying an AP that the file did supply. Whole ADR not reviewed.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0224",
+      "decision_slice": "Table 177 rich-text /RC processing for FreeText",
+      "evidence": "Table 177 says /RC shall be used to generate the appearance; `rich_text.rs` and `free_text_annotation_spec_audit.rs` /Q and /RD assertions plus `rich_text.rs::a_free_text_annotations_rich_text_is_drawn_formatted` and existing Contents-versus-RC control.",
+      "verdict": "The effective FreeText row still supports reading /RC into a constructed appearance; no contrary erratum found under Table 177. This limited pass does not certify all XFA formatting constructs or the separate \u00a712.5.6.2 group-popup meaning. Whole ADR not reviewed.",
+      "whole_adr_review": false
+    }
+  ],
+  "errata": [
+    {
+      "issue": "#444",
+      "clause": "12.5.6.9 Table 181 and 12.5.6.13 Table 185",
+      "effective_change": "/Vertices shall be ignored if /Path is present in Table 181; /InkList shall be ignored if /Path is present in Table 185.",
+      "disposition": "Both rows are amended by the effective EC3 annotation. Polygon/PolyLine decoy-Vertices test covers Table 181; ink_path_six_operands_... includes a conflicting InkList and covers Table 185. Errata inventory doc/errata-read.md currently records only the Table 181 hit and misses the Table 185 Caret annotation at physical p.510 / printed p.495."
+    },
+    {
+      "issue": "#524",
+      "clause": "Tables 177, 180 and 183 /RD type cells",
+      "effective_change": "rectangle becomes array",
+      "disposition": "The four-number difference tests and parser use array semantics. Parent/current comments should describe the correction as applying to FreeText, Square/Circle, and Caret."
+    },
+    {
+      "issue": "#608",
+      "clause": "12.5.6.11 Table 183 /RD note",
+      "effective_change": ". When becomes , when; connects the paragraph-symbol sentence so it is displayed along with the caret",
+      "disposition": "Supports, rather than displaces, the current refusal to treat /P as a substitute shape."
+    },
+    {
+      "issue": "#515",
+      "clause": "12.5.6.7 Table 179 RClosedArrow",
+      "effective_change": "The filled-RClosedArrow phrase is obscured in the printed table layout; the completed caret annotation on physical p.504/printed p.489 records it.",
+      "disposition": "Current line ending fill tests and appearance code include RClosedArrow; this is previous detailed line-shard coverage, not a new full review."
+    }
+  ]
+}

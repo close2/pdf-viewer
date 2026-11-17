@@ -1,0 +1,5 @@
+{
+  "source": "Read Tables193/194 atphysical517 and algorithm continuation518 including B cancellation, n-up/tiling and NOTE2. No operative Issue annotations on517–518. Negative H/V is discouraged, not a malformed-input rejection mandate.",
+  "assertions": "Read public watermark_nup_consumer_audit full literal two/four-up expected boxes, size20 and nonoverlap checks. It rasterizes public PrintPage then maps via host cell placement; hard-coded paper coordinates provide independent expectations. Broad123 PASS. Defaults/Matrix rotation remain selected existing evidence.",
+  "decisions": "Read selected0934 and1204: later n-up scaling/cell placement supersedes1057 and1179 historical no-n-up premises. Correct earlier audit residual wording. Page /Rotate cancellation interpretation remains unresolved; FixedPrint Matrix rotation does not test it. No native printer or unoffered tiling certification."
+}

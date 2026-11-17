@@ -1,6 +1,6 @@
 //! Discriminating `/CO` axes/default regression for the constructed line-appearance path.
-//! This is a complete, exact-xref PDF but deliberately omits `/AP` so it tests this reader's
-//! constructed-appearance fallback policy; it is not offered as a producer-conforming fixture.
+//! The complete, exact-xref PDF 1.7 fixture omits `/AP`, which is optional for this version
+//! under Table 166 as corrected by EC3 #22, and exercises the constructed appearance.
 
 #![expect(
     clippy::expect_used,

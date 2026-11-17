@@ -1,0 +1,150 @@
+{
+  "shard": "annotation_page_event_cells_current",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "clause_context": {
+      "title": "§12.6.3 Trigger events",
+      "physical_page": 522,
+      "printed_page": 507,
+      "evidence": "Primary extracted page/footer directly. Prose says PV/PI permit distinction between open and visible pages and annotation F flags do not determine whether trigger events occur."
+    },
+    "table_197": {
+      "title": "Entries in an annotation’s additional-actions dictionary",
+      "physical_page": 523,
+      "printed_page": 508,
+      "rows": [
+        {
+          "key": "E",
+          "rule": "Cursor enters annotation active area."
+        },
+        {
+          "key": "X",
+          "rule": "Cursor exits active area."
+        },
+        {
+          "key": "D",
+          "rule": "Mouse button pressed inside active area."
+        },
+        {
+          "key": "U",
+          "rule": "Mouse button released inside active area; annotation /A, if present, takes precedence."
+        },
+        {
+          "key": "Fo",
+          "rule": "Widget annotation receives input focus."
+        },
+        {
+          "key": "Bl",
+          "rule": "Widget annotation loses input focus."
+        },
+        {
+          "key": "PO",
+          "rule": "Page containing annotation is opened; after page /O and catalog /OpenAction when present."
+        },
+        {
+          "key": "PC",
+          "rule": "Page containing annotation is closed; before page /C when present."
+        },
+        {
+          "key": "PV",
+          "rule": "Page containing annotation becomes visible."
+        },
+        {
+          "key": "PI",
+          "rule": "Page containing annotation is no longer visible in the interactive processor UI."
+        }
+      ],
+      "effective_errata": "Inspected pikepdf annotation arrays on physical 522–524: objects 13509–13519, 13520–13523, and 13524–13527 are Link annotations only; no Caret/StrikeOut/Text issue annotation changes these rows. #618 changes the separate Table 226 /AA cross-reference on physical 546 and does not amend these triggers."
+    },
+    "table_198": {
+      "title": "Entries in a page object’s additional-actions dictionary",
+      "physical_page": 524,
+      "printed_page": 509,
+      "rows": [
+        {
+          "key": "O",
+          "rule": "Page is opened; follows catalog /OpenAction if present."
+        },
+        {
+          "key": "C",
+          "rule": "Page is closed; applies to page being closed and precedes any other page opening."
+        }
+      ]
+    },
+    "mouse_constraints": {
+      "physical_page": 525,
+      "printed_page": 510,
+      "rules": [
+        "E only with mouse button up",
+        "X requires preceding E",
+        "U requires preceding E and D",
+        "entering a second overlapping/nested annotation causes X for first"
+      ]
+    }
+  },
+  "cell_evidence": [
+    {
+      "cells": [
+        "Table 197 E/X/D/U/Fo/Bl"
+      ],
+      "implementation": [
+        "crates/viewer-core/src/viewer/pointer.rs::raise",
+        "crates/pdf-model/src/action.rs::for_annotation"
+      ],
+      "assertions": [
+        "crates/viewer-core/tests/script_triggers.rs::a_widgets_pointer_and_focus_events_reach_the_runner_in_their_order records exact E,D,Fo,U,X,Bl ScriptSite sequence with the host-supplied recording runner.",
+        "crates/viewer-core/tests/headless.rs::a_press_may_not_enter_and_a_release_needs_its_own_press uses distinct URI results to test mouse-entry/exit/down/up constraints.",
+        "crates/pdf-model/tests/actions.rs::an_annotations_own_action_takes_precedence_over_its_mouse_up_trigger checks /A over /AA/U."
+      ],
+      "limits": "Sampled pointer/focus paths; not every platform-native input gesture."
+    },
+    {
+      "cells": [
+        "Table 197 PO/PC",
+        "Table 198 O/C"
+      ],
+      "implementation": [
+        "crates/viewer-core/src/viewer/navigation.rs::page_events",
+        "crates/viewer-core/src/interact.rs::page_trigger",
+        "crates/pdf-model/src/view/script_sites.rs::run_page_scripts"
+      ],
+      "assertions": [
+        "crates/viewer-core/tests/headless.rs::a_page_turn_raises_the_events_the_clause_orders asserts initial O/PO/PV and turn sequence PC/PI/C/O/PO/PV using distinct URI actions.",
+        "crates/viewer-core/tests/script_triggers.rs::a_page_turn_hands_the_runner_the_close_and_then_the_open checks the runner sees page C then O, with exact page ScriptSite controls."
+      ],
+      "limits": "The page-order URI test observes non-JavaScript actions; script runner test checks page O/C sites, not a multi-page script visibility transition. Initial catalog OpenAction cross-order is separately B22."
+    },
+    {
+      "cells": [
+        "Table 197 PV/PI"
+      ],
+      "implementation": [
+        "crates/viewer-core/src/viewer/navigation.rs::visibility_of",
+        "crates/viewer-core/src/viewer/pointer.rs::raise",
+        "crates/pdf-model/src/view/script_sites.rs::annotation_triggers",
+        "crates/viewer-core/src/interact.rs::trigger"
+      ],
+      "assertions": [
+        "crates/viewer-core/tests/page_visibility_triggers_audit.rs::newly_visible_neighbor_gets_pv_before_it_becomes_current checks page1's non-script URI action when a TwoPageLeft arrangement makes page1 visible while current page remains0.",
+        "crates/viewer-core/tests/page_visibility_triggers_audit.rs::page_remaining_visible_does_not_get_pi_when_current_page_changes checks absence of PI while page0 remains in the two-page spread.",
+        "crates/viewer-core/tests/headless.rs::a_page_turn_raises_the_events_the_clause_orders checks PI when a one-page layout page is closed."
+      ],
+      "limits": "Non-script URI visibility timing is directly asserted. No current test asserts script-runner timing for PV/PI distinct from PO/PC in a multi-page layout."
+    }
+  ],
+  "scope_and_status": {
+    "ledger": "doc/conformance/ledger.toml:3947–3952 §12.6.3 is marked implemented. Line 3952 states PV/PI coincide with PO/PC 'and this layout has one page'; that is stale against current TwoPageLeft support and `page_visibility_triggers_audit`. The code raises non-script actions by actual visible-set transition, but script collection coalesces visibility triggers with page open/close.",
+    "separate_finding": "2038-B62 is field-AA inheritance (K reaching a terminal field from an enclosing field); it is unrelated to page/annotation visibility timing and is not duplicated here.",
+    "script_policy": "JavaScript is within the accepted A286/A193 scope only in the document/viewer and only when the reader supplies an enabled runner; off is default. This review does not treat disabled-engine behavior as a failure, and the candidate test uses the existing supplied ScriptRunner seam only, without executing ECMAScript.",
+    "partial": true
+  },
+  "parent_execution_update": {
+    "test": "drafts/page_visible_script_runner_spec_audit.rs::visible_page_runner_site_is_timed_to_visibility_not_open_or_current_page",
+    "status": "FAIL reported by parent in page-visible-wave128.log",
+    "assertion_observed": "Initial page0 /PO and /PV runner control passed; after TwoPageLeft made page1 visible while page0 remained current, the expected page1 Annotation(PageVisible) callback was absent.",
+    "scope": "Existing untracked scratch draft only; no Cargo was run by this reviewer."
+  },
+  "parent_final_execution": "Three independent recording-runner tests FAIL in page-visible-wave128b. Initial PO/PV controls pass. Newly visible page1 gets noPV; departing noncurrent page1 gets noPI; changing current page while both remain visible wrongly adds page0PI and page1PV. Core all-target Clippy128 PASS."
+}

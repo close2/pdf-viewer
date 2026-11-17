@@ -1,0 +1,285 @@
+{
+  "scope": "Per-cell inventory of ISO 32000-2:2020 EC3 Table 31 (page object dictionary), with focused review of inheritance, box/default handling, rotation/UserUnit, page AA, Resources, Contents, Group and VP. Linked clause suites are sampled, not certified wholesale.",
+  "source": {
+    "primary": "ISO_32000-2_sponsored_EC3.pdf, §7.7.3.3 Table 31 physical pages 119–122 / printed pages 104–107; §7.7.3.4 begins at physical 122 / printed 107. Locators verified against extracted page content and visible footers.",
+    "table_31_entry_source": "Table31 rows and notes were read from primary extraction around Table heading (layout lines 6815–6989); not inferred from ledger summaries.",
+    "cross_cutting": "§7.7.3.4 inheritance physical 122 / printed 107 onward; §7.8.2 Contents processing physical 125–126 / printed 110–111; §14.11.2 boxes; §12.6.3 page triggers; §8.11.4 page groups; §12.9 VP/measurement."
+  },
+  "inheritance_rule": {
+    "only_inheritable": [
+      "Resources",
+      "MediaBox",
+      "CropBox",
+      "Rotate"
+    ],
+    "semantics": "Only entries explicitly marked inheritable in Table 31 inherit. Nearest ancestor value wins as-is, including full dictionaries/arrays without merging. Missing optional inheritable value uses its row default; a required inheritable value must occur on page or an ancestor.",
+    "writer_note": "Linearized PDF rules have a separate producer-side requirement that inherited page attributes be explicit on page dictionaries; this is not an ordinary reader rejection obligation."
+  },
+  "ec3_changes": [
+    {
+      "issue": 81,
+      "location": "Table 31 Resources row, physical 120 / printed 105; completed note annotation",
+      "effect": "Clarifies a Resources dictionary must be specified directly or through inheritance even if Contents is absent. Producer-validity clarification; does not prescribe malformed-reader rejection."
+    },
+    {
+      "issue": 320,
+      "location": "Table 31 /B row, physical 121 / printed 106; StrikeOut removes 'natural'",
+      "effect": "Aligns the table's bead order with the corrected §12.4.3 reading order. The paired clause correction is reviewed in outlines_threads_current; Table31/Table12.4.3 presence wording still differs."
+    },
+    {
+      "issue": 106,
+      "location": "Table 31 /ID row, physical 121 / printed 106",
+      "effect": "Strikes 'indirect reference preferred'."
+    },
+    {
+      "issue": 619,
+      "location": "Table 31 /ID row, physical 121 / printed 106",
+      "effect": "Adds PDF 2.0 deprecation. The changes compose; /ID is deprecated in PDF 2.0 and not a current page-rendering feature."
+    }
+  ],
+  "matrix": [
+    {
+      "key": "Type",
+      "rule": "Required /Page for a page object or /Template for an invisible named-page template.",
+      "owner": "pdf-model page-tree identification; named_page",
+      "assertions": "page_tree_nodes and named_page geometry tests",
+      "evidence": "Selected page-vs-node identity and template routes are tested; not all damaged prefixes."
+    },
+    {
+      "key": "Parent",
+      "rule": "Required indirect parent of a Page; Template must omit Parent.",
+      "owner": "pdf-model::Pages traversal / named_page",
+      "assertions": "page_geometry, page_tree_nodes, named_page tests",
+      "evidence": "Normal parent chains and named templates are covered; malformed-reference outcomes are recovery policy."
+    },
+    {
+      "key": "LastModified",
+      "rule": "Required if PieceInfo exists; otherwise optional PDF 1.3 page modification date.",
+      "owner": "metadata/page-piece data",
+      "assertions": "metadata and PieceInfo owner tests",
+      "evidence": "Conditional producer relationship mapped; this pass did not independently assert every page PieceInfo/date interaction."
+    },
+    {
+      "key": "Resources",
+      "rule": "Required, inheritable dictionary; if page needs none, empty dict; omission means inherit. Writers should not share this way.",
+      "owner": "pdf-model page/resources/content readers",
+      "assertions": "inherited_resources_spec_audit nearest dictionary/empty shadow; content_resources_audit actual execution; Type3 resource tests",
+      "evidence": "Nearest whole dictionary and empty override have unit assertions; one-level runtime inherited resource test. A multi-level runtime rendering draft exists in page_resources_current and remains unrun by that shard."
+    },
+    {
+      "key": "MediaBox",
+      "rule": "Required, inheritable rectangle in default user space defining physical medium.",
+      "owner": "pdf-model page geometry and transform",
+      "assertions": "page_geometry numeric dimensions; page_boundaries_current literal rendered controls",
+      "evidence": "Inheritance, local override, defaults/recovery and consumer selection have source-derived controls; see B19 challenge residual for empty intersections."
+    },
+    {
+      "key": "CropBox",
+      "rule": "Optional, inheritable visible region; default MediaBox.",
+      "owner": "page geometry/render/print",
+      "assertions": "page_boundaries_current tests explicit and default boundaries plus output pixels",
+      "evidence": "Current shard reports inherited CropBox through public render/leaf override PASS; this is newer evidence than page_resources_current's earlier residual."
+    },
+    {
+      "key": "BleedBox",
+      "rule": "Optional PDF 1.3; default CropBox; production clipping region.",
+      "owner": "page geometry and §12.2 boundary choice",
+      "assertions": "page_boundaries_current literal boundary and clip tests",
+      "evidence": "Selected values and ViewClip behavior covered; no whole prepress certification."
+    },
+    {
+      "key": "TrimBox",
+      "rule": "Optional PDF 1.3; default CropBox; intended finished page after trim.",
+      "owner": "page geometry and §12.2",
+      "assertions": "page_boundaries_current literal defaults, selection and clipping",
+      "evidence": "Selected viewing paths covered; actual printer/output-device imposed trimming is not claimed."
+    },
+    {
+      "key": "ArtBox",
+      "rule": "Optional PDF 1.3; default CropBox; meaningful content extent.",
+      "owner": "page geometry/guideline UI",
+      "assertions": "page_boundaries_current and guidelines_decision_audit",
+      "evidence": "Selected geometry/style choices covered; no assertion that the implementation-dependent imposition equals box extents."
+    },
+    {
+      "key": "BoxColorInfo",
+      "rule": "Optional PDF 1.4 boundary guideline styles; if absent application uses current defaults.",
+      "owner": "guidelines UI/rendering",
+      "assertions": "guidelines_decision_audit / page_boundaries_current",
+      "evidence": "Selected style/default and View-vs-Print routes are exercised; full host preference matrix not re-audited."
+    },
+    {
+      "key": "Contents",
+      "rule": "Optional; absent means empty; one stream or ordered array with at least one whitespace between parts. Writers may split only at token boundaries and must not produce an empty array.",
+      "owner": "content reader/window/interpreter",
+      "assertions": "content_window, contents_entry, hostile_budgets, content_stream_foundations_current",
+      "evidence": "Cross-part operands/operator, whitespace, order, absent/null, invalid/damaged parts, and aggregate budget have discriminating tests. Preserving original array structure is not required."
+    },
+    {
+      "key": "Rotate",
+      "rule": "Optional, inheritable integer multiple of 90; default 0; clockwise.",
+      "owner": "page transforms, render and navigation geometry",
+      "assertions": "page_geometry, coordinate_graphics_state, rotated_destination_geometry, named_page geometry",
+      "evidence": "Inheritance and numeric/device placement controls exist; selection_census deliberately excludes rotations for its separate comparison contract."
+    },
+    {
+      "key": "Group",
+      "rule": "Optional PDF 1.4 page group attributes for transparency model.",
+      "owner": "page rendering/compositing",
+      "assertions": "B39 same-object alpha compositing and transparency foundation/compositing shards; color/overprint suites",
+      "evidence": "Current page Group is consumed with selected independent formulas/pixel controls. No whole transparency/backend certification from this cell."
+    },
+    {
+      "key": "Thumb",
+      "rule": "Optional thumbnail image stream for this page.",
+      "owner": "pdf-model::thumbnail and thumbnail host consumers",
+      "assertions": "thumbnails tests",
+      "evidence": "Thumbnail image decoding/placement has dedicated tests; distinction from Filespec /Thumb is explicitly documented."
+    },
+    {
+      "key": "B",
+      "rule": "Optional PDF 1.1; recommended when page contains article beads; array of indirect bead refs in reading order (effective #320); forbidden on Template.",
+      "owner": "articles/thread model",
+      "assertions": "articles.rs and thread_bead_index_spec_audit; outlines_threads_current",
+      "evidence": "Issue #320 resolves order to reading order; one-thread sequence is asserted. Table31 Optional/recommended and §12.4.3 shall-contain wording remain inconsistent; no reader rejection duty is inferred."
+    },
+    {
+      "key": "Dur",
+      "rule": "Optional PDF 1.1 display duration; default is no automatic advance.",
+      "owner": "presentation/navigation",
+      "assertions": "presentations_audit",
+      "evidence": "Page presentation timing has targeted tests; broader automated slide-show behavior is not certified."
+    },
+    {
+      "key": "Trans",
+      "rule": "Optional PDF 1.1 transition dictionary for presentation display.",
+      "owner": "presentation/navigation/render",
+      "assertions": "presentations_audit",
+      "evidence": "Selected transition entries/defaults are exercised; not a test of every visual transition/backend."
+    },
+    {
+      "key": "Annots",
+      "rule": "Optional array of indirect refs to all annotations associated with page.",
+      "owner": "annotation model/view/interact",
+      "assertions": "annotations, page trigger, annotation appearance and associated file tests",
+      "evidence": "Broad annotation routes are covered; malformed/missing annotation entries remain policy and not all subtypes are certified."
+    },
+    {
+      "key": "AA",
+      "rule": "Optional page additional-actions dictionary, PDF1.2; non-inheritable from PDF1.3.",
+      "owner": "pdf-model::action::for_page; viewer-core navigation page trigger events",
+      "assertions": "initial_open_order_spec_audit; script_triggers; page_visibility_triggers_audit",
+      "evidence": "Direct and indirect AA/O public URI controls executed PASS in form-page-wave87b.log. See parent-review.json; no host delivery or timing certification."
+    },
+    {
+      "key": "Metadata",
+      "rule": "Optional PDF 1.4 metadata stream containing page metadata.",
+      "owner": "XMP/page metadata processing",
+      "assertions": "metadata_current",
+      "evidence": "Page/catalog metadata distinction is owned under metadata; this pass did not trace every page packet consumer."
+    },
+    {
+      "key": "PieceInfo",
+      "rule": "Optional PDF 1.3 page-piece dictionary.",
+      "owner": "producer-specific page data",
+      "assertions": "PieceInfo/metadata owner path",
+      "evidence": "Private page-piece information may be ignored by general-purpose processors under §14.5; LastModified conditional mapped, no page rendering obligation inferred."
+    },
+    {
+      "key": "StructParents",
+      "rule": "Required integer if page contains structural content items; key into structure ParentTree.",
+      "owner": "tagged structure and accessibility",
+      "assertions": "logical_structure/tagged_layout/accessibility tests",
+      "evidence": "Page-keyed structure semantics are reviewed in those shards; this pass does not re-certify complete tagged-PDF semantics."
+    },
+    {
+      "key": "ID",
+      "rule": "Optional page digital identifier, PDF 1.3; indirect reference preferred was removed by #106, deprecated PDF 2.0 by #619.",
+      "owner": "web-capture legacy metadata",
+      "assertions": "deprecated_web_prepress_current",
+      "evidence": "EC3 changes verified; no current page display consumer identified."
+    },
+    {
+      "key": "PZ",
+      "rule": "Optional PDF 1.3 preferred zoom for natural display magnification in web capture.",
+      "owner": "deprecated web capture",
+      "assertions": "deprecated_web_prepress_current",
+      "evidence": "Feature family is deprecated/inapplicable in effective PDF 2.0 scope; no general page zoom default is derived from PZ."
+    },
+    {
+      "key": "SeparationInfo",
+      "rule": "Optional PDF 1.3 separation information for page color separations.",
+      "owner": "deprecated/prepress separation output",
+      "assertions": "deprecated_web_prepress_current; halftones_separations_current",
+      "evidence": "Reader's screen/render color path is separately audited; page separation output is not claimed by this app. Optional producer field does not imply a screen-reader requirement."
+    },
+    {
+      "key": "Tabs",
+      "rule": "Optional PDF 1.5 tab order; R,C,S; PDF2 also A,W.",
+      "owner": "pdf-model::tab_order and keyboard/form interaction",
+      "assertions": "untagged_widgets.rs; tab_order tests; interactive_framing_current",
+      "evidence": "Selected keyboard order values and tagged fallback are tested; not every malformed-structure case."
+    },
+    {
+      "key": "TemplateInstantiated",
+      "rule": "Required if page created from named page; originating name.",
+      "owner": "named-page/FDF import",
+      "assertions": "named_page, APRef and FDF import suites",
+      "evidence": "Named-page association and visible page-conversion consumers reviewed; no unconditional requirement to synthesize this marker for ordinary pages."
+    },
+    {
+      "key": "PresSteps",
+      "rule": "Optional PDF 1.5 first navigation node for sub-page navigation.",
+      "owner": "pdf-model::navigation, presentation consumer",
+      "assertions": "navigation tests around page PresSteps and presentation controls",
+      "evidence": "Model traversal/order has focused fixtures; full host slide navigation is outside this Table31 matrix."
+    },
+    {
+      "key": "UserUnit",
+      "rule": "Optional PDF 1.6 positive scale in multiples of 1/72 inch; default 1; supported range implementation-dependent; not inheritable.",
+      "owner": "page geometry/render/print/transform",
+      "assertions": "page_geometry, coordinate_graphics_state, color/image consumers, transform tests",
+      "evidence": "Literal dimensions/pixel-placement tests and ancestor non-inheritance control exist; the numerical maximum is implementation-dependent, so no invented ISO upper bound."
+    },
+    {
+      "key": "VP",
+      "rule": "Optional PDF 1.6 ordered array of page viewport dictionaries.",
+      "owner": "pdf-model::measurement and measurement consumers",
+      "assertions": "measurement_numeric_spec_audit, measuring.rs and measurement model tests",
+      "evidence": "Valid page viewport arrays feed public measure/coordinate queries; many detailed geometry tests. Viewports are not page viewport defaults or page-box replacements."
+    },
+    {
+      "key": "AF",
+      "rule": "Optional PDF 2.0 array of one or more file specification dictionaries associated with page.",
+      "owner": "associated-page files and DPart attachments",
+      "assertions": "associated_page_files.rs; dpart_af_current_shape_spec_audit",
+      "evidence": "Public extraction distinguishes page and catalog associations; exact file payload assertions exist. Page AF zero-population in curated corpus is not treated as lack of feature support."
+    },
+    {
+      "key": "OutputIntents",
+      "rule": "Optional PDF 2.0 array specifying output device color characteristics for this page.",
+      "owner": "output intents/color conversion",
+      "assertions": "output_intents_current, ICC and colour context shards",
+      "evidence": "Selected public consumers and independent color oracles exist; synthetic-profile fixture qualification remains in those shards."
+    },
+    {
+      "key": "DPart",
+      "rule": "Required if page belongs to a DPart range; prohibited otherwise; indirect ref to covering part.",
+      "owner": "DPart hierarchy/AF/navigation",
+      "assertions": "dpart_af_current_shape_spec_audit; dpart_limits_current; goto_dp_node_spec_audit",
+      "evidence": "Reciprocal ranges/page references and AF/public consequences have focused assertions; hierarchy depth bound is explicitly qualified in DPart shard."
+    }
+  ],
+  "current_gap_candidate": {
+    "behavior": "Page /AA action dictionaries can be represented indirectly under general object rules; current page action tests found all direct page /AA and direct /O action forms.",
+    "source": "Table 31 /AA physical p.121 / printed p.106; §7.3.10 general indirect-object equivalence; page /AA is explicitly non-inheritable in Table31 and §7.7.3.4 lists only four inherited keys.",
+    "implementation": "pdf-model/src/action.rs::for_page calls Document::get_key(page, \"AA\") then action::read on the selected entry.",
+    "test": "drafts/page_aa_indirect_reference_spec_audit.rs compares a direct valid control with indirect /AA and indirect /O, both returning the literal page-open URI through Viewer.",
+    "verdict": "Now executed PASS; bounded public indirect-object control, not a defect."
+  },
+  "partial_scope": [
+    "Does not recertify the entire page-tree graph, all annotation or structure semantics, every transition effect, every viewport type, or every backend.",
+    "Public indirect-AA test executed PASS; other cell links remain selected partial review.",
+    "Table 31 field absence and writer constraints are not automatically reader error obligations."
+  ]
+}

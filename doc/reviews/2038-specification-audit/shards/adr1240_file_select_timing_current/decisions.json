@@ -1,0 +1,10 @@
+{
+  "reviews": [
+    {
+      "adr": "root ADR1240, with1216 and1592",
+      "decision": "Agree with a shared FileSelect gate and chooser as pathname entry. A graphical chooser is a convenience, not mandated by Table231. Do not retain the commit-only read claim as current evidence.",
+      "grounds": "The actual two native signal routes call the synchronous read before their separate commit callbacks. The existing tests verify content and type selection but cannot establish timing.",
+      "next": "Decide whether to restore deferred acquisition or explicitly ratify reading during edits, then add a native-host acquisition-timing test. No production change or historical ADR rewrite in this audit."
+    }
+  ]
+}

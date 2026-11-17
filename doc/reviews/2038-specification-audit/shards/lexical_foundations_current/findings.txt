@@ -1,0 +1,1 @@
+Two lexical-context tests pass. The broad7.2 witness only proves termination; dedicated assertions supply semantics. The7.1 note that7.11/7.12 are unread is stale. No production or ledger edit.

@@ -1,0 +1,129 @@
+{
+  "scope": "ISO 32000-2:2020(E) \u00a7\u00a79.6.5.1, 9.6.5.2, and 9.6.5.4; Type 3 \u00a79.6.5.3 and AGL-specific B15/B16 excluded. Annex D table data considered only as it informs the encoding clauses.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf and effective extraction doc/md/ISO_32000-2_sponsored_EC3.md",
+    "source_locations": [
+      "\u00a79.6.5.1 and Table 112: printed pp. 322\u2013323, physical pp. 337\u2013338",
+      "\u00a79.6.5.2: printed p. 324\u2013325, physical pp. 339\u2013340",
+      "\u00a79.6.5.4 encoding rules and Table 113: printed pp. 325\u2013327, physical pp. 340\u2013342",
+      "Annex D.2/Table D.2 and notes: printed pp. 872\u2013873; Annex D.4/Table D.4: printed p. 875"
+    ],
+    "errata": "No EC3 issue directly alters \u00a7\u00a79.6.5.1/.2/.4 or the reviewed Annex D.2/D.4 assignments. Nearby issue #333 corrects a cross-reference in \u00a78.9.6.3 only. Effective md contains the supplied EC3 changes; the checked text has no relevant inserted correction at these clauses."
+  },
+  "features": [
+    {
+      "id": "simple-encoding-forms-defaults",
+      "clauses": [
+        "9.6.5.1",
+        "Table 112"
+      ],
+      "source_feature": "Table 112 permits MacRomanEncoding, MacExpertEncoding, WinAnsiEncoding, or an Encoding dictionary; the dictionary's BaseEncoding and Differences are optional. Its default base depends on whether the font program is embedded and, for nonembedded fonts, on Symbolic/Nonsymbolic descriptor flags. \u00a79.6.5.1 says a program's built-in encoding may be overridden by the PDF Encoding entry.",
+      "ledger": [
+        "doc/conformance/ledger.toml \u00a79.6.5",
+        "\u00a79.6.5.1"
+      ],
+      "code": [
+        "crates/pdf-font/src/encoding.rs",
+        "crates/pdf-font/src/glyph_names.rs::base_encoding",
+        "crates/pdf-font/src/glyph_names.rs::encoding_names",
+        "crates/pdf-font/src/name_keyed.rs::simple_code_table"
+      ],
+      "tests": [
+        "crates/pdf-font/src/name_keyed.rs::a_font_with_no_encoding_entry_is_its_own",
+        "::differences_without_a_base_encoding_layer_over_the_programs_own",
+        "::a_named_base_encoding_still_wins",
+        "::the_symbolic_flag_changes_nothing_for_an_embedded_program"
+      ],
+      "assertion_quality": "These CFF/name-keyed tests assert exact code-to-glyph IDs and names for built-in versus PDF dictionary bases, including an explicit base taking precedence and Differences alone overlaying an embedded encoding. They are unit tests through the real font dictionary parser but use synthetic name-keyed CFF, not an exact-xref public PDF. The source ledger's Table 112 assertions are limited to these named cases and code tables; it does not certify every invalid entry/recovery behavior.",
+      "verdict": "Supported for the sampled valid defaults and override routes. No defect established. Type 3's no-built-in rule is outside this shard.",
+      "residuals": "No public exact-xref consumer test was found that distinguishes all embedded/nonembedded default-base cases in Table 112. Reader errors for malformed Encoding values are not a conformance obligation inferred here."
+    },
+    {
+      "id": "base-encoding-tables-and-macexpert",
+      "clauses": [
+        "9.6.5.1",
+        "Annex D.2",
+        "Annex D.4"
+      ],
+      "source_feature": "The standard-defined Standard, MacRoman, WinAnsi, and MacExpert tables supply glyph-name mappings. Table 112 permits the three named PDF encodings; Annex D.1 requires predefined WinAnsi and MacExpert, and D.4 notes an expert font program's built-in encoding may differ from MacExpert.",
+      "ledger": [
+        "doc/conformance/ledger.toml \u00a79.6.5.1",
+        "Annex D rows"
+      ],
+      "code": [
+        "crates/pdf-font/src/encoding.rs::BaseEncoding",
+        "crates/pdf-font/src/glyph_names.rs::PERMITTED_ENCODING_NAMES"
+      ],
+      "tests": [
+        "crates/pdf-font/src/encoding.rs::the_encodings_differ_where_they_are_known_to_differ",
+        "::table_113_adds_fifteen_codes_and_replaces_one",
+        "::unknown_encoding_names_are_refused_and_the_four_permitted_ones_are_not",
+        "::the_expert_set_is_annex_d4s_own_table",
+        "::the_expert_set_shares_only_punctuation_with_the_latin_tables"
+      ],
+      "assertion_quality": "Tests establish characteristic Standard/WinAnsi/MacRoman differences, Mac OS Roman Table 113's 15 additions and Euro replacement, and MacExpert's 165 assigned codes plus representative boundary/column values. `scratchpad/r2038/spec-audit/annex_d_encoding/drafts/compare_local_annex_d.py` independently compared all 165 implementation MacExpert assignments to primary PDF extraction, but that source comparison is not a committed CI assertion. No current PDF corpus fixture uses MacExpertEncoding. The table's normative presence and exact assignments are better supported by the source comparison than by the small in-code samples.",
+      "verdict": "Implementation table data is supported by tests and an independent scratch source comparison; no mapping defect found. Full source-to-implementation equality is not CI-gated.",
+      "residuals": "A future durable source-derived check could compare all MacExpert assignments, but a second hand-copied mapping would risk duplicating errors. No user-visible defect is evidenced. The D.4 built-in-versus-PDF encoding caveat is correctly handled by encoding precedence rather than unconditional MacExpert selection."
+    },
+    {
+      "id": "differences-meaning-and-precedence",
+      "clauses": [
+        "9.6.5.1",
+        "9.6.5.2",
+        "9.6.5.4"
+      ],
+      "source_feature": "Table 112 says Differences replaces glyph names beginning at each integer code and then advances one code per name. Type 1 \u00a79.6.5.2 says the PDF Encoding overrides the program's built-in encoding and a Differences name is looked up in the program's charset. TrueType \u00a79.6.5.4 applies Differences to a dictionary's BaseEncoding table and fills remaining undefined entries from StandardEncoding. D.2 notes 5/6 give special note-specific reason for Differences on TrueType fonts; general prose says it should not otherwise be used with TrueType, which is guidance rather than a ban.",
+      "ledger": [
+        "doc/conformance/ledger.toml \u00a7\u00a79.6.5.1/.2/.4"
+      ],
+      "code": [
+        "crates/pdf-font/src/encoding.rs::apply_differences",
+        "crates/pdf-font/src/glyph_names.rs::encoding_names",
+        "crates/pdf-font/src/name_keyed.rs::simple_code_table",
+        "crates/pdf-font/src/truetype.rs::truetype_code_table"
+      ],
+      "tests": [
+        "crates/pdf-font/src/name_keyed.rs::differences_without_a_base_encoding_layer_over_the_programs_own",
+        "::a_named_base_encoding_still_wins",
+        "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_glyf_under_simple_truetype_uses_the_glyph_name_cmap_route",
+        "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+        "crates/pdf-model/tests/names_are_bytes.rs"
+      ],
+      "assertion_quality": "The unit CFF tests distinguish program encoding, dictionary overlay and explicit BaseEncoding precedence. The public exact-xref OpenType/Glyf fixture uses an embedded synthetic valid font with A/B name-and-cmap controls, reverses the explicit Differences mapping, and asserts exact selected GIDs [2,1] plus nonempty outlines; its CFF counterpart verifies Type 1 route. `apply_differences` retains unknown byte names (other tests cover this), but I found no public TTF consumer test specifically distinguishing \u00a79.6.5.4's StandardEncoding fill for an unspecified Differences slot. The original A/B fill draft would not distinguish Standard from WinAnsi because both map those codes identically; it is superseded as evidence by the sharper not-yet-run Liberation Sans proposal.",
+      "verdict": "Explicit Differences mapping and base precedence are demonstrated. No incorrect mapping or reader error found. A narrow public consumer assertion gap remains for TrueType undefined-slot StandardEncoding fill.",
+      "residuals": "The initial synthetic GLYF proposal is not sufficiently discriminating: A/B names in StandardEncoding and WinAnsi coincide at tested codes, so a default-byte/WinAnsi fallback could pass. A stronger exact-xref consumer draft is at drafts/standard_encoding_fill_liberation.rs and must be run before promotion. It uses checked-in LiberationSans-Regular.ttf (SHA256 f8ace1f892b2bd9dc1792ba7f097fa7588f84fed48321480e04de5390828221f; PostScript name LiberationSans; 2048 UPM): source code 39 resolves StandardEncoding `quoteright` U+2019 to GID 527 (advance 455/2048\u00d71000 = 222.168, PDF width 222), but WinAnsi code 39 resolves `quotesingle` U+0027 to GID 10 (advance 391/2048\u00d71000 = 190.918, PDF width 191). Code 40 explicitly maps `/parenright` GID 12, advance 682/2048\u00d71000 = 333.008, PDF width 333; this confirms Differences are honored independently. Embedded-program descriptor: head bbox [-416,-621,2151,1864] units \u2192 scaled exact [-203.125,-303.22265625,1050.29296875,910.15625], rounded outward [-204,-304,1051,911]; OS/2 typo metrics 1491/-431 and cap-height 1409 \u2192 scaled ascender 728.027, descent -210.449, cap 687.988, rounded outward [729,-211,688]. StemV=80 is explicitly approximate because the TTF has no StemV field. Control expected [10,12] precedes target expected [527,12]. The draft asserts exact-xref no-recovery and selected nonempty outlines. This is a stronger proposed regression, not run evidence."
+    },
+    {
+      "id": "truetype-cmap-and-flag-route",
+      "clauses": [
+        "9.6.5.4",
+        "Table 121"
+      ],
+      "source_feature": "Named/non-symbolic codes go through PDF glyph names \u2192 Unicode (3,1), or via Mac OS Roman (1,0), then post-name lookup. Symbolic/no-encoding route uses the specified (3,0) high-byte ranges or (1,0). Symbolic causes Encoding to be ignored; Nonsymbolic enables the named glyph-name table. The final processor-chosen mapping is a permission, not a required fourth mapping.",
+      "ledger": [
+        "doc/conformance/ledger.toml \u00a79.6.5.4",
+        "Table 121 flags row"
+      ],
+      "code": [
+        "crates/pdf-font/src/truetype.rs::truetype_code_table",
+        "::symbol_glyph",
+        "::named_glyph",
+        "::is_symbolic",
+        "crates/pdf-font/src/substitute.rs::true_type_encoding_route"
+      ],
+      "tests": [
+        "crates/pdf-font/src/truetype.rs::a_symbol_subtable_is_addressed_through_the_high_byte_of_its_range",
+        "::a_unicode_subtable_is_reached_through_the_adobe_glyph_list",
+        "::a_macintosh_subtable_is_reached_through_mac_os_roman",
+        "::a_name_no_encoding_knows_is_found_in_the_post_table",
+        "::a_named_code_is_drawn_through_the_character_its_to_unicode_states",
+        "crates/pdf-font/src/truetype_flags_audit.rs::a_conflicting_flags_word_follows_symbolic_with_route_controls",
+        "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_glyf_under_simple_truetype_uses_the_glyph_name_cmap_route"
+      ],
+      "assertion_quality": "Internal tests use isolated synthetic cmaps with discriminating byte/Unicode/Mac-Roman values and exact GID controls. The public exact-xref test validates a real embedded sfnt through font loading, asserts selected GIDs for swapped Differences and nonempty outlines. Archive integration tests additionally constrain writer rewrite behavior, not reader conformance. They do not certify every platform cmap encoding ID or every flag combination; the dedicated conflicting-flags test asserts the selected route with concrete controls.",
+      "verdict": "Core clause routing and the sampled conflict/default routes are supported; no behavior gap established.",
+      "residuals": "The source marks several producer practices `should`; absence of recommended embedding/encoding forms does not establish mandatory reader failure. The OS/2 Symbolic/Nonsymbolic bits are not the PDF descriptor flags; this path reads the descriptor. No test here demands rejection on malformed cmap encodings."
+    }
+  ],
+  "bounded_review": "This reviews simple-font encoding selection and table assertions, not every CMap, glyph-name, text extraction, rendering or substitution behavior. No finding is a whole-clause certification."
+}

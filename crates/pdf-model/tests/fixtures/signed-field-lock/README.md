@@ -1,0 +1,33 @@
+# Signed field-lock control
+
+These synthetic PDF 2.0 files differ by an actual signature value. Both contain two checkbox
+fields (`name`, `other`) and a signature field whose indirect `/Lock` dictionary includes only
+`name`. Each checkbox starts Off with explicit Off/On appearances; no font or default-appearance
+assumptions are needed. The signature uses `ETSI.CAdES.detached`, SHA-256, a fresh test-only RSA
+key, and the SigningCertificateV2 attribute produced by OpenSSL `cms -cades`.
+
+`signature_field_lock_spec_audit.rs` checks unchanged cryptographic integrity, lock selection,
+and the unsigned control. The viewer-core companion checks actual edit refusal under the
+reader's On policy, an unlisted field, the unsigned form, and the explicit Off override. This
+covers Include without `/P`; All, Exclude, and `/P` still have separate parser/policy witnesses.
+
+The certificate is self-signed test material, not evidence of public trust. Its validity window
+is 2026-11-16 through 2036-11-13. The generator deletes its temporary private key. Tests read the
+committed files and do not invoke OpenSSL, qpdf, or a network service.
+
+Regenerate into a scratch directory with Python 3, OpenSSL, and qpdf:
+
+```sh
+python3 crates/pdf-model/tests/fixtures/signed-field-lock/generate.py /tmp/pdf-lock-fixture
+```
+
+Fresh keys and signing time mean regeneration is semantically equivalent, not byte-identical.
+The generator verifies detached CMS and checks PDF syntax. Parent review additionally extracted
+`/Contents` and the declared byte ranges from the finished PDF using pikepdf, then verified that
+extracted signature/content with OpenSSL. The committed signed file is 18,047 bytes with
+`/ByteRange [0 462 16848 1199]`.
+
+SHA-256:
+
+- `signed-lock.pdf`: `c17424cc52db2a226c6397a6710223dacbe1f5059eaa6c180cd26dc2a7950f7c`
+- `unsigned-lock.pdf`: `25a442e26c3442cf324de7d3b6874b73ac8bb139483683ae19c84a76f406044d`

@@ -1,0 +1,7 @@
+{
+  "source": "Parent read physical835\u2013839 and #482 directly, plus selected/in_force code and ADR0821/1932. Independent Luna review agrees with page-scope interpretation; corrected its physical/printed page confusion.",
+  "assertions": "Both public regressions fail in output-intents-wave29.log. The catalog profile changes [64,64,64,255] to [96,97,97,255] despite the page\u2019s own registered condition; report names Catalog GRACoL. Confirmed profile bytes/hash and independent LittleCMS parse.",
+  "limits": "Registered profile resolution is not requested. No all-intent, subtype-standard or press-output certification.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification; parent qualifications govern draft assertions."
+}

@@ -1,0 +1,52 @@
+{
+  "baseline": "166ed1a91b2f64ef38e672fb939b5ab195b07938",
+  "scope": "Bounded review of effective EC3 §7.2.2 binary transport (#193), shipped local open/save paths, and byte-bearing FFI APIs. This is not certification of all possible caller, network, or host transports.",
+  "source": {
+    "locator": "EC3 §7.2.2, physical PDF page 36 / printed page 21; issue #193 primary annotations inspected in the audit worktree and effective correction cross-checked against the PDF Association errata page.",
+    "effective_rule": "The struck qualifier 'containing binary data' is removed: a PDF file shall be transported as a binary file rather than a text file so all bytes are faithfully preserved. This is an application transport duty. It does not add a parser rejection rule.",
+    "official_errata_url": "https://pdf-issues.pdfa.org/32000-2-2020/clause07.html"
+  },
+  "features": [
+    {
+      "feature": "Open a local PDF without text decoding",
+      "implementation": [
+        "pdf-syntax::FileBytes::on_disk holds the file and reads ranges as bytes.",
+        "GTK, Qt, viewer-host and viewer-ffi window open paths construct FileBytes from the local path; the safe FFI Session::open takes Vec<u8>.",
+        "quorra_open copies the caller's pointer/length range into the session as bytes."
+      ],
+      "assertions": [
+        "pdf-syntax/tests/on_disk.rs compares parsed values for on-disk and in-memory reads, but does not assert transport bytes as a whole.",
+        "The real-file corpus fixture used by viewer-core::headless::a_saved_document_carries_the_edit_and_the_file_under_it is present in this audit worktree: 23,136 bytes, including 25 NUL bytes and 1,182 bytes >= 0x80 (including ten 0xff bytes)."
+      ],
+      "status": "Implementation uses binary interfaces; no text conversion was found in the reviewed local-open paths. The assertion is semantic parse equivalence rather than raw whole-file equality."
+    },
+    {
+      "feature": "Save an edited PDF while retaining the original file bytes",
+      "implementation": [
+        "Core Save produces Vec<u8> incremental-update bytes.",
+        "GTK, Qt, and viewer-host save destinations call std::fs::write with the bytes.",
+        "C ABI quorra_event_bytes copies the event's byte slice with copy_from_slice and reports exact length; it does not add a NUL terminator."
+      ],
+      "assertions": [
+        "viewer-core/tests/headless.rs::a_saved_document_carries_the_edit_and_the_file_under_it edits a real corpus PDF, asserts the complete saved output starts with the exact original byte vector, then opens the saved bytes and observes the edit. The source corpus includes NUL and high bytes, so the prefix assertion directly covers them. This test passed in the recorded broad baseline at index 5680/6518.",
+        "pdf-syntax/tests/file_structure_audit.rs::a_whole_file_writer_places_a_binary_comment_after_the_header checks serialized high-byte marker placement, a different writer-side feature.",
+        "viewer-ffi/src/events.rs has a byte accessor check for an FDF payload but that particular value is ASCII. The compiled C integration opens and saves a real PDF through quorra_open/quorra_event_bytes and verifies the returned length, but does not compare the returned content to the input prefix."
+      ],
+      "status": "The core save consumer has a direct binary-byte preservation assertion. The public C ABI is exercised with a real PDF and its buffer/length protocol, but the current C integration does not independently assert high-byte/NUL preservation at that boundary."
+    },
+    {
+      "feature": "Other byte-bearing file flows",
+      "implementation": [
+        "Embedded-file and remote-fetch results use Vec<u8>/std::fs::read; host extraction and save paths write byte slices with std::fs::write.",
+        "URI and external-document handoffs often return a URI to the caller, so the viewer core does not own transport performed by an external application or network stack."
+      ],
+      "status": "Only source-level path tracing was performed for these adjacent routes; no full external network or every-extraction flow certification is claimed."
+    }
+  ],
+  "tests_run_by_this_audit": false,
+  "unreviewed": [
+    "No independent execution in this shard; recorded broad-baseline result is cited separately.",
+    "No exhaustive audit of every host platform's filesystem API, caller language/runtime, network stack, or out-of-process URI handler.",
+    "No failure of a shipped transport path was identified."
+  ]
+}

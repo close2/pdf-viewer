@@ -1,0 +1,7 @@
+[
+  {
+    "adr": "0563",
+    "assessment": "Historical recovery rationale no longer needed to justify no-current-path ignore outcome after EC3#549. Retain old ADR as history; test comments now distinguish effective requirement from historical policy.",
+    "limits": "Not a wholesale reassessment of all h/degenerate-path reporting choices."
+  }
+]

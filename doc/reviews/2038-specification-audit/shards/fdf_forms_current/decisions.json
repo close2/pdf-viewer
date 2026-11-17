@@ -1,0 +1,17 @@
+[
+  {
+    "adr": "1066",
+    "assessment": "FDF header is chosen from the FDF file's own first header; the catalog trailer root and optional cross-reference support FDF structure, including embedded PDF bytes. Reader's support for optional xref is consistent with source."
+  },
+  {
+    "adr": "1224",
+    "assessment": "Page-ordinal placement is supported by exact FDF annotation/render test. Refusal of subtype values excluded from FDF is a product handling choice for producer-invalid input; the source constraint alone does not mandate that a reader refuse it."
+  },
+  {
+    "adr": "0085",
+    "assessment": "Model PrintField parsing is source-aligned, but reading the attribute in a model accessor is not accessibility delivery. Checkpoint26 public consumer tests passed the title control and failed role, checked, and description distinctions; parent review confirms identical public nodes. Ledger 12.7.9 should not claim complete reader accessibility from parser-only tests."
+  },
+  {
+    "reconsideration": "Keep FDF format producer constraints separate from reader refusal duties. Revisit 12.7.9 status after the exact consumer candidate is run and after deciding how the public accessibility node carries flattened field role/state/name."
+  }
+]

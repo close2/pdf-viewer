@@ -1,0 +1,10 @@
+{
+  "stmf-strf-distinct-defaults.pdf": {
+    "path": "crates/pdf-syntax/tests/public_key_witnesses/stmf-strf-distinct-defaults.pdf",
+    "sha256": "fceacbef44cf31769914cc851b46f6e3170cd1de964b2e868dc877002f6a9bd4"
+  },
+  "stmf-strf-shared-defaults.pdf": {
+    "path": "crates/pdf-syntax/tests/public_key_witnesses/stmf-strf-shared-defaults.pdf",
+    "sha256": "43ef06da4de8e265f1ed372e751517bbda1ea455d3294257fc91d1ce5aa2a9af"
+  }
+}

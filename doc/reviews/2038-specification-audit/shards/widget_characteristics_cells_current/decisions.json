@@ -1,0 +1,31 @@
+{
+  "status": "selected decision review",
+  "decisions": [
+    {
+      "adr": "ADR 1090 — What a clause conditions on the pointer and what it leaves unsaid",
+      "review": "Retain the conditional state mapping for Table 192's RC/AC and RI/IX entries, while preserving the distinct P/override rule from Table 191.",
+      "basis": "Table 192 assigns the entries to interaction states; current tests use distinct caption/icon witnesses across pointer states. Missing-state fallback to normal is not stated by Table 192 and remains a project policy, not a normative claim.",
+      "limit": "This review does not certify all event transitions or state dictionaries."
+    },
+    {
+      "adr": "ADR 1299 — A withheld quantity is chosen, written down, and reported",
+      "review": "Retain only for the chosen division used by TP=2–5.",
+      "basis": "The Table 192 codes specify caption side but no split fraction. The implemented one-third share is therefore chosen policy; the existing test/report should continue to identify it as such.",
+      "limit": "Do not describe one-third as an ISO value."
+    },
+    {
+      "adr": "ADR 0239 — prior refusal of TP side codes (superseded by ADR 1299)",
+      "review": "Do not treat the old refusal as current. ADR 1299 accepts the four codes and supplies a reported share.",
+      "basis": "Current implementation handles codes 2–5; named test checks a chosen division and reports the share.",
+      "limit": "No new assertion needed for the historical supersession."
+    },
+    {
+      "adr": "ADR 2813 — Down appearance, highlighting, and printing",
+      "review": "Retain the Table 191 H-specific conclusion, conditioned on /H and interaction state.",
+      "basis": "Table 191 requires default I and says every mode except P overrides D. Existing tests cover default-I and P/T down behavior. Table 191's rule must not be generalized to other annotation subtypes.",
+      "limit": "No exhaustive host-specific interaction matrix was run here."
+    }
+  ],
+  "test_drafts": [],
+  "reconsideration": "No selected source contradiction or current behavior defect found. Optional additional component-count/color-space matrix tests would increase breadth but no distinct consumer failure is evidenced; not drafted."
+}

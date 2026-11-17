@@ -1,0 +1,5 @@
+{
+  "verdict": "Agree with same-adapter determinism and derived cross-lane/adapter bounds; do not restore retired universal byte identity.",
+  "inspection": "Read current exact same/fresh-device and replay assertions, compute mirror comparisons, common/bound per-store alpha-scaled color limits and unamplified alpha bounds. Exact sampled comparisons are measurements, not promises for every vendor.",
+  "limits": "Source/assertion review only; no new multi-adapter measurement. Future divergence needs measured numerical explanation, not an automatic waiver or automatic ISO defect."
+}

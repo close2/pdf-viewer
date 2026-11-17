@@ -1,0 +1,7 @@
+{
+  "source": "Primary524/printed509 contains entire199 and WC/WS/DS/WP of200; DP continues525/510. Read field-event notes and scoped triggering language. #618 adds a reference, not a runtime exclusion.",
+  "assertions": "Read hook K/F exact sequence, validation rollback and literal ordered calculations; public document_trigger_timing_audit observes serialized WS edit versus live DS, WC report before Closed, WP print ink and active-only DP. Residual test distinguishes held/refused saves and XFA cleanup. Engine-gated assertions are not included in default-scope counts.",
+  "adr": "Reread1603,1614,2763 and1904. Timing is normative; detailed script surface, commit semantics, rc and host availability also depend on accepted policy. Keep B22 initial-open order and B62 inheritance separate.",
+  "finding": "D67 records stale current-scope prose in errata-read #618, superseded by1904 and actual consumers. Historical ADRs and source notes left intact under tests/evidence scope.",
+  "execution": "No new tests or execution; existing broad/engine results retain their recorded scopes."
+}

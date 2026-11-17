@@ -1,0 +1,32 @@
+[
+  {
+    "decision": "Does image /Measure apply to an interactive path measurement?",
+    "verdict": "Yes, within the supported interactive measurement pathway. Table 87 says the scale and units shall apply to the image; §12.10.2 defines image-object geospatial coordinates and mapping. This application already implements Query::Measure for user paths. A valid image-only GEO test is warranted.",
+    "reasoning": "This is not a demand that every reader provide a measuring tool: the implementation itself exposes that tool, and Table 87 gives image Measure operative semantics. The source-supported witness should test a valid present image entry through the existing public path. It should not be framed as a missing image rendering feature.",
+    "relevant_adrs": [
+      {
+        "id": "ADR 0082",
+        "assessment": "Its original accepted scope explicitly built page Viewport reading and the Query::Measure tool; it does not separately settle image XObject measurement."
+      },
+      {
+        "id": "ADR 0417",
+        "assessment": "It explicitly classifies image /Measure and /PtData as outstanding obligations ('an image's own scale and geospatial point are those clauses' rows to owe'). That supports, rather than closes, the image-measurement question. Its evidence argues from dictionary lookup sites and needs the consumer-level test proposed here."
+      },
+      {
+        "id": "ADR 1191",
+        "assessment": "Host implementation explains Query::Measure as page viewport points. The page-only representation is the observed boundary, not evidence that Table 87 image Measure is inapplicable."
+      }
+    ],
+    "quality_caveat": "The drafted public test proves one selected geographic-image case. A single failure would not certify every possible overlap between page Viewports and image measures, every transformed Form/Image nesting route, or every image placement mode."
+  },
+  {
+    "decision": "Should image PtData be displayed or interpreted in the viewer?",
+    "verdict": "No mandatory display behavior established by the inspected clauses. Keep as parsed/interchange metadata unless a product extraction contract is adopted.",
+    "reasoning": "Table 272 defines typed column names and point tuples, but makes no display/UI command and explicitly disclaims tuple ordering/relationship. Image /PtData being semantically applicable does not imply a rendered mark or a particular user-facing presentation. No test draft for arbitrary columns is justified by this source alone."
+  },
+  {
+    "decision": "How broad is the finding?",
+    "verdict": "One concrete measurement-consumer gap candidate, not a whole-clause claim.",
+    "reasoning": "The witness uses a valid PDF 2.0 image XObject with explicit object-space registration; it observes only the existing Query::Measure API. No parser rejection or producer conformance rule is inferred from optionality."
+  }
+]

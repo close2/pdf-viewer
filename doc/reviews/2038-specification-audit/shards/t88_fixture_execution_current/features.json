@@ -1,0 +1,29 @@
+{
+  "source": {
+    "third_party_record": "doc/third-party-data.md:969-1002",
+    "archive_url": "https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.88-201808-I!!SOFT-ZST-E&type=items",
+    "archive_sha256_expected_and_actual": "e2a3c458c4d28d5a835c0815fd9b23e197dbc1b83fe81d8e8d8b2ac413d8f22f",
+    "inner_conformance_zip_sha256_actual": "fe3de9056d94b20db3a6ab17032c621a7f05b6ecb1db84b4b58d0825fd6b7033",
+    "data_extracted_to": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit/scratchpad/r2038/spec-audit/t88_fixture_execution_current/extracted/JBIG2_ConformanceData-A20180829",
+    "downloaded_zip": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit/scratchpad/r2038/spec-audit/t88_fixture_execution_current/download/T.88-201808.zip"
+  },
+  "test": {
+    "path": "crates/pdf-sandbox/tests/t88_conformance.rs",
+    "name": "annex_k_streams_against_their_reference_bitmaps",
+    "initial_wave75_status": "early-returns successfully when corpus missing; wave75 log PASS did not execute corpus comparisons",
+    "cases": 16,
+    "distinct_codestreams": 10,
+    "expected_matches": 8,
+    "expected_departs": 7,
+    "expected_outside_pdf_profile": 1,
+    "execution": "For each case, compare in-process and sandboxed JBIG2 output against a supplied BMP reference; require the two isolations to agree. Cases include whole pages plus Annex H.1 and generic-region subparts."
+  },
+  "expectation_semantics": {
+    "Matches": "Must match the reference bitmap; any other outcome is a failure.",
+    "Departs(clause)": "Must not match the sample-software reference; a match is a failure. Refusal and any nonmatching decode result are accepted; the test does not require a particular refusal/error outcome.",
+    "Outside(reason)": "No match/mismatch/refusal expectation is imposed; the test only requires isolated and sandboxed outcomes to agree.",
+    "aggregate_print": "The reported count is distinct whole-stream inputs for which every Whole case matches; it is not a count of compliant features or a declaration of codec conformance."
+  },
+  "interpretation": "Seven named departures are case-level guards against copying sample encoder/decoder behavior. The ten-stream Annex K corpus is informative evidence, not a complete T.88 conformance suite. The passing test alone cannot establish whole-reference conformance.",
+  "parent_execution": "t88-data-wave75.log PASS with actual official dataset:16cases=8Matches+7Departs+1Outside; all seven Departs refused in this run, but assertions allow any nonmatch. Both isolation modes compared;2whole streams match everypage. Not codec certification."
+}

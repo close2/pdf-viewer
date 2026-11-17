@@ -1,0 +1,8 @@
+{
+  "verdict": "T152: valid CCITT Group4 EOFB overrides shorter Rows through public image rendering; PASS.",
+  "source": "Parent read Table8 body55–56, Table10 body57, Table11 body59 and Table12 body61. Draft incorrectly placed Table10 on56, which is Table9. Corrected before promotion. Existing short-Rows model fixture has no RTC and remains tolerance evidence, not valid EOB proof.",
+  "oracle": "Hand-encoded horizontal white0/black16 first row, horizontal white16/black0 second row, then two EOL codewords as EOFB. Height2/Columns16, Rows1 target and Rows2 control. Literal black upper/white lower opaque samples discriminate truncation, duplicate first row and unpainted remainder. Exact xref, binary marker, complete chain, complete interpretation.",
+  "adr": "Parent reread0392 conditional EndOfBlock distinction and1349 codec/concealment rationale. Retain them; low-level decoder rows are a resource/output bound supplied by the caller, so its rows1 result is not a PDF Rows precedence test. The new test exercises the actual model parameter translation.",
+  "execution": "font-fax-wave113 initial all-black draft PASS; final113b distinct-row test PASS. Initial Clippy doc-backtick diagnostics repaired; final font/model all-target Clippy PASS.",
+  "limits": "One valid Group4 bitstream and parameter contrast, not every codeword/mode or malformed input policy. Existing JBIG2 structural oracle does not establish a full expected bitmap."
+}

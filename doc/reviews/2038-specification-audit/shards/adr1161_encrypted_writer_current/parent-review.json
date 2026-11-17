@@ -1,0 +1,7 @@
+{
+  "source": "Read primary96–101 Algorithms2.A/2.B/8–10; inspected #325 K0 repetition correction and #24 removal of IV wording from ECB. Algorithm2.A stepf requires consistentP; conflictingtamper is recoverypolicy, alreadyD16.",
+  "inspection": "IndependentPythonCrypto AES/SHA helper regeneratedallfive fieldsliterals. Parent crosscheckusingpikepdf10.18.1/qpdf12.4.2 independentlygeneratedR6output validatesbothpasswordhashes, unwrapsbothkeyssame, checksPermsP/upperones/Tadb.",
+  "change": "Added fixedvectorcomparisonU/UE/O/OE/Perms for deterministicCounterfixture, exactxrefguard, correctedtampercomments tostatepolicy. No production crypto used to derive expectedbytes.",
+  "execution": "All12 serialize_encrypted tests PASS includingnewvector. Syntax all-targets Clippy PASS afterdoc-markdownfix.",
+  "limits": "One ASCIIpassword/deterministicentropy vector. Existingexception tests are sampled; IDtextpresence stillnotindependentdirectunencryptedpair assertion. No statisticalRNG claim or blanketcrypto certification."
+}

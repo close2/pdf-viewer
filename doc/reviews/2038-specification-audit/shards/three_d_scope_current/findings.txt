@@ -1,0 +1,25 @@
+# 3D / RichMedia scope applicability review
+
+## Finding
+
+No behavior defect or reason to reopen the ratified Clause 13 exclusion was established in this bounded pass. The near-side obligation is the producer-supplied normal appearance: §13.6.2 and §13.7.2.1 each require an AP normal appearance and make it the default inactive-state display. Their notes say that the appearance is typically a pre-rendered bitmap; they do not require the reader to construct a missing bitmap. The active state renders or presents configured artwork and remains excluded by A254 / ADR 1946.
+
+The implementation routes 3D and RichMedia through ordinary annotation appearance handling. Their subtype tags are in `STANDARD_SUBTYPES`; a stored AP is handled through the generic appearance path, while `appearance::construct` reports the explicit missing-AP requirement. `annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence` directly checks the negative branch. The only direct positive subtype-specific evidence located is the `multimedia_annotations.pdf` raster golden, which is a self-regression digest; independent generic AP tests establish the shared path but not a valid subtype-complete 3D or RichMedia fixture. No test was drafted because a synthetic dummy 3DD would not independently establish valid producer content. This is an assertion-strength limit, not evidence of wrong rendering.
+
+## Applicability boundaries
+
+The pending 3D rows in the inventory cover streams, activation/state, views and projection, backgrounds/render modes/lighting, coordinates, 3D-specific markup, and measurement persistence. These features manipulate or render the model/view and remain on the excluded side. The ordinary 2D markup or projection annotation itself remains governed by its generic annotation clause; only its association with a 3D view/measurement belongs to §13.6.6 or §13.6.7.4 and is excluded. §12.5.6.24 separately says a projection annotation with an AP is drawn; with no runtime environment, no AP is not silently treated as a missing generic appearance obligation.
+
+§12.6.4.16 GoTo3DView changes the target 3D/RichMedia view. EC3 #282 widens the target to RichMedia and permits its Views array; #265 corrects Table 220's `/S` self-reference. These edits refine the excluded runtime action and do not introduce a still-page mark. `action.rs` recognizes and refuses GoTo3DView by name. No action-specific assertion was found, but no view-changing behavior is owed under current scope.
+
+The same split applies to RichMediaSettings, activation/deactivation, presentation/window, animation, configuration/instance/view, and view-parameter rows still pending: they control active runtime. EC3 #163 makes settings unique if present; #166 makes Table 341 Configurations required and nonempty for a conforming producer. Neither amendment requires a reader in this scope to activate a configuration. Assets listing and handoff are admitted and were already handled in `legacy_media_annotations_current`; this review did not duplicate that work. The stream-form movie poster is also admitted but is a §13.4 feature, independently exercised in `movie_poster.rs`, not a general licence to decode RichMedia playback.
+
+## Source and decision evidence
+
+Source locations and per-row applicability are in `features.json`. Key locators: §12.5.6.25 is physical p.521 / printed p.506 and is a one-sentence pointer to §§13.6.2 and 13.7.2; §12.6.4.16 is physical p.541 / printed p.526; §13.6.2's Table 309 and inactive/active prose are physical pp.659–660 / printed pp.644–645; §13.7.2.1 is physical pp.715–716 / printed pp.700–701. Errata physical-page annotations are cross-checked against `doc/errata-read.md` (#142 p.658, #163 p.715, #166 p.724, #265/#282 p.541).
+
+ADR 1946 remains consistent with the owner ratification; ADR 0906's specific no-AP reasoning remains supported. ADR 1535's pointer-row rule supports the §12.5.6.25 status inheritance, and ADR 2400's complete-reader-plus-fuzzing trigger remains unmet. Selected decision detail is in `decisions.json`.
+
+One stale source-comment status is concrete: the 3D/RichMedia construct-arm comment in `crates/pdf-model/src/appearance.rs` around lines 721–722 says §12.5.6.25's ledger row is `out-of-scope`, while the current ledger and inventory say `implemented`, and ADR 1946 records that row moving to implemented for the normal appearance. This is documentation consistency only. Parent was notified; no production edit was made.
+
+Partial applicability/source/assertion review only. No Cargo or test suite was run. No child clause is certified as fully implemented, and the entire 3D/RichMedia surface is not certified by this review.

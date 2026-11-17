@@ -1,0 +1,23 @@
+[
+  {
+    "decision": "Treat Order, ListMode, RBGroups, and Locked as interactive consumer behavior only to the extent the processor actually exposes a layer panel; do not convert optional configuration syntax into a duty to offer alternate configurations.",
+    "effective_source": "Table 99 expressly describes Order/ListMode/Locked in an interactive PDF processor UI, while Configs is optional and no text requires a UI selector. Table 99's default Order is empty, and groups not listed are not presented.",
+    "current_evidence": "ADR 0143 and ADR 0246 commit to an interactive Layers tab and tree; Query::Layers -> host panels is current. viewer-core headless tests validate file-to-UI-data and toggle behavior; viewer-ui tests validate common panel interaction.",
+    "related_adrs": ["ADR 0017", "ADR 0143", "ADR 0178", "ADR 0246"],
+    "residual": "Nested tree projection remains an assertion gap. VisiblePages now has a separate multi-page defect candidate: current layouts show several pages, but the layer query selects only the current page's group references."
+  },
+  {
+    "decision": "Revise the older optional-content findings: the `/Locked` consumer claim is now evidenced by the current public headless test; keep the prior ListMode corpus test as a positive control, not proof of filtering.",
+    "effective_source": "Table 99's Locked prohibits UI state changes; VisiblePages displays only groups referenced by one or more visible pages.",
+    "current_evidence": "`headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused` observes flags from a PDF's `/Locked`, then sends commands and asserts independent unlocked movement. `a_visible_pages_list_mode_keeps_the_groups_the_page_reaches` page reaches all groups, so it checks no false exclusion but not filtering behavior. `Open.visible` and current OneColumn arrangements prove the viewer supports multiple simultaneously visible pages; `answers.rs::layers` still filters from `shown_page()` alone.",
+    "related_adrs": ["ADR 0143", "ADR 0178", "ADR 0246"],
+    "residual": "No broad finding of broken Locked behavior. The two-page VisiblePages candidate is not execution-confirmed until the parent runs `drafts/order_listmode_viewer_query.rs`."
+  },
+  {
+    "decision": "Add a small language matching control that uses one valid Usage application over several OCGs; existing one-group cases cannot verify list-wide exact-match precedence/ties.",
+    "effective_source": "Table 100 says all exact matches are ON, otherwise all partial matches with Preferred ON are ON, all others OFF.",
+    "current_evidence": "Implementation computes a list-wide exact set and then the partial preferred set. Existing public rendering test has only one group in each application.",
+    "related_adrs": ["ADR 1173", "ADR 0017"],
+    "residual": "The test draft checks only the stated match algorithm and rendering outcome; it does not impose a policy on malformed tags or change the content language."
+  }
+]

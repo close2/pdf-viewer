@@ -1,0 +1,6 @@
+{
+  "source": "Parent read local synthetic profile generator, quantized CLUT, half-registration content and selected render test. Synthetic ICC header is minimal and not independently certified conforming.",
+  "assertions": "Retained three press-routing arms and assumed-press negative control. Replaced expected Profile::parse/to_rgb with independently calculated literal[169,149,147], retaining two-level tolerance; added opaque-alpha guard. The arithmetic script yields the same literal without production helper calls.",
+  "execution": "Selected press test PASS; model Clippy PASS. Image BG/UCR and spot helper sharing already has separate literal siblings; no duplicate tests added.",
+  "limits": "Literal color pins this synthetic fixture under the selected BPC/sRGB output policy, not a universal ISO-mandated pixel. The script uses analytic corner values; small quantization/float differences fit the explicit tolerance."
+}

@@ -1,0 +1,17 @@
+Selected text-state cell review — baseline b901326c
+
+Actual primary captions and footers place Table 103, “Text state operators,” at physical 316 / printed 301; Table 104, “Text rendering modes,” at physical 319 / printed 304; Table 106, “Text-positioning operators,” at physical 323 / printed 308; and Table 107, “Text-showing operators,” at physical 324 / printed 309. Table 107 does not continue onto physical 325; that page contains following prose. EC3 #368's q/Q text-matrix correction is at physical 322 / printed 307.
+
+The selected Table 103 assertions are specific but uneven: Tc and Tw each have literal displacement controls, including simple-font single-byte SPACE and a composite two-byte code-32 control (the latter is machine-face conditional); Tz is checked through character spacing and TJ displacement; Ts has an explicit “not scaled by font size” placement control; TL is checked through T* after setting TL directly. Tf is used throughout but is not independently tested here. The original suite did not test TD's TL side effect; the added test does.
+
+Table 104 values 0–7 have named model/display-list tests: mode 0 fill only; 1 stroke only and stroke color; 2 fill/stroke order and separate knockout-group cases; 3 no paint while retaining text; 4 fill and clip; 5/6 delayed text clipping; and 7 no glyph paint with downstream clipping. This is meaningful selected-cell evidence, not a claim that every backend raster or stroke consequence is tested.
+
+For Table 106, Td/T* line-matrix behavior is asserted by tstar_returns_to_line_matrix_after_text_advance; Tm replacement and rotation are checked against explicit transform components. The new td_sets_leading_from_its_vertical_operand_before_t_star case compares TD with the equivalent explicit TL+Td sequence and with a Td-only control, expecting glyph origins (20,50), (30,38), and (30,26).
+
+For Table 107, positive TJ displacement is checked against 20→15 for a 250 adjustment at 20 pt. The parent previously ran vertical composite-code-length Tw and vertical-TJ controls successfully in wave16b; that is inherited evidence, not a rerun here. The double-quote test compares its immediate behavior with explicit Tw/Tc/T* and expects (39.5,35); the added follow-on Tj checks retained spacing at (54.5,35). No independent single-quote expansion assertion was identified in this selected set.
+
+The fixtures for the new positioning assertions use the embedded Type 3 test font: glyph A has a literal 1000-unit advance, space 250, FontMatrix .001, and exact xref. The parent integrated and ran the two added assertions with the positioning target; reported result was 7 tests PASS. This evidence does not establish an implementation defect.
+
+EC3 #373 corrects the explanatory T* sequence from TD to Td; it does not alter the arithmetic when the preceding TD has established leading. EC3 #376 concerns normalized Tz and the Trm NOTE 2 instruction; those neighboring topics are outside the new gap. ADR0421 remains supported by q/Q line-matrix evidence. ADR0548 is a deterministic Type 3 positioning fixture decision, not a general font-semantics claim. ADR0746 remains consistent with selected Tz/Trm evidence. ADR1490 concerns extraction and is not repeated.
+
+Limits: selected Table 103–107 cells only; no whole-clause or all-renderer certification. Tf and single quote remain unisolated in this selection; vertical controls are prior parent execution evidence. Tests are in the model/display-list layer except where noted, so this does not certify all viewer or raster consumers.

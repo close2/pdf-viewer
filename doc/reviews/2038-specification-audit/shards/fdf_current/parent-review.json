@@ -1,0 +1,13 @@
+{
+  "execution": "Dictionary /UF request control PASS; template cardinality/field controls PASS. Corrected multi-template CPU control PASS in fdf-pixels-wave14d.log.",
+  "draft_corrections": [
+    "Draft used usize/u32 arithmetic inconsistently; fixed raster indexing.",
+    "Draft required Carried for its one-template positive; current public representation is Named there. Parent handles both as real viewer consumer does. Initial failure was test premise, not product defect.",
+    "Table43 locator corrected to printed134/physical149; previous451 was a later cross-reference."
+  ],
+  "not_promoted": [
+    "Pages+Status diagnostic draft: producer-invalid file, no established mandatory reader diagnostic; stale comment retained as documentation finding.",
+    "4097-array cap diagnostic draft: resource policy candidate only, no established public truncation contract."
+  ],
+  "remaining": "URL/embedded file-spec consumers, external annotation carry and each persisted-page departure are explicitly separate."
+}

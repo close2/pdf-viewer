@@ -1,0 +1,10 @@
+{
+  "verdict": "B74: two public parent-return cases fail; T158/T159 controls pass.",
+  "source": "Parent read physical526–529: actual203527–528 includes NewWindow continuation;204528–529 and205529. Checked primary#140/#258. Table205 R=P targets actual parent; absent nestedT means current document is target. No Name-object GoToE destination used.",
+  "implementation": "Read target_in/walk and jump_into. Across actions Open::around discards ancestor context. Within one C/P walk the stack becomes empty and the final descended.pop returns NoParent instead of the starting document. Both now have independent public failing witnesses.",
+  "adr": "Reread0094 and1227. Existing unknown-parent refusal is appropriate for independently opened PDFs, but not these known same-root paths.0094 claims complete traversal and says embedded navigation needs no external resource. Retain host policy for another root; no filesystem/network permission added.",
+  "fixture": "Use PDF1.7 for features introduced by1.6, avoiding unrelated PDF2 FileSpec/AP obligations. Embedded fixtures have binary header comments, exact lengths, equal16-byteIDs and complete unrecovered xrefs. Remote fixture is allASCII PDF1.7. The original IDs were correct; no ID error claimed.",
+  "oracles": "Root has2 pages, child1; return expects root page1. Parent added a separate single-action C/P witness with the same literal page target. Remote source1 versus target3 independently requires page2 for all three destination forms. Attachment P0/A1 requires child page1of2.",
+  "execution": "destinations-wave118 first3tests2PASS1FAIL; final118b4tests2PASS2FAIL. Both parent failures explicitly report NoParent. Core all-target Clippy118bPASS.",
+  "limits": "No ancestry invented for arbitrary independently opened files, no universal host-window policy, no same-key B08 resolution or B23 geometry duplication. Pending worker statements superseded here."
+}

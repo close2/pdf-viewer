@@ -1,0 +1,192 @@
+{
+  "baseline": "b901326c",
+  "scope": "Cell-level review of Type 1, Type 6, and Type 10 halftone dictionaries (Tables 128–130), their effective EC3 overlays, and the current transfer-function consumer. This does not certify Type 5/16 screens, spot-function algorithms, screen generation, or all of §10.6.",
+  "source": {
+    "primary": "ISO 32000-2:2020 with EC3, doc/ISO_32000-2_sponsored_EC3.pdf; source text cross-checked against scratchpad/r2038/spec-audit/ec3-parent-layout.txt. PDF physical pages and printed ISO page numbers are separate.",
+    "tables": [
+      {
+        "table": "128",
+        "title": "Entries in a Type 1 halftone dictionary",
+        "location": "PDF physical 389; printed 374, with continuation note/example on physical 390 / printed 375"
+      },
+      {
+        "table": "129",
+        "title": "Additional entries specific to a Type 6 halftone dictionary",
+        "location": "PDF physical 390–391; printed 375–376"
+      },
+      {
+        "table": "130",
+        "title": "Additional entries specific to a Type 10 halftone dictionary",
+        "location": "PDF physical 393; printed 378"
+      }
+    ],
+    "effective_annotations": [
+      {
+        "id": "#310",
+        "location": "physical 391 / printed 376",
+        "target": "Table 129 TransferFunction note",
+        "effect": "The effective note states that the entry shall be present for a Type 5 component halftone representing a nonprimary or nonstandard primary colour component; Identity is available. This is a producer-side conditional entry rule, not a requirement to reject absent entries."
+      },
+      {
+        "id": "#310",
+        "location": "physical 395 / printed 380",
+        "target": "Table 132 TransferFunction note",
+        "effect": "Adds a note that a referenced component halftone has TransferFunction when it represents a nonprimary or nonstandard primary colour component."
+      },
+      {
+        "id": "#12",
+        "location": "physical 395 / printed 380",
+        "target": "Table 132 halftone entry",
+        "effect": "The referenced halftone shall not itself be Type 5; producer/table constraint."
+      },
+      {
+        "id": "#311",
+        "location": "physical 396 / printed 381",
+        "target": "§10.6.5.6 prose",
+        "effect": "Strikes the whole Type 5 contrast/fallback paragraph. It does not amend Tables 128–130. The existing transfer shard limits its interpretation accordingly."
+      }
+    ],
+    "locator_correction": "The older halftones_separations_current/features.json says #310 annotates Table 130 on physical 391 / printed 376. That is incorrect: Table 130 begins at physical 393 / printed 378. The physical-391 #310 annotation targets Table 129; another #310 is at physical 395 on Table 132."
+  },
+  "features": [
+    {
+      "id": "type1-screen-parameters",
+      "table": "128",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional; if present, Halftone."
+        },
+        {
+          "key": "HalftoneType",
+          "source": "Required integer 1."
+        },
+        {
+          "key": "HalftoneName",
+          "source": "Optional device halftone name."
+        },
+        {
+          "key": "Frequency",
+          "source": "Required number, cells per inch in device space."
+        },
+        {
+          "key": "Angle",
+          "source": "Required number, degrees counterclockwise in device coordinates; the note distinguishes left-handed device from default user space."
+        },
+        {
+          "key": "SpotFunction",
+          "source": "Required function/name, or PDF 2.0 array of names. For an array, use the first recognized name; if none recognized, use default halftone."
+        },
+        {
+          "key": "AccurateScreens",
+          "source": "Optional boolean default false. True selects the highly precise algorithm; absent/false selects ordinary halftoning. Notes warn about memory use and large cells."
+        },
+        {
+          "key": "TransferFunction",
+          "source": "Optional function/name; overrides current transfer for the same component; Identity names identity. Required when the Type 5 conditional component rule applies. The transfer is in scope even though its neighboring screen is ignored."
+        }
+      ],
+      "ledger": "§10.6.5.2 is marked implemented for the TransferFunction cell, while its note explicitly limits implemented behavior to that entry. §10.6.1–.4 screen generation is inapplicable to the current continuous-tone output route; §10.6.5.1 separately permits ignoring some or all document screens.",
+      "implementation": "crates/pdf-model/src/content/ext_gstate.rs::halftone_transfer accepts dictionary or stream /HT and reads TransferFunction. Non-Type-5 halftones contribute one function to all RGB components; Type 5 is handled by named component. It does not read Frequency, Angle, SpotFunction, AccurateScreens, or HalftoneName for rendering.",
+      "assertions": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "::a_halftone_naming_identity_turns_the_graphics_states_function_off",
+        "crates/pdf-model/tests/halftone_transfer_public_spec_audit.rs::type_5_halftone_transfer_overrides_are_applied_per_rgb_component_in_the_public_raster"
+      ],
+      "assertion_quality": "The legacy test differentiates a Type 1 halftone override (0.5) from graphics-state /TR (0.0), but only through the helper's filled-color result. The public-raster Type 5 test and Type 6 stream test independently use literal values from constant functions and paired same-route controls. Those establish the transfer carrier, not screen sampling.",
+      "verdict": "No screen-generation failure in this output scope. The ignored cells define a print/device screen and are covered by the documented §10.1/§10.6.1 condition and §10.6.5.1 permission. The conditional TransferFunction route has direct public-raster evidence through adjacent type cases.",
+      "residuals": [
+        "No Type 1 function-valued SpotFunction, SpotFunction name-list fallback, AccurateScreens true, frequency/angle, or large-cell allocation behavior is tested; this is intentional screen-scope exclusion, not evidence those fields are parsed.",
+        "The PDF 2.0 SpotFunction name-array is a producer/processor feature of a screen; no current screen consumer makes this a runtime omission."
+      ]
+    },
+    {
+      "id": "type6-threshold-stream-dictionary",
+      "table": "129",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional; if present, Halftone."
+        },
+        {
+          "key": "HalftoneType",
+          "source": "Required integer 6."
+        },
+        {
+          "key": "HalftoneName",
+          "source": "Optional byte string."
+        },
+        {
+          "key": "Width",
+          "source": "Required integer, threshold width in device pixels."
+        },
+        {
+          "key": "Height",
+          "source": "Required integer, threshold height in device pixels."
+        },
+        {
+          "key": "TransferFunction",
+          "source": "Optional function/name; overrides current transfer for the same component. Effective Table 129 note has EC3 #310's Type 5 component condition."
+        }
+      ],
+      "source_prose": "Stream bytes contain Width × Height one-byte threshold values. Values are in device space; (0,0) is first, with horizontal coordinates varying faster than vertical, analogous to image sample order.",
+      "ledger": "§10.6.5.3 is marked implemented only for the stream dictionary's TransferFunction. The note explicitly treats Width, Height and threshold samples as screen data outside this reader's output-device scope.",
+      "implementation": "ExtGState /HT obtains either a dictionary or a stream dictionary and reads TransferFunction, but does not access the stream's decoded payload, Width or Height. The output is continuous-tone RGB and doesn't consume a threshold screen.",
+      "assertions": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "crates/pdf-model/tests/halftone_transfer_public_spec_audit.rs::type_6_stream_transfer_override_is_applied_even_when_its_screen_is_ignored"
+      ],
+      "assertion_quality": "The public test uses a 1×1 Type 6 stream with one encoded threshold byte and exact xref; paired forms with and without TransferFunction distinguish the override from /TR. Parent review for the transfer shard reports 4/4 public CPU tests passed in fonts-transfer-wave23c.log. That is evidence for transfer override, not Type 6 threshold decoding.",
+      "verdict": "TransferFunction has a tested stream-dictionary consumer. Width/Height/sample decoding has no implementation path, but the current reader is permitted to ignore the screen and does not claim Type 6 rendering support.",
+      "residuals": [
+        "No assertion establishes the required Width×Height payload ordering because the screen is deliberately not sampled.",
+        "The Type 6 missing/invalid payload behavior is not tested and should not be forced into a reader rejection requirement from producer-oriented table constraints."
+      ]
+    },
+    {
+      "id": "type10-angled-threshold-stream-dictionary",
+      "table": "130",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional; if present, Halftone."
+        },
+        {
+          "key": "HalftoneType",
+          "source": "Required integer 10."
+        },
+        {
+          "key": "HalftoneName",
+          "source": "Optional byte string."
+        },
+        {
+          "key": "Xsquare",
+          "source": "Required integer, square X side in device pixels."
+        },
+        {
+          "key": "Ysquare",
+          "source": "Required integer, square Y side in device pixels."
+        },
+        {
+          "key": "TransferFunction",
+          "source": "Optional function/name, which shall override the current transfer for the same component. The associated Type 5 component condition is also present in the table wording."
+        }
+      ],
+      "source_prose": "Xsquare and Ysquare replace Type 6 Width/Height. The stream carries Xsquare² + Ysquare² bytes: square X first, then square Y; each is ordered from device (0,0), horizontal coordinates faster, using the same ordering as image samples. §10.6.5.4 explains the angled-cell geometry with figures 65–67.",
+      "ledger": "§10.6.5.4 marked implemented for TransferFunction only. Table 130's stronger 'shall override' is fulfilled by the generic non-Type-5 stream/dictionary branch in ext_gstate.rs, though no Type 10-specific fixture is named.",
+      "implementation": "Same generic stream-dictionary extraction used by Type 6. Type 10 squares, samples, and mapping geometry are not read or rendered.",
+      "assertions": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "crates/pdf-model/tests/halftone_transfer_public_spec_audit.rs::type_6_stream_transfer_override_is_applied_even_when_its_screen_is_ignored"
+      ],
+      "assertion_quality": "The Type 6 public stream control covers the generic stream TransferFunction path; no Type 10-specific transfer function case or screen assertion exists. The Type 10 cell’s distinct use of Xsquare/Ysquare is not exercised, but is irrelevant to the non-screen route.",
+      "verdict": "No demonstrated gap. Table 130's transfer is routed generically; Type 10 raster screening is optional/not needed for this continuous-tone output. A Type 10-only test would confirm routing but isn't a meaningful independent feature check after the Type 6 stream test.",
+      "residuals": [
+        "No Type 10-specific transfer-function positive control. This is a narrow assertion gap, not a confirmed behavior defect, because the code path is shared and Type 6 stream transfer was exercised publicly.",
+        "No test checks X/Y square stitching, nonzero angle mapping, or byte-array order, because none is consumed by the present reader."
+      ]
+    }
+  ],
+  "tests_run_by_this_shard": false,
+  "parent_name_qualification": "Section10.6.5.1 physical388 states that when HalftoneName is present all other entries, including HalftoneType, are optional. The isolated Required labels in the following matrices must be read with this surrounding exception. A recognized device name may override other parameters; otherwise the provided entries/default may be used."
+}

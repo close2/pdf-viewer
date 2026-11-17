@@ -1,0 +1,23 @@
+{
+  "decisions": [
+    {
+      "question": "Does the current Type 5 test distinguish multirow continuation?",
+      "decision": "No. It supplies only two rows and one column interval, and thus confirms a single cell's two triangles and four corners. A valid 3x3 fixture gives eight explicit source-defined triangles and distinguishes later row/cell handling.",
+      "basis": ["crates/pdf-model/tests/shadings.rs::a_lattice_mesh_triangulates_between_its_rows", "ISO 32000-2 §8.7.4.5.6, Table 82 and Figure 41"]
+    },
+    {
+      "question": "What should be the oracle?",
+      "decision": "Compare the interpreted display-list triangle points and corner colors with literal values derived directly from the primary triplet equations and Decode mapping. Avoid fixed diagonal-edge raster pixels: the source makes topology exact but does not dictate edge antialiasing.",
+      "basis": ["ISO 32000-2 §8.7.4.5.6", "crates/pdf-render/src/shading.rs::Triangle and Corners"]
+    },
+    {
+      "question": "Do mesh truncation or resource-limit ADRs change this conclusion?",
+      "decision": "No. Candidate stream has nine complete, ordinary vertices and does not approach a bound. ADR 1217/2546 concern patch meshes; ADR 0343 concerns sampled-function extent. Do not derive Type 5 reader recovery requirements from them.",
+      "basis": ["crates/pdf-colour/src/mesh.rs::MeshReader::lattice", "ADR 1217", "ADR 2546", "ADR 0343"]
+    },
+    {
+      "question": "Draft or promote a finding?",
+      "decision": "Draft the bounded assertion only. The gap is genuine, but code inspection alone does not establish a runtime defect; parent execution determines whether there is one."
+    }
+  ]
+}

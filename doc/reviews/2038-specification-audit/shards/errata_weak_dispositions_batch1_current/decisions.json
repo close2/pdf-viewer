@@ -1,0 +1,78 @@
+{
+  "title": "Disposition decisions for the first weak-classified EC3 batch",
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "issue": 3,
+      "decision": "retain-as-covered",
+      "reason": "Direct test assertions check abbreviation precedence in both key orders with literal expected values and no-recovery valid fixtures. The crosswalk label reflects citation discovery only."
+    },
+    {
+      "issue": 12,
+      "decision": "retain-as-producer-rule",
+      "reason": "Clarifies that Default is not Type 5. It does not create a general reader rejection requirement or screen-generation duty."
+    },
+    {
+      "issue": 20,
+      "decision": "optional-skip-recipe; separate-chain-integration-review",
+      "reason": "Parent read full primary page283 and annotation rectangles. The caret is in NOTE2 optional skipping, not the earlier ID separator exception. Existing separator test covers only one filter; separate chain integration remains worthwhile without inventing an obligation to execute that optimization."
+    },
+    {
+      "issue": 29,
+      "decision": "retain-with-scope-tension",
+      "reason": "The effective producer restriction excludes enum19; the separate processor-support sentence remains. The current owner departure is specifically for enum19, so no categorical reader non-support conclusion follows."
+    },
+    {
+      "issue": 30,
+      "decision": "retain-as-same-rule-restatement",
+      "reason": "The replacement Caret repeats the two Domain constraints; neighboring typical-domain text is not the replacement. Existing numeric tests check valid fractional/negative exponents in valid domains. No new reader behavior gap is established."
+    },
+    {
+      "issue": 75,
+      "decision": "editorial-or-reference-only",
+      "reason": "Spelling/layout and the Unicode four-or-five-digit explanatory notation correction do not alter runtime behavior; the Annex A operator pointer does not alter operator semantics."
+    },
+    {
+      "issue": 86,
+      "decision": "retain-as-inapplicable-reader-semantics",
+      "reason": "DPM constraints are producer requirements conditioned on downstream production workflow; the app has no DPM consumer and preserves the dictionary opaquely."
+    },
+    {
+      "issue": 101,
+      "decision": "retain-with-added-passing-stream-chain-assertions",
+      "reason": "Two exact-xref tests now assert standalone and stream-to-stream traversal, previous catalog resolution and newest-entry precedence, without recovery or a cut chain. Mixed section/stream forms remain allowed."
+    },
+    {
+      "issue": 109,
+      "decision": "editorial-and-clarifying",
+      "reason": "The sampled annotations alter example spacing/layout and clarify a direct-object producer rule already stated in nearby text; no new reader behavior is required."
+    },
+    {
+      "issue": 110,
+      "decision": "retain-as-informative-note",
+      "reason": "The note warns of ordering/interoperability consequences, not a catalog-in-object-stream ban. The separate #439 producer restriction remains distinct."
+    }
+  ],
+  "adr_review": [
+    {
+      "adr": "ADR 0252",
+      "relevance": "Historical correction account identifies the #101 startxref change from decoded-stream-relative wording to PDF-file offsets; it also records that parsing code already accepted stream starts."
+    },
+    {
+      "adr": "ADR 2526",
+      "relevance": "Current /Prev recovery decision concerns offsets naming no readable section. It does not establish an assertion for valid xref-stream-to-xref-stream chains; do not extend that ADR's malformed-input conclusion to this valid case."
+    },
+    {
+      "adr": "ADR 1184 and owner answer A348",
+      "relevance": "ADR1184 separates the producer enum19 restriction from processor support. A348 records the current narrow owner departure after buying PIMA7667 and declining CIE131; historical unavailable-source claims are not current global facts. ADR0348 is unrelated."
+    },
+    {
+      "adr": "ADR 1461",
+      "relevance": "Current DPart decision supports #86's inapplicable downstream-workflow boundary; it does not transform DPM producer constraints into reader rejection requirements."
+    },
+    {
+      "adr": "ADR 1535",
+      "relevance": "Continuous-tone output route scopes the halftone-screen duty for #12; it does not remove Type 5 transfer-function interpretation."
+    }
+  ]
+}

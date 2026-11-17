@@ -1,0 +1,28 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "2034",
+      "question": "Does replacing a threshold `/HT` with `/Default` leave continuous-tone screen appearance unchanged when that threshold stream carries an active TransferFunction?",
+      "assessment": "ADR 2034 remains sound for screen parameters alone, but its current description does not account for the separately active §10.5 TransferFunction in a Type 6 stream. The PDF/A-4 output preserves neither that mapping nor its effect, while the report treats the entire change as `Loss::Halftone` and says nothing on screen moves. The public pixel control confirms a 127-level RGB difference after accounting for the target's output intent.",
+      "status": "reopen for active TransferFunction overlap; not a rejection of the screen-only rationale"
+    },
+    {
+      "adr": "1964 / 2007",
+      "question": "Is halftone-dictionary TransferFunction a distinct loss that requires separate authorization and disclosure?",
+      "assessment": "Yes within current product policy. The archive documentation explicitly says transfer functions and halftone screens are different subjects, §10.5 says the mapping affects continuous-tone output, and the PDF/A-2 control successfully separates the `Loss::Halftone` and `Loss::TransferFunction` authorizations. ISO 19005-4:2020 erratum #314 removes only the PDF/A-4 validator prohibition; it does not make this output-preservation concern disappear.",
+      "status": "supported; current PDF/A-4 rewrite path fails to carry this distinction through the screen rewrite"
+    },
+    {
+      "adr": "1535",
+      "question": "Is screen rendering inapplicable for the current continuous-tone output route?",
+      "assessment": "Retain narrowly for threshold screen generation. Do not extend the inapplicability claim to transfer mappings: §10.6.1 (printed p. 366 / physical p. 381) says continuous-tone devices transmit components after transfer correction, and public raster tests demonstrate Type 6 stream TransferFunction use.",
+      "status": "supported with the transfer-function boundary made explicit"
+    }
+  ],
+  "evidence": {
+    "pdfa4_test": "crates/pdf-transform/tests/archive.rs::threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four — parent-run failure as expected: output [64,64,64,255] versus source [191,191,191,255]; TF-free source/output control both [64,64,64,255].",
+    "pdfa2_control": "crates/pdf-transform/tests/archive.rs::threshold_transfer_under_pdf_a_two_requires_separate_loss_authorisation — parent-run PASS after fixture header correction; unauthorised TransferFunction writes no output, both authorizations allow the requested profile conversion.",
+    "fixture_correction": "The first part-2 attempt used a PDF 2.0 header and was blocked by an unrelated file-header requirement. Parent corrected the builder to `Conforming::part_two()` before the passing run."
+  }
+}

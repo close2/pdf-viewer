@@ -1,0 +1,32 @@
+[
+  {
+    "decision": "ADR 0306's total bound on all /Contents parts follows from Table 31 calling their joined value one stream, rather than inventing a second unit or ceiling. The source also requires whitespace between parts, and current reader inserts it while streaming. It is a resource-policy choice to refuse when `Limits::max_stream_len` is exceeded; the ISO text does not state the numeric maximum or require this particular refusal report.",
+    "evidence": ["doc/adr/0306-a-bound-that-counts-the-wrong-thing-and-a-clamp-that-said-nothing.md §3", "doc/md/processed/ISO_32000-2_sponsored_EC3.md lines 3160-3172, 3280-3299", "pdf-model/src/content/reader.rs::Window", "pdf-model/tests/content_window.rs::two_deflated_parts_are_one_stream_across_the_join", "pdf-model/tests/hostile_budgets.rs::contents_parts_inside_the_bound_are_one_stream"],
+    "assessment": "SOURCE-SUPPORTED unit; numerical bound/refusal remains local implementation policy. Existing assertions exercise boundary semantics and total-bound reporting."
+  },
+  {
+    "decision": "ADR 0365's windowed reader is an implementation strategy for sequential content execution and bounded memory. It should be judged on observable stream bytes, part order/separators, decode/report behavior, not on preserving an input array or matching an allocation layout. The content-window tests check long tokens and a deflated multi-part stream at the public interpreter boundary.",
+    "evidence": ["doc/adr/0365-the-window-a-content-stream-is-read-through.md", "pdf-model/src/content/reader.rs", "pdf-model/tests/content_window.rs"],
+    "assessment": "DESIGN CHOICE, with meaningful behavior assertions."
+  },
+  {
+    "decision": "ADR 0115's cache key by object identity implements §7.8.3 local resource-name scope. Same-name page/form resources are explicitly asserted to produce red, green, red; byte-distinct name test separately checks raw name distinctions through an indirect category. These assertions are stronger than checking diagnostics alone.",
+    "evidence": ["doc/adr/0115-a-resource-name-is-scoped-to-the-dictionary-that-defines-it.md", "pdf-model/tests/content_resources_audit.rs::each_content_stream_uses_its_own_same_named_xobject_resource", "::byte_distinct_names_paint_distinct_forms_through_an_indirect_category"],
+    "assessment": "SUPPORTED for sampled XObject resource scope and cache restoration."
+  },
+  {
+    "decision": "ADR 1059's fallback to the page's dictionary for a form/Type3/appearance stream that omits /Resources, and no fallback for a required tiling-pattern resource entry, are argued against EC3's current text. Issue #128 moved the older broad rule into a Note but added the explicit Type3 four-step order; legacy-omission compatibility and the new Type3 first step have distinct evidence. A missing resource is often caused by producer-invalid files; report vocabulary and recovery are the project's policy, while whether valid legacy references resolve from the page follows the standard's stated compatibility reading.",
+    "evidence": ["doc/adr/1059-the-fallback-names-the-page-and-a-pattern-has-none.md", "doc/errata-read.md pp.127 and findings #128", "pdf-model/tests/type3.rs::a_glyph_description_finds_the_resources_its_own_stream_names", "pdf-model/tests/missing_resources.rs resource-fallback tests"],
+    "assessment": "SUPPORTED within ADR's chosen legacy reading; not a blanket certification of every stream kind or all malformed /Resources outcomes."
+  },
+  {
+    "decision": "EC3 #9 makes the page Contents array mention redundant in the §7.8.3 resource-association bullet; it does not remove the join semantics in §7.7.3.3/Table 31 or sequential stream semantics in §7.8.2. The existing content-window and hostile-budget assertions test the surviving rule, including inter-part whitespace.",
+    "evidence": ["doc/errata-read.md line 207", "effective source lines 3160-3172 and 3265-3301", "pdf-model/tests/content_window.rs::two_deflated_parts_are_one_stream_across_the_join"],
+    "assessment": "CORRECTION accurately reconciled; no test gap from the deleted redundant parenthetical."
+  },
+  {
+    "decision": "Current page-tree/resource tests separately cover model inheritance and runtime resource use; a combined multi-level runtime assertion adds value because an incorrect root-vs-nearest choice could pass each separate test. `drafts/inherited_resources_render.rs` uses a root red /Mark and intermediate blue /Mark with the page omitting Resources, checks root-only red positive control first, then nearest intermediate blue through public interpretation, exact computed lengths and no xref recovery.",
+    "evidence": ["pdf-model/tests/inherited_resources_spec_audit.rs", "pdf-model/tests/content_resources_audit.rs::inherited_page_resources_resolve_the_page_content_stream", "drafts/inherited_resources_render.rs"],
+    "assessment": "MEANINGFUL DRAFT; unrun by this auditor."
+  }
+]

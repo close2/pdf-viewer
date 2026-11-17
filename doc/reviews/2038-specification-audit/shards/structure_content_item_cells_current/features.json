@@ -1,0 +1,147 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected effective PDF 2.0 content-item dictionary cells: Table 357 MCR and Table 358 OBJR; focused on page identity/override and current consumer assertions. This is not a full §14.7.5 certification.",
+  "source_method": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf; physical page verified from page footer (printed page is physical minus 15 in this span).",
+    "effective_locations": [
+      {
+        "physical_page": 746,
+        "printed_page": 731,
+        "content": "Table 357 caption and entries; MCR Type, Pg, Stm, StmOwn, MCID."
+      },
+      {
+        "physical_page": 747,
+        "printed_page": 732,
+        "content": "Form XObject marked-content alternatives and multiple-Do producer rule."
+      },
+      {
+        "physical_page": 748,
+        "printed_page": 733,
+        "content": "Examples 4–5 for form content association."
+      },
+      {
+        "physical_page": 749,
+        "printed_page": 734,
+        "content": "§14.7.5.3 current heading; Table 358 caption/rows and Notes 1–2."
+      }
+    ],
+    "important_locator_note": "The current primary pages show effective renumbering from EC3 #452. The table captions, not nearby cross-references, were used as table locators."
+  },
+  "features": [
+    {
+      "table": "357",
+      "caption": "Entries in a marked-content reference dictionary",
+      "location": "physical 746 / printed 731",
+      "cells": [
+        {
+          "key": "Type",
+          "source_rule": "Required name; shall be MCR.",
+          "code": "pdf-model/src/structure.rs::Tree::child matches Type=MCR.",
+          "assertion": "structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles asserts MCR decoding, but fixture does not assert no recovery."
+        },
+        {
+          "key": "Pg",
+          "source_rule": "Sometimes required indirect page reference (#431): child Pg takes precedence over containing structure element Pg; required when the containing element has no Pg.",
+          "code": "Tree::child chooses dict Pg before inherited page.",
+          "assertion": "Existing mixed-child test has both values equal (page 3), so it does not discriminate override. The owner ledger note claims Pg inheritance/override is covered, but the named assertion body inspected does not distinguish them. Scratch draft mcr_page_override.rs covers the conflict, inheritance and requiredness cases; unexecuted.",
+          "errata": "EC3 #431 revises MCR Pg phrasing/requiredness; #452 renumbers the subtree."
+        },
+        {
+          "key": "Stm",
+          "source_rule": "Optional indirect content-stream reference; should appear only for non-page stream. If absent, sequence shall be in page content stream named by Pg.",
+          "code": "Tree::child carries the unresolved stream ObjectId; named_sequences matches by (MCID, stream).",
+          "assertion": "marked_content_scope.rs::logical_text_reaches_a_sequence_an_appearance_stream_holds distinguishes page and appearance stream both using MCID 0; a_sequence_in_an_appearance_stream_is_recorded_against_the_stream_it_is checks stream IDs; both use exact PDF builders."
+        },
+        {
+          "key": "StmOwn",
+          "source_rule": "Optional indirect reference to object referencing Stm; note names annotation owning appearance as common use.",
+          "code": "Tree::child carries owner; viewer-core accessibility matches it to page annotations.",
+          "assertion": "marked_content_scope.rs::a_marked_content_reference_carries_the_streams_owner checks literal annotation ID; viewer-core headless StmOwn test checks node position/control through the public viewer path."
+        },
+        {
+          "key": "MCID",
+          "source_rule": "Required integer identifying sequence within its content stream.",
+          "code": "Tree::child requires integer; named_sequences uses MCID plus stream identity.",
+          "assertion": "Mixed-child and stream-collision tests check the integer and same MCID in different streams. Stream-local uniqueness/start-zero issue #308 is recorded in prior logical_structure shard; this review does not re-certify it."
+        }
+      ],
+      "scope_limit": "The matrix checks these row conditions against named assertion bodies; it does not certify all stream forms or producer constraints."
+    },
+    {
+      "table": "358",
+      "caption": "Entries in an object reference dictionary",
+      "location": "physical 749 / printed 734",
+      "cells": [
+        {
+          "key": "Type",
+          "source_rule": "Required name; shall be OBJR.",
+          "code": "Tree::child matches Type=OBJR.",
+          "assertion": "Mixed-child test decodes OBJR and checks object identity."
+        },
+        {
+          "key": "Pg",
+          "source_rule": "Sometimes required indirect page reference (#431): child Pg takes precedence over containing structure element Pg; required when the containing element has no Pg.",
+          "code": "Tree::child chooses dict Pg before inherited page; Tree::logical_order filters content items by the resulting page.",
+          "assertion": "The relevant mixed-child test omits OBJR `/Pg`, so it tests inheritance; its MCR states the same page 3 as its containing element. Neither discriminates conflict precedence. `a_pages_annotations_state_where_they_are` checks annotation_rectangles only and has no StructTreeRoot/OBJR. The draft tests page-2 override against parent page 1, plus inherited and no-parent controls.",
+          "errata": "EC3 #431 rewrites the MCR and OBJR Pg conditions; #339 separately strikes 'used' and inserts 'required' within the Table 358 sentence, agreeing in meaning with #431. errata-read.md locates #339 on physical 749; it records the overlapping annotation explicitly."
+        },
+        {
+          "key": "Obj",
+          "source_rule": "Required indirect reference to referenced object.",
+          "code": "Tree::child accepts only an indirect reference and carries exact ObjectId.",
+          "assertion": "Mixed-child test, page-to-element ParentTree tests, viewer-core annotation rectangle/control test, and tagged-copy tests exercise identity through distinct model, UI and copy consumers."
+        }
+      ],
+      "notes": [
+        {
+          "note": "1",
+          "source_rule": "OBJR identifies entire objects only; if only part of an object's stream is content, use marked-content sequence.",
+          "evidence": "ADR 1970 and existing object/appearance sequence tests preserve sequence coverage vs whole-object text."
+        },
+        {
+          "note": "2",
+          "source_rule": "An object rendered on multiple pages needs a separate reference per page; multiple renditions on one page need only one OBJR. If distinguishing renditions of the same XObject matters, use MCRs enclosing particular Do invocations.",
+          "evidence": "Current logical-range code de-duplicates a named object once, consistent with ADR 1970. The source note defines the structure-reference distinction, not a separate geometry/location for each Do invocation."
+        }
+      ],
+      "ledger": "doc/conformance/ledger.toml clause 14.7.5.3 is implemented; it names structure::Child::Object, page placement, annotation/control consumers, and Table 358 Pg errata. Clause 14.7.5.4 separately owns reverse ParentTree lookup.",
+      "selected_code": [
+        "crates/pdf-model/src/structure.rs::Child::Object and Tree::child",
+        "crates/pdf-model/src/structure/logical.rs::Tree::logical_order",
+        "crates/pdf-model/src/structure/owners.rs::elements_on_page / xobject_owners",
+        "crates/viewer-core/src/accessibility.rs::Gathered objects/on_page",
+        "crates/viewer-core/src/select.rs through Tree::logical_range"
+      ],
+      "selected_assertions": [
+        {
+          "test": "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+          "finding": "Mixed child enum and object ID are asserted, but fixture parent Pg and MCR Pg agree; OBJR omits child Pg and inherits. Not a Table 358 precedence test."
+        },
+        {
+          "test": "crates/pdf-model/src/structure/tests.rs::a_page_finds_its_elements_through_the_structural_parent_tree",
+          "finding": "The OBJR participates in a ParentTree route, but its `/Pg 3` matches the containing element's `/Pg 3`; it does not test conflict precedence."
+        },
+        {
+          "test": "crates/pdf-model/src/structure/tests.rs::a_pages_annotations_state_where_they_are",
+          "finding": "This asserts annotation_rectangles only; the test body has no StructTreeRoot/OBJR and is not evidence for Table 358 page semantics."
+        },
+        {
+          "test": "crates/viewer-core/tests/headless.rs::an_element_reached_through_an_object_reference_is_placed_and_says_what_control_it_is",
+          "finding": "Strong public consumer oracle for literal annotation bounds, widget control and non-widget annotation; page relation is not the competing-page case."
+        },
+        {
+          "test": "crates/viewer-core/tests/tagged_copy.rs::an_annotation_named_twice_is_copied_once",
+          "finding": "Literal copy result supports single-object de-duplication, but does not cover multiple XObject Do placements."
+        }
+      ],
+      "candidate_gap": "Explicit Table 358 Pg precedence is source-backed and changes page membership in Tree::logical_order, but current inspected assertions do not use different containing-element and OBJR Pg values. A scratch exact-xref test is provided; unexecuted by this agent."
+    }
+  ],
+  "related_existing_work": [
+    "doc/reviews/2038-specification-audit/shards/logical_structure/features.json: broader Table 357/358 evidence and residuals; this matrix narrows assertion-body review rather than replacing it.",
+    "doc/reviews/2038-specification-audit/shards/logical_structure_framing_current/decisions.json: explicitly keeps whole-family certification out of scope.",
+    "doc/reviews/2038-specification-audit/shards/structure_layout_remaining_current/parent-review.json: public interleaved structure-order consumer finding, unrelated to Pg precedence."
+  ],
+  "parent_execution": "T166: both public MCR and OBJR page-precedence tests PASS, with inherited-page and no-parent-Pg controls. Parent fixture review supersedes unexecuted scratch wording.",
+  "parent_followup_132": "Earlier override-fixture validity claim was overstated: Table355 requires some K content on parent Pg. Added real parent-page MCR/OBJR siblings, correct ParentTree mappings and actual MCR interpretation checks. Both repaired tests PASS132b, model Clippy PASS132. Child precedence/inheritance/no-parent controls remain distinct."
+}

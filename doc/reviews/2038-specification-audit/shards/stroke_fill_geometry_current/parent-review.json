@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary188\u2013191 and430\u2013431. #103 annotation attached188 qualifies subpath-versus-zero-dash wording on189; do not widen it to a blanket exclusion of all degenerate geometry in transparency.",
+  "controls": "One direct Stroke atalpha.5: ordinaryline red128PASS; samepath containedcloseddegeneratecircle red64FAIL B39. Oracle is interior to ordinaryline and therefore independent of whether extra zero-length geometry shouldappear. Corrected reviewer irregularpentagram coordinates to regular skip-two vertices before execution: winding/paritycenter andarm/exteriorPASS. ConnectedvsfortuitousmiterwedgePASS.",
+  "decision": "ADR0420 explicitly invokes oneobjectsemantics but assumes the splitimplementation preservesit; reconsider that conclusion for overlapping transparentparts. Opaque geometry/subpixel rationale is separate.",
+  "residual": "CPUpublicrender only; GPUandPDFcontentconsumer test not yetexecuted. Noalljoins/AA/affinegeometrycertification.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review; parent corrections supersede draft qualifications."
+}

@@ -1,0 +1,288 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "effective_source": "ISO 32000-2:2020 plus EC3, primary PDF and searchable primary-layout markdown. Footer checked; in this area physical page minus 15 equals ISO printed page.",
+  "primary_tables": [
+    {
+      "table": 96,
+      "topic": "OCG dictionary",
+      "physical_pages": "292",
+      "printed_pages": "277"
+    },
+    {
+      "table": 97,
+      "topic": "OCMD dictionary",
+      "physical_pages": "293",
+      "printed_pages": "278"
+    },
+    {
+      "table": 98,
+      "topic": "OCProperties",
+      "physical_pages": "299",
+      "printed_pages": "284"
+    },
+    {
+      "table": 99,
+      "topic": "configuration dictionary",
+      "physical_pages": "299-301",
+      "printed_pages": "284-286"
+    },
+    {
+      "table": 100,
+      "topic": "usage dictionary",
+      "physical_pages": "303-304",
+      "printed_pages": "288-289"
+    },
+    {
+      "table": 101,
+      "topic": "usage application dictionary",
+      "physical_pages": "305",
+      "printed_pages": "290"
+    }
+  ],
+  "primary_annotation_audit": [
+    {
+      "id": "#225",
+      "physical": "301",
+      "printed": "286",
+      "effect": "Changes Table 99 RBGroups prose: empty outer array explicitly means no radio collections and inner arrays must not be empty. This is a producer constraint; it does not prescribe reader recovery."
+    },
+    {
+      "id": "#567",
+      "physical": "303",
+      "printed": "288",
+      "effect": "Adds a NOTE that Usage/Language does not change the language of any content; it affects selection/visibility only."
+    },
+    {
+      "id": "#686/#707",
+      "physical": "297-298",
+      "printed": "282-283",
+      "effect": "Corrects object syntax in examples in §8.11.3.2; example-only."
+    },
+    {
+      "id": "#79",
+      "physical": "279",
+      "printed": "264",
+      "effect": "Revises §8.9.5.4 image Alternate/DefaultForPrinting precedence when OC is present; relevant neighboring context, not a Table 96-101 correction. Its behavior is assigned to the image alternate owner."
+    }
+  ],
+  "features": [
+    {
+      "source": "Table 96; §8.11.2.1-.3",
+      "cells": [
+        {
+          "key": "Type",
+          "condition": "Required; OCG name."
+        },
+        {
+          "key": "Name",
+          "condition": "Required text string for interactive UI presentation."
+        },
+        {
+          "key": "Intent",
+          "condition": "Optional name/array, default View. OCG matters to visibility only if its intents intersect the configuration intent; configuration empty Intent means all content visible. Default D Intent shall be View (producer constraint)."
+        },
+        {
+          "key": "Usage",
+          "condition": "Optional usage metadata; used by AS only when a usage application selects its categories."
+        }
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn",
+        "::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything",
+        "crates/pdf-model/tests/optional_content_config_audit.rs::explicit_default_view_intent_filters_design_group",
+        "crates/viewer-core/tests/headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused"
+      ],
+      "additional_prose": "Initial group states come from D; a group is visible only while it and all containing groups allow it.",
+      "verdict": "State, intent and nested hidden-context behavior have assertions. Type/name/default-Intent requirements on malformed input do not alone determine a required reader diagnostic or repair policy."
+    },
+    {
+      "source": "Table 97; §8.11.2.2",
+      "cells": [
+        {
+          "key": "Type",
+          "condition": "Required; OCMD name."
+        },
+        {
+          "key": "OCGs",
+          "condition": "Optional one group or array of groups. Null/deleted refs ignored. Missing, empty, or all-null/deleted means P has no effect."
+        },
+        {
+          "key": "P",
+          "condition": "Optional; default AnyOn; valid policies AllOn, AnyOn, AnyOff, AllOff."
+        },
+        {
+          "key": "VE",
+          "condition": "Optional since PDF 1.6; if present used instead of OCGs/P. And/Or require one or more operands; Not exactly one."
+        }
+      ],
+      "assertions": [
+        "optional_content.rs::a_membership_dictionary_can_show_content_when_its_group_is_off",
+        "::a_visibility_expression_outranks_the_policy_beside_it",
+        "::a_single_group_reference_is_read_without_losing_which_object_it_is",
+        "optional_content_nested_spec_audit.rs::null_membership_references_make_policy_have_no_effect",
+        "::a_visibility_expression_past_the_bound_is_reported_rather_than_recursed"
+      ],
+      "verdict": "Current parent records confirm the null and VE-precedence controls pass. The expression depth cap is separately reported as a finite limit; no unbounded-processing claim. Malformed arity remains producer-side unless another reader duty applies."
+    },
+    {
+      "source": "Table 98; §8.11.4.2-.3",
+      "cells": [
+        {
+          "key": "OCGs",
+          "condition": "Required array of indirect refs to every OCG in document, any order."
+        },
+        {
+          "key": "D",
+          "condition": "Required default configuration; used for initial state."
+        },
+        {
+          "key": "Configs",
+          "condition": "Optional alternate configurations that may be used in particular circumstances; no requirement to provide a configuration selector."
+        }
+      ],
+      "assertions": [
+        "optional_content_config_audit.rs::default_configuration_supplies_initial_state_despite_alternate (ON/OFF paired pixel controls)",
+        "optional_content.rs::a_document_with_no_properties_dictionary_draws_everything"
+      ],
+      "verdict": "Default D is distinguished from Configs. §8.11.4.2 explicitly directs a processor to ignore optional-content structures if catalog OCProperties is absent. Required writer structure does not imply a mandatory reader refusal algorithm."
+    },
+    {
+      "source": "Table 99; §8.11.4.3; EC3 #225",
+      "cells": [
+        {
+          "key": "Name, Creator",
+          "condition": "Optional configuration presentation metadata; no mandatory alternate selector/UI is stated."
+        },
+        {
+          "key": "BaseState",
+          "condition": "Optional ON/OFF/Unchanged, default ON. If present in default D, must be ON (writer constraint)."
+        },
+        {
+          "key": "ON, OFF",
+          "condition": "Optional arrays applied after BaseState. A producer shall not place a group in both."
+        },
+        {
+          "key": "Intent",
+          "condition": "Optional name/array, default View; default D shall specify View. All is the special all-intents value on configuration side."
+        },
+        {
+          "key": "AS",
+          "condition": "Optional usage-application array; without AS states are not automatically adjusted by Usage."
+        },
+        {
+          "key": "Order",
+          "condition": "Optional interactive UI tree. A leading string in a nested array is a nonselectable collection label, not semantic content nesting; unlabelled nested arrays express group hierarchy. Empty array means present no groups; D default empty, other configs inherit D Order; unlisted groups are not presented."
+        },
+        {
+          "key": "ListMode",
+          "condition": "Optional AllPages or VisiblePages. The latter filters Order to groups referenced by one or more currently visible pages. Table provides no printed default; code treats absent/unknown as AllPages."
+        },
+        {
+          "key": "RBGroups",
+          "condition": "Optional outer array of one-or-more nonempty group arrays; at most one member ON, turning one ON turns siblings OFF, turning one OFF does not switch another ON. D default empty; alternate configs inherit D value. Empty outer array explicitly means no collections. #225 forbids empty inner arrays."
+        },
+        {
+          "key": "Locked",
+          "condition": "Optional since PDF 1.6, default empty. Affects user-interface changes only; actions and automatic AS state may change locked groups."
+        }
+      ],
+      "assertions": [
+        "optional_content.rs::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name",
+        "optional_content.rs::a_group_the_base_state_turned_off_is_on_when_the_print_event_says_so",
+        "optional_content.rs::a_change_of_zoom_reapplies_the_view_usage_dictionaries",
+        "crates/pdf-model/src/view.rs::turning_a_radio_button_group_on_turns_its_siblings_off; ::preserve_rb_false_ignores_the_collections; ::a_panel_keeps_a_radio_button_collection_to_one; ::a_locked_group_refuses_a_panel_and_not_an_action",
+        "crates/viewer-core/tests/headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused",
+        "crates/viewer-core/tests/optional_content_visible_pages_spec_audit.rs::all_pages_keeps_both_groups_and_their_collection_label (positive controls); ::visible_pages_includes_every_page_in_the_current_arrangement (already confirmed B51)"
+      ],
+      "verdict": "State, action/panel radio behavior, lock propagation, order labels and AllPages presentation have current assertions. The multi-visible-page VisiblePages consumer defect is already recorded globally as 2038-B51; this shard does not duplicate it. #225's invalid empty-inner array does not imply that reader repair is mandatory."
+    },
+    {
+      "source": "Table 100; §8.11.4.4; EC3 #567",
+      "cells": [
+        {
+          "key": "CreatorInfo",
+          "condition": "Optional app metadata. If present Creator and Subtype are required; Design-intent groups should include it."
+        },
+        {
+          "key": "Language",
+          "condition": "Optional; Lang required and Preferred optional default OFF. Used only when a Language category is selected by AS. #567 says it does not change content language."
+        },
+        {
+          "key": "Export",
+          "condition": "Optional ExportState ON/OFF recommendation."
+        },
+        {
+          "key": "Zoom",
+          "condition": "Optional; min and/or max required; defaults 0/infinity; ON for min <= zoom < max."
+        },
+        {
+          "key": "Print",
+          "condition": "Optional Subtype descriptive; PrintState optional ON/OFF; if missing, leave state unchanged."
+        },
+        {
+          "key": "View",
+          "condition": "Optional single ViewState ON/OFF; applies on initial interactive viewing when selected."
+        },
+        {
+          "key": "User",
+          "condition": "Optional; Type and Name required if present; Type Ind/Ttl/Org, Name text/string array; exact match ON otherwise OFF when a host identity is supplied."
+        },
+        {
+          "key": "PageElement",
+          "condition": "Optional descriptive pagination marker HF/FG/BG/L; not a Table 101 automatic state category."
+        }
+      ],
+      "assertions": [
+        "optional_content.rs::a_usage_application_dictionary_turns_a_group_off",
+        "::every_category_of_every_dictionary_has_to_agree",
+        "::a_zoom_category_is_answered_at_the_pages_stated_size",
+        "::a_user_category_is_answered_where_a_host_says_who_is_reading",
+        "::a_user_type_a_host_did_not_answer_is_still_unanswered",
+        "::a_language_category_prefers_a_partial_match_that_says_it_is_preferred",
+        "::language_matching_turns_on_all_exact_or_all_preferred_partials_as_a_set (T66 PASS)",
+        "::an_event_whose_categories_read_nothing_leaves_the_group_alone"
+      ],
+      "verdict": "Category readers have contrasting state assertions. CreatorInfo/PageElement describe content rather than state rules. Audience-specific behavior is only asserted where host supplies corresponding audience input."
+    },
+    {
+      "source": "Table 101; §8.11.4.4-.5",
+      "cells": [
+        {
+          "key": "Event",
+          "condition": "Required View, Print, or Export."
+        },
+        {
+          "key": "OCGs",
+          "condition": "Optional, defaults empty; lists managed groups."
+        },
+        {
+          "key": "Category",
+          "condition": "Required array of Table 100 category names. All categories for a group must recommend ON for group to be set ON; multiple same-Event applications are allowed and a group appearing in multiple applications remains ON only if all applicable categories recommend ON."
+        }
+      ],
+      "assertions": [
+        "optional_content.rs::a_usage_application_dictionary_turns_a_group_off",
+        "::every_category_of_every_dictionary_has_to_agree",
+        "::a_print_event_turns_on_the_layer_the_view_event_turned_off",
+        "::an_export_event_applies_only_to_an_export",
+        "::an_events_changes_last_only_while_the_purpose_stands",
+        "::a_manual_change_does_not_survive_a_print_event"
+      ],
+      "verdict": "All events and overlays have public state/pixel tests. Producer required-entry constraints are not converted into reader rejection claims."
+    }
+  ],
+  "reconciliation": {
+    "2038-B51": "Confirmed current defect: VisiblePages consults shown_page only, while a OneColumn arrangement independently exposes two pages. This is already in global findings and expected-failures; not a new defect from this table audit.",
+    "T66": "Parent execution records the multi-group Language exact/partial selection test passing; older pending draft language is stale.",
+    "Null-OCMD control": "The current parent wave records null-membership policy-no-effect as passing; older unrun-draft notes are stale.",
+    "Locked": "Current headless test observes the PDF lock flowing into the query and refused UI command; panel-only unit test is not the sole evidence."
+  },
+  "drafts": [],
+  "remaining_limits": [
+    "No claim that invalid required fields, BaseState/Intent restrictions, duplicate ON/OFF groups, invalid VE arity, or #225 empty inner RBGroups require a particular reader recovery.",
+    "No claim that the viewer must expose or select optional Configs.",
+    "This cell audit does not repeat or certify graphics-placement mechanisms in §8.11.3 or every native UI host."
+  ],
+  "parent_qualification": "Parent checked actual table headers/rows; original reviewer used some cross-reference mentions as locations. Table99 BaseStateOFF-in-default fixtures characterize tolerant malformed-input handling; valid default-configuration and usage controls in optional_content_config_audit supply distinct normative evidence. Table100 optional dictionaries still require their specified nested keys (ExportState, ViewState, PageElement/Subtype)."
+}

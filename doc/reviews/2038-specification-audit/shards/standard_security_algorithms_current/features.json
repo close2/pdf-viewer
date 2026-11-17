@@ -1,0 +1,75 @@
+{
+  "scope": "§§7.6.3.2–.3, 7.6.4.3.1–.4, 7.6.4.4.1–.12. Deep verification centers on legacy object-key/AES handling, R6 Algorithm 2.B/preprocessing, and Algorithm 13 validation semantics. This is not cryptographic certification of every primitive or all malformed inputs.",
+  "baseline": "b901326c; worktree /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "primary_source": {
+    "pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "text_layout": "scratchpad/r2038/spec-audit/ec3-parent-layout.txt",
+    "source_locators": [
+      "§7.6.3.2 printed p.75 / physical PDF p.90; §7.6.3.3 continues on printed p.76 / physical p.91",
+      "§7.6.4.3.1 printed p.79 / physical PDF p.94; §7.6.4.3.2 printed p.80 / physical p.95",
+      "§7.6.4.3.3 printed pp.80–81 / physical pp.95–96; §7.6.4.3.4 printed p.82 / physical p.97",
+      "§7.6.4.4.1–.6 printed pp.82–83 / physical pp.97–98; §§.7–.12 printed pp.84–86 / physical pp.99–101"
+    ],
+    "source_text": "doc/md/ISO_32000-2_sponsored_EC3.md:2544–2565, 2666–2844",
+    "errata": "EC3 Issue #325 rewrites Algorithm 2.B step (a) as the owner/user two-case K0 sequence; code's password‖K‖extra repetition matches it. Issue #24 removes the mistaken zero-IV phrase from ECB descriptions; AES-CBC unwrap in Algorithm 2.A retains a zero IV. Issue #542 affects §7.6.3.1's AES padding wording used by the legacy AES path; `doc/errata-read.md` records the added full-block padding behavior. No applicable correction found to §§7.6.3.2–.3 or 7.6.4.3.2–.3 beyond these references."
+  },
+  "features": [
+    {
+      "clause": "7.6.3.2",
+      "feature": "Algorithm 1 object-specific derivation: append low-order object/generation bytes, append sAlT for AES, MD5 and cap at 16-byte key; AES-CBC IV prefix and padding",
+      "ledger": "implemented",
+      "code": "crates/pdf-syntax/src/crypt.rs::Encryption::object_key, encrypt_under, decrypt_under; AES object-key and data cipher helpers",
+      "assertions": "crypt.rs unit test checks the spec's object 258/generation 7 appended bytes and an AES-only sAlT control. External producer files issue9972-1.pdf and issue17069.pdf exercise AESV2; bug900822.pdf and issue17215.pdf exercise legacy RC4. Clause-derived revision 2/3/4 fixture tests exist but independently implement the same algorithms, so external files are the independent oracle."
+    },
+    {
+      "clause": "7.6.3.3",
+      "feature": "Algorithm 1.A uses the 32-byte key directly with AES-256; IV is stored in front; CBC and padding follow referenced AES algorithm",
+      "ledger": "implemented",
+      "code": "crates/pdf-syntax/src/crypt.rs::decrypt_under / AESV3 branch and serialize writer path",
+      "assertions": "issue7665.pdf is an independent R6 producer witness and the R5 issue21579.pdf test embeds its producer ciphertext unchanged. R6 serialization round-trip is self-consistency only. No independent known primitive vector was rerun in this audit."
+    },
+    {
+      "clause": "7.6.4.3.1–.2",
+      "feature": "legacy file key derivation; PDFDocEncoding/password padding, O, unsigned little-endian P, first ID, metadata sentinel, MD5 iterations and length",
+      "ledger": "implemented",
+      "code": "crypt.rs::authenticate_legacy / file_key_legacy; pdf_doc_encode; unwrap_owner_entry",
+      "assertions": "Internal boundary tests cover empty/short/long padding, Table D.3 conversion, object key and legacy owner unwrap. External R2/R3/R4 corpus documents assert successful plaintext/content decoding; generated R2/R3/R4 fixtures separately exercise flags, ID and EncryptMetadata. These assertions provide both real producer and algorithm-written evidence, with different strengths."
+    },
+    {
+      "clause": "7.6.4.3.3–.4; 7.6.4.4.7–.8, .10–.11",
+      "feature": "R6 password preparation, owner-first/user authentication, two-case Algorithm 2.B hash, key-salt derivation and AES-CBC key unwrap",
+      "ledger": "implemented",
+      "code": "crypt.rs::utf8_password, authenticate_aes256, hash_2b, file_key_from; writer-side AES256 protection path",
+      "assertions": "Strong independent read-side controls are present in real producer corpus files: issue7665.pdf (R6) and saslprep-r6.pdf, whose published password changes under RFC 4013 SASLprep; issue6010_2.pdf covers UTF-8 password handling. Tests assert the supplied password opens and a wrong/empty password refuses. The in-tree R6 document generator reimplements 2.B and checks user/owner passwords, but is not an independent oracle for the hash itself. No direct unit assertion was found for the RFC 4013 transform vectors or the 127-byte R6 truncation boundary; a focused helper draft is supplied."
+    },
+    {
+      "clause": "7.6.4.4.1–.6",
+      "feature": "legacy writer dictionary algorithms 3–5 and reader authentication algorithms 6–7; marked deprecated in PDF 2.0 but used for compatibility",
+      "ledger": "implemented",
+      "code": "crypt.rs legacy authentication; serialize.rs legacy path not enabled in public writer profile",
+      "assertions": "Legacy reader coverage is against actual R2/R3/R4 files and a separate algorithm-written fixture. No claim that the PDF 2.0 writer must emit deprecated revisions is made."
+    },
+    {
+      "clause": "7.6.4.4.7–.9",
+      "feature": "R6 writer algorithms 8–10: strong random salts, O/U/OE/UE, 64-bit permissions block, EncryptMetadata marker, adb marker and filler",
+      "ledger": "implemented",
+      "code": "crypt.rs writer-side AES256 encryption dictionary construction; serialize_encrypted tests",
+      "assertions": "Tests check serialized field lengths/structure, deterministic entropy behavior and reader round-trip. Round-trip uses the same implementation and does not independently prove every generated hash/wrapped key/filler layout. External R5/R6 producer fixtures support reader behavior, not R6 writer outputs. No independently reproduced fixed R6 writer output vector is present in reviewed tests."
+    },
+    {
+      "clause": "7.6.4.4.12 and 7.6.4.3.3(f)",
+      "feature": "Algorithm 13 decrypts the 16-byte block, verifies adb, extracts permissions and metadata flag; Algorithm 2.A says P match is mandatory",
+      "ledger": "implemented",
+      "code": "crypt.rs::perms_block and Encryption::new: when marker validates, permissions and EncryptMetadata are replaced by decrypted values; bad marker silently leaves dictionary values",
+      "assertions": "Current tampered-P test changes /P on a serialized R6 document and expects decrypted /Perms to win. This is a deliberately inconsistent/nonconforming input, not a valid-file conformance test. Source step 7.6.4.3.3(f) says decrypted flags 'shall match' /P; Algorithm 13 says they 'should match' /P and byte 8 'should match' EncryptMetadata. The test/ADR authority claim needs qualification; no valid-input mismatch test is warranted. Handling invalid marker/mismatch is an unresolved malformed-file policy, not a confirmed reader defect."
+    }
+  ],
+  "residuals": [
+    "Potential bound discrepancy: `hash_2b` caps at 256 rounds, while 2.B has no stated fixed upper cap. From its byte-threshold condition, termination is guaranteed by round index 287; in principle a valid prepared input requiring rounds 257–287 would be truncated and fail authentication. Such vectors are cryptographically vanishingly rare under random salts and were not generated; classify as an implementation-bound risk, not a confirmed defect in this shard.",
+    "No independent R6 writer-output vector for Algorithms 8–10 was built.",
+    "No precise recovery rule for inconsistent P/Perms, metadata marker, or invalid adb marker is established; those cases are outside conforming input and need explicit policy treatment.",
+    "Deprecated writer algorithms are not treated as required PDF 2.0 output behavior; legacy read support is included because real legacy files remain in scope.",
+    "No Cargo or Git command was run. Draft is not executed."
+  ],
+  "verdict": "partial-source-implementation-assertion-review; independent legacy and R6 read-side witnesses exist; R6 writer crypto has round-trip-heavy coverage; no confirmed valid-input defect"
+}

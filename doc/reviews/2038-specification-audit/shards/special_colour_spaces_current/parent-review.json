@@ -1,0 +1,6 @@
+{
+  "execution": "3 public raster controls PASS in cmaps-colour-choice-wave20.log: Indexed initial/tie, Separation/DeviceN initial tints and Indexed Lab byte scaling. Exact xref and no recovery asserted.",
+  "source": "Parent checked initial values on physical214,216,220 and ties-up on215; Lab lookup scaling on214. Checked #309 annotations on220/221: producer prohibition of None in NChannel. errata-read page221 is physical and correct; only Colorants-vs-None description is wrong. Historical untouched is not a current implementation claim.",
+  "decisions": "Parent read selected ADR1103/1193/1229/1338 rationale and process/spot/identity assertion bodies. Complete process mapping, explicit simulation and key/name agreement have discriminating controls. Historical1193 is not sole current behavior. Some mismatch/None-in-NChannel fixtures exercise invalid producer inputs, not mandatory rejection rules.",
+  "limits": "No whole10.8.3 simulation or native preference exposure certification. In particular the NChannel None simulation control is robustness evidence under effective #309. Existing shared-conversion comparisons supplement rather than replace literal new colour controls."
+}

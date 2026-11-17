@@ -1,0 +1,95 @@
+{
+  "features": [
+    {
+      "feature_id": "historical_signature_time_is_established_before_revocation_check",
+      "clause": "12.8.3.4.8",
+      "requirement": "For a signature timestamp attribute, validate the signature at the past UTC time indicated by a valid timestamp token; the authority and imprint must be established before that instant is trusted.",
+      "source": {
+        "document": "ISO 32000-2:2020 + Errata Collection 3",
+        "physical_page": 599,
+        "printed_page": 584,
+        "source_note": "EC3 contains no change to this paragraph. The primary PDF paragraph says the signature is checked at the past UTC time indicated by the timestamp token."
+      },
+      "ledger": {
+        "status": "implemented",
+        "path": "doc/conformance/ledger.toml \u00a712.8.3.4.8",
+        "assessment": "The row records trusted timestamp establishment and historical validation; the test verifies this path before testing OCSP applicability."
+      },
+      "implementation": [
+        "crates/viewer-core/src/notes.rs::signature_timestamps_instant",
+        "crates/pdf-signature/src/timestamp.rs::signature_timestamp_established",
+        "crates/pdf-signature/src/trust.rs::Search"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/timestamp/tests.rs::a_signature_timestamps_own_authority_is_established_or_the_instant_is_not_one",
+        "crates/pdf-signature/src/timestamp/tests.rs::a_signature_timestamp_says_separately_whether_it_is_about_this_signature",
+        "scratchpad/r2038/spec-audit/signature_ocsp_producedat_public/drafts/ocsp_producedat_report.rs::report"
+      ],
+      "finding": "The public fixture holds the trusted genTime and cryptographic signature controls constant in both cases; the report must say it used that historical instant."
+    },
+    {
+      "feature_id": "historical_ocsp_good_response_produced_at_must_follow_trusted_past",
+      "clause": "12.8.3.4.8",
+      "requirement": "An OCSP response used for historical revocation checking is appropriate only when its signed response-level producedAt is later than the trusted past UTC time; this is additional to the SingleResponse status/window checks.",
+      "source": {
+        "document": "ISO 32000-2:2020 + Errata Collection 3",
+        "physical_page": 599,
+        "printed_page": 584,
+        "annotation_review": "EC3 does not alter this condition.",
+        "paraphrase": "producedAt is after the past UTC time"
+      },
+      "ledger": {
+        "status": "implemented",
+        "path": "doc/conformance/ledger.toml \u00a712.8.3.4.8",
+        "assessment": "The note describes using a proven past instant and historical revocation material but does not mention the distinct OCSP producedAt condition. Its listed response tests have no producedAt boundary control."
+      },
+      "implementation": [
+        "crates/pdf-signature/src/revocation.rs::BasicResponse.produced_at",
+        "crates/pdf-signature/src/revocation.rs::from_response",
+        "crates/pdf-signature/src/trust.rs::Search::walk",
+        "crates/viewer-core/src/notes.rs::signatures"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/revocation/tests.rs::an_ocsp_response_the_issuer_signed_is_read_and_believed",
+        "crates/pdf-signature/src/revocation/tests.rs::an_ocsp_response_a_delegate_signed_is_authorised_by_its_extended_key_usage",
+        "scratchpad/r2038/spec-audit/signature_ocsp_producedat_public/drafts/ocsp_producedat_report.rs::an_ocsp_response_produced_after_the_trusted_past_time_can_support_the_path",
+        "scratchpad/r2038/spec-audit/signature_ocsp_producedat_public/drafts/ocsp_producedat_report.rs::an_ocsp_response_produced_before_the_trusted_past_time_cannot_support_the_path"
+      ],
+      "finding": "from_response retains response.produced_at but its Good branch checks thisUpdate and nextUpdate without consulting produced_at. The signed public fixture pair is designed to isolate that omitted predicate through Report."
+    },
+    {
+      "feature_id": "single_response_status_window_is_distinct_from_response_produced_at",
+      "clause": "12.8.3.4.8",
+      "requirement": "The OCSP SingleResponse must name the certificate and report Good; its thisUpdate and nextUpdate applicability is independent of BasicOCSPResponse producedAt.",
+      "source": {
+        "document": "ISO 32000-2:2020 + Errata Collection 3",
+        "physical_page": 599,
+        "printed_page": 584,
+        "related_source": "RFC 6960 response structure, read by this implementation"
+      },
+      "ledger": {
+        "status": "implemented",
+        "assessment": "Existing unit tests demonstrate a Good response and response authorization but do not hold thisUpdate/nextUpdate fixed across a producedAt comparison."
+      },
+      "implementation": [
+        "crates/pdf-signature/src/revocation.rs::SingleResponse",
+        "crates/pdf-signature/src/revocation.rs::from_response"
+      ],
+      "fixture_control": "Both GOOD windows bracket trusted genTime2026-11-16T17:09:09Z. Early:thisUpdate16:59:06,nextUpdate18:09:06,producedAt17:09:06. Late:thisUpdate16:59:11,nextUpdate18:09:11,producedAt17:09:11. Windows are not byte-identical; both are independently in range."
+    },
+    {
+      "feature_id": "historical_ocsp_capture_before_signer_expiry_is_separate",
+      "clause": "12.8.3.4.8",
+      "requirement": "The OCSP response must have been captured before the signer's certificate expires. This is a capture/provenance fact, not the response's signed producedAt value.",
+      "source": {
+        "document": "ISO 32000-2:2020 + Errata Collection 3",
+        "physical_page": 599,
+        "printed_page": 584
+      },
+      "implementation": {
+        "observable_data": "The parser retains signed producedAt and SingleResponse times, but no authenticated capture time or signer notAfter accompanies the response-level applicability API."
+      },
+      "assessment": "The fixture's OCSP responses and DSS were generated while the signer certificate is valid through 2036, but the PDF has no authenticated timestamp over the appended DSS revision. This test isolates producedAt and does not claim it proves capture-before-expiry for arbitrary input."
+    }
+  ]
+}

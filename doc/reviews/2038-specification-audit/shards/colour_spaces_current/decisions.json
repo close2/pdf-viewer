@@ -1,0 +1,43 @@
+{
+  "decisions": [
+    {
+      "adr": "0012",
+      "premise_reviewed": "CalGray/CalRGB are converted through CIE XYZ and the shared XYZ-to-sRGB path; BlackPoint is retained but not applied in the current rendering policy.",
+      "source_check": "ISO 32000-2 \u00a78.6.5.2\u2013.3 Tables 62\u201363 and transform definitions, printed pp. 186\u2013188; \u00a710.3 governs conversion and was not audited here. The source says BlackPoint and WhitePoint control gamut mapping, while the detailed conversion behavior is chapter 10.",
+      "assessment": "The numeric assertions and code path substantiate the selected source-space transforms; the policy not to apply Cal-space BlackPoint is outside this bounded conversion audit and should not be upgraded to a \u00a78.6-only requirement."
+    },
+    {
+      "adr": "0101",
+      "premise_reviewed": "The ledger correction states Table 62/63/64 WhitePoint requires positive X/Z and Y=1, while parser enforces positivity of all components but not Y=1.",
+      "source_check": "Table 62 printed p. 186, Table 63 printed p. 187, Table 64 printed p. 189. Y=1 is a producer constraint. The selected text does not require the reader to reject or normalize a nonconforming WhitePoint.",
+      "assessment": "Ledger correction accurately distinguishes stated constraint from code validation. The ADR's acceptance of scaled Y values is reader recovery/policy; no conformance defect is established by acceptance alone. The table does require nonnegative BlackPoint entries, which the selected code review did not independently trace."
+    },
+    {
+      "adr": "0035",
+      "premise_reviewed": "An ICCBased source profile must reach the same colour conversion path for fills and images, with /Alternate only as fallback when the profile cannot be applied.",
+      "source_check": "Table 65 and source-space paragraphs printed pp. 191\u2013193; the image route itself is outside this shard.",
+      "assessment": "The same-profile fill/image regression is a strong observable control. Table 65's ICCBased-to-Alternate Range clamp is an unasserted requirement: a later ICC.2 v5 Lab display profile with mpet A2B0/B2A0 transforms was generated and accepted by ICC's official iccDEV 2.3.2.5 conformance validator. The exact-xref consumer test comparing ICC-range clamp to wider Alternate Lab remains an unexecuted draft; parent integration/run decides behavior. This is not a passed product regression yet."
+    },
+    {
+      "adr": "0464",
+      "premise_reviewed": "Sample/default ranges must follow each colour space's own range; ICC Lab uses the Table 68 range rather than unit normalization.",
+      "source_check": "Table 68 printed p. 193; `Profile::component_range` and direct ICC range tests use [0,100] and [-128,127].",
+      "assessment": "Supported by current ICC unit tests. The Indexed-over-Lab portion mentioned in this ADR is \u00a78.6.6.3 and excluded from this shard."
+    },
+    {
+      "adr": "0034",
+      "premise_reviewed": "Each ICC component's default range and explicit /Range affect sample interpretation.",
+      "source_check": "Table 65/68 and Table 88; Table 88/image Decode are outside current scope, while the ICC source-range rules are in scope.",
+      "assessment": "ICC-specific assertions substantiate the component ranges; no assertion review here of image Decode consumer semantics."
+    },
+    {
+      "source_feature": "EC3 issue #181",
+      "premise_reviewed": "The ICC version table is keyed to profile header versions (2.x and 4.x), not the PDF version.",
+      "source_check": "Effective ISO+EC3 PDF printed pp. 191\u2013192 / physical pp. 206\u2013207. The adjacent text requires ICC.1:2010 reader support and says writers may embed earlier or later ICC versions; errata-read.md records #181 at both table pages.",
+      "assessment": "`icc.rs` reads the ICC header version byte and distinguishes pre-v4 encoding from v4+; it does not key profile interpretation to PDF version. The selected tests exercise v2/v4 profiles, not a v5 profile. ICC.2 v5 is explicitly a later profile version; Table 65's later-version paragraph applies if a processor cannot process it."
+    }
+  ],
+  "unreviewed": [
+    "Other ADRs governing output intents, device defaults, device CMYK conversion and chapter 10 conversions."
+  ]
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "type7_continuation_cells",
+    "decision": "The existing Type 6 continuation test does not cover Type 7 record length or tensor-grid placement. Keep a separate Type 7 continuation assertion because the Type 7 path has 16 controls and Table 85's continuation payload order.",
+    "source_basis": "Table 85, physical p. 268 / printed p. 253, with preceding Type 7 continuation description on physical p. 267 / printed p. 252.",
+    "current_evidence": "crates/pdf-model/tests/shading_continuations_spec_audit.rs::type7_continuations_reuse_the_table85_edge_and_read_all_tensor_interior_points; passed in mesh-border-wave102 and final-wave102. It checks flags 1-3, inherited edge controls, all four tensor interior controls, all four corner colors, exact xref, no recovery, and no cut xref chain.",
+    "verdict": "Resolved for sampled Type 7 continuation flags and the checked control/color mappings. This is not all bit-widths or Decode combinations."
+  },
+  {
+    "id": "cross_patch_paint_order",
+    "decision": "The SHALL that a later overlapping patch paints over an earlier patch merits an independent public raster assertion; the older largest-v test is only about parameter-solution choice within one folded patch.",
+    "source_basis": "§8.7.4.5.7, primary physical p. 261 / printed p. 246; Type 7 follows Type 6 rules except its stated differences.",
+    "current_evidence": "crates/pdf-model/tests/shading_continuations_spec_audit.rs::a_later_overlapping_patch_paints_over_the_earlier_patch; passed in patch-order-wave102b.log. Literal red and blue single-patch controls pass before testing both two-patch stream orders at an interior pixel.",
+    "verdict": "Resolved for opaque identical-geometry Type 6 patches on the CPU public raster path. No all-backend, alpha, or nonidentical-overlap claim."
+  },
+  {
+    "id": "patch_record_alignment",
+    "decision": "Do not assert reader nonconformance from the unresolved non-byte BitsPerFlag patch-boundary alignment interpretation. The drafted fixtures use 8-bit flags and do not test this issue.",
+    "source_basis": "Type 6/7 record-layout prose and the reference to Type 4 for further details do not restate the explicit Type 4 per-vertex padding sentence at the patch boundary; this bounded review did not resolve the ambiguity.",
+    "current_evidence": "No test in this shard covers sub-byte flags or patch-boundary padding.",
+    "verdict": "Residual ambiguity, not a failure claim."
+  }
+]

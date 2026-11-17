@@ -1,0 +1,58 @@
+[
+  {
+    "clause": "9.10.1-9.10.2",
+    "feature_id": "unicode_mapping_priority_and_actual_readback",
+    "title": "ToUnicode remains the first mapping method and public readback follows drawn text",
+    "source_location": "ISO §9.10.1-9.10.2, printed pp.355-356 / physical pp.370-371; §9.10.2 lists ToUnicode before simple-font glyph names and CID collection mapping, then permits a processor choice if all methods fail.",
+    "errata": "No directly relevant §9.10.1-9.10.2 change found in the reviewed EC3 errata index. EC3 #462 changes §9.10.3's ToUnicode stream-dictionary table, not this priority.",
+    "ledger": "doc/conformance/ledger.toml §9.10.1, §9.10.2, and parent §9.10 rows. The ledger claims priority order and readback through public text/search/copy consumers.",
+    "code": "crates/pdf-font/src/loading/codes.rs::LoadedFont::text tries ToUnicode before collection and glyph-name routes; crates/pdf-model/src/content/text/readback.rs and Interpretation::text carry readback to consumers.",
+    "tests": "Ledger-listed corpus comparisons are broad text-oracle checks. Focused existing tests in crates/pdf-font/src/tounicode.rs cover scalar ranges, explicit arrays, surrogate pairs, multi-character bfchar values, and inherited base precedence. This shard did not repeat whole-clause corpus certification.",
+    "assertions": "The unit tests assert parser answers directly; corpus tests compare extracted text with independent tools. The drafted exact-xref tests add public Interpretation::text assertions for source-code length and sequential multi-scalar ranges.",
+    "verdict": "priority path supported for reviewed ordinary cases; two narrower ToUnicode representation defects are strong candidates, pending parent execution of drafts",
+    "residuals": "This bounded review excludes AGL B15/B16 and ActualText B12, and does not certify all §9.10.2 mapping methods, code-direction/layout behavior, or every public consumer.",
+    "related_adrs": ["ADR 0259", "ADR 0298", "ADR 0422"]
+  },
+  {
+    "clause": "9.10.3",
+    "feature_id": "tounicode_source_code_byte_length",
+    "title": "Source character code includes its encoded byte length",
+    "source_location": "ISO §9.10.3 printed p.357 / physical p.372 says CID-keyed ToUnicode source codes may have 1, 2, or more bytes. ISO §9.7.6.2 printed p.342 / physical p.357 explicitly matches codes only to same-length codespace bounds and looks up mappings for codes of that length.",
+    "errata": "EC3 #462 inserts Table 125a with Type, CMapName, CIDSystemInfo, WMode, and UseCMap dictionary entries. It does not alter source-code identity or the UTF-16BE mapping forms.",
+    "ledger": "doc/conformance/ledger.toml §9.10.3 note says source code length is preserved from codespaces and maps by that length; §9.7.6.2 owns character-code decoding.",
+    "code": "crates/pdf-font/src/loading/codes.rs::LoadedFont::text receives Code with a value and encoded length but calls ToUnicode::append(code.value(), out). crates/pdf-font/src/tounicode.rs::code_of converts source bytes to u32; ToUnicode::singles, ranges, append, and base lookups key only by u32. Equal numeric values of different lengths collide.",
+    "tests": "Existing tounicode.rs tests include codes wider than two bytes and preserve a per-code length in general CMap decoding elsewhere, but none asserts distinct one-byte and two-byte ToUnicode source codes with the same numeric value.",
+    "assertions": "Draft drafts/tounicode_keeps_source_code_length.rs first runs separate 1-byte→A and 2-byte→Ω public text controls, then the mixed-width case with exact xref and `was_recovered == false`. The fixture's complete stream dictionaries match their CMap data. Its encoding emits `<01>`, `<0001>`, then `<0002>`; literal ToUnicode destinations require public extraction `AΩβ`. The expected defect is only the extracted text result; no glyph-rendering claim is made.",
+    "verdict": "likely implementation defect against valid multibyte ToUnicode codes; draft is unrun and parent should confirm behavior",
+    "residuals": "A tested valid mixed-length encoding controls fixture validity; no conclusion about malformed/overlapping code spaces or mandatory reader diagnostics. Test may expose an even earlier decoder ambiguity, so execution output should be traced to ensure failure is specifically ToUnicode lookup.",
+    "related_adrs": ["ADR 0298", "ADR 0971"]
+  },
+  {
+    "clause": "9.10.3",
+    "feature_id": "tounicode_bfrange_sequential_string_destination",
+    "title": "Sequential bfrange increments the final byte of a UTF-16BE destination string",
+    "source_location": "ISO §9.10.3 destination-string form, printed p.359 / physical p.374: for a sequential bfrange, the last byte of `dstString` shall be incremented for each consecutive source code, subject to the stated no-overflow limit. The array form separately maps each source code to a full destination string.",
+    "errata": "No directly relevant EC3 erratum found. EC3 #462 adds dictionary metadata entries, not changes to bfrange destination semantics.",
+    "ledger": "doc/conformance/ledger.toml §9.10.3 note claims all bfrange forms and multi-character strings are read; existing explicit-list test establishes the array form only.",
+    "code": "crates/pdf-font/src/tounicode.rs::take_ranges handles a scalar sequential destination as Span. If `scalar_of(target)` fails but `text_of(target)` succeeds, it inserts the whole string only for `low`, with a comment that a multicharacter destination cannot be incremented. This contradicts §9.10.3's explicit last-byte increment rule. Array bfrange and bfchar retain the entire destination text.",
+    "tests": "Existing `ranges_with_an_explicit_list_take_one_destination_per_code` and `multi_character_destinations_are_text_but_not_a_single_character` cover explicit arrays and single mappings, not sequential multi-scalar destination strings.",
+    "assertions": "Draft drafts/tounicode_bfrange_sequence_destinations.rs runs standalone bfchar (`fa`) and explicit-array (`fa`,`fb`) public extraction controls before the target. Each PDF has exact xref/no-recovery and matching Type/CMapName/CIDSystemInfo stream metadata. The sequential `<0001>..<0003>` range must map to `fa`, `fb`, `fc` by independent literal UTF-16BE expectations. The expected defect is text extraction only, not glyph rendering.",
+    "verdict": "likely implementation defect for valid sequential multi-scalar destination strings; draft unrun",
+    "residuals": "Confirm pinned interpretation of the standard's last-byte increment with parent source review and execute the public test. The draft avoids UTF-16 surrogate-tail increments and boundary overflow, neither of which this shard certifies.",
+    "related_adrs": ["ADR 0971", "ADR 1092"]
+  },
+  {
+    "clause": "9.10.3; EC3 Table 125a",
+    "feature_id": "dictionary_usecmap_inheritance",
+    "title": "A ToUnicode CMap can inherit from a named or stream-valued UseCMap",
+    "source_location": "EC3 Issue #462 errata page, physical p.1022 (no ISO printed page): inserted Table 125a states the five optional ToUnicode stream-dictionary entries and gives UseCMap as a predefined name or stream; a referencing map states only differences from its base. The correction is introduced beside the struck former bullet in ISO §9.10.3 at physical p.372 / printed p.357.",
+    "errata": "EC3 #462 replaces the former one-entry description with Table 125a; UseCMap remains present and its stream-valued form is explicit in the effective table.",
+    "ledger": "doc/conformance/ledger.toml §9.10.3 note says /UseCMap is resolved, local mappings override and absent entries inherit. ADR 0298 corrected the row and implementation after the invalid issue5010 corpus witness exposed the route.",
+    "code": "crates/pdf-font/src/loading.rs::read_to_unicode resolves dictionary names through predefined::unicode_cmap and recurses into referenced stream objects; ToUnicode::append consults local mappings before base mappings. Parser uses a depth bound.",
+    "tests": "tounicode.rs unit coverage asserts local-over-base and inherited mappings. Existing public `a_to_unicode_cmap_built_on_a_published_one_reads_back_through_it` uses corpus issue5010, whose in-stream usecmap lacks the required dictionary UseCMap and is producer-invalid under §9.7.5.4(a); it is useful tolerant-reader regression evidence but not a valid-input test.",
+    "assertions": "Draft drafts/tounicode_usecmap_stream_inheritance.rs gives child `/UseCMap 9 0 R`, base and child with matching 2-byte codespaces, and embeds the checked-in Liberation Sans Type 2 program with Identity CID-to-GID mapping plus matching CID 36 width/descriptor values. Exact xref/no-recovery, base `<0001>→A`, child override `<0002>→Ω`, and public expected `AΩ` are asserted.",
+    "verdict": "implementation path is present; valid public stream-reference coverage appears missing in inspected tests, not a known behavior defect",
+    "residuals": "The draft is unrun. It tests a stream reference; named predefined base, chains/depth handling, and mismatch/malformed behavior are not recertified. The embedded `usecmap` operator/dictionary agreement rule is a producer constraint; do not treat tolerant fallback on issue5010 as normative reader behavior.",
+    "related_adrs": ["ADR 0298", "ADR 0426", "ADR 0252"]
+  }
+]

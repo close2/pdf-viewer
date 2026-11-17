@@ -1,0 +1,97 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded audit of effective ISO 32000-2:2020(E) with EC3: §11.6.7; §11.7.2-.4 including Tables 146 and the conditional special overprinting mode; and §11.7.5.2. This records sampled obligations, not clause-wide certification, spot-press output-device fidelity, halftone-screen generation, all backends, or every pattern/transparency combination.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "locator_method": "Verified per-page ISO 32000-2:2020(E) footer with pdftotext -layout; physical page numbers below, printed = physical minus 15.",
+    "reviewed_locations": [
+      {"clause":"11.6.7", "physical":439, "printed":424},
+      {"clause":"11.7.2", "physical":440, "printed":425},
+      {"clause":"11.7.3", "physical":441, "printed":426, "continued_physical":442, "continued_printed":427},
+      {"clause":"11.7.4.1-.2", "physical":[443,444], "printed":[428,429]},
+      {"clause":"11.7.4.3", "physical":[445,446], "printed":[430,431]},
+      {"clause":"11.7.4.4-.5", "physical":[446,448], "printed":[431,433], "table":"Table 146 begins physical 447 / printed 432 and continues through physical 448 / printed 433"},
+      {"clause":"11.7.5.2", "physical":449, "printed":434}
+    ],
+    "ec3_check": "Checked primary PDF pages 439-450 for annotation contents/issue overlays; no EC3 annotations were present on those pages. The effective markdown text was reviewed alongside those primary pages. This does not substitute for the source annotations relevant to referenced clauses such as 8.6.7 or 10.5."
+  },
+  "ledger": {
+    "file":"doc/conformance/ledger.toml",
+    "rows":["11.6.7","11.7.2","11.7.3","11.7.4.1","11.7.4.2","11.7.4.3","11.7.4.4","11.7.4.5","11.7.5.2"],
+    "all_status":"implemented",
+    "inventory":"scratchpad/r2038/spec-audit/clause-inventory.json still marks these review states pending; this shard does not promote whole-clause status."
+  },
+  "features":[
+    {
+      "clause":"11.6.7",
+      "feature":"Pattern definitions' implicit group semantics and pattern-use opacity",
+      "source_obligations":["Tiling cells are evaluated as non-isolated, non-knockout groups; shading pattern evaluation is a knockout group.","Blend mode, soft mask, and alpha constant begin at group defaults; other parameters come from the start of the parent content stream, with only sh-affecting pattern ExtGState additions for a shading.","The evaluated color, shape and opacity become the painted object's source values; painting then applies the current graphics state at use time.","If a shading has Background, the shading-pattern group is filled with that color before sh.","For uncolored PaintType 2, color operators are prohibited in the pattern definition and any group it contains; transparency parameters remain permitted.","Notes: tile replication may require backdrop-dependent evaluation; single-group tile rasterization is advisable to avoid boundary seams, not an independent absolute must."],
+      "ledger_mapping":"11.6.7; supporting rows 8.7.3, 8.7.4 and 11.6.4.4 own pattern mechanics and shading behavior.",
+      "implementation":["crates/pdf-model/src/content/pattern/initial.rs::PatternInitial::of/augmented", "crates/pdf-model/src/content/pattern/cell.rs cell execution and pattern wrapper", "crates/pdf-model/src/content/pattern/wrapping.rs", "crates/pdf-model/src/content/pattern/shading.rs", "crates/pdf-model/src/content/pattern/tiling.rs", "crates/pdf-model/src/content/transparency.rs"],
+      "assertions":["pdf-model/tests/tiling.rs::the_alpha_constant_applies_to_the_finished_pattern_rather_than_to_each_mark", "::a_cell_that_blends_gets_the_non_isolated_group_the_clause_names", "::a_cell_takes_the_backdrop_its_enclosing_knockout_group_has", "pdf-model/tests/transparency.rs::a_shading_patterns_wash_and_ramp_carry_the_marks_constant_once", "pdf-model/tests/rendering_intent.rs::a_shading_patterns_colours_are_resolved_where_its_content_stream_began", "pdf-model/tests/transparency.rs::a_shading_carries_the_non_stroking_constant"],
+      "verdict":"The sampled reset/inheritance/use-time behavior has public pattern and shading consumer assertions with distinct controls. Earlier pattern_forms_current and shading_current audits own matrix anchoring, cell layout and shading geometry; cited here only as adjacent evidence. The group execution tests do not exhaust the combinations of pattern ExtGState, Background, soft mask, both paint types, or backdrops.",
+      "residuals":["No specific defect or nonduplicative test gap demonstrated in this sampled review.","The uncolored-pattern prohibition is a producer constraint; no reader rejection obligation inferred.","The 'advisable' single transparency group optimization is not elevated to mandatory rendering behavior."]
+    },
+    {
+      "clause":"11.7.2",
+      "feature":"Group blending-space inheritance, device-family reinterpretation and delayed conversion",
+      "source_obligations":["An isolated group uses declared CS or inherits parent; non-isolated groups inherit nearest isolated ancestor (with page-group special handling).", "A device space inside an ancestor CIE group with the same component count takes the nearest such CIE space for compositing.","An ICCBased CMYK group/page redefines DeviceCMYK and CMYK process names to its own blending-space components, including where the output device is not CMYK.","Colors convert into group space before blend/composite; final conversion takes place after group composition."],
+      "ledger_mapping":"11.7.2; §11.4.7 owns page-group setup, §11.6.6 group mechanics, §11.3.4 blending-space rules.",
+      "implementation":["crates/pdf-model/src/content/transparency/blending_space.rs", "crates/pdf-model/src/content/transparency/group_runs.rs", "crates/pdf-model/src/content/transparency/into_parent.rs", "crates/pdf-model/src/content/colour.rs::read_where_painted and cmyk_group", "crates/pdf-colour/src/colour/compositing.rs", "crates/pdf-render/src/blending.rs::resolve"],
+      "assertions":["pdf-model/tests/transparency_groups.rs::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb", "::a_cal_rgb_page_group_composites_its_components_and_leaves_by_the_matrix", "::a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back", "::a_group_that_introduces_a_press_composites_in_it", "::a_press_inside_a_press_converts_between_the_two_at_its_do", "pdf-model/tests/overprint.rs::device_cmyk_inside_an_isolated_icc_based_cmyk_group_is_the_groups_space", "::a_default_colour_space_outranks_the_redefinition"],
+      "verdict":"Strong sampled paint-path evidence distinguishes group-space results from device-space conversion and includes ICCBased CMYK / DeviceCMYK redefinition controls. Group budget refusal is an implementation resource policy reported through interpretation; no unbounded-profile requirement follows from this clause.",
+      "residuals":["The cited tests do not establish every component-count / nearest-ancestor / remapped-default-space combination.","No new test drafted; the existing suite has direct independent group-color outputs for the reviewed branches."]
+    },
+    {
+      "clause":"11.7.3",
+      "feature":"Spot components through transparency groups and soft-mask substitution",
+      "source_obligations":["When a spot colorant is available, it may be maintained as a separate component through groups, independently of group CS, with blend/compositing on same spot component; alternatively it may be converted to its alternate CS and treated as process color.","Spot colors are not available in a soft-mask transparency group XObject; alternate CS is always substituted there.","Only one shape and opacity exist and affect process and spot components; unspecified components have additive value 1.0 (subtractive tint 0).", "Treating Separation/DeviceN process names inside a non-native explicitly colored group is discouraged/conditioned; producer/space setup constraints are not reader-rejection duties."],
+      "ledger_mapping":"11.7.3; §8.6.6.4/.5 own alternate/tint/Colorants details; §10.8.3 owns explicit spot-simulation mode; §11.5.3/11.6.5.1 soft-mask construction.",
+      "implementation":["crates/pdf-model/src/content/transparency/blending_space.rs::spot plane group handling", "crates/pdf-model/src/content/transparency/group_runs.rs::spot_group_compositing", "crates/pdf-model/src/content/transparency/soft_mask.rs::enter/leave mask compositing", "crates/pdf-colour/src/colour/spots.rs", "crates/pdf-model/src/content/colour.rs"],
+      "assertions":["pdf-model/tests/spot_planes.rs::a_spot_mark_in_a_knockout_group_keeps_its_plane", "pdf-model/tests/spot_press.rs::a_spot_mark_inside_an_rgb_group_passes_through_to_a_cmyk_page", "pdf-model/tests/spot_planes.rs::a_devicen_naming_cyan_reverts_on_every_plane_of_an_rgb_page", "pdf-model/tests/soft_mask_spot_audit.rs::soft_mask_group_uses_spot_alternate_when_native_colourant_is_available", "::rgb_soft_mask_group_uses_spot_alternate_when_native_colourant_is_available", "pdf-model/tests/colour_paths.rs::a_spot_colourants_own_separation_is_what_the_simulation_renders"],
+      "verdict":"The implementation exercises both permitted branches: spot-plane retention when simulation/output has a spot plane, alternate-space reversion on the ordinary RGB route, and mandatory soft-mask alternate substitution. Assertions include process/spot-plane separation and soft-mask alternate-vs-control behavior. This audit finds no sampled valid-input defect.",
+      "residuals":["No exhaustive audit of shared shape/opacity across every object type and every plane.","Alternate-space handling is valid for the display path; appearance matching of device-specific ink recipes remains output-device dependent.","No whole §10.8.3 simulation certification."]
+    },
+    {
+      "clause":"11.7.4.1-.2",
+      "feature":"Meaning of opaque overprint and unspecified components under Normal / Darken",
+      "source_obligations":["§11.7.4.1 describes the opaque model; the transparent-model effect is specified by later subsections. Device-space overprint is output-time dependent (NOTE).", "For unspecified components, source value 1.0 means opaque Normal erases them; Darken-like white-preserving modes can preserve an opaque backdrop. With transparency, effects outside opaque model overprinting semantics are explicitly not the defined opaque behavior.","Group-space process components are blended first and only reach actual device process colorants after group conversion."],
+      "ledger_mapping":"11.7.4.1-.2; §§8.6.7, 11.3.5 and 11.7.3 supply the parameters/modes/spot components.",
+      "implementation":["crates/pdf-model/src/content/overprint.rs::overprint_blend", "crates/pdf-colour/src/colour/compositing.rs", "crates/pdf-render/src/blending.rs", "crates/render-cpu/src/compose.rs"],
+      "assertions":["pdf-model/tests/colour_paths.rs::overprinting_changes_nothing_on_a_three_component_device", "pdf-model/tests/overprint.rs::a_zero_component_under_overprint_mode_one_keeps_the_backdrops", "pdf-model/tests/overprint.rs::overprint_mode_zero_erases_the_components_the_source_does_not_name", "pdf-model/tests/transparency_groups.rs::a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back"],
+      "verdict":"Three-component display behavior and a four-component CMYK page group have distinct controls. §11.7.4.1 itself states no independent implementation rule beyond the opaque-model explanation; do not use the three-component page's equality as evidence for the four-component conditional case.",
+      "residuals":["No exhaustive blend-mode × opacity × spot-component matrix.","No requirement to emulate opaque overprinting on an RGB native device where §8.6.7 says it may be ignored."]
+    },
+    {
+      "clause":"11.7.4.3; Table 146",
+      "feature":"Optional compatibility mode: conditions, source-space eligibility, zero/nonzero tint and implicit isolation",
+      "source_obligations":["Processor may implement the special mode. If implemented, in DeviceCMYK current+group spaces with OPM 1, nonzero process tint takes source, zero tint takes backdrop; spot components always take backdrop.","Otherwise source components specified by the current paint space take source and unspecified components take backdrop.","Current-space interpretation accounts for implicit device-family conversion and Indexed bases, as well as Separation/DeviceN that revert to alternates.","If a non-Normal mode is active when special mode is invoked, paint elementary object inside a non-isolated non-knockout implicit group and then apply current mode to group result.","Table 146 group-object row reverts to Normal because groups have no retained per-component source mask; subtractive channels are complemented around blend function."],
+      "ledger_mapping":"11.7.4.3/.5 plus §8.6.7 overprint state and §11.7.2 group-space mapping.",
+      "implementation":["crates/pdf-model/src/content/overprint.rs::overprint_blend, ProcessTints, implicit_group_owed", "crates/pdf-model/src/content/colour.rs::cmyk_tints", "crates/pdf-model/src/content/path.rs and text/{paint,glyph_painting}.rs", "crates/pdf-render/src/paint.rs", "crates/render-cpu/src/blend.rs and compose.rs"],
+      "assertions":["pdf-model/tests/overprint.rs::a_zero_component_under_overprint_mode_one_keeps_the_backdrops", "::a_colour_with_no_zero_component_asks_for_nothing", "::a_non_normal_blend_mode_puts_the_object_in_an_implicit_group", "::a_separation_reverting_to_the_presss_own_profile_takes_the_mode", "::a_mode_chosen_for_a_part_that_never_paints_is_not_the_verdict", "render-cpu/src/blend.rs::the_special_overprinting_mode_takes_each_channel_from_the_side_its_tint_names", "render-raster/tests/overprint.rs::a_fill_under_the_mode_keeps_the_channels_it_names"],
+      "verdict":"The permissive implementation choice is taken and the sampled conditions are directly discriminated with named four-component values, ordinary-vs-special comparisons and source-space controls. DeviceN/Separation reversion and profile eligibility are asserted. The code's report for unsupported backend consumption is distinct from model interpretation.",
+      "residuals":["This specific run did not recalculate every Table 146 row or test every painting source (sampled image, shading, pattern) across native/ICC group spaces.","No failure inferred from non-implementation by a hypothetical reader: §11.7.4.3 begins with MAY."]
+    },
+    {
+      "clause":"11.7.4.4",
+      "feature":"Combined fill/stroke as one transparency object for B/B*/b/b* and text modes 2/6",
+      "source_obligations":["When both overprint parameters are true and alpha constants match: non-isolated, non-knockout group, fill/stroke at alpha 1 with special overprint blend, result with original alpha/current blend.","Otherwise: non-isolated knockout group, parts use their alpha/current blend, result alpha 1 and Normal.","For text rendering modes 2/6 this is independent of text-knockout parameter."],
+      "ledger_mapping":"11.7.4.4; §8.5.3 path-painting operators, §9.3.6 text rendering mode, §9.3.8 text knockout.",
+      "implementation":["crates/pdf-model/src/content/path.rs::combined_fill_stroke", "crates/pdf-model/src/content/text/paint.rs and end_object.rs", "crates/pdf-model/src/content/transparency/implicit_knockout.rs", "crates/pdf-render/src/display_list.rs group command"],
+      "assertions":["pdf-model/tests/transparency_groups.rs::a_filled_and_stroked_path_is_one_object", "pdf-model/tests/overprint.rs::a_pair_under_a_constant_alpha_gets_the_first_bullets_group", "pdf-model/tests/text_render_modes.rs::a_translucent_mode_2_glyph_is_one_knockout_group", "::the_implicit_group_does_not_depend_on_the_text_knockout_parameter", "pdf-model/src/content/transparency.rs unit tests for parts and alpha source"],
+      "verdict":"Both constructions have code sites and path/text consumers; explicit /TK-independence test addresses a common confusion. Parent's stroke/fill geometry shard separately drafted a nonoverprint single-object pixel test; that is adjacent independent evidence, not rerun here.",
+      "residuals":["This pass did not independently verify all four path operators, text mode 6, alpha-unequal + distinct blend-mode combinations or every asserted group result field.","The parent is handling current pixel tests; no duplicate draft made."]
+    },
+    {
+      "clause":"11.7.5.2",
+      "feature":"Per-point last fully opaque elementary object, group ancestry, component-wise opacity under overprint",
+      "source_obligations":["Halftone and transfer used at a point are from the topmost elementary object with nonzero shape only if fully opaque; objects in a group do not independently set final page point parameters.","Opacity includes alpha=1, Normal blend, no soft mask, no image-dictionary SMask, and all containing/ancestor groups meeting same conditions; pattern-cell objects must all qualify.","Otherwise page default is used. With overprinting, opacity is independent per component and only where overprint result equals source component.","The halftone screen may be ignored for continuous-tone output (10.6), but this does not cancel transfer-function application. Transfer function embedded in halftone dictionaries is separately owned by §10.5; see rendering_intent_transfer_current for its direct raster gap."],
+      "ledger_mapping":"11.7.5.2; §10.5 owns transfer function definitions/halftone entry; §10.6 owns actual halftone-screen support.",
+      "implementation":["crates/pdf-model/src/content/transparency/transfer.rs::transfer_for_mark", "crates/pdf-model/src/content/transparency/group_runs.rs", "crates/pdf-model/src/content/pattern/cell.rs", "crates/pdf-render/src/transfer_channel.rs::resolve_transfers", "crates/render-cpu/src/lib.rs"],
+      "assertions":["pdf-model/tests/transfer_functions.rs::a_translucent_marks_own_transfer_function_is_used_at_no_point", "::a_group_invoked_translucently_takes_the_transfer_function_off_the_marks_inside", "::a_mark_inside_a_soft_masks_group_is_not_transferred", "::a_translucent_mark_over_a_transferred_shading_takes_the_pages_default", "::a_mark_that_overprints_a_backdrop_component_takes_the_pages_default", "::a_stencil_under_its_own_soft_mask_takes_the_topmost_point_by_its_shape", "::a_stencil_whose_opacity_came_in_its_codestream_keeps_it_apart_from_its_shape"],
+      "verdict":"The per-point source selection and several opacity disqualifiers have raster assertions. The overprint example is especially discriminating: a component kept from the backdrop makes the mark opaque for no component, whereas OPM 0 permits its own transfer. The current previous shard explicitly notes that halftone dictionary transfer overrides were only manually applied in helper assertions and lacks direct raster tests for Type 5/6; that coverage gap belongs to `rendering_intent_transfer_current`, not duplicated here.",
+      "residuals":["No full pointwise halftone assertion because the default CPU output is continuous-tone and may ignore screens.","No exhaustive truth table across all six opacity conditions, overprint modes and patterned paint.","Direct raster validation of Type 5 dictionary and Type 6 stream TransferFunction remains a noted gap in sibling shard."]
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "scope": "Nine selected issue groups; source-led partial review only.",
+  "features": [
+    {
+      "issues": [
+        57,
+        519
+      ],
+      "owners": [
+        "2",
+        "9.7.5.3"
+      ],
+      "source": "Physical 17/printed 2 and physical 18/printed 3; annotation 1211 and 1235/1236/1239.",
+      "change": "Dated references exclude amendments; Adobe Technical Note 5014 date becomes 11 June 1993.",
+      "assessment": "Reference-version constraint, not a new standalone processing operation. Current cmap.rs names 5014 by number/title. doc/errata-read.md already records both changes. This review does not certify every external normative reference or amendment boundary."
+    },
+    {
+      "issues": [
+        623,
+        627
+      ],
+      "owners": [
+        "3.6",
+        "3.46",
+        "7.3.2",
+        "7.5.7"
+      ],
+      "source": "Physical 22/printed 7 and 27/printed 12; struck words checked with bbox.",
+      "change": "Singular boolean object term; object-stream definition explicitly excludes stream objects rather than using the misleading Type spelling.",
+      "assessment": "Terminology and cross-reference corrections. They do not alter the object-stream exclusion already stated in 7.5.7. Do not infer a new mandatory malformed-stream rejection test."
+    },
+    {
+      "issues": [
+        259
+      ],
+      "owners": [
+        "8.4.3.5"
+      ],
+      "source": "Physical 10 front matter, editor note 1186.",
+      "change": "International-English mitre spelling replaces descriptive miter spelling.",
+      "assessment": "Editorial. Operator M and numeric behavior are unchanged."
+    },
+    {
+      "issues": [
+        397
+      ],
+      "owners": [
+        "5",
+        "14.3.2"
+      ],
+      "source": "Physical 31/printed 16, Text annotation 1424.",
+      "change": "XMP examples use preferred namespace prefixes.",
+      "assessment": "Example convention does not make arbitrary equivalent namespace prefixes invalid. Parent read xmp.rs::a_property_is_its_namespace_uri_and_not_the_prefix_a_file_chose; it asserts the title from a renamed prefix. No new test needed for the note."
+    },
+    {
+      "issues": [
+        541
+      ],
+      "owners": [
+        "A.2",
+        "9.4.1"
+      ],
+      "source": "Physical 859/printed 844, BT row in Table A.1.",
+      "change": "Operator catalog reference changes from Table 107 to Table 105, Text object operators.",
+      "assessment": "Cross-reference repair. BT semantics are controlled by 9.4.1; no behavior changes from the catalog title."
+    },
+    {
+      "issues": [
+        14
+      ],
+      "owners": [
+        "8.9.5.1",
+        "12.2",
+        "14.13.5"
+      ],
+      "source": "Physical 274,453,454,855 / printed 259,438,439,840.",
+      "change": "Image Mask typography, viewer-preference page-table references and CropBox typography, and lowercase property list wording.",
+      "assessment": "Parent read all affected primary pages. Existing viewer_preferences.rs defaults/entry tests use literal boundary enums; print_preferences::the_print_pair_decides_the_page_rendered_for_paper distinguishes 400-unit MediaBox from 360-unit default CropBox. associated_file_examples_audit::marked_content_example_interprets_nonempty_text_inside_the_associated_range asserts seven glyphs, an unconditional Hello association range, file identity and checksum. These bounded assertions support the corresponding paths, not all preference or association features."
+    },
+    {
+      "issues": [
+        291
+      ],
+      "owners": [
+        "7.8.3",
+        "8.10.2",
+        "F"
+      ],
+      "source": "Physical 128/printed 113 and 287/printed 272.",
+      "change": "Notes point resource users to extra linearization requirements in normative Annex F.",
+      "assessment": "No new requirements beyond Annex F. Existing annex_f_linearization shard retains the optional reader/explicit writer distinction and qualified writer evidence. Parent inspected linearized_cut_chain test: despite its draws name, it asserts page count and xref recovery state, not pixels. It must not be cited as rendering proof. Full resource-placement coverage remains an Annex F residual."
+    }
+  ]
+}

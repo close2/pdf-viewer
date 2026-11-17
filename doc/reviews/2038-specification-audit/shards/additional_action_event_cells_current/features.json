@@ -1,0 +1,133 @@
+{
+  "shard": "additional_action_event_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read EC3 primary table captions/rows and printed footers, checked relevant overlays/errata, then followed event dispatch into current public consumers and inspected assertion bodies. No tests executed in this shard.",
+  "scope": "Selected additional-action trigger cells in Tables 199–200, emphasizing form and document lifecycle routes that had not been independently cell-indexed in the prior viewer-preferences pass. Table 198 is read only as context for the already recorded B22 ordering finding; Table 197 is not recertified.",
+  "source_locations": [
+    {
+      "source": "§12.6.3 trigger-event introduction and mouse constraints",
+      "physical_pages": "522, 525",
+      "printed_pages": "507, 510",
+      "checked": "The introductory text is p.522/507. Table 197 note and page-event order are at p.523/508. The terminal mouse constraints and field-event notes continue at p.525/510."
+    },
+    {
+      "source": "Table 197 — annotation additional-actions dictionary",
+      "physical_page": 523,
+      "printed_page": 508,
+      "checked": "All rows E/X/D/U/Fo/Bl/PO/PC/PV/PI and Note 1 were read. The table says U is subordinate to /A, Fo/Bl apply only to widgets, PO follows catalog OpenAction and page O, PC precedes page C, and annotation flags do not govern PV/PI (clause Note 1 on p.522)."
+    },
+    {
+      "source": "Tables 198 and 199 — page and form-field additional-actions dictionaries",
+      "physical_page": 524,
+      "printed_page": 509,
+      "checked": "Tables 198 and 199 share this page. Table 199 caption and all rows were reviewed for this shard; Table 198 was read only to anchor the B22 context. Table 198 O follows catalog OpenAction and C precedes any other page opening; Table 199 lists K/F/V/C and states CO determines calculation order."
+    },
+    {
+      "source": "Table 200 — catalog additional-actions dictionary",
+      "physical_pages": "524–525",
+      "printed_pages": "509–510",
+      "checked": "WC/WS/DS/WP rows and the continuation DP row were read. WC/WS/WP are before operations; DS/DP are after save/print. There is no automatic catalog DocOpen row."
+    }
+  ],
+  "features": [
+    {
+      "table": 199,
+      "title": "Entries in a form field’s additional-actions dictionary",
+      "clause": "12.6.3",
+      "cells_reviewed": [
+        {
+          "key": "K",
+          "source_requirement": "Optional ECMAScript action when a user modifies a character in a text field/combo box or the selection in a scrollable list box; it may validate/reject/modify added text.",
+          "consumer": "pdf-model view field edit/commit paths raise Field(Keystroke) when character input is supplied; the viewer editing path reaches these methods.",
+          "assertion": "crates/pdf-script/tests/hook.rs::a_supplied_runner_is_handed_the_keystroke_and_the_format checks typed values, distinct K calls and rejection; viewer-core/tests/script_levels.rs exercises a public viewer entering text and observing the calculated result."
+        },
+        {
+          "key": "F",
+          "source_requirement": "Optional ECMAScript action before a field is formatted for display; the action may modify the value before formatting.",
+          "consumer": "pdf-model appearance/value formatting passes Field(Format) through the supplied runner and uses the returned displayed text.",
+          "assertion": "pdf-script/tests/hook.rs::a_supplied_runner_is_handed_the_keystroke_and_the_format asserts displayed '<12>' and exact event sequence; public rendering/query consumers are exercised by field-format tests. This does not certify every host typing/caret path."
+        },
+        {
+          "key": "V",
+          "source_requirement": "Optional ECMAScript action when a field value changes; may validate a new value.",
+          "consumer": "ViewState::commit_field and caller commit flows dispatch validate; script result affects commit policy per the adopted RFC/owner semantics.",
+          "assertion": "crates/pdf-script/tests/hook.rs engine module includes commit/validate controls; viewer-core/tests/field_commit.rs covers user-entered values, calculated totals, and observable commit outcomes. The ISO row alone does not prescribe the application’s precise commit/veto semantics."
+        },
+        {
+          "key": "C",
+          "source_requirement": "Optional ECMAScript action to recalculate this field when another field changes; document recalculation order is the AcroForm CO entry.",
+          "consumer": "ViewState::commit_field walks the configured CO sequence and hands field calculations to the runner.",
+          "assertion": "viewer-core/tests/script_levels.rs::at_run_the_total_is_computed_by_the_script and pdf-script/tests/hook.rs engine tests assert a literal total after entering field values; field_commit.rs checks a visible/public field result. This supports a bounded calculation route, not all possible CO graphs."
+        }
+      ],
+      "effective_errata": "EC3 #618 adds Table 199 as a target of Table 226 /AA; it is a cross-reference correction, not a changed trigger condition. Current errata_interactive_batch_current and the form-field AA inheritance review distinguish this from B62 (ancestor AA inheritance)."
+    },
+    {
+      "table": 200,
+      "title": "Entries in the document catalog’s additional-actions dictionary",
+      "clause": "12.6.3",
+      "cells_reviewed": [
+        {
+          "key": "WC",
+          "source_requirement": "Optional ECMAScript action before document close.",
+          "consumer": "Viewer::Close and window-close orchestration call run_document_scripts(WillClose) before discarding the document.",
+          "assertion": "viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations observes a WC report before Event::Closed; pdf-script/tests/document_events.rs checks site identity and rc handling."
+        },
+        {
+          "key": "WS",
+          "source_requirement": "Optional ECMAScript action before saving.",
+          "consumer": "viewer-core editing save path invokes WillSave before ViewState::save.",
+          "assertion": "The public timing test verifies WS edit is serialized and DS edit is live-only by reopening saved bytes; engine integration in pdf-script/tests/document_events.rs exercises a real script write."
+        },
+        {
+          "key": "DS",
+          "source_requirement": "Optional ECMAScript action after a document has been saved.",
+          "consumer": "The public save path dispatches DidSave only when the write returns Ok; the refused/held save route is separately exercised.",
+          "assertion": "document_trigger_timing_audit.rs distinguishes WS and DS output values; document_trigger_timing_residual_audit.rs checks DS is absent on a refused/held save and present iff an actual write occurs, while XFA cleanup remains separate."
+        },
+        {
+          "key": "WP",
+          "source_requirement": "Optional ECMAScript action before printing.",
+          "consumer": "Printing::Start runs WillPrint only when the print job passes the reader’s restriction policy; the script edits form state before print rendering.",
+          "assertion": "document_trigger_timing_audit.rs proves the edit reaches actual print-page ink and checks no trigger on Finish without a job; residual timing test checks denied/held print policy paths."
+        },
+        {
+          "key": "DP",
+          "source_requirement": "Optional ECMAScript action after printing.",
+          "consumer": "Printing::Finish on an active job dispatches DidPrint after print intent ends.",
+          "assertion": "The public timing test sees the post-DP field value after Finish and verifies a second Finish does not dispatch again; residual test separates active and refused printing."
+        }
+      ],
+      "semantic_boundary": "The table says when a present action shall be performed; the no-veto/rc=false policy and runner availability are documented owner choices in ADR 1614/Script policy, not additional ISO text. EC3 Table 200 has five lifecycle moments, no catalog DocOpen key. Save/print refusal gates are host policy and are tested separately from table timing."
+    }
+  ],
+  "selected_decisions": [
+    {
+      "adr": "1614",
+      "topic": "Table 200 lifecycle calls",
+      "review": "Reaffirm the call points narrowly: public save/close/print operations deliver the five distinct events; saved output, report order, print pixels, and no-op/denied cases are asserted. Treat false rc as owner policy rather than reading a veto into ISO's timing rows."
+    },
+    {
+      "adr": "2763",
+      "topic": "Table 200 DS versus XFA postSave",
+      "review": "Reaffirm distinction: Table 200 DS fires only after an actual save; XFA cleanup postSave may fire after a canceled/held save. The current residual test checks this difference."
+    },
+    {
+      "adr": "1603",
+      "topic": "Field K/F/V/C trigger semantics",
+      "review": "Reaffirm actual bounded K/F/commit/C pathways. Additional actions are ECMAScript; fine-grained commit semantics and property write policy derive from adopted owner/RFC decisions and are not represented as ISO-only obligations."
+    },
+    {
+      "adr": "2814 (B22 context only)",
+      "topic": "Catalog OpenAction/page-open ordering",
+      "review": "Do not duplicate or broaden B22: Tables 197/198 prescribe catalog action before O before PO; the current public test directly records the opposite ordering. It remains a separate existing finding, outside the Table 199–200 cell conclusions here."
+    }
+  ],
+  "drafts": [],
+  "remaining": [
+    "No dedicated assertion was identified in this shard for every possible form control family or every re-entrant calculation order; assigned form/button and action/script shards cover those boundaries.",
+    "No whole-table certification of annotation trigger conditions, visibility layouts, engine compatibility, native host event delivery, or all save/print host pathways.",
+    "Table 197 pointer/focus and page visibility event semantics were read only enough to distinguish this pass from prior work; no fresh cell review or execution claim is made."
+  ]
+}

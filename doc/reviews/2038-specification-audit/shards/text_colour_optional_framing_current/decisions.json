@@ -1,0 +1,88 @@
+[
+  {
+    "topic": "Chapter aggregate rows",
+    "source": "\u00a78.1, \u00a78.3, \u00a78.6.5, \u00a78.6.6.1, \u00a78.11, \u00a79.3, \u00a79.4, \u00a79.6, \u00a79.7.6 and \u00a79.9",
+    "review": "These rows summarize concrete child semantics and consumers. The imaging-model division (device-independent operations then device rendering), coordinate-space taxonomy, special-space families, text operators/objects, simple-font family, Type0 dictionary and embedded program formats do not each have an additional standalone algorithm in the heading itself. Evidence must remain attached to child-specific tests and valid producer premises.",
+    "decision": "Keep ledger aggregate status as a summary; do not infer full cross-product support from an implemented label or one representative assertion.",
+    "scope_limit": "No full-clause certification; leaf-owner residuals remain listed in features.json."
+  },
+  {
+    "topic": "Coordinate composition across the PDF pipeline",
+    "source": "\u00a78.3 coordinate systems and child default-user/device/page transforms",
+    "review": "Existing tests check CropBox offsets, rotation, UserUnit, individual skew/reflection and Transform::then order. The coordinate shard identifies a missing combined public assertion with two noncommuting cm operations, page transforms and Q restoration.",
+    "decision": "Parent T32 PASS supersedes the draft/unrun status. Retain malformed-mid-path qualification and residual combinatorial coverage limits.",
+    "related_adrs": [
+      "ADR 1535"
+    ],
+    "scope_limit": "The graphics-object sequence with q/Q or cm inside a pending path is invalid producer input and must not serve as that oracle."
+  },
+  {
+    "topic": "Writer rules and implementation-dependent outcomes",
+    "source": "\u00a78.6.4.1 device spaces in CIE transparency groups; \u00a79.4 text-object constraints; \u00a7\u00a79.6/9.8 font descriptor and embedded-program constraints; \u00a78.11 table constraints",
+    "review": "Several SHALL/SHOULD statements govern conforming PDF writers, while source expressly leaves some outcomes implementation-dependent or defines optional UI metadata. They do not independently command a reader to reject documents that violate those rules.",
+    "decision": "Maintain read tolerance/reporting policy separately from producer conformance; only test required valid-input behavior or a documented product promise.",
+    "related_adrs": [
+      "ADR 1535",
+      "ADR 2870"
+    ],
+    "scope_limit": "No malformed-input rejection audit in this shard."
+  },
+  {
+    "topic": "Optional-content aggregation after new execution evidence",
+    "source": "\u00a78.11.2 and \u00a78.11.3; Tables 96\u201397 and context-composition prose",
+    "review": "The old optional-content findings file calls nested visibility/null-reference tests unrun. Parent reports both promoted public tests passed: hidden outer marked-content context keeps a visible form hidden, and null OCG references neutralize the membership policy. Current parent execution supersedes the stale local draft status.",
+    "decision": "Record these two feature outcomes as tested and preserve the other optional-content branch boundaries as residuals.",
+    "related_adrs": [
+      "ADR 0017",
+      "ADR 1173",
+      "ADR 1261"
+    ],
+    "scope_limit": "Does not certify the complete UI Order/ListMode/RBGroups/Locked or every usage-language branch."
+  },
+  {
+    "topic": "Source-table amendments and true source boundaries",
+    "source": "EC3 #181, #19, #551, #225, #567, #368, #373, #376, #47, #48, #106, #128, #324, #453 and appended Table 125a",
+    "review": "These amendments affect different rows: #181 ICC profile versions; #19 direct/default device color-space identification in later Table 74; #551 the later color-operator resource form; #225 RBGroups writer constraint; #567 the meaning of optional-content Language; #368/#373/#376 text behavior; #47/#48 retire former Standard 14 compatibility language; #106/#128 font reference/resource rules; #324 the ToUnicode cross-reference; #453 qualifies predictable MissingWidth behavior; Table 125a adds ToUnicode stream metadata.",
+    "decision": "Use the actual amended sentence/table in the owner row; do not attribute later table edits to earlier general clauses or retain struck obligations.",
+    "related_adrs": [
+      "ADR 0252",
+      "ADR 0426",
+      "ADR 0716"
+    ],
+    "scope_limit": "Annotations were cross-checked against the source/errata index; this is not a census of every annotation in Clauses 8\u20139."
+  },
+  {
+    "topic": "Font /MissingWidth and descriptor evidence",
+    "source": "\u00a79.8.1 Table 120 with EC3 #453",
+    "review": "The source makes predictable MissingWidth behavior conditional on uncovered codes actually having the stated width; otherwise behavior is implementation-dependent. The current default policy is permissible, while the ledger note omits that qualification.",
+    "decision": "Already recorded as D10; no duplicate finding. Historical ledger remains unchanged.",
+    "related_adrs": [
+      "ADR 0158",
+      "ADR 1411"
+    ],
+    "scope_limit": "A valid proof fixture would need independent glyph metrics across the uncovered range; none was added here."
+  },
+  {
+    "topic": "Simple font encoding and embedded-font aggregate residuals",
+    "source": "\u00a79.6.5 Table 112 and \u00a79.9 Table 124",
+    "review": "The public synthetic TrueType/CFF tests prove several encoding and program-selection routes. The simple-font shard still lacks an independent public TrueType case for StandardEncoding filling glyph-name slots after Differences. \u00a79.9's full key/subtype and OpenType table cross-product is not fully asserted, though the important Type1+CFF OpenType name lookup has a discriminating control.",
+    "decision": "Retain the specific coverage gaps without recasting them as confirmed misbehavior. No duplicate standalone test drafted in the framing shard.",
+    "related_adrs": [
+      "ADR 0286",
+      "ADR 2817",
+      "ADR 2789"
+    ],
+    "scope_limit": "Coverage limits do not establish a mandatory reader rejection for producer-invalid encoding/program dictionaries."
+  },
+  {
+    "topic": "ToUnicode /CMap current parent execution boundary",
+    "source": "\u00a79.7.5\u2013.6 and \u00a79.10.3; Table 125a at appended physical page 1022",
+    "review": "The focused shard proposes valid public assertions for mixed source-code lengths, sequential multiscalar bfrange destinations, and stream-valued UseCMap. Parent has promoted those candidates; this pass received no execution outcome for them.",
+    "decision": "Parent B27/B28 confirmed failures, T30PASS. These exact outcomes supersede the reviewer pending status.",
+    "related_adrs": [
+      "ADR 0298",
+      "ADR 0426"
+    ],
+    "scope_limit": "The tests concern extraction mapping, not glyph rendering."
+  }
+]

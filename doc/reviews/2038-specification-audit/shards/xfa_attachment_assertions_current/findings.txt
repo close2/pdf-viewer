@@ -1,0 +1,1 @@
+The XFA attachment test now directly checks the metadata that its source fixture supplies. Packet-byte and target/report controls remain. Two inaccurate source stream lengths were repaired. Dynamic classification and malformed-array integrity are not resolved by this passing test.

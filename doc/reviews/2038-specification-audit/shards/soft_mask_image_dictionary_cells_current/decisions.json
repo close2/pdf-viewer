@@ -1,0 +1,37 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "decision": "Table 143 restrictions are not blanket reader error mandates",
+      "assessment": "Rows such as required Subtype/ColorSpace/BitsPerComponent and absent ImageMask/Mask/SMask define the soft-mask image's producer form. The current reader names selected unsupported or dangerous departures (e.g. stencil and recursive nested mask) to preserve useful output and contain recursion. This audit does not infer that every invalid producer dictionary must be rejected by ISO."
+    },
+    {
+      "decision": "Matte width/height equality is conditional on Matte",
+      "assessment": "The table says dimensions are independent when Matte is absent and requires equality when Matte is present; both images always map to the unit square. Existing finer-mask no-Matte pixel assertions and same-sized Matte fixtures are consistent. A size mismatch with Matte is not promoted as mandatory rejection behavior."
+    },
+    {
+      "decision": "Matte inversion must follow Decode; public assertion is missing",
+      "assessment": "The primary prose says the preblend equation uses component values after Filter and Decode transformations. Existing public matte tests provide literal RGB, CMYK, Indexed, DCT-route and reduced-JPX results, but no tested image uses non-default /Decode with /Matte. Code ordering appears correct, so this is an assertion gap, not a failure. The proposed controls use valid, hand-calculated image values and assert the target equals the original unblended pixel."
+    },
+    {
+      "decision": "Issue #619 is an annotation qualification, not a Table 143 behavior change",
+      "assessment": "The primary PDF annotation objects on physical p. 436 label the Table 143 ID and OPI entries 'Deprecated in PDF 2.0.' Table text already says those keys are ignored; the annotation does not alter the matte or decoding equations."
+    }
+  ],
+  "related_adrs": [
+    {
+      "adr": "1268",
+      "assessment": "Current matte restoration/color-domain rationale remains supported; coverage review found no end-to-end non-default Decode pixel assertion, a narrow gap the draft targets."
+    },
+    {
+      "adr": "1324",
+      "assessment": "Reduced-JPX parent-grid behavior remains a separately asserted feature; no duplicate gap claimed."
+    },
+    {
+      "adr": "0399",
+      "assessment": "Recursive /Mask-on-SMask refusal is a protective policy for malformed input and remains separate from valid Matte semantics."
+    }
+  ],
+  "draft": "drafts/matte_after_decode_public.rs",
+  "draft_status": "Not run. Exact-xref PDF 1.7 fixture, required image entries, actual lengths, binary marker, black backdrop, positive controls, complete-interpretation and recovery guards."
+}

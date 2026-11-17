@@ -1,0 +1,7 @@
+{
+  "verdict": "Selected Tables381/382/384 reconciled; no new defect or duplicate test.",
+  "source": "Read actual physical803–805 and807–808. Corrected draft row placement: ColumnCount alone starts381 at803; ColumnGap/ColumnWidths are804. Table382 body805; Table384807–808. Existing #346 and #200 evidence retained.",
+  "assertions": "Read four public B53 regression bodies: three independent controls and narrow continuation requirement leave Named contribution unresolved. Broad116 retains one B53 failure and its passing controls. Current searches show no ColumnCount/ColumnGap/ColumnWidths consumer, and ListNumbering occurs only in explanatory comments.",
+  "adr": "Reread0312,0743,0748. Optional header algorithm was adopted; retain its qualified SHOULD gap. List continuation implementation does not dispose of the independent list-kind classification, so D17 remains open. No reflow output contract imposed.",
+  "limits": "No current column reflow consumer, no prescribed platform list representation, no claim to certify every table cell. B29 and B01/B02 remain distinct."
+}

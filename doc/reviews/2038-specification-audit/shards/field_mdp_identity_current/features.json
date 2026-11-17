@@ -1,0 +1,36 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "§12.8.2.4 FieldMDP selection identity when a named field changes /T after signing; compare effective source, code, callers and assertion controls. Does not certify signatures or all FieldMDP behavior.",
+  "source_locations": [
+    {"physical_page": 587, "printed_page": 572, "text": "Table 256 Data: required for FieldMDP and shall be an indirect reference; names the object on which modification analysis is performed."},
+    {"physical_page": 591, "printed_page": 576, "text": "§12.8.2.4 and Table 259 begin; Action/Fields specify which form fields do not permit changes after signing; Include and Exclude definitions."},
+    {"physical_page": 592, "printed_page": 577, "text": "Table 259 Fields row and writing guidance: recipient-specific modifications invalidate the signature; Action/Fields copied from signature-field lock dictionary; FieldMDP signatures validated similarly to DocMDP."},
+    {"physical_page": 592, "printed_page": 577, "text": "Primary PDF Issue #33 carets insert `fully qualified` and a reference to §12.7.4.2 in Table 259 /Fields; `doc/errata-read.md` transcribes both actual caret annotations."},
+    {"physical_page": 588, "printed_page": 573, "text": "§12.8.2.2.2 says that after digest validation the signed bytes correspond to the state at signing and processors may compare signed and current versions for modifications."},
+    {"physical_page": 547, "printed_page": 532, "text": "§12.7.4.2 constructs fully qualified names from a field's and all ancestors' partial names; fields with the same fully qualified name shall have the same field type, value, and default value."}
+  ],
+  "feature": {
+    "clause": "12.8.2.4",
+    "table": 259,
+    "feature_name": "Resolve a signed FieldMDP /Fields name against a field whose partial name changes in a later revision",
+    "normative_features": [
+      "The transform says which form fields may not be changed; the author's guidance says modifications to specified fields invalidate that recipient's signature.",
+      "Table 259 /Fields is a list of text strings containing fully qualified field names after Issue #33; the transform is in the signed signature dictionary.",
+      "The field name is derived from /T in the field tree under §12.7.4.2; the signature-validation comparison is between the signed revision and current revision after the byte-range digest step.",
+      "The standard does not explicitly prescribe an algorithm for matching a renamed field across revisions; anchoring the selected name to the signed field-tree snapshot is a strong inference because the transform name was fixed at signing and the object comparison identifies what changed."
+    ],
+    "table256_data": "For FieldMDP, /Data is required and indirect, and identifies the object on which analysis runs. It is not a name-based fallback; a whole-form/catalog scope leaves the /Fields name selection to Table 259.",
+    "ledger": "§12.8.2.4 row states parser plus `Comparison::against_field_mdp` and FieldSelection matching by fully qualified name; it cites Issue #33, the corpus examples, both covered/outside outcomes and ADR 1096. No explicit signed-vs-current name snapshot rule is documented.",
+    "implementation": "`Comparison::of` calls `field_subjects(current, &mut subjects)` and then `field_subjects(&signed, &mut subjects)` on a BTreeMap keyed by object number. `walk_field_subjects` uses `entry(id.number).or_insert_with(...)`, so for an indirect field object held in both revisions the current field name wins. `against_field_mdp` calls `transform.selection.covers(name)` on that chosen subject. A signed `/Fields [(Name)]` combined with a later same-object `/T (Other)` and `/V` change is therefore evaluated as `Other` and returns Outside under Include(Name).",
+    "actual_assertions": "`revision::tests::a_field_mdp_transform_selects_by_the_fields_table_259_names` tests a stable top-level Name field's changed value against Include(Name), Include(Other), Exclude(Name), and Exclude(Other); it proves the ordinary stable-name selection behavior. `a_widget_with_no_name_of_its_own_belongs_to_the_field_above_it` tests widget inheritance. No rename/across-revision identity test was found. Existing tests use the comparison seam and synthetic byte-range fixtures; they do not verify a cryptographic signature digest.",
+    "callers": "`Comparison::against_field_mdp` production call search finds no in-repository application caller; it is used by pdf-signature tests and `signature_algorithm_census`. `pdf-model::restriction::asserted` separately reads current FieldMDP transform names and checks the caller-provided current field name for a prospective FillInForm warning; it is not the signed/current revision comparison. ADR 1096 says no host asks this comparison yet, so the defect is in the public analysis API and census result path, not a currently observed viewer warning.",
+    "verdict": "Likely selection-identity defect in Comparison: selection names stored in the signed transform should be resolved against the signed field tree and their field objects followed into current state. Source does not spell out that matching algorithm, so verdict is a strongly supported interpretation, not an explicit sentence. The current-name-first choice permits a same-object rename plus value change to evade a signed Include selection; a separate changed Other field is correctly Outside.",
+    "residuals": [
+      "No repository host invokes `against_field_mdp`; practical UI impact remains future-facing.",
+      "A cross-revision field-identity rule is inferred from signed-state comparison and the fixed transform names; the PDF text does not explicitly state whether renaming a field preserves its logical identity for FieldMDP.",
+      "The test draft uses the existing comparison seam with a syntactically exact signed prefix and incremental xref; it does not claim cryptographic signature validity because `Comparison::of` explicitly does not verify the digest.",
+      "The current-field-name behavior in `restriction::asserted` answers prospective editing of a currently named field; do not silently treat that different API as the signed-revision comparison algorithm."
+    ]
+  }
+}

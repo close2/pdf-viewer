@@ -1,0 +1,21 @@
+{
+  "reviews": [
+    {
+      "adr": "ADR 1112 — The instant a token proves is what a verdict is asserted at",
+      "relevance": "Direct: it changed freshness comparisons and supports later-issued revocation evidence for a proven past validation instant.",
+      "retain": "Keep the best-signature-time abstraction, host-supplied clock when no trusted timestamp establishes an earlier instant, and later-issued CRL support for a historical path check.",
+      "revisit": "Its shared `from_list` behavior and blanket one-ended freshness rationale should not erase the distinct §12.8.3.4.7 current-time interval. Make CRL applicability depend on whether the caller is asking at current host UTC or at an authenticated historical instant; do not add a universal thisUpdate cutoff."
+    },
+    {
+      "adr": "ADR 1067 — Revocation status is checked from the document, and a stale revocation still revokes",
+      "relevance": "Direct: determines Good/Unknown semantics and the deliberate asymmetry for listed revocations.",
+      "retain": "A certificate explicitly listed as revoked remains a revocation statement even where the CRL is stale; this test concerns only whether an unlisted certificate can be called Good from a future-issued CRL."
+    },
+    {
+      "adr": "ADR 2775 — The policy's revocation freshness bound replaces the material's window",
+      "relevance": "Adjacent: policy-specific issuance constraints are passed through Issuance and can supersede material-window checks in their own policy context.",
+      "retain": "Do not conflate the policy's issuance requirement with the ISO current-time CRL window. The draft uses no signature-policy freshness rule; host acceptance is RevocationMustBeGood."
+    }
+  ],
+  "recommendation": "Narrowly qualify the shared applicability decision with an explicit current-versus-historical context. Preserve historical LTV behavior and ADR 1067's explicit-revocation asymmetry. The proposed public Report regression supplies current context via TrustPolicy's host instant rather than asking a generic status API to infer context."
+}

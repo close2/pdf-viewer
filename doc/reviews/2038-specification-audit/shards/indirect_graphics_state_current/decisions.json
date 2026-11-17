@@ -1,0 +1,11 @@
+[
+  {
+    "decision": "Test ordinary indirect-reference semantics at nested consumer boundaries rather than infer them from generic dictionary lookup.",
+    "basis": "\u00a77.3.10 makes direct/indirect values equivalent except where documented. The relevant ExtGState entries have no direct-only restriction for /D, /BM, or /ca. Table 57 explicitly requires /Font's font item to be an indirect reference, so that exception is excluded from the equivalence claim.",
+    "ADR_review": [
+      "ADR 2820 section 3 selects the first recognized blend mode in a deprecated array and addresses transparency detection, not indirect representation. Its rationale remains valid; the draft checks that indirection does not change the selected mode.",
+      "ADR 1157/1342 concerns overprint and transparency construction, not reference resolution; no premise there is changed by this shard."
+    ],
+    "policy": "Use PDF1.7 to avoid the deprecatedPDF2.0 array form in this witness. Deprecation does not itself mean a forbidden or invalid representation. Pixeloracles derive from literal blendformula."
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "decisions": [
+    {
+      "adrs": [
+        "0159",
+        "1104"
+      ],
+      "conclusion": "Retain deliberate withdrawal of an excessive usage-rights grant and separate revision classification. Reconsider the premise that form fill/full save are the only operations save performs: annotation additions now use the same writer. No production or historical ADR change."
+    }
+  ],
+  "source_qualification": "Withdrawal is recommended with should. Eight operation classes plus explicit refusal are a bounded comparison implementation, not complete support for all rights."
+}

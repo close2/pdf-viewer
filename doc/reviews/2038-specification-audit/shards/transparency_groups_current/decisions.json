@@ -1,0 +1,23 @@
+[
+  {
+    "adr": "ADR 1461",
+    "decision_reviewed": "Q and Q.1-Q.5 were moved from inapplicable to implemented because archive conversion asks the method for ISO 19005-2/-4; the renderer need not expose a page-wide transparency query.",
+    "evidence": "ADR 1461 §2 and Annex Q source at processed ISO lines 22240-22242 explicitly gives optionality to base ISO 32000-2 and leaves room for subset standards to require the algorithm. Current ledger Q note and pdf-archive survey implementation preserve this consumer distinction.",
+    "verdict": "sound and appropriately scoped",
+    "residuals": "The archival profile support claim depends on current conversion callers remaining bound to those profile obligations; no claim that every other ISO 32000-2 consumer must invoke Annex Q."
+  },
+  {
+    "adr": "ADR 1471",
+    "decision_reviewed": "GPU's refusal of groups in their own blending space is treated as a backend limitation rather than pretending all backends render them.",
+    "evidence": "Current ledger 11.6.6 lists named GPU refusal tests and CPU/raster successful own-space paths. This is transparent public behavior; whether a product-facing selected renderer must successfully paint or can return unsupported depends on API policy beyond this bounded clause review.",
+    "verdict": "the limited-backend claim is accurately represented; not an all-backend conformance certification",
+    "residuals": "No review of user-visible backend selection/fallback policy."
+  },
+  {
+    "adr": "ADR 1254 and ADR 2532",
+    "decision_reviewed": "Bound the per-page retained press/group profile memory by MAX_LIST_BYTES and report a refusal/fallback if it cannot fit.",
+    "evidence": "Table 145 gives /CS inheritance and color meaning but no limit on number of distinct profiles. Current ledger note presents the limit as memory safety/reporting rather than a normative profile-count limit; refusal is named, not silent. ADR 2532 calls out accounting against shared list budget.",
+    "verdict": "implementation resource bound is not being misrepresented as an ISO producer or reader limit",
+    "residuals": "This review did not assess whether fallback drawing in parent color space is sufficiently surfaced in every public consumer."
+  }
+]

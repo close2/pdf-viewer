@@ -1,0 +1,7 @@
+{
+  "verdict": "Partial matrix for Table93 nineteen keys and Table94 two keys; no new failure.",
+  "source": "Parent primary287-290: corrected full table spans, LastModified required with PieceInfo, structural keys conditional, Group applies to Ref imported page. Actual #292 changes independence to recommendation before2.0/requirement from2.0; #291 linearization note; #463 structural mutual exclusion. Initial assumption that post1.1 missing Resources was always invalid was withdrawn.",
+  "assertions": "Parent inspected form_xobjects_audit literal save/restore-color/Matrix/order/repeated/invocation-color controls; transparency_groups BBox inside/outside and subtype Group-command controls. Nested missing_resources asserts exact missing Inv report plus one fill, not pixels. reference_xobjects proxy group has black overlap/red/blue controls and own-document group resolution red-vs-Multiply control.",
+  "execution": "Existing named identities ran in broad90; no fresh duplicate run. Source/assertion inspection is distinct from new execution.",
+  "limits": "No whole8.10 certification; Form Measure/PtData consumer duty not established. General resource Table34 not inventoried here. Existing B29 not duplicated. Reader rejection is not inferred solely from producer constraints."
+}

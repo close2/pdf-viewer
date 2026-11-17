@@ -1,0 +1,30 @@
+[
+  {
+    "feature": "\u00a77.3.10 direct/indirect equivalence for ordinary ExtGState values and nested arrays",
+    "source": "Primary ISO 32000-2 \u00a77.3.10, printed p. 34 / physical p. 49: any object value may be direct or indirect unless otherwise specified; semantics are equivalent. Table 57, printed pp. 165\u2013167 / physical pp. 180\u2013182, specifies ExtGState values. Its /Font array is an explicit exception: the font item shall be an indirect reference. EC3 amendments reviewed in this shard did not change the selected /D, /BM, /ca rules.",
+    "ledger": [
+      "7.3.10",
+      "8.4.5",
+      "11.6.3"
+    ],
+    "code": [
+      "crates/pdf-model/src/content/ext_gstate.rs::Interpreter::apply_ext_gstate",
+      "crates/pdf-model/src/content/ext_gstate.rs::stated_blend_mode",
+      "crates/pdf-model/src/soft_mask.rs",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs"
+    ],
+    "tests": [
+      "crates/pdf-model/tests/line_dash.rs::an_ext_gstate_sets_the_dash_pattern_too",
+      "crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows",
+      "crates/pdf-model/tests/soft_masks.rs",
+      "crates/pdf-model/tests/content_resources_audit.rs"
+    ],
+    "assertion_quality": "Existing dash and deprecated blend-array tests use direct nested operands and assert consumer behavior. Existing resource/soft-mask tests include indirect top-level ExtGState or mask resources, but the reviewed assertions do not establish indirect dash-array members or indirect blend-name members plus indirect alpha. The code explicitly resolves these members. Two scratch-only direct-control versus indirect-target pixel tests are drafted.",
+    "verdict": "implementation path appears to honor direct/indirect equivalence for sampled entries; no runtime failure established because drafts are not executed",
+    "residuals": [
+      "Draft execution and broader nested soft-mask/transfer-function value coverage remain with parent.",
+      "This is sampled parameter-path evidence, not certification of all Table 57 fields or every ExtGState nesting shape."
+    ],
+    "parent_execution": "Tracked derivative2PASS. Parent uses nondefaultphase5 instead of draft0, explicitwhitebackground, literaldash/gappixels. BlendScreen+halfalpha literalpixelsPASS. ModelalltargetsClippyPASS."
+  }
+]

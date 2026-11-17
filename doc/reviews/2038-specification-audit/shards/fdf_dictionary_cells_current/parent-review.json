@@ -1,0 +1,9 @@
+{
+  "source": "Parent read physical574–579 captions, continuations and Table246 Encoding. It applies to non-U+FEFF string T/V/Opt; utf_8 is explicitly allowed. Table245 FDF row continues575. Table249 Opt string form used; no confusion with its label/DA pair versus PDF export/display pair.",
+  "fixture": "Standalone ASCII PDF1.7, canonical FDF1.2 header plus catalog Version1.4, equal16-byte initial PDF IDs, complete exact xrefs and no recovery/chain cut. Text/choice widgets have valid resources/DA and NeedAppearances. U00E9 avoids an unsupported appearance glyph. Target uses independent UTF16BE name; source uses UTF8. Old/new choice lists differ. BOM value isolates Opt decoding.",
+  "independent_review": "round2_model_fixes independently confirmed T/V source, version, fixture and public-consumer premise; supplied Opt draft. Parent removed early assertions so failing name case reports saved values too; Opt captures both live labels/selection and saved labels before comparison.",
+  "implementation": "Read Encoding::read/decode, read_fields, read_field and options. utf_8/utf_16 share Unicode decoding, which falls back to PDFDocEncoding without BOM; V additionally retains raw source bytes instead of transcoding. Fixing name decoding alone will not fix saved values.",
+  "adr": "ADR0919 effective-version decision remains supported. ADR2816 script order does not justify character decoding. No separate ADR authorizing incorrect UTF8 found in selected review.",
+  "execution": "fdf-wave119b:7run4PASS3FAIL. Name result1/unmatched è¡¨ and saved old/control versus expected2/new/control. V becomes Ã©; Opt live/saved Ã© with empty selection versus é/selected0. Clippy119c needed explicit test panic lint expectation;119d all-target model PASS.",
+  "limits": "One grouped B75 finding with three failed public witnesses. No UTF16-no-BOM endian conclusion, full registered-charset coverage, arbitrary malformed-input rejection duty, or whole FDF certification."
+}

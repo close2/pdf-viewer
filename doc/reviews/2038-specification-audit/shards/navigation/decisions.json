@@ -1,0 +1,27 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "selected_reviews": [
+      {
+        "adr": "0162",
+        "title": "A destination is three things and two of them were owed",
+        "review": "Retain its separation of document page identity from viewer-owned location/zoom as a useful architecture. Reconsider its treatment of /FitBH top and /FitBV left as unused: effective Table 149 gives them the same coordinate language as /FitH and /FitV, so the operands should affect the visible corner. Current apply_view does so and independent-crop geometry assertions exist. This is a narrow superseded point, not an ADR-wide rejection."
+      },
+      {
+        "adr": "2814",
+        "title": "The viewer does what the tables say of views, triggers, and the objects a click reaches",
+        "review": "The /FitBH-/FitBV and null XYZ claims are directly supported by effective Table 149 plus independent geometry tests. This audit sees no basis to enlarge those claims to every destination form or every host action route. Page-label empty-string treatment is supported by Table 161 and its host query/panel assertion. Review status is limited to these navigation claims."
+      },
+      {
+        "adr": "0601",
+        "title": "Two accepted errata that cannot both be applied",
+        "review": "Reconsider the ADR's premise: it missed the earlier public issue resolution. #432 was reopened 2025-08-14 after #593 clarified that original repeated-letter intent was correct; on 2025-11-10 it was marked duplicate and lost its ISO-approved label. #593 recorded PDF TWG agreement 2025-10-23 and completion 2025-11-10. Both events predate the static PDF's #593 caret annotation (2026-05-21) and ADR 0601 (2026-08-25). The current errata rendering gives A…Z, AA…ZZ, AAA…ZZZ, AAAA…ZZZZ. The static sponsored EC3 PDF nevertheless retains the stale #432 strike with an Accepted-state annotation reply. Do not treat ADR0601's conflict as current normative ambiguity; the history faithfully records the stale PDF overlay but missed the public resolution already available at the time."
+      },
+      {
+        "adr": "0576",
+        "title": "The C host gets the objects it can act on",
+        "review": "No independent C ABI test or consumer-path assertion was examined for page labels/destinations in this bounded pass; leave its relevant claims unreviewed rather than infer them from Rust Query/PageEntry behavior."
+      }
+    ]
+  }
+}

@@ -1,0 +1,181 @@
+{
+  "baseline": "b901326c",
+  "scope": "Source-led audit of EC3 issues #18,#38,#39,#50,#91,#145,#150,#153,#179,#222,#283,#327,#331,#362,#389,#402,#415,#425,#563,#645,#687,#690,#699. Annotation candidates were located from literal_issue_candidates.json, then checked against the primary PDF and actual annotation rectangles/comments. Physical pages are one-based primary PDF page numbers; ISO printed footer is usually physical minus 15. Issue #327 is on EC3's appended errata sheet and has no ISO printed-page footer.",
+  "results": [
+    {
+      "id": 18,
+      "source": "\u00a713.6.3.1, Table 311, physical 664 / printed 649",
+      "change": "Adds the page-resource /DefaultRGB selection condition for a 3D stream naming DeviceRGB; changes 'values are' to 'values is'.",
+      "ledger_and_assertions": "13.6.3.1 is out-of-scope under the clause-13 ratification for active U3D/PRC rendering. Generic page default-colour support has separate tests, but those do not prove this 3D-stream consumer behavior.",
+      "verdict": "3D-stream rendering rule; not a missing generic colour-space reader feature under the current scope. No test drafted.",
+      "residuals": "No active 3D renderer exists; no claim that the stream's ColorSpace entry is rendered."
+    },
+    {
+      "id": 38,
+      "source": "\u00a713.6.4.3, Table 317, physical 678 / printed 663",
+      "change": "For the 3D background dictionary, narrows CS type from name-or-array to name, deletes the future-values preparation sentence, and replaces C's broad type/value description with a three-component unit-range array description.",
+      "ledger_and_assertions": "13.6.4.3 is out-of-scope as 3D scene rendering. The ordinary page colour/background paths are separate consumers and do not cover this dictionary.",
+      "verdict": "3D background interpretation only; no reader gap within current scope."
+    },
+    {
+      "id": 39,
+      "source": "\u00a713.6.4.3, insertion before the annotation-transparency note, annotation on physical 677 / printed 662; affected text continues on physical 678 / printed 663",
+      "change": "Text annotation instructs adding a paragraph: processors rendering 3D streams render them directly and ignore listed annotation appearance/colour/border/blend/opacity keys.",
+      "ledger_and_assertions": "Applies when the processor actively renders a 3D stream; that path is explicitly excluded. The normal AP inactive display remains separately in scope and is tested generically.",
+      "verdict": "No active 3D rendering obligation is currently claimed; does not displace normal appearance handling."
+    },
+    {
+      "id": 50,
+      "source": "\u00a713.6.4.6, 3D cross-section dictionary table, physical 684 / printed 669",
+      "change": "Changes Table 323's IV (intersection visibility) default from false to true.",
+      "ledger_and_assertions": "13.6.4.6 is out-of-scope for active 3D rendering; no 3D section-plane consumer exists.",
+      "verdict": "Out-of-scope runtime default; no missing in-scope reader behavior."
+    },
+    {
+      "id": 91,
+      "source": "\u00a713.6.4.1, Table 315, physical 671 / printed 656",
+      "change": "Corrects the default projection Subtype name from Perspective to P (perspective).",
+      "ledger_and_assertions": "3D view projection is excluded. The general parser's ability to read PDF names does not establish projection rendering.",
+      "verdict": "No current implementation obligation for this active 3D view default."
+    },
+    {
+      "id": 145,
+      "source": "\u00a713.7.2.2.2, Table 335, physical 718 / printed 703",
+      "change": "Changes Table 335's default View selection to the Views array in the RichMediaContent dictionary. The Table 344 fallback-component reference is unchanged.",
+      "ledger_and_assertions": "Active RichMedia view selection is excluded by A254/ADR1946. This erratum changes which dictionary owns the Views array lookup; Table 344 still supplies defaults for view components when no Views array exists. The still-page normal AP is covered separately.",
+      "verdict": "No required active RichMedia view-selection behavior in the current scope.",
+      "residuals": "No active RichMedia view-selection behavior is currently claimed; do not report Table 344's unchanged fallback as corrected by this annotation."
+    },
+    {
+      "id": 150,
+      "source": "\u00a713.6.4.1, Table 315, physical 672 / printed 657",
+      "change": "Deletes the qualifier that the NA array is meaningful only if NR is present; NR still defaults false in its own row.",
+      "ledger_and_assertions": "This concerns applying 3D node state and is outside the active 3D-rendering scope.",
+      "verdict": "No in-scope consumer gap."
+    },
+    {
+      "id": 153,
+      "source": "Annex F, F.3.3 Table F.1, physical 899 / printed 884",
+      "change": "Adds version compatibility text to the Linearized parameter value: integer-part changes are incompatible, fractional-part changes upward-compatible, current version 1.0.",
+      "ledger_and_assertions": "The writer serializes /Linearized 1, numerically version 1.0. Parent read every_value_of_the_parameter_dictionary_is_where_the_file_says: it checks byte offsets, lengths, page identity and required placement. This is separate from the PDF header version defect exposed under #331.",
+      "verdict": "No writer mismatch found; no mandatory fast-reader behavior inferred."
+    },
+    {
+      "id": 179,
+      "source": "\u00a713.2.4.2, Table 285 / MH row, physical 637 / printed 622",
+      "change": "Strikeout replaces the Table 287 data MH/BE cross-reference with Table 289 section MH/BE dictionary.",
+      "ledger_and_assertions": "\u00a713.2.4.2 immediately below separately says the data MH/BE BU entry is Table 287, and Table 287 defines BU; Table 289 defines section B/E offsets. `media.rs::clip_data` follows Table 287 for data BU. `media_viability.rs::a_section_is_viable_with_its_next_level_clip_and_a_must_honour_offset_is_not` and related controls cover section offsets but no direct data-BU assertion was found.",
+      "verdict": "Effective EC3 contains an apparent cross-reference conflict; the direct BU prose/table still identifies Table 287, so this is not classified as a code defect. A focused valid BU viability test is drafted from that unambiguous nearby text.",
+      "residuals": "D44 records unresolved source cross-reference inconsistency. The passing test checks the public judge API under the admitted file-only handoff, not actual playback or the disputed cross-reference as a whole.",
+      "parent_execution": "New media_viability::a_data_base_url_is_required_for_must_honour_and_reported_for_best_effort passes with MH, BE and absent-preference controls. All22 tests in that binary pass, now with a shared no-recovery guard."
+    },
+    {
+      "id": 222,
+      "source": "\u00a714.10.5.3, Table 393 command dictionary, physical 827 / printed 812",
+      "change": "Corrects the command dictionary's flags cross-reference to Table 394.",
+      "ledger_and_assertions": "\u00a714.10 is marked inapplicable because \u00a714.10.1 deprecates Web Capture and \u00a73.15 says deprecated features should be ignored. Transform tests confirm Web Capture database trees are not carried; this cross-reference correction adds no independent reader operation.",
+      "verdict": "No current behavior gap; the correction is a table-reference fix in a deprecated feature."
+    },
+    {
+      "id": 283,
+      "source": "\u00a713.6.7.4, Table 332 projection-annotation reference, physical 714 / printed 699",
+      "change": "Replaces an incorrect reference to RichMediaContent Table 341 with \u00a713.6.7.4 3D measurements and projection annotations.",
+      "ledger_and_assertions": "3D measurement/projection association is excluded; ordinary annotation appearance behavior remains separate.",
+      "verdict": "Cross-reference correction within excluded 3D markup."
+    },
+    {
+      "id": 327,
+      "source": "\u00a77.3.3 EBNF attachments, EC3 appended errata sheet at physical PDF page 1004 (no ISO printed footer)",
+      "change": "Adds two FileAttachment EBNF text files, PDF-Integer.ebnf and PDF-Real.ebnf. Parent extracted and read the actual 79/124-byte attachments; they are textual grammar definitions, not merely page figures.",
+      "ledger_and_assertions": "Integer grammar requires optional sign and at least one digit. Real grammar requires optional sign and a decimal point with digits on at least one side. This agrees with fixed-format source forms. Reader acceptance of exponents is a separately documented tolerance (ADR0733), not evidence of strict writer syntax.",
+      "verdict": "No reader rejection test warranted from this writer-side grammar; the diagrams state the permitted number forms."
+    },
+    {
+      "id": 331,
+      "source": "Annex F, F.3.2 Header (Part 1), physical 899 / printed 884",
+      "change": "Raises the minimum PDF version to which linearization may be applied from 1.1 to 1.2.",
+      "ledger_and_assertions": "F.3.2 is implemented and its note says source version is written unchanged. Existing parameter test uses a 1.7 fixture. optimize forwards Document::version; linearize calls header_version, which floors only xref-stream/encrypted forms. Parent tested basic exact-xref 1.0/1.1/1.2 inputs with classic tables.",
+      "verdict": "B55: output remains linearized with header1.0 or1.1, below the effective EC3 floor1.2. Both regression assertions fail; 1.2 control passes. Earlier draft claim that the writer always emits2.0 is withdrawn.",
+      "residuals": "Tests permit either refusing unsupported old input or emitting a sufficiently raised version. No requirement to implement a fast reader, and no certification of all Annex F output."
+    },
+    {
+      "id": 362,
+      "source": "\u00a713.6.3.1, Table 311 Resources row, physical 664 / printed 649",
+      "change": "Adds a note that the 3D Resources name tree was deprecated in PDF 2.0 because it was insufficiently specified for interoperability.",
+      "ledger_and_assertions": "3D resource use is outside active 3D rendering; the row is out-of-scope. No resource-name-tree consumer for 3D exists.",
+      "verdict": "No in-scope gap."
+    },
+    {
+      "id": 389,
+      "source": "Annex F, F.3.3 Table F.1 /P row, physical 900 / printed 885",
+      "change": "Corrects the cross-reference for the optional first-page number from F.3.4 to F.3.7.",
+      "ledger_and_assertions": "This is a reference correction; `/P` default and writer output remain unchanged. Annex F output checks are in `linearize.rs::every_value_of_the_parameter_dictionary_is_where_the_file_says`.",
+      "verdict": "No behavior change identified."
+    },
+    {
+      "id": 402,
+      "source": "Annex H examples, physical 922 / printed 907 and 939 / printed 924",
+      "change": "Strikes GUID placeholders and a long incremental-update/XMP example block; one annotation says replace with ellipsis.",
+      "ledger_and_assertions": "Annex H is informative. The example edit is not a general metadata preservation requirement. \u00a714.3.2 remains a separate implemented owner; saving regression `saving.rs::saving_leaves_both_of_a_documents_metadata_sources_exactly_as_they_were` checks this product's preservation choice.",
+      "verdict": "No new reader/writer obligation from the example deletion."
+    },
+    {
+      "id": 415,
+      "source": "Annex H, editor note on physical 920 / printed 905",
+      "change": "Text comment asks the editor to replace `/BDC` with `BDC` throughout Annex H because operators do not have a leading slash; no operative body strike/caret was found for this comment.",
+      "ledger_and_assertions": "The content-stream parser recognizes BDC as the operator; existing marked-content and associated-file tests use valid BDC syntax. Annex H examples are informative.",
+      "verdict": "Editorial syntax correction; parser behavior is independently covered."
+    },
+    {
+      "id": 425,
+      "source": "Annex H.8.3, physical 945 / printed 930",
+      "change": "Adds a missing slash to the TOC name and inserts /P 400 0 R in an example structure dictionary. The key is P, not Parent.",
+      "ledger_and_assertions": "Informative example syntax. The structure reader uses PDF names and keys; current structure tests use valid slash-prefixed syntax. No new structural algorithm is introduced.",
+      "verdict": "No additional requirement identified."
+    },
+    {
+      "id": 563,
+      "source": "Annex H.3 simple text example, physical 923 / printed 908",
+      "change": "Replaces an example line-marking sequence with one that states line width before path construction/drawing.",
+      "ledger_and_assertions": "Informative content-stream example; `w`, `m`, and `l` are independently handled by the content reader. No new reader obligation."
+    },
+    {
+      "id": 645,
+      "source": "\u00a713.6.7.3.3 Table 328, physical 705\u2013706 / printed 690\u2013691",
+      "change": "Corrects the table's subject from a visually confused 'I' to 3D measurement dictionary and inserts digit 1 in A1/N1/D1 references.",
+      "ledger_and_assertions": "3D perpendicular measurement rendering is excluded. The correction does not affect generic 2D measurement annotations.",
+      "verdict": "No in-scope behavior gap."
+    },
+    {
+      "id": 687,
+      "source": "Annex F, F.3.1 Example 5 Part 5, physical 898 / printed 883",
+      "change": "Reorders the dictionary close and stream keyword in the primary hint-stream example so object syntax is valid.",
+      "ledger_and_assertions": "The optional linearized writer is in scope. Current writer's structured stream output is tested by `linearize.rs` plus the independent parameter/hint-table validator; the example edit does not alter the F.3.1/F.3.6 prose requirements.",
+      "verdict": "No writer defect found in the inspected path; example correction is not additional prose."
+    },
+    {
+      "id": 690,
+      "source": "\u00a713.6.5 3D coordinate systems, physical 693 / printed 678",
+      "change": "Inserts the missing z term in the y-coordinate transformation equation.",
+      "ledger_and_assertions": "This equation belongs to U3D/PRC model transforms, excluded by the ratified 3D-rendering boundary. Ordinary 2D transforms are separate and tested.",
+      "verdict": "No in-scope transform gap."
+    },
+    {
+      "id": 699,
+      "source": "Annex F, F.3.1, physical 896 / printed 881",
+      "change": "Inserts the closing parenthesis in the F.3.6 hint-stream Parts 5 and 10 cross-reference.",
+      "ledger_and_assertions": "Punctuation/reference correction; current linearizer's part ordering and hint stream are validated by Annex F tests.",
+      "verdict": "No behavior change identified."
+    }
+  ],
+  "tests": {
+    "drafted": [
+      "drafts/media_data_base_url.rs"
+    ],
+    "executed": false,
+    "parent_execution": "media-wave63:22PASS (one new test); linearization-floor-wave63b:1PASS2FAIL (three new tests). Model and transform all-targets Clippy pass."
+  },
+  "limitations": [
+    "Selected23 issue groups only. No active3D/RichMedia implementation claim. D44 preserves source ambiguity; B55 independently exposes old-version producer output. Passing BU test is an API judgement, not media playback."
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "scope": "Parent follow-up to checkpoint32/D29",
+  "decisions": [
+    {
+      "adr": "0420",
+      "conclusion": "One-object preservation assumption is contradicted by PDF-to-CPU and all three sampled GPU routes, in addition to raw CPU. Retain geometry distinction but composite the complete object once. No production or historical ADR edit."
+    }
+  ]
+}

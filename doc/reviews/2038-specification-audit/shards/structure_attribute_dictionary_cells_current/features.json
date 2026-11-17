@@ -1,0 +1,119 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "Selected current assertion/source recheck of three structure-attribute tables: Table 381 columns, Table 382 list attributes, and Table 384 table-cell attributes. This is not a whole-§14.8 certificate; nearby Table 383 PrintField is cross-referenced to confirmed B29.",
+  "selected_tables": [
+    {
+      "table": 381,
+      "clause": "14.8.5.4.7",
+      "source_locations": [
+        {
+          "physical_page": 803,
+          "printed_page": 788,
+          "text": "Table381 caption/header and ColumnCount only; ColumnGap begins on physical804."
+        },
+        {
+          "physical_page": 804,
+          "printed_page": 789,
+          "text": "Table381 continuation: complete ColumnGap and ColumnWidths entries, including short/excess-array semantics."
+        }
+      ],
+      "effective_rule_features": [
+        "When a grouping element's content is divided into columns, the Table 381 attributes shall be present.",
+        "ColumnCount is integer, optional, noninheritable, default 1.",
+        "ColumnGap may be a number or an array; short arrays repeat the last stated gap; excess elements are ignored. The cell says the array should contain numbers.",
+        "ColumnWidths may be a number or an array; short arrays repeat the last width; excess elements are ignored; values are user-space widths in inline progression and the cell requires numeric array members."
+      ],
+      "errata": "Effective replacement Table 377 is appended at physical 1013–1014 by EC3 #223/#226 and maps these column attributes to grouping elements. Table 381 itself is physical 803–804; no direct Table 381 value correction was identified in the prior source audit.",
+      "ledger_and_code": "Ledger §14.8.5.4.7 is classified inapplicable as a column-layout consumer. The current viewer presents the authored page content; its rendering, selection and accessibility paths do not use ColumnCount/ColumnGap/ColumnWidths to reflow content. The attributes are not claimed to be parsed into a consumer result.",
+      "assertions": "The prior structure_layout_remaining_current source audit searched current structure/layout tests and found no assertions carrying these values into a consumer. This is expected under the current display-only scope and is not a reader defect by itself.",
+      "verdict": "No gap established for this product path. Table cells contain layout-process instructions; the page appearance already encodes placement. No test draft: a parser-only short-array test would not validate a current supported consumer, and no reflow output contract is adopted.",
+      "residuals": [
+        "If a reflow/export consumer is adopted, separately test short and excess arrays, ColumnGap versus ColumnWidths strength wording, inline progression, and default ColumnCount."
+      ]
+    },
+    {
+      "table": 382,
+      "clause": "14.8.5.5",
+      "source_locations": [
+        {
+          "physical_page": 804,
+          "printed_page": 789,
+          "text": "§14.8.5.5 lead-in; this is context, not Table 382's caption."
+        },
+        {
+          "physical_page": 805,
+          "printed_page": 790,
+          "text": "Table 382 definition. ListNumbering values, default None, ordered/unordered classification and NOTE; ContinuedList/ContinuedFrom."
+        }
+      ],
+      "effective_rule_features": [
+        "ListNumbering is optional and inheritable, default None; the table defines its value set and says the list is unordered unless one of the listed ordered values is present.",
+        "The NOTE permits extraction tools to autonumber, while warning that Lbl may already contain explicit results; it does not itself erase the preceding list-kind classification or require duplicate label generation.",
+        "EC3 #346 makes ContinuedList and ContinuedFrom noninheritable; it does not make ListNumbering noninheritable. The two continuation attributes have separate current implementation and consumer tests and are not retested here."
+      ],
+      "ledger_and_code": "Current ledger row 14.8.5.5 implements continuation interpretation and marks ListNumbering inapplicable on the rationale that it is only a renumbering scheme. Current Tree/list consumer carries continuation data but no ordered/unordered classification; all standard Lists project as the generic list role.",
+      "assertions": "No ListNumbering assertion was found in the current implementation tests. Existing continuation tests do not prove the independent ListNumbering classification. D17 records this exact source-to-consumer gap as a qualified policy/API question.",
+      "verdict": "D17 remains open as a source-to-consumer disposition question, not an execution-confirmed mandatory reader defect. The table makes an explicit ordered/unordered distinction, but the public host vocabulary presently has one generic List role. Do not infer that labels must be regenerated or impose a platform representation without an owner decision.",
+      "related_findings": [
+        "2038-D17"
+      ],
+      "related_adrs": [
+        "ADR 0743",
+        "ADR 0748"
+      ],
+      "residuals": [
+        "Whether and how list kind is exposed to the public accessibility consumer remains unresolved. Inheritance of ListNumbering is permitted by the table but has no current consumer to exercise it."
+      ]
+    },
+    {
+      "table": 384,
+      "clause": "14.8.5.7",
+      "source_locations": [
+        {
+          "physical_page": 807,
+          "printed_page": 792,
+          "text": "Table 384 begins: RowSpan, ColSpan, Headers and Scope."
+        },
+        {
+          "physical_page": 808,
+          "printed_page": 793,
+          "text": "Table 384 continuation: Summary and Short, then Table 385 begins later on this page."
+        }
+      ],
+      "effective_rule_features": [
+        "RowSpan and ColSpan default to 1, are noninheritable and have effect only on TH/TD; placement follows the table's WritingMode axes.",
+        "Headers is noninheritable; explicit IDs order row headers before column headers, each most-specific-first, and recursive TH Headers contribute. If scope cannot be determined, the cited header must specify Scope.",
+        "Scope is a noninheritable TH axis classification. Summary is noninheritable and Table-only, with a nonvisual rendering note; Short is noninheritable, PDF 2.0, and TH-only.",
+        "EC3 #200 amends the §14.8.4.8.3 implicit search: an adopted search should not terminate at a TH whose Scope conflicts with its search direction, regardless of that TH's Headers. This is a SHOULD refinement of an optional algorithm, not a universal mandate to implement implicit association."
+      ],
+      "ledger_and_code": "Current ledger §14.8.5.7 maps cell geometry/header relations and Summary/Short. `pdf-model::Tree::cell_facts` reads spans, Scope, IDs and explicit Headers; `viewer-core` places cells and resolves associations; `viewer-accessibility` delivers header names/descriptions. `table_header_conflicting_scope_spec_audit.rs` is a public Viewer/accessibility consumer test for the #200 correction.",
+      "assertions": "Current existing model/headless/AT-SPI tests cover source-derived span defaults/placement, explicit and implicit header associations, recursive ordering, Scope role/description, Summary and Short routing. The newly promoted exact-xref public regression includes Row/Column and with/without Headers controls. Parent execution records three controls passing and the Row-with-Headers case failing with only Named, omitting eligible Middle/Far. This is B53, an adopted optional-algorithm/SHOULD gap, not a claim that all readers must use the algorithm. It does not settle whether Named also contributes or how a later TD affects termination.",
+      "verdict": "No new distinct Table 384 defect/draft from this shard. Preserve confirmed B53 and its limits; the earlier structure_attributes shard's no-new-failure statement predates that current dedicated regression and should not be read as disposition of #200.",
+      "related_findings": [
+        "2038-B53"
+      ],
+      "related_adrs": [
+        "ADR 0312"
+      ],
+      "residuals": [
+        "No whole-table certification here; B53 is limited to the public named-row-header continuation witness and leaves the issue's identified alternatives open."
+      ]
+    }
+  ],
+  "explicit_exclusions": [
+    {
+      "feature": "Table 383 PrintField",
+      "reason": "Separate confirmed B29 already tests public disappearance of Role, Checked, Desc from valid exact-xref forms. It is not duplicated in this selected three-table matrix."
+    },
+    {
+      "feature": "B01/B02 language and marked-content replacement",
+      "reason": "Distinct language/ActualText issues and consumer paths; no Table 381/382/384 cell-level overlap asserted here."
+    },
+    {
+      "feature": "Table 378 WritingMode and Tables 379/380 layout attributes",
+      "reason": "Previously reviewed in tagged_content_tables_current/layout_attributes_remaining_current; not recertified."
+    }
+  ],
+  "execution": "Source/assertion review only. No Cargo command was run by this shard. B53 outcomes are parent-reported from its promoted test run, not a run performed here."
+}

@@ -1,0 +1,96 @@
+{
+  "scope": "Follow-up review of effective Annex L / Table L.2 parent-child rules through current producers and structure consumers, beyond the previously reviewed Document wrapper cells. This is a bounded source-to-code audit, not full certification of every matrix cell.",
+  "source": {
+    "primary": "ISO 32000-2:2020 EC3, Annex L, physical p.962 onward / printed p.947 onward; \u00a714.8.4.2 physical p.754 / printed p.739; \u00a714.8.6.1-.2 namespace rules.",
+    "annex_text": "The annex says it defines acceptable children; PDF 2.0 standard-namespace elements shall not have child or parent elements in that namespace unless listed in Table L.2. The rule also applies to roles mapped into that namespace. \u00a714.8.4.2 refers nesting rules to Annex L and gives additional type-specific rules. The condition is the PDF 2.0 standard namespace, not every structure tree.",
+    "errata": "Effective EC3 grouped Annex L annotation at physical p.962/printed p.947 identifies #64, #83, #336, #349 and #440 and states the replacement matrices supersede the older attachments. This follow-up uses the current replacement matrix. Prior shard records the corrected #83 P\u2192Table and #440 WP\u2192Figure directions; it does not attribute a full cell delta to #336.",
+    "matrix_attachment": {
+      "xlsx": "scratchpad/r2038/spec-audit/ISO32000-2_AnnexL_matrix-version072024.xlsx",
+      "sha256": "d372710f5b2ccca20101317e7656b25bdf4570dd2b399dbaa287839783b31ed1",
+      "pdf_sha256": "6684535e0a381f211866660f6ba9a00b14f5e618a8bc047acb6496dd3f3bd782",
+      "reading": "The workbook has parent types across row 2 and child types down column B; a cell is a directed child-under-parent rule. I parsed all 42\u00d742 data coordinates and the legend. Cardinalities include exactly-one, zero-or-more, optional-single, forbidden, conditional-forbidden, delegated type-specific cases, and Ruby/Warichu-specific cases. The matrix is not symmetric. No full licensed matrix transcription is included here."
+    }
+  },
+  "features": [
+    {
+      "feature": "PDF 2.0 namespace applicability and directionality",
+      "clause": "Annex L; \u00a714.8.4.2; \u00a714.8.6.1-.2",
+      "source_location": "EC3 primary Annex L printed p.947/physical p.962; \u00a714.8.4.2 printed p.739/physical p.754. Current replacement XLSX axes and legend were parsed directly; parent types are columns, child types rows.",
+      "ledger": "doc/conformance/ledger.toml clause L (writer-side); clause 14.8.4.2 distinguishes reader hierarchy interpretation from Annex L nesting constraints.",
+      "code": [
+        "crates/pdf-model/src/structure.rs::Namespace::standard",
+        "crates/pdf-model/src/structure.rs::Tree::in_pdf_2_0_namespace",
+        "crates/pdf-model/src/structure.rs::Tree::standard_role",
+        "crates/pdf-transform/src/structure/wrapper.rs::Carry::wrap_documents"
+      ],
+      "tests": [
+        "crates/pdf-transform/tests/merge.rs::two_pdf_2_0_documents_are_written_inside_one",
+        "crates/pdf-transform/tests/merge.rs::documents_outside_the_pdf_2_0_namespace_are_not_wrapped",
+        "crates/pdf-transform/tests/annex_l_role_mapping.rs::role_mapped_pdf_2_documents_are_written_inside_one"
+      ],
+      "assertions": "The writer's decision follows the role map through to the PDF 2.0 standard namespace; the role-mapped test reads the emitted /NS, role and /P links, while the PDF 1.7 fixture is an applicability control. The code and assertions are about the wrapper population, not a general matrix validator.",
+      "verdict": "Effective rule and scope confirmed. Treat cells as directed, conditional producer constraints. No reader-rejection requirement follows merely from a forbidden cell.",
+      "residuals": "The current attachment gives the effective matrix but not a reproducible per-issue cell delta for #336. No additional matrix cell is certified by the wrapper tests."
+    },
+    {
+      "feature": "Only newly synthesized PDF 2.0 standard-namespace nesting found in pdf-transform",
+      "clause": "Annex L Table L.2; \u00a714.7.5.4; ADR 1474",
+      "source_location": "Current matrix C3: Document under StructTreeRoot exactly once; D3: Document under Document zero-or-more. Matrix orientation and bare-1 meaning are established in annex_l_matrix_cell_review_current. The effective primary clause explicitly includes role-mapped types.",
+      "ledger": "doc/conformance/ledger.toml clause L currently describes the writer row as implemented through the wrapper behavior and says source trees are otherwise carried unchanged.",
+      "code": [
+        "crates/pdf-transform/src/structure/wrapper.rs::Carry::wrap_documents",
+        "crates/pdf-transform/src/structure/write.rs::Carry::wrapper_element",
+        "crates/pdf-transform/src/structure/write.rs::Carry::element",
+        "crates/pdf-transform/src/structure/hierarchy.rs::Carry::keep"
+      ],
+      "tests": [
+        "crates/pdf-transform/tests/merge.rs::two_pdf_2_0_documents_are_written_inside_one",
+        "crates/pdf-transform/tests/merge.rs::documents_outside_the_pdf_2_0_namespace_are_not_wrapped",
+        "crates/pdf-transform/tests/annex_l_role_mapping.rs::role_mapped_pdf_2_documents_are_written_inside_one"
+      ],
+      "assertions": "The ordinary wrapper test checks exactly one root child, its PDF 2.0 Document role, both source Document children, and child /P back-references to the wrapper; the role-map test repeats the essential relation for custom roles. This closes the newly synthesized relationship that the current writer actually creates.",
+      "verdict": "No additional synthetic edge found, but that does not establish preserved sequence/cardinality. B56 demonstrates empty WP pruning despite retained edges.",
+      "residuals": "Generic pruning must preserve applicable type sequences/cardinalities or have an explicit refusal contract. Full matrix not certified."
+    },
+    {
+      "feature": "Archive converter's synthesized Part/P hierarchy is outside Annex L's namespace condition",
+      "clause": "Annex L; \u00a714.8.6.1; Tables 354-366",
+      "source_location": "Annex L applies only to PDF 2.0 standard namespace elements. \u00a714.8.6.1 makes PDF 1.7 the default namespace when /NS is absent. The archive producer's fixture and emitted elements state no /NS.",
+      "ledger": "doc/conformance/ledger.toml clause L and \u00a714.7 writer entries name archive tagged conversion as a writer; clause L explicitly scopes its generated Part/P as default PDF 1.7 namespace.",
+      "code": [
+        "crates/pdf-transform/src/archive/tagged.rs::grouping",
+        "crates/pdf-transform/src/archive/tagged.rs::paragraph",
+        "crates/pdf-transform/tests/archive.rs::a_page_appended_to_a_tagged_document_is_described_in_its_structure_tree"
+      ],
+      "assertions": "The archive test reads the appended hierarchy, confirms Part then P roles, parent-tree access, and logical text. The producer uses Table 365 Part and Table 366 P under PDF 1.7's default namespace; it does not state a PDF 2.0 /NS. Those assertions do not exercise Annex L and should not be described as Annex L matrix validation.",
+      "verdict": "No Annex L duty attaches to this synthesized hierarchy as written. Its parent-child design follows PDF 1.7's type definitions, not Table L.2.",
+      "residuals": "The test does not independently assert the default namespace /NS omission, though the fixture and constructor show it. This is not a Table L.2 coverage gap."
+    },
+    {
+      "feature": "Read-side structure, accessibility and extraction consumers use the stated hierarchy without Annex L validation",
+      "clause": "\u00a714.7.2-.3; \u00a714.8.4.2; Annex L",
+      "source_location": "\u00a714.8.4.2 points to Annex L for nesting and separately explains role-mapped nonstandard elements. The Annex L 'shall' concerns which hierarchy a conforming producer writes; no language inspected requires a reader to reject a malformed nesting.",
+      "ledger": "doc/conformance/ledger.toml clause 14.8.4.2 and clause L; model/read and accessibility paths are separately described in the current ledger.",
+      "code": [
+        "crates/pdf-model/src/structure.rs::Tree::walk",
+        "crates/pdf-model/src/structure.rs::Tree::logical_range",
+        "crates/pdf-model/src/structure.rs::Tree::standard_role",
+        "crates/viewer-accessibility/src/tree.rs",
+        "crates/viewer-core/src/accessibility.rs"
+      ],
+      "tests": [
+        "crates/pdf-model/tests/logical_structure_example.rs::the_clauses_worked_example_reads_as_the_structure_it_describes",
+        "crates/viewer-accessibility/tests/tree.rs",
+        "crates/viewer-accessibility/tests/interleaved_struct_content_spec_audit.rs"
+      ],
+      "assertions": "Consumers descend the /K hierarchy, resolve roles/namespaces, and project content order/accessibility relationships. Their tests assert those projections for source structures. No code path calls a Table L.2 membership predicate or reports matrix-invalid input.",
+      "verdict": "No reader validation obligation or defect established. A malformed producer relationship may still carry content a reader needs to expose; preserving the stated tree and not rejecting it is consistent with the bounded source evidence.",
+      "residuals": "This review did not prove every assistive-technology consequence for every illegal pair. It specifically rejects using this incomplete sample as an Annex L matrix certificate."
+    }
+  ],
+  "parent_adjudication": {
+    "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+    "review": "Retain narrow synthetic Document wrapper, namespace and archive PDF1.7 findings. Withdraw inference that no new edges means no missing writer test: pruning can violate sequence/cardinality. B56 is a concrete valid-input counterexample under the documented absent-K premise. No generic malformed-tree reader rejection duty inferred.",
+    "execution": "See annex_l_split_cardinality_current and warichu_split_spec_audit; one FAIL, one positive control PASS. Full matrix remains unaudited."
+  }
+}

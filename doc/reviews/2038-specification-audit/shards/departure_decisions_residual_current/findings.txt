@@ -1,0 +1,5 @@
+All10 current departed rows reconsidered; their narrow choices remain recorded, not certified conforming. The claimed stale current redaction16-bit ceiling was withdrawn: current ledger already says24-bit and ADR2480 explicitly supersedes historical limits. Do not rewrite historical ADRs. The scan-conversion family wording is the already-recorded D13, not a new finding.
+
+Parent checked selected ADRs/current code and test assertions. The normal CIE mask component/device-weight choice is distinct from luminosity_departure diagnostics for unavailable own-component composition; existing transparency_groups tests explicitly discriminate the formulas. ADR1857 was unrelated and removed from the FreeText rationale. JPX section starts physical65/50; Table15 Size is physical73/58.
+
+T73 now pins explicit currentxref entry retention above understatedSize, with normal-size and older-recovery-bound controls. T26 already supplied stored annotationBM pixels; checkpoint54 strengthens it with outside-blue. BM is source-backed independently of the unresolved ca/CA wording tension. No status or production changes.

@@ -1,0 +1,31 @@
+{
+  "baseline":"b901326c",
+  "decisions":[
+    {
+      "id":"no-duplicate-tree-test",
+      "decision":"Do not draft another deep tree traversal test. Current valid public destination and page-label tests use exact xrefs, indirect Kids, exact Limits, both branch sides, literal values and valid controls; generic number ordering is not inferred solely from PageLabels because it sorts ranges after enumeration.",
+      "evidence":"Parent-confirmed trees-open-order-wave17c; current tests deep_name_tree_spec_audit.rs::named_destination_lookup_descends_valid_indirect_nodes_and_uses_exact_byte_keys and deep_number_tree_spec_audit.rs::page_labels_enumerate_numeric_ranges_from_valid_indirect_leaves.",
+      "classification":"Existing consumer assertion coverage with stated numeric-order limitation."
+    },
+    {
+      "id":"null-key-recovery-not-required",
+      "decision":"Treat EC3 #307 as a writer constraint. Retain the null-key pair-stability test as tolerance evidence; do not require reader rejection or a particular recovery algorithm from that sentence.",
+      "source":"Table 36 physical 135 / printed 120; Table 37 physical 137 / printed 122.",
+      "current_assertion":"pdf-syntax/src/tree.rs::a_null_key_yields_nothing_and_leaves_its_neighbours_paired.",
+      "classification":"Producer-invalid input; no separate reader duty stated here."
+    },
+    {
+      "id":"page-label-letters-conflict",
+      "decision":"Preserve the current repeated-letter implementation and document conflict; do not claim conformance to both accepted corrections. #432 changes ZZ to AZ; #593 inserts AAA-ZZZ for the next 26. Base count and #593 support repeat; no resolution of contradictory accepted markup is asserted.",
+      "source":"Table 161 physical 474 / printed 459; annotation geometry and accepted status are described in doc/errata-read.md, Table 161 section.",
+      "current_assertion":"page_label.rs::letters_repeat_rather_than_carrying expects BB at 28; current ledger row 12.4.2 records #432/#593 disagreement and ADR0601.",
+      "classification":"Effective-source conflict retained, not a new bug."
+    },
+    {
+      "id":"missing-style-public-assertion",
+      "decision":"Draft a compact public consumer assertion for Table 161's explicit no-style behavior. A range with /P and no /S repeats only the prefix; an absent/empty P and absent S gives an empty label. This complements, rather than duplicates, numeric style examples and boundary/default-St coverage.",
+      "source":"Table 161 physical 474 / printed 459, S and P cells plus note.",
+      "classification":"Narrow missing assertion; no implementation defect presumed."
+    }
+  ]
+}

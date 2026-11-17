@@ -1,0 +1,38 @@
+{
+  "scope": "Focused passing regression tests for Table147 native settings seams. Assertions stop at actual GTK PrintSettings and the Qt Rust host bridge, not native dialogs or physical output.",
+  "source": {
+    "clause": "ISO 32000-2 \u00a712.2, Table 147",
+    "locator": "EC3-integrated primary PDF, printed pp.439\u2013440 / physical pp.454\u2013455.",
+    "rules_used": [
+      "PrintScaling /None means no page scaling; AppDefault uses the processor's own default.",
+      "Duplex choices distinguish flip-short-edge and flip-long-edge; an absent setting has an implementation-dependent default.",
+      "PrintPageRange initializes the dialog from inclusive first/last pairs, using one-based page numbers.",
+      "NumCopies initializes the dialog to the stated number of copies; its absent default is implementation-dependent, typically one."
+    ],
+    "external_mapping_source": "Official GTK4.18.6 CUPS backend: gtkprintbackendcups.c lines5867ff map DuplexTumble to vertical and DuplexNoTumble to horizontal; lines4294ff label NoTumble long edge and Tumble short edge. https://raw.githubusercontent.com/GNOME/gtk/4.18.6/modules/printbackends/gtkprintbackendcups.c"
+  },
+  "test_gap": "print_scaling_policy_current found source-visible transfer but no focused assertion at the returned native settings seam. Existing core and PrintDefaults tests establish parsing and generic values, not the GtkPrintSettings object or all QtPrintJob bridge fields.",
+  "residuals": [
+    "No claim that either native dialog actually opens with these settings at runtime; no test here drives the dialog or a printer.",
+    "The source's tray-by-PDF-size setting is conditional on an OS capability, and the reviewed GTK/Qt paths expose no matching control. These drafts do not characterize a capable host.",
+    "The no-dialog C API's explicit placement versus the suppressed-dialog PrintScaling sentence remains outside this test shard."
+  ],
+  "tests": [
+    {
+      "path": "crates/viewer-gtk/src/host/printing/print_defaults_settings_spec_audit.rs",
+      "target": "Private viewer-gtk::host::printing::print_settings function, tested from a child module within printing.rs.",
+      "input": "Exact-xref PDF 2.0 fixtures parsed through ViewerPreferences::read with explicit /NumCopies 3, /PrintScaling /None, /PrintPageRange [2 2 3 3], and each of the two PDF duplex edge names.",
+      "expected": "Returned GtkPrintSettings has 3 copies, scale 100%, Ranges mode, inclusive zero-based GtkPageRange entries [(1,1),(2,2)], and the independently mapped PrintDuplex::Vertical for PDF short-edge and Horizontal for PDF long-edge.",
+      "runner": "Parent executed in native-print-wave68b.log: test PASS under Xvfb. No native dialog or printer driven.",
+      "limits": "Does not call GtkPrintOperation::run, show a dialog, observe a user changing settings, test a CUPS destination, or make a physical print. The `/PickTrayByPDFSize` capability question is deliberately excluded."
+    },
+    {
+      "path": "crates/viewer-qt/src/host/tests/print_defaults_spec_audit.rs",
+      "target": "Existing toolkit-free viewer-qt::host::tests harness, through Host::showing_what_would_print and Host::print_job.",
+      "input": "A hand-built three-page PDF with direct /ViewerPreferences values /NumCopies 4, /Duplex /DuplexFlipLongEdge, /PrintScaling /None, and /PrintPageRange [2 2 3 3].",
+      "expected": "Returned QtPrintJob carries copies=4, the long-edge bridge value, no_scaling=true, and both inclusive one-based page-range pairs, with three pages in the job.",
+      "runner": "Parent executed in native-print-wave68b.log: test PASS under Xvfb. No native dialog or printer driven.",
+      "limits": "Does not instantiate QPrinter or QPrintDialog. It validates the Rust bridge data only, not C++ conversion to QPageRanges, printer backend selection, UI display, or physical output."
+    }
+  ]
+}

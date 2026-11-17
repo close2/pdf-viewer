@@ -1,0 +1,53 @@
+{
+  "scope": "Independent partial source/caller cross-check. Execution is recorded under parent B41; current-time CRL and document timestamp/capture concerns remain separate.",
+  "source": [
+    {
+      "clause": "ISO 32000-2:2020 + EC3 12.8.3.4.7",
+      "physical_page": 598,
+      "printed_page": 583,
+      "rule": "For current UTC CRL checking, current UTC must be within the interval delimited by thisUpdate and nextUpdate."
+    },
+    {
+      "clause": "ISO 32000-2:2020 + EC3 12.8.3.4.8",
+      "physical_page": 599,
+      "printed_page": 584,
+      "rule": "Historical signer CRL requires capture before signer certificate expiry and nextUpdate after historical time; TSA path is checked at current UTC and revocation reason/time controls whether genTime is reliable."
+    }
+  ],
+  "candidate_1": {
+    "verdict": "likely consumer-level gap; avoid claiming generic timestamp establishment itself is defective",
+    "code": [
+      "crates/pdf-signature/src/timestamp.rs::established",
+      "crates/pdf-signature/src/timestamp.rs::signature_timestamp_established",
+      "crates/viewer-core/src/notes.rs::signature_timestamps_instant",
+      "crates/viewer-core/src/notes.rs::established_over"
+    ],
+    "detail": "Timestamp APIs return Established for Trust::Anchored and retain revocation separately. signature_timestamps_instant promotes at to BestSignatureTime without examining reason. That can use genTime where \u00a712.8.3.4.8 requires current-time fallback. The TSA path must be checked at current UTC; NotChecked/indeterminate is not the no-revocation branch. Check all TSA path certificates; keyCompromise/cACompromise/missing reason forbids use; other reason allows only if revocation time > genTime.",
+    "limits": [
+      "established_over is a document timestamp chain; separately resolve applicable \u00a712.8.5.3 requirements before grouping it with the signature-attribute defect",
+      "no reason-specific runtime fixture was independently executed"
+    ]
+  },
+  "candidate_2": {
+    "verdict": "context-dependent current-time gap candidate; not a global from_list defect",
+    "code": [
+      "crates/pdf-signature/src/revocation.rs::from_list",
+      "crates/pdf-signature/src/trust.rs::Search::walk",
+      "crates/viewer-core/src/notes.rs::signatures"
+    ],
+    "detail": "from_list enforces at <= nextUpdate but not at >= thisUpdate. Shared API has no current/historical mode. Current-time \u00a712.8.3.4.7 calls need lower-bound enforcement; historical \u00a712.8.3.4.8 deliberately permits postdated CRLs when nextUpdate exceeds historical time and the capture/expiry condition holds.",
+    "counterexample": "Existing a_list_issued_after_the_instant_asked_about_is_evidence_about_it is historical-style and valid under \u00a712.8.3.4.8; a blanket lower-bound patch would break that behavior.",
+    "adjacent_source_condition": "\u00a712.8.3.4.7 also limits current-time OCSP evidence to a response captured before signer-certificate expiry; reviewer found no apparent wrapper. This is noted as adjacent scope, not analyzed as a third finding.",
+    "limits": [
+      "no paired valid current-time CRL fixture drafted pending agreement on mode seam",
+      "other policy callers may define issuance semantics independently"
+    ]
+  },
+  "related_adrs": [
+    "1067",
+    "1071",
+    "2720",
+    "2775"
+  ],
+  "errata": "Primary annotation check found no material amendment on physical pp. 598-599; source transcription at scratchpad/r2038/spec-audit/ec3-parent-layout.txt lines ~35218-35264."
+}

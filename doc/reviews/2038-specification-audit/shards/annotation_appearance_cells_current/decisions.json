@@ -1,0 +1,36 @@
+{
+  "status": "bounded source, annotation, and assertion review; no new test draft",
+  "decisions": [
+    {
+      "adr": "ADR 0013 — Annotations are drawn from their appearance streams, and never synthesised",
+      "review": "Treat its no-synthesis text as historical implementation policy, not a current normative reader rule or a complete statement of current code.",
+      "basis": "The current implementation has subtype-specific `appearance::construct` routes, while effective EC3 #34 says appearance with no AP is implementation-dependent. A PDF 2.0 writer's AP-presence SHALL from Table 166 is separate. Existing tests exercise derived appearances for selected subtypes and distinguish them from stored AP; this does not create a universal requirement to synthesize every absent AP.",
+      "limit": "No producer/save-path audit is included here; implementation-dependent absent-AP visuals are not a reader conformance test."
+    },
+    {
+      "adr": "ADR 0628 — The flag row whose second sentence had no reader",
+      "review": "Retain for unknown annotation handling with an AP.",
+      "basis": "Its exact interpretation of EC3 #1 connects the unknown-type Invisible flag condition to §12.5.5: where AP/N exists, draw N; no AP on an unknown subtype can result in nothing under the table's `if any` wording. The current public tests directly assert both sides.",
+      "limit": "This covers an unknown subtype, not unsupported features within a known subtype or all standard annotation handlers."
+    },
+    {
+      "adr": "ADR 0235 — A form is a description and a check box is a name",
+      "review": "Retain in the narrow file-state path.",
+      "basis": "§12.7.5.2.3 explicitly directs the reader to AS when stored widget AS and field V differ; the appearance-state residual's parent-run public pixel test passed both mismatch directions. The current-code path still uses a viewer-replaced form state after an edit, and otherwise file AS; inherited V is not substituted for an absent/malformed AS as a normative obligation.",
+      "limit": "Mismatched V/AS is a reader-directed case, not a conforming producer fixture."
+    },
+    {
+      "adr": "ADR 0439 — Exact byte identity for names",
+      "review": "Retain.",
+      "basis": "Appearance state keys are PDF names. Existing byte-distinct state-name tests provide a direct control against lossy decoding/case-folding; current lookup uses exact name bytes.",
+      "limit": "Does not make names outside a particular state dictionary valid selectable states."
+    },
+    {
+      "adr": "ADR 2813 — Down appearance, highlighting, and printing",
+      "review": "Retain for the selected annotation classes; read with its per-type /H conditions.",
+      "basis": "§12.5.5 selects D on press, but Table 191 may override a widget's D depending on /H; links have their own highlight rule. Current tests distinguish N/R/D stream selection and printing N, while focused widget tests cover the down override. Do not generalize one widget example to all subtypes.",
+      "limit": "No full subtype-by-subtype /H cross-product review."
+    }
+  ],
+  "errata_disposition": "Primary EC3 annotations were checked directly. #22 affects writer AP presence/version scope; #124 corrects Rect exception indices to zero-based, but the coordinate equality pairs are semantically unchanged; #23/#34/#56 alter adjacent stored-appearance reader rules, and #34 adds implementation-dependent absent-AP appearance. #1 points unknown annotations to §12.5.5/Table 167. #287/#577 and #422 do not change the assigned state-selection rules."
+}

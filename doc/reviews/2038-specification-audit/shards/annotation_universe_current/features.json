@@ -1,0 +1,42 @@
+{
+  "scope": "Annotation population reconciliation, not a new feature-completeness certificate.",
+  "features": [
+    {
+      "feature": "Numbered and unnumbered EC3 annotations",
+      "clauses": [
+        "2",
+        "3",
+        "12.8.6.3"
+      ],
+      "source": "Primary PDF annotations; inventory.py records IDs, subtype counts, reply relationships and content hashes without copying the annotation text.",
+      "disposition": "360 distinct issue markers occur in /Subj. Searching /Subj, /Contents and /T yields five extra numeric candidates, all contextual false issue IDs. Seven unassigned Text annotations comprise three editorial roots and four review-state replies.",
+      "unnumbered_roots": [
+        {
+          "physical_page": 17,
+          "object": 1221,
+          "effect": "Dated normative references do not automatically incorporate later amendments/corrigenda. This is an interpretation constraint on external source selection, consistent with the earlier #57 review; not a new runtime feature."
+        },
+        {
+          "physical_page": 22,
+          "object": 1274,
+          "effect": "Alphabetical sorting of terms may renumber definitions. Editorial navigation/numbering effect."
+        },
+        {
+          "physical_page": 593,
+          "object": 5980,
+          "effect": "Table 260 PDF-version italics need consistent formatting. No new usage-rights operation."
+        }
+      ],
+      "false_candidates": {
+        "2": "Escaped PDF name application#2Fmathml+xml in #637.",
+        "7": "PKCS#7 labels on links.",
+        "5014": "Adobe Technical Note number in #519.",
+        "5411": "Adobe Technical Note number in #277.",
+        "5902": "Adobe Technical Note number in #553."
+      },
+      "widgets": "38 unassigned Widget annotations are document UI/navigation metadata, not automatic normative features. Most carry GoTo actions; one inspected widget on physical113 has no own action. Do not claim all are active links.",
+      "limits": "Overinclusive marker association discovers candidates; it is not semantic classification of every numbered annotation. Source note #57 does not itself verify all external algorithms against their dated references."
+    }
+  ],
+  "ledger_scope_note": "Clauses2/3 are source framing outside the ledger row inventory. Table260 maps to ledger owner12.8.6. The general annotation census is cross-cutting discovery evidence, not proof that this owner is complete."
+}

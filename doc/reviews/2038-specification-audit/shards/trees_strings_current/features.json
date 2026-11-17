@@ -1,0 +1,185 @@
+[
+  {
+    "feature": "7.9.1 context boundary",
+    "title": "Objects and their syntactic types",
+    "source_location": "ISO printed pp.114\u2013115, \u00a77.9.1 (PDF physical pp.129\u2013130); 7.9.2.1 printed p.115",
+    "errata": "No direct \u00a77.9.1 erratum located. EC3 #322 updates Table 35 terminology but does not remove \u00a77.9.2.1's sentence that the single PDF string is further qualified by context.",
+    "ledger": "7.9.1.scope_and_context; 7.9.2.string_type_summary; 7.9.2.1.single_string_qualified_by_context",
+    "code": "crates/pdf-syntax/src/object.rs Object::String (byte storage); crates/pdf-syntax/src/text_string.rs typed decoding helpers; consumers decide decoding based on property context",
+    "tests": "crates/pdf-model/tests/text_strings_spec_audit.rs covers text-string fields and text-stream decoding; tree key tests assert bytes. Content-string operands have separate font character-code path and are not PDF text strings by default.",
+    "assertions": "Existing text audit asserts decoded rendered output for field values; `trees_rectangles_audit.rs::name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes` checks raw name-tree bytes but its Names array is correctly byte-sorted A, a, a-NUL, decomposed e-acute, composed \u00e9. The separate query loop is not the stored ordering.",
+    "verdict": "supported-with-typed-context-distributed-to-consumers",
+    "residuals": "No single type-level runtime validator can determine intended string qualification; correct context dispatch must be audited at each property consumer. This shard excludes language-escape syntax and dates. Existing PDFDocEncoded /Status bug was fixed by b901326c (`FormsData::read` now uses `pdf_doc_encoded_string`); do not repeat that stale finding.",
+    "related_adrs": [
+      "ADR 0455 \u00a77.9.2 interpretation",
+      "ADR 0439 string-vs-name distinction"
+    ]
+  },
+  {
+    "feature": "7.9.2 string categories",
+    "title": "Text, ASCII and byte strings are context-specific qualifications of one string object",
+    "source_location": "ISO printed pp.115\u2013117, \u00a7\u00a77.9.2.1\u20137.9.2.4 (PDF physical pp.130\u2013132); verify printed footer for exact subheading locator before later citation",
+    "errata": "EC3 #322 changes Table 35 text but leaves \u00a77.9.2.1 body sentence intact. Language escape rules are outside this assignment.",
+    "ledger": "7.9.2.1.single_string_qualified_by_context; 7.9.2.2.text_string_encodings_and_writer_routes; 7.9.2.2.1.pdfdocencoding_and_table_d3; 7.9.2.3.pdfdocencoded_is_single_byte_without_unicode_prefix_dispatch; 7.9.2.4.arbitrary_byte_values_and_string_syntax_forms",
+    "code": "crates/pdf-syntax/src/text_string.rs; consumers in page_label.rs, forms_data.rs and destination.rs use context-specific entry points; name tree uses bytes unchanged",
+    "tests": "crates/pdf-model/tests/text_strings_spec_audit.rs; crates/pdf-syntax/tests/trees_rectangles_audit.rs exact byte lookup test; current language tests are parent-added, not evidence of prior/baseline coverage.",
+    "assertions": "String property tests compare resulting Unicode or rendered value; tree query compares raw bytes. No audit-level assertion should assume every Object::String is UTF-8 or is text.",
+    "verdict": "ledger claims generally backed by context-specific code and targeted assertions; no defect found in sampled scope",
+    "residuals": "Full matrix of consumers and every field's qualification not certified. Excluded language escapes, dates, and property-specific clauses; no blanket \u00a77.9.2 certification.",
+    "related_adrs": [
+      "ADR 0455",
+      "ADR 0439",
+      "ADR 0660"
+    ]
+  },
+  {
+    "feature": "7.9.6 key/value semantic types",
+    "title": "String keys differ from dictionary Name keys; arbitrary values",
+    "source_location": "ISO \u00a77.9.6 opening bullets, printed p.119 (physical p.134), lines 3516\u20133521 in processed markdown",
+    "errata": "EC3 #214 strikes lexical wording but retains explicit byte-prefix/equality rules; #307 adds producer prohibition on null keys. Null-key prohibition does not require a reader to reject a malformed tree.",
+    "ledger": "name-tree-purpose-and-key-type; name-tree-values",
+    "code": "crates/pdf-syntax/src/tree.rs TreeKey::Name compares Object::String byte slices; name_pairs retains keys as Vec<u8>; value objects are passed through/resolved according to consumer",
+    "tests": "trees_rectangles_audit.rs::name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes; tree.rs null-key pair-stability unit",
+    "assertions": "Byte equality and prefix cases are useful, but synthetic Names sequence is byte-sorted; it tests exact byte keys in a valid flat tree, but does not exercise Kids/Limits through a PDF public consumer. Null-key test evaluates tolerant pair preservation for producer-invalid data only.",
+    "verdict": "implementation evidence supports representation and equality; valid public path lacks byte-sorted multi-level fixture",
+    "residuals": "No reader-side rejection or diagnostics for null keys is required by the producer-directed erratum. Key-display decoding is a consumer question, not tree comparison.",
+    "related_adrs": [
+      "ADR 0439",
+      "ADR 0660",
+      "ADR 1211"
+    ]
+  },
+  {
+    "feature": "7.9.6 tree shape and indirect children",
+    "title": "Root, intermediate, and leaf node forms; Kids children are indirect references",
+    "source_location": "ISO \u00a77.9.6 paragraph and Table 36, printed pp.119\u2013120 (physical pp.134\u2013135), processed lines 3523\u20133531",
+    "errata": "EC3 #307 null key applies at leaf key level; no change to Kids shape identified.",
+    "ledger": "name-tree-node-shape; name-tree-kids",
+    "code": "crates/pdf-syntax/src/tree.rs::descend accepts Kids and recursively visits resolved child dictionaries; attachment tree writer emits canonical single root leaf; transform writer paths preserve/write trees",
+    "tests": "tree.rs::a_key_is_found_through_intermediate_nodes tests nested search but constructs Kids with direct dictionaries, contrary to the Table 36 producer form. `trees_rectangles_audit.rs` covers byte lookup only. Writer tests cover flat one-node trees.",
+    "assertions": "Existing deep traversal demonstrates recursive mechanics but is not a valid-conformance fixture. Reader tolerance for direct Kids is not a defect. No valid exact-xref public consumer test was found for deep indirect name-tree nodes.",
+    "verdict": "implementation is present; assertion gap for valid multi-level indirect tree through a public consumer",
+    "residuals": "Node producer constraints do not imply that malformed input must be rejected. Need valid deep public test; drafted Destination name-tree test.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 0054",
+      "ADR 0076"
+    ]
+  },
+  {
+    "feature": "7.9.6 ordering, prefix and Limits",
+    "title": "Bytewise key identity/order, contiguous leaves, exact extrema and traversal",
+    "source_location": "ISO \u00a77.9.6 ordering paragraphs and Table 36, printed pp.120\u2013121 (physical pp.135\u2013136), processed lines 3530\u20133535",
+    "errata": "EC3 #214 withdraws the word lexical from ordering cells/text. Remaining text explicitly requires shorter common-prefix keys first, consistent encoding, byte-by-byte equality; operational ordering is byte lexicographic. #307 adds null-key writer constraint.",
+    "ledger": "name-tree-key-order; name-tree-limits; name-tree-partition; name-tree-read-order; name-tree-efficiency",
+    "code": "TreeKey::Name uses slice Ord; `admits` consults low/high Limits to skip excluded children; `collect` enumerates leaf pairs; `lookup` descends rather than flattening",
+    "tests": "`name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes` tests raw prefix/case/composed byte differences in a correctly sorted Names array; tree.rs `a_key_is_found_through_intermediate_nodes` uses an invalid direct child structure. No assertion found that combines sorted exact byte keys, valid exact Limits, indirect Kids, and public lookup.",
+    "assertions": "Malformed Limits tests document tolerant behavior: missing hint widens lookup and an excluding false hint may lose the key. They do not test valid producers or require validation. Writer sort test checks byte prefix order.",
+    "verdict": "comparison and search are code-supported; valid deep public assertion gap",
+    "residuals": "Limits are treated as a search gate when present and contradictory; reader does not validate exact extrema. The standard places those requirements on producers, so absent validation is not automatically a reader failure. Consider whether malformed false Limits should be recovered, but separate local policy from ISO conformance.",
+    "related_adrs": [
+      "ADR 0439",
+      "ADR 0053",
+      "ADR 0660"
+    ]
+  },
+  {
+    "feature": "7.9.6 arbitrary values and writer indirectness",
+    "title": "Values may be any object; stream values shall be indirect, selected complex values should be indirect",
+    "source_location": "ISO \u00a77.9.6 opening bullets, printed p.119 (physical p.134), processed lines 3518\u20133521",
+    "errata": "No relevant erratum found.",
+    "ledger": "name-tree-values",
+    "code": "generic tree reader preserves values; output attachment writer uses the canonical tree_root helper and existing file-spec references",
+    "tests": "writer and attachment tests verify paired values/file references; they do not enumerate every possible object category",
+    "assertions": "The clause says streams shall be indirect but says dictionary/array/string should be indirect; other simple values should be direct. Those latter SHOULD producer conventions do not imply reader rejection. No standalone stream-value tree fixture found in this shard.",
+    "verdict": "generic representation supported; no reader defect established",
+    "residuals": "Writer reachability for each values category was not exhaustively inventoried. Stream indirectness is mandatory for producers; reader rejection/reporting not specified here.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 1211"
+    ]
+  },
+  {
+    "feature": "7.9.7 number keys and pair array",
+    "title": "Integer keys, Nums naming and ascending numerical order",
+    "source_location": "ISO \u00a77.9.7 opening paragraph and Table 37, printed pp.122\u2013123 (physical pp.137\u2013138), processed lines 3563\u20133570",
+    "errata": "EC3 #307 adds `Keys shall not be the null object` to Table 37 /Nums. #214 concerns name-tree wording only; number keys remain ascending numeric.",
+    "ledger": "number-tree-difference, number-tree-shape, number-tree-kids, number-tree-pairs, number-tree-order, number-tree-limits, number-tree-name-alias",
+    "code": "TreeKey::Number compares i64; `number_pairs` collects Nums and retains traversal order; archive NumberTree extension validates ordering and emits Nums",
+    "tests": "tree.rs::a_number_trees_pairs_come_back_in_order checks paired numeric values but Kids are direct dictionaries; page-label tests cover flat /Nums root; archive writer tests cover indirect leaves and ordering.",
+    "assertions": "Current public consumer coverage tests only flat number trees. `number_pairs` not sorting input is consistent with required producer order; PageLabels later sorting is tolerance and not reader-error policy.",
+    "verdict": "implementation supported; valid deep public number-tree consumer assertion gap",
+    "residuals": "Draft page-label public test exercises valid indirect nodes and numeric order. No demand for rejecting unsorted/null keys based solely on producer constraints.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 1211",
+      "ADR 1025"
+    ]
+  },
+  {
+    "feature": "7.9.6 efficient lookup versus enumeration",
+    "title": "Lookup traverses selected branches; listing consumers enumerate pairs",
+    "source_location": "ISO \u00a77.9.6 opening bullet, printed p.119 / physical p.134; processed lines 3520\u20133521",
+    "errata": "No direct erratum changes the efficiency requirement.",
+    "ledger": "name-tree-efficiency; name-tree-read-order; name-tree-pairs",
+    "code": "tree.rs::lookup descends Kids using Limits; name_pairs/number_pairs enumerate. Destination::named is lookup; attachment and PageLabels consumers enumerate.",
+    "tests": "Existing deep tree test uses direct Kids dictionaries; page-label/destination consumer cases are flat. New drafts provide valid indirect deep trees.",
+    "assertions": "Destination draft checks both branches; PageLabels draft verifies enumerated ranges. Drafts are not execution evidence.",
+    "verdict": "code paths present; valid deep public-consumer assertion gap addressed by drafts",
+    "residuals": "No fanout complexity benchmark. ISO does not prescribe binary search or a complexity bound; no demonstrated conformance defect.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 0054",
+      "ADR 0076"
+    ]
+  },
+  {
+    "feature": "7.9.6 Names pair arrays and root/leaf selection",
+    "title": "Names is alternating string-key/value pairs; root uses either Names or Kids",
+    "source_location": "ISO \u00a77.9.6 paragraph and Table 36, printed pp.119\u2013120 / physical pp.134\u2013135; processed lines 3523\u20133531",
+    "errata": "EC3 #307 adds no-null-key writer constraint; #214 changes order wording, not pair structure.",
+    "ledger": "name-tree-node-shape; name-tree-pairs; name-tree-writer-shape",
+    "code": "tree.rs::collect pairs by chunks_exact(2), TreeKey::entries selects Names; attachment tree_root writes a one-node Names root.",
+    "tests": "Null-key unit checks pair preservation on malformed input; writer test covers flat sorted output. Neither is a valid deep producer fixture.",
+    "assertions": "Destination draft has a root Kids node and indirect Leaves with string keys and indirect destination values.",
+    "verdict": "reader pairing and flat canonical writer supported; no reader rejection is implied for invalid source",
+    "residuals": "No full producer-shape validator; transform/archive writer paths not exhaustively enumerated.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 0076",
+      "ADR 1211"
+    ]
+  },
+  {
+    "feature": "7.9.6 Limits and partition",
+    "title": "Limits give exact extrema and tree leaves cover non-overlapping contiguous ranges",
+    "source_location": "ISO \u00a77.9.6 paragraph after Table 36, printed p.120 / physical p.135; processed lines 3533\u20133535",
+    "errata": "No direct erratum identified.",
+    "ledger": "name-tree-limits; name-tree-partition",
+    "code": "tree.rs::admits compares low/high keys and skips excluded subtrees; flat writer has no child ranges.",
+    "tests": "Existing Limits unit includes missing and deliberately false Limits, both malformed-policy cases. Draft name tree includes exact [(A),(a)] and [(b),(z)] ranges matching sorted keys.",
+    "assertions": "New destination test would assert keys in both legal branches. Page-label draft uses exact [0,2] and [10,10] numeric ranges.",
+    "verdict": "valid ranges represented in candidate drafts; reader does not validate extrema/partition",
+    "residuals": "False Limits currently hide keys. Whether to recover is reader policy; producer constraints alone do not mandate reader rejection or recovery.",
+    "related_adrs": [
+      "ADR 0053"
+    ]
+  },
+  {
+    "feature": "7.9.7 node shape and limits",
+    "title": "Number-tree root/leaf/intermediate shape and indirect Kids",
+    "source_location": "ISO Table 37, printed pp.122\u2013123 / physical pp.137\u2013138; processed lines 3563\u20133574",
+    "errata": "EC3 #307 adds no-null-key producer rule to Nums.",
+    "ledger": "number-tree-shape; number-tree-kids; number-tree-limits",
+    "code": "shared tree.rs traversal; archive NumberTree::extended writes indirect appended leaves and Limits; flat number-tree writer may use root Nums.",
+    "tests": "Existing number tree traversal unit uses direct child dictionaries and does not model valid Kids. Archive writer tests inspect indirect output leaves.",
+    "assertions": "PageLabels draft uses indirect root Kids [15 0 R 19 0 R], exact leaf limits, Nums arrays, indirect value dictionaries, and independent page-label outputs.",
+    "verdict": "implementation supported; valid deep public input assertion drafted",
+    "residuals": "No reader validator/rejection obligation for producer-form violations inferred.",
+    "related_adrs": [
+      "ADR 0053",
+      "ADR 1211",
+      "ADR 1025"
+    ]
+  }
+]

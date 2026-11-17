@@ -1,0 +1,9 @@
+{
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review; this parent record supersedes unexecuted draft descriptions.",
+  "source": "Parent read primary default spaces209\u2013210, implicit210\u2013211, BPC213/198, actual annotations#19inline-imageNOTE3physical285/270, #360Table57physical182, #63Table69physical212. Table146physical447/432 excludes sampled images from direct DeviceCMYK OPM1 zero retention.",
+  "assertions": "New exact-xref sampled-CMYK-image test1PASS. Sampled OPtrue equals OPfalse; direct OPM1 fill differs. Added ordinary direct cyan equality with sampled cyan, preventing a missing-image false positive. Existing default-space tests have distinct resources and consumers.",
+  "corrections": "The reviewer called BPC fixtures valid ICC profiles. Parent inspected dark_black_profile and paper_profile in rendering_intent.rs: these are controlled synthetic conversion carriers with incomplete ICC headers, as already recorded at checkpoint23. They support scoped algorithm/state assertions, not independent complete ICC or ISO18619 certification. Corrected reviewer #19 locator from Table73 to inline-imageNOTE3.",
+  "decision": "Retain Default BPC processor choice after#360 and conditional implicit conversion recommendation. AbsColorimetric prose versus Table69AbsoluteColorimetric is a qualified terminology discrepancy, not an alias requirement.",
+  "residual": "Full valid-ICC algorithm certification, every alternate/default-space route, and every overprint table cell remain pending."
+}

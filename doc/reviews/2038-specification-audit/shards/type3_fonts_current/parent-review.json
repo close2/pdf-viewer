@@ -1,0 +1,7 @@
+{
+  "source": "Parent read physical333\u2013335 Table110/111, explicit stroking parameters and implementation-dependent out-of-bounds behavior; inspected #128 and #43 annotations. Named Encoding is a producer-invalid tolerance route, not mandated acceptance.",
+  "assertions": "Applied draft extent corrections and no-recovery guard. Parent additionally corrected stroke-only d1 from[30,30,720,720] to[5,5,745,745] for50-unit stroke and made cap/join/dash/miter explicit. Fill+stroke extent[-36,-36,786,786]; transformed image FontBBox[0,0,950,750]. No bbox clipping obligation inferred.",
+  "execution": "All17 Type3 tests pass in font-shading-lock-wave25.log. Real valid MMType1 program remains untested by the invalid-program dispatch witness.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

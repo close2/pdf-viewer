@@ -1,0 +1,26 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "ADR0421",
+      "topic": "EC3 #368 q/Q text matrix behavior",
+      "assessment": "Retained: effective EC3 #368 at physical 322 / printed 307 adds q/Q text-matrix restoration semantics. q_restore_recovers_the_line_matrix_used_by_the_next_line_operator directly checks line-matrix state after Q."
+    },
+    {
+      "adr": "ADR0548",
+      "topic": "A q/Q occurrence count does not prove restored matrices reach a later glyph",
+      "assessment": "Parent read section3: corpus producers reposition after restoring, overwriting the restored state. Retain the reasoning; synthetic drawing after Q is needed to expose its effect. The current deterministic Type3 oracle is test evidence, not the subject claimed by the earlier draft ADR label."
+    },
+    {
+      "adr": "ADR0746",
+      "topic": "EC3 #376 Tz/Trm",
+      "assessment": "Retained; current selected scope does not establish a contrary behavior."
+    },
+    {
+      "adr": "ADR1490",
+      "topic": "Extraction word-spacing gap",
+      "assessment": "Out of scope here; do not duplicate prior extraction review."
+    }
+  ],
+  "interpretation": "Table 103's TL row identifies state consumed by operators; Table 106 specifies TD's assignment to TL. These are complementary requirements, not a contradiction."
+}

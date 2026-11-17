@@ -1,0 +1,5 @@
+{
+  "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+  "review": "Nine primary issue groups and consumer/assertion bodies reviewed. #219 prose SubFilter list is on physical102; Table255 changes also remove blanket PDF1.6 wording. #24 ECB no-IV does not remove CBC zero-IV. #114 indirect objstm values already PASS54. #16 existing external CMS controls are bounded; separate dual-default filter candidate remains under investigation.",
+  "limits": "No malformed producer-rejection duty inferred; synthetic hash/perms helpers are not independent cryptographic certification. Dual-default fixture excluded from this promotion."
+}

@@ -32,7 +32,7 @@ fn source() -> Vec<u8> {
 
 /// A successful edit must not publish a date outside the clause's grammar and field ranges.
 /// Refusing invalid input is allowed; this assertion does not prescribe a particular error type.
-fn check_written_date(input: &str) -> bool {
+fn check_written_date(input: &str, valid_input: bool) -> bool {
     let sinks = MemorySinks::new();
     let result = apply(
         &Plan::Update(UpdatePlan {
@@ -66,10 +66,17 @@ fn check_written_date(input: &str) -> bool {
         Date::parse(&written).is_some(),
         "metadata editing published an invalid date: {written:?}"
     );
-    if Date::parse(input).is_some() {
+    // The writer now uses Date::parse too. Do not ask that same parser whether the
+    // fixture is valid: a shared regression must not bless the value on both sides.
+    if valid_input {
         assert_eq!(
             written, input,
             "a valid date must retain the requested value, not merely become some valid date"
+        );
+    } else {
+        assert_ne!(
+            written, input,
+            "the clause independently establishes that this input is invalid"
         );
     }
     true
@@ -79,7 +86,7 @@ fn check_written_date(input: &str) -> bool {
 fn valid_partial_and_zoned_dates_can_be_written() {
     for date in ["D:1998", "D:199812231952-08'00", "D:20260101000000+23'59"] {
         assert!(
-            check_written_date(date),
+            check_written_date(date, true),
             "valid date {date} must reach the writer"
         );
     }
@@ -87,10 +94,10 @@ fn valid_partial_and_zoned_dates_can_be_written() {
 
 #[test]
 fn metadata_editing_does_not_publish_an_out_of_range_month() {
-    let _ = check_written_date("D:20261301");
+    let _ = check_written_date("D:20261301", false);
 }
 
 #[test]
 fn metadata_editing_does_not_publish_an_incomplete_numeric_field() {
-    let _ = check_written_date("D:2026010");
+    let _ = check_written_date("D:2026010", false);
 }

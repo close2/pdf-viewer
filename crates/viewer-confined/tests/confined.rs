@@ -315,8 +315,26 @@ fn the_confined_process_draws_the_page_this_one_would_have() {
 #[test]
 #[cfg(unix)]
 fn a_document_open_on_disk_crosses_as_a_descriptor_and_draws_the_same_page() {
-    let on_disk = pdf_syntax::FileBytes::on_disk(&specification_path())
-        .expect("the committed document opens");
+    use std::io::Write as _;
+
+    // Remove the name after opening: the held file must cross, even when reopening its
+    // pathname is impossible. The memory-route control still reads the committed original.
+    let path = std::env::temp_dir().join(format!(
+        "pdf-view-unlinked-descriptor-{}.pdf",
+        std::process::id()
+    ));
+    let mut temporary = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("a new temporary document");
+    temporary
+        .write_all(&specification_bytes())
+        .expect("the committed document is copied");
+    drop(temporary);
+    let on_disk = pdf_syntax::FileBytes::on_disk(&path).expect("the temporary document opens");
+    std::fs::remove_file(&path).expect("the open file's pathname is removed");
+    assert!(!path.try_exists().expect("the pathname can be checked"));
     assert!(on_disk.is_on_disk() && on_disk.descriptor().is_some());
 
     let mut confined = Confined::start().expect("a confined viewer starts");

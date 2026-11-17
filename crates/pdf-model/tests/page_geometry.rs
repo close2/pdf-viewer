@@ -620,3 +620,81 @@ fn an_unusable_media_box_falls_back_to_the_ancestors_rather_than_erasing_it() {
         );
     }
 }
+
+/// §14.11.2.1 intersects a boundary with `MediaBox` even when that intersection is empty.
+/// Each supplied box is itself nondegenerate. `ViewArea` selects `MediaBox` so the output
+/// viewport remains meaningful while `ViewClip` selects the boundary being checked.
+#[test]
+fn a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium() {
+    let mut painted = Vec::new();
+    for name in ["CropBox", "BleedBox", "TrimBox", "ArtBox"] {
+        let preferences = format!("/ViewerPreferences << /ViewArea /MediaBox /ViewClip /{name} >>");
+        let draw = |rectangle: &str| {
+            let bytes = page_and_catalog(&preferences, &format!("/{name} {rectangle}"));
+            let document = Document::open(bytes.clone()).expect("exact-xref fixture");
+            assert!(
+                !document.was_recovered(),
+                "fixture does not require recovery"
+            );
+            render(bytes)
+        };
+        // The partial-overlap control must use the intersection, not the box's default.
+        let overlapping = draw("[50 10 150 40]");
+        assert_eq!((overlapping.width, overlapping.height), (100, 50));
+        assert!(marked(&overlapping, 75, 25), "{name} overlap paints");
+        assert!(
+            !marked(&overlapping, 25, 25),
+            "{name} clips the left margin"
+        );
+        assert!(!marked(&overlapping, 75, 5), "{name} clips the other axis");
+
+        let disjoint = draw("[120 10 150 40]");
+        assert_eq!((disjoint.width, disjoint.height), (100, 50));
+        painted.push((
+            name,
+            disjoint
+                .data
+                .chunks_exact(4)
+                .any(|p| p != [255, 255, 255, 255]),
+        ));
+    }
+    assert_eq!(
+        painted,
+        vec![
+            ("CropBox", false),
+            ("BleedBox", false),
+            ("TrimBox", false),
+            ("ArtBox", false)
+        ],
+        "a present nondegenerate box wholly outside the medium has an empty intersection, not an absent-value default"
+    );
+}
+
+/// §7.7.3.4: the nearest inherited `CropBox` controls the viewport and content placement;
+/// an explicit leaf `CropBox` overrides it. Both controls have distinct visible margins.
+#[test]
+fn inherited_crop_box_reaches_the_rendered_page_and_a_leaf_can_override_it() {
+    let draw = |leaf: &str| {
+        let content = "0 g 10 0 20 50 re f";
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 50] /CropBox [0 0 100 50] >>\nendobj\n\
+             3 0 obj\n<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 /CropBox [10 5 90 45] >>\nendobj\n\
+             4 0 obj\n<< /Type /Page /Parent 3 0 R /Resources << >> /Contents 5 0 R {leaf} >>\nendobj\n\
+             5 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+            content.len()
+        );
+        let bytes = assemble(&body);
+        let document = Document::open(bytes.clone()).expect("exact-xref fixture");
+        assert!(!document.was_recovered());
+        render(bytes)
+    };
+    let inherited = draw("");
+    assert_eq!((inherited.width, inherited.height), (80, 40));
+    assert!(marked(&inherited, 5, 20));
+    assert!(!marked(&inherited, 25, 20));
+    let explicit = draw("/CropBox [20 10 80 40]");
+    assert_eq!((explicit.width, explicit.height), (60, 30));
+    assert!(marked(&explicit, 5, 15));
+    assert!(!marked(&explicit, 15, 15));
+}

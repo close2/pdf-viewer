@@ -1,0 +1,48 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected decision review of media-player viability, monitor-dependent playback, and alternate presentations.",
+  "decisions": [
+    {
+      "adr": "1960",
+      "decision": "Reaffirm the handoff-specific viability model, with its stated limits",
+      "basis": "The owner admits §13.2.2 viability and file handoff, but excludes the media player itself. The ADR makes the handoff the product's unknown-identity proxy and constrains the reported judgment to what the host has stated. Current Processor exposes a language only; it does not assert a known player/OS/version/monitor inventory. The existing model and public Event::Media consumer retain that distinction.",
+      "limit": "The Table 301 MU/NU edge is unresolved in the prior shard. This review does not settle whether subtracting all MU candidates under NU means effective absence or a present whitelist with no candidates."
+    },
+    {
+      "adr": "2376",
+      "decision": "Reaffirm aggregate ledger treatment, bounded by individual rows",
+      "basis": "ADR 2376 records reading §13.2 family entries into viability rather than leaving them out-of-scope merely because they sit in clause 13. The current ledger has §13.2.7.2 implemented for player-list viability and §13.2.7.5 out-of-scope for physical display selection. The broader family is an aggregate and does not itself certify all playback behavior.",
+      "limit": "The Table 301 overlap interpretation and full software identifier matching remain as stated by the earlier source/assertion review."
+    },
+    {
+      "adr": "2392",
+      "decision": "Reaffirm its set-aside-before-emptiness rule; preserve MU/NU qualification",
+      "basis": "Non-viable player-info entries are removed from their arrays before viability reads whether MU is empty, and direct unit assertions pin that behavior. The effective subtraction of a viable MU by NU is separate and remains unresolved; this review does not infer a defect from it.",
+      "limit": "No overlapping-interval or MU=NU regression is promoted."
+    },
+    {
+      "adr": "2428",
+      "decision": "Reaffirm Tier C remains closed",
+      "basis": "The accepted owner answer keeps player presentation excluded until the owner decides to build it and sets a future staged reopening order. An implementation of media parsers or an OS handoff event does not reopen screen/window/monitor behavior.",
+      "limit": "No decoder, monitor-selection or player behavior was implemented or tested here."
+    },
+    {
+      "adr": "1946",
+      "decision": "Reaffirm the Clause 13 boundary",
+      "basis": "The still page's supplied appearance, computed/reported viability, and file handoff are admitted; audio/video presentation is excluded. This reconciles a §13.2.7.2 viability reader being in-scope with §13.2.7.5's physical monitor selection remaining excluded.",
+      "limit": "No expansion to playback based on the current handoff consumer."
+    },
+    {
+      "adr": "1768 review, §13.5 finding 10",
+      "decision": "Retain §13.5 out-of-scope on the clause's own explicit processor permission",
+      "basis": "§13.5 says the feature is deprecated and that processors are not required to support alternate presentations; it places the static-useful-content SHOULD on authors. This is independently sufficient to keep alternate slideshow support optional, even apart from the broader multimedia playback exclusion.",
+      "limit": "The reader still renders ordinary page content; it does not validate each producer's static fallback recommendation."
+    },
+    {
+      "adr": "1961",
+      "decision": "No change",
+      "basis": "Temporary-file restrictions govern actual handoff and are enforced in viewer-core. They do not select a player, parse the monitor specifier, or authorize playback."
+    }
+  ],
+  "assertion_note": "No Cargo commands or tests were run. The only candidate gap recorded is lack of an isolated `/M` MH diagnostic assertion; the code uses a generic MH-option rule and existing screen-parameter test includes `/M` only in BE. Since actual monitor choice belongs to excluded playback and no concrete incorrect viability verdict was established, this is not classified as a conformance defect and no regression was drafted."
+}

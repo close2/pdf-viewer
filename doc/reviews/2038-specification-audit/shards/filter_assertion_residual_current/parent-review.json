@@ -1,0 +1,5 @@
+{
+  "source": "Parent checked Table8 EarlyChange physical56/41 default1. Existing full-table fixture uses hand-derived bit widths and literal-derived exact output, independent of production encoder.",
+  "execution": "navigation-lzw-wave52.log:existing full-table test with new omitted-DecodeParms branch PASS; explicit0/1 controls retained. One existing test enhanced, not a new test-count increment.",
+  "limits": "Default composition only; no decoder defect. Strong existing full-width evidence retained."
+}

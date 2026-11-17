@@ -1,0 +1,7 @@
+{
+  "source": "Read primary330 Text7872;366 Text1635 and Table8/87 body plus exact two strikes/Caret3633. Filter-stage parameters describe intermediate data; final image BPC describes final chain output.",
+  "fixture": "PDF1.7 valid xref; Lang marked structure has proper parent refs and ParentTree. Catalog UTF16BE hex fr-FR reaches fallback node; child hex es-MX overrides literal en-US ancestor. No empty-language interpretation conflated.",
+  "oracle": "Python zlib independently expands literal encoded bytes to NUL+B0A580>. PNG row type0 consumes remaining sevenASCII bytes, ASCIIHex returns B0 A5 80,24 packed samples. Raw unfiltered control and filtered image both match literal24 opaque black/white RGBA centers, not merely each other.",
+  "execution": "lang-bpc-wave71.log:2PASS; quality-core-model-wave71c.log:model/core all-targets PASS. Earlier lint attempts only doc formatting and unfulfilled expectation cleanup.",
+  "limits": "No universal language or predictor certification. No malformed rejection rule inferred. Lang test does not exercise assistive technology outside public AccessibilityTree."
+}

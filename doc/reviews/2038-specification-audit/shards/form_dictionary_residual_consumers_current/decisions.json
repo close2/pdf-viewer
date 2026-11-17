@@ -1,0 +1,17 @@
+{
+  "baseline": "b901326c",
+  "reviews": [
+    {
+      "adr": "1159",
+      "title": "A flag that names nobody",
+      "decision": "Retain the writer's truthful residual behavior when it cannot construct an appearance for a changed widget. The source rule is document-wide, but the existing code has a concrete per-widget owed list and does not census untouched annotations. This does not establish a valid-input defect: a source with a visible widget lacking AP and false NeedAppearances is already nonconforming under Table 224. The paired valid draft starts with true for the missing-AP document and false for the all-AP control; it tests output preservation without claiming execution.",
+      "evidence_limit": "No global census defect or untested valid scenario is established by this bounded review. Existing changed-widget failure and success tests are the direct normative witnesses."
+    },
+    {
+      "adr": "2814",
+      "title": "The viewer does what the tables say of views, triggers and the objects a click reaches",
+      "decision": "ADR 2814 reviews several trigger and action routes but does not decide field-AA inheritance. For this cell, distinguish the necessary widget-to-own-terminal-field lookup from inheritance from a nonterminal ancestor: Table 226 does not designate AA inheritable, while `Inherited::action` merges AA across the whole Parent chain. The draft tests this exact boundary through public field-event dispatch; until parent executes it, record a source/code candidate rather than a failed runtime behavior.",
+      "evidence_limit": "The scratch public draft exercises `/K` via set_field, terminal-local positive and absent control. No tests were run here. This is a focused Table 226 interpretation, not a reconsideration of ADR 2814 as a whole."
+    }
+  ]
+}

@@ -557,3 +557,6 @@ pub(super) fn file_key(
         digest::<Sha1>(seed, lists, metadata_plaintext, length)
     }
 }
+
+#[cfg(test)]
+mod permissions_spec_audit;

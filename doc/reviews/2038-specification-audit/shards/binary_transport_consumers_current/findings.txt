@@ -1,0 +1,24 @@
+EC3 #193 applies to application transport
+========================================
+
+The source is §7.2.2, physical PDF page 36 / printed page 21. In the primary EC3, issue #193 strikes “containing binary data” from the sentence requiring transport “as a binary file rather than as a text file”; the paired amendments on the same page also remove the categorical all-ASCII representation claim and insert “A” before “PDF file.” The effective transport claim is therefore about every PDF file, not only files already known to contain binary bytes. The PDF Association's effective errata page gives the corrected sentence at <https://pdf-issues.pdfa.org/32000-2-2020/clause07.html>.
+
+This is an application transport obligation. It does not say that a reader must reject a file that arrived through a text-mediated route. Treating it as a parser conformance rule would conflate file handling with lexical parsing.
+
+Concrete local open/save evidence
+================================
+
+The local open paths I followed use byte-oriented interfaces: GTK, Qt, viewer-host and the FFI window open path construct `pdf_syntax::FileBytes::on_disk`; its readers access slices of the file rather than decoding text. The safe FFI session accepts a `Vec<u8>`, and `quorra_open` copies exactly the caller-supplied pointer/length range into a `Vec<u8>`. On save, core emits `Vec<u8>`, and the GTK/Qt/host destinations use `std::fs::write`. The FFI `quorra_event_bytes` reports the exact payload length and copies the bytes into the caller's buffer without a text conversion or terminator.
+
+There is a strong existing behavioral assertion at the core consumer: `viewer-core/tests/headless.rs::a_saved_document_carries_the_edit_and_the_file_under_it` opens the actual `form_two_pages.pdf` corpus file, edits a form value, saves, and asserts `saved.starts_with(&bytes)` for the entire source byte vector. It then opens the saved result and reads the edit back. In this audit worktree the source PDF is present (23,136 bytes: 25 NUL bytes and 1,182 bytes at or above `0x80`, including ten `0xff` bytes). The saved-prefix assertion therefore checks that those binary bytes survive the edit/save path; it is not merely a length check. The recorded broad baseline has this test passing at index 5680/6518.
+
+The compiled C ABI test also opens a real PDF and calls `quorra_event_bytes` on the saved event. It currently checks the two-call buffer/length protocol and reports the length, not byte-for-byte prefix identity. The Rust accessor unit test uses an ASCII FDF payload. The implementation itself is a direct `copy_from_slice`. These leave a narrower C-boundary test opportunity, but no observed C-boundary failure.
+
+Disposition and limits
+======================
+
+I found no concrete transport defect in the inspected local paths and do not draft another core save test: the existing core assertion already verifies exact preservation of a binary PDF across a real edit and save. It supports the core route, while the compiled-C integration and raw-copy implementation support the FFI route less directly. This shard did not exhaustively audit every host filesystem, caller runtime, external URI handler, or network stack. In particular, some URI actions hand an address to the caller; the viewer does not thereby own whatever transport the external application performs.
+
+ADR 0122's statement that §7.2.2's requirements are met “by construction” is supported for token/key serialization and hexadecimal string writing as stated there. For binary transport, the local byte-oriented implementation and the existing end-to-end core assertion provide concrete evidence, but the phrase should not be read as a whole-application certification: the raw C API content assertion is absent, and external transport was not established as an owned path in this bounded review. A low-cost future assurance improvement would make the existing compiled C program compare the bytes returned for a saved event to the original input prefix including a NUL/high-byte sentinel. I leave that as test-coverage refinement, not a new normative defect.
+
+I did not run Cargo or change production code. The only test execution evidence cited above is the parent's recorded broad baseline; this shard's work was source/test inspection.

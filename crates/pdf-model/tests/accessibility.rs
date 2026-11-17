@@ -95,6 +95,7 @@ fn interpret(
 ) -> pdf_model::Interpretation {
     let bytes = fixture(content, catalog, structure, page_extra);
     let document = Document::open(bytes).expect("the fixture is a valid file");
+    assert!(!document.was_recovered(), "fixture xref offsets are exact");
     let pages = pdf_model::Pages::new(&document);
     let page = pages.get(0).expect("the fixture has one page");
     let drawn = pdf_model::interpret(&document, &page);
@@ -152,9 +153,9 @@ fn a_structure_element_supplies_the_language_of_its_sequence() {
          (See you later, or in Spanish you would say, ) Tj \
          /Span << /Lang (es-MX) >> BDC (Hasta la vista.) Tj EMC EMC ET",
         "/StructTreeRoot 6 0 R",
-        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R >>\nendobj\n\
+        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R /K 8 0 R >>\nendobj\n\
          7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
-         8 0 obj\n<< /Type /StructElem /S /P /Lang (en-US) >>\nendobj\n",
+         8 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 0 /Lang (en-US) >>\nendobj\n",
         "/StructParents 3",
     );
     assert_eq!(
@@ -182,8 +183,8 @@ fn a_structure_element_inherits_a_language_from_its_ancestry() {
         "/StructTreeRoot 6 0 R",
         "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R /K 9 0 R >>\nendobj\n\
          7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
-         8 0 obj\n<< /Type /StructElem /S /Span /P 10 0 R >>\nendobj\n\
-         9 0 obj\n<< /Type /StructElem /S /Document /K [10 0 R] /Lang (fr-FR) >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /Span /P 10 0 R /Pg 3 0 R /K 0 >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Document /P 6 0 R /K [10 0 R] /Lang (fr-FR) >>\nendobj\n\
          10 0 obj\n<< /Type /StructElem /S /P /P 9 0 R /K [8 0 R] >>\nendobj\n",
         "/StructParents 3",
     );
@@ -192,8 +193,8 @@ fn a_structure_element_inherits_a_language_from_its_ancestry() {
 
 /// A cycle in `/P` terminates, answering "no language" rather than hanging.
 ///
-/// `/P` is a reference the document controls and nothing in §14.7 forbids a file from writing
-/// a loop; `structure::MAX_ANCESTRY` is what ends the walk. The catalog's language stands,
+/// This is malformed-hierarchy robustness coverage: a document can encode a `/P` loop,
+/// and `structure::MAX_ANCESTRY` ends the walk. The catalog's language stands by current policy,
 /// which is the answer an untagged document gives.
 #[test]
 fn a_cycle_in_the_structure_ancestry_terminates() {
@@ -268,17 +269,21 @@ fn an_untagged_page_carries_nothing() {
 ///
 /// §14.9.2.2: an identifier "shall either be the empty text string, to indicate that the
 /// language is unknown, or a Language-Tag as defined in BCP 47". Reading the empty string as a
-/// tag would hand a text-to-speech engine an identifier no locale matches.
+/// tag would hand a text-to-speech engine an identifier no locale matches. Unlike an absent
+/// entry, it overrides inherited language with unknown; the public resolved answer uses None.
 #[test]
-fn an_empty_language_identifier_states_nothing() {
+fn an_empty_language_identifier_explicitly_states_unknown() {
     let drawn = interpret(
         "BT /F1 12 Tf 10 50 Td /Span << /Lang () >> BDC (quoi) Tj EMC ET",
         "/Lang (fr)",
         "",
         "",
     );
-    assert!(drawn.described.is_empty(), "an empty tag records no span");
-    assert_eq!(runs(&drawn.speech()), vec![("quoi", Some("fr"))]);
+    assert_eq!(
+        runs(&drawn.speech()),
+        vec![("quoi", None)],
+        "present-empty means unknown and overrides the catalog language (§14.9.2.2–.3)"
+    );
 }
 
 /// A catalog `/Lang` that is not a BCP 47 tag is unknown, exactly as an absent one is.
@@ -838,4 +843,79 @@ fn the_clauses_hyphenation_example_reads_back_as_one_word() {
         "",
     );
     assert_eq!(kept.text.trim_end(), "Druk-\nker");
+}
+
+#[test]
+fn an_explicitly_unknown_language_shadows_outer_and_ancestral_languages_then_resumes() {
+    let bytes = fixture(
+        "BT /F1 12 Tf 10 50 Td /Span << /Lang (es-MX) >> BDC (antes ) Tj \
+         /Span << /Lang () >> BDC (unknown-span ) Tj EMC \
+         /Span << >> BDC (absent-span ) Tj EMC \
+         /P << /MCID 0 >> BDC (unknown-element ) Tj EMC \
+         /Span << /Lang (fr-FR) >> BDC (fr-control ) Tj EMC \
+         (despues) Tj EMC ET",
+        "/Lang (en-US) /StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /K 9 0 R /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P /P 9 0 R /Pg 3 0 R /Lang () \
+           /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >>] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Document /P 6 0 R /Pg 3 0 R \
+           /Lang (de-DE) /K [8 0 R] >>\nendobj\n",
+        "/StructParents 3",
+    );
+    let document = Document::open(bytes).expect("exact-xref PDF fixture opens");
+    assert!(!document.was_recovered(), "fixture offsets are exact");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let drawn = pdf_model::interpret(&document, &page);
+    assert!(drawn.is_complete(), "complete interpretation");
+    assert!(drawn.glyphs > 0, "positive-control glyphs were decoded");
+    assert!(drawn.text.contains("unknown-span"));
+    assert!(drawn.text.contains("unknown-element"));
+    assert_eq!(
+        runs(&drawn.speech()),
+        vec![
+            ("antes ", Some("es-MX")),
+            ("unknown-span ", None),
+            ("absent-span ", Some("es-MX")),
+            ("unknown-element ", None),
+            ("fr-control ", Some("fr-FR")),
+            ("despues", Some("es-MX")),
+        ],
+        "empty is a present Lang identifier meaning unknown; absence inherits, then outer language resumes"
+    );
+}
+
+#[test]
+fn a_structure_element_language_overrides_its_containing_span_and_the_span_resumes() {
+    let bytes = fixture(
+        "BT /F1 12 Tf 10 50 Td /Span << /Lang (es-MX) >> BDC (antes ) Tj \
+         /P << /MCID 0 >> BDC (inside) Tj EMC ( despues) Tj EMC ET",
+        "/Lang (fr-FR) /StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /K 9 0 R /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P /P 9 0 R /Pg 3 0 R \
+           /K [<< /Type /MCR /Pg 3 0 R /MCID 0 >>] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Document /P 6 0 R /Pg 3 0 R \
+           /Lang (en-US) /K [8 0 R] >>\nendobj\n",
+        "/StructParents 3",
+    );
+    let document = Document::open(bytes).expect("exact-xref PDF fixture opens");
+    assert!(!document.was_recovered(), "fixture offsets are exact");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let drawn = pdf_model::interpret(&document, &page);
+    assert!(drawn.is_complete(), "complete interpretation");
+    assert!(drawn.glyphs > 0, "text control glyphs were decoded");
+    assert!(
+        drawn.text.contains("inside"),
+        "spoken language metadata does not replace text"
+    );
+    assert_eq!(
+        runs(&drawn.speech()),
+        vec![
+            ("antes ", Some("es-MX")),
+            ("inside", Some("en-US")),
+            (" despues", Some("es-MX")),
+        ],
+        "structured content's language takes precedence over its containing Span, then the Span resumes"
+    );
 }

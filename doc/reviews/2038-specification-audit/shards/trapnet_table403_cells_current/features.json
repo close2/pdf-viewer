@@ -1,0 +1,73 @@
+{
+  "baseline": "b901326c; audit worktree /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf, direct read of physical 841–842 / printed 826–827",
+  "table": {
+    "id": "403",
+    "title": "Additional entries specific to a trap network annotation",
+    "source_location": "physical 842 / printed 827; prerequisite §14.11.6.2 text and its LastModified/Version alternatives begin physical 841 / printed 826",
+    "errata": "Direct inspection of the annotation arrays on physical pages 841 and 842 found only link annotations; no corrective StrikeOut/Caret overlay changes Table 403. EC3 errata inventory has no operative change to these cells."
+  },
+  "features": [
+    {
+      "key": "Subtype",
+      "table_rule": "Required; shall be TrapNet.",
+      "actor_and_scope": "Producer dictionary constraint for this legacy annotation subtype. The reader branches on Subtype to select the stored-appearance path; it does not validate this field's conformity."
+    },
+    {
+      "key": "LastModified",
+      "table_rule": "Date/time of the trap network's latest modification. Required if Version and AnnotStates are absent; absent if both are present.",
+      "actor_and_scope": "Alternative writer-maintained freshness metadata. §14.11.6.2 says if the Page LastModified date is newer, the network is invalid and 'shall be regenerated'; the sentence is passive and does not itself name the actor."
+    },
+    {
+      "key": "Version",
+      "table_rule": "Required if AnnotStates is present; absent if LastModified is present. Unordered array of objects present when traps were generated that could affect page appearance, including page Contents streams, non-procedure-set page resources, non-procedure-set resources of page Form XObjects, and OPI dictionaries.",
+      "actor_and_scope": "Producer-side snapshot used by a writer generating new traps: §14.11.6.2 explicitly says that writer verifies referenced objects against current contents. The OPI inclusion is marked deprecated in PDF 2.0."
+    },
+    {
+      "key": "AnnotStates",
+      "table_rule": "Required if Version is present; absent if LastModified is present. Names list annotation /AS values in page Annots order, excluding the TrapNet annotation itself. Entries should be null where an annotation has no /AS.",
+      "actor_and_scope": "Version-array companion for a trap-generating workflow. The 'should be null' clause is a recommendation; table presence/absence conditions and ordering are the producer-side rules."
+    },
+    {
+      "key": "FontFauxing",
+      "table_rule": "Optional array of fonts substituted during generation of the page's trap networks.",
+      "actor_and_scope": "Describes trap production provenance; no reader/rendering instruction is stated for it."
+    },
+    {
+      "key": "clause_behavior",
+      "table_rule": "The wider §14.11.6.2 rule requires at most one TrapNet annotation per page, last in Annots, with a stored normal appearance and Print+ReadOnly flags; PDF 2.0 deprecates the feature.",
+      "actor_and_scope": "These are producer constraints plus an observable compatibility-reader stored-AP path. The renderer iterates Annots in document order; it does not reject multiple entries or reorder a malformed page."
+    }
+  ],
+  "current_consumer": {
+    "code": [
+      "crates/pdf-model/src/annotation.rs dispatches TrapNet as a supported stored-appearance annotation",
+      "crates/pdf-model/src/appearance.rs refuses to invent TrapNet artwork when the required stored appearance is absent",
+      "crates/pdf-model/src/content/annotations.rs renders annotations in Annots iteration order"
+    ],
+    "table_fields": "No runtime consumer was found for Table 403 LastModified, Version, AnnotStates, or FontFauxing. Grep hits are source comments/ledger rationale, not parsing or freshness decisions."
+  },
+  "assertions": [
+    {
+      "test": "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print",
+      "what_it_proves": "A conforming stored-AP TrapNet with named /N state and /AS paints the expected red pixel in both View and Print; the fixture has a LastModified date.",
+      "what_it_does_not_prove": "It does not compare LastModified with Page LastModified or parse Version, AnnotStates, or FontFauxing."
+    },
+    {
+      "test": "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_trapnet_as_select_the_named_normal_appearance",
+      "what_it_proves": "Red/blue normal appearance alternatives selected by /AS render the independent literal pixel in View and Print.",
+      "what_it_does_not_prove": "It does not exercise Table 403 freshness tracking."
+    },
+    {
+      "test": "doc/conformance/ledger.toml §14.11.6.2 pointer to crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence",
+      "what_it_proves": "The generic test protects subtype dispatch/catch-all reporting only; it is not the behavioral visual assertion. The two viewer-core tests above are the direct rendering evidence.",
+      "what_it_does_not_prove": "None of the cited/runtime assertions witnesses Table 403 field parsing or freshness policy; those fields are not a current reader feature."
+    }
+  ],
+  "scope_limits": [
+    "Trap generation and regeneration are not implemented; do not treat missing prepress construction as a reader defect.",
+    "The standard explicitly addresses verification to a PDF writer generating a new trap network, but the later passive regeneration sentence omits its actor. This review leaves that textual ambiguity open and does not infer mandatory reader reporting.",
+    "A stale-metadata fixture with intentionally inconsistent dates would not be a valid-producer positive control; no conformance-failure test is drafted.",
+    "The clause is deprecated in PDF 2.0 and the reader's tested support is compatibility rendering of supplied appearances, not press-specific trapping or physical output."
+  ]
+}

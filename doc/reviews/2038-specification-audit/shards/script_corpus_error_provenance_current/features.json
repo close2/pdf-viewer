@@ -1,0 +1,57 @@
+[
+  {
+    "feature": "Engine-corpus outcomes are a count ratchet, not semantic expected-value assertions",
+    "clause": "A193/RFC 0008 Tier 1 scope; ADR 1625 gate",
+    "source_location": "crates/pdf-script/tests/script_corpus.rs:1-45, 87-97, 340-430, 530-568; current run scratchpad/r2038/spec-audit/script-corpus-wave49.log",
+    "errata": "Not applicable to this implementation/corpus assertion audit.",
+    "ledger": "The ECMAScript action row is `implemented`; A193 expressly says census ranks API work and does not cap the target surface.",
+    "code": "The corpus walker drives open, field and document-trigger runs through Engine and accumulates endings/sites/refusals/undefined names. It does not hold expected values; its assertions are ceilings for budget/throws/refusals/unparsed and a floor on number of runs.",
+    "test_assertions": "Current engine corpus: 90,763 PDFs, 3,904 scripted fields, 21,101 runs; 11,778 finished, 9,315 threw, 8 unparsed, zero budget exceeded, zero finished-refused; passes held ceilings of 9,315 throws and 8 unparsed. The counts establish bounded execution and outcome census only, not correctness of any finished calculation or coverage of every supported API.",
+    "verdict": "Passing corpus gate is valuable regression/availability evidence, not a semantic oracle. Parent reports the separate engine suite also passes 247 tests; that does not change this gate's assertion meaning.",
+    "residuals": "Individual API claims still require feature tests with independent expected values. This review samples dominant ReferenceErrors, not all 9,315 throws or all 21,101 outcomes."
+  },
+  {
+    "feature": "TFMC free identifier in field calculate actions",
+    "clause": "A193 in-scope ECMAScript surface; PDF document-level JavaScript name tree behavior",
+    "source_location": "Corpus `5712688.pdf`, safedocs/cc-main-2021-31/5712; current log 8,892 ReferenceErrors. pikepdf inspection: numerous field `/AA /C` bodies are exactly `TFMC();`; the `/JavaScript` name tree has seven `TF` scripts defining TFOpen, TFMV and other helpers, but none defines TFMC.",
+    "errata": "Not applicable.",
+    "ledger": "\u00a712.6.4.17 implemented; same-document name-tree scripts execute before the applicable field event by the open sequence.",
+    "code": "The engine runs document library scripts in the document realm before later field invocations. The ReferenceError comes from an unresolved document-authored function name, not a bridge refusal or unsupported built-in.",
+    "test_assertions": "The corpus counts 8,892 thrown runs from one document and reports `TFMC is not defined`. Object-level inspection confirms repeated `/C` calls and the complete seven-entry JavaScript name tree has no matching definition. The corpus does not assert that those scripts' calculations should finish.",
+    "verdict": "Producer-side dangling function dependency is the supported explanation. The current engine reports it as an ordinary script throw. No reader obligation to invent the missing function is established.",
+    "residuals": "No test draft: the expected library implementation is absent from the file and no independent specified function semantics exist."
+  },
+  {
+    "feature": "Bare `defaultValue` identifier in a field action",
+    "clause": "A193 ECMAScript/document-field scope; Field API distinction",
+    "source_location": "Corpus `6081264.pdf`, safedocs/cc-main-2021-31/6081; current log 223 ReferenceErrors. Field `/AA` scripts compare `getField(\"NarozeniN\").value != defaultValue`; other scripts in that file use `goNext` from the document JavaScript name tree.",
+    "errata": "Not applicable.",
+    "ledger": "The selected script scope includes this document's fields and view; it does not place every Field property into the global identifier environment.",
+    "code": "Engine event globals include this/document and event; Field properties are read from Field objects. `defaultValue` is an unresolved bare identifier in the script, while the intended property would need a field receiver. Corpus observes a thrown reference before the conditional action.",
+    "test_assertions": "Current run attributes 223 throws to `defaultValue` (line 1, column 27) in one document. PDF object inspection shows the exact scripts and confirms `goNext` has a document-level definition; the missing name is in the authored action, not a failed callback dispatch.",
+    "verdict": "Producer script defect, not evidence that all fields must be globals or that the engine failed to execute a valid Field API call.",
+    "residuals": "No test draft: guessing the intended comparison/property would turn a corpus typo into invented semantics."
+  },
+  {
+    "feature": "Matrix2D constructor and methods referenced by Acrobat's Doc example",
+    "clause": "A193 tier scope; pinned Acrobat JavaScript API Reference, Doc.addLink Example 2",
+    "source_location": "Parent fetched exact pin ab3b42a7: doc.html Doc.addLink Example2 (lines4713\u20134733) uses zero-arg Matrix2D, fromRotated, invert, transform. Parent also fetched JS_API_AcroJSChanges.html lines2450\u20132458: pre7.0 App-folder Annots/AForm/etc became product bytecode, distinct from User scripts. Older AcroJS.pdf/AcroJSGuide.pdf attachment URLs returned404; their claimed page232/page64 provenance is not treated as directly verified.",
+    "errata": "Not applicable.",
+    "ledger": "A193 targets safe document/viewer surface in pinned reference; corpus ranks work, not scope. Parent records B52 as a qualified adopted-surface gap, not a mandatory ISO ECMAScript built-in. ADR1602 producer-folder explanation is insufficient given the pinned official example.",
+    "code": "The engine starts ordinary JS realms but does not load/provide a Matrix2D global. Corpus scripts therefore fail before reaching their geometry logic. This is an environment/library omission rather than a script parse, budget or bridge-refusal issue.",
+    "test_assertions": "Real Boa Realm ordinary-array control PASS. Zero-arg Matrix2D constructor throws ReferenceError; method availability assertion is therefore not reached. No transform result, constructor overload, complete Annots library, worker parity or public Viewer trigger claim.",
+    "verdict": "B52 confirmed constructor absence; interpretation explicitly limited to A193 adopted safe reference surface.",
+    "residuals": "Pinned example supports named constructor/method availability, not full algorithms. Exact historical Matrix2D\u2192Annots.js link remains unverified; not needed for the constructor witness. Do not infer every corpus script should finish."
+  },
+  {
+    "feature": "AF function spellings outside selected AF library surface",
+    "clause": "A193; ADR 1578 selected AF* library policy",
+    "source_location": "1653889.pdf calls `AFDate_KeystrokeyEx` (typo; 2 runs). PDFBOX-1599-0.pdf calls `AFSpecial_FormatEx` (2 runs). Pinned reference API source contains neither spelling. `pdf_model::aform` and ADR 1578 list 21 chosen AF functions including `AFDate_KeystrokeEx` and `AFSpecial_Format`, but not these two Ex variants.",
+    "errata": "Not applicable.",
+    "ledger": "A193 commits to the pinned Adobe reference for ECMAScript API scope; ADR 1578 separately documents a deliberately selected/choice-based AF library, since Adobe's API reference does not specify the AF algorithms comprehensively.",
+    "code": "These are unresolved global identifiers and therefore ordinary ReferenceErrors. They are neither names in the current AF bridge nor names documented in the pinned JavaScript API reference. The correctly spelled AFDate_KeystrokeEx is in the chosen implementation; `AFSpecial_FormatEx` is not.",
+    "test_assertions": "The corpus reports two runs per misspelling. PDF scripts show `AFDate_KeystrokeyEx` includes an extra `y`; the other call asks for an unselected, undocumented extension. This does not show failure to dispatch either supported AF function.",
+    "verdict": "No defect established from these two corpus throws. The typo is a producer error; AFSpecial_FormatEx is outside the documented AF names/ADR1578 choice set absent a later ratification or source.",
+    "residuals": "Do not demand API support just because a corpus script names it. Reopen only if the owner expands the AF choice set or the pinned reference is shown to document the method."
+  }
+]

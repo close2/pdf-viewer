@@ -1,0 +1,18 @@
+[
+  {
+    "adr": "1946",
+    "decision": "Retain distinction between excluded playback and admitted still-page/viability/handoff. Current owner scope supports it; old blanket exclusion language does not."
+  },
+  {
+    "adr": "1960",
+    "decision": "Retain conditional viability for file-only handoff and refusal of MHoptions that require player control. Reopen unconditional renditionJSfallback rationale against actual enabled runner, primary540/525; follow-up pending."
+  },
+  {
+    "adr": "2376/2392",
+    "decision": "Retain no-name matching and structural viability for the current processor. Do not certify absent URI/version/OS algorithms. Unknown-key andnegativeversion controls are meaningful for removing nonviable playerinfos; new namedplayerrequiresnewreview."
+  },
+  {
+    "adr": "0901/0897/1105",
+    "decision": "Screenappearance duty and missingAPbehavior remain separate from renditionPprecondition. Ledger Pvacatedrationale is obsolete. D49 owns the stale Screen ledger quote; current comments are already qualified by ADR2818 section7."
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "decisions": [
+    {
+      "adr": "0439 — The shape a lossy name makes and where else it lived",
+      "decision": "Extend coverage through the public named-destination consumer; helper-only byte tests do not establish end-to-end byte identity.",
+      "basis": "The new draft gives composed and decomposed spellings distinct exact byte keys, distinct indirect destination values, a prefix key, exact child Limits and indirect Kids. It preserves the existing ASCII positive cases and adds absent-byte negatives.",
+      "status": "Draft only; parent must review and execute. No current runtime failure is claimed."
+    },
+    {
+      "adr": "0053 — The component the ledger found",
+      "decision": "Retain the shared tree algorithm; no new algorithmic defect is established. Add the multibyte case to the previously added deep public fixture.",
+      "basis": "The fixture is root→intermediate→leaf and separates routing ranges from Unicode spelling. Independent literal page indices are the oracle.",
+      "residuals": "No review of generic enumeration or every consumer."
+    },
+    {
+      "adr": "0252 — The errata were in the file all along, and the conversion dropped them",
+      "decision": "Use the annotation-aware primary source for #214 and avoid the removed lexical label as the basis of a Unicode comparator claim.",
+      "basis": "The effective text retains byte equality, self-consistent encoding and common-prefix ordering; the fixture directly tests encoded byte distinctions.",
+      "residuals": "No broad errata-tool review."
+    }
+  ],
+  "date_consumer_review": "No new date test: current parse/default/zone/instant assertions and independently guarded metadata writer regressions cover the plausible boundaries inspected. This is a bounded decision, not complete review of every date property consumer."
+}

@@ -1,0 +1,32 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft/run status. Neither whole-clause nor all-feature certification.",
+  "reviewer_record": [
+    {
+      "decision": "Table 87 numeric element-type error",
+      "question": "Does the explicit §8.9.5.1 error-on-inconsistent-base-image rule reach a /Decode array whose length is correct but whose element is not numeric?",
+      "primary_evidence": "Table 87 types Decode as an array of numbers; its row requires array numeric pairs by color component. §8.9.5.1 requires error when attempting to use inconsistent image dictionary entries.",
+      "current_code": "inconsistent_entries() returns no issue for correct array length irrespective of contents; Decode::read filters non-numbers. For [0 1 null 1 0 1], later values shift pairs rather than erroring.",
+      "disposition": "Likely test gap/implementation gap; do not conflate this with unsupported reader rejection based solely on a producer constraint. The general image dictionary error sentence is reader-directed. A focused draft is in drafts/decode_non_number.rs.",
+      "confidence": "medium-high; parent should run and adjudicate fixture/report behavior"
+    },
+    {
+      "decision": "JPX SMaskInData and conflicting Mask entries",
+      "question": "Can we report mandatory wrong rendering where nonzero SMaskInData coexists with /SMask or /Mask?",
+      "primary_evidence": "§7.4.9 / Table 87 says nonzero means one opacity channel, SMask shall not be present; §11.6.4.3 describes mask precedence. This is producer-invalid when both are provided, and no direct reader error policy was identified for this conflict.",
+      "disposition": "No mandatory reader failure claim. Check recovery behavior only as a documented choice if requested. Valid files with nonzero SMaskInData still need channel-alpha consumer evidence."
+    },
+    {
+      "decision": "sYCC current change",
+      "question": "Does the Annex-C route and writer special case have independent evidence?",
+      "primary_evidence": "PIMA 7667 Annex C, C7/C8+B9 conversion; T.801 M.25 code 18. ADR 2863 constrains re-route.",
+      "disposition": "Good evidence: expected color channels hand calculated; 4 in-gamut + 2 out-of-gamut pixels, plus writer value and named-refusal controls. No need to duplicate this test. Remaining edge is channel-depth disagreement path currently intentionally remains codec matrix.",
+      "confidence": "high for asserted sample points; not full sYCC domain"
+    },
+    {
+      "decision": "Matte / mask grid current behavior",
+      "question": "Is Table 143 same-grid rule misapplied to masks without Matte?",
+      "primary_evidence": "Table 143 says width/height same only if Matte present; otherwise independent; both images map to unit square regardless of sample coincidence.",
+      "disposition": "Code/test descriptions show independent soft-mask grids and deferred placement. The base samples are not required to pair by index unless Matte requires same dimensions; unit-square placement is the actual rule. No additional mandatory failure found in the inspected test set."
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "baseline": "b901326c",
+  "scope": "Five structured-reference discovery candidates, bounded fresh parent source/assertion review.",
+  "features": [
+    {
+      "issue": 309,
+      "clauses": [
+        "8.6.6.5"
+      ],
+      "source": "Physical220/205 Caret3420 forbids None names in NChannel; physical221/206 Strike3433 removes redundant qualifier from None paragraph.",
+      "assertions": "colour_paths all-None and alternate-transform controls use ordinary DeviceN; process and spot NChannel tests have differing transforms. a_none_component_adds_no_separation_to_the_simulation uses forbidden NChannel/None combination.",
+      "assessment": "Producer restriction, not required parser refusal. Previous special_colour_spaces_current parent-review already qualifies this fixture as robustness only. No duplicate finding."
+    },
+    {
+      "issue": 360,
+      "clauses": [
+        "8.4.5",
+        "8.6.5.9"
+      ],
+      "source": "Physical182/167 Strike3259 removes UseBlackPtComp table-entry default sentence.",
+      "assertions": "T95: explicit OFF then LW-only gs equals OFF control; explicit ON black endpoint differs. One passing test in rendering_intent.rs. Synthetic profile supports state-route evidence, not full ICC validity.",
+      "assessment": "Removing dictionary-entry default does not remove processor choice for initial Default or explicit Default. No production defect established."
+    },
+    {
+      "issue": 371,
+      "clauses": [
+        "8.4.1",
+        "8.4.5",
+        "10.7.2"
+      ],
+      "source": "Physical174,180,397; Caret4501 makes range0..100 inclusive,0 device default, device-pixel error. Ignore permission remains.",
+      "assertions": "flatness_changes_nothing_because_the_clause_permits_ignoring_it compares complete rasters of cubic fill/stroke paths with i/FL100. Parent read body and existing scan_conversion_current review.",
+      "assessment": "Explicit ignore permission supports retained implementation. Existing whole-raster comparison alone would permit globally blank rendering, so it is bounded consistency evidence supplemented by independent curve tests, not complete scan conversion proof."
+    },
+    {
+      "issue": 551,
+      "clauses": [
+        "8.6.8"
+      ],
+      "source": "Physical232/217 Strike3466 removes requirement that a named ColorSpace resource value be an array in Table73 CS description.",
+      "assertions": "colour_paths::an_output_intent_reaches_a_device_colour_however_it_is_set uses /ColorSpace << /CS0 /DeviceCMYK >>. Operator control checks literal near-green bytes from independent synthetic profile, then resource-name route equals that control.",
+      "assessment": "Valid named-family resource is already consumed and discriminated from array-only behavior; no new test needed for this bounded change. cs shares CS logic; this case directly exercises nonstroking route."
+    },
+    {
+      "issue": 640,
+      "clauses": [
+        "10.4.2.2",
+        "10.4.2.3"
+      ],
+      "source": "Physical377/362 strikes4391/4395 and Carets4392/4396 change grey spelling to gray. The 1-minus term in Gray-to-CMYK remains.",
+      "assertions": "pdf-colour::cmyk_ink_and_grey_are_the_clauses_own_arithmetic checks literal endpoints,cyan0.7 and clamp; pdf-transform render tests all256 equal-channel gray values and separate green/blue/magenta weights.",
+      "assessment": "Editorial variable spelling only. Existing colour_conversion shard already dispositions this; literal numeric controls inspected independently now, no new finding."
+    }
+  ],
+  "limits": [
+    "Bounded source/assertion review. One new passing BPC state test; no whole-clause or every-state certification."
+  ]
+}

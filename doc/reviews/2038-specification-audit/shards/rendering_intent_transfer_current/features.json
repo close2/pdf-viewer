@@ -1,0 +1,154 @@
+{
+  "baseline": "b901326c",
+  "scope": "Focused audit of §8.6.5.8 rendering intent; §10.5 transfer functions; and the TransferFunction entry carried by §10.6.5 halftone dictionaries. §10.4.1 is identified as General under Conversions among device colour spaces but conversion formulas are excluded. Halftone screens are not audited beyond the source condition that permits a continuous-tone output device to ignore them.",
+  "source_layout": [
+    {
+      "clause": "8.6.5.8",
+      "title": "Rendering intents",
+      "location": "printed p.196 / physical p.211; Table 69 printed p.197 / physical p.212"
+    },
+    {
+      "clause": "10.4.1",
+      "title": "General",
+      "location": "printed p.361 / physical p.376; conversion subsection only, not audited"
+    },
+    {
+      "clause": "10.5",
+      "title": "Transfer functions",
+      "location": "printed pp.364-365 / physical pp.379-380"
+    },
+    {
+      "clause": "10.6.5.1",
+      "title": "General",
+      "location": "printed p.372 / physical p.387"
+    },
+    {
+      "clause": "10.6.5.2",
+      "title": "Type 1 halftones",
+      "location": "Table 128 printed pp.374-375 / physical pp.389-390"
+    },
+    {
+      "clause": "10.6.5.3",
+      "title": "Type 6 halftones",
+      "location": "Table 129 printed p.375 / physical p.390"
+    },
+    {
+      "clause": "10.6.5.4-.6",
+      "title": "Type 10, Type 16 and Type 5 halftones",
+      "location": "Type10/16 tables physical391–394; Type5 discussion/Table132 physical395–397. Only selected TransferFunction entries reviewed; screen data excluded."
+    }
+  ],
+  "features": [
+    {
+      "clause": "8.6.5.8",
+      "source_requirements": [
+        "Table 69 lists four standard names: AbsoluteColorimetric, RelativeColorimetric, Saturation and Perceptual; the processor shall recognize them.",
+        "An unrecognized intent name uses RelativeColorimetric by default.",
+        "An intent can be stated by ri, ExtGState /RI, or image /Intent; the image default is the current graphics-state intent (Table 87, separately owned by §8.9.5.1).",
+        "The text says these names correspond to ICC intents; the calculations and profile-table mapping additionally rely on §10.3.1 and the referenced ICC standard."
+      ],
+      "ec3": "Issue #63 StrikeOut annotation on physical p.212 / printed p.197 removes the phrase 'does not have to support all PDF rendering intents and' from the NOTE below Table 69. The effective NOTE allows devices to support additional intents; it no longer says they need not support the four standard intents. The Table 69 requirement to recognize the four remains. Annotation rectangle was compared to pdftotext -bbox word positions; pdftotext plain extraction includes struck wording.",
+      "ledger": "doc/conformance/ledger.toml row 8.6.5.8; implemented; code includes content/colour.rs, image routes, pdf-colour ICC selection; 16 tests listed.",
+      "implementation": [
+        "crates/pdf-model/src/content/colour.rs:47-110",
+        "crates/pdf-model/src/content/colour.rs:118-185",
+        "crates/pdf-model/src/content/image.rs image_conversion",
+        "crates/pdf-colour/src/icc.rs A2b transform selection"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/rendering_intent.rs::the_three_tables_answer_a_mid_tone_in_three_colours",
+        "crates/pdf-model/tests/rendering_intent.rs::a_perceptual_intent_selects_the_profiles_perceptual_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::a_saturation_intent_selects_the_profiles_saturation_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::an_images_own_intent_selects_the_transform_its_samples_take",
+        "crates/pdf-model/tests/rendering_intent.rs::an_unrecognised_intent_name_is_relative_colorimetric",
+        "crates/pdf-model/tests/rendering_intent.rs::an_intent_with_no_table_of_its_own_falls_back",
+        "crates/pdf-model/tests/rendering_intent.rs::an_absolute_intent_takes_the_colorimetric_transform_without_compensation",
+        "crates/pdf-model/tests/rendering_intent.rs::an_ext_gstate_intent_replaces_the_one_in_force"
+      ],
+      "assertion_quality": "The hand-built ICC fixture deliberately gives A2B0/A2B1/A2B2 distinct red/neutral/blue mid-tones. `centre_colour` renders through CpuRasterizer and asserts interpretation completeness; the fixture builder writes xref offsets directly, though the helper does not separately assert `Document::was_recovered()`. Controls distinguish default Relative, ri Perceptual, ExtGState Saturation, image-local intent overriding the state, unknown name fallback, missing profile table fallback and Absolute's A2B1 route. Absolute paper-white and black-point cases have independent controls but overlap §8.6.5.9 and ICC profile behavior beyond this shard.",
+      "verdict": "strong focused coverage of four intents, three input routes, default and fallback; no sampled valid-input defect found",
+      "residuals": [
+        "Additional device-specific intent support is permitted, not required by the effective NOTE; code's unknown-name fallback is the explicit normative fallback.",
+        "This review does not recertify ICC profile conformance or the full output-intent/black-point interaction."
+      ],
+      "related_adrs": [
+        "1032",
+        "2757",
+        "2765"
+      ]
+    },
+    {
+      "clause": "10.5",
+      "source_requirements": [
+        "Transfer functions are PDF functions. The graphics-state source is one function for all components or an array of four; an RGB output uses the first three. A halftone dictionary may override the corresponding current transfer function.",
+        "Apply after required color-space conversions and before halftoning if halftoning is used; each device-space color component is independent.",
+        "Functions receive/return numeric values in [0,1]. Transfer functions operate in the output device's native colour space, regardless of source space. Subtractive components enter in additive form (1 - component); output remains additive for halftoning.",
+        "Table 57 provides /TR or deprecated /TR2; where both occur, /TR2 takes precedence. /Identity and /Default transfer names turn the current transfer off."
+      ],
+      "ledger": "doc/conformance/ledger.toml row 10.5; implemented; 11 named tests include value mapping, shading/pattern consumer paths and halftone transfer overrides.",
+      "implementation": [
+        "crates/pdf-colour/src/transfer.rs:14-161",
+        "crates/pdf-model/src/content/ext_gstate.rs:38-104,112-194,343-379",
+        "crates/pdf-model/src/content.rs transfer_for_mark",
+        "crates/pdf-render/src/transfer_channel.rs",
+        "crates/render-cpu/src/lib.rs:628-652",
+        "crates/render-gpu/src/lib.rs transfer-channel consumer"
+      ],
+      "assertions": [
+        "crates/pdf-colour/src/transfer.rs::a_transfer_function_maps_every_colour_component",
+        "crates/pdf-model/tests/transfer_functions.rs::an_axial_ramps_pixels_go_through_the_transfer_function",
+        "crates/pdf-model/tests/transfer_functions.rs::a_ramps_pixel_is_the_composition_and_not_the_chord",
+        "crates/pdf-model/tests/transfer_functions.rs::a_mesh_corners_pixel_goes_through_the_transfer_function",
+        "crates/pdf-model/tests/transfer_functions.rs::a_pattern_is_painted_under_the_transfer_function_the_mark_states",
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_naming_identity_turns_the_graphics_states_function_off",
+        "crates/pdf-model/tests/transfer_functions.rs::a_default_halftone_takes_its_override_off_and_leaves_the_transfer_function"
+      ],
+      "assertion_quality": "The low-level test checks four-slot parse, single-function fanout, per-channel function evaluation and alpha preservation, but all four array slots use the same inversion function. It therefore does not distinguish correct RGB first-three selection from accidentally using the fourth gray slot. The public transfer test helper computes colors from the display-list TransferMap directly; its rendered() tests exercise the actual CPU raster transfer consumer for /TR and shape selection, but the two /HT override assertions use filled_colour(s), which manually calls TransferMap::apply_to. The current Type 1 and Type 5 override assertions therefore do not directly test the /HT override through the rasterizer.",
+      "verdict": "implementation paths align with the sampled source; a public consumer gap exists for TR-array channel distinction and halftone TransferFunction override",
+      "residuals": [
+        "Drafts add exact-xref public render controls for four distinct /TR maps, /TR2 precedence, Type 5 per-channel overrides, and Type 6 stream TransferFunction. Drafts are unexecuted.",
+        "The four 8-bit device channels/components case is scoped to the tree's RGB display output; CMYK-native hardware handling and full §11.7.5.2 transfer-region semantics are outside this review.",
+        "No separate valid Type 10 or Type 16 TransferFunction stream fixture was drafted; the common dictionary/stream extraction helper is the same."
+      ],
+      "related_adrs": [
+        "0204",
+        "1125",
+        "0505",
+        "1964"
+      ]
+    },
+    {
+      "clause": "10.6.5 selected TransferFunction entries",
+      "source_requirements": [
+        "§10.6.5.1 permits a processor to ignore some or all halftones to suit the output device; the screen behavior is not mandated for the continuous-tone screen raster.",
+        "This device capability does not cancel §10.5's unconditional transfer mapping. Tables 128-131 each define TransferFunction as overriding the current state function for the same component; Type 5 keys select per-colourant/per-component entries, with /Default for other components.",
+        "EC3 #310's replacement on physical p.391 / printed p.376 clarifies Type 5 presence of TransferFunction for nonprimary/nonstandard primary components (writer-side table rule); it does not impose a reader rejection duty.",
+        "EC3 #311 StrikeOut on physical p.396 / printed p.381 removes the paragraph contrasting Type 5 and other types for per-colourant screen behavior. This audit limits positive evidence to DeviceRGB primary components and does not certify deleted nonprimary-colourant fallback semantics."
+      ],
+      "ledger": "doc/conformance/ledger.toml rows 10.6, 10.6.5, 10.6.5.1-.6; screen rows 10.6.1-.4 are inapplicable for the continuous-tone output; selected dictionary TransferFunction paths are implemented. Existing assertions name Type 1 override/identity, Type 5 per-channel mapping, and /HT /Default.",
+      "implementation": [
+        "crates/pdf-model/src/content/ext_gstate.rs:112-194",
+        "crates/pdf-model/src/content/ext_gstate.rs:78-104"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_naming_identity_turns_the_graphics_states_function_off",
+        "crates/pdf-model/tests/transfer_functions.rs::a_type_5_halftone_gives_each_colourant_its_own_function",
+        "crates/pdf-model/tests/transfer_functions.rs::a_default_halftone_takes_its_override_off_and_leaves_the_transfer_function"
+      ],
+      "assertion_quality": "Existing assertions use Type 1 dictionary and Type 5 dictionary paths and independently chosen constant/inverting functions, but the helpers manually apply display-list transfer maps instead of rasterizing those specific HT overrides. No Type 6 stream-dictionary transfer assertion was found. Table 129 on printed p.375 / physical p.390 has an optional TransferFunction on the valid Type 6 stream dictionary; a stream fixture gives discriminating real reader-path coverage while the screen may remain unused.",
+      "verdict": "no normative screen-generation defect inferred; sampled HT override code appears source-aligned, with direct public consumer coverage missing",
+      "residuals": [
+        "Draft public-raster tests add Type 5 component mapping and Type 6 stream TransferFunction controls; parent execution/review pending.",
+        "No halftone screen sampling, spot functions, threshold pattern, device-specific halftone name lookup or nonprimary-colorant behavior certified."
+      ],
+      "related_adrs": [
+        "0204",
+        "0505",
+        "1965",
+        "2034"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "source": "Parent read134\u2013138/119\u2013123: node forms do not require balance or a depth maximum. Parent read865/850 heading AnnexC(informative), portability advice and balanced-tree recommendation866/851.",
+  "implementation": "tree.rs MAX_DEPTH64 comment says deeper implies cycle or hostile unbounded walk. lookup depth>64 returns None; collect returns without status. Public contracts say no leaf holds key or return normal Vec. Legitimate deep chain disproves comment premise.",
+  "disposition": "D41 qualified static API/comment concern. Retain finite resource bound; do not promote AnnexC advice to a mandatory user-visible error or duplicate B03/B04/B36/B48. No failing test added."
+}

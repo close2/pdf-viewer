@@ -1,0 +1,7 @@
+{
+  "verdict": "T143: explicit standalone annotation builders applied; all 140 selected tests PASS.",
+  "change": "FreeText and seed Link fixtures now remain in Page Annots but not AcroForm Fields. Widget helpers retain Fields[5 0 R]. AcroForm DR remains for default appearance font resources. Parent chose standalone_annotation_pdf naming because one seed is a Link; no syntax-string subtype heuristic.",
+  "assertions": "Parent read all shown_glyphs callers and confirmed they are FreeText. Existing assertions for glyph sequence, quadding, Contents/RC precedence, editing/save, flags and borders remain unchanged. Rich-text raster helper now rejects recovery/cut cross-reference chains, as variable-text draw already did.",
+  "execution": "standalone-freetext-wave105: 87 variable_text +53 rich_text =140 PASS,0 skipped. Model all-target Clippy PASS. No new test identity or production edit.",
+  "qualification": "PDF1.7 fixture headers allow absent AP under effective #22. These results establish that the existing assertions survive removing the incorrect field context; they do not certify all FreeText behavior or remove acknowledged machine-font/corpus early-return limitations. Scratch draft/prose was unexecuted; this parent review records applied and executed status."
+}

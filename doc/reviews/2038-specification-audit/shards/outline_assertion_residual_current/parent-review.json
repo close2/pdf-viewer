@@ -1,0 +1,5 @@
+{
+  "source": "Table151 C physical461/446 requires stated DeviceRGB text colour, defaultblack. RootCount omitted because no open entries; rootFirst/Last and sibling links exact.",
+  "oracle": "Both source colours parsed; Sidebar produces actual CPU pixels. Parent added positive black-title ink witness away from borders/gutter, so empty second row cannot satisfy no-red check. Compiled-in fonts used; no whole-screenshot or glyph-outline equality.",
+  "execution": "outline-colour-wave52.log:1PASS. Existing Count test remains prior-baseline evidence; no redundant new Count assertion. Style-flag visual effects remain residual."
+}

@@ -1,0 +1,91 @@
+{
+  "baseline": "b901326c (read-only comparison against 4015a9ae)",
+  "scope": "ISO 32000-2 §7.3.8.1–.2 and §7.4.1–.5. Predictor parameters/algorithms §7.4.4.3–.4, CCITT/JBIG2, DCT/JPX, and crypt filters are excluded because prior shards own them.",
+  "primary_source_method": "Effective ISO 32000-2 with EC3, checked against source text and footers; source pages noted below correspond to ISO printed pages (not the Markdown line mapping).",
+  "features": [
+    {
+      "clause": "7.3.8.1",
+      "title": "Stream object syntax, placement, and source",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1490–1505; source printed pp. 32–33",
+      "errata": "No applicable EC3 correction found. Table 5 and §7.4.1 distinguish internal /Filter and external /FFilter.",
+      "ledger": "Existing granular rows 7.3.8.1:syntax-and-object-placement, :stream-marker-eol, :length-and-delimiter, :post-endstream-whitespace, :external-file-source, :external-filter-parameters, :empty-stream, and :dl-is-hint (all ledger_status=implemented in doc/reviews/1983-specification-audit/features.json).",
+      "code": ["crates/pdf-syntax/src/parser.rs:415,489,759", "crates/pdf-syntax/src/document/objects.rs", "crates/pdf-syntax/src/document/sources.rs:183–211", "crates/pdf-syntax/src/document.rs:457,662"],
+      "tests": ["crates/pdf-syntax/tests/stream_keyword_padding.rs", "crates/pdf-syntax/tests/spec_stream_extent_delimiter.rs", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::corrected_example_3_counts_and_preserves_both_ascii85_eod_bytes"],
+      "assertions": "The external-source test uses paired exact-xref PDFs with and without /F; the ordinary control decodes its known payload while /F causes External at stream_source and no decoded stream. Example 3 asserts encoded extent and decoded bytes. Keyword-padding/extent tests assert EOL after stream and that an optional EOL before endstream is outside Length. Current source checks that /Length and endstream delimit a valid exact body; fallback search is explicitly recovery when the length cannot be followed/confirmed.",
+      "verdict": "covered-at-the-inspected-features; no new external-file fetching obligation found",
+      "residuals": "External stream data is intentionally unavailable to the reader: no host callback or filesystem open occurs. /FFilter and /FDecodeParms are accordingly not exercised. The producer requirements in Table 5 (stream indirect, dictionary required keys, no arbitrary excess bytes) do not by themselves require strict reader rejection of malformed files. I inspected the public refusal route and did not infer a missing fetch feature."
+    },
+    {
+      "clause": "7.3.8.2",
+      "title": "Length, encoded extent, EOD, and inferred data extent",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1506–1548; source printed pp. 33–34",
+      "errata": "EC3 Issue #319 clarifies the encoded stream extent includes an enclosing filter EOD marker; Issue #527 corrects §7.4.1 Example 3's ASCII85 extent and /Length (447→449 after adding ~>).",
+      "ledger": "Existing rows length-required-encoded-extent, eod-markers-are-encoded-data, self-limiting-filter-data, inferred-image-extent, inferred-sampled-function-extent, and no-extra-data (all represented under 7.3.8.2 in the feature inventory).",
+      "code": ["crates/pdf-syntax/src/parser.rs:39,118", "crates/pdf-syntax/src/document/parsing.rs:44–62", "crates/pdf-syntax/src/document/decoding.rs:170–197", "crates/pdf-syntax/src/serialize.rs:981,1179"],
+      "tests": ["crates/pdf-syntax/tests/spec_stream_extent_delimiter.rs", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::corrected_example_3_counts_and_preserves_both_ascii85_eod_bytes", "crates/pdf-syntax/tests/stream_length_bound.rs", "crates/pdf-syntax/tests/serialize.rs (lying input length is recomputed on output)"],
+      "assertions": "Direct assertions cover a stated Length as encoded bytes, include ~> within encoded length, separate the permitted trailing EOL, and independently verify the corrected Example 3 decoded text. Stream-length-limit tests distinguish refusal at the resource bound from truncated/corrupt recovery. Image and sampled-function tests use their declared dimensions/size to assert short data is reported rather than fabricated as full sample content.",
+      "verdict": "feature rows map to separate source-derived cases; no additional defect established",
+      "residuals": "The clause's producer statement that all lengths, EOD markers, inferred lengths, and excess-data constraints be consistent is not a blanket command to refuse every malformed input. Current recovery paths are deliberately non-conforming-input policy. No dedicated assertion for arbitrary excess bytes was found, but an ISO reader rejection obligation was not established."
+    },
+    {
+      "clause": "7.4.1",
+      "title": "Filter selection, all Table 6 filters, order, and parameters",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1558–1640; source printed pp. 35–36",
+      "errata": "EC3 Issue #527 corrects Example 3's literal data and length. No change to array order or /DecodeParms semantics.",
+      "ledger": "Rows 7.4.1:reader-decodes-stated-filter, :ordered-pipeline, :decode-parameters, :filter-categories, :processor-supports-table-6, :producer-encoding-format, :ascii-in-encrypted-note, and :compression-note.",
+      "code": ["crates/pdf-syntax/src/filter.rs:542–584", "crates/pdf-syntax/src/document/decoding.rs", "crates/pdf-syntax/src/document/sources.rs:183–211"],
+      "tests": ["crates/pdf-syntax/tests/filters.rs::filter_arrays_are_applied_in_the_order_written", "crates/pdf-syntax/tests/filters.rs::every_standard_filter_name_and_abbreviation_has_a_route", "crates/pdf-syntax/tests/flate_lzw_spec_audit.rs", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::corrected_example_3_counts_and_preserves_both_ascii85_eod_bytes"],
+      "assertions": "The pipeline fixture starts with compressed bytes wrapped by ASCII85 and compares exact decoded bytes; corrected Example 3 is asserted separately. The Table 6 name test enumerates standard names and aliases and rejects an unsupported byte-filter route. DecodeParms tests discriminate array entry assignment/default handling. Predictor-specific internal rules are separately scoped out.",
+      "verdict": "the inspected assertions support the ledger's main decoder promises",
+      "residuals": "Table 6 includes image filters and Crypt, which have separate pipeline/image/encryption owners; this shard does not recertify them. The table's producer data-format requirements do not create rejection behavior for writer forms this application never emits."
+    },
+    {
+      "clause": "7.4.2",
+      "title": "ASCIIHex digit mapping, whitespace, end marker, odd nibble, and error report",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1657; source printed p. 37",
+      "errata": "No erratum changes the pair mapping, EOD, odd-nibble padding, or error sentence.",
+      "ledger": "Rows hex-pair-decoding, hex-whitespace, hex-eod, hex-foreign-character-error, and hex-odd-final-digit.",
+      "code": ["crates/pdf-syntax/src/filter.rs:565–575,2798–2823,2354–2428"],
+      "tests": ["crates/pdf-syntax/tests/ascii85_runlength_boundaries.rs::ascii_hex_decodes_both_letter_cases_and_ignores_pdf_whitespace", "crates/pdf-syntax/src/filter.rs::ascii_hex_decodes_and_stops_at_the_terminator", "crates/pdf-syntax/src/filter.rs::ascii_hex_pads_an_odd_final_digit", "crates/pdf-syntax/src/filter.rs::ascii_hex_reports_a_character_the_clause_calls_an_error"],
+      "assertions": "Mixed upper/lower digits separated by every §7.2 whitespace yield exact byte values; > stops before following bytes; odd final nibble is zero-padded; an illegal character is carried as ForeignCharacter while decoded prefix is retained. This is a recovery choice; the standard requires an error indication but does not prescribe refusal versus salvage.",
+      "verdict": "confirmed for reviewed mapping and recovery assertions",
+      "residuals": "Applying zero-padding at raw EOF with no > is extra recovery; not treated as a normative obligation."
+    },
+    {
+      "clause": "7.4.3",
+      "title": "ASCII85 grammar, groups, marker, numeric range, and windows",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1661–1679; source printed pp. 37–38; EC3 annotation for #98 at p. 53",
+      "errata": "Issue #98 corrects the maximum 5-digit group to 2^32−1. Issue #293 adds: after `~`, the next character shall be `>` and any other character causes error. Issue #527 corrects Example 3.",
+      "ledger": "Rows ascii85-alphabet-and-group-conversion, :partial-final-groups, :five-digit-range, :z-only-between-groups, :single-character-final-group, :no-marker-eof-disposition, :eod-marker-erratum, and :writer-side-encoding-rules.",
+      "code": ["crates/pdf-syntax/src/filter.rs:2447–2459,2512–2547,2861–2980"],
+      "tests": ["crates/pdf-syntax/tests/ascii85_runlength_boundaries.rs::ascii85_tilde_followed_by_anything_but_greater_than_is_an_error", "::ascii85_windowed_reader_reports_a_malformed_eod_marker", "::ascii85_partial_groups_decode_one_two_and_three_bytes", "::ascii85_z_inside_a_group_is_an_error", "crates/pdf-syntax/src/filter.rs::a_base85_group_above_four_bytes_is_an_impossible_combination", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::corrected_example_3_counts_and_preserves_both_ascii85_eod_bytes"],
+      "assertions": "For #293, valid z~> whole and pump controls yield four zeroes; z~x is Corrupt whole and Damage::Corrupt in the windowed path. Other tests assert canonical 1/2/3 byte final groups, z only between groups, legal upper bound versus uuuuu overflow, and the corrected Example 3 literal. These test the erratum rather than assume old pre-EC3 text.",
+      "verdict": "marker erratum and inspected decoder branches are implemented; raw-EOF policy remains ambiguous by source",
+      "residuals": "Whole-buffer ASCII85 treats a final `~` as successful end-of-input, while the pump marks the same unfinished two-byte marker Truncated. Source EC3 makes `~>` a two-byte marker, and code comments explicitly call the window case truncation; however §7.4.3 states producer encoding/error conditions, not a reader's exact recovery policy for a length-delimited truncated stream. ADR 0587 separates buffered structural consumers from windowed content consumers and accepts some damaged-data route distinctions. Candidate route-consistency test is drafted as an API/reporting-policy probe; do not call it an ISO-mandated reader rejection. The ledger appropriately marks no-marker EOF ambiguous."
+    },
+    {
+      "clause": "7.4.4.1–.2",
+      "title": "LZW and Flate compression streams (predictor logic excluded)",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1682 onward; source printed pp. 38–44",
+      "errata": "No applicable EC3 change identified in the method definitions; predictor notes/ranges are owned by a different shard.",
+      "ledger": "Rows lzw-method-identification, flate-method-rfc1950-1951, compression-output-binary, lzw-code-space-and-meanings, initial-dictionary-and-synchronous-growth, maximum-table-entry, standard-lzw-example, lzw-msb-continuous-packing, lzw-eod-and-final-padding, clear-marker-restarts-decoder, full-table-clear-resets-width-and-dictionary; encoder-only steps/rules and compression ratio notes are correctly distinguished from reader requirements.",
+      "code": ["crates/pdf-syntax/src/filter.rs:584–720 and Flate state near the Flate engine", "crates/pdf-syntax/src/document/sources.rs:198–211"],
+      "tests": ["crates/pdf-syntax/tests/lzw.rs", "crates/pdf-syntax/tests/lzw_full_table_audit.rs", "crates/pdf-syntax/tests/flate_lzw_spec_audit.rs", "crates/pdf-syntax/tests/stream_length_bound.rs"],
+      "assertions": "Tests pin initial 9-bit packing, standard worked example, width transitions and reset/full-table clear, EOD, independent byte expectations, RFC zlib/raw Flate inputs, truncation/check-value reports, and resource bounds. Predictor assertions are explicitly excluded here.",
+      "verdict": "granular decoder claims have direct assertion bodies; producer-only algorithm steps are not treated as reader obligations",
+      "residuals": "This is a sampled audit, not a full rerun or certification of every LZW/Flate path. Existing test execution records in the repository are not execution evidence for this read-only turn. No tests run by this reviewer."
+    },
+    {
+      "clause": "7.4.5",
+      "title": "RunLength literal and repeated runs, EOD, extent, truncated recovery",
+      "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:1870–1882; source printed p. 49",
+      "errata": "No applicable EC3 change identified.",
+      "ledger": "Rows runlength-literal-run, :repeat-run, :eod, :incomplete-run-recovery, :inline-extent, and :note-compression-ratios.",
+      "code": ["crates/pdf-syntax/src/filter.rs:RunLength engine and buffered decoder", "crates/pdf-syntax/src/document/sources.rs:198–211"],
+      "tests": ["crates/pdf-syntax/tests/ascii85_runlength_boundaries.rs::runlength_literal_and_repeat_run_endpoints_follow_their_lengths", "::runlength_complete_run_without_eod_is_reported_as_truncated", "existing filter unit tests for incomplete literal/repeat runs", "existing inline-image RunLength extent test"],
+      "assertions": "Boundary assertion independently derives literal length as header+1 and repeat length as 257−header at 0, 127, 129, and 255; EOD 128 closes the stream. Missing EOD retains `abc` with Damage::Truncated, which is local recovery rather than a normatively required reader response.",
+      "verdict": "covered for inspected endpoints and recovery path",
+      "residuals": "The stated NOTE compression ratios are informative only. No writer-side encoding duty arises for a reader-only filter crate."
+    }
+  ]
+}

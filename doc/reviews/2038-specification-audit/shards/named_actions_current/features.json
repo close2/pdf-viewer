@@ -1,0 +1,12 @@
+{
+  "scope": "§12.6.4.12 Tables215/216, public named-action routing only.",
+  "source": "Primary PDF printed522; four mandatory action names and subsequent unrecognized-name no-action paragraph.",
+  "ledger": [
+    "12.6.4.12"
+  ],
+  "code": "pdf-model action Named parsing/page_from and viewer activation dispatch",
+  "prior_assertions": "Parser recognizes all four; model returns request; public existing LastPage tested two-page fixture which cannot distinguish NextPage.",
+  "new_assertion": "all_four_named_actions_reach_their_distinct_public_page_targets uses three exact-xref pages, Next/Last from0 and Prev/First from2, unknown name from1; validates initial page then public activated annotation target.",
+  "execution": "named-actions-wave11.log4/4PASS including new five-case assertion.",
+  "limit": "No claim about all action types/chains/platform extensions. Table216 lacks literal ledger citation but feature is demonstrably owned and supported; absence of citation is not a feature gap."
+}

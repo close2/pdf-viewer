@@ -1,0 +1,6 @@
+{
+  "execution": "pubkey-permissions-wave13.log14/14PASS (3070excluded by filter); source-derived Table24 mapping plus owner consumer and genuine checked-in CMS/PDF witnesses.",
+  "test_changes": "Private adapter mapping in public_key/permissions_spec_audit.rs included under cfg(test) only. No production behavior/API changes. Public model integration separately tests all7represented operations with ownerfalse denial controls thenownertrue grants.",
+  "limits": "Per-bit helper does not prove decrypted byteorder or everyCMS/curve combination. Existing actualCMS witnesses test selected flagwords. Bit10 processor-ignore separated from writer-set1 and bit5 accessibility exception.",
+  "provenance_limit": "Some fixture generators cited by originaltests/ADRs absent from current checkout; artifacts remain reviewable but generation not reproduced here."
+}

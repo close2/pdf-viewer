@@ -1,0 +1,8 @@
+{
+  "source": "Read physical pages 497 (Table 175), 531 (GoToDp), 533 (Table 209), 540 (Trans), and 850\u2013852 (DPart). Found missed EC3 #612 on physical page 851: DParts is now a flat array of indirect references. Repaired the draft before execution. ADR 1216 distinguishes a transition event from animation when no visible state changed.",
+  "assertions": "Four public tests pass: StateModel-only defaults with explicit Completed control; leaf GoToDp Start navigation and the current first-descendant interpretation for an interior node; explicit Thread B0 versus B1 on distinct pages; and standalone Action Trans with exactly one Wipe/180/duration-2 event, no transition on Open, and unchanged current page. Replaced omitted-B control with explicit B0 because Table 209 does not state the omission default. Replaced ordinary destination control with a leaf GoToDp control.",
+  "execution": "navigation-wave28.log: four tests pass. Final model/core all-targets Clippy recorded in quality-wave28c.log.",
+  "limits": "Interior GoToDp is a reasonable interpretation, not an explicit non-leaf mandate. Host event delivery does not prove sequence suspension or visual timing. Existing presentation-fixture recovery checks remain a residual. DPart comments and #612 are under further review.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification. Parent qualifications govern unrun draft claims."
+}

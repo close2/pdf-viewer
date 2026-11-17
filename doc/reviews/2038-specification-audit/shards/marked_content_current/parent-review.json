@@ -1,0 +1,13 @@
+{
+  "baseline": "b901326c",
+  "status": "partial source/assertion review; no whole-clause certification",
+  "parent_review": {
+    "source": "Independently read physical735\u2013737 and primary #334/#335/#302 annotations. Valid placement, separately nested pairs, inline/direct and named/indirect properties are producer constraints; no mandatory reader rejection inferred.",
+    "assertions": "Read Contents-array OC test: group ON/OFF interior and post-EMC controls distinguish continuity and proper termination. Read inline property test ActualText X and empty unsupported list; booleans/null consumed as values. Existing broad wave22 includes these tests. Missing explicit no-recovery guards remain a fixture-quality limitation.",
+    "limits": "No whole marked-content consumer certification. Associated files, arbitrary private properties, every valid placement and all splice contexts remain separately scoped."
+  },
+  "execution": {
+    "new_tests": 0,
+    "existing_tests": "Passed in eight-crate-wave22.log; no production or assertion change in this shard."
+  }
+}

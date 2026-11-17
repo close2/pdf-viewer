@@ -1,0 +1,144 @@
+{
+  "baseline": "b901326c",
+  "scope": "Cell-focused review of Table 74 (Type 1 tiling-pattern stream dictionary) and Table 75 (Type 2 shading-pattern dictionary), with Table 74 behavior inherited from tiling_pattern_cells_current and a new gap check for the Type 2 pattern matrix. Does not certify all of §8.7, all shading types, or all pattern/transparency combinations.",
+  "source": {
+    "primary": "ISO 32000-2:2020 plus EC3, doc/ISO_32000-2_sponsored_EC3.pdf; table caption/header/cells matched to PDF page footers.",
+    "table74": {
+      "title": "Additional entries specific to a Type 1 pattern dictionary",
+      "location": "physical 236–237 / printed 221–222"
+    },
+    "table75": {
+      "title": "Entries in a Type 2 pattern dictionary",
+      "location": "physical 243 / printed 228; following interpretation prose begins physical 244 / printed 229"
+    },
+    "related_source": {
+      "clause": "8.7.2 General properties of patterns",
+      "location": "physical 234–235 / printed 219–220",
+      "rule": "Pattern Matrix maps internal pattern coordinates to the default coordinate system of the parent content stream; page-content CTM changes do not re-anchor a page pattern; Form patterns map to the Form default user space at Do; nested patterns map to the outer pattern space."
+    },
+    "effective_annotations": [
+      {
+        "id": "#294",
+        "location": "physical 236 / printed 221",
+        "target": "Table 74 caption",
+        "effect": "Adds 'stream' to the Type 1 pattern stream-dictionary caption; clarifies object form only."
+      },
+      {
+        "id": "#428",
+        "location": "physical 235 / printed 220",
+        "target": "§8.7.3.1 tile filling order",
+        "effect": "Qualifies order as implementation-dependent; no specific tile sequence asserted."
+      },
+      {
+        "id": "Table 75 pages",
+        "location": "physical 243–244 / printed 228–229",
+        "target": "Table 75 and immediate description",
+        "effect": "Direct annotation inventory found only link annotations; no Issue-tagged amendment to the Table 75 cells."
+      }
+    ],
+    "table_index_caveat": "Table coverage index records owner/citation and explicitly warns it is not cell-level feature coverage. Existing pattern_forms_current, tiling_pattern_cells_current, and shading_type1_current contain the relevant prior evidence; this shard avoids re-certifying their full scopes."
+  },
+  "features": [
+    {
+      "id": "type1-tiling-pattern-dictionary-cells",
+      "table": "74",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional name; if present Pattern."
+        },
+        {
+          "key": "PatternType",
+          "source": "Required integer 1."
+        },
+        {
+          "key": "PaintType",
+          "source": "Required: 1 colored (cell stream specifies colors, initialized from parent stream start) or 2 uncolored stencil (cell stream must not set color; prohibited color operators are ignored without error; image masks remain allowed)."
+        },
+        {
+          "key": "TilingType",
+          "source": "Required 1 consistent spacing (processor may adjust cell, steps, matrix within one device pixel), 2 no cell distortion but up-to-one-pixel spacing variation, or 3 constant spacing with additional distortion permitted."
+        },
+        {
+          "key": "BBox",
+          "source": "Required pattern-space rectangle; boundaries shall clip the cell. Note says zero width or height still paints one pixel."
+        },
+        {
+          "key": "XStep/YStep",
+          "source": "Required nonzero signed numbers; may differ from BBox dimensions. Defines the key-cell lattice spacing."
+        },
+        {
+          "key": "Resources",
+          "source": "Required dictionary containing all named resources the cell stream needs."
+        },
+        {
+          "key": "Matrix",
+          "source": "Optional six-number pattern matrix, default identity; translation components may control lattice phase."
+        }
+      ],
+      "implementation": "Cell parsing, color modes, clip, lattice, parent-stream initial state, and matrix placement are in content/pattern/tiling.rs and pattern/cell.rs.",
+      "assertions": [
+        "crates/pdf-model/tests/tiling.rs::the_pattern_matrix_moves_the_tiling",
+        "::a_cell_is_clipped_to_its_bounding_box",
+        "paint-type and tiling-type assertions catalogued in scratchpad/r2038/spec-audit/tiling_pattern_cells_current/findings.txt",
+        "crates/pdf-model/tests/tiling_patterns_audit.rs::page_ctm_changes_do_not_reanchor_a_pattern_selected_before_or_after_them",
+        "crates/pdf-model/tests/tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space"
+      ],
+      "assertion_quality": "Prior matrix review found literal painted/gap points for the translated tile; lattice/type tests distinguish periods and include spacing controls. Parent review confirms the negative nonzero-step test (T133) and 35 tiling tests pass. Tile-order equality is not asserted, honoring #428.",
+      "verdict": "Inherited Table 74 feature review is substantive and sufficiently cell-specific for the assigned fields; no duplicate draft. Existing known degenerate-BBox failure B20 remains separately owned. Producer-required Resources and nonzero steps are not converted here into mandatory reader rejection rules.",
+      "residuals": [
+        "Nested Type1 tiling inside a Type1 cell was a coverage opportunity in pattern_forms_current; no failure is established.",
+        "ADR 1080's categorical Type1-to-Type2 fallback when snapping is declined remains specifically unconfirmed per tiling_pattern_cells_current parent review; this shard does not resolve that separate lattice policy question."
+      ]
+    },
+    {
+      "id": "type2-shading-pattern-dictionary-cells",
+      "table": "75",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional name; if present Pattern."
+        },
+        {
+          "key": "PatternType",
+          "source": "Required integer 2."
+        },
+        {
+          "key": "Shading",
+          "source": "Required shading object, dictionary or stream depending on shading type; its entries are common Table 77 and one of Tables 78–83."
+        },
+        {
+          "key": "Matrix",
+          "source": "Optional six-number pattern matrix, default identity, as defined in §8.7.2."
+        },
+        {
+          "key": "ExtGState",
+          "source": "Optional graphics-state parameter dictionary effective while the shading pattern is painted. Unspecified eligible parameters are inherited from the graphics state at parent content-stream start, as amended by §11.6.7."
+        }
+      ],
+      "source_prose": "A shading pattern does not tile. The shading geometry is independent of the path/glyph/mask being painted; pattern matrix maps pattern space to the parent stream's default coordinate space, while the shading object's own matrix/coordinates remain governed by its shading type/target space.",
+      "implementation": "pattern.rs::pattern identifies PatternType 2, reads Table 75 Matrix using shading::matrix_of (identity default), stores the Shading object unresolved for the shading cache, and composes Matrix with Interpreter.base. It builds from pattern_initial augmented with the pattern's own ExtGState. Shading patterns are paints clipped to the consuming mark; tiling logic is not used.",
+      "assertions": [
+        "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints (omitted Matrix identity compared to direct sh)",
+        "crates/pdf-model/tests/rendering_intent.rs::a_shading_patterns_colours_are_resolved_where_its_content_stream_began",
+        "::a_patterns_own_ext_gstate_augments_that_state",
+        "::a_rebuilt_patterns_black_point_is_still_its_definitions",
+        "crates/pdf-model/tests/tiling.rs::a_shading_pattern_inside_a_cell_is_anchored_to_the_cell",
+        "crates/pdf-model/tests/shadings.rs::a_pattern_in_an_annotation_appearance_is_placed_in_the_appearances_own_space"
+      ],
+      "assertion_quality": "The existing patterns test checks the default/omitted identity matrix against direct sh at a point. §11.6.7 tests discriminate stream-start versus mark-time and pattern-owned ExtGState values using distinct ICC-calibrated outputs; they exercise the ExtGState cell. Form/annotation and nested-in-tiling controls exercise parent coordinate space with the omitted identity matrix. I found no existing public raster assertion with a nonidentity Table 75 Matrix; the only explicitly translated pattern matrix witness found is for Table 74 tiling, which is a different consumer branch.",
+      "verdict": "The initial public-assertion gap has been closed by parent-added `crates/pdf-model/tests/shading_pattern_matrix_spec_audit.rs::shading_pattern_matrix_maps_pattern_space_before_sampling_its_gradient`; parent reports this test passes. No runtime defect is established.",
+      "residuals": [
+        "No Table 75 Shading-as-stream pattern witness was found in the named PDF model pattern tests. Direct mesh-shading tests consume stream shading objects through `sh`; the Table 75 pattern examples inspected use shading dictionaries. This input-form combination remains unasserted, not an established implementation fault.",
+        "Table 75 ExtGState is covered for selected rendering-intent and black-point parameters only; full Table 75/§11.6.7 state semantics remain outside this shard."
+      ]
+    }
+  ],
+  "tests_run_by_this_shard": false,
+  "parent_execution": {
+    "test": "crates/pdf-model/tests/shading_pattern_matrix_spec_audit.rs::shading_pattern_matrix_maps_pattern_space_before_sampling_its_gradient",
+    "status": "Parent reports PASS; this closes the draft’s public assertion gap. This agent did not run Cargo."
+  },
+  "parent_assertion_qualification": "The nested shading-pattern test in tiling.rs asserts display-list transforms, not raster pixels. Pattern Matrix test now has literal RGB, 100x100 dimensions and alpha255 checks; omitted and explicit identity controls pass. Selected ExtGState and parent-space assertions do not certify all combinations.",
+  "parent_stream_followup_130": "The earlier unasserted Table75 stream-form residual is now covered for a valid Type5 lattice by four PASS tests: public pattern/directsh literal controls and independently discriminating BBox/caller-clip variants. Other stream/transform/transparency combinations remain partial."
+}

@@ -1,0 +1,47 @@
+{
+  "scope": "Independent quality review of B08, B24, B40, and B42 only. This is a second review of current source, saved test bodies, and current ledger statements; historical run records are cited as records and were not rerun here.",
+  "baseline_context": "Audit worktree /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit; parent identifies the comparison baseline as b901326c.",
+  "features": [
+    {
+      "finding": "2038-B08",
+      "clause": "12.3.2.4; Annex J.3.3/J.3.4",
+      "source": "EC3 says PDF 1.1 name-object correspondence is defined by Catalog /Dests; in PDF 1.2+ string correspondence may alternatively be defined by Names /Dests. For lookup in a names tree, J.3.3 or J.3.4 applies according to the queried object's type. It does not expressly state which table wins when both tables define identical decoded bytes.",
+      "implementation_and_consumer": "pdf-model/src/destination.rs::named checks Catalog /Dests before Names /Dests for either key form. The public viewer test activates link annotations through Command::Activate and observes CurrentPage and PageGeometry.",
+      "fixture_and_assertions": "named_destination_tables_audit.rs uses an exact-xref PDF 1.7 with valid page-tree entries and both destination tables pointing the same bytes to different pages/views. It has direct-array controls, name/string spelling controls, and asserts no recovery. The historical recorded run has the name-dictionary route passing and the string collision expectation failing.",
+      "verdict": "QUALIFY. The observed dictionary-first behavior is real, and type-specific mappings are normative. However, the test's desired cross-table priority (string must select the name tree even in a collision) is not explicit in the clause. The second lookup is described as an alternative mapping, and the standard does not specify merging/precedence for simultaneous same-byte entries. Keep as an unresolved interpretation/product behavior question, not a settled ISO failure.",
+      "ledger_and_decision": "The current \u00a712.3.2.4 ledger row says both tables and both key forms are implemented, but does not describe collision precedence. ADR 0162 is general view geometry and does not settle this lookup collision.",
+      "limits": "No claim about absent-table fallback, remote destinations, or conflicting /SD values."
+    },
+    {
+      "finding": "2038-B24",
+      "clause": "12.3.2.2, Table 149, /FitR and /FitB; EC3 Issue #536",
+      "source": "Table 149 says /FitR and /FitB use the smaller fit factor and center the fitted rectangle/bounding box in the unused dimension. EC3 #536 adds the modal phrase 'interactive processors should' for the smaller-factor choice; it is a recommendation, not a SHALL. The centering direction remains in the row.",
+      "implementation_and_consumer": "viewer-core/src/open/destinations.rs::apply_view places FitR/FitB from a corner without offsetting the unused dimension. This is observable through public OpenAction handling and Query::PageGeometry.",
+      "fixture_and_assertions": "The current headless geometry fixture uses a valid exact-xref page with explicit visible content bounds. At viewport 300x150, the 200x100 box is a matched-aspect control with scale 1.5 and origin (-150,-150). At 300x400, the same box leaves 250 vertical pixels unused; literal centering requires origin (-150,-25). FitB has vertical and horizontal controls. The historical test log records failures on the mismatched-aspect centering assertions; this review did not rerun them.",
+      "verdict": "RETAIN, QUALIFIED. The non-centering behavior conflicts with the Table 149 centering instruction. Do not call the smaller-factor choice a mandatory failure: #536 makes that choice SHOULD-level. This is a narrow geometry finding, not a claim about all destination modes.",
+      "ledger_and_decision": "The \u00a712.3.2.2 ledger row documents corner placement and ADR 0162; that rationale does not account for Table 149's centering language. ADR 2814 does not appear to supersede the FitR/FitB centering choice; it addresses other view-coordinate behavior.",
+      "limits": "No certification of Fit, FitH/FitV, crop/rotation transforms, or all coordinate mappings."
+    },
+    {
+      "finding": "2038-B40",
+      "clause": "12.8.2.3, Table 258",
+      "source": "EC3 says a processor that modifies a PDF beyond a UR signature's granted rights 'should remove that signature' before writing. This is SHOULD guidance. UR/UR3 features are deprecated in PDF 2.0, so the fixture correctly uses PDF 1.7. Separately, verification of the signed byte range and post-signature modifications uses SHALL wording.",
+      "implementation_and_consumer": "pdf-model/src/view/writing.rs::withdrawn_usage_rights currently retains UR3 when FillInForm and FullSave are granted, without accounting for annotation creation in the update. ViewState::save writes and reopens the added annotation and catalog permissions are queried afterward.",
+      "fixture_and_assertions": "The promoted model test uses two exact-xref, cryptographically self-consistent PDF 1.7 UR3 fixtures. Both grant FullSave and FillIn; only one grants Annots/Create. It checks original digest/authenticity, unchanged signed prefix, no recovery, and actual annotation attachment. The recorded permitted control retains UR3; the denied case also retains it. Self-signed test certificates establish cryptographic self-consistency, not public trust or an external rights entitlement.",
+      "verdict": "RETAIN, QUALIFIED AS ADOPTED POLICY. This is a valid, observable departure from the implementation's chosen withdrawal policy against a SHOULD, not an ISO mandatory failure. The test is not evidence of trust/path validation or that the signer is externally entitled to rights.",
+      "ledger_and_decision": "The \u00a712.8.2.3 ledger and ADR 0159 describe the withdrawal decision; the writer now performs annotation writes beyond the operations its predicate checks. Reconsider the adopted policy predicate for annotation edits, while preserving the recommendation's modal status.",
+      "limits": "One annotation operation and one rights combination; no full UR rights matrix, public trust, or PDF 2.0 UR support claim."
+    },
+    {
+      "finding": "2038-B42",
+      "clause": "12.8.2.4, Table 259; \u00a712.7.4.2; EC3 Issue #33",
+      "source": "Table 259 requires /Fields text strings containing field names; EC3 #33 adds that they are fully qualified names and cites \u00a712.7.4.2. The clause requires detecting changes to values of listed fields, but does not state how a field is identified across revisions if its /T changes while its indirect object stays the same.",
+      "implementation_and_consumer": "pdf-signature/src/revision.rs::Comparison::of and against_field_mdp provide a structural comparison/ranking API. The current implementation builds field subjects from the current revision first, so an updated object renamed from Name to Other is classified using Other. Repository call-site search found no viewer/report consumer of against_field_mdp; this is presently an API-level result.",
+      "fixture_and_assertions": "field_mdp_signed_name_spec_audit.rs has exact-xref incremental updates, guards against recovery and a cut xref chain, and stable-name / outside-field controls. The target changes the same indirect field object's /T from Name to Other and adds /V. However, its signature has a zero ByteRange and placeholder Contents, so it is not cryptographically valid. Comparison::of documents that it does not verify anything.",
+      "verdict": "WITHDRAW AS A SOURCE-BACKED ISO FAILURE; retain only as an explicitly unresolved comparison-policy/API question. Fully qualified-name selection is source-supported, but binding a later renamed field to its signed-time name (rather than its current fully qualified name) is an inference. The placeholder signature and lack of a production validation consumer prevent this test from establishing an authenticated PDF validation failure.",
+      "ledger_and_decision": "Current12.8.2.4 ledger describes fully qualified matching and revision ranking, but does not explicitly promise identity binding across /T rename. ADR1096 supports comparison scoping; it does not settle the rename case.",
+      "limits": "No conclusion on valid signed rename semantics, lock-dictionary behavior, or end-user signature verdicts.",
+      "parent_reconciliation": "The original finding already explicitly limited itself to a qualified comparison API probe with placeholder CMS. Parent now removes likely-defect language and records an unresolved comparison policy. Placeholder CMS is acceptable for this structural API probe, but cannot establish an authenticated signature verdict."
+    }
+  ]
+}

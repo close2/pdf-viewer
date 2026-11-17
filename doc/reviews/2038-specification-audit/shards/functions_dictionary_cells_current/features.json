@@ -1,0 +1,244 @@
+{
+  "shard": "§7.10 function dictionary cell review: Tables 38–42 (Types 0, 2, 3, 4)",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read the effective EC3 primary PDF and its actual annotations, then compare table cells with parser/evaluator, current named assertions, public consumers, ledger and selected ADRs. No tests executed in this shard.",
+  "source_locations": [
+    {
+      "table": "38",
+      "physical_page": 139,
+      "printed_page": 124,
+      "check": "Table header and printed footer directly inspected; preceding §7.10.1 prose starts on printed p.123."
+    },
+    {
+      "table": "39",
+      "physical_pages": [
+        140,
+        141
+      ],
+      "printed_pages": [
+        125,
+        126
+      ],
+      "check": "Actual table140–141; interpolation/explanatory material continues142–143, separately from table."
+    },
+    {
+      "table": "40",
+      "physical_page": 143,
+      "printed_page": 128,
+      "check": "Type 2 header/table and overlay read on the page itself."
+    },
+    {
+      "table": "41",
+      "physical_pages": [
+        144
+      ],
+      "printed_pages": [
+        129
+      ],
+      "check": "Actual table144; interval examples/formula/note continue145, not a table continuation."
+    },
+    {
+      "table": "42",
+      "physical_page": 146,
+      "printed_page": 131,
+      "check": "Operator table and #269/#669 overlays read on p.131; do not derive from the following heading alone."
+    }
+  ],
+  "features": [
+    {
+      "id": "common-function-dictionary-cells",
+      "clause": "7.10.1 / Table 38",
+      "entries": [
+        {
+          "key": "FunctionType",
+          "source": "Required integer, one of 0,2,3,4.",
+          "implementation": "Function::parse resolves dictionary/stream and dispatches those types; other values return UnsupportedType.",
+          "assertions": "All targeted function fixtures set the appropriate type; type coverage and corpus parse gate are in functions_current, not evidence for every malformed value."
+        },
+        {
+          "key": "Domain",
+          "source": "Required 2*m-number array; each low<=high; m is input count; outside inputs are clipped.",
+          "implementation": "pairs() parses it and eval_into clips each supplied input.",
+          "assertions": "Type 0 multidimensional test pins first-dimension-fastest; Type 2 clips both sides with distinguishable Range outputs; Type 3 boundary/domain clipping; Type 4 fixtures cover multi-input shading/model callers. The function parser bounds dimensions at MAX_VALUES as a declared implementation/resource limit."
+        },
+        {
+          "key": "Range",
+          "source": "Required for Type0/4, optional otherwise; each output pair low<=high; clips final outputs. Without it there is no output clipping, subject to implementation limits. n is output count.",
+          "implementation": "Type0 rejects absent Range; Type4 parser receives optional count and generic eval clips only when present; Type2/3 allow absence. Type3 and Type2 infer output count from their parameters/child.",
+          "assertions": "Type2 multioutput test distinguishes component clipping; Type2 no-Range test proves unbounded outputs are preserved while inputs remain clipped; Type0 range/decode test; Type4 fault tests use Range-declared output count."
+        },
+        {
+          "key": "dimension compatibility",
+          "source": "Domain/Range dimensionality shall agree with type-specific representation.",
+          "implementation": "Type0 checks Size length vs Domain and Range determines outputs; Type2 matches C0/C1 lengths; other type-specific cases rely on their parsed structure and evaluation range behavior.",
+          "assertions": "Valid multi-output Type2, Type0, Type3 and Type4 examples exist; there is no blanket malformed-dimension rejection claim."
+        }
+      ]
+    },
+    {
+      "id": "sampled-type-dictionary-cells",
+      "clause": "7.10.2 / Table 39",
+      "entries": [
+        {
+          "key": "Size",
+          "source": "Required m positive integers; sample count per input dimension. No dimensionality cap apart from possible implementation limits.",
+          "implementation": "parse_sampled checks size count equals Domain count, rejects zero and enforces MAX_SAMPLES. Integer conversion path is resource/invalid-input handling.",
+          "assertions": "Size=1 and 2×2 independent bilinear fixture; Type0 corpus and extent tests; boundary/size tests from prior function audit."
+        },
+        {
+          "key": "BitsPerSample",
+          "source": "Required; exactly 1,2,4,8,12,16,24,32; each output component occupies this many bits.",
+          "implementation": "Allows these eight widths; computes continuous MSB-first sample bit stream and validates extent.",
+          "assertions": "Unit test every_width_table_39_lists_is_read_and_no_other pins each listed width and rejects an unlisted width; public 12-bit cross-byte test independently pins high-order-first and no intersample padding; Type5 mesh padding draft is outside this function shard."
+        },
+        {
+          "key": "Order",
+          "source": "Optional, 1 linear or 3 cubic spline, default 1; if any Size is below four, Order3 is ignored.",
+          "implementation": "Default1; order3 uses not-a-knot tensor-product spline; any dimension <4 chooses multilinear; unlisted values are refused.",
+          "assertions": "Default and order3 exact-cubic tests, bicubic, both end pieces, and mixed [4,3] / small-grid ignored-vs-order1 controls. ADR0098 is superseded by ADR1623/1636; this is now a stated algorithm choice, not an unresolved refusal."
+        },
+        {
+          "key": "Encode",
+          "source": "Optional 2*m numbers; default pairs [0, Size_i-1]. Inputs first clip to Domain, interpolate into Encode, then encoded coordinate clips to [0, Size_i-1]; encoded coordinate is real, not integer-only.",
+          "implementation": "Default derived from Size; explicit pair mapping and both clipping stages.",
+          "assertions": "Default real sample-position test; explicit interior Encode proves domain clipping before mapping; out-of-table Encode proves encoded-coordinate clipping."
+        },
+        {
+          "key": "Decode",
+          "source": "Optional 2*n numbers; default equals Range. Each raw sample maps from [0,2^bits-1] to Decode; decoded output then clips to Range.",
+          "implementation": "Defaults to Range; maps each component and applies common Range clipping.",
+          "assertions": "Decode default, explicit Decode outside Range, and multiple-output Range component ordering tests."
+        },
+        {
+          "key": "sample stream attributes/data",
+          "source": "Optional other stream attributes; samples are a continuous MSB-first bit stream and stream must contain the whole Size×n×BitsPerSample array.",
+          "implementation": "Uses decoded stream bytes; validates minimum required extent before reading.",
+          "assertions": "Every bits width unit test and explicit 12-bit adjacent sample fixture; independent stream-short/extent tests are in `sampled_function_extent.rs` and previously audited."
+        }
+      ]
+    },
+    {
+      "id": "exponential-type-dictionary-cells",
+      "clause": "7.10.3 / Table 40",
+      "entries": [
+        {
+          "key": "one input / n outputs",
+          "source": "Type2 is exponential interpolation of one input and n outputs.",
+          "implementation": "Uses first clipped Domain input, returns C0/C1 component count.",
+          "assertions": "Two-component fixture tests formula and per-component clipping; one-input root/square/reciprocal examples."
+        },
+        {
+          "key": "C0",
+          "source": "Optional n-number vector, default [0.0].",
+          "implementation": "Independently defaults to one zero; must match C1 vector length.",
+          "assertions": "C0-only explicit control with default C1; independent-default test."
+        },
+        {
+          "key": "C1",
+          "source": "Optional n-number vector, default [1.0].",
+          "implementation": "Independently defaults to one one; must match C0 vector length.",
+          "assertions": "C1-only explicit control with default C0; independent-default test."
+        },
+        {
+          "key": "N",
+          "source": "Required numeric interpolation exponent; formula is componentwise C0+x^N(C1-C0).",
+          "implementation": "Evaluates N, with an optimization for N≈1. Parser fallback to N=1 for missing/non-numeric N is invalid-input recovery, not a reading of the required cell.",
+          "assertions": "N=2 nonlinear literal, linear endpoints, fractional sqrt and negative reciprocal with valid domains; signed exponent/Domain constraints from effective #30 text reviewed."
+        },
+        {
+          "key": "Range optionality",
+          "source": "Range may be absent for Type2; when absent, do not clip outputs. For noninteger N Domain values must be nonnegative; for negative N none may be zero.",
+          "implementation": "Common clipping is conditional on Range; parser does not validate producer-side exponent-domain constraints.",
+          "assertions": "Type2 no-Range control checks output 4/9 beyond common unit range; #30 effective constraints are documented in existing functions_current. Nonconforming producer constraints are not asserted as reader rejection requirements."
+        }
+      ]
+    },
+    {
+      "id": "stitching-type-dictionary-cells",
+      "clause": "7.10.4 / Table 41",
+      "entries": [
+        {
+          "key": "Functions",
+          "source": "Required array of k one-input functions; all outputs same dimensionality and compatible with Range. k may equal 1.",
+          "implementation": "Recursively parses functions under shared breadth/depth budgets; checks bounds count, but no blanket producer-validation claim for child input/output compatibility.",
+          "assertions": "One-function fixture and nested stitching fixture; common test exercises 2-child component selection. MAX_FUNCTIONS is documented resource policy, not a standard upper limit."
+        },
+        {
+          "key": "Bounds",
+          "source": "Required k−1 numbers; ascending and within Domain; intervals left-closed/right-open, with specified first-degenerate and final-closed exceptions. Domain has length2 and low<high unless k=1.",
+          "implementation": "Validates order/range; picks right interval at ordinary bound; handles equal first bound and final bound special cases; zero-width subdomains support authored step edges.",
+          "assertions": "Interior boundary, Domain start/end special cases, k=1 empty Bounds, nested mapped breakpoints; signed-zero equality defect/draft already recorded in functions_current; not reopened here."
+        },
+        {
+          "key": "Encode",
+          "source": "Required 2*k numbers; maps each selected subdomain into corresponding function domain; special formulas apply where first bound equals Domain low / last bound equals Domain high.",
+          "implementation": "Each pair used on selected subfunction; special endpoints implemented.",
+          "assertions": "Distinct reversal/nonidentity Encode pairs on both intervals; endpoint pair tests."
+        },
+        {
+          "key": "Range optionality/child outputs",
+          "source": "Optional Range; child output dimensionalities must agree and match Range if present.",
+          "implementation": "No Range retains selected child output; present Range uses common clipping/padding.",
+          "assertions": "No new cell-level failure found; child compatibility and malformed dictionary treatment remain outside a reader-conformance claim."
+        }
+      ]
+    },
+    {
+      "id": "calculator-type-dictionary-cells",
+      "clause": "7.10.5.1–.3 / Table 42",
+      "entries": [
+        {
+          "key": "stream, Domain, Range",
+          "source": "Type4 is a stream; requires Table38 entries and appropriate stream attributes; Range required because output count cannot be inferred.",
+          "implementation": "Parses stream data and receives initial clipped Domain inputs; Range controls declared output count/clipping/fault reports.",
+          "assertions": "Valid range outputs and multi-input calculation fixtures; prior Type4 fault shard covers consumer/report route. Missing Range is invalid-producer input; no claim that readers must reject every invalid form."
+        },
+        {
+          "key": "operator list and conditional spelling",
+          "source": "Table42 enumerates arithmetic, relational/boolean/bitwise, conditional, and stack operators; EC3 #269 corrects `If` to `if`.",
+          "implementation": "Explicit operator dispatch and lowercase if; no catchall operator.",
+          "assertions": "Calculator operator test suites and Table42-focused assertions in functions_current/calculator shards. This matrix does not recertify the full PLRM3 operator semantics."
+        },
+        {
+          "key": "program delimiters / brace code",
+          "source": "Whole stream enclosed in curly-brace delimiters; EC3 #669 corrects RIGHT CURLY BRACE code to 7Dh.",
+          "implementation": "Type4 compiler parses braces as its program delimiters.",
+          "assertions": "Program fixtures are brace-delimited; corrected source character code has no separate runtime distinction."
+        }
+      ]
+    }
+  ],
+  "errata": [
+    {
+      "id": 30,
+      "source_page": 143,
+      "printed_page": 128,
+      "effective_effect": "Caret text inserts explicit constraints: noninteger N requires all x nonnegative; negative N requires no x be zero. It does not delete the constraints. Existing fractional/negative exponent valid-domain assertions support the intended cases."
+    },
+    {
+      "id": 446,
+      "source_page": 145,
+      "printed_page": 130,
+      "effective_effect": "Strike/caret corrects a Type0 note cross-reference only; no table-cell behavior change."
+    },
+    {
+      "id": 269,
+      "source_page": 146,
+      "printed_page": 131,
+      "effective_effect": "Corrects Table42 conditional operator spelling to lowercase `if`; implementation uses it."
+    },
+    {
+      "id": 669,
+      "source_page": 146,
+      "printed_page": 131,
+      "effective_effect": "Corrects right-curly-brace hex code to 7Dh; no arithmetic/evaluation change."
+    }
+  ],
+  "limits": [
+    "No full audit of all Type4 operator semantics, every consumer, arbitrary dimensionality, or every malformed dictionary recovery path.",
+    "Normative input constraints on producers (for example Type2 exponent-compatible Domain and Type3 dimensional consistency) do not by themselves require a reader to reject an invalid file.",
+    "MAX_VALUES, MAX_SAMPLES, MAX_FUNCTIONS and stitching depth limits are project resource policies; source permits implementation limits where stated, but these values are not ISO limits.",
+    "Known Type0 narrow-span interpolation and Type3 signed-zero endpoint findings belong to the earlier functions_current shard; this table-cell pass does not duplicate them."
+  ]
+}

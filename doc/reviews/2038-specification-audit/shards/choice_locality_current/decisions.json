@@ -1,0 +1,17 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "2448 (field inheritance), especially section 3; successors that reused READ_UP_THE_CHAIN were not found to redefine Table 234 inheritance",
+      "question": "Do /TI and /I travel through the complete field hierarchy because the widget is separate from its field?",
+      "evidence": "ADR 2448 records that these five extra keys were already read from the nearest field chain because a separate widget holds none. That explains a widget-to-terminal lookup, but it does not establish terminal-to-nonterminal inheritance. §12.7.4.1 says inheritable attributes shall be designated as such in Tables 226/227; Table 234 has no inheritable designation for /Opt, /TI or /I; Table 230 explicitly marks the button-field /Opt inheritable. Table 234 says an absent choice /Opt SHOULD result in no presented choices, so this candidate is recommendation-weighted. Current READ_UP_THE_CHAIN flattens both boundaries.",
+      "verdict": "Retain ADR 2448's unlimited-range/cycle design. Narrow its field-resolution claim for /TI and /I: preserve widget-to-terminal access, but stop at the terminal field unless a later applicable rule explicitly says otherwise. Parent-specific /TI should not override the Table 234 default 0 of a terminal choice list."
+    },
+    {
+      "adr": "0248 and 0253; EC3 #468 as recorded in doc/errata-read.md:116",
+      "question": "Can a locality test use /I without introducing an invalid /V relationship?",
+      "evidence": "#468 removes the obsolete MultiSelect-only and array-value limitations; current code supports duplicate-label array selection and /V-over-/I conflict. The proposed hierarchy controls give the nonterminal its own /Opt, /V and /I, with index 1 consistent with its own options/value. The terminal's own /Opt and scalar /V remain independently consistent. A no-local-/I terminal case is compared against identical terminal data without the ancestor entry rather than asserting an arbitrary new index rule.",
+      "verdict": "Keep the #468 selection semantics. For /I, use an invariant comparison to isolate locality; do not promote malformed /V-/I pairs or infer a rejection mandate. Audit choice /Opt separately from the button-field /Opt because only the latter is marked inheritable; label the absence behavior as a SHOULD recommendation."
+    }
+  ]
+}

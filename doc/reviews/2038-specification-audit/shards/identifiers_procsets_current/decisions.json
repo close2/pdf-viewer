@@ -1,0 +1,20 @@
+{
+  "reviews": [
+    {
+      "adr": "0712",
+      "verdict": "Retain source correction: #328 applies to identifiers despite annotation attributed to14.5, and #691 removes a nonmandatory hash example. Parent directly inspected annotations at734."
+    },
+    {
+      "adr": "0121/0129",
+      "verdict": "Retain deterministic unencrypted append identification and freshAESIV effects. A source-derived ID need not depend only on content after#328. No claim MD5 collision resistance is a conformance guarantee."
+    },
+    {
+      "adr": "0817",
+      "verdict": "Retain two equal new IDs for independently derived files; added output-level assertions. Distinguish newfile generation from byte-for-byte copying."
+    },
+    {
+      "adr": "0050",
+      "verdict": "Historical encryption-only scope no longer describes reference/FDF consumers; reconcile current ledger rationale without rewriting historical decision."
+    }
+  ]
+}

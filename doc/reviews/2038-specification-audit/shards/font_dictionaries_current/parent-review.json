@@ -1,0 +1,6 @@
+{
+  "execution": "New type3_shape_state_restoration assertion PASS in boundary-font-annotation-wave14.log.",
+  "test_correction": "Draft mistook path coordinates for transform translation. Parent uses literal black glyph/blue page identity, alpha1/0.5 and exactly two fills; both obligations pass.",
+  "source_correction": "Type3/Table110 physical332\u2013333/printed317\u2013318; invocation steps physical334/printed319; Table111 physical335/printed320. Agent initial348\u2013351 locators were incorrect; parent checked actual text and footers.",
+  "limit": "Selected Type3 state/resource/geometry evidence only; CID/OpenType provisional mappings remain partial until separate deeper review."
+}

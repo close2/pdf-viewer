@@ -1,0 +1,8 @@
+{
+  "verdict": "T124: existing appearance fallback assertion strengthened with absent R and a distinct explicit D; PASS.",
+  "source": "Parent read primary483 AP/AS,489 geometry,490 actual Table170 and491 unknown N/unmatched AS. Table166 spans482-485 but only AP/AS cells are assigned. #22 distinguishes PDF2 writer AP requirement from1.2-1.7 optionality; #124 zero-based Rect indices; #34 missing AP appearance implementation-dependent.",
+  "assertions": "Parent inspected distinct N/R/D and state-dictionary pixels, printN, exactxref/noRecovery. Added absentR Over=>redN while Down=>blueD positive control. Existing missingD and explicitR assertions retained.",
+  "qualification": "Reviewer initial unknown-N conclusion overstated its fixture: only N was supplied. Parent code inspection sees generic pointer selection, and unknown_annotation_pointer_current is investigating actual host reachability; no new failure recorded here. ADR0013 no-synthesis premise historical; ADR0628 retained as source interpretation, not proof of complete implementation.",
+  "execution": "appearance-fallback-wave93 1PASS; model all-target Clippy93PASS.",
+  "limits": "No full Table166, AP writer paths, geometry or native toolkit certification."
+}

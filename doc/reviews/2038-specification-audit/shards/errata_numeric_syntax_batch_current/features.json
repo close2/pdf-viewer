@@ -1,0 +1,236 @@
+{
+  "baseline": "b901326c",
+  "scope": "Source-led review of uncited errata issue candidates #13,#53,#96,#211,#242,#251,#271,#276,#280,#294,#341,#348,#475,#594,#638. Candidate list is locator-only.",
+  "source_method": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf, read/rendered locally; physical page locators were checked against page footer. Printed page = physical - 15.",
+    "annotation_navigation": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/source/errata_annotations.json and scratchpad/r2038/spec-audit/uncited_issue_candidates.json; these locate annotations only and do not prove effective source changes.",
+    "assertion_review": "Read relevant implementation/test bodies cited in findings.txt; parent execution is separate."
+  },
+  "results": [
+    {
+      "id": 13,
+      "source": "Table 89: ImageMask/Alternates on physical 274; SMask/StructParent/ID/OPI on 275. Table 143 restrictions on physical 435\u2013436.",
+      "kind": "six informative Text cross-references to restrictions when the targeted key occurs in a soft-mask image dictionary",
+      "result": "Notes point to Table 143; existing soft-mask tests cover selected rules only, no full restriction certification."
+    },
+    {
+      "id": 53,
+      "source": "Algorithm 2 \u00a77.6.4.3.2 at physical 96 / printed 81 and Algorithm 2.A \u00a77.6.4.3.3 at physical 97 / printed 82",
+      "kind": "inserted explanatory password-algorithm notes",
+      "result": "No algorithm step changes; current vectors cover selected password/decryption behavior."
+    },
+    {
+      "id": 96,
+      "source": "\u00a77.9.2.2.1, physical 131\u2013132 / printed 116\u2013117",
+      "kind": "example correction and deletion of informative NOTE 5",
+      "result": "Encoding implementation/tests cover parser behavior; this clause correction does not certify every text-string semantic."
+    },
+    {
+      "id": 211,
+      "source": "\u00a77.6.2, physical 86 / printed 71",
+      "kind": "informative signature-Contents note adjacent to \u00a77.6.2 encryption exception",
+      "result": "Clarifies the exception and relation to \u00a77.9.2.4/Table255; no new rejection rule."
+    },
+    {
+      "id": 242,
+      "source": "\u00a77.7.2, Table 28 /Extensions, physical 114 / printed 99",
+      "kind": "producer direct-object constraint",
+      "result": "Does not itself mandate reader rejection; reference-resolving consumer exists."
+    },
+    {
+      "id": 251,
+      "source": "\u00a77.9.4, physical 133 / printed 118",
+      "kind": "timezone wording clarification and deletion of a separate local-time sentence",
+      "result": "Old and replacement missing-zone sentences both yield GMT/zero. The removed local-time sentence does not change parsing behavior; parser stores fields and computes instant. No new calendar rule."
+    },
+    {
+      "id": 271,
+      "source": "Table 30/page-tree prose, physical 118 / printed 103",
+      "kind": "producer Kids/Count constraints",
+      "result": "Existing page-tree assertions; no reader-rejection inference."
+    },
+    {
+      "id": 276,
+      "source": "\u00a77.9.2.4, physical 132 / printed 117",
+      "kind": "general byte-string rule plus field-specific note",
+      "result": "Literal/hex parsing is covered; no gap."
+    },
+    {
+      "id": 280,
+      "source": "\u00a77.8.3 resources, Table 34 /ColorSpace, physical 128 / printed 113",
+      "kind": "resource-map coverage clarification",
+      "result": "Bare Pattern and device-space aliases already exercised."
+    },
+    {
+      "id": 294,
+      "source": "\u00a78.7.3 Table 74 caption, physical 236 / printed 221",
+      "kind": "editorial caption clarification",
+      "result": "Stream-backed tiling pattern path already exercised."
+    },
+    {
+      "id": 341,
+      "source": "\u00a77.5.6 NOTE 1, physical 75 / printed 60",
+      "kind": "insertion into an explanatory producer-use note",
+      "result": "Caret inserts \u201c, or when\u201d to add a context in which an incremental update is advantageous; no new reader algorithm."
+    },
+    {
+      "id": 348,
+      "source": "Catalog /StructTreeRoot table row, physical 116 / printed 101",
+      "kind": "producer indirect-reference constraint",
+      "result": "No reader rejection inferred."
+    },
+    {
+      "id": 475,
+      "source": "Table 24 request annotation physical 103 / printed 88; effective appended row physical 1021",
+      "kind": "reserved permission-bit writer constraint; processors explicitly ignore unnamed bits",
+      "result": "Parent public-key tests cover selected flags/reserved values."
+    },
+    {
+      "id": 594,
+      "source": "\u00a77.5.7 ordinary paragraph, physical 78 / printed 63",
+      "kind": "\u201cmight\u201d to \u201cmay\u201d permission clarification for an object stream not named by an ordinary object reference",
+      "result": "Existing object-stream/xref membership tests cover discovery without a body reference; not confined to the example."
+    },
+    {
+      "id": 638,
+      "source": "\u00a77.5.8 example, physical 79 / printed 64",
+      "kind": "example description correction",
+      "result": "Table 18 and xref-stream tests govern; no independent requirement."
+    }
+  ],
+  "unreviewed": "Not a full review of the cited clauses, all errata annotations, or all consumers. No test draft and no execution in this shard.",
+  "ledger_rows": [
+    {
+      "ids": [
+        13
+      ],
+      "rows": [
+        "8.9.5.1 Image dictionary (Table 89)",
+        "11.6.5.2 Soft-mask images"
+      ],
+      "note": "Table 89 keys touched are ImageMask and Alternates; linked soft-mask conditions are in Table143/11.6.5.2. Existing prior image audit has only selected branch witnesses."
+    },
+    {
+      "ids": [
+        53
+      ],
+      "rows": [
+        "7.6.4.3.2 Algorithm 2",
+        "7.6.4.3.3 Algorithm 2.A"
+      ],
+      "note": "Algorithm key derivation rows; this erratum adds explanatory notes only."
+    },
+    {
+      "ids": [
+        96
+      ],
+      "rows": [
+        "7.9.2.2.1 Text string type"
+      ],
+      "note": "Encoding example correction; not a new normative algorithm."
+    },
+    {
+      "ids": [
+        211,
+        276
+      ],
+      "rows": [
+        "7.6.2 Application of encryption (signature Contents exception/#211)",
+        "7.9.2.4 Byte string type (#276)",
+        "12.8.3.3 Signature dictionary (Table 255)"
+      ],
+      "note": "#211 is not an effective amendment at the annotation anchor; #276 is effective general rule/exception."
+    },
+    {
+      "ids": [
+        242
+      ],
+      "rows": [
+        "7.7.2 Document catalog dictionary (Table 28)"
+      ],
+      "note": "Catalog /Extensions table reference shape; reader rejection not asserted."
+    },
+    {
+      "ids": [
+        251
+      ],
+      "rows": [
+        "7.9.4 Dates"
+      ],
+      "note": "Timezone rule and existing date consumer."
+    },
+    {
+      "ids": [
+        271
+      ],
+      "rows": [
+        "7.7.3.2 Page tree nodes"
+      ],
+      "note": "Valid producer shape constraints."
+    },
+    {
+      "ids": [
+        280
+      ],
+      "rows": [
+        "8.6.3 Colour space families",
+        "8.7.3 Tiling patterns"
+      ],
+      "note": "Pattern and device-space resource names."
+    },
+    {
+      "ids": [
+        294
+      ],
+      "rows": [
+        "8.7.3 Tiling patterns"
+      ],
+      "note": "Pattern stream dictionary caption."
+    },
+    {
+      "ids": [
+        341
+      ],
+      "rows": [
+        "7.5.6 Incremental updates"
+      ],
+      "note": "The edit adds an explanatory producer context, not a reader algorithm."
+    },
+    {
+      "ids": [
+        348
+      ],
+      "rows": [
+        "14.7.2 Structure hierarchy"
+      ],
+      "note": "Catalog StructTreeRoot reference shape."
+    },
+    {
+      "ids": [
+        475
+      ],
+      "rows": [
+        "7.6.5.2 Public-key encryption dictionary"
+      ],
+      "note": "Permission flags in Table 24; parent review has broader bit-level tests."
+    },
+    {
+      "ids": [
+        594
+      ],
+      "rows": [
+        "7.5.7 Object streams"
+      ],
+      "note": "Ordinary \u00a77.5.7 paragraph; existing xref membership behavior remains the actual reader rule."
+    },
+    {
+      "ids": [
+        638
+      ],
+      "rows": [
+        "7.5.8 Cross-reference streams"
+      ],
+      "note": "Example prose; Table 18 remains normative."
+    }
+  ]
+}

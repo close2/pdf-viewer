@@ -1,0 +1,49 @@
+{
+  "reviews": [
+    {
+      "adr": "root ADR 1257",
+      "verdict": "Revisit historical rationale and explicitly settle archive policy; no demonstrated ISO or ratification violation.",
+      "decision_question": "Does Table 29 /NeedsRendering alone define the project's dynamic-XFA classification used by archive's default stop gate?",
+      "evidence": [
+        "ADR 2876 accepted 2026-11-13 on A840; current scope-ratifications.md and CLAUDE.md also classify XFA 3.3 template grammar outside XFAF as dynamic",
+        "sites::xfa_form_is_dynamic returns true only for catalog /NeedsRendering true",
+        "archive prepare rejects XFA removal only when that predicate is true and FormAnswers.remove_dynamic_xfa is false",
+        "existing dynamic-XFA test only uses /NeedsRendering true"
+      ],
+      "reasoning": "Current scope includes grammar-dynamic templates, so the old statement that nothing in the file can distinguish the class is obsolete. ADR2876 authorizes/schedules layout; it does not expressly amend the archive refusal predicate. The parent therefore does not make the proposed grammar-only stop expectation a permanent failing test. Keep flag-only handling versus broader grammar detection as a decision to settle, separately from the explicit malformed-preservation contract."
+    },
+    {
+      "adr": "root ADR 1270",
+      "verdict": "retain core mechanism; qualify XFA-specific proof and one input-validation edge",
+      "decision_question": "Does archive output actually preserve the replaced XFA bytes and state the required attachment relationship/date/association?",
+      "evidence": [
+        "XFA packet test compares decoded concatenated attachment bytes in source order and checks generic MIME fallback/output target/report",
+        "generic XMP attachment test compares original payload bytes and checks Source, Params Size/ModDate, and catalog AF",
+        "attach.rs uses one generic associated-file writer for both XFA and XMP",
+        "the XFA test itself does not assert Source, ModDate, or AF identity"
+      ],
+      "reasoning": "The shared writer gives credible implementation evidence for Source/ModDate/AF; the XFA test proves its own extraction and byte order. Still, XFA-specific assertion could be strengthened cheaply because it already supplies ModDate and reopens the output. In xfa_resource, array elements resolving to non-stream objects are silently skipped, despite the adjacent refusal text claiming malformed shape/refused resource. This is a malformed-source safeguard gap and data-integrity concern, not a claim that ISO requires rejection of every malformed producer file. Do not state a valid-file nonconformance based on it. The all-or-nothing preservation contract is explicit in ADR 1270 and XFA_NOT_READABLE; malformed arrays should not be partially attached. A negative/positive control draft is available, explicitly classified as a defensive data-integrity test rather than an ISO conformance test."
+    },
+    {
+      "adr": "root ADR 2876 (scope control)",
+      "verdict": "honor as current owner scope; don't treat scheduled feature as implemented",
+      "decision_question": "What dynamic-XFA cases are included in the project now?",
+      "evidence": [
+        "A840 accepted 2026-11-13; ADR 2876; scope-ratifications.md §A page laid out by a producer's own XFA template; CLAUDE.md current near-side rule",
+        "Annex K shard states dynamic template layout is scheduled after ledger and not yet built"
+      ],
+      "reasoning": "The dynamic class includes templates XFA 3.3 says are not XFAF, not only files whose producer set the deprecated PDF catalog flag. Acceptance changes project scope but does not itself certify implementation or impose a universal ISO archive behavior."
+    },
+    {
+      "adr": "root ADR 1257 / 1270, malformed XFA array handling",
+      "verdict": "draft defensive refusal regression; retain the malformed-input qualification",
+      "decision_question": "When operator asks to attach the removed XFA resource, does a malformed packet array fail atomically instead of attaching only streams that happened to decode?",
+      "evidence": [
+        "attach::xfa_resource skips any packet item resolving to a non-stream and continues; it returns Some(out) if any bytes were collected",
+        "XFA_NOT_READABLE and ADR 1270 explicitly say a malformed shape/read failure must refuse rather than preserve a part",
+        "existing valid packet-array archive test is an exact-byte positive control"
+      ],
+      "reasoning": "This is an internal preservation-integrity promise for malformed input, not a source-mandated reject rule for every PDF reader. The scratch draft expects no partial attachment and uses the existing valid array case as the positive control. Parent may select this robustness contract if it wants the implementation to uphold the refusal reason it already reports."
+    }
+  ]
+}

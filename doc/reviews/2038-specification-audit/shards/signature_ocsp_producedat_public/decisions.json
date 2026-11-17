@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "adr": "ADR 1112 — The instant a token proves is what a verdict is asserted at",
+      "relevance": "Directly establishes the historical instant and allows later-issued revocation information to answer a past-time query.",
+      "decision": "Retain the historical instant and its one-ended response window behavior; add the separate source-derived .8 producedAt condition to historical OCSP applicability. Do not infer that the shared freshness rule supersedes an explicit PAdES condition."
+    },
+    {
+      "adr": "ADR 1071 — A timestamp is established by what comes after it",
+      "relevance": "Necessary trust premise for this test: the token's time is usable only after its message imprint, CMS signature and TSA path establish it to a supplied anchor.",
+      "decision": "Retain. The fixture uses a real RFC 3161 token over the actual SignerInfo signature and a valid TSA path."
+    },
+    {
+      "adr": "ADR 1085 — A free specification is fetched, not worked around",
+      "relevance": "The relevant §12.8.3.4.8 processing is directly tested by viewer-core's public Report consumer, rather than inferred from a private generic status API.",
+      "decision": "Retain the shared verifier design; treat this integration witness as a PAdES applicability gap, not a reason to add an unsupported context flag to mode-less status()."
+    },
+    {
+      "adr": "ADR 1067 — Revocation status is checked from the document, and a stale revocation still revokes",
+      "relevance": "Defines Good/Revoked/Unknown composition and evidence provenance.",
+      "decision": "Retain explicit Revoked handling and status semantics. The investigated condition concerns whether a Good OCSP response is appropriate for a historical PAdES query."
+    }
+  ],
+  "boundary": "The source also requires capture before signer-certificate expiry. A signed response producedAt is not capture evidence. The current fixture generator creates DSS bytes in 2026 for a certificate expiring in 2036, but no timestamp authenticates the later DSS revision; this test must not be described as complete proof of both .8 OCSP conditions."
+}

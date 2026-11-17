@@ -1,0 +1,39 @@
+{
+  "scope": "Bounded audit of ISO 32000-2:2020 §14.12.2–§14.12.3, Table 408/Table 409, and the §14.13.8 DPart-associated-file consumer where hierarchy truncation is observable. Focus: MAX_DEPTH=64, MAX_PARTS=65536, cycle rationale, completeness disclosure. Not a general DPart conformance review; no test execution or claim of mandatory unbounded processing.",
+  "source": [
+    {
+      "feature": "DPart hierarchy and cycle/parent relation",
+      "source_location": "Effective PDF 2.0 + EC3: §14.12.2, physical p.850 / printed p.835; EC3 #609 on physical p.850 replaces the catalog value's DPartRootNode dictionary wording with a reference to the DPartRoot dictionary; Table 408 DPartRootNode is at physical p.851 / printed p.836. §14.12.2 says a child DPart shall not be referenced by more than one parent and Note 2 says any number of children. It states no maximum depth. Table 409 Parent requires an indirect ref to the immediate ancestor; DParts children are indirect references.",
+      "ledger": "§14.12 aggregate marked implemented (writer-side rows for split/merge/update); §14.12.2 and §14.12.3 are implemented per ADR 1461 as writer obligations. The §14.12.2 ledger note also says “a reader reads whatever tree arrives”; DPart reading has concrete consumers through §12.6.4.5 GoToDp and §14.13.8 AF, although no numeric resource maximum is stated in the reviewed source.",
+      "code": ["crates/pdf-model/src/document_part.rs::hierarchy", "crates/pdf-model/src/document_part.rs::collect", "crates/pdf-model/src/document_part.rs::first_page_at", "crates/pdf-model/src/action.rs::DocumentPartJump::page_in"],
+      "assertions": ["crates/pdf-model/tests/dpart_af_current_shape_spec_audit.rs covers a shallow current-shape tree and DPart AF", "crates/viewer-core/tests/goto_dp_node_spec_audit.rs covers shallow leaf and interior-node navigation"],
+      "assessment": "A finite acyclic chain deeper than 64 is not forbidden by the cited structure. The clause's single-parent condition does not imply a depth ceiling. Existing tests do not cover guard boundaries or report truncation. The source does not establish that every processor must support arbitrary resource sizes; the review therefore classifies silent partial-result behavior as a policy/API disclosure gap pending a project decision, not as a confirmed normative defect."
+    },
+    {
+      "feature": "Current DParts array shape after EC3",
+      "source_location": "Table 409, physical p.851 / printed p.836. EC3 #612 annotation on physical p.851 replaces the DParts entry with an array of indirect references to immediate descendants and says the array shall not be empty; the original extracted body text still shows the superseded array-of-arrays wording. The source PDF annotation is controlling.",
+      "code": ["crates/pdf-model/src/document_part.rs::collect"],
+      "assertions": ["crates/pdf-model/tests/dpart_af_current_shape_spec_audit.rs uses the effective flat array [6 0 R 7 0 R]"],
+      "assessment": "The current fixture and traversal accept the EC3 flat array. Separate current implementation comments in document_part.rs still describe the superseded array-of-arrays grammar; comments are stale, although the collector accepts the flat form. This audit does not assess all malformed-shape tolerance."
+    },
+    {
+      "feature": "DPart-to-page relation and depth-first order",
+      "source_location": "§14.12.3, physical pp.850–851 / printed pp.835–836. A page in a leaf range has an indirect /DPart back-pointer to that leaf; each page belongs to one range; page-tree order matches depth-first leaf traversal. Table 409 Start and DParts are exclusive; a leaf may have /AF under Table 409 and §14.13.8.",
+      "code": ["crates/pdf-model/src/document_part.rs::Part", "crates/pdf-model/src/document_part.rs::collect", "crates/pdf-model/src/action.rs::DocumentPartJump::page_in", "crates/pdf-model/src/attachment.rs::attachments"],
+      "assertions": ["Existing DPart AF exact-xref fixture has reciprocal page links and current flat child refs", "Existing GoToDp integration fixture checks an interior target's first descendant leaf"],
+      "assessment": "A one-page unary-chain fixture with the sole leaf /Start and page /DPart pointing to that leaf can isolate depth truncation without violating page-range ordering."
+    },
+    {
+      "feature": "MAX_DEPTH and MAX_PARTS truncation and consumer visibility",
+      "source_location": "Implementation only: crates/pdf-model/src/document_part.rs constants MAX_DEPTH=64 and MAX_PARTS=65536; collect returns at either limit without a completeness flag. No corresponding numeric ceiling was found in the reviewed §14.12.2/Table 408/Table 409 or §14.12.3 text.",
+      "code": ["crates/pdf-model/src/document_part.rs::collect", "crates/pdf-model/src/document_part.rs::Hierarchy", "crates/pdf-model/src/attachment.rs::attachments", "crates/viewer-core/src/viewer/answers.rs::Query::Attachments path", "crates/pdf-model/src/action.rs::DocumentPartJump::page_in", "crates/pdf-model/src/notes.rs::about"],
+      "assertions": ["No depth or part-count boundary test located in the reviewed DPart audit fixtures"],
+      "assessment": "At level 65, collect stops before adding the node and hierarchy returns a truncated parts vector as if complete. DPart AF on that leaf is omitted from pdf_model::attachment::attachments and viewer Query::Attachments. first_page_at likewise returns None for a first leaf beyond the bound, causing GoToDp to have no page. Neither return carries a truncation state or a user-visible partial-result note. MAX_PARTS has the same silent-prefix behavior. The comment’s “handful levels” assumption is not a numeric source constraint; leaf-count ≤ page-count does not bound total internal nodes."
+    }
+  ],
+  "limitations": [
+    "The test draft uses one deep chain to cover the 64-level boundary; MAX_PARTS=65536 is reviewed from code/comment and source but not exercised with a 65,537-node fixture.",
+    "No public assertion was run. The draft is an evidence fixture for parent execution and a policy decision, not an automatic normative conformance failure.",
+    "This audit does not certify all DPart ranges, DPM semantics, writer behavior, or malformed-cycle recovery."
+  ]
+}

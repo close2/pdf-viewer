@@ -1,0 +1,181 @@
+{
+  "scope": {
+    "status": "bounded dictionary-cell review, not complete §14.7 certification",
+    "baseline": "b901326c",
+    "source": "ISO 32000-2:2020(E), effective EC3 primary PDF",
+    "table_locators": [
+      {
+        "table": 354,
+        "title": "Entries in the structure tree root",
+        "physical_pages": [
+          738,
+          739
+        ],
+        "printed_pages": [
+          723,
+          724
+        ]
+      },
+      {
+        "table": 355,
+        "title": "Entries in a structure element dictionary",
+        "physical_pages": [
+          740,
+          741
+        ],
+        "printed_pages": [
+          725,
+          726
+        ]
+      }
+    ],
+    "prior_evidence": [
+      "doc/reviews/2038-specification-audit/shards/logical_structure/features.json",
+      "doc/reviews/2038-specification-audit/shards/logical_structure/decisions.json",
+      "doc/reviews/2038-specification-audit/shards/logical_structure_framing_current/parent-review.json",
+      "doc/reviews/2038-specification-audit/shards/tree_consumer_limits_current/findings.txt",
+      "doc/reviews/2038-specification-audit/shards/structure_attributes_remaining_current/findings.txt"
+    ]
+  },
+  "cells": [
+    {
+      "cell": "Table 354 Type and catalog locator",
+      "rule": "Catalog /StructTreeRoot locates the structure-tree-root dictionary; root /Type is required and shall be /StructTreeRoot.",
+      "code": "pdf-model/src/structure.rs::Tree::of",
+      "assertions": "structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles; logical_structure_example.rs",
+      "assessment": "Root lookup/children are tested. Producer Type requirement does not itself require reader rejection."
+    },
+    {
+      "cell": "Table 354 /K and Table 355 /K",
+      "rule": "Root /K is optional and, if present, is a structure-element dictionary or array of such dictionaries. Element /K can hold nested elements, MCID integers, MCR or OBJR dictionaries; a /K dictionary without /Type is assumed a structure element.",
+      "code": "pdf-model/src/structure.rs::children, child, walk",
+      "assertions": "Parent read both named tests: the_structure_tree_reads_its_children_and_maps_their_roles and a_mapped_role_reads_as_its_standard_type explicitly include /Type /StructElem. The draft claim that the latter omitted Type was false. New T163 provides a valid public Type-omission witness.",
+      "assessment": "Source fallback is implemented and a model test touches it, but lacks a producer-valid public-consumer witness; see draft."
+    },
+    {
+      "cell": "Table 354 /IDTree and Table 355 /ID",
+      "rule": "IDTree is required if any elements have IDs and maps unique element identifiers to elements.",
+      "code": "pdf-model/src/structure/owners.rs::Tree::element_by_id; viewer-core fragment open; transform reconciliation",
+      "assertions": "viewer-core/tests/structure_identifiers_audit.rs::structure_id_uses_first_content_in_nested_hierarchy_order; logical_structure_example ID assertions; merge collision/preservation tests",
+      "assessment": "Lookup and navigation are asserted. Duplicate IDs are a producer rule; no reader rejection inferred."
+    },
+    {
+      "cell": "Table 354 /ParentTree",
+      "rule": "Required where elements contain content items; number tree keys map page/object StructParent(s) keys to a parent element or MCID-indexed parent array.",
+      "code": "pdf-model/src/structure.rs ParentTree; owners/content and transform writer",
+      "assertions": "structure/tests::a_marked_content_identifier_finds_its_element; a_page_finds_its_elements_through_the_structural_parent_tree; tests/structure.rs page-key/corpus assertion; logical_structure_example and merge/archive tests",
+      "assessment": "Page, annotation/form/object and MCID-index routes are represented. Effective post-EC3 subsection number is §14.7.5.5; ledger note still cites 2020 §14.7.5.4."
+    },
+    {
+      "cell": "Table 354 /ParentTreeNextKey",
+      "rule": "Optional integer greater than existing keys, used as next key when adding to ParentTree.",
+      "code": "pdf-transform structure writer/reconciliation",
+      "assertions": "transform writer tests",
+      "assessment": "Writer field; no viewer display or accessibility output expected."
+    },
+    {
+      "cell": "Table 354 /RoleMap; Table 355 /S",
+      "rule": "S is required structure type; root RoleMap maps document-specific names to approximate standard types under §§14.7.3/14.8.6.2.",
+      "code": "pdf-model/src/structure/roles.rs; viewer-core accessibility; viewer-accessibility platform-role map",
+      "assertions": "structure tests transitive maps/cycles; headless mapped role consumer; logical_structure_example",
+      "assessment": "Transitive mapping, cycles, and public role conversion have expected-value assertions; not every vocabulary or malformed map."
+    },
+    {
+      "cell": "Table 354 /ClassMap; Table 355 /A and /C",
+      "rule": "ClassMap maps class names to attribute object(s); /A and /C attach attributes/classes; when both define one attribute, /A wins; class and A arrays may carry revision numbers.",
+      "code": "pdf-model/src/structure/attributes.rs and downstream layout/accessibility consumers",
+      "assertions": "structure tests later class precedence, owner/class/ancestry precedence, revision pairing; logical_structure_example class-vs-element; structure_attribute_stream_audit",
+      "assessment": "Distinct values and precedence are tested. EC3 #308 array null rules and #289 precedence are covered in adjacent shards; malformed null values are not reader-rejection duties."
+    },
+    {
+      "cell": "Table 354 /Namespaces; Table 355 /NS",
+      "rule": "Root Namespaces is required when elements use namespace IDs; element /NS is an indirect namespace dictionary, absent means default namespace. EC3 #396 requires referenced namespaces also be root-listed.",
+      "code": "roles.rs namespace resolution; transform namespace wrapper",
+      "assertions": "namespace map ownership, transitive target, foreign homonym and default controls; transform wrapper/merge",
+      "assessment": "Reader resolution/writer list management are tested. Producer list completeness does not require reader rejection or hiding."
+    },
+    {
+      "cell": "Table 355 /P and /Pg",
+      "rule": "P is required indirect immediate parent. Pg is required and indirect if K uses integer MCIDs.",
+      "code": "structure hierarchy and page/content ownership",
+      "assertions": "valid hierarchy/ParentTree fixtures include these references; logical_structure_example",
+      "assessment": "Representative valid paths covered; draft uses valid required parent references."
+    },
+    {
+      "cell": "Table 355 /T, /Lang, /Alt, /E, /ActualText",
+      "rule": "Optional title, scoped language, alternate description, expanded form and exact text replacement, owned by §14.9.",
+      "code": "structure metadata, marked text and accessibility code",
+      "assertions": "structure phrase language, Alt/E public accessibility tests, actual-text tests and prior metadata shards",
+      "assessment": "Selected public behaviors have assertions; optional fields do not require every node to be named/spoken."
+    },
+    {
+      "cell": "Table 355 /Ref and /R",
+      "rule": "Optional related elements and optional nonnegative revision number default 0; EC3 #93 marks R deprecated in PDF2.",
+      "code": "No current viewer consumer found for Ref/R in prior logical structure inventory.",
+      "assertions": "No direct consumer assertion identified.",
+      "assessment": "No required UI behavior inferred for optional unconsumed metadata; A/C attribute revisions are distinct and tested."
+    },
+    {
+      "cell": "Table 354 /PronunciationLexicon; Table 355 /PhoneticAlphabet, /Phoneme",
+      "rule": "Optional pronunciation hints; §14.9.6 explicitly says processors are not required to process pronunciation hints.",
+      "code": "No pronunciation engine path; other text/language remains available.",
+      "assertions": "Prior phoneme test asserts Alt/Lang instead.",
+      "assessment": "Omission is expressly permitted."
+    },
+    {
+      "cell": "Table 354/355 /AF",
+      "rule": "Optional associated file arrays for whole tree or one element; §14.13 owns handling.",
+      "code": "Generic associated-file path",
+      "assertions": "Annex L/associated-file shards",
+      "assessment": "Not re-audited for extraction/UI; optional metadata does not demand a label."
+    }
+  ],
+  "errata": [
+    {
+      "issue": 308,
+      "pages": [
+        738,
+        739,
+        740,
+        741
+      ],
+      "verified_caret_text": [
+        "Values or array elements shall not be null.",
+        "This array may contain elements that are null.",
+        "The array shall not contain elements that are null.",
+        "(shall not be null)",
+        "Attribute objects and revisions shall not be null.",
+        "Attribute class names and revisions shall not be null."
+      ],
+      "disposition": "Table-specific null semantics: the ParentTree reference array may contain null placeholders; the root/element child and A/C attribute arrays have null prohibitions. Do not convert into blanket null prohibition or required reader rejection."
+    },
+    {
+      "issue": 396,
+      "pages": [
+        739,
+        741
+      ],
+      "verified_caret_text": [
+        "at least all",
+        "as referenced from structure elements in the structure hierarchy",
+        "that shall also be an element in the structure tree root Namespaces array"
+      ],
+      "disposition": "Clarifies namespace-list completeness and relationship. The reader resolves element NS; producer completeness is not itself a rejection command."
+    },
+    {
+      "issue": 93,
+      "page": 741,
+      "verified_caret_text": "; deprecated in PDF 2.0",
+      "disposition": "Marks Table355 /R deprecated in PDF2.0; existing inventory says current viewer does not consume it."
+    },
+    {
+      "issue": 289,
+      "disposition": "Class-array precedence is handled in structure_attributes_remaining_current; not duplicated."
+    },
+    {
+      "issue": 452,
+      "disposition": "Renumbers structure content subclauses; dictionary cell semantics remain."
+    }
+  ],
+  "status": "Partial parent-reviewed source and assertion matrix. T163 PASS; core/host Clippy PASS. No new structure behavior finding."
+}

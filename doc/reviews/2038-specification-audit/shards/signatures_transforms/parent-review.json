@@ -1,0 +1,13 @@
+{
+  "finding": "2038-B18",
+  "execution": "docmdp-dts-wave13b.log2run1PASS1expectedFAIL; failureNotClassified{level:None,objects:7} forDTS-only. Priorwave13used preliminaryfixture; finalsamefailure afterPDF2IDs/widget/xrefcleanup.",
+  "independent_crypto": "verify_fixture.py extracts signed ranges from actualPDFbytes; bothcertificationCMS andbothRFC3161tokens verify, qpdfbothpass. This establishes syntax/cryptocontrols, not exhaustive PDF conformance or public trust/revocation.",
+  "fixture_checks": "PDF2two16byteIDs, stablefirstID; certificationwidget5 registeredbaseandupdated; DTSwidget6 addedwithzeroRect; wholeupdatedfile timestampByteRange; perrevisionexactxref offsets.",
+  "source": "DocMDPlead-in printed573; Table257printed574; DTSdiscoveryprinted590; ignoreDTS/DSSprinted591.",
+  "test_scope": "Public Comparison::of returnswithin-permittedzerochanged forallowedDTS-only expected; mixedpagecontrolrequiresNotPermittedorNotClassified, excludesNoChange. No exact sevenclass implementationlist asserted.",
+  "consumer": "viewer-core::notes::modifications invokesComparison; currentrestriction::asserted alreadyignoresDTS/DSS but thatdoesnotcovercomparison. ADR0907constructionclaim thereforetoo broad.",
+  "hashes": {
+    "dts-only.pdf": "f88255ed673a1781a13d4e66c5c8e8d7422c4ea5ee12509dbb79467ba4cfd199",
+    "dts-plus-page-change.pdf": "bfdf818a216f7ed24a1a578ed283bba41b84b6216fd2dc9783824a8903d2f723"
+  }
+}

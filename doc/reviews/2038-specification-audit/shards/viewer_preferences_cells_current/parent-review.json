@@ -1,0 +1,7 @@
+{
+  "verdict": "Selected viewer preference and article cells reviewed; no new behavior failure or test identity.",
+  "source": "Parent read primary Table147 physical452–455,148 at456,162 at475,163 at475–476. Table29 caption is113, with selected entries114–115. #275 on453 adds UseAttachments; #320 on475 changes page bead ordering to reading. Corrected task/table-number assumptions and catalog caption locator.",
+  "assertions": "Parent read literal model assertions for all Table147 values, invalid PrintScaling fallback/Enforce, catalog layout/mode and UseAttachments amendment. Host test distinguishes FullScreen exit preference from ordinary opening. Public article action asserts page two and literal scale5 versus initial scale2, so page-only navigation cannot pass.",
+  "qualification": "Model preference parsing does not prove all native window/print effects. Existing B22 open-event ordering failure remains recorded; no closure implied by referencing its route. Direction is advisory and printer defaults are implementation-dependent. Catalog matrix already exists; only four new matrices are added. Metadata and every article relationship are not certified.",
+  "execution": "Read-only review uses earlier broad execution for unchanged tests; no new run claimed."
+}

@@ -1,0 +1,112 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": [
+    {
+      "feature": "§14.8.4.1 standard type set and contextual categories",
+      "clause": "§14.8.4.1",
+      "title": "General",
+      "source": "ISO 32000-2:2020 p. 754 / PDF physical p. 769: four categories; Table 364–375 names and categories; contextual types become inline only inside a block-level element, otherwise block-level. Producer sentence requires each tagged structure element to be a standard type or map to one.",
+      "errata": "EC3 #133 inserts §14.8.4.7.3 Link elements and renumbers Ruby/warichu to §14.8.4.7.4. EC3 #437 changes Annot and Form table descriptions from association framing to enclosure; EC3 #141 changes Part's semantic note (detailed below).",
+      "ledger": "doc/conformance/ledger.toml rows §14.8.4 and §14.8.4.1 mark implemented. Aggregate row names forty-one PDF 2.0 types; individual rows separately track type families and consumer behaviors.",
+      "code": "crates/pdf-model/src/structure.rs: StandardType::named, read_in, defined_in, category, Category::of; crates/viewer-accessibility/src/role.rs: map.",
+      "tests": "pdf-model structure/tests.rs::a_heading_carries_its_level_and_the_table_carries_the_rest; ::a_contextual_type_takes_its_category_from_its_parent; viewer-accessibility role.rs::every_standard_structure_type_maps_to_something_that_is_not_unknown and ::every_type_only_the_pdf_1_7_namespace_defines_maps.",
+      "assertions": "Existing tests pin category outcomes for representative/contextual types, all forty-one PDF 2.0 names recognized and mapped away from Unknown, and exact accesskit roles for the eleven PDF 1.7-only names. They do not pin the expected accesskit role for each of the other forty-one names, but the `map` match is exhaustive and the test guards omissions/default-to-Unknown.",
+      "verdict": "sampled implementation aligns; no §14.8.4.1 reader-side nesting/type rejection is owed by the producer sentence. The current model test catches recognized name/category examples, while UI mapping coverage is weaker than exact per-type assertions.",
+      "residuals": "Table 364–375 are not all re-audited here for semantic obligations. This review covers type/name/category/namespace mapping only. A potential valid-name boundary loss for Hn is recorded separately. Do not infer that the reader must reject a nonconforming type from the producer-side shall.",
+      "related_adrs": [
+        "2014",
+        "2028",
+        "0273"
+      ]
+    },
+    {
+      "feature": "§14.8.4.3–.6 document, grouping, block and sub-block name/category inventory",
+      "clause": "§14.8.4.3–§14.8.4.6",
+      "title": "Document level structure types; Grouping level structure types; Block level structure types; Sub-block level structure type",
+      "source": "ISO 32000-2 pp. 756–760 / physical pp. 771–775: Tables 364–367 define Document/DocumentFragment, Part/Sect/Div/Aside/NonStruct, P/Hn/H/Title/FENote, and Sub. Table 365 states Part's producer semantics and Table 366 defines Hn as H followed by a digit sequence representing an unsigned integer ≥1.",
+      "errata": "EC3 #141 replaces the Table 365 NOTE 'Part is the semantic equivalent of Div' with a NOTE that Part has semantic value where Div does not. EC3 #689 inserts 'a' in §14.8.4.5 with no model consequence.",
+      "ledger": "Rows §14.8.4.3–.6 marked implemented; ledger separately records each type group, and does not claim validation of Document/DocumentFragment heading consistency or Part/Div inheritance constraints.",
+      "code": "crates/pdf-model/src/structure.rs: StandardType variants, named(), category(), since_pdf_2_0(); viewer-accessibility/src/role.rs: explicit mappings for types.",
+      "tests": "pdf-model structure/tests.rs::a_heading_carries_its_level_and_the_table_carries_the_rest; ::annex_m_says_which_namespace_defines_which_type; ::a_contextual_type_takes_its_category_from_its_parent; viewer-accessibility role.rs::every_standard_structure_type_maps_to_something_that_is_not_unknown.",
+      "assertions": "DocumentFragment, Aside, Title, FENote, Sub and heading examples are recognized; Annex M sample/full namespace lists verify 11 PDF 1.7-only and 9 PDF 2.0-only sets. Tests do not enforce producer constraints on heading mixtures or grouping inheritance, appropriately for this reader.",
+      "verdict": "The Table 366 suffix grammar is unbounded in the source, but Annex C.1/C.2 explicitly recognizes architectural implementation limits (integers are often expressed within 32 bits). u32 parsing is a practical model limit; treating an overflow as Nonstandard loses heading behavior for such inputs, but this is not by itself a mandatory reader conformance failure. It is a consumer degradation candidate, not a claim that the PDF is nonconforming.",
+      "residuals": "For Hn above the current range, model reports no StandardType and accessibility maps Group; no explicit report distinguishes implementation-limit overflow from a truly invalid heading token. Consider preserving heading role and reporting an unavailable level if the API supports that distinction. No regression asserting arbitrary-precision level is warranted.",
+      "related_adrs": [
+        "2014",
+        "2028",
+        "0253"
+      ]
+    },
+    {
+      "feature": "§14.8.4.7 inline vocabulary and EC3 numbering",
+      "clause": "§14.8.4.7.1–§14.8.4.7.4",
+      "title": "Inline level structure types",
+      "source": "ISO 32000-2 pp. 761–765 / physical pp. 776–780: Tables 368–369 define the general inline types, Link, and Ruby/warichu types. §14.8.4.7.3 requires a wrapped Link span to carry one object reference and that the associated link annotation use QuadPoints; the rest is producer semantics.",
+      "errata": "EC3 #133 inserts the Link heading as §14.8.4.7.3 and renumbers Ruby/warichu to .7.4. It relaxes Link structure requirements (including one-or-more annotations and removes matching A/Dest/PA conditions). EC3 #437 changes Annot/Form to enclosure semantics; #84 updates a Strong example gloss.",
+      "ledger": "Rows §14.8.4.7.2, .7.3 and .7.4 all marked implemented. The Link row limits reader work to QuadPoints processing and explicitly treats one-object reference as producer-only.",
+      "code": "crates/pdf-model/src/structure.rs: Link/Annotation/Form/Ruby/Warichu variants and categories; crates/pdf-model/src/link.rs: QuadPoints region; viewer-accessibility/src/role.rs: type map.",
+      "tests": "pdf-model structure/tests.rs::a_link_element_names_one_annotation_whose_quad_points_are_the_active_areas and ::every_ruby_and_warichu_type_is_inline; viewer-accessibility role.rs::every_standard_structure_type_maps_to_something_that_is_not_unknown.",
+      "assertions": "Link fixture verifies a valid wrapped span's one OBJR and the annotation's separated active areas. This is positive example behavior, not proof that reader rejects invalid Link trees; reader does not. Ruby test covers all seven names as Inline. Test comments cite the pre-EC3 strict form, but the tested fixture remains valid under amended text and no obsolete reader rejection is asserted.",
+      "verdict": "EC3 numbering and current type mapping align. Producer constraints are not enforced as reader rejection. Link-region behavior belongs to the link annotation reader and is not exhaustive conformance certification of §14.8.4.7.3.",
+      "residuals": "None identified in the sampled namespace/type mapping behavior. Full Link consumer behavior and other Table 368 semantics remain outside this bounded shard.",
+      "related_adrs": [
+        "0273"
+      ]
+    },
+    {
+      "feature": "§14.8.4.8.1–.8.7 other vocabulary type names/categories",
+      "clause": "§14.8.4.8.1–§14.8.4.8.7",
+      "title": "Other structure types",
+      "source": "ISO 32000-2 pp. 765–770 / physical pp. 780–785: Tables 370–375 define list, table, Caption, Figure, Formula and Artifact. Table 375 defines Artifact as a PDF 2.0 standard structure element. Figure/Formula can each be block, inline, or grouping; Caption grouping or block; list/Table internal types have constrained positions.",
+      "errata": "EC3 #200 revises Caption's implicit table-header search: a conflicting Scope no longer terminates search. EC3 #35 adds a Caption note about an Artifact needing Caption association. EC3 #470 strikes the Formula BT/ET producer restriction (the analogous Figure text remains).",
+      "ledger": "Rows §14.8.4.8.1–.8.7 marked implemented. This shard checks the names/categories and role mapping, not detailed list/table/Caption/Artifact semantics.",
+      "code": "crates/pdf-model/src/structure.rs: List/Table/Caption/Figure/Formula/Artifact names, categories; crates/pdf-model/src/structure/attributes.rs: Artifact reading; viewer-accessibility/src/role.rs: Table 370–375 mapping.",
+      "tests": "pdf-model structure/tests.rs::a_heading_carries_its_level_and_the_table_carries_the_rest; ::a_contextual_type_takes_its_category_from_its_parent; ::artifact_attribute...; viewer-accessibility role.rs::every_standard_structure_type_maps_to_something_that_is_not_unknown.",
+      "assertions": "The aggregate known-name test asserts type recognized; consumer test ensures mappings are not Unknown. Artifact-specific and table-specific tests elsewhere assert their own behavior, but are not audited here. No reader rejection of producer-only structural constraints is claimed.",
+      "verdict": "No sampled standard-name/category mismatch identified. EC3 changes do not require rejection behavior for this consumer; #200 matters to future Caption header-search behavior and current relevant ledger note discloses that limitation.",
+      "residuals": "A full audit of the #200 Caption header algorithm, Figure/Formula semantics and Artifact behavior is intentionally left to their detailed ledger rows/other shards; this verdict is not certification of those features.",
+      "related_adrs": [
+        "0273",
+        "2014",
+        "2028"
+      ]
+    },
+    {
+      "feature": "§14.8.6.1–.2 standard namespace vocabulary and role-mapped type resolution",
+      "clause": "§14.8.6.1–§14.8.6.2 (in-scope dependency for §14.8.4 names)",
+      "title": "Standard structure namespaces; Role maps and namespaces",
+      "source": "ISO 32000-2 pp. 807–809 / physical pp. 822–824; Annex M p. 861 / physical p. 876: PDF 1.7 and PDF 2.0 have distinct standard structure namespaces and vocabularies; no explicit namespace uses the default PDF 1.7 vocabulary. A namespace-aware reading follows /RoleMap or /RoleMapNS transitively; explicit namespace names are interpreted in that vocabulary. Annex M lists 11 names only in PDF 1.7 and 9 only in PDF 2.0 (Hn > H6 counts as a family).",
+      "errata": "EC3 #151 replaces the no-namespace rule with explicit order: after transitive role mapping, the ending type must be defined in the default namespace. EC3 #93 marks a deprecated RoleMapNS revision pair; it does not change current mapping. EC3 #72/#719 namespace MathML changes are outside the standard namespace vocabulary reviewed here.",
+      "ledger": "§14.8.4 aggregate and §14.8.6.1/.2 rows report namespace-aware reading. Current source comments cite Errata #151 and acknowledge that an unqualified PDF 2.0-only terminal type is a nonconforming document recovered as that type by deliberate choice.",
+      "code": "crates/pdf-model/src/structure.rs: StandardNamespace, StandardType::defined_in/read_in, Namespace; crates/pdf-model/src/structure/roles.rs: walk_role_map, standard_in, mapped_role/standard_role; viewer-core accessibility nodes carry mapped standard value; viewer-accessibility maps that value instead of rereading the raw name.",
+      "tests": "pdf-model structure/tests.rs::annex_m_says_which_namespace_defines_which_type; ::a_namespaces_own_role_map_is_the_one_that_applies; ::a_role_map_may_lead_into_another_namespace; ::a_foreign_namespaces_homonym_is_not_a_standard_type; ::a_circular_role_map_stops_at_the_first_type_it_returns_to; ::a_mapped_role_reads_as_its_standard_type; viewer-accessibility role.rs::every_type_only_the_pdf_1_7_namespace_defines_maps.; ::a_circular_role_map_stops_at_the_first_type_it_returns_to additionally asserts an acyclic standard target (Chap→Sect→Div) is followed past a recognized standard name, plus the P↔MyPara cycle control.",
+      "assertions": "Annex M test checks the complete 11/9 deltas and representative common types. Namespace tests assert divergent root versus own maps, a map into a second namespace, foreign Table is not PDF Table, cycle termination, and mapped standard type; these are exact expected values and valid cross-reference fixture builders use indirect references. Accessibility map accepts the resolved standard type. No duplicate test is drafted.",
+      "verdict": "Namespace-sensitive type resolution and EC3 #151 ordering are represented and exercised. The no-namespace PDF 2.0 recovery choice is a deliberate leniency on invalid input; producer shall does not require the reader to reject it. Resolved type is carried to accessibility; this avoids foreign homonym reinterpretation.",
+      "residuals": "The listed tests establish selected namespace cases, not exhaustive RoleMapNS malformed-array behavior or every 41+ role mapping. Scope limited to standard type resolution and its public accessibility consumer. The code reports a role-map chain ending in an undefined name as Nonstandard::Undefined, but no inspected public fixture specifically maps a custom role to an invalid final name. A reader must not coerce such a target into a standard type; this is reporting, not required rejection.",
+      "related_adrs": [
+        "2014",
+        "2028",
+        "0253"
+      ]
+    },
+    {
+      "feature": "§14.9.4 structure-element ActualText used by Figure/Formula alternative-or-replacement path",
+      "clause": "§14.9.4, with §14.8.4.8.5–.6 Table 373/374",
+      "title": "Replacement text; Figure and Formula text guidance",
+      "source": "ISO 32000-2 p. 769 / PDF physical p. 784 (Tables 373/374): Figure and Formula SHOULD have Alt or ActualText for repurposing/accessibility; note distinguishes descriptive Alt from exact text-equivalent ActualText. §14.9.4 pp. 800–801 / physical pp. 815–816: an optional structure-element ActualText text string SHALL replace, not describe, content. Empty PDF strings are valid string objects (§7.3.4).",
+      "errata": "EC3 #470 strikes the Formula-only BT/ET restriction; Figure restriction remains. It does not change ActualText. EC3 #72/#719 changes adjacent MathML requirements, not this feature.",
+      "ledger": "Ledger §14.8.4.8.5/.8.6 says Figure/Formula should carry Alt or ActualText and directs ActualText to §14.9.4. The §14.9.4 ledger row owns the replacement requirement.",
+      "code": "crates/pdf-model/src/content/marked.rs::Marked::properties (around lines 469–490) gets /ActualText first from the marked-content property list, then from the mapped structure element for an MCID. content/run/marked_ops.rs::end_marked_content cuts enclosed raw readback and writes the replacement. viewer-core/src/accessibility.rs::nodes derives names from interpreted/replaced page text; it selects element /Alt or /E as phrase substitution and sets substituted. viewer-core logical selection and regular selection both consume the interpretation text. pdf-model/src/structure.rs::actual_text independently decodes Table 355 value.",
+      "tests": "No dedicated exact-xref public test found for structure-element ActualText. Existing crates/viewer-core/tests/tagged_copy.rs test covers marked-content property-list ActualText. headless.rs::a_structure_type_crosses_role_mapped_and_speaking_only_for_itself proves Figure /Alt reaches Query::AccessibilityTree; viewer-accessibility tests/tree.rs::a_substitution_stops_the_walk verifies an alternate phrase substitutes and hides descendants; Formula→Math is currently only covered by non-Unknown mapping test.",
+      "assertions": "A source-derived fixture should vary only structure /ActualText while preserving content operators and independently compare raster bytes. Positive controls: raw text without replacement remains; nonempty structure ActualText replaces raw text in Query::Selection, LogicalSelection, and accessible text; Formula /Alt supplies accessibility name but is absent from selection/copy; no ActualText leaves ordinary P text unchanged. The current replacement() helper filters empty text (!text.is_empty()), so empty structure ActualText is ignored and raw characters survive; the clause says the value is the replacement and the syntax permits an empty string. Draft drafts/structure_element_actualtext_consumer.rs covers these with exact xrefs, ParentTree, explicit PDF 2.0 namespace, and visual-pixel control.",
+      "verdict": "Nonempty structure-element ActualText is implemented in interpretation, therefore visible text is unchanged while the replacement is used by ordinary selection, logical copy and accessibility name. Alt is a phrase description and affects accessibility only; it does not replace copied characters. Candidate reader gap: empty structure ActualText is discarded as absence, contrary to unqualified replacement semantics if an empty text string is accepted here; review the empty-string policy before marking blocking.",
+      "residuals": "Draft has not been run; promotion should verify ParentTree mapping and whether an empty element remains in the accessibility tree under /T. If empty ActualText is invalid/absent for this property under another normative rule or recovery policy, downgrade the empty-string case. No whole §14.9.4 audit is claimed.",
+      "related_adrs": [
+        "0273",
+        "2014",
+        "2028"
+      ]
+    }
+  ],
+  "parent_correction": "Direct structure ActualText is consumed; three valid ligature public tests pass. Empty-visible-content draft not promoted: equivalent-to-visible-content validity unresolved. Hn above u32 is an implementation-limit question, not a demonstrated conformance defect."
+}

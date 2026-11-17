@@ -1,0 +1,39 @@
+{
+  "reviews": [
+    {
+      "adr": "0248",
+      "decision_slice": "Choice selected values are index-based; /V and /I persistence; Table 234 /I interpretation",
+      "evidence": "Current Table 234 corrected by EC3 Issue #468; current code `pdf-model/src/form.rs::selected`; new candidate duplicate-label test; existing `text_choice_fields_spec_audit.rs` and `saving.rs` controls.",
+      "verdict": "Preserve the index-valued host API and V-over-I rule for actual disagreement. Revisit the narrow assertion that /I only resolves duplicate display labels: with V array [(Twin)(Twin)] and matching I [0 1], the two entries agree about two options, but current mapping collapses one. The historical ADR may be sound for the shape it addressed; it is not evidence for current behavior under #468.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0253",
+      "decision_slice": "EC3 #468 read as removed MultiSelect restriction and deleted array trigger; claim that code already matched",
+      "evidence": "`doc/errata-read.md:116` plus effective overlay status as recorded there; printed Table 234 is still pre-correction text. New repeated-label array scenario exercises the amended table rather than the old trigger.",
+      "verdict": "Keep the accepted correction and its established consequence that /I can be present outside the old restricted case. Qualify the conclusion that current code was already right: candidate shows an array of duplicate labels can be reduced to one index. Confirm full overlay scope before promoting this as a normative defect; no test execution occurred here.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0346",
+      "decision_slice": "RadiosInUnison bit-26 behavior, including clear case",
+      "evidence": "Table 229 bit 26; §12.7.5.2.3 reader-facing `at most one` sentence; `pdf-model/tests/radios_in_unison.rs` selected-state and raster assertions.",
+      "verdict": "No contrary evidence found in this bounded review. Existing exact-xref two-flag controls substantively test model edit and visible state. No native interaction certification implied.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0630",
+      "decision_slice": "NoToggleToOff host toggle policy and passing flag through native controls",
+      "evidence": "Table 229 bit 15; viewer-host toggling tests; host mapping corpus click test.",
+      "verdict": "No source-based contradiction found. The corpus path asserts button click outcomes, but this audit did not verify complete native-event exact-xref coverage; leave that as bounded residual rather than assert a gap from absent fixture search alone.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0596",
+      "decision_slice": "Editable combo must expose both an editable text box and a drop-down; typed value may lie outside Opt",
+      "evidence": "Table 233 bit 19 and §12.7.5.4 text; viewer GTK/Qt control mapping; headless control flags; `pdf-model/tests/saving.rs::typing_into_a_combo_box_takes_the_stated_index_list_out`.",
+      "verdict": "No contradiction found. Model/save behavior accepts arbitrary text and clears stale I; end-to-end native typing interaction was not separately established by this review.",
+      "whole_adr_review": false
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "shard": "file_security_framing_current",
+  "decisions": [
+    {
+      "adr": "0782",
+      "reconsideration": "Retain the Count-versus-descendant reasoning for inconsistent page counts. It does not establish that a valid deep tree is malformed or authorize changing its Kids-defined order. The valid depth-boundary question is separate.",
+      "source": "§7.7.3.1-7.7.3.2; physical 117-118 / printed 102-103",
+      "result": "No change to prior decision; do not use it as support for the scan of a well-formed deep tree."
+    },
+    {
+      "adr": "1533",
+      "reconsideration": "The choice to expose scan recovery is valuable and currently makes the depth fallback observable. Reassess applicability: ADR's premise is that tree yields no page; a valid unary tree exceeds a local depth limit, which is not necessarily a producer-damaged tree. The user-facing note reports no usable tree and gives scan count, but the scan can reorder pages.",
+      "source": "§7.7.3.1 order/any-shape requirement; `page.rs::found_by_scanning`; `notes.rs` page scan report",
+      "result": "Qualified policy question. Explicit report may be acceptable resource-limit disclosure, but it does not establish equivalence with the specified page order. Draft tests exact Kids order and retains the scan signal for parent judgment."
+    },
+    {
+      "adr": "2346",
+      "reconsideration": "Preserve as an explicit Table 15 /Size departure and owner-confirmed robustness choice; it is not a conformance result and is not reopened here.",
+      "source": "§7.5.5 Table 15, printed p.59; xref_streams findings",
+      "result": "No change."
+    },
+    {
+      "adr": "0100 / 0180 / 1004 / 0789 / 0842",
+      "reconsideration": "No change based on this bounded framing pass. Xref-stream order/precedence/default and malformed-section recovery are covered by xref_streams; do not duplicate their pending assertion review.",
+      "source": "§7.5.5-.8.4 and EC3 #101/#246/#500/#720",
+      "result": "Carry the existing owner qualifications, including pending parent execution."
+    },
+    {
+      "adr": "0115",
+      "reconsideration": "Retain dictionary-local resource identity for content names. Name dictionary tree values and content resource namespaces remain distinct; this review did not find a valid framing mismatch.",
+      "source": "§7.8.3 and §7.9.6; EC3 #128 for Type3 lookup order",
+      "result": "No change; category-specific coverage stays delegated."
+    },
+    {
+      "adr": "0306 / 0365",
+      "reconsideration": "The single-stream byte bound and windowed stream reader are implementation policies, not source-specified numeric limits. Existing content-stream tests directly assert cross-part operator behavior and explicit limit reports.",
+      "source": "§7.7.3.3 Table 31 and §7.8.2, processed source checked in page_resources_current",
+      "result": "No new defect. Keep numerical ceiling claims distinct from the normative one-stream concatenation semantics."
+    }
+  ],
+  "limits": [
+    "No ADR or table producer constraint alone establishes a mandatory reader error contract for a malformed document.",
+    "A parent must run or promote drafts; no Rust/Cargo command was run in this shard."
+  ]
+}

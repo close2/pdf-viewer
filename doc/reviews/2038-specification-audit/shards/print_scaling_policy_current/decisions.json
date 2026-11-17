@@ -1,0 +1,31 @@
+{
+  "reviews": [
+    {
+      "adr": "ADR 1180, §5 and §8",
+      "scope": "PrintPreferences -> PrintDefaults and deferred native-dialog driving",
+      "prior_claim": "The five print-only preferences are dialogue opening state; the host is responsible for opening its dialog on these values. Native GTK print operation and QtPrintSupport dialog have not been driven in the recorded ADR evidence.",
+      "review": "Source Table 147 makes each preference conditional on a print dialog (except the explicit PrintScaling suppressed-dialog sentence). The code trace shows GTK and Qt each transfer values into their dialogue configuration. The inspected tests prove parsing/Query and generic Defaults, not the toolkit dialog's final settings. ADR's explicit un-driven/native boundary remains accurately scoped; do not treat the absence of a native dialog run as evidence of a behavior failure.",
+      "verdict": "Retain with a narrow test-quality residual: current tests do not assert non-default Table 147 values at the native settings seam. No clause breach demonstrated."
+    },
+    {
+      "adr": "ADR 2814 (historical Qt PrintPageRange pair forwarding fix)",
+      "scope": "All /PrintPageRange pairs from Defaults through QtPrintJob/QPageRanges",
+      "prior_claim": "Qt forwarded only the first pair; this was fixed.",
+      "review": "Current Rust bridge flattens every pair, and current C++ loops while pair+1 < size, advances by two, and adds each valid range. GTK iterates the full pair vector. This audit did not execute tests, but source implementation no longer contains the old first-pair-only behavior.",
+      "verdict": "Retain historical fix; do not reopen as a current defect. A current test of multiple pairs at the host-seam would strengthen coverage."
+    },
+    {
+      "adr": "ADR 2840; prior viewer_preferences_layout_current finding",
+      "scope": "Table 148 /Enforce PrintScaling restriction and whether native UI can lock later selections",
+      "prior_claim": "Enforce is a reader-level restriction; Qt locks the combo; GTK and C caller lack a lock, which keeps aggregate row partial.",
+      "review": "This remains separate from Table 147 default propagation. This shard did not re-audit restriction levels, and no outcome about /Enforce is inferred here. Qt's `scaling_held` is visible in the bridge and C++ disables the scaling combo, while the previous shard retains the GTK/C limitation.",
+      "verdict": "No change recommended from this shard."
+    },
+    {
+      "adr": "ADR 1203/1204",
+      "scope": "print job flow and sheet placement, only insofar as they could be confused with Table 147 defaults",
+      "review": "These decisions govern the print operation, fidelity choice, page placement, and watermark matrix, not the five dialogue preference values. Their no-dialog C print API is an adjacent surface, but this bounded inspection does not resolve how a caller-provided placement interacts with the suppressed-dialog PrintScaling sentence.",
+      "verdict": "Retain for this scope; record the C placement interaction as unreviewed instead of asserting compliance or defect."
+    }
+  ]
+}

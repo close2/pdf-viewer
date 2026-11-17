@@ -1,0 +1,6 @@
+{
+  "source": "Table149 default-space destination coordinates and inherited clockwise Rotate. Parent independently derived y-up rotation then y-down display coordinates:90\u2192(600,100),270\u2192(100,400), scale.5 gives stated scrolls.",
+  "fixture_correction": "Initial350x250 viewport exactly fit the scaled page; normal scroll clamp gave origin0, masking transformation. Initial52/52b/52c failures are rejected fixture results, not product defects. Final50x50 viewport puts both expected offsets inside allowed scroll bounds; first Presented also sent.",
+  "execution": "navigation-wave52d.log:3PASS, named90/named270/direct90 each compare literal geometry independently.",
+  "limits": "One coordinate, two rotations, fixed scale. Scroll-clamp policy outside the tested bounds is not adjudicated; no full navigation certificate."
+}

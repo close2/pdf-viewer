@@ -1,0 +1,107 @@
+{
+  "baseline": "b901326c",
+  "primary_source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "locator_convention": "Physical pages below are PDF page numbers as checked by pikepdf and pdftotext -f/-l; printed pages are the ISO footer. Annotation inventory page values were not incremented.",
+  "items": [
+    {
+      "issue": 44,
+      "effective_clause": "9.6.4 Example",
+      "source_location": "physical 335 / printed 320 and physical 336 / printed 321; Table 111 and the worked Type 3 font example",
+      "annotation_evidence": "Two StrikeOut/Caret pairs change text in the worked example. The strikeouts are replies to the corresponding Carets; separate Sticky Note replies mark Completed. The changes are the glyph-name/example wording in the Type 3 example, not a new normative reader rule.",
+      "classification": "example-correction",
+      "effective_change": "The example selects glyph names at encoding positions 97 and 98 and calls them square and triangle. The source correction clarifies those example references; it does not change \u00a79.6.4's normative encoding/CharProcs algorithm.",
+      "implementation_and_assertions": "crates/pdf-model/src/type3.rs and content/text/type3.rs resolve Encoding names to CharProcs. crates/pdf-model/tests/type3.rs::each_shown_code_runs_its_glyph_description exercises two selected glyphs with distinct descriptions; its fixture is an independently assembled version of the source example and checks rendered/positioned output. Existing evidence is adequate for the operative rule, not a claim to render every example pixel.",
+      "verdict": "No implementation defect or missing conformance assertion identified from #44. Treating this as a newly changed normative requirement would overstate the erratum.",
+      "residuals": "The audit did not rerun the Type 3 integration test. Other Type 3 features belong to the dedicated Type 3 shard."
+    },
+    {
+      "issue": 161,
+      "effective_clause": "7.9.2.2.1 NOTE 4",
+      "source_location": "physical 132 / printed 117",
+      "annotation_evidence": "A StrikeOut of 'dieresis' is attached to a Caret replacing it with 'idieresis'; a Completed Sticky Note replies to each. The page text identifies this as an informative NOTE about the UTF-8 marker's three initial characters.",
+      "classification": "informative-note-correction",
+      "effective_change": "The NOTE now identifies idieresis, guillemotright, and questiondown. Table D.2 associates idieresis with byte EFh, the first byte of the UTF-8 signature. No string-decoding rule is changed.",
+      "implementation_and_assertions": "The normative BOM selection and decoding are in crates/pdf-syntax/src/text_string.rs; crates/pdf-model/tests/text_strings_spec_audit.rs covers UTF-8 marked strings and visible/readback effects. No parser path derives behavior from the character names in this NOTE.",
+      "verdict": "No reader behavior gap. The prior NOTE was informational and its correction does not change bytes accepted or decoded.",
+      "residuals": "No need to add a test that asserts a note's spelling as runtime behavior."
+    },
+    {
+      "issue": 165,
+      "effective_clause": "9.4.3 string operand syntax; writer requirement referring to 7.3.4.2",
+      "source_location": "physical 325 / printed 310; paragraph beginning 'The strings shall conform to the syntax for string objects'",
+      "annotation_evidence": "Two Carets insert a cross-reference to literal-string syntax and add CARRIAGE RETURN (0Dh) to the bytes that must be preceded by REVERSE SOLIDUS when a parenthesized literal string is written. Each root Caret has a Completed Sticky Note reply.",
+      "classification": "operative-producer-rule-and-cross-reference",
+      "effective_change": "This is a PDF-writer escape requirement, not a reader rejection rule. A writer using parentheses must escape CR along with left/right parentheses and reverse solidus. The cross-reference makes \u00a77.3.4.2 explicit.",
+      "implementation_and_assertions": "The generic syntax serializer writes string objects in hexadecimal form. The field-appearance writer in crates/pdf-model/src/variable_text.rs::push_code writes literal operands and emits every byte outside printable ASCII as a three-digit octal escape, including 0Dh. Tests in crates/pdf-model/tests/variable_text.rs decode generated Tj operands, but the sampled assertions do not isolate a CR byte.",
+      "verdict": "No code defect found; literal output path already escapes CR. A narrow writer regression would add direct evidence for this changed writer condition, but its consequence is limited to the generated appearance stream and is not an observed failure.",
+      "residuals": "Do not treat failure to reject an unescaped CR in an input PDF as nonconformance: this sentence governs writers."
+    },
+    {
+      "issue": 178,
+      "effective_clause": "9.8.1 Table 120 FontWeight note",
+      "source_location": "physical 359 / printed 344; Table 120 /FontWeight row",
+      "annotation_evidence": "A Text annotation gives an added NOTE: PDF FontWeight follows the CSS font-weight concept but may be more constrained than font formats' weight scales. A Completed Sticky Note replies to this annotation.",
+      "classification": "informative-note",
+      "effective_change": "The note is explanatory; Table 120's actual `/FontWeight` entry still gives the permitted 100-step values and says their specific interpretation varies by font. It does not prescribe a substitute-selection algorithm or require CSS font matching.",
+      "implementation_and_assertions": "crates/pdf-font/src/substitute.rs maps stated FontWeight values to a nearest style class for this product's face selection; unit tests include `a_font_weight_is_read_as_the_nearest_class`. `crates/pdf-model/src/rich_text/layout.rs` consumes descriptor weight for rich-text matching. These are product policies against the optional metadata, not an implementation of a normative CSS algorithm.",
+      "verdict": "No defect. Do not treat the note as requiring exact CSS weight support or raw variable-font weight values.",
+      "residuals": "The nine-value producer restriction remains in Table 120 and is already considered in the font-descriptor shard; this batch did not add invalid-file rejection requirements."
+    },
+    {
+      "issue": 337,
+      "effective_clause": "9.8.1 Table 120 FontDescriptor context note",
+      "source_location": "physical 360 / printed 345; end of Table 120, adjacent to FontFile/FontFile2/FontFile3 entries",
+      "annotation_evidence": "The Text annotation adds a NOTE distinguishing descriptors for embedded full/subset programs from descriptors for referenced, non-embedded source material. It has a Completed reply and a nested Accepted reply; both relations were checked, rather than inferring status from the annotation alone.",
+      "classification": "informative-note",
+      "effective_change": "The note clarifies the referent of descriptor fields; it creates no independent reader algorithm and no new requirement to validate descriptor metrics against an embedded program. The relevant producer constraints continue to come from the individual Table 120 entries and font-program clauses.",
+      "implementation_and_assertions": "Font loading reads a present descriptor for its supported metrics and style; the font-descriptor shard inspects those consumers and actual controls. Substitution uses descriptor information only when selecting a substitute. No consumer claims to validate every descriptor field against program tables.",
+      "verdict": "No new gap established by this note; a normative validation obligation would be an unsupported inference.",
+      "residuals": "The note's exact scope for individual optional metrics is contextual; this batch did not recertify Table 120 or all embedded-font consistency rules."
+    },
+    {
+      "issue": 372,
+      "effective_clause": "9.3.6 NOTE 3 and the text-matrix sentence immediately before \u00a79.3.7",
+      "source_location": "physical 320 / printed 305; NOTE 3 calls out a zero line in degenerate glyph sub-paths, and the next paragraph names Tm",
+      "annotation_evidence": "One Caret inserts '-length' in NOTE 3, making the example 'zero-length line'; a separate StrikeOut/Caret replaces the Tm glyph with Tm in the sentence about updating e and f components. Related comment-thread replies are Completed or Accepted.",
+      "classification": "informative-example-clarification plus symbol-typesetting-correction",
+      "effective_change": "The NOTE's example is more precise; the symbol is correctly typeset. Neither changes the operative text-rendering-mode condition, text-matrix update rule, or text-rise rule.",
+      "implementation_and_assertions": "Text-matrix, rendering-mode, and rise behaviors are owned by the text-state/text-rendering shards. This batch saw no code path whose behavior turns on the NOTE's wording or damaged glyph typography.",
+      "verdict": "No new implementation or assertion gap from #372.",
+      "residuals": "This batch did not re-audit the surrounding text-state clauses."
+    },
+    {
+      "issue": 384,
+      "effective_clause": "9.6.2.2 standard 14 Type 1 names",
+      "source_location": "physical 330 / printed 315; the final standard-font names immediately before \u00a79.6.2.3",
+      "annotation_evidence": "A StrikeOut is attached to the replacement Caret carrying the fourteen-name bulleted list; replies mark the change Completed. The corrected list's last name is Courier-BoldOblique. This source change is operative as the list of names, although the reformatting itself is editorial.",
+      "classification": "operative-name-list-correction-with-editorial-reformatting",
+      "effective_change": "The effective corrected list spells Courier-BoldOblique. The former unhyphenated spelling is not a distinct name in that effective list; accepting it remains a compatibility choice.",
+      "implementation_and_assertions": "crates/pdf-font/src/standard.rs::STANDARD_NAMES accepts both spellings (15 entries for 14 typefaces); substitute.rs matches standard-family names, and tests exercise the two spellings. Current comments in standard.rs and substitute.rs still quote the old unhyphenated name as the clause's spelling and justify the alias on that basis. That rationale is stale after #384. Tolerance for the old spelling may remain a compatibility choice, but must be labeled as such rather than as the effective list.",
+      "verdict": "No demonstrated reader defect: accepting the old spelling is permissive. There is a source-evidence/documentation correction needed in comments and ADR rationale, not a reason to remove the alias or demand rejection.",
+      "residuals": "ADR 0396 quotes the pre-correction list as its source premise; ADR 1916 similarly repeats the old spelling while describing its alias. Parent should update current rationale if promoted, while preserving historical decision records. No new test needed because current tests already distinguish both accepted spellings."
+    },
+    {
+      "issue": 550,
+      "effective_clause": "9.4.3 text-showing string interpretation",
+      "source_location": "physical 325 / printed 310; the string-operand paragraph immediately before \u00a79.4.4",
+      "annotation_evidence": "Three StrikeOut annotations and one Caret replace the old embedded literal-string-rule wording with the insertion 'All literal string rules apply before the string\u2026'; the caret and strikes have Accepted replies. The inserted sentence continues into the surviving clause text about interpretation as single-byte or multiple-byte character codes.",
+      "classification": "operative-reader-ordering-rule",
+      "effective_change": "The string object's literal syntax must be processed before its bytes are interpreted as character codes. This is a normative ordering instruction at the consumer boundary between PDF string lexing and simple/composite-font code decoding, beyond mere typography.",
+      "implementation_and_assertions": "The parser's literal-string lexer resolves backslash escapes before content text parsing; `pdf-font::LoadedFont::decode` then receives bytes and segments composite codes by the CMap. Existing text-state audit uses a simple-font `\\040` code, which confirms lexical escape handling but does not distinguish the ordering with a multi-byte CMap. Public ToUnicode tests use hexadecimal operands for composite codes. A discriminating public exact-xref draft is supplied in drafts/literal_escape_before_composite_code.rs; it additionally asserts one glyph/placement, the independently stated CID-to-Unicode value, and the advance from the font's explicit Widths against the hex control.",
+      "verdict": "Implementation follows the corrected order by construction; a direct public consumer assertion is missing in the inspected focused tests. Draft tests octal-literal bytes 00 41 under a two-byte CMap against a hexadecimal <0041> control, with literal expected text A, exactly one glyph, the explicit-W advance, and no recovery.",
+      "residuals": "The draft is an assertion proposal only and was not compiled or executed here. It tests one octal escape plus one ordinary byte; broader literal-string escape coverage remains \u00a77.3.4.2's owner."
+    },
+    {
+      "issue": 553,
+      "effective_clause": "Clause 2 normative references and \u00a79.6.3 TrueType/OpenType BaseFont naming guidance",
+      "source_location": "physical 21 / printed 6 (new Adobe Technical Note #5902 normative-reference entry); physical 332 / printed 317 (note at end of \u00a79.6.3 name guidance)",
+      "annotation_evidence": "A Text annotation proposes adding Adobe Technical Note #5902 to clause 2 references; its reply is Accepted. A Caret at the end of the \u00a79.6.3 PostScript-name derivation bullets inserts a note about using the technical note for instance fonts derived from variable fonts; its reply is Accepted. These are insertions, not no-op markup.",
+      "classification": "informative-writer-guidance-and-normative-reference-addition",
+      "effective_change": "The note points font writers to a variable-font instance-name generation reference. The surrounding rule says how a BaseFont PostScript name should be derived; it does not impose a new reader-side name rewrite or require a PDF reader to instantiate a variable font.",
+      "implementation_and_assertions": "The loader's MMType1 path treats an embedded instance as the ordinary Type 1 snapshot described in \u00a79.6.2.3. TrueType/OpenType name extraction is used to identify an available face, not to generate a variable-font instance name. The inspected code has no variable-axis instancer or PDF-writing path for creating such variable-font instances.",
+      "verdict": "No reader defect or consumer-test gap established. This is writer guidance; don't turn the newly added reference into a mandatory external variable-font implementation requirement.",
+      "residuals": "The batch did not perform a complete inventory of variable-font axis support or all PDF-writing paths."
+    }
+  ],
+  "parent_execution": "Tracked composite_literal_escape_spec_audit passes: escaped 00+41 and hex0041 each produce literal A, one glyph, one placement and advance 8.003906 at 12pt. Model all-targets Clippy passes."
+}

@@ -1,0 +1,13 @@
+{
+  "baseline": "b901326c",
+  "scope": "B39 follow-up, four additional assertions fail with independently passing ordinary-line controls.",
+  "source": "Parent independently re-read physical430\u2013431/printed415\u2013416. Corrected reviewer locator415/400. EC3#103 does not waive one-object composition.",
+  "assertions": "Exact-xref PDF2.0 with ID/Resources and one S operator fails CPU at red64; direct Vello fails red63; render-raster GPU and Compute each fail red64. Expected127\u2013128 at a fully covered pixel and opaque alpha255. All three hardware lanes report AMD Radeon890M RADVSTRIX1 IntegratedGpu Vulkan. Separate GPU/Compute tests prevent failure masking.",
+  "draft_corrections": "Removed assertions requiring one internal Stroke command and exactly four path commands: compliant implementations may lower geometry differently. Kept public pixel/control oracle. Fixed draft Vec-write import and unfulfilled lint expectations.",
+  "execution": [
+    "colour-stroke-wave34.log: 1PASS CMYK image,1FAIL PDF stroke",
+    "gpu-stroke-wave34b.log:3FAIL with hardware controls"
+  ],
+  "decision": "ADR0420 one-object preservation assumption is contradicted on CPU and selected GPU routes. No standalone zero-length-dot visibility requirement is asserted.",
+  "residual": "All joins/caps, masks, other alphas, presentation surfaces and hardware vendors are not certified."
+}

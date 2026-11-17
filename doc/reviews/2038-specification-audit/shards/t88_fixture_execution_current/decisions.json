@@ -1,0 +1,17 @@
+{
+  "decisions": [
+    {
+      "id": "t88-annex-k-is-a-bounded-reference-corpus",
+      "verdict": "confirmed with scope qualification",
+      "basis": ["ADR 1459", "ADR 2102", "crates/pdf-sandbox/tests/t88_conformance.rs::Expected", "doc/third-party-data.md:989-1002"],
+      "rationale": "The cases distinguish sample-reference matches, named departures that must not accidentally match, and one feature outside the PDF profile. They do not collectively certify all T.88 requirements. Current fork support supersedes ADR 1459's historical extended-template refusal; the test now exercises that path as a matching control.",
+      "residual": "The official Annex K corpus has ten streams and no claim here establishes coverage of the full standard. Parent should run the test with the provided directory and review its printed outcomes."
+    },
+    {
+      "id": "t88-corpus-not-committed",
+      "verdict": "preserved",
+      "basis": ["doc/third-party-data.md:989-999", "ADR 1459", "doc/questions/Q209 / A209"],
+      "rationale": "The conformance-data package is permitted for conformance testing but is intentionally kept outside the repository under the recorded licensing decision. It is downloaded and unpacked only under ignored scratch; no tracked corpus link or file was changed."
+    }
+  ]
+}

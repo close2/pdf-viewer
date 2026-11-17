@@ -1,0 +1,29 @@
+{
+  "review_scope": "Selected ADR decision review for §§8.6.5.6, 8.6.5.7, 8.6.5.9, and opaque §8.6.7 only. This is not a certification of the ADRs as a whole.",
+  "decisions": [
+    {
+      "adrs": ["0406", "1001", "1755"],
+      "topic": "Default-space resolution and initial values",
+      "review": "The current implementation uses a shared device-family/default-space path, which avoids route divergence across direct names, arrays, and nested/image/shading routes. ADR 1755's selected-family initial component vector is consistent with §8.6.5.6's pass-through rule. Current public tests now cover several routes that the older decisions could only project; no stale premise found in this sampled set.",
+      "scope_limit": "Does not certify every possible resource scope or every special-space alternate route."
+    },
+    {
+      "adrs": ["0272", "1001", "1622"],
+      "topic": "Implicit conversion policy",
+      "review": "The ADRs distinguish the press group whose actual blending space is known from a general screen target whose native calibration is not stated in PDF. The clause's recommendation uses SHOULD, and NOTE 3 says the conditions cannot be specified in PDF. No source basis was found to force a universal same-profile bypass outside the implementation's supported press context.",
+      "scope_limit": "The review did not measure every ICC source profile or output intent."
+    },
+    {
+      "adrs": ["0187", "0510", "1208", "1253"],
+      "topic": "BPC algorithm and policy",
+      "review": "ISO 18619 is the normative algorithm for ON; the relevant implementation and tests use synthetic ICC conversion carriers with independent black-point and intent controls. EC3 #360 removes only a table default; the operative prose leaves absent/Default behavior to the processor. The processor's Default=compensate choice remains permitted. AbsoluteColorimetric is tested as the effective Table 69 name.",
+      "scope_limit": "The `AbsColorimetric` / `AbsoluteColorimetric` wording discrepancy is retained as an interpretation issue, not converted into a reader failure."
+    },
+    {
+      "adrs": ["1157", "1158", "1996", "2736", "2737"],
+      "topic": "Opaque overprint state and capability",
+      "review": "Current overprint tests distinguish OPM0/1, OP/op precedence, the native non-CMYK no-op, and direct/spot routes. A separate sampled-CMYK-image versus direct-fill control is drafted because the existing selected assertions do not make the clause's image exclusion independently observable. This is a coverage proposal, not a claimed implementation defect until run.",
+      "scope_limit": "Transparent overprint is owned by the separate §11.7.4 shard."
+    }
+  ]
+}

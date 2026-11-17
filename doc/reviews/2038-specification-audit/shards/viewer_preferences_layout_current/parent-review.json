@@ -1,0 +1,10 @@
+{
+  "source": "Parent checked Table197 physical523/printed508; Table198 physical524/printed509, Table147 physical452\u2013455/printed437\u2013440 and Table148 physical456/printed441.",
+  "corrections": [
+    "Duplex, tray selection and copy-count defaults are implementation dependent; model represents absent values as None. A fixed Simplex/false/1 is not a normative default.",
+    "Table148 contains the Enforce PrintScaling condition; the scaling enum/unknown-value fallback is in Table147."
+  ],
+  "finding": "B22: current Command::Open emits page O and annotation PO; first Presented emits catalog OpenAction. ADR2814 section2 first-present execution fails cross-event order and opening.rs says this changes nothing about ordering, incorrectly for action dictionaries.",
+  "execution": "Final exact-xref no-recovery Square AP fixture fails URI order; no-catalog and catalog-only controls pass. Second Presented produces no repeated URI. Events observed without network access. Literal present-empty preference defaults test PASS.",
+  "limits": "No whole-host UI or print certification. Direction remains advisory, HideMenubar and GTK positioning explicit policy/departures. Source requirements and model/native choices kept separate."
+}

@@ -1,0 +1,8 @@
+{
+  "verdict": "T154: nondefault FDecodeParms survives caller-supplied archive embedding and actual decoding; PASS.",
+  "source": "Parent read Table5 physical47–48 and §7.4.1 at49–50; corrected issue10 target from exact strike/bbox coordinates. Historical external-stream refusal test remains valid evidence of its separate base-table rule.",
+  "oracle": "In-memory Flate payload is PNG Up tag2 followed by q/newline/Q/newline. Zero previous row gives literal valid form operators. Lost predictor would leave the tag byte. Source/output exact xref and complete chains; output no longer external, F-prefixed keys removed, Filter preserved, decoded bytes literal and no damage.",
+  "fixture": "Existing Conforming builder supplies PDF2.0 binary marker, equal initial16-byte IDs, one page and reachable Form with BBox/Resources. Runtime archive checker passes, but this is not an independent whole-PDF/A certificate.",
+  "execution": "external-filter-wave114 first compile exposed draft API/qualification errors; repaired final114b1PASS705filtered. Core/transform all-target Clippy PASS.",
+  "adr": "Parent reread1199 and converter helper/source. Retain caller-owned byte resolution; no new viewer filesystem/network obligation. Nondefault parameter test substantiates the transformation contract beyond key-text presence."
+}

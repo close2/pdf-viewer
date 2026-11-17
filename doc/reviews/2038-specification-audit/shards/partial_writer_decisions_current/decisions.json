@@ -1,0 +1,15 @@
+{
+  "scope": "The exact eight current ledger rows with status=partial plus the exact two rows with status=writer-side, parsed from doc/conformance/ledger.toml.",
+  "overall": "Retain all ten dispositions. Five partial rows are aggregate/heading-derived; the three nonaggregate rows are 7.6.5.3, 12.2, and 12.8.3.4.4. Both writer-side rows remain inapplicable to current writers.",
+  "decisions": [
+    {"clause":"7.6 / 7.6.5","decision":"Aggregate statuses remain partial because they derive from child statuses; do not claim independent clause certification from aggregate-listed tests."},
+    {"clause":"7.6.5.3","decision":"Partial remains accurate for stated algorithm support limits. 1-Pass ECMQV's optionality cautions against a categorical mandatory-reader claim; no disposition change recommended."},
+    {"clause":"7.6.7","decision":"Writer-side remains accurate: the producer-specific custom-handler wrapper is not emitted; reader prose is implemented for ordinary wrapper rendering/metadata reading."},
+    {"clause":"12.2","decision":"Partial remains accurate: GTK and C/native printing integrations report but cannot enforce the locked choice in their external dialog. HideMenubar is a distinct departed preference."},
+    {"clause":"12.8 / 12.8.3 / 12.8.3.4","decision":"Keep as partial aggregates, but don't treat child `implemented` statuses as validated by aggregate reasoning. Existing parent findings identify potential child inaccuracies on §12.8.3.4.5 and §12.8.3.4.8."},
+    {"clause":"12.8.3.4.4","decision":"Partial remains justified; successor ADRs close many older gaps, while ledger still identifies substantive residual constraints and unsupplied trusted-list inputs."},
+    {"clause":"E.2","decision":"Writer-side remains accurate for the current writer inventory; no developer-extension name emission found."}
+  ],
+  "drafts": [],
+  "test_decision": "No new drafts. The strongest candidate areas already have current parent tests/findings, and remaining incomplete features are aggregate-derived, external-host limitation, optional mechanism scope, or policy/input constraints without a narrow new fixture that would improve this audit."
+}

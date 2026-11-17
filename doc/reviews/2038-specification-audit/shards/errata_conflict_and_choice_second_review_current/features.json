@@ -1,0 +1,32 @@
+{
+  "title": "Independent second review: page-label errata and duplicate choice labels",
+  "baseline_under_review": "current committed audit at 4b728a2",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "review_method": "Read current findings.json and expected-failures.json, current tracked test bodies and actual saved logs. Re-read EC3 annotation dictionaries and page context. For the resolution history, checked the public PDF Association issues #432 and #593 and the current errata HTML. No tests were run in this review.",
+  "cases": [
+    {
+      "topic": "Table 161 alphabetic labels; EC3 #432 and #593",
+      "effective_source": "EC3 physical 474 / printed 459: #432 StrikeOut objects 4800/4804 have IRT Caret replacements AZ/az over ZZ/zz; #593 Carets 4813/4815 insert AAA..ZZZ and lowercase equivalents after the same 'next 26' text. The static EC3 annotation layer therefore preserves a conflict in its old Accepted/Review metadata.",
+      "current_authoritative_status": "The official issue history resolves the conflict: #432 was reopened on 2025-08-14 after the author said the #432 fix was wrong; on 2025-11-10 its ISO-approved label was removed, it was marked duplicate, and it was closed completed. #593 received PDF TWG agreement on 2025-10-23 and was closed completed on 2025-11-10. These events precede ADR0601 dated 2026-08-25. The public Table 161 errata page and current implementation use repeated letters.",
+      "tracked_evidence": "Committed finding 2038-D03 already records the official withdrawal/resolution and a PASS public QueryPageLabel→host PageEntry AA/BB assertion (wave4). `crates/viewer-host/tests/page_label_second_block_audit.rs::repeated_page_label_reaches_the_public_page_list` asserts page 27 is AA and page 28 is BB through both Query::PageLabel and page_entry. It asserts only this second 26-item block, not behavior beyond it. `pdf-model/src/page_label.rs::letters_repeat_rather_than_carrying` supplies model-level arithmetic, but its comment and accepted ADR0601 still incorrectly characterize #432/#593 as concurrently unresolved.",
+      "verdict": "No page-label behavioral defect remains. Retain D03; do not create another finding or test. Correct the stale ADR0601 and source comment when the parent chooses to reconcile docs: #432's withdrawal is an actual issue-history event, not an inference from the arithmetic or merely an owner preference. The PDF annotation overlays remain historically visible, so distinguish the stale EC3 annotation status from the later issue-resolution record.",
+      "sources": [
+        "https://github.com/pdf-association/pdf-issues/issues/432",
+        "https://github.com/pdf-association/pdf-issues/issues/593",
+        "https://pdf-issues.pdfa.org/32000-2-2020/clause12.html"
+      ],
+      "related_committed_finding": "2038-D03",
+      "related_adr": "ADR 0601"
+    },
+    {
+      "topic": "Choice field V-array selection with duplicate display labels; EC3 #468 context",
+      "effective_source": "EC3 physical 558 / printed 543: StrikeOut 5755 and replacement Caret 5756 change Table 234 /I. It is sometimes required, otherwise optional, for choice fields; it represents sorted zero-based selected Opt indices. It is required when Opt options have different display names but the same export value; the former separate trigger 'or when the value ... is an array' is deleted. The next sentence says V takes precedence if I identifies items different from V. The following §12.7.5.4 prose says V is an array of selected item names for multiple selections and, for two-element Opt entries, the name is the second/display string.",
+      "fixture_validity": "Tracked fixture uses valid two-element options [(x)(Twin)] and [(y)(Twin)] (distinct exports, identical display strings), MultiSelect, V [(Twin)(Twin)] (two selected-name entries), and ascending I [0 1] (the same two selected items). No uniqueness condition for Opt names is stated. It does not invoke #468's mandatory same-export/different-name case; /I is otherwise optional, and here the V array multiplicity and I indices agree. Do not claim the correction mandates /I for this inverse relationship.",
+      "tracked_evidence": "Committed finding 2038-B26 is in expected-failures.json as viewer-core::duplicate_choice_labels_spec_audit::duplicate_labels_keep_both_array_selected_indices. The actual tracked public test opens an exact-xref PDF, asserts no recovery, reads public Query::Fields, verifies both export/label pairs, and expects selected [0,1]. Its distinct-label control passes, and one_duplicate_label_is_disambiguated_by_its_single_index passes. `scratchpad/r2038/spec-audit/choices-wave20.log` records the duplicate-label case failing [0] vs [0,1] and control passes. `pdf-model/src/form.rs::selected` loops over V strings, chooses the first matching index for each identical label, then deduplicates indices; it loses one array selection.",
+      "verdict": "Retain B26 as a qualified behavior defect: the failing case is grounded in the general V-array rule and multiplicity of selected items, not in a claim that #468 requires /I for same-label/different-export options. V and I agree in the fixture; the code's collapse prevents representing both selected options. The direct public assertion and positive controls reach the intended form model. No duplicate draft or test is warranted. Separately retain the valid #468 condition and V-precedence rule; do not use the earlier scratch rationale that characterized #468 itself as a duplicate-label rule.",
+      "remaining_uncertainty": "The source does not explicitly discuss repeated identical V strings or state a standalone duplicate-Opt-name uniqueness rule. The strongest reading is that a V array contains one entry per selected item, so two repeated names select the two distinct options with that name; I [0,1] confirms the same set. If owner declines that reading, B26 should be downgraded to an interpretation/policy gap rather than a proven defect, but the current test is materially better grounded than a fixture with V values that are not the Opt display strings.",
+      "related_committed_finding": "2038-B26",
+      "related_adrs": ["ADR 0248", "ADR 0253", "ADR 0596"]
+    }
+  ]
+}

@@ -6219,41 +6219,34 @@ fn a_click_on_a_file_attachment_annotation_extracts_its_file() {
 /// `FileAttachment`, because §14.13.9 puts no condition on the subtype and §12.5.6.15's own `/FS`
 /// is the other route.
 fn with_an_associated_file() -> Vec<u8> {
-    use std::fmt::Write as _;
-    const PAYLOAD: &str = "the formula behind the box";
-    let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
-          /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
-         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 \
-          /AF [6 0 R] /AP << /N 8 0 R >> >>\nendobj\n\
-         6 0 obj\n<< /Type /Filespec /F (formula.mml) /UF (formula.mml) \
-          /AFRelationship /Supplement /EF << /F 7 0 R >> >>\nendobj\n\
-         7 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length {} >>\n\
-         stream\n{PAYLOAD}\nendstream\nendobj\n\
-         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Length 24 >>\n\
-         stream\n0 0 1 rg 0 0 60 60 re f\nendstream\nendobj\n",
-        PAYLOAD.len(),
-    );
-
+    let payload = "formula data";
+    let appearance = "0 0 1 rg 0 0 60 60 re f";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R /Annots [5 0 R 9 0 R] >>".to_owned(),
+        "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
+        "<< /Type /Annot /Subtype /Square /P 3 0 R /Rect [20 20 80 80] /F 4 /AF [6 0 R] /AP << /N 8 0 R >> >>".to_owned(),
+        "<< /Type /Filespec /F (formula.txt) /UF (formula.txt) /AFRelationship /Supplement /EF << /F 7 0 R >> >>".to_owned(),
+        format!("<< /Type /EmbeddedFile /Subtype /text#2Fplain /Params << /ModDate (D:20260501000000Z) /Size {} >> /Length {} >>\nstream\n{payload}\nendstream", payload.len(), payload.len()),
+        format!("<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Resources << >> /Length {} >>\nstream\n{appearance}\nendstream", appearance.len()),
+        "<< /Type /Annot /Subtype /Square /P 3 0 R /Rect [120 20 180 80] /F 4 /AP << /N 8 0 R >> >>".to_owned(),
+    ];
     let mut out = String::from("%PDF-2.0\n");
     let mut offsets = Vec::new();
-    for object in body.split_inclusive("endobj\n") {
+    for (i, body) in bodies.iter().enumerate() {
         offsets.push(out.len());
-        out.push_str(object);
+        let _ = writeln!(out, "{} 0 obj\n{body}\nendobj", i.saturating_add(1));
     }
-    let xref_at = out.len();
-    let size = offsets.len().saturating_add(1);
-    let _ = writeln!(out, "xref\n0 {size}");
-    out.push_str("0000000000 65535 f \n");
-    for offset in &offsets {
+    let xref = out.len();
+    let size = bodies.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}\n0000000000 65535 f ");
+    for offset in offsets {
         let _ = writeln!(out, "{offset:010} 00000 n ");
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0123456789abcdef0123456789abcdef> <fedcba9876543210fedcba9876543210>] >>\nstartxref\n{xref}\n%%EOF\n"
     );
     out.into_bytes()
 }
@@ -6269,16 +6262,19 @@ fn with_an_associated_file() -> Vec<u8> {
 /// annotation (ADR 1065): otherwise a document whose only route to a payload is an annotation's
 /// `/AF` carries a file no host can reach.
 ///
-/// A click somewhere else on the page is the control, because a file that crossed because the
+/// A click on a neighboring annotation without AF is the control, because a file that crossed because the
 /// document carries it rather than because the annotation was activated would pass the first half
 /// of this on its own.
 #[test]
 fn a_click_on_an_annotation_produces_the_files_it_associates() {
+    let bytes = with_an_associated_file();
+    let syntax = pdf_syntax::Document::open(bytes.clone()).expect("exact-xref PDF 2.0 fixture");
+    assert!(!syntax.was_recovered());
     let mut viewer = Viewer::new(400, 300, 1.0);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_an_associated_file().into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -6304,13 +6300,11 @@ fn a_click_on_an_annotation_produces_the_files_it_associates() {
         })
         .collect();
     assert_eq!(extracted.len(), 1, "one /AF entry, one file: {events:?}");
-    assert_eq!(extracted[0].0, "formula.mml", "§7.11.3's own name for it");
-    assert_eq!(
-        String::from_utf8_lossy(&extracted[0].1),
-        "the formula behind the box"
-    );
+    assert_eq!(extracted[0].0, "formula.txt", "§7.11.3's own name for it");
+    assert_eq!(String::from_utf8_lossy(&extracted[0].1), "formula data");
 
-    let elsewhere = (5.0, 5.0);
+    // A second real annotation has no AF, so hit testing alone cannot cause extraction.
+    let elsewhere = device_point(&viewer, [120.0, 20.0, 180.0, 80.0], 100.0);
     viewer
         .handle(Command::Pointer {
             at: elsewhere,
@@ -6935,7 +6929,14 @@ fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
     );
 
     // `/FitR`: a 200x100 rectangle in a 300x400 window fits at 1.5 — the width decides, because
-    // 400/100 would be 4 — and the rectangle's top-left corner goes to the window's.
+    // 400/100 would be 4. EC3 #536 makes the FitR smaller-factor/centering sentence a
+    // SHOULD recommendation for interactive processors; this assertion checks that recommended
+    // result. The separate FitB row retains its unamended centering instruction.
+    // The 150-pixel rectangle leaves 250 pixels: 125 above it, so origin y=-150+125=-25.
+    let same_aspect = geometry_in("[3 0 R /FitR 100 600 300 700]", 300, 150);
+    assert!((same_aspect.scale - 1.5).abs() < 1e-3);
+    assert!((same_aspect.origin.0 + 150.0).abs() < 1.0);
+    assert!((same_aspect.origin.1 + 150.0).abs() < 1.0);
     let fit_r = geometry_for("[3 0 R /FitR 100 600 300 700]");
     assert!(
         (fit_r.scale - 1.5).abs() < 1e-2,
@@ -6943,8 +6944,8 @@ fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
         fit_r.scale
     );
     assert!(
-        (fit_r.origin.0 + 150.0).abs() < 2.0 && (fit_r.origin.1 + 150.0).abs() < 2.0,
-        "the rectangle's corner is the window's corner, got {:?}",
+        (fit_r.origin.0 + 150.0).abs() < 2.0 && (fit_r.origin.1 + 25.0).abs() < 2.0,
+        "the rectangle is centered vertically, got {:?}",
         fit_r.origin
     );
 
@@ -7483,9 +7484,10 @@ fn with_a_popup(open: bool) -> Vec<u8> {
          /Resources << >> /Contents 4 0 R /Annots [5 0 R 6 0 R] >>\nendobj\n\
          4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [10 80 30 100] /Popup 6 0 R \
-         /T (the author) /Contents (a sticky note) /C [1 1 0] >>\nendobj\n\
+         /T (the author) /Contents (a sticky note) /C [1 1 0] /M (D:20261117100000Z) >>\nendobj\n\
          6 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [30 20 90 70] /Parent 5 0 R \
-         /Open {open} >>\nendobj\n"
+         /Contents (popup decoy text) /T (popup decoy title) /C [0 0 1] \
+         /M (D:20200101000000Z) /Open {open} >>\nendobj\n"
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -7510,11 +7512,18 @@ fn with_a_popup(open: bool) -> Vec<u8> {
 
 /// Opens `with_a_popup` into a 200×200 viewport and settles the first frame.
 fn popup_viewer(open: bool) -> Viewer {
+    let bytes = with_a_popup(open);
+    let parsed = pdf_syntax::Document::open(bytes.clone()).expect("complete popup fixture");
+    assert!(
+        !parsed.was_recovered(),
+        "popup fixture has exact cross references"
+    );
+    assert!(!parsed.cross_reference_chain_was_cut());
     let mut viewer = Viewer::new(200, 200, 1.0);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_popup(open).into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -7533,7 +7542,9 @@ fn a_document_that_opens_a_popup_window_says_so_before_anybody_clicks() {
     assert_eq!(windows.len(), 1);
     let window = &windows[0];
     // Table 186: the parent's `Contents`, `M`, `C` and `T` "shall override those of the popup
-    // annotation itself" — and the popup here states none of the four.
+    // annotation itself". All four popup entries conflict, so copying whichever is
+    // present first cannot masquerade as the required parent precedence.
+    assert_eq!(window.modified.as_deref(), Some("D:20261117100000Z"));
     assert_eq!(window.text.as_deref(), Some("a sticky note"));
     assert_eq!(window.title.as_deref(), Some("the author"));
     assert_eq!(
@@ -10556,4 +10567,301 @@ fn table_380s_decoration_and_shift_reach_the_elements_own_text() {
         (TextDecoration::None, None, TextPosition::Normal),
         "a block inside the underlined Div is not underlined"
     );
+}
+
+// This fixture uses an explicit PDF 2.0
+// standard structure namespace on every element, an exact classic xref table, and the ParentTree
+// mapping required to associate each page MCID with its structure element.
+fn with_struct_element_text_replacements(replacements: bool) -> Vec<u8> {
+    let content = concat!(
+        "BT /F1 12 Tf 10 80 Td ",
+        "/Formula <</MCID 0>> BDC (A) Tj EMC 40 0 Td ",
+        "/P <</MCID 1>> BDC (9) Tj EMC 40 0 Td ",
+        "/P <</MCID 2>> BDC (plain) Tj EMC 40 0 Td ",
+        "/Formula <</MCID 3>> BDC (x2) Tj EMC ET\n",
+    );
+    let replacement = if replacements {
+        " /ActualText (fi)"
+    } else {
+        ""
+    };
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Audit def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <FB01> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+    let body = format!(
+        concat!(
+            "1 0 obj\n<< /Type /Catalog /Version /2.0 /Pages 2 0 R /StructTreeRoot 6 0 R ",
+            "/MarkInfo << /Marked true >> >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R ",
+            "/Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>\nendobj\n",
+            "4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n",
+            "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /fi] >> /ToUnicode 14 0 R >>\nendobj\n",
+            "6 0 obj\n<< /Type /StructTreeRoot /K 13 0 R ",
+            "/ParentTree 11 0 R /ParentTreeNextKey 1 /Namespaces [12 0 R] >>\nendobj\n",
+            "7 0 obj\n<< /Type /StructElem /S /Formula /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [0]{replacement} >>\nendobj\n",
+            "8 0 obj\n<< /Type /StructElem /S /P /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [1] ",
+            ">>\nendobj\n",
+            "9 0 obj\n<< /Type /StructElem /S /P /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [2] >>\nendobj\n",
+            "10 0 obj\n<< /Type /StructElem /S /Formula /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [3] ",
+            "/Alt (x squared) >>\nendobj\n",
+            "11 0 obj\n<< /Nums [0 [7 0 R 8 0 R 9 0 R 10 0 R]] >>\nendobj\n",
+            "12 0 obj\n<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>\nendobj\n",
+            "13 0 obj\n<< /Type /StructElem /S /Document /NS 12 0 R /P 6 0 R /K [7 0 R 8 0 R 9 0 R 10 0 R] >>\nendobj\n",
+            "14 0 obj\n<< /Length {cmap_length} >>\nstream\n{cmap}\nendstream\nendobj\n",
+        ),
+        content.len(),
+        content = content,
+        replacement = replacement,
+        cmap = cmap,
+        cmap_length = cmap.len()
+    );
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+fn open_for_actualtext_test(bytes: Vec<u8>) -> (Viewer, pdf_render::Raster) {
+    let parsed = pdf_syntax::Document::open(bytes.clone()).expect("exact fixture");
+    assert!(!parsed.was_recovered());
+    let page = pdf_model::Pages::new(&parsed).get(0).expect("one page");
+    let interpretation = pdf_model::interpret(&parsed, &page);
+    assert!(
+        interpretation.is_complete(),
+        "{:?}",
+        interpretation.unsupported
+    );
+    assert!(interpretation.glyphs > 0);
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    let raster = CpuRasterizer::new()
+        .rasterize(&request.list, request.target)
+        .expect("the CPU backend draws this page");
+    viewer
+        .handle(Command::RenderReady {
+            token: request.token,
+            rendered: Rendered::Raster(raster.clone()),
+        })
+        .for_each(drop);
+    (viewer, raster)
+}
+
+fn actualtext_words(text: &str) -> Vec<&str> {
+    text.split_whitespace().collect()
+}
+
+/// The visible ligature maps to U+FB01; `ActualText` supplies the equivalent two characters fi.
+/// Formula Alt remains a separate accessibility description, not a character substitution.
+fn checked_structure_actualtext_viewer() -> Viewer {
+    let (mut raw, raw_raster) =
+        open_for_actualtext_test(with_struct_element_text_replacements(false));
+    let (mut viewer, raster) =
+        open_for_actualtext_test(with_struct_element_text_replacements(true));
+    assert_eq!(raster.data, raw_raster.data);
+    raw.handle(Command::Select(Selection::All)).for_each(drop);
+    let Answer::Selected(selected) = raw.query(Query::Selection) else {
+        panic!("raw text is selectable");
+    };
+    assert_eq!(actualtext_words(&selected.text), ["ﬁ", "9", "plain", "x2"]);
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("accessibility query");
+    };
+    let nodes = on_one_page(pages);
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.role == "Formula" && node.name == "x squared" && node.substituted),
+        "Alt control: {nodes:?}"
+    );
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    viewer
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_ordinary_selection() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("selected text");
+    };
+    assert_eq!(actualtext_words(&selected.text), ["fi", "9", "plain", "x2"]);
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_logical_selection() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::LogicalSelection(text) = viewer.query(Query::LogicalSelection) else {
+        panic!("logical selection");
+    };
+    assert_eq!(actualtext_words(&text), ["fi", "9", "plain", "x2"]);
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_accessibility() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("accessibility query");
+    };
+    let nodes = on_one_page(pages);
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.role == "Formula" && node.name == "fi"),
+        "{nodes:?}"
+    );
+}
+
+/// One Span owns two adjacent content items, and its replacement covers their combined text.
+fn with_actualtext_over_two_items(replace: bool, nested: bool) -> Vec<u8> {
+    let content = "BT /F1 24 Tf 10 40 Td /Span <</MCID 0>> BDC (A) Tj EMC /Span <</MCID 1>> BDC (9) Tj EMC ET\n";
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Audit def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <FB01> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+    let replacement = if replace { "/ActualText (fi9)" } else { "" };
+    let kids = if nested { "[13 0 R 14 0 R]" } else { "[0 1]" };
+    let owners = if nested {
+        "[13 0 R 14 0 R]"
+    } else {
+        "[10 0 R 10 0 R]"
+    };
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R /MarkInfo << /Marked true >> >>".to_owned(),
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 160 80] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /fi] >> /ToUnicode 6 0 R >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{cmap}\nendstream", cmap.len()),
+        "<< /Type /StructTreeRoot /K 8 0 R /ParentTree 11 0 R /ParentTreeNextKey 1 /Namespaces [12 0 R] >>".to_owned(),
+        "<< /Type /StructElem /S /Document /NS 12 0 R /P 7 0 R /K 9 0 R >>".to_owned(),
+        "<< /Type /StructElem /S /P /NS 12 0 R /P 8 0 R /K 10 0 R >>".to_owned(),
+        format!("<< /Type /StructElem /S /Span /NS 12 0 R /P 9 0 R /Pg 3 0 R /K {kids} {replacement} >>"),
+        format!("<< /Nums [0 {owners}] >>"),
+        "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>".to_owned(),
+    ];
+    if nested {
+        objects.push(
+            "<< /Type /StructElem /S /Span /NS 12 0 R /P 10 0 R /Pg 3 0 R /K 0 >>".to_owned(),
+        );
+        objects.push(
+            "<< /Type /StructElem /S /Span /NS 12 0 R /P 10 0 R /Pg 3 0 R /K 1 >>".to_owned(),
+        );
+    }
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = writeln!(out, "{} 0 obj\n{body}\nendobj", index.saturating_add(1));
+    }
+    let xref = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}\n0000000000 65535 f ");
+    for offset in offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Same pixels and visible text-equivalent replacement, with an independent no-replacement control.
+fn actualtext_over_two_items_selection(nested: bool) -> String {
+    let (mut raw, raw_raster) =
+        open_for_actualtext_test(with_actualtext_over_two_items(false, nested));
+    raw.handle(Command::Select(Selection::All)).for_each(drop);
+    let Answer::Selected(raw_text) = raw.query(Query::Selection) else {
+        panic!("raw ligature text");
+    };
+    assert_eq!(raw_text.text.trim(), "ﬁ9");
+    let (mut replaced, raster) =
+        open_for_actualtext_test(with_actualtext_over_two_items(true, nested));
+    assert_eq!(
+        raster.data, raw_raster.data,
+        "replacement does not change the drawing"
+    );
+    replaced
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(text) = replaced.query(Query::Selection) else {
+        panic!("replaced text");
+    };
+    text.text.trim().to_owned()
+}
+
+/// §14.9.4 substitutes for the entire element, once, even when it owns two content items.
+#[test]
+fn structure_actualtext_replaces_two_owned_content_items_once() {
+    assert_eq!(actualtext_over_two_items_selection(false), "fi9");
+}
+
+/// The element encloses descendant content too. This is replacement of the whole subtree,
+/// not inheritance of the `ActualText` property onto each descendant element.
+#[test]
+fn structure_actualtext_replaces_content_enclosed_in_descendant_elements() {
+    assert_eq!(actualtext_over_two_items_selection(true), "fi9");
+}
+
+/// Table 149 centers the fitted content box, not its containing page, in the unused dimension.
+#[test]
+fn fit_b_centers_its_content_box_in_the_unused_vertical_dimension() {
+    let bytes = with_open_action("[3 0 R /FitB]");
+    assert!(
+        !pdf_syntax::Document::open(bytes)
+            .expect("valid fixture")
+            .was_recovered()
+    );
+    let control = geometry_in("[3 0 R /FitB]", 300, 150);
+    assert!((control.scale - 1.5).abs() < 1e-3);
+    assert!((control.origin.0 + 150.0).abs() < 1.0);
+    assert!((control.origin.1 + 150.0).abs() < 1.0);
+    let fitted = geometry_in("[3 0 R /FitB]", 300, 400);
+    // Content bounds [100,600,300,700] -> 300x150 pixels. 250 spare vertical
+    // pixels require 125 on each side, placing page origin at (-150,-25).
+    assert!((fitted.scale - 1.5).abs() < 1e-3);
+    assert!((fitted.origin.0 + 150.0).abs() < 1.0);
+    assert!((fitted.origin.1 + 25.0).abs() < 1.0, "{fitted:?}");
+}
+
+#[test]
+fn fit_b_centers_its_content_box_in_the_unused_horizontal_dimension() {
+    let fitted = geometry_in("[3 0 R /FitB]", 600, 150);
+    // The same 300x150-pixel content box leaves 300 spare horizontal pixels.
+    // 150 pixels on each side cancel its 150-pixel left inset into the page.
+    assert!((fitted.scale - 1.5).abs() < 1e-3);
+    assert!((fitted.origin.1 + 150.0).abs() < 1.0);
+    assert!(fitted.origin.0.abs() < 1.0, "{fitted:?}");
+}
+
+#[test]
+fn fit_centers_the_page_in_the_unused_vertical_dimension() {
+    let control = geometry_in("[3 0 R /Fit]", 300, 400);
+    assert!((control.scale - 0.5).abs() < 1e-3);
+    assert!(control.origin.0.abs() < 1.0 && control.origin.1.abs() < 1.0);
+    let fitted = geometry_in("[3 0 R /Fit]", 300, 600);
+    // The full page is 300x400 pixels; the 600-pixel-tall viewport leaves 100 per side.
+    assert!((fitted.scale - 0.5).abs() < 1e-3);
+    assert!(fitted.origin.0.abs() < 1.0);
+    assert!((fitted.origin.1 - 100.0).abs() < 1.0, "{fitted:?}");
 }

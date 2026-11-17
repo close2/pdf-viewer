@@ -1,0 +1,48 @@
+{
+  "baseline": "b901326c",
+  "scope": ["14.9.3 alternate descriptions", "14.9.4 replacement text", "14.9.5 expansion of abbreviations/acronyms", "Table 355 Alt/E/ActualText", "text-string empty versus absent semantics"],
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf; source clauses/annotations inspected directly",
+  "features": [
+    {
+      "clause": "14.9.4; Table 355 /ActualText",
+      "feature": "Replacement text at marked-content property lists and structure elements, with empty distinct from absent",
+      "source_location": "§14.9.4 physical 815–816 / printed 800–801; Table 355 physical 740–741 / printed 725–726; §7.9.2.2 physical 131–132 / printed 116–117 (text-string type)",
+      "effective_source": "A structure element can carry optional ActualText; a marked-content property list can carry ActualText under Span, and EC3 #483 adds an Artifact property-list location. A present value 'shall be used as a replacement' and is a character substitution. The clauses state no empty-string carve-out. () is a valid zero-byte PDF string object, while an absent key supplies no value.",
+      "ledger": "14.9.4 implemented; ledger describes all three routes and the nonempty replacement semantics but does not discuss zero-length strings",
+      "implementation": "crates/pdf-model/src/structure.rs::text_entry returns None for every decoded empty string, including ActualText; crates/pdf-model/src/content/marked.rs::accessibility independently drops empty property-list ActualText before structure fallback; crates/pdf-model/src/content/run/marked_ops.rs treats Some(replacement) as the condition to cut enclosed text.",
+      "assertions": "Existing positive assertions cover nonempty property-list ActualText, Artifact property-list ActualText, and nonempty structure-element ActualText. No actual empty ActualText case was found in current `crates/pdf-model` tests. Draft `drafts/empty_actualtext.rs` has separate exact-xref/no-recovery tests for Span, Artifact, and structure-element routes. Each compares absent, nonempty `(-)`, and empty `()` ActualText on a line-end hyphen; the structure test has one MCID, and property-list fixtures have no structure tree or MCID. Positive glyph counts show extraction changes without deleting page marks.",
+      "verdict": "Concrete likely reader gap for ActualText: with an explicit empty string, the current implementation treats the entry as absent and preserves the marked line-end hyphen and inferred line break; the normative replacement rule points to removing those characters and joining the word. This does not concern structure scope/cardinality B12.",
+      "residuals": "Draft is not compiled or executed. It checks extracted line joining and retained glyph count, not rendered raster equality. Structure ActualText is exercised through one direct MCID only."
+    },
+    {
+      "clause": "14.9.3; Table 355 /Alt",
+      "feature": "Alternate descriptions at a structure element or Span property list",
+      "source_location": "physical 815 / printed 800 (§14.9.3); physical 740 / printed 725 (Table 355 /Alt row)",
+      "effective_source": "A structure Alt is a whole-word or phrase substitution for its current element; a property-list Alt may be on a Span sequence. Alt is spoken as accessible description and does not replace the text used for extraction. EC3 contains no relevant empty-value change located in this scope.",
+      "implementation": "structure::text_entry and MarkedContent::accessibility both discard decoded empty strings. Nonempty property-list Alt is covered by accessibility.rs tests; nonempty structure Alt has structure tests and public accessibility consumers.",
+      "empty_semantics": "The source does not state what an empty description means. Since it calls Alt a complete word or phrase, empty may be invalid producer data; no exact reader result or mandatory refusal follows from the reviewed text. No defect is claimed and no speculative empty-Alt test is drafted.",
+      "residuals": "Empty Alt reader policy remains unspecified in the reviewed clauses."
+    },
+    {
+      "clause": "14.9.5; Table 355 /E",
+      "feature": "Expansion of abbreviations/acronyms at a structure element or Span property list",
+      "source_location": "physical 816 / printed 801 (§14.9.5); physical 740 / printed 725 (Table 355 /E row)",
+      "effective_source": "An expansion may be specified as a structure-element E or Span property-list E. The E value is a word or phrase substitution and shall have word breaks on both sides. It changes spoken form, not extracted text. No relevant EC3 empty-value amendment was found.",
+      "implementation": "structure::text_entry and MarkedContent::accessibility discard decoded empty strings. Nonempty property-list E and structure E have ordinary expansion coverage.",
+      "empty_semantics": "The source gives no explicit empty-string rule. A zero-length value is not a word or phrase; whether the producer has supplied invalid input and what a reader should say are not specified here. No ActualText semantics are transferred to E.",
+      "residuals": "Empty E reader policy is unreviewed/unspecified; no required behavior is asserted."
+    }
+  ],
+  "errata_evidence": [
+    {
+      "issue": 483,
+      "source_annotation": "EC3 PDF object 7902 on page object 860 (physical 815 / printed 800), /Subj (Issue #483), /State (Accepted) reply object 7904. The annotation's /Contents adds a final bullet allowing ActualText in an Artifact-tagged property list; this is not inferred from doc/errata-read alone.",
+      "effect": "Adds the third ActualText location. It does not modify the replacement semantics or say how empty strings behave."
+    },
+    {
+      "issue": "356 and 364",
+      "source_annotation": "Physical 816 / printed 801: StrikeOut object 7920 (/Subj Issue #356) targets 'Actual Text' in the clause's example; Caret 7922 writes 'ActualText'. Caret 7912 (/Subj Issue #364) writes '2', and Text note 7908 adds Example 1 for a missing SPACE.",
+      "effect": "Corrects the key spelling and renumbers/adds examples; neither changes the replacement rule or specifies empty semantics."
+    }
+  ]
+}

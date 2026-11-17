@@ -1,0 +1,40 @@
+{
+  "review_conclusions": [
+    {
+      "item": "2038-B77",
+      "verdict": "Retain",
+      "reason": "Source remains intentionally nonconforming to PDF/A-4 because Type6 is forbidden there, so screening loss is authorized. Erratum314 removes the separate transfer-function prohibition only. The independently derived pixel and controls identify the additional transfer mapping loss; the verdict does not rely on Part4 accepting Type6."
+    },
+    {
+      "item": "2038-B78",
+      "verdict": "Retain",
+      "reason": "The three event-placement controls discriminate visibility from current-page open/close and the seam is explicitly a supplied runner. Source semantics and callback-level claim align; execution evidence matches identities."
+    },
+    {
+      "item": "2038-T166 (MCR and OBJR cases)",
+      "verdict": "Qualify until repaired test rerun",
+      "reason": "Table355 physical740/printed725 states containing element /Pg denotes a page on which some or all of its K content is rendered. In each override fixture the sole K content object is page 2 while parent /Pg is page 1. Scratch copies add a real parent-page sibling content item and corresponding ParentTree association; these are drafts only."
+    },
+    {
+      "item": "T165/T169 raster-pattern controls",
+      "verdict": "Retain",
+      "reason": "Literal color/geometry assertions are independent of renderer-to-renderer agreement; baseline and isolated BBox/caller clip boundaries are discriminating. No fixture validity defect identified in this review."
+    },
+    {
+      "item": "T168 PDF/A-2 control",
+      "verdict": "Retain",
+      "reason": "Test is properly a separate-authorization control, not an assertion that a Type6 stream is rejected. Header is PDF1.7 as required by Part2 target fixture."
+    },
+    {
+      "item": "Collection folder public test",
+      "verdict": "Retain",
+      "reason": "The test checks actual collection query and public row consumer with literal labels and extraction keys under valid reciprocal Parent/Child/Next links. It does not invent a reader-side reciprocal-link rejection duty."
+    },
+    {
+      "item": "2038-T167 folder assertion",
+      "verdict": "Retain",
+      "reason": "T167 is the public collection folder-tree test and has no relationship to MCR/OBJR; the valid tree and public row assertions are adequately controlled."
+    }
+  ],
+  "no_other_concrete_issues": "No identifier/count drift found in B77/B78 manifests, finding rows, gate records, or named test bodies. No additional concrete test issue found in checkpoints 126–130 within this bounded review."
+}

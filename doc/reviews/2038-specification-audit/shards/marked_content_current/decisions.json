@@ -1,0 +1,20 @@
+[
+  {
+    "topic": "Whether every marked-content tag must be interpreted as a logical-structure role",
+    "decision": "No. EC3 #334 deletes the base NOTE 3 stating the lack of relationship to Tagged PDF and replaces the discussion with second-class-name guidance for tags undefined by ISO publications or §14.7. The producer's tag naming/structure relationship does not impose a reader duty to treat arbitrary content-stream tags as structure-tree role mappings. The logical-structure consumer has its own §14.7 rows.",
+    "evidence": ["ISO 32000-2 §14.6.1, primary physical 735–736 / printed 720–721", "EC3 Issue #334", "doc/conformance/ledger.toml §14.6.1 and §14.7 rows"],
+    "status": "settled for this bounded audit"
+  },
+  {
+    "topic": "Whether readers must reject improper nesting, misplaced marked operators, or inline indirect references",
+    "decision": "No mandatory reject behavior identified. The marked-content nesting, operator placement, tag/property requirements, and direct-only inline form are producer constraints. EC3 #335 changes valid placement contexts; #302 extends valid balancing pairs. Keep robustness diagnostics and invalid-input handling separate from these valid-input reader assertions.",
+    "evidence": ["ISO 32000-2 §§14.6.1–14.6.2, primary physical 735–737 / printed 720–722", "EC3 Issues #302 and #335"],
+    "status": "settled"
+  },
+  {
+    "topic": "Whether to draft additional MP/DP or placement regression tests",
+    "decision": "No additional draft in this shard. MP/DP points have no general drawing effect; the observable DP optional-content reference behavior is covered by optional_content.rs::a_group_named_only_by_a_marked_content_point_is_still_referenced. Existing tests cover the public reader obligation for page Contents-array sequence continuity, named and inline property-list consumption, and nested matching boundaries for /Tx splicing.",
+    "evidence": ["crates/pdf-model/tests/optional_content.rs::a_group_named_only_by_a_marked_content_point_is_still_referenced", "crates/pdf-model/tests/optional_content.rs::a_marked_content_section_may_span_two_parts_of_the_contents_array", "crates/pdf-model/tests/text_render_modes.rs::an_inline_property_lists_booleans_are_not_operators", "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"],
+    "status": "no candidate drafted"
+  }
+]

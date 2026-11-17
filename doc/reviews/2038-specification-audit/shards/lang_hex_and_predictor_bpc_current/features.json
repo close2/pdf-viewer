@@ -1,0 +1,27 @@
+{
+  "baseline": "b901326c",
+  "scope": "Two source-derived consumer assertions prompted by EC3330/366, integrated and passing; not whole-clause certification.",
+  "features": [
+    {
+      "issue": 330,
+      "clause": "7.3.4; 7.9.2.2.2; /Lang consumers in 14.9.2",
+      "source": "EC3 primary physical p.812 / printed p.797, Text annotation object 7872 at [30.058975,610.877869,54.058975,634.877869]. It says Lang entries are text strings, may be Unicode-encoded, and may be represented using literal or hexadecimal PDF string syntax.",
+      "implementation_and_assertions": "PDF text strings are decoded generically before catalog and structure language handling. Existing public structure phrase-language tests exercise literal catalog/ancestor Lang, and hex Unicode Alt/E phrase strings; pdf-model language tests exercise literal Lang and other generic string tests cover Unicode hex decoding. No inspected assertion combines a hex-form Lang dictionary value with its effective language at a public consumer.",
+      "draft": "crates/viewer-core/tests/lang_hex_consumer_spec_audit.rs",
+      "assessment": "A small assertion specificity gap, not evidence of incorrect decoding: the draft checks catalog hex Lang fallback and a descendant hex Lang override through Viewer::AccessibilityTree while a literal ancestor Lang establishes precedence."
+    },
+    {
+      "issue": 366,
+      "clause": "7.4.4.4 Table 8; 8.9.5.1 Table 87",
+      "source": "Table 8 on physical p.55 / printed p.40 has Text annotation object 1635 clarifying that predictor DecodeParms /BitsPerComponent has no relationship to the similarly named image dictionary key. Table 87 on physical p.274 / printed p.259 has paired StrikeOut/Caret annotations: Caret 3633 inserts 'the'; StrikeOut 3634 removes 'if a predictor function is used'. The resulting Table 87 text governs the image samples delivered by the filter. These source statements concern distinct producer/sample descriptions and do not, by themselves, mandate reader rejection of inconsistent files.",
+      "implementation_and_assertions": "pdf-syntax applies a Flate stage's DecodeParms to predictor reconstruction; pdf-model image decoding separately reads image /BitsPerComponent to unpack the final decoded sample stream. Existing filter tests give independent decoded-byte oracles for predictor parameters; image-mask tests give raster sample oracles for image BPC, but no reviewed test passes differing predictor/image BPC through the same valid rendered image consumer.",
+      "draft": "crates/pdf-model/tests/predictor_image_bpc_spec_audit.rs",
+      "assessment": "A meaningful valid-input regression is feasible. The draft uses Flate to recover predictor-encoded ASCIIHex text, then ASCIIHexDecode to produce three bytes containing24 packed one-bit gray samples. DecodeParms uses BPC=8 over the intermediate text row; the image dictionary uses BPC=1 over the final 24 image samples. This makes the fields semantically and observably distinct, rather than testing a malformed producer mismatch or a geometry where both BPCs produce the same row length."
+    }
+  ],
+  "limits": [
+    "Both tests PASS; model/core all-targets ClippyPASS. Parent added binary header comment, no-cut-chain guard, exactRGBA sample assertions, corrected return type and scoped lint expectations.",
+    "The image fixture's final decoded bytes are valid for Width=24, Height=1, DeviceGray, BPC=1. Its preceding predictor operates on an ASCIIHex representation, not on the final image samples; this is why BPC=8 and image BPC=1 can validly differ.",
+    "Neither issue establishes a whole-clause pass or a new malformed-file rejection obligation."
+  ]
+}

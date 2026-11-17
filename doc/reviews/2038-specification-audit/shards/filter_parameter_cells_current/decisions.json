@@ -1,0 +1,48 @@
+{
+  "scope": "Selected decision reconsiderations for filter parameter cells; not a general review of every filter ADR.",
+  "decisions": [
+    {
+      "related_adrs": [
+        "ADR 0102",
+        "ADR 0036"
+      ],
+      "decision_review": "Retain their filter pipeline/stage association and LZW width-transition decisions. Current direct-parameter tests provide independent decoded-byte expectations. These decisions do not answer indirect numeric DecodeParms resolution; that separate issue is already recorded as B54.",
+      "status": "retained; no new draft duplicates these decisions"
+    },
+    {
+      "related_adrs": [
+        "ADR 0392"
+      ],
+      "decision_review": "Retain the Table 11 distinction between Rows and EndOfBlock. A valid delimiter must be present to use the clause's EOB rule as a positive control. The existing Rows-shorter test lacks RTC and does not settle the valid-stream case; the new draft adds the valid Group 4 EOFB path.",
+      "status": "source/assertion gap drafted; pending parent execution"
+    },
+    {
+      "related_adrs": [
+        "ADR 1349"
+      ],
+      "decision_review": "The custom CCITT decoder remains a justified consumer of DamagedRowsBeforeError because it exposes line damage and recovery detail; the Table 11 applicable-condition controls are meaningful. This audit does not independently certify all T.4/T.6 codewords.",
+      "status": "retained with codec-scope limitation"
+    },
+    {
+      "related_adrs": [
+        "ADR 0794"
+      ],
+      "decision_review": "The project choice to draw rows delivered before a decode shortfall and report omitted rows is distinct from the specification's Table 11 decoding controls. Tests of the blank remainder establish the project policy; they are not cited as a required normative fill color.",
+      "status": "retained as product/error-report policy; no normative defect claimed"
+    },
+    {
+      "related_adrs": [
+        "ADR 0454"
+      ],
+      "decision_review": "Do not treat bounded resource/geometry policy or padding compatibility checks as additional Table 11 requirements. Width mismatch beyond the permitted byte padding is a cross-clause consistency/policy boundary, not a standalone refusal rule in Table 11.",
+      "status": "scope qualified; no ADR change proposed"
+    },
+    {
+      "related_adrs": [
+        "ADR 2102"
+      ],
+      "decision_review": "Pinned JBIG2 decoder provenance and worker confinement are relevant implementation controls, but Annex/T.88 examples and family-equality tests are not a normative expected-bitmap oracle. The reviewed PDF integration covers the standard example route; no unsupported decoder behavior is inferred.",
+      "status": "retained; evidence limits recorded"
+    }
+  ]
+}

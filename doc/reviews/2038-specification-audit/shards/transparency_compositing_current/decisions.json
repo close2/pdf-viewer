@@ -1,0 +1,37 @@
+[
+  {
+    "adr": "ADR 0047 — The three modes the correctness oracle got wrong",
+    "decision_reviewed": "Implement four nonseparable modes locally and check against independent formula-derived RGB values rather than trusting tiny-skia or backend agreement.",
+    "evidence": "§11.3.5.3 physical pp.409–412 / printed pp.394–397 defines Lum, ClipColor, SetLum, Sat and SetSat. The current `separable_blend_oracle_audit.rs` includes literal outputs derived from those formulas for Hue, Saturation, Color and Luminosity, alongside cross-backend comparisons. This is stronger evidence than backend agreement alone.",
+    "verdict": "sound for the blend-function values reviewed; do not extend this evidence to the full §11.3.3 composition at arbitrary source/backdrop alpha.",
+    "residuals": "The current formula-oracle tests render opaque source/backdrop fills, which reduce the basic formula to B(Cb,Cs). The new partial-alpha draft adds an independent full-composition control but is unexecuted."
+  },
+  {
+    "adr": "ADR 0237 — A second accumulator the clause divides out again",
+    "decision_reviewed": "For the scoped nonisolated, non-knockout Normal-result case, collapse backdrop removal and re-composition to the equivalent seeded-buffer interpolation; keep the general §11.4.4 equations as the derivation, not as a claim that the renderer stores every named accumulator.",
+    "evidence": "§11.4.4 physical pp.420–423 / printed pp.405–408 defines the general recurrence and backdrop removal (NOTE 3/4); NOTE 5 states the same-effect condition. ADR 0237 derives that, when the group result is composited with its same backdrop using Normal and unit shape/opacity, the result reduces to `(1−w)B + wE(B)`. `render-cpu` implements this selected case with a backdrop-seeded buffer and interpolation; it does not retain a separate full general-form alpha accumulator merely because the formula names one. EC3 #688 at physical p.428 / printed p.413 inserts Greek α in two §11.4.8 initialization symbols (`a_g0` and `a_0` become `α_g0` and `α_0`); this is a notation correction that should be preserved in any formula transcription. Existing `transparency_groups.rs` and `group_constructions.rs` include pixel assertions for isolated/nonisolated and knockout cases; prior `transparency_groups_current` shard audited a repeated group invocation gap and broad group tests.",
+    "verdict": "the Normal/nonisolated simplification is correctly grounded and the buffer implementation matches that narrowed case; this is not evidence of a full general-form group-compositing implementation.",
+    "residuals": "This pass relies on the prior group shard for group test breadth. ADR 0237 is scoped to its Normal, nonisolated, non-knockout result path; it does not certify other combinations or every shape/opacity source."
+  },
+  {
+    "adr": "ADR 0251 / ADR 0277 — blending-space representation and CMYK component handling",
+    "decision_reviewed": "Use the active blending space and preserve subtractive/black-component semantics through the compositor representation.",
+    "evidence": "§11.3.4 physical pp.406–407 / printed pp.391–392 gives the blending-space rules; §11.3.5.3 physical pp.409–412 / printed pp.394–397 states CMYK complementary RGB treatment and its K component rule. Current ledger records dedicated four-component page/group tests and direct assertions.",
+    "verdict": "evidence and source direction align for reviewed behavior; this does not independently enumerate all supported profile/color-space conversions.",
+    "residuals": "§11.3.4's DeviceGray/CalGray conversion-in path remains expressly identified as a processor choice in ADR 0790 and the ledger, not an exact normative output requirement."
+  },
+  {
+    "adr": "ADR 0790 — A one-component blending space is three equal channels",
+    "decision_reviewed": "Use the existing classic device-gray conversion for conversion into DeviceGray/CalGray blend groups.",
+    "evidence": "§11.3.4 requires conversion into the blending color space but does not select an exact conversion algorithm for this device-source case; ADR 0790 and the current ledger identify the selected conversion and residual explicitly. No claim that a single standard-mandated byte oracle exists was found.",
+    "verdict": "appropriately left as a processor choice/partial residual, not promoted to confirmed conformance failure.",
+    "residuals": "A product preference for modern ICC conversion does not establish a base-PDF requirement."
+  },
+  {
+    "adr": "ADR 2183 — nearest rounding for straight-alpha readback",
+    "decision_reviewed": "Use the selected nearest-rounding behavior when converting compositor values to output bytes.",
+    "evidence": "§11.3.3's formula establishes real-valued color/alpha; the clause does not itself specify byte quantization. Current tests use direct formula values with explicit tolerances and separately targeted exact-rounding decisions.",
+    "verdict": "no ISO conflict identified; treat byte rounding as implementation policy and keep it separate from the compositing formula oracle.",
+    "residuals": "This shard did not inspect every backend's conversion and quantization path."
+  }
+]

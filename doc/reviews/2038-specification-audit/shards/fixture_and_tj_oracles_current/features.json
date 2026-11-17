@@ -1,0 +1,44 @@
+{
+  "scope": "Targeted test-oracle and fixture-policy improvements; no production behavior changes.",
+  "features": [
+    {
+      "clauses": [
+        "7.5.4"
+      ],
+      "test": "pdf-syntax::on_disk",
+      "before": "Every object number requested at generation0; nonzero definitions could compareNull/Null.",
+      "after": "Compare defined_id on both readers, thenactual objectatthatid; literal validpagefixture pins object4generation7tointeger123, generation0toNull.",
+      "execution": "All8on_disk tests plusarchivewitness testPASS;963corpusdocuments112562definedobjectcomparisons11same refusals.",
+      "limits": "Two readers shareparser; equality is storage-route consistency, notindependentPDFinterpretation. defined_idreadsactualdefinition; no claim allxref generations independentlyvalidated."
+    },
+    {
+      "clauses": [
+        "9.3.4",
+        "9.4.3"
+      ],
+      "test": "pdf-model::text_state::horizontal_scaling_reaches_a_tj_adjustment",
+      "before": "Only100%vs50%totalspacingratio; zeroTJ stillpasses.",
+      "after": "Retainratio andadd noTJ controls,2glyphcountguards,literal+10/+5at10pt.",
+      "execution": "NormalPASS; zeroTJmutationcaughtatnew+10assertafteroldratio passed; restoredPASS.",
+      "limits": "ExistingType3positiveTJtest alreadyhasindependent20/15originoracle. No suitewideescapeclaim."
+    },
+    {
+      "clauses": [
+        "7.7.3.2",
+        "9.7.4.1"
+      ],
+      "test": "pdf-archive::witnesses::each_witness_fails_the_row_its_gap_belonged_to",
+      "before": "Explicitly permitted absentnamedfile skip; couldhidepartialcorpuscheckout.",
+      "after": "Absentoptionalrepositorynamedandskipped; unreadablenamedfileunderpresentrepositoryfailswithpath.",
+      "execution": "3of3presentwitnessesread; eachlistedrowfailsbothPDF/A2Band4Plain.",
+      "limits": "Deliberatetestpolicytightening; notreinterpretation offormer documentedskip asproductdefect. No certificateofwholechecker."
+    }
+  ],
+  "mutation": {
+    "original_sha256": "a5544b6f740d1eaf4fd50c28da9a4362b23e4166e6b00f2c560488fb78343f8d",
+    "mutation": "Set numeric TJ shift to zero; preserve all glyph advance and scaling.",
+    "exit": 100,
+    "restored_byte_exact": true
+  },
+  "quality": "syntax/archive/model all-targetClippyPASS afterdoc-markdownfix inexistingpublic-keytest comment."
+}

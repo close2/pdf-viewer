@@ -1,0 +1,60 @@
+{
+  "shard": "errata_weak_dispositions_batch4_current",
+  "decisions": [
+    {
+      "item": "ADR 0505 — Type 5 transfer function evidence",
+      "issues": [310, 311],
+      "reconsideration": "Retain the surviving-table rationale for the selected primary RGB path, but honor the whole-paragraph deletion at #311. The deleted contrast and gray/nonprimary fallback cannot serve as a normative premise. #310's Type 5 presence condition is a producer-side statement, not a rejection requirement for readers.",
+      "scope_limit": "Existing parent-run tests cover four DeviceRGB primary-component cases only. No claim about nonprimary components, nonstandard native spaces, or a halftone screen algorithm."
+    },
+    {
+      "item": "ADR 0817 — Derived-file identifiers",
+      "issues": [328],
+      "reconsideration": "Retain the selected incremental/new-file writer policy and its tests. #328 removes a contents-only restriction from both identifier descriptions; it does not make the suggested time/location/size computation mandatory or establish collision resistance. Keep the test oracle at the stated identifier slots and update behavior, not a particular hash formula.",
+      "source": "§14.4 physical p.734 / printed p.719; exact two StrikeOut rectangles inspected."
+    },
+    {
+      "item": "ADR 0063 and accessibility-language successor decisions",
+      "issues": [330],
+      "reconsideration": "No change to the language precedence decisions. #330 is a string-form clarification: the generic text-string path should accept literal and hexadecimal forms, and Unicode encoding/escapes follow §7.3.4 and §7.9.2.2.2. The existing shard has broad string-decoding evidence but no identified hex-form /Lang consumer control; that is a useful coverage refinement, not a current defect.",
+      "source": "§14.9.2.2 physical p.812 / printed p.797; Text annotation 7872."
+    },
+    {
+      "item": "Table 2 lexical-context decision",
+      "issues": [365],
+      "reconsideration": "Retain the general lexer with braces contextually tokenized only inside Type 4 calculator programs. The actual Table 2 carets refer to a footnote; the explanatory text is the separate Text annotation 1452, whose rectangle is below the table. Existing lexer/name/function assertions are appropriately distinct and should not be collapsed into a single tokenization claim.",
+      "source": "§7.2.3 Table 2 physical p.38 / printed p.23."
+    },
+    {
+      "item": "ADR 0102/0036 — filter pipeline and LZW behavior",
+      "issues": [366],
+      "reconsideration": "Retain filter-stage parameter association and codec tests. #366 explicitly separates DecodeParms BitsPerComponent from the similarly named image dictionary key, while the Table 87 strike removes the predictor-only qualifier from the image/filter sample-size consistency prose. This is a producer consistency rule; a mismatch fixture would be malformed and must not be presented as a required reader rejection test.",
+      "source": "Table 8 physical p.55 / printed p.40; Table 87 physical p.274 / printed p.259."
+    },
+    {
+      "item": "ProcSet conditional scope (no dedicated ADR located)",
+      "issues": [367],
+      "reconsideration": "Retain raster-output inapplicability. The issue revises the historical wording but leaves §14.2's PostScript-device condition in place. It does not create a new requirement for the viewer to process a ProcSet array.",
+      "source": "§14.2 physical p.728 / printed p.713; Table 346 follows on physical p.729."
+    },
+    {
+      "item": "Object-number parser tolerance",
+      "issues": [379],
+      "reconsideration": "Keep canonical producer syntax separate from parser recovery. The new EC3 prose disallows '+' and leading zeroes for object/generation numbers except generation '0'; it does not require rejection of noncanonical spellings. Do not convert tolerance into a source compliance claim or a failing normative test.",
+      "source": "§7.3.10 begins physical p.48 / printed p.33 and continues physical p.49 / printed p.34. The paired replacements are anchored on physical p.48."
+    },
+    {
+      "item": "Metadata encoding and example writer behavior",
+      "issues": [398],
+      "reconsideration": "Retain the writer's UTF-8 U+FEFF output evidence, but fix the source locator in metadata_current: #398 is physical p.732 / printed p.717, not physical p.747 / printed p.732. The caret repairs an example's glyph rendering and does not amend reader acceptance.",
+      "source": "§14.3.3 example; StrikeOut 6734 and replacement Caret 6736."
+    },
+    {
+      "item": "Direct-object contextual restrictions",
+      "issues": [403],
+      "reconsideration": "Read the five notes with their local direct-object rule; do not aggregate them into a global Metadata/Associated Files prohibition. They explain where these objects cannot be placed in cross-reference, extensions, byte-range signature, linearization-parameter, and hint-stream dictionaries. The producer restrictions do not establish a general reader-side refusal rule. Xref directness remains a special bootstrap carve-out, not a counterexample for normal streams.",
+      "source": "§7.5.8.2 physical p.81/printed p.66; §7.12.2 p.157/142; §12.8.2 p.583/568; Annex F.3.3 p.899/884; F.3.4 p.902/887."
+    }
+  ],
+  "overall": "No new confirmed valid-input reader defect from this batch. Two possible narrow consumer assertions (#330 hex-form Lang and #366 separate image/filter BPC values) are coverage refinements only."
+}

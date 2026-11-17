@@ -1,0 +1,37 @@
+PARENT LOCATOR CORRECTION: 2.A starts physical96/printed81 and continues97/82; General7.6.4.3.1 starts95/80. See parent-review.json for independent source check, added controls and execution.
+
+# Standard security-handler algorithms audit
+
+Scope is §§7.6.3.2–.3, 7.6.4.3.1–.4 and 7.6.4.4.1–.12. I checked the effective EC3 text, source PDF page locations, errata notes, implementation and assertion bodies. This is a bounded source-to-code review, not primitive or whole-handler cryptographic certification. No Cargo command was run.
+
+## Finding
+
+No confirmed valid-input cryptographic defect was established. Read-side algorithm coverage has useful independent producer evidence: R2/R3/R4 corpus files and R6 `issue7665.pdf`; the R5 `issue21579.pdf` test uses the producer's password records and ciphertext. `saslprep-r6.pdf` is a particularly useful independent R6 password-preprocessing witness because its published password is normalized by SASLprep. The in-tree generated R2–R6 fixtures are good path/boundary controls but cannot independently validate a hash algorithm when both fixture and reader implement that algorithm.
+
+The clearest source/assertion issue concerns R6 `/Perms`. Effective §7.6.4.3.3 step (f) says decrypted bytes 0–3 “shall match” `/P`; §7.6.4.4.12 Algorithm 13 says they “should match” `/P` and byte 8 “should match” `/EncryptMetadata`. `perms_block` checks the `adb` marker and then adopts the decrypted permission/metadata values; an invalid marker leaves the dictionary values in place. `a_tampered_p_loses_to_the_perms_block_this_writer_wrote` deliberately mutates `/P` and expects the block to win. That input violates the consistency requirement for conforming documents. The test demonstrates this implementation's policy for inconsistent input, not an algorithmically required conflict-resolution rule. ADR 0031 and ADR 0820 phrase block authority more strongly than the valid-file source establishes. Record as a malformed-input policy/interpretation question, not as a confirmed reader defect.
+
+There is a bounded potential 2.B work-factor edge: `hash_2b` imposes `MAX_2B_ROUNDS = 256`, although Algorithm 2.B states a data-dependent termination condition and NOTE 3 says rounds are most likely 65–80, without a stated fixed maximum. Given an 8-bit last byte and comparison against round-number minus 32, the loop's natural upper termination is by index 287; theoretically, inputs needing more than 256 iterations would be cut short. I did not obtain a vector requiring that many rounds; the probability under random salts is vanishingly small, so this is an implementation-bound risk, not a reproduced conformance failure. Parent can decide whether 256 should be raised to the clause's safe natural bound. No speculative failing regression is promoted.
+
+## Source and corrections
+
+The defining text is in `doc/ISO_32000-2_sponsored_EC3.pdf`, cross-checked with `scratchpad/r2038/spec-audit/ec3-parent-layout.txt`: §7.6.3.2 printed p.75 / physical p.90; §7.6.3.3 follows; §7.6.4.3.1 is printed p.79 / physical p.94, Algorithm 2 is printed p.80 / physical p.95; Algorithm 2.A spans printed pp.80–81 / physical pp.95–96; 2.B is printed p.82 / physical p.97; Algorithm 13 is printed p.86 / physical p.101. Searchable text is at `doc/md/ISO_32000-2_sponsored_EC3.md:2544–2565, 2666–2844`.
+
+Relevant corrections in `doc/errata-read.md`: EC3 Issue #325 rewrites Algorithm 2.B step (a) into owner and user forms of K0 and K1=64 repetitions; current `hash_2b(password, salt, extra)` matches those two cases, with `extra` empty on user and `/U` on owner. Issue #24 removes the erroneous IV phrase from ECB statements; the R6 `/Perms` operation is one AES-256 block, while `/OE` and `/UE` use AES-CBC with zero IV. Issue #542 changes the referenced AES padding wording used by the legacy AES data path. None of these changes alters the legacy file-key or password algorithms.
+
+## Tests and implementation
+
+For Algorithm 1, `crypt.rs` appends the low object/generation bytes and adds `sAlT` only for AES to derive per-object keys; unit controls assert the clause's object 258/generation 7 bytes and distinguish RC4 from AES. `decrypt_under` reads AES-CBC IV from the encrypted bytes and removes padding. Corpus files assert actual readable content for R2/RC4, R3/RC4 and R4/AESV2; these are more independent than `encryption_fixtures.rs`, whose hand-coded generators are based on the same standard steps.
+
+For R6, `utf8_password` applies RFC 4013 SASLprep and truncates the prepared UTF-8 byte sequence to 127 bytes. RFC 4013 §3 examples 1, 4 and 6 give independent expected results for soft-hyphen mapping, NFKC and prohibited control input ([RFC 4013](https://www.rfc-editor.org/rfc/rfc4013.html)). `authenticate_aes256` checks the owner hash first, includes the first 48 bytes of `/U` only for owner checks/keys, and unwraps `/OE` or `/UE` with AES-CBC. `hash_2b` implements 64 rounds minimum, the AES-128-CBC encryption of repeated K0, big-endian modulo-three selection of SHA-256/384/512, then the last-byte stopping rule. EC3 #325 is aligned with `extra` in the code. The real `saslprep-r6.pdf` and `issue7665.pdf` tests provide an independent file/ciphertext path; the generated R6 fixture in `encryption_fixtures.rs` is still a same-algorithm control. Draft `drafts/r6_password_prep_vectors.rs` adds direct RFC vectors and the 127-byte boundary which I did not find asserted against `utf8_password` itself.
+
+The R6 writer implements Algorithms 8–10 and has structurally useful tests for output field lengths, deterministic entropy, metadata handling and round-trip opening. The generated `/O`, `/U`, `/OE`, `/UE`, and `/Perms` are not compared with a fixed independently generated R6 writer vector. Writer round-trip is therefore not an independent cryptographic oracle. This remains a test-strength limitation, not a behavior finding.
+
+Legacy Algorithms 3–7 are deprecated for PDF 2.0 production, but reader support remains exercised by actual producer files. `encryption_fixtures.rs` also gives useful explicit controls for revision 2, 3 and 4, permission flags, metadata sentinel, empty/short/long legacy password padding, owner decryption and AES/RC4 object keys. Algorithm 2's password encoding, 32-byte padding, O/P/ID/metadata inputs and 50 MD5 iterations are implemented in the reader. No inference is made that a PDF 2.0 writer must produce these deprecated revisions.
+
+The 2038 clause inventory still lists all algorithm subrows as `implemented`; this pass adds partial source/assertion review only. Parent artifacts from the prior encryption shard already record Table 20, crypt-filter and permissions-consumer work; this artifact does not re-audit those areas.
+
+## ADR decisions and residual limits
+
+`decisions.json` records the relevant readings for ADRs 0031, 0253, 0255, 0820 and 0829. In particular, #325 now directly supports the code's corrected `extra` construction; ADR 0829's revision-5 SASLprep claim cites the Adobe ExtensionLevel 3 supplement and is distinct from PDF 2.0's direct R6 text. ADR 0031/0820's `/Perms` authority formulation is narrowed above to avoid claiming malformed mismatch handling is normatively dictated.
+
+Not certified: every AES/RC4 primitive vector, every R6 owner/user branch and malformed-entry edge, every deprecated algorithm's producer profile, output writer crypto against an independent fixed R6 dictionary vector, or all code paths where a malformed `/Perms` block falls back. The reviewer did not execute tests.

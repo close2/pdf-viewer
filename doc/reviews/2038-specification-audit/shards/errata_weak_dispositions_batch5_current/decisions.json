@@ -1,0 +1,64 @@
+{
+  "title": "Selected decisions for EC3 weak-disposition batch 5",
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "issues": [
+        432,
+        593
+      ],
+      "topic": "Conflicting accepted page-label corrections",
+      "source": "The static EC3 annotations conflict, but the official issue history subsequently removed #432 ISO approval, marked it duplicate, and closed it completed; #593 received PDF TWG agreement and was closed completed in 2025.",
+      "current_behavior": "Repeat-letter output (page 28 is BB) is directly tested.",
+      "verdict": "No unresolved current source conflict: retain D03 and repeated-letter behavior. Correct ADR0601 and the source comment because ADR0601 postdates but ignores the2025 resolution. Do not add a duplicate finding or test.",
+      "selected_adrs": [
+        "ADR 0601"
+      ]
+    },
+    {
+      "issues": [
+        468
+      ],
+      "topic": "Choice-field /I and duplicate display labels",
+      "source": "Table 234's corrected /I entry applies beyond MultiSelect and the former array-value trigger was removed. The following /V precedence condition remains when V and I identify different items.",
+      "current_behavior": "The already committed B26 public test fails: repeated valid display-name entries are collapsed even though I [0,1] agrees with two selected options. Distinct-label and one-index controls pass.",
+      "verdict": "Retain B26 as V-array multiplicity behavior, qualified from #468\u2019s specific mandatory case (same export value, different display names). The fixture has different exports, same labels; /I is optional otherwise but agrees with V. Use the tracked test/result, not the earlier scratch draft.",
+      "selected_adrs": [
+        "ADR 0248",
+        "ADR 0253",
+        "ADR 0596"
+      ],
+      "draft_reference": "crates/viewer-core/tests/duplicate_choice_labels_spec_audit.rs; expected failure 2038-B26"
+    },
+    {
+      "issues": [
+        482
+      ],
+      "topic": "DestOutputProfileRef URL entries",
+      "source": "Table402 replacement removes the embedded-file alternative; each URLs element is a URL file-spec dictionary with FS /URL and PDFDocEncoded F limited to RFC3986. Intent processing remains conditional.",
+      "current_behavior": "URL file specs are represented but not dereferenced. Separate tests in output_intents_current show page-level intent is lost to catalog fallback when the referenced/embedded profile is unavailable.",
+      "verdict": "No unconditional fetch defect is established. Preserve the separate page-versus-catalog source-priority failure and record remote URL resolution as an explicit capability boundary; do not dismiss the row as producer-only where a consumer elects to honor it.",
+      "selected_adrs": [
+        "ADR 1932"
+      ]
+    },
+    {
+      "issues": [
+        438,
+        494,
+        513,
+        518,
+        522,
+        549
+      ],
+      "topic": "Direct assertions, notes and narrowed producer forms",
+      "source": "#438 and #494 clarify encoded-name/string bytes; #513 is a layout note; #518 removes only the CMap array alternative, retaining a single-dictionary requirement and compatibility obligations; #522 is an informative /Size note; #549 changes the no-current-path painting operator behavior.",
+      "verdict": "Existing byte/name, shape, undefined-painting, and parser evidence is sufficient for the applicable reader claims. No unsupported malformed-input rejection is inferred from producer-constraint changes or informative notes.",
+      "selected_adrs": [
+        "ADR 0453",
+        "ADR 0548",
+        "ADR 0724"
+      ]
+    }
+  ]
+}

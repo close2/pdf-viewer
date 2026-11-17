@@ -1,0 +1,32 @@
+{
+  "shard": "colour_dictionary_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "decisions": [
+    {
+      "adr": "0012/0101",
+      "topic": "Cal-space parameters and BlackPoint",
+      "review": "Table 62–64 constraints are producer-side; current parser/conversion tests cover defaults, gamma, matrix, Lab/Cal anchors. BlackPoint gamut handling is a chapter10 choice and should not be promoted to mandatory behavior based on 8.6.5 entries alone. Accepting non-unit Y whitepoint is recovery; no reader-refusal requirement found."
+    },
+    {
+      "adr": "0034/0035/1098/0464",
+      "topic": "ICCBased profile precedence, Range and profile versions",
+      "review": "Profile-header version and permitted fallback rules remain relevant. Existing B25 demonstrates missing ICC Range clipping before Alternate with an independently validated ICC2 profile and discriminating controls; not an outstanding unexecuted draft. Other profile/range tests do not close B25. Table67 writer restrictions are not automatic reader-rejection duties."
+    },
+    {
+      "adr": "1193, successor1229; 1103/1338",
+      "topic": "DeviceN NChannel route and process/spot attributes",
+      "review": "Table70 permits reader-specific attribute/custom blends instead of the generic alternate/tint transform. Current process-only mapping and spot Colorants routes have independent controls; ADR1229 simulation is distinct from default display fallback. Table71 ordered Components mapping and Table70 Colorants-name equality are explicitly exercised."
+    },
+    {
+      "adr": "1228/1535",
+      "topic": "separation simulation and printing support boundary",
+      "review": "Simulation is optional user/device behavior; the app’s display alternate route and explicit simulated press route must remain distinct. This dictionary audit does not assert physical colorant installation or certify every native press implementation."
+    },
+    {
+      "adr": "EC3 #309 and #228",
+      "topic": "effective ICC/DeviceN annotations",
+      "review": "#228 permits ignoring private ICC tags, consistent with no private-tag pipeline. #309 changes the producer rule for None in NChannel; no new mandatory reader rejection is inferred. Prior `special_colour_spaces_current` noticed errata-read description for #309 misnamed the edited subject; source overlay is None."
+    }
+  ],
+  "decision": "No new duplicate draft; retain existing executed B25 failure and optional MixingHints distinction. Parent review supersedes earlier unrun-candidate wording."
+}

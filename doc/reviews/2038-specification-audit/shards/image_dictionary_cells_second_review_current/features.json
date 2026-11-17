@@ -1,0 +1,362 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected effective image dictionary, default-Decode, alternate-image, and inline-image dictionary cells; not whole-clause or codec certification.",
+  "source": {
+    "standard": "ISO 32000-2:2020 as amended by EC3; footers checked in primary PDF.",
+    "tables": [
+      {
+        "id": 87,
+        "caption": "Additional entries specific to an image dictionary",
+        "physical_pages": [
+          273,
+          274,
+          275,
+          276
+        ],
+        "printed_pages": [
+          258,
+          259,
+          260,
+          261
+        ],
+        "selected_cells": [
+          {
+            "key": "Type",
+            "condition": "Optional name; if present, shall be XObject."
+          },
+          {
+            "key": "Subtype",
+            "condition": "Name; required for ordinary image XObjects (except when used solely as thumbnail); value shall be Image."
+          },
+          {
+            "key": "Width",
+            "condition": "Positive integer, required; image sample width."
+          },
+          {
+            "key": "Height",
+            "condition": "Positive integer, required; image sample height."
+          },
+          {
+            "key": "ColorSpace",
+            "condition": "Required except JPXDecode; not for ImageMask; JPX dictionary space overrides codestream, absent dictionary space uses codestream; absent-space Decode ignored except ImageMask."
+          },
+          {
+            "key": "BitsPerComponent",
+            "condition": "Permitted values 1,2,4,8,16 (16 since PDF1.5); shared component depth; optional on masks and JPX; stencil if present is 1; filter-output consistency applies."
+          },
+          {
+            "key": "Intent",
+            "condition": "Optional rendering intent, default current graphics-state intent; ignored for stencil."
+          },
+          {
+            "key": "ImageMask",
+            "condition": "Optional boolean, default false; true selects stencil; sample paint uses current nonstroking color; BPC and Decode restrictions apply."
+          },
+          {
+            "key": "Mask",
+            "condition": "Optional stream or color-key array; absent by default; forbidden on ImageMask."
+          },
+          {
+            "key": "Decode",
+            "condition": "Optional numeric pairs, default per Table88; pair count is twice components, except mask [0 1] or [1 0]; JPX/no ColorSpace exception."
+          },
+          {
+            "key": "Interpolate",
+            "condition": "Optional boolean, default false; request is a hint that may be ignored."
+          },
+          {
+            "key": "Alternates",
+            "condition": "Optional array, cannot occur on an alternate image; effective selection amended by EC3 #79."
+          },
+          {
+            "key": "SMask",
+            "condition": "Optional soft-mask image; overrides graphics-state SMask and image Mask; EC3 #215 says ignore this entry if nonzero SMaskInData is also present."
+          },
+          {
+            "key": "SMaskInData",
+            "condition": "Optional integer for JPX, otherwise meaningless; default 0; 1 carries opacity, 2 carries opacity with premultiplied color; nonzero conflicts with SMask and has one shared opacity channel."
+          },
+          {
+            "key": "Name",
+            "condition": "Required only in PDF1.0, optional afterwards, deprecated PDF2.0 by EC3 #619."
+          },
+          {
+            "key": "StructParent",
+            "condition": "Required only if image is a structural content item."
+          },
+          {
+            "key": "ID",
+            "condition": "Optional byte string, preferred indirect; Web Capture parent-set identifier."
+          },
+          {
+            "key": "OPI",
+            "condition": "Optional dictionary, deprecated in PDF2.0; ignored when ImageMask is true."
+          },
+          {
+            "key": "Metadata",
+            "condition": "Optional metadata stream; see §14.3.2."
+          },
+          {
+            "key": "OC",
+            "condition": "Optional OCG/OCMD. Before processing an image XObject, visibility shall be determined; invisible means skip the entire image as if no Do occurred."
+          },
+          {
+            "key": "AF",
+            "condition": "Optional PDF2 array of one or more FileSpec dictionaries associated with this image XObject; §14.13.7."
+          },
+          {
+            "key": "Measure",
+            "condition": "Optional PDF2 measure dictionary specifying the scale and units applying to the image."
+          },
+          {
+            "key": "PtData",
+            "condition": "Optional PDF2 point-data dictionary specifying extended geospatial data applying to the image."
+          }
+        ],
+        "all_23_keys": [
+          "Type",
+          "Subtype",
+          "Width",
+          "Height",
+          "ColorSpace",
+          "BitsPerComponent",
+          "Intent",
+          "ImageMask",
+          "Mask",
+          "Decode",
+          "Interpolate",
+          "Alternates",
+          "SMask",
+          "SMaskInData",
+          "Name",
+          "StructParent",
+          "ID",
+          "OPI",
+          "Metadata",
+          "OC",
+          "AF",
+          "Measure",
+          "PtData"
+        ]
+      },
+      {
+        "id": 88,
+        "caption": "Default decode arrays",
+        "physical_pages": [
+          278
+        ],
+        "printed_pages": [
+          263
+        ],
+        "selected_rows": [
+          "DeviceGray",
+          "DeviceRGB",
+          "DeviceCMYK",
+          "CalGray",
+          "CalRGB",
+          "Lab",
+          "ICCBased",
+          "Indexed",
+          "Separation",
+          "DeviceN"
+        ],
+        "scope_note": "Pattern is explicitly not permitted with images.",
+        "table_start_note": "Physical277/printed262 has preceding prose cross-reference only; the Table88 caption and rows are on physical278/printed263."
+      },
+      {
+        "id": 89,
+        "caption": "Entries in an alternate image dictionary",
+        "physical_page": 279,
+        "printed_page": 264,
+        "rows": [
+          "Image required stream",
+          "DefaultForPrinting optional boolean default false, at most one designated per base",
+          "OC optional OCG or OCMD"
+        ],
+        "selection_algorithm": "Effective §8.9.5.4 algorithm includes the EC3 2020 markup note and #79 corrections."
+      },
+      {
+        "id": 91,
+        "caption": "Entries in an inline image object",
+        "physical_pages": [
+          283,
+          284
+        ],
+        "printed_pages": [
+          268,
+          269
+        ],
+        "selected_rows": [
+          "BitsPerComponent/BPC",
+          "ColorSpace/CS",
+          "Decode/D",
+          "DecodeParms/DP",
+          "Filter/F",
+          "Height/H",
+          "ImageMask/IM",
+          "Intent/no abbreviation",
+          "Interpolate/I (capital I)",
+          "Length/L",
+          "Width/W"
+        ],
+        "rule": "Unlisted entries ignored; abbreviation precedence is corrected by #3; uppercase I key is #306."
+      },
+      {
+        "id": 92,
+        "caption": "Additional abbreviations in an inline image object",
+        "physical_page": 284,
+        "printed_page": 269,
+        "selected_rows": [
+          "DeviceGray/G",
+          "DeviceRGB/RGB",
+          "DeviceCMYK/CMYK",
+          "Indexed/I (uppercase I value)",
+          "ASCIIHexDecode/AHx",
+          "ASCII85Decode/A85",
+          "LZWDecode/LZW",
+          "FlateDecode/Fl (uppercase F, lowercase l)",
+          "RunLengthDecode/RL",
+          "CCITTFaxDecode/CCF",
+          "DCTDecode/DCT"
+        ],
+        "rule": "Abbreviations are inline-only; JPXDecode, Crypt and JBIG2Decode prohibited for inline data."
+      }
+    ],
+    "ec3": [
+      {
+        "issue": 3,
+        "effect": "Abbreviation wins over full spelling even when the full spelling appears later."
+      },
+      {
+        "issue": 13,
+        "effect": "Table87 marked-key restriction for soft-mask images points to Table143; it is not a separate generic image error rule."
+      },
+      {
+        "issue": 14,
+        "effect": "Emphasis on Mask wording; no substantive requirement change."
+      },
+      {
+        "issue": 19,
+        "effect": "DeviceGray/RGB/CMYK names identify device spaces directly, not same-named ColorSpace resources."
+      },
+      {
+        "issue": 20,
+        "effect": "ID separator exception applies when final or only filter is ASCIIHex/ASCII85; encoded delimiter bytes remain data."
+      },
+      {
+        "issue": 79,
+        "effect": "Amends alternate-image selection ordering and fallback; effective algorithm is source markup plus correction, not struck text."
+      },
+      {
+        "issue": 215,
+        "effect": "ImageMask ignores its own Mask and ColorSpace; if SMaskInData is nonzero, explicit SMask is ignored. Does not waive BPC, Decode or channel conditions."
+      },
+      {
+        "issue": 306,
+        "effect": "Uppercase I is the Table91 Interpolate key abbreviation; the same uppercase glyph I is Table92 Indexed value abbreviation, distinguished by key versus value position."
+      },
+      {
+        "issue": 619,
+        "effect": "Marks image Name deprecated in PDF2.0."
+      }
+    ]
+  },
+  "assertions_and_consumers": [
+    {
+      "feature": "Table87 Decode cardinality/type and Table88 defaults",
+      "assertions": [
+        "image_dictionary_consistency_audit.rs tests short/long RGB Decode arrays with incomplete/error outcome and valid six-number positive control.",
+        "decode_element_types_audit.rs::decode_pairs_must_each_be_numbers is current confirmed failure 2038-B11 for correct-length arrays with nonnumeric members.",
+        "decode_arrays.rs asserts linear mapping, omitted DeviceGray identity, reversed DeviceGray, Lab-specific default, every Indexed default index, and JPEG application.",
+        "jpx_decode_array.rs distinguishes stated ColorSpace applying Decode from absent-space JPX Decode being ignored."
+      ],
+      "consumer": "pdf-model image dispatch/space and sample decoding, then CPU raster literal pixels in Decode tests.",
+      "quality": "Independent sample/color expectations for covered rows; B11 is an observed failing assertion, not a new draft or inferred producer-only rejection."
+    },
+    {
+      "feature": "Stencil and image masks",
+      "assertions": [
+        "image_masking_audit.rs::ec3_image_mask_ignores_its_own_mask_and_colour_space_entries checks marks/clear pixels with forbidden entries.",
+        "image_masking_audit.rs BPC=1 positive and BPC=2 diagnostic control.",
+        "image_masks.rs includes current-fill stencil pixels; explicit/color-key mask paths are owned by that sibling shard."
+      ],
+      "consumer": "Image content interpretation into display list and CPU raster pixels.",
+      "quality": "The #215 ignore rule is distinguished from malformed-input refusal; no defect identified in sampled stencil path."
+    },
+    {
+      "feature": "Intent and interpolation",
+      "assertions": [
+        "rendering_intent.rs image-intent and graphics-state-default tests compare rendered transforms; image-mask intent branch is separately considered.",
+        "image_interpolation_audit.rs checks optional flag behavior under magnification; parent review says this is policy coverage, since processor may ignore interpolation."
+      ],
+      "consumer": "Per-image state selection and image sampler.",
+      "quality": "Intent tests are route-discriminating; interpolation pixels are not treated as a normative kernel oracle."
+    },
+    {
+      "feature": "Alternates / Table89",
+      "assertions": [
+        "alternate_images_audit.rs compares black base/white alternate pixels for absent versus true DefaultForPrinting and reverses two visible alternates to show array order matters.",
+        "optional_content.rs covers hidden base/no alternate, visible base, first eligible alternative, selected alternate OC handling, and View/Print/Export distinctions."
+      ],
+      "consumer": "Purpose-aware page interpretation and raster selection.",
+      "quality": "The current selected branches are independent pixel consequences. Malformed duplicate DefaultForPrinting designation is producer-invalid; no reader refusal is inferred."
+    },
+    {
+      "feature": "Inline Tables91/92",
+      "assertions": [
+        "inline_images_dictionary_audit.rs tests full key positive control, abbreviation precedence in both key orders, unlisted SMask ignored, and key/value-position-sensitive uppercase I versus Indexed value.",
+        "inline_images_residual_audit.rs checks stencil with omitted ColorSpace and current color, DefaultGray versus named resource, LZW/A85 decoded bytes and resumed content, whitespace/sample preservation, reserved device names, and two literal Indexed palette colors.",
+        "inline_images.rs gives public render controls for abbreviated dictionaries and sample data."
+      ],
+      "consumer": "Content-stream scanner → image dictionary decoder → display list → CPU raster; scan-only tests also assert exact data/suffix.",
+      "quality": "Strong for selected abbreviation and byte-boundary paths. Table91 Intent correctly has no abbreviation; no missing RI key is implied. All table rows are not exhaustively tested."
+    },
+    {
+      "feature": "JPX in-data opacity",
+      "assertions": [
+        "jpx_ordinary_opacity_audit.rs has ordinary RGB code0 opaque control, code1 straight-alpha control, and code2 expected unpremultiplied result.",
+        "Current global expected-failures record code2 as 2038-B14 because the pinned JPX route refuses the valid sampled cdef opacity input before rasterization."
+      ],
+      "consumer": "JPX filter/codestream channels through ordinary PDF image draw.",
+      "quality": "B14 is retained as a confirmed, bounded current failure. Code0/1 controls pass; no second duplicate draft is proposed."
+    },
+    {
+      "feature": "Table87 trailing rows OC, AF, Measure and PtData (physical276/printed261)",
+      "assertions": [
+        "optional_content.rs::a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates tests an image dictionary OC gate with a visible/hidden contrast; additional selected-alternate tests cover image OC and its amended priority rules.",
+        "pdf-model/src/attachment.rs unit test::an_images_associated_file_reads_back_through_the_general_reader checks that a synthetic image dictionary AF resolves to a name and /Source relationship through the generic helper. It is helper/carrier evidence, not host extraction or a valid whole-document producer witness: the synthetic tree is zero-page and the embedded file omits Table44 Params.",
+        "measurement.rs parses Measure and PtData for page Viewport records; selected measurement tests exercise viewport APIs, not Measure/PtData attached to image XObjects."
+      ],
+      "consumer": "OC is on the image content interpretation/draw path; AF is generic association lookup; Measure/PtData are currently parsed in the viewport measurement path.",
+      "quality": "OC has direct image visibility/skip pixel witnesses. AF helper behavior has a focused unit assertion but its fixture is not a fully conforming associated-file PDF. Measure/PtData are parsed for page Viewport records; no image-XObject-specific measurement consumer assertion was located. These are qualified coverage residuals, not automatic rendering defects."
+    }
+  ],
+  "ledger": "doc/conformance/ledger.toml rows 8.9.5.1/.2/.3/.4, 8.9.6, 8.9.7, 7.4.9, 11.6.4.3/.5.2 are separate owners; this artifact maps selected Table87/88/89 and inline table cells without promoting a whole-row pass.",
+  "selected_adrs": [
+    {
+      "adr": "2812",
+      "assessment": "Retain source split for Table87 image-mask ignores vs explicit error-on-inconsistent-image rule; B11 remains the narrow numeric-element failure."
+    },
+    {
+      "adr": "2863",
+      "assessment": "Retain bounded sYCC/JPX channel route and literal pixels; this shard does not broaden JPX family coverage."
+    },
+    {
+      "adr": "0253 / 1173",
+      "assessment": "Current alternate-image path follows amended #79 OC precedence and separates Print from View/Export; prior pre-fix divergence is historical."
+    },
+    {
+      "adr": "0019 / 0464 / 0466 / 0467",
+      "assessment": "Inline separator/EOD choices are already covered in inline images shard; CRLF one-EOL vs single-separator interaction remains a source interpretation residual, not a red test."
+    }
+  ],
+  "limits": [
+    "Selected dictionaries and consumer paths only. No claim of full filter/color-space, mask, transparency, codec or alternate malformed-input coverage.",
+    "B11 and B14 are already current global expected failures; no duplicate tests drafted.",
+    "Producer shall constraint is not converted to required reader rejection absent reader-directed source.",
+    "The Table88 matrix does not independently sample every color-space row; ICC Range and special spaces have sibling shards and remain outside this cell sample.",
+    "Inline fixtures use PDF1.7 exact-xref files; exact xref alone is not a producer-validity certificate, but the sampled cases state the local required image fields.",
+    "Table87 trailing Measure/PtData entries are included in the 23-key inventory; current measurement consumers found in this pass are viewport-oriented, so image-specific metadata semantics remain a bounded residual."
+  ],
+  "adjacent_extensions": []
+}

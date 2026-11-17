@@ -1,0 +1,72 @@
+{
+  "scope": "Bounded audit of ISO 32000-2 clause 13.3 Sounds, 13.4 Movies, 13.6.2 3D annotations, 13.7.2.1 RichMedia general, 13.7.2.3.1 RichMediaContent general, and 13.7.2.3.2 Assets name tree. Playback/active 3D rendering excluded by current ratification; still appearances and file handoff/save are in scope.",
+  "features": [
+    {
+      "clause": "13.3",
+      "title": "Sounds (deprecated in PDF 2.0)",
+      "source": "EC3 primary printed pp.637-638 (physical pp.652-653), Table 305 and following prose",
+      "effective_rules": ["/F identifies a self-describing external sound file; if absent, stream contains samples plus sound definition", "Table 305 defaults C=1, B=8, E=Raw; multibyte and packed samples are MSB-first; stereo samples interleave", "No standard CO/CP names are defined; the portability list is a should, and rate/channel constraints in that paragraph describe player formats"],
+      "reader_behavior": "Deprecated sound annotation/action file or sample data is handed to the configured host player as an Event::Media file. Embedded sample data is converted to RIFF/WAVE. This does not implement in-process playback.",
+      "ledger": "13.3 implemented; source/code/test mapping is largely concrete.",
+      "assertions": ["viewer-core/tests/movies_and_sounds.rs exercises external file handoff, action/annotation routes, and sample handoff", "pdf-model/src/media/wave.rs tests literal RIFF bytes for encodings/packing including 12-bit", "CO without known standard values is reported/refused for handoff"],
+      "limits": ["Deprecated 13.3 is superseded by 13.2; no obligation to implement deprecated authoring/playback interface", "Do not convert producer SHOULD portability guidance or muLaw parameter restrictions into general reader rejection rules", "Unsupported CO/CP format is distinct from playback non-support"]
+    },
+    {
+      "clause": "13.4",
+      "title": "Movies (deprecated in PDF 2.0)",
+      "source": "EC3 primary printed pp.638-640 (physical pp.653-655), Tables 306-307",
+      "effective_rules": ["A stream /Poster is an image XObject to display; /Poster false or absent displays no poster (default false); /Poster true retrieves from movie file", "Table 306 /F is a self-describing movie file; format and portability unspecified"],
+      "reader_behavior": "Static stream poster is painted; /Poster true is not decoded because that is playback. Activated file is handed to host player. Poster fit/centering is this viewer's chosen placement policy, not an ISO-mandated algorithm.",
+      "ledger": "13.4 implemented with separation of still poster from handoff/runtime.",
+      "assertions": ["pdf-model/tests/movie_poster.rs has literal 2:1 red/blue image pixels, blank/outside checks, false/default controls and true refusal", "viewer-core/tests/movies_and_sounds.rs tests public activation handoff and reports unsupported player activation parameters"],
+      "limits": ["Deprecated subclause", "Do not treat playback/activation dictionary interpretation as a reader duty under the current owner ratification", "/Aspect is descriptive, not rendered by current static implementation"]
+    },
+    {
+      "clause": "13.6.2",
+      "title": "3D annotations",
+      "source": "EC3 primary printed pp.643-645 (physical pp.658-660), Table 309 and inactive/active-state prose",
+      "effective_rules": ["A 3D annotation shall provide /AP with a normal appearance", "Inactive is default and displays normal appearance; the source says appearance may serve applications without 3D support and all applications for initial display", "Active state displays 3D artwork according to 3DV; out of scope under ratified U3D/PRC rendering exclusion"],
+      "reader_behavior": "Known subtype follows generic annotation AP placement; missing AP is refused with the clause-specific inactive-state rationale. No active 3D rendering.",
+      "ledger": "13.6 aggregate out-of-scope; 13.6.2 implemented for normal appearance only.",
+      "assertions": ["annotations.rs catch-all subtype test explicitly checks 3D no-AP yields no display commands and a subtype-specific inactive-state report", "raster_golden has a self-regression digest for tracked multimedia_annotations.pdf, but this is not an independent pixel oracle"],
+      "limits": ["Table 309 3DD/3DV/3DA and 3DB semantics are not certified by normal AP support", "No new isolated test drafted: a valid producer fixture needs a meaningful 3D stream plus a correct AP; generic placement is otherwise already well tested. Existing corpus golden only establishes output stability, not independent correctness."]
+    },
+    {
+      "clause": "13.7.2.1",
+      "title": "RichMedia annotation general",
+      "source": "EC3 primary printed p.700-701 (physical pp.715-716), Table 333 and inactive/active-state prose",
+      "effective_rules": ["A RichMedia annotation shall provide a normal AP appearance", "Inactive default shows the normal AP; active state presents configured artwork and is excluded", "EC3 #163 changes the RichMediaSettings sentence from descriptive uniqueness to 'if present, shall be unique'; that producer/runtime requirement remains outside this bounded rendering implementation"],
+      "reader_behavior": "Generic annotation AP placement draws the producer-supplied normal appearance; missing AP is refused with the clause-specific inactive-state report. No playback/active presentation.",
+      "ledger": "implemented narrowly for normal appearance; not the whole RichMedia lifecycle.",
+      "assertions": ["annotations.rs catch-all subtype test checks the no-AP inactive-state refusal for RichMedia", "multimedia_annotations.pdf is present in raster golden but golden is self-regression only"],
+      "limits": ["Table 333 /RichMediaContent required since PDF 2.0 is a producer requirement; reading it does not imply active runtime support", "Do not flatten #163 into a UI/rendering mandate; it addresses uniqueness when settings are present"]
+    },
+    {
+      "clause": "13.7.2.3.1",
+      "title": "RichMediaContent general",
+      "source": "EC3 primary printed pp.708-709 (physical pp.723-724), Table 341; #166 on physical p.724/printed p.709",
+      "effective_rules": ["/Type, if present, shall be RichMediaContent (producer rule)", "Table 341 /Assets is an optional name tree of embedded file specifications", "Effective EC3 #166 changes /Configurations from optional to required and requires non-empty; this is an authoring conformance rule for excluded active presentation"],
+      "reader_behavior": "Only /Assets are surfaced for listing/saving under the admitted embedded-file policy. /Configurations and /Views do not cause an in-process player/render path.",
+      "ledger": "implemented narrowly for assets. The note accurately distinguishes Assets reading from excluded Configurations/Views runtime; it does not claim Configurations is optional.",
+      "assertions": ["pdf-model/src/attachment/rich_media.rs test reads Assets and demonstrates Configurations/Views produce no file", "viewer-core/tests/rich_media_assets.rs checks current-page listing, extraction by name, pointer handoff as Event::Extracted and no Event::Media"],
+      "limits": ["#166's Required/non-empty wording applies to producers; no runtime-feature commitment is implied", "the integrated test fixture omits Configurations, so it is a narrow consumer test fixture, not evidence of full producer conformance"]
+    },
+    {
+      "clause": "13.7.2.3.2",
+      "title": "Assets name tree",
+      "source": "EC3 primary printed pp.709-710 (physical pp.724-725), prose and Example; #127 only renumbers/references text in this area",
+      "effective_rules": ["Assets maps names to embedded file specification dictionaries", "Tree key matches both F and UF, whose values are equal; filename URI and character/length/terminal-period restrictions are producer rules"],
+      "reader_behavior": "Assets join attachment listing for the page in view, can be extracted by listed name, and are emitted as files on annotation click; they are not handed to playback.",
+      "ledger": "implemented narrowly as attachment listing/save/handoff.",
+      "assertions": ["pdf-model unit test follows Table 341 Assets while Configurations/Views yield no files", "viewer-core exact-xref public test covers page scoping, direct extract bytes, pointer click, malformed-name report and no Event::Media"],
+      "limits": ["ADR 0295/1186 choose current-page query over a document-wide open-time page-tree scan; this is documented product scope/performance design", "fixture's malformed filename is still extracted after being reported, consistent with treating these restrictions as producer-side rather than an unquoted reader rejection duty"]
+    }
+  ],
+  "errata": [
+    {"issue": "EC3 #142", "location": "13.6.2 physical 658/printed 643", "effect": "Corrects a lost-number cross-reference from '0 Rich media' to '13.7 Rich media'; no behavior change."},
+    {"issue": "EC3 #163", "location": "13.7.2.1 physical 715/printed 700", "effect": "Requires RichMediaSettings uniqueness if present; unchanged scope exclusion for its active settings behavior."},
+    {"issue": "EC3 #166", "location": "Table 341 physical 724/printed 709", "effect": "Makes Configurations required and non-empty; producer requirement omitted from current printed table and ledger note, but active configuration is excluded."},
+    {"issue": "EC3 #58", "location": "13.7.2.3.4/Table 343 physical 726/printed 711", "effect": "Changes whether RichMediaInstance Asset references are also in Assets; outside assigned subclauses."}
+  ],
+  "source_error_to_avoid": "The printed openings of §§13.3 and 13.4 say they are superseded by the general multimedia framework in §13.2. That does not itself require an in-process player; distinguish source organization from the current owner ratification, which admits file handoff and still appearances while excluding playback."
+}

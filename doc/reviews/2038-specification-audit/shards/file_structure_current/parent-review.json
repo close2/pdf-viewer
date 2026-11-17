@@ -1,0 +1,6 @@
+{
+  "execution": "header-prefix-wave16.log confirms newfailure; structure-text-wave16.log56run55PASS1sameFAIL (includes4 file_structure_audit controls).",
+  "fixture": "Hand-built exact offsets measured fromPDFheader; one valid incremental free65535 subsection, previousRoot/Size restated, old bytesunchanged. Parent independently checked source free-list second mechanism and ADR0803.",
+  "diagnosis": "HEADER_SEARCH_WINDOW1024 misses marker at2048; read_from_startxref base0 fails, scannedbody restores object4. Recovery is reported, so do not call it an absence of diagnostic.",
+  "prior_inventory": "1983 offset-origin-and-prefix feature was confirmed from short-prefix controls; newcounterexample narrows that evidence."
+}

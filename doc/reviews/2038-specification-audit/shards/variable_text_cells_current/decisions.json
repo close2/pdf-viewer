@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "decision": "Root ADR 2448, §3 unlimited field inheritance / cached lineages",
+      "verdict": "Reaffirm its no-depth-bound decision; qualify its treatment of non-inheritable convenience entries.",
+      "reason": "EC3 §12.7.4.1 says only attributes designated inheritable in the relevant tables take parent values and prohibits a depth cap. ADR 2448 correctly establishes unbounded traversal for designated inheritable entries, but its own inventory calls RV/DS non-designated and yet reads them from any ancestor. That is separate from the valid owning-terminal-field-to-separate-widget lookup."
+    },
+    {
+      "decision": "Root ADR 1634 / 1635 rich-text subset and value-vs-rich-value selection",
+      "verdict": "Reaffirm the bounded XFA rich-text subset and existing V/RV character-agreement rules; keep the DS ancestry question separate.",
+      "reason": "The present evidence confirms markup/character controls and rich formatting, but does not justify expanding supported XFA. The candidate DS issue is where a style is sourced, not the CSS/XHTML subset or which value wins."
+    },
+    {
+      "decision": "Root ADR 1762 script field style writes",
+      "verdict": "No contradiction found in the bounded scan; its direct field DA/Q edits are consistent with Table 228 inheritance and script-specific policy.",
+      "reason": "The active issue is reading a noninheritable DS from a nonterminal ancestor. Script writes are field mutations and have their own current consumers; no evidence here supports recertifying the entire script property route."
+    },
+    {
+      "decision": "ADR 1197 and 0187 XFA scope/document availability",
+      "verdict": "No expansion requested.",
+      "reason": "Table 228's SHALLs addressed to the processor remain distinct from support for the full XFA 3.3 format. Existing code documents and implements a subset; this audit claims only the source-of-DS inheritance boundary."
+    }
+  ],
+  "draft_status": "The valid-rendering DS draft was integrated by the parent and run at wave89: parent reports the ancestor-only case failed, while local-style and terminal-over-ancestor controls passed. The Q precedence draft was integrated for wave89b with parent-added center-origin/equal-width/default checks; no result was relayed to this shard. Both fixtures use a separate widget/terminal/nonterminal tree, exact xref, DA/DR Helvetica and true NeedAppearances for absent AP in PDF 1.7."
+}

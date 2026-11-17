@@ -1,0 +1,27 @@
+[
+  {
+    "decision": "ADR 0017's original statement that interactive optional content is not implemented is stale as a present-tense status; current code and ADR 1173/1261 add audience, zoom, Print, Export, automatic usage adjustment and the layer panel. The ADR remains useful as rationale for default-state visibility and explicit /OCProperties semantics, but its former exclusions cannot support current completion claims.",
+    "evidence": ["doc/adr/0017-optional-content.md", "doc/adr/1173-what-the-output-is-for-is-an-input-and-the-adjustment-sets.md", "doc/adr/1261-a-*.md", "pdf-model/src/optional_content.rs", "pdf-model/tests/optional_content.rs"],
+    "assessment": "Keep decision rationale; superseded statements must not be presented as current architecture."
+  },
+  {
+    "decision": "ADR 1173's event-purpose channel is supported by §8.11.4.5 and its tests: Print/Export apply over current states and return to prior states; event Event and Category remain distinct (Table 101 versus Table 100). Its assignment correction is source-supported by the stated group-state assignment and Table 100 missing Zoom/Print behavior. Current public assertions check print/export and lifecycle.",
+    "evidence": ["doc/adr/1173-what-the-output-is-for-is-an-input-and-the-adjustment-sets.md §§1-4", "pdf-model/tests/optional_content.rs::a_print_event_turns_on_the_layer_the_view_event_turned_off", "::an_export_event_applies_only_to_an_export", "::an_events_changes_last_only_while_the_purpose_stands", "processed EC3 lines 7083-7113 and 7130-7155"],
+    "assessment": "SUPPORTED for the decision sampled; this is not a whole §8.11.4.4/8.11.4.5 certification."
+  },
+  {
+    "decision": "ADR 0178's group-reference walk intentionally serves panel VisiblePages reachability, not the visibility evaluator. It follows named resource properties, nested XObjects and annotations; that query should not be mistaken for evidence that runtime visibility composition is tested. The standard's phrase 'referenced by' in UI filtering does not define every reachability corner, so the ADR's scope choice is representational policy.",
+    "evidence": ["doc/adr/0178-which-groups-a-page-references.md", "pdf-model/src/optional_content.rs::groups_referenced_by", "pdf-model/tests/optional_content.rs::a_group_named_only_by_a_marked_content_point_is_still_referenced"],
+    "assessment": "SUPPORTED within ADR scope; no bearing on missing null-reference membership assertions."
+  },
+  {
+    "decision": "ADR 1261 makes aggregate statuses follow child statuses. Source supports aggregation because §8.11.1/8.11.4.1 introduce the following structures rather than adding a second independent rendering algorithm. This audit found at least two granular Table 97/parent-context assertions not directly represented in named tests, so aggregate status is not evidence of feature-complete assertions.",
+    "evidence": ["doc/adr/1261-a-*.md", "doc/conformance/ledger.toml rows 8.11 through 8.11.4.5", "drafts/nested_visibility.rs"],
+    "assessment": "Aggregation rule sound; status label remains a ledger claim to audit at feature granularity."
+  },
+  {
+    "decision": "Potential ambiguity: §8.11.2.3 says an intent-ignored OCG has 'no effect on visibility', while §8.11.2.2 defines Boolean VE evaluation on OCG state. The intended Boolean value for an ignored-intent operand, especially under Or or Not, is not explicit in the reviewed wording. Current `operand` substitutes true when state is unavailable, which is neutral for And but not Or/Not. This audit does not classify that as a defect or prescribe a test expectation without a normative interpretation.",
+    "evidence": ["processed EC3 lines 6870-6892", "pdf-model/src/optional_content.rs::operand/evaluate_expression"],
+    "assessment": "Open standards interpretation question only; do not call reader failure from it without stronger source/errata evidence."
+  }
+]

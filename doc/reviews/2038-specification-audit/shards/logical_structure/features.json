@@ -1,0 +1,410 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": [
+    {
+      "feature": "Structure root discovery and ordered hierarchy",
+      "clause": "§14.7.2 Structure hierarchy; Table 354 /K",
+      "title": "The structure tree root is located from Catalog /StructTreeRoot; root /K children define order and are structure elements.",
+      "source": "Effective ISO 32000-2 p.722, §14.7.2 and Table 354; Tables 354–355. Producer-side type requirements are not reader rejection mandates.",
+      "errata": "None directly affecting hierarchy. Table heading in EC3 source checked against PDF footer.",
+      "ledger": "§14.7.2 implemented; crates/pdf-model/src/structure.rs, structure/logical.rs, structure/owners.rs; tests include tree/role and cycle.",
+      "code": "crates/pdf-model/src/structure.rs:290 (of), 308 (children), 402 (walk); crates/pdf-model/src/structure/logical.rs:116 (descend).",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "crates/pdf-model/src/structure/tests.rs::a_structure_tree_that_points_at_itself_terminates",
+        "crates/pdf-model/tests/structure.rs::the_largest_structure_tree_in_the_tree_is_walked_whole"
+      ],
+      "assertions": "Existing exact-offset PDF builders assert successful open but the structure unit helper does not explicitly assert !was_recovered; largest-tree integration exercises real corpus. Order test confirms depth-first parent-first /K order.",
+      "verdict": "supported with a resource-limit reporting defect",
+      "residuals": [
+        "children() and identified_children() silently take only MAX_CHILDREN=65,536; descend() silently returns at MAX_DEPTH=64. Neither marks Walk.truncated, whose current flag only represents MAX_ELEMENTS. A valid larger fan-out/depth can therefore be exposed as a complete prefix.",
+        "Draft hierarchy_truncation_draft.rs adds exact-xref no-recovery, small positive control, and assertions accepting either full traversal or an explicitly reported bound."
+      ]
+    },
+    {
+      "feature": "Table 354 /IDTree and element identifiers",
+      "clause": "§14.7.2 Table 354 /IDTree; Table 355 /ID",
+      "title": "The name tree maps unique element ID byte strings to structure elements when IDs are present.",
+      "source": "Effective ISO 32000-2 p.722, Table 354 and Table 355; §7.9.6 governs name-tree structure.",
+      "errata": "None directly affecting this feature.",
+      "ledger": "§14.7.2 implemented; structure/owners.rs element_by_id and pdf-transform structure reconciliation/writing.",
+      "code": "crates/pdf-model/src/structure/owners.rs:32; crates/pdf-transform/src/structure/reconcile.rs:128; structure/write.rs:88.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::an_element_is_found_by_its_identifier",
+        "crates/pdf-transform/tests/merge.rs tests for IDTree collisions and preservation"
+      ],
+      "assertions": "Synthetic unique-ID tree resolves requested element; merge fixture covers collisions and output tree. Unit fixture uses generated offsets, though its helper does not explicitly assert !was_recovered.",
+      "verdict": "supported for lookup and transformation paths sampled",
+      "residuals": [
+        "No current assertion in the reviewed unit locates duplicate IDs as a reader error; uniqueness is a producer rule. Reader behavior should remain permissive unless a separate diagnostic is intended."
+      ]
+    },
+    {
+      "feature": "Table 354 /ParentTree and /ParentTreeNextKey",
+      "clause": "§14.7.2 Table 354 /ParentTree and /ParentTreeNextKey; effective §14.7.5.5",
+      "title": "ParentTree is a number tree mapping page/content stream or object keys to parents; next key is greater than used keys and used by writers.",
+      "source": "Effective ISO 32000-2 pp.749–750; Table 354 /ParentTree; parent tree narrative and Table 359.",
+      "errata": "EC3 #452 renumbers old §14.7.5.4 to effective §14.7.5.5; #343 changes a quantifier in parent-tree narrative without changing the lookup mechanism; #463 clarifies the exact StructParent/StructParents pair.",
+      "ledger": "§14.7.2, §14.7.5.4 (2020 heading; effective .5) implemented; ParentTree model and pdf-transform writer/reconciliation.",
+      "code": "crates/pdf-model/src/structure.rs:95,134; crates/pdf-model/src/structure/owners.rs:402,429; crates/pdf-transform/src/structure/write.rs:54; structure/reconcile.rs:113.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_marked_content_identifier_finds_its_element",
+        "crates/pdf-model/src/structure/tests.rs::a_page_finds_its_elements_through_the_structural_parent_tree",
+        "crates/pdf-model/tests/structure.rs::a_page_that_states_a_structural_parent_key_resolves_it",
+        "pdf-transform merge/archive parent-tree tests"
+      ],
+      "assertions": "Tests cover number-tree key lookup, zero-based array indexing, one-reference object form, page/annotation/form keys and writer carry/update. Core test helper generates xref offsets but does not assert no recovery.",
+      "verdict": "supported with effective-number ledger drift",
+      "residuals": [
+        "Ledger still names the post-renumber sequence by 2020 headings (§14.7.5.4 for ParentTree); effective citations shift to §14.7.5.5.",
+        "Malformed absent keys are returned as empty/None; this is permissive reader behavior, not proof of a reader error obligation."
+      ]
+    },
+    {
+      "feature": "Table 354 /RoleMap and /ClassMap",
+      "clause": "§14.7.2 Table 354; §14.7.3 Structure types; §14.7.6.2 Attribute classes",
+      "title": "Root role and class maps are consumed by the corresponding structure type and attribute readers.",
+      "source": "Effective ISO 32000-2 pp.722, 727 and 753; Table 354 /RoleMap and /ClassMap.",
+      "errata": "EC3 #289 adds ordering when multiple class objects define the same attribute; effective number for attribute classes is unchanged.",
+      "ledger": "§14.7.2, §14.7.3, §14.7.6.2 implemented; role mapping and attribute readers split across structure/roles.rs and structure/attributes.rs.",
+      "code": "crates/pdf-model/src/structure/roles.rs:42,85; structure/attributes.rs:40.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "crates/pdf-model/src/structure/tests.rs::an_attribute_two_class_objects_state_goes_to_the_later_one"
+      ],
+      "assertions": "Transitive role mapping and class map order tests give distinct expected standard type and attribute values.",
+      "verdict": "supported for tested map forms",
+      "residuals": [
+        "The names and values are interpreted by separate downstream clauses; this feature row does not certify every role vocabulary or every class-owner attribute."
+      ]
+    },
+    {
+      "feature": "Root namespaces list and element namespace membership",
+      "clause": "§14.7.2 Table 354 /Namespaces; §14.7.4; §14.8.6.2",
+      "title": "A tagged document's explicit namespaces are declared at the root and an element's own /NS selects its role map.",
+      "source": "Effective ISO 32000-2 pp.722, 739–741; Table 354 /Namespaces; §14.8.6.2 explicit namespace rule.",
+      "errata": "EC3 #396 adds root listing to the relevant requirement language; EC3 #93 marks Table 355 /R deprecated in PDF 2.0, not a namespace change.",
+      "ledger": "§14.7.2 and §14.7.4 implemented; 2020 ledger note states writer completeness for root Namespaces and role walk reads each element /NS.",
+      "code": "crates/pdf-model/src/structure/roles.rs:42,276,338; structure.rs:2853; pdf-transform/src/structure/wrapper.rs:84,113.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_namespaces_own_role_map_is_the_one_that_applies",
+        "crates/pdf-model/src/structure/tests.rs::a_role_map_may_lead_into_another_namespace",
+        "namespace merge/wrapper tests"
+      ],
+      "assertions": "Tests give root RoleMap and element NS RoleMapNS disagreeing targets, and transitive target namespace. Conformance diagnostics count explicitly declared foreign namespaces; processor does not reject malformed documents.",
+      "verdict": "supported for namespace selection; producer listing requirement is not reader rejection",
+      "residuals": [
+        "The root array's membership requirement is producer conformance; no claim that reader must reject an element whose NS dictionary is not listed. Tests do not exhaust namespace listing mutations."
+      ]
+    },
+    {
+      "feature": "Structure type and root role map traversal",
+      "clause": "§14.7.3 Structure types",
+      "title": "Structure element /S is a name; RoleMap associations are applied transitively, including standard-name keys, and circular chains terminate.",
+      "source": "Effective ISO 32000-2 p.727, §14.7.3, including NOTE 2.",
+      "errata": "None directly affecting role map text.",
+      "ledger": "§14.7.3 implemented; structure/roles.rs, standard type mapping.",
+      "code": "crates/pdf-model/src/structure/roles.rs:85,184,251.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "a_circular_role_map_stops_at_the_first_type_it_returns_to",
+        "a_type_that_is_not_standard_says_why"
+      ],
+      "assertions": "Transitive custom-to-custom-to-standard path; cycle with a known type; cycle without standard; name/namespace controls.",
+      "verdict": "supported with an explicit cycle interpretation",
+      "residuals": [
+        "ADR 2028 chooses the first standard type along a cycle; this is a reading of NOTE 2's stop condition and has dedicated fixture evidence, not an unambiguous rule that every circular map yields one canonical role."
+      ]
+    },
+    {
+      "feature": "Role map namespace-specific forms",
+      "clause": "§14.7.4.2 Table 356 /RoleMapNS",
+      "title": "Namespace-specific map values may be a default-namespace name or [target name, target namespace reference]; mappings may be transitive.",
+      "source": "Effective ISO 32000-2 pp.740–741; Table 356 and NOTE 3.",
+      "errata": "None directly affecting Table 356.",
+      "ledger": "§14.7.4.2 implemented; Namespace and role walk in structure.rs and structure/roles.rs.",
+      "code": "crates/pdf-model/src/structure/roles.rs:85; structure.rs:2877.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_namespaces_own_role_map_is_the_one_that_applies",
+        "crates/pdf-model/src/structure/tests.rs::a_role_map_may_lead_into_another_namespace"
+      ],
+      "assertions": "Single-name map uses default standard namespace; array form routes to target namespace then standard role.",
+      "verdict": "supported for both declared forms",
+      "residuals": [
+        "No tests cover malformed array arity/type or direct rather than indirect target references; these are producer-validity issues, not required reader rejection."
+      ]
+    },
+    {
+      "feature": "Namespace identity and schema",
+      "clause": "§14.7.4.2 Table 356 /NS and /Schema",
+      "title": "Namespace name is a text string used for uniqueness, conventionally a URI that need not resolve; optional schema file spec has no required format.",
+      "source": "Effective ISO 32000-2 pp.740–741, Table 356 and NOTES 1–2.",
+      "errata": "None affecting Table 356.",
+      "ledger": "§14.7.4.2 implemented; structure.rs Namespace::read retains schema object.",
+      "code": "crates/pdf-model/src/structure.rs:2853,2877,2910.",
+      "tests": [
+        "namespace ownership/identity tests in crates/pdf-model/src/structure/tests.rs"
+      ],
+      "assertions": "Name comparisons use full decoded namespace string; no network resolution is attempted; schema remains raw object.",
+      "verdict": "supported for stated identity rule",
+      "residuals": [
+        "The assigned test family does not assert preservation of arbitrary Schema file-spec shapes; fetching/processing schema is not required by this clause."
+      ]
+    },
+    {
+      "feature": "Namespace-as-attribute-owner equivalence",
+      "clause": "§14.7.4.2 closing paragraph; §14.7.6.1, §14.8.5.2–.3",
+      "title": "When owner comes from NS, namespace name identifies it; names corresponding to Table 376 owner values are equivalent.",
+      "source": "Effective ISO 32000-2 p.741; closing paragraph after Table 356.",
+      "errata": "EC3 #354 changes owner wording in §14.7.6.1 but not this equivalence.",
+      "ledger": "§14.7.4.2 and §14.7.6 implemented; AttributeObject::effective_owner.",
+      "code": "crates/pdf-model/src/structure.rs:3068; structure/attributes.rs:40,101.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_namespace_owner_ranks_where_the_clause_puts_the_owner_it_names",
+        "an_attributes_owner_and_its_ancestry_decide_which_value_applies"
+      ],
+      "assertions": "PDF-native namespace owner ranks; foreign namespace attribute object is named/refused; field owner controls priority.",
+      "verdict": "supported with intentionally bounded equivalence set",
+      "residuals": [
+        "The clause names no expanded URI-to-owner mapping. Code equates a namespace whose text equals a Table 376 owner; whether external common namespace URIs correspond to table owner names is not enumerated by the source and should not be inferred."
+      ]
+    },
+    {
+      "feature": "Content item forms in structure /K",
+      "clause": "Effective §14.7.5.2 (EC3 #452 moved old §14.7.5.1.1)",
+      "title": "A structure element's /K may mix child elements, marked-content sequence references, and whole-object references; content items are leaves.",
+      "source": "Effective ISO 32000-2 p.728–729; old printed heading 14.7.5.1.1; text otherwise unchanged by EC3 #452.",
+      "errata": "EC3 #452 moves Content items to effective §14.7.5.2 and shifts all later §14.7.5 headings by one.",
+      "ledger": "2020 rows §14.7.5.1.1 / .2 / .3 / .4 are all marked implemented; their current citations are stale after #452.",
+      "code": "crates/pdf-model/src/structure.rs:207,308,350; structure/logical.rs:116.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles"
+      ],
+      "assertions": "Mixed child fixture has nested structure element plus integer, MCR, OBJR and verifies order and distinct Child variants.",
+      "verdict": "supported for tested forms; bounded hierarchy gap applies",
+      "residuals": [
+        "No explicit negative/producer-conformance check for nested content items, and reader need not reject such input. The same fixture's helper calculates xrefs but doesn't assert was_recovered=false."
+      ]
+    },
+    {
+      "feature": "Marked-content sequence association",
+      "clause": "Effective §14.7.5.3 (old §14.7.5.2); §14.6; EC3 #308",
+      "title": "BDC/EMC sequence has MCID unique within its content stream; page contents' stream array is treated as one stream; sequence must be on one page.",
+      "source": "Effective ISO 32000-2 pp.729–748; effective §14.7.5.3; §14.6 content-stream sequence rule.",
+      "errata": "EC3 #308 adds a note that MCIDs are scoped by content stream and start at zero; same MCID may reappear across pages or XObjects. EC3 #452 shifts heading .2 to .3.",
+      "ledger": "2020 §14.7.5.2 marked-content row implemented; content.rs + structure::ParentTree and logical association.",
+      "code": "crates/pdf-model/src/content.rs; crates/pdf-model/src/structure.rs:95,134; structure/logical.rs.",
+      "tests": [
+        "crates/pdf-model/tests/marked_content_scope.rs::logical_text_does_not_take_another_stream_s_sequence",
+        "an_integer_naming_no_sequence_of_the_page_is_read_where_the_file_meant_it",
+        "a_sequence_in_an_appearance_stream_is_recorded_against_the_stream_it_is",
+        "a_marked_content_reference_carries_the_streams_owner"
+      ],
+      "assertions": "Tests distinguish stream identity and same MCID in independent streams; ParentTree lookup uses stream/page key and MCID index. Exact-xref builders in integration helpers; some unit fixtures omit explicit recovery assertion.",
+      "verdict": "supported for page, form and appearance-stream cases sampled",
+      "residuals": [
+        "Not a validator for producer rules such as MCID starting at zero or uniqueness; source says writer shall. No need to invent reader rejection."
+      ]
+    },
+    {
+      "feature": "Marked-content reference dictionary",
+      "clause": "Effective §14.7.5.3 Table 357 (old Table 357 under §14.7.5.2)",
+      "title": "MCR names MCID and may override inherited Pg; Stm identifies non-page content stream; StmOwn identifies object owning Stm.",
+      "source": "Effective ISO 32000-2 pp.730–748, Table 357; EC3 #431 revises /Pg's requirement phrasing.",
+      "errata": "EC3 #431 makes MCR Pg 'Sometimes required' and clarifies precedence/requiredness; EC3 #452 renumbers this clause.",
+      "ledger": "2020 §14.7.5.2 implemented; Child::MarkedContent carries page/stream/owner references.",
+      "code": "crates/pdf-model/src/structure.rs:207,350; structure/owners.rs:111 and content stream association.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "crates/pdf-model/tests/marked_content_scope.rs::a_marked_content_reference_carries_the_streams_owner",
+        "viewer-core/tests/headless.rs::an_element_reaching_its_widget_through_stmown_is_placed_and_says_what_control_it_is"
+      ],
+      "assertions": "Tests distinguish Pg inheritance, Stm stream identity, StmOwn annotation owner and the sequence's marks/rectangle/control.",
+      "verdict": "supported for route and tested owner linkage",
+      "residuals": [
+        "EC3 #431 is writer-requiredness language; parsing missing Pg is a permissive path and no reader error should be inferred."
+      ]
+    },
+    {
+      "feature": "Form XObject structure-content alternatives",
+      "clause": "Effective §14.7.5.3, form XObject content paragraphs and EXAMPLES 4–5",
+      "title": "Form invocation may be included as a whole within a page marked-content item, or the form stream may contain its own items; multiple invocations require first method per invocation.",
+      "source": "Effective ISO 32000-2 pp.731–734, marked-content sequence discussion and examples; renumbered by EC3 #452.",
+      "errata": "EC3 #452 shifts this material to effective .3; no semantic text change.",
+      "ledger": "2020 §14.7.5.2 ledger note explicitly records stream/mark alternatives; model content stream owner and viewer accessibility consume either.",
+      "code": "crates/pdf-model/src/content.rs; structure.rs Child::MarkedContent; viewer-core/src/accessibility.rs.",
+      "tests": [
+        "crates/pdf-model/tests/marked_content_scope.rs::a_sequence_in_an_appearance_stream_is_recorded_against_the_stream_it_is",
+        "viewer-core/tests/headless.rs form-stream logical text and StmOwn tests"
+      ],
+      "assertions": "Appearance/form stream sequence gets matching MCID and geometry on the owner; page sequence stays separate.",
+      "verdict": "supported for exercised form and appearance paths",
+      "residuals": [
+        "I did not independently inspect every multiple-Do invocation permutation in this bounded review; the clause's first-method restriction is a producer rule and no reader refusal is implied."
+      ]
+    },
+    {
+      "feature": "Whole-object references",
+      "clause": "Effective §14.7.5.4 Table 358 (old §14.7.5.3)",
+      "title": "OBJR identifies an entire indirect object and optional page; object reference is distinct from marking only part of an object's stream.",
+      "source": "Effective ISO 32000-2 pp.748–749, Table 358 and NOTES 1–2.",
+      "errata": "EC3 #431 and #339 clarify Pg override and requiredness when no containing-element Pg; EC3 #452 shifts heading .3 to .4.",
+      "ledger": "2020 §14.7.5.3 implemented; Child::Object carries object/page and page accessibility resolves annotation/XObject.",
+      "code": "crates/pdf-model/src/structure.rs:267,350; structure/owners.rs:448,475; viewer-core/src/accessibility.rs.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "crates/pdf-model/src/structure/tests.rs::a_pages_annotations_state_where_they_are",
+        "viewer-core/tests/headless.rs::an_element_reached_through_an_object_reference_is_placed_and_says_what_control_it_is"
+      ],
+      "assertions": "One object and inherited/overridden page tested; annotation's position/control comes from Rect and widget data. NOTE 2 repeat rendering distinction documented.",
+      "verdict": "supported for object identity and annotation consumers sampled",
+      "residuals": [
+        "XObject placement from arbitrary multiple Do invocations is not supplied by OBJR (NOTE 2); placement via content invocation was not fully audited here."
+      ]
+    },
+    {
+      "feature": "Structural parent tree reverse lookup",
+      "clause": "Effective §14.7.5.5; Table 359 (old §14.7.5.4)",
+      "title": "Number-tree key maps object content to one parent ref or stream/page MCIDs to indexed array; object key and content-stream key forms are exclusive.",
+      "source": "Effective ISO 32000-2 pp.749–750; parent-tree paragraphs and Table 359.",
+      "errata": "EC3 #343 changes phrase 'at least one' to 'a'; #463 names StructParent / StructParents explicitly; #452 shifts old .4 to effective .5.",
+      "ledger": "2020 §14.7.5.4 implemented; model for_page/element and inverse elements_on_page; transform writes keys.",
+      "code": "crates/pdf-model/src/structure.rs:95,134; structure/owners.rs:111,402,429; pdf-transform/src/structure/write.rs:54.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_marked_content_identifier_finds_its_element",
+        "a_page_finds_its_elements_through_the_structural_parent_tree",
+        "the_parent_trees_array_may_be_an_object_of_its_own",
+        "pdf-transform archive/merge parent-tree suites"
+      ],
+      "assertions": "Both number tree and index lookup tested; array and direct object values in fixtures; annotation, form, image keys; saved merger rewrites parent tree.",
+      "verdict": "supported for normal values and write paths; incomplete-input policy is permissive",
+      "residuals": [
+        "No reader validation that required ParentTree/StructParent(s) exist or are mutually exclusive; those are producer constraints. `ParentTree::for_page` maps missing data to empty rather than error, appropriately avoiding an invented rejection."
+      ]
+    },
+    {
+      "feature": "Structure element metadata that accessibility consumes",
+      "clause": "§14.7.2 Table 355 /ID, /Lang, /Alt, /ActualText, /E, /PhoneticAlphabet, /Phoneme; §14.9",
+      "title": "Element identity, text replacement/alternate text and language are represented for consumers; pronunciation hints are optional processing.",
+      "source": "Effective ISO 32000-2 pp.723–727, Table 355; §14.9.6 says pronunciation hints need not be processed.",
+      "errata": "EC3 #93 marks element /R deprecated PDF 2.0; #452 shifts content clauses only.",
+      "ledger": "§14.7.2 implemented; text_entry helpers, accessibility consumer and pronunciation tests.",
+      "code": "crates/pdf-model/src/structure.rs:3408,3414,3437; viewer-core/src/accessibility.rs:1075,1120,1326.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::a_phoneme_is_read_past_and_the_language_and_unicode_text_answered_in_its_place",
+        "crates/viewer-core/tests/headless.rs accessibility alternatives/language tests"
+      ],
+      "assertions": "Alternative/expanded text, ActualText, inherited language and element ID paths used; phoneme test asserts Alt and Lang rather than returning phoneme.",
+      "verdict": "supported for modeled accessibility fields; no phoneme processing is a permitted choice",
+      "residuals": [
+        "No bounded review of every language inheritance interaction with marked-content escapes; that belongs to §14.9.2 and prior shard."
+      ]
+    },
+    {
+      "feature": "Structure element /Ref and /R",
+      "clause": "§14.7.2 Table 355 /Ref and /R; §14.7.6.3",
+      "title": "Optional /Ref identifies related structure elements; optional /R states revision counter, default 0 and may increment after processor modifications.",
+      "source": "Effective ISO 32000-2 pp.723–727, Table 355 and §14.7.6.3.",
+      "errata": "EC3 #93 deprecates /R in PDF 2.0. No #452 effect on Table 355.",
+      "ledger": "Table355 entries appear under §14.7.2 implemented; row notes focus on ID, language/text, content. Current reviewed model has no explicit /Ref accessor and does not use element /R.",
+      "code": "No direct structure::Tree API for /Ref or element /R found in crates/pdf-model/src/structure*. Source search: only attributes revision pairs and ID access.",
+      "tests": [
+        "No dedicated /Ref or structure-element /R assertion found in reviewed test files."
+      ],
+      "assertions": "No positive or negative assertion for relationship references or reading the element revision field found.",
+      "verdict": "bounded review leaves this optional metadata unconsumed; not classified as a required reader defect",
+      "residuals": [
+        "§14.7.3/14.7.2 don't require a processor to act on /Ref; the 'may increment' instruction is optional producer behavior. A future accessibility/reference feature could justify accessors, but this review finds no conformance mandate to reject or render differently."
+      ]
+    },
+    {
+      "feature": "Attribute object shape and ownership",
+      "clause": "§14.7.6.1 Table 360",
+      "title": "Attribute object is a dictionary or stream with /O; /NS may identify namespace owner; all other keys except NS represent attributes.",
+      "source": "Effective ISO 32000-2 p.752, §14.7.6.1 and Table 360.",
+      "errata": "EC3 #354 changes 'conforming product that owns' to 'owner of' without semantic change.",
+      "ledger": "§14.7.6.1 implemented; AttributeObject::read retains raw dictionary.",
+      "code": "crates/pdf-model/src/structure.rs:2977,3015,3068,3140; pdf-syntax::Object::as_dict accepts both dictionaries and streams.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs attribute precedence tests (dictionary-valued objects)",
+        "Draft attribute_stream_draft.rs adds stream and dictionary controls."
+      ],
+      "assertions": "Existing tests exercise dictionary-valued /A and /ClassMap objects; code path appears to accept stream dictionaries via Object::as_dict. Draft uses exact xref and asserts both values independently.",
+      "verdict": "supported by code inspection; stream form lacks direct assertion",
+      "residuals": [
+        "Draft stream-valued attribute test was not compiled or run."
+      ]
+    },
+    {
+      "feature": "Attribute class attachment and in-class precedence",
+      "clause": "§14.7.6.2 Attribute classes; Table 355 /C",
+      "title": "ClassMap resolves C names to attribute objects/arrays; later class/object values take precedence as EC3 inserts.",
+      "source": "Effective ISO 32000-2 p.753, §14.7.6.2.",
+      "errata": "EC3 #289 inserts rule that later /C class object across arrays wins; #226 updates cross-reference to Table 376.",
+      "ledger": "§14.7.6.2 implemented; attribute attachment/ordering and winner semantics.",
+      "code": "crates/pdf-model/src/structure/attributes.rs:40, ranked() around 3232.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own",
+        "an_attribute_two_class_objects_state_goes_to_the_later_one"
+      ],
+      "assertions": "One test controls class vs A and later A; second tests classes with single object and array and later class object. Assertions have distinct expected arrays.",
+      "verdict": "supported including EC3 #289",
+      "residuals": [
+        "ClassMap malformed or missing targets are ignored as reader recovery, not a normative rejection test."
+      ]
+    },
+    {
+      "feature": "Attribute revision pairing",
+      "clause": "§14.7.6.3 Attribute revision numbers; Table 355 /A and /C",
+      "title": "Array entries may be paired with a following integer revision; absent revision defaults zero; revision numbers deprecated in PDF 2.0.",
+      "source": "Effective ISO 32000-2 p.754, §14.7.6.3.",
+      "errata": "EC3 #305 marks revision numbers deprecated and removes 'typically' qualifier in class object-array wording; reading remains necessary to parse name/object pairs.",
+      "ledger": "§14.7.6.3 implemented; paired() and AttributeObject revision.",
+      "code": "crates/pdf-model/src/structure.rs:2990,3356.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own"
+      ],
+      "assertions": "Expected revision list [3,0,4] distinguishes pair, unpaired default and later pair across C/A.",
+      "verdict": "supported for pair parsing",
+      "residuals": [
+        "No test covers negative/non-integer revision values; those are producer validity constraints and not reader error requirements."
+      ]
+    },
+    {
+      "feature": "Attribute value priority",
+      "clause": "§14.8.5.2–.4, coupled with §14.7.6.2",
+      "title": "Owner-specific A value, five PDF-native owner A value, class value, inheritable parent value and attribute default have ordered priority.",
+      "source": "Effective ISO 32000-2 pp.755–758, §14.8.5.2–.4. This behavior is outside the 14.7.6 mechanism but is needed to assess what it consumes.",
+      "errata": "EC3 #226 corrects the §14.7.6.2 reference; no winner rule change.",
+      "ledger": "§14.7.6 / §14.8.5 implemented; feature mechanism and owner data are separate rows.",
+      "code": "crates/pdf-model/src/structure/attributes.rs:101,149; structure.rs:3068,3110,3232.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies",
+        "a_class_map_answers_only_what_the_elements_own_attributes_did_not",
+        "a_namespace_owner_ranks_where_the_clause_puts_the_owner_it_names"
+      ],
+      "assertions": "Tests compare owner priority, standard-owner priority, class priority, parent inheritance and defaults for selected attributes.",
+      "verdict": "supported for tested attributes/owners; not whole §14.8.5 review",
+      "residuals": [
+        "Per-attribute inheritability/default and each owner/type belong to §14.8.5 tables; not exhaustively checked here. Ledger status alone does not certify them."
+      ]
+    },
+    {
+      "feature": "User properties",
+      "clause": "§14.7.6.4 Tables 361–362",
+      "title": "UserProperties owner stores /P array; each user property has name/value and optional formatted/hidden fields; other value types need not be displayed but are not errors.",
+      "source": "Effective ISO 32000-2 pp.754–755, §14.7.6.4 and Tables 361–362.",
+      "errata": "None identified for these entries.",
+      "ledger": "§14.7.6.4 implemented; AttributeObject::user_properties.",
+      "code": "crates/pdf-model/src/structure.rs:3157; structure/tests.rs user-properties test.",
+      "tests": [
+        "crates/pdf-model/src/structure/tests.rs::user_properties_are_read_with_their_formatting_and_their_hidden_flag"
+      ],
+      "assertions": "Fixture covers plain, formatted-vs-value, hidden. Raw PDF V is preserved with F beside it.",
+      "verdict": "supported for tested properties",
+      "residuals": [
+        "No direct assertion for non-string V; code preserves Object values, aligning with clause's instruction not to treat other types as errors. The full EXAMPLE's every property is not reproduced."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "workspace": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Selected named fixtures only; presence is separate from test execution.",
+  "pdfjs_directory_exists": true,
+  "pdfjs_top_level_pdf_count": 974,
+  "fixtures": [
+    {
+      "path": "doc/pdf.js/test/pdfs/issue1155.pdf",
+      "is_file": false
+    },
+    {
+      "path": "doc/pdf.js/test/pdfs/issue11555.pdf",
+      "is_file": true
+    },
+    {
+      "path": "doc/pdf.js/test/pdfs/issue1155r.pdf",
+      "is_file": true
+    },
+    {
+      "path": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-3110-poems-beads.pdf",
+      "is_file": true
+    },
+    {
+      "path": "doc/corpora/format-corpus/pdfCabinetOfHorrors/digitally_signed_3D_Portfolio.pdf",
+      "is_file": true
+    },
+    {
+      "path": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-5838-0024320-reduced.pdf",
+      "is_file": true
+    },
+    {
+      "path": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-4322-Empty-ToUnicode-reduced.pdf",
+      "is_file": true
+    }
+  ],
+  "tests": [
+    {
+      "path": "crates/pdf-model/tests/text_layer.rs",
+      "name": "invisible_text_is_placed_too",
+      "source_sha256": "d11d0aaf467d88ff85b1f01a83baec65e32091e006efbbc939fb6941508c1510",
+      "literal_ledger_references": []
+    },
+    {
+      "path": "crates/viewer-core/tests/headless.rs",
+      "name": "a_page_that_could_not_be_drawn_whole_says_so",
+      "source_sha256": "e3206ed35930c6bc17e318ee71e083f6da4a005a17dd255eb0e87ba51e743f9a",
+      "literal_ledger_references": [
+        "I.1"
+      ]
+    }
+  ]
+}

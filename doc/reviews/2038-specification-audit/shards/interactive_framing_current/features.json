@@ -1,0 +1,236 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded aggregate/introduction review of requested interactive-PDF clauses in Clause 12. It maps independent source statements and carried-forward residuals to their specialized shards. It does not certify every annotation/action/form/geospatial feature or all multimedia behavior.",
+  "source": {
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": {
+      "12.1": "printed p.437 / physical p.452",
+      "12.3": "printed p.441 / physical p.456; \u00a712.3.5 collection text printed pp.447-457 / physical pp.462-472",
+      "12.4": "printed p.458 / physical p.473; \u00a712.4.4.1 General printed pp.461-463 / physical pp.476-478",
+      "12.5": "printed pp.465\u2013467 / physical pp.480\u2013482; \u00a712.5.6.1 printed p.476 / physical p.491",
+      "12.6": "printed p.506 / physical p.521; \u00a712.6.4.1 Table201 printed pp.510-511 / physical pp.525-526",
+      "12.7": "printed p.528 / physical p.543; \u00a712.7.4 printed p.530 / physical p.545; \u00a712.7.5 printed p.535 / physical p.550; \u00a712.7.8 starts printed p.557 / physical p.572; \u00a712.7.8.3 printed p.559 / physical p.574",
+      "12.9": "printed pp.595\u2013596 / physical pp.610\u2013611; reverse selection and first-point rule on physical611",
+      "12.10": "printed p.601 / physical p.616; EC3 annotations #533/#534/#284/#358 physical618/printed603 and #321 physical619/printed604",
+      "12.11": "printed p.606 / physical p.621; Table273 continues printed pp.606-607 / physical pp.621-622"
+    },
+    "amendments_sampled": [
+      {
+        "issue": "#477",
+        "clause": "12.3.6 / effective 12.3.5.3",
+        "effect": "The full published \u00a712.3.6 is moved/demoted to \u00a712.3.5.3 Collection navigators; effective-text numbering must be followed."
+      },
+      {
+        "issue": "#23/#34/#56 and #287",
+        "clause": "12.5.2",
+        "effect": "Adjust annotation entries ignored when an appearance exists and strengthen BS-over-Border precedence; these are annotation-dictionary leaf semantics, not new general-heading requirements."
+      },
+      {
+        "issue": "#422",
+        "clause": "12.5.6.1 example",
+        "effect": "Typography/spelling correction in a worked example only."
+      },
+      {
+        "issue": "#479",
+        "clause": "12.5.6.3 and .5",
+        "effect": "Corrects IRT table references from a link table to the markup-annotation table; no behavioral change."
+      },
+      {
+        "issue": "#313",
+        "clause": "12.7.4.1",
+        "effect": "Clarifies that the merged field/annotation dictionary is a Widget annotation dictionary."
+      },
+      {
+        "issue": "#386",
+        "clause": "12.7.5.2.2 Push-buttons",
+        "effect": "Removes the sentence prohibiting V/DV for push-buttons; parent leaf shard owns updated behavior."
+      },
+      {
+        "issue": "#187",
+        "clause": "12.11.1/.2",
+        "effect": "Corrects Table273/Table275 cross-references and retitles Table274's specific-type entries; current reader's type lookup already uses Table275."
+      }
+    ]
+  },
+  "features": [
+    {
+      "clause": "12.1",
+      "title": "General",
+      "source_feature": "Overview list of interactive features and an express exclusion for multimedia features in Clause13. No independent shall/should is stated.",
+      "ledger": "implemented; ledger marks this introductory row vacuous rather than an aggregate of all Clause12 behavior.",
+      "code_assertions": "No independent code/test is required by the text. The feature rows below own reader behavior; multimedia support is bounded separately.",
+      "verdict": "Empty of independent processor obligations. `implemented` here is a clause-content statement, not certification that all interactive features pass.",
+      "residuals": [
+        "No whole-Clause12 certification in this shard."
+      ]
+    },
+    {
+      "clause": "12.3 / 12.3.1 / 12.3.2",
+      "title": "Document-level navigation; General; Destinations",
+      "source_feature": "The general text describes global outline/thumbnail navigation and destination association. The destinations heading introduces explicit, structure and named forms; detailed placement/view behavior resides in child clauses and action consumers.",
+      "ledger": "12.3 is an aggregate; .1 and .2 have separate child entries.",
+      "code_assertions": "`destinations_current_followup` checks explicit destination geometry and GoToR/GoToE routes; `outlines_threads_current` checks outline hierarchy and destination activation; `thumbnails_transitions_current` checks thumbnail pixel correspondence and panel selection. These assertions exercise distinct consumers, not every named-destination source or caller.",
+      "verdict": "The introductory text adds no independent algorithm. Do not infer full view propagation from page-index selection alone; the destination follow-up records an action-destination view gap for remote/embedded GoTo and its unrun regression.",
+      "residuals": [
+        "Named-destination collision/precedence and all action callers remain specialized scope.",
+        "The child destination shard records that GoToR/GoToE currently discard destination view; parent promotion/execution determines final status."
+      ],
+      "parent_current_status": "B23 confirms both remote and embedded view loss; not an unrun regression."
+    },
+    {
+      "clause": "12.3.5 / effective 12.3.5.3",
+      "title": "Collections / Collection navigators",
+      "source_feature": "Collections have a substantive reader-facing presentation rule: a portable collection is presented with its schema-defined fields and hierarchy. Splitter color/layout furniture includes permissions and recommendations. EC3 #477 moves the published \u00a712.3.6 navigator material to effective \u00a712.3.5.3.",
+      "ledger": "12.3.5 aggregate and child rows are marked implemented.",
+      "code_assertions": "`collections/findings.txt` reports current public host cells omit Schema `S`, `D`, and `CompressedSize` values although `collection::item` parses CI. Existing host cell test only checks F/Desc/Size. The exact-xref `drafts/collection_ci_columns.rs` under collections is an independent public Query/host-cell proposal, not run by this audit.",
+      "verdict": "The aggregate claim that all collection presentation obligations execute is too broad against the sibling's traced missing consumer fields. This is a carried-forward concrete gap, not a newly reproduced failure in this shard.",
+      "residuals": [
+        "Whether an embedded initial document is fully presented versus represented by selected/emphasized row remains an interpretation question in the collections shard.",
+        "Splitter/colors are optional or advisory; their absence is not a general reader failure."
+      ],
+      "parent_current_status": "B05/B06 confirm CI and compressed-size host-column failures."
+    },
+    {
+      "clause": "12.4 / 12.4.1 / 12.4.4",
+      "title": "Page-level navigation; General; Presentations",
+      "source_feature": "The general row names page labels, article threads and presentations. \u00a712.4.4 includes duration/transition presentation behavior; \u00a712.4.4.2 adds EC3 sub-page navigation semantics.",
+      "ledger": "12.4 is an aggregate; page labels, articles, presentations, and sub-page navigation are separate rows.",
+      "code_assertions": "`outlines_threads_current` has article-bead assertions; `thumbnails_transitions_current` covers all twelve transition styles with frame-level controls; `navigation_actions_current` checks sub-page navigation including EC3 #304 behavior. The latter identifies an exact-xref/no-recovery assertion gap for one random-arrival fixture, not a state-machine defect.",
+      "verdict": "\u00a712.4.1 is descriptive. The presentation and sub-page clauses contain actual requirements and are assigned to specialized evidence. Aggregate pass status cannot hide the source-validity caveat on the one presentation fixture.",
+      "residuals": [
+        "The page-label source/errata and consumer evidence is in `outlines_labels_audit`/`text_streams_rectangles_current`; not re-certified here.",
+        "No new transition defect found; no repeated transition-action audit."
+      ]
+    },
+    {
+      "clause": "12.5 / 12.5.1",
+      "title": "Annotations; General",
+      "source_feature": "Annotation general text covers association with page location, open/closed behavior, user activation, optional keyboard navigation, page `/Tabs` order, and expected behavior for unknown types. Keyboard navigation and explicit `/Tabs` are expressed as may/producer permissions; when supported, the listed R/C/S/A/W order rules are normative.",
+      "ledger": "12.5 is an aggregate with accepted departures in .2/.5 and .6.23; .1 is implemented.",
+      "code_assertions": "`pdf-model/src/tab_order.rs` implements five modes and page orientation/direction. `viewer-core/tests/untagged_widgets.rs::an_untagged_pages_fields_are_answered_in_its_tab_order` uses `/Tabs /R` and a geometry-vs-array control; `viewer-core/tests/headless.rs` exercises focus movement and clear/wrap behavior; `viewer-accessibility/src/tree.rs` consumes this same order. These establish supported paths, but the headless walk-around test itself does not distinguish all five `/Tabs` values.",
+      "verdict": "A real page-level interaction requirement is present beneath the heading; it is not merely annotation appearance. The current product implements keyboard focus, and direct assertion strength is strongest for row order. Because keyboard navigation is optional in the source, an absent mode-specific UI path is not automatically a general reader failure; the implemented modes remain a coverage boundary.",
+      "residuals": [
+        "No standalone all-five-mode focus traversal fixture was drafted: current order code and downstream consumers have targeted tests, and the missing cases are assertion granularity only, not an observed incorrect order.",
+        "#23/#34/#56/#287 remain owned by annotation common audit; do not reinterpret their producer/reader boundaries here."
+      ],
+      "parent_current_status": "Direct model assertions explicitly distinguish all five modes with independent expected permutations. Public focus integration is narrower; do not describe model evidence as strongest only for R."
+    },
+    {
+      "clause": "12.5.6 / 12.5.6.1",
+      "title": "Annotation types; General",
+      "source_feature": "Table171 classifies standard annotation subtypes and points to their clauses. The general rule distinguishes standard handlers from extensible unknown types; when no handler exists, an interactive processor still has expected generic behavior, including displaying a normal appearance when available.",
+      "ledger": ".6 is an aggregate; .1 implemented; multimedia-specific 3D/RichMedia behavior is elsewhere/out of scope.",
+      "code_assertions": "`annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause` maps standard names; `::an_unknown_subtype_still_draws_its_normal_appearance` checks unknown-type appearance behavior. `annotation_types_current` and `legacy_media_annotations_current` cover selected known-type/unsupported paths.",
+      "verdict": "The table itself is an index, while generic unknown-type fallback is an independent interaction rule and has a real pixel/display assertion. The inventory covers standard recognition, not a whole certification of every subtype.",
+      "residuals": [
+        "Printer's mark, trap-network, projection, legacy media, 3D and RichMedia are governed by their individual scopes/departures and are not recertified.",
+        "#422 is a worked-example typography correction; #479 corrects references, not behavior."
+      ]
+    },
+    {
+      "clause": "12.6 / 12.6.1 / 12.6.4 / 12.6.4.1",
+      "title": "Actions; General; Action types; General",
+      "source_feature": "The headings frame an action as behavior attached to an event; Table201 indexes standard action types, while Table196 and trigger-event clauses define common action dictionaries and triggers. `/OpenAction` is performed on open; annotations/outlines attach other actions. Requirements for each action and host capabilities remain in its child clause.",
+      "ledger": "12.6/.4 are aggregates; .1 and .4.1 are implementation/index rows.",
+      "code_assertions": "`actions.rs::every_action_type_table_201_names_is_performed_read_or_refused_by_name` checks advertised support/refusal, and `navigation_actions_current` supplies public tests/drafts for GoToDp, Thread, Transition. `actions_chains_current` owns `/Next` sequencing; trigger and choice shards own event timing.",
+      "verdict": "The index does not create a single blanket execution requirement independent of the action clauses and declared project scope. The current action aggregate row should stay explicit about the current bounded document/viewer script scope (a supplied runner and reader level; external effects excluded) and Launch departure. No new action-order defect found in this framing pass.",
+      "residuals": [
+        "Remote/embedded action destination-view gap is noted under 12.3; GoToDp public consumer draft and Thread index draft remain parent-run items.",
+        "12.6.4.16/.18 and associated multimedia handlers remain excluded; do not transfer their requirements to Table201's generic row."
+      ],
+      "parent_current_status": "T46 public GoToDp, Thread and action-triggered Transition controls PASS."
+    },
+    {
+      "clause": "12.7 / 12.7.1 / 12.7.4",
+      "title": "Forms; General; Field dictionaries",
+      "source_feature": "12.7.1 defines interactive vs non-interactive forms and distinguishes form XObjects. \u00a712.7.4 requires fields as indirect dictionaries and describes hierarchy, inheritable field attributes and Widget annotation relations. EC3 #313 clarifies a field dictionary can also be a Widget annotation dictionary.",
+      "ledger": "12.7 aggregate; .1 introduction; .4/.4.1 hierarchy and names have child evidence.",
+      "code_assertions": "`forms_current`/`forms_remaining_current` trace model fields into Viewer Query and host controls; `forms_buttons_choices_current` checks button/control semantics. Inheritance tests include deep chains and no arbitrary depth cap. `untagged_widgets.rs` asserts Widget accessibility remains available without structure tags and avoids duplicate publication when structure already names it.",
+      "verdict": "The aggregate description is supported at representative public consumers but cannot stand in for the field-type/action leaves. The amended Widget-only overlap matches current merge semantics; it does not authorize merging arbitrary annotation subtypes.",
+      "residuals": [
+        "The forms aggregate carries accepted departures for bounded cyclic/inheritance policy and FDF rename policy; see leaf decisions.",
+        "No universal assertion for every inherited attribute or host control is claimed."
+      ]
+    },
+    {
+      "clause": "12.7.5 / 12.7.5.1 / 12.7.5.2.1",
+      "title": "Field types; General; Button fields General",
+      "source_feature": "The field-type overview distinguishes button, text, choice and signature controls. Button overview describes push, checkbox and radio behavior, and requires the processor to follow relevant button flags. These are actual behavioral summaries, not empty headings.",
+      "ledger": "Field-type and button rows are implemented; each control subtype has its own row.",
+      "code_assertions": "`forms_buttons_choices_current` has public headless tests for radio selection/exclusive state, NoToggleToOff, RadiosInUnison, checkbox state and push-button behavior; text/choice and signature fields are separate sibling owners. EC3 #386 deletes the push-button V/DV prohibition; the active shard records current handling.",
+      "verdict": "Overview-level button semantics have differentiated user-visible control tests. Do not infer full field-form support from static parsing or the broad implemented aggregate.",
+      "residuals": [
+        "Rich text layout and signed-field seed values have separate limitations/departures; no all-control matrix repeated here."
+      ]
+    },
+    {
+      "clause": "12.7.6 / 12.7.6.1",
+      "title": "Form actions; General",
+      "source_feature": "Forms add submit, reset and import actions to the general action types. Each action's dictionary and effect is defined below.",
+      "ledger": "12.7.6 aggregate and .1 introduction; action leaves separately implemented.",
+      "code_assertions": "`form_actions_audit` and `fdf_forms_current` compare form action fields and resulting form values/data. Existing public tests distinguish submit output and reset/import effects.",
+      "verdict": "The heading is a list of three additional action types, not a separate fourth algorithm. The action effects have lower-level consumers; no new gap established.",
+      "residuals": [
+        "External submit/import host routing is constrained by user policy and was not re-opened here."
+      ]
+    },
+    {
+      "clause": "12.7.8.1 / 12.7.8.3",
+      "title": "Forms data format General / FDF catalog",
+      "source_feature": "FDF has a few syntax differences from PDF, including optional xref, no updates, generation-zero unique object numbers, a simple body and direct stream lengths. The catalog row defines the FDF dictionary and its version. Most of those SHALLs describe FDF producers; they do not independently require a reader to reject nonconforming FDF.",
+      "ledger": "12.7.8/.3 aggregate; structure, fields, pages and annotation import each have separate rows.",
+      "code_assertions": "`fdf_forms_current` checks FDF header/body/trailer and separate valid-xref import; `forms_data.rs::a_file_with_no_fdf_dictionary_is_not_forms_data` distinguishes FDF catalog presence. Parent corrected the proposed public FDF fixture to use the required `%FDF-1.2` header and catalog version control.",
+      "verdict": "The general and catalog framing is accounted for. Producer-only update/object restrictions must not be promoted to mandatory reader rejection. FDF page /Status is documented/assertion distinction, not a new reader refusal duty.",
+      "residuals": [
+        "Full FDF writer conformance and every external host callback are outside this framing pass.",
+        "Associated files /AF and file path resolution belong to sibling file-specification reviews."
+      ]
+    },
+    {
+      "clause": "12.9 / 12.9.1",
+      "title": "Measurement properties; General",
+      "source_feature": "The clauses enable real-world measurements using viewport arrays and measurement dictionaries. The overview itself contains independent selection requirements: page VP order is drawing order, overlapping viewport selection searches from the end, and a measurement spanning multiple viewports uses the first point's viewport.",
+      "ledger": "12.9 aggregate; .1 and algorithm rows implemented.",
+      "code_assertions": "`measurement_geospatial_current` found model assertions for reverse viewport selection and first-point arithmetic; the public viewer test's two viewports share one Measure and thus does not numerically distinguish selected scale. The public formatting assertion checks text fragments, not the standard's exact numeric output. It drafted `public_measure_numeric_selection.rs` with distinct literal-scale controls; unrun in that shard.",
+      "verdict": "Unlike several headings, this introductory section includes normative algorithmic sentences and must not be marked complete solely because later tables parse. Behavior appears implemented; public numeric assertion coverage remains weaker than ledger wording.",
+      "residuals": [
+        "Await parent execution of the public numeric selection draft; no current failure is established by this aggregate review.",
+        "Number-format leaf clauses and formatting locale policies remain distinct."
+      ],
+      "parent_current_status": "T52 public distinct-scale and first-point numeric selection control PASS; historical draft-pending wording does not apply."
+    },
+    {
+      "clause": "12.10 / 12.10.1",
+      "title": "Geospatial features; General",
+      "source_feature": "\u00a712.10 is an aggregate. \u00a712.10.1 provides contextual introduction and the GEO subtype framing; substantive coordinate-system dictionaries are in .2\u2013.5.",
+      "ledger": "12.10 aggregate implemented with a ratified \u00a712.10.2 departure; .1 implemented.",
+      "code_assertions": "`measurement_geospatial_current` maps public geospatial queries and finite projection examples, including #321/#533/#534/#284/#358. It records ADR1918's explicit departure for projected degree-shaped GPTS and no public UI consumer for PDU/point-data display.",
+      "verdict": "The aggregate row does not make the departed projected-registration sentence implemented. \u00a712.10.1's introductory label is not evidence for all GIS methods. Existing aggregate claim is acceptable only with its explicit departure and finite support boundaries visible.",
+      "residuals": [
+        "No new geospatial algorithm is reviewed here; retained limits on EPSG/datum/epoch/projection coverage are as stated in the sibling shard."
+      ]
+    },
+    {
+      "clause": "12.11 / 12.11.1",
+      "title": "Document requirements; General",
+      "source_feature": "The substantive general row requires a processor that supports document requirements to evaluate them before ECMAScript execution. Catalog Requirements is an array. Table273 defines S, V, RH and Penalty semantics; EC3 #187 corrects its links to Table275 and retitles Table274.",
+      "ledger": "12.11 aggregate implemented; requirement type/version/penalty/handler/processing are separate rows.",
+      "code_assertions": "`document_requirements_current` found `/RH` ordering/disable behavior and penalty boundary evidence. It also found `/V` is parsed but never affects supported-version verdicts or reports: e.g. a future `/Navigation /V /2.1` is treated as met. It further concludes the `/Process` On/Ask/Warn/Off handling is overclaimed as normative because source's stop rule and configurable reader policy are not reconciled. Exact-xref public controls were drafted by that shard.",
+      "verdict": "The main clause is not merely an empty aggregate: `/V` and evaluate-before-scripts create independent semantics. The current `/V` disconnect is a concrete carried-forward behavior defect candidate; the Process-threshold policy is a decision/ledger framing issue requiring parent review, not a blanket mandatory stop assertion.",
+      "residuals": [
+        "Parent should preserve the future-version/absent-version controls and review the `/V` verdict gap from the requirements shard.",
+        "Do not claim requirement warnings must precede first-page rendering; the source specifies evaluation before ECMAScript, and the sibling found host reporting can occur after first frame."
+      ],
+      "parent_current_status": "B38 confirms minimum-version reporting and penalty failures; D27 records the qualified policy decision."
+    }
+  ],
+  "explicitly_not_reviewed": [
+    "Every Table 171 subtype and all multimedia player behavior",
+    "Every form-field inheritance/type/action edge case",
+    "Full annotation graphics/appearance/print behavior; selected departures stay in annotation shards",
+    "All Table 201 actions and external host policies",
+    "Every table and projection method in \u00a712.10",
+    "Signature validation and Clause13 multimedia features"
+  ]
+}

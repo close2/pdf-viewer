@@ -1,0 +1,105 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft/run status. Neither whole-clause nor all-feature certification.",
+  "reviewer_record": [
+    {
+      "feature": "Base-image /Decode consistency: pair count",
+      "clause": "ISO 32000-2:2020 §8.9.5.1, Table 87 /Decode; §8.9.5.2",
+      "title": "Decode arrays contain one pair per component",
+      "source": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:6361-6371; primary PDF printed pp.258-259 (physical page = printed + 15). Table 87: nonmask Decode array length is twice the component count; §8.9.5.1 says inconsistent image dictionary entries shall cause an error. EC3 #215 additionally directs reader to ignore ColorSpace and Mask beside ImageMask=true.",
+      "errata": "EC3 #215 applies to ImageMask's forbidden /ColorSpace and /Mask only; it does not erase the /Decode array shape rules. A JPX image with absent ColorSpace has Decode ignored unless ImageMask=true.",
+      "ledger": "doc/conformance/ledger.toml §8.9.5.1 and §8.9.5.2 entries now list image_dictionary_consistency_audit.rs; ADR 2812 §5 records too-short/too-long base Decode errors, mask Decode exact pair, JPX/no-ColorSpace exception, and separate soft-mask/alternate leniency.",
+      "code": "crates/pdf-model/src/image/dispatch.rs:65-70,858-922 checks base image Decode array length (plus mask decode values) before reading samples; crates/pdf-model/src/image/space.rs:196-214 still uses defaults for missing pairs in paths outside the base image check.",
+      "tests": [
+        "crates/pdf-model/tests/image_dictionary_consistency_audit.rs:86-105 asserts short/long RGB arrays report incomplete; its positive control validates exact six-number array and rendered red pixel."
+      ],
+      "assertions": "Good independent exact-xref positive control and both shorter/longer negative arrays. No coverage found for an array with correct length but nonnumeric element; current code only checks length, then Decode::read filters nonnumbers and silently shifts later values. Draft: drafts/decode_non_number.rs.",
+      "verdict": "PARTIAL: pair cardinality behavior has meaningful test evidence; array-element type is an uncovered concrete likely omission under Table 87's array-of-numbers typing plus §8.9.5.1 error rule.",
+      "residuals": "Parent should decide malformed array-element response semantics and run the draft. The producer 'shall' alone is not the reader obligation; §8.9.5.1's explicit use/error sentence is the asserted reader hook.",
+      "related_adrs": [
+        "ADR 2812"
+      ]
+    },
+    {
+      "feature": "Image masks ignore their own forbidden /Mask and /ColorSpace entries; BPC remains constrained",
+      "clause": "ISO 32000-2 §8.9.5.1 Table 87 /ImageMask, /Mask, /ColorSpace, /BitsPerComponent; EC3 Issue #215",
+      "title": "Image mask entry handling under EC3",
+      "source": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:6363-6371; primary PDF printed p.259 (physical page = printed +15). Table 87 says BPC if present is 1 and Mask/ColorSpace shall not be specified; EC3 #215 is separately documented in ADR 2812.",
+      "errata": "EC3 #215: ignore /Mask and /ColorSpace on ImageMask=true. This does not extend to /BitsPerComponent or invalid /Decode.",
+      "ledger": "§8.9.5.1 entry in doc/conformance/ledger.toml cites ADR 2812 and image_dictionary_consistency_audit; ADR 2812 §5 names the ignore behavior and BPC error.",
+      "code": "crates/pdf-model/src/image/mask.rs:125-126,701-708 treats a stencil's /Mask as absent and excludes it from graphics-state mask override; crates/pdf-model/src/image/dispatch.rs:886-905 checks present stencil BPC=1 and Decode exactly [0 1]/[1 0].",
+      "tests": [
+        "crates/pdf-model/tests/image_masking_audit.rs:301-328 builds exact-xref case with each forbidden ColorSpace, color-key Mask, and stream Mask, asserts stencil mark / clear pixels and allows diagnostics; :331-356 has valid BPC=1 positive control and BPC=2 malformed case asserting diagnostic."
+      ],
+      "assertions": "Public rendered pixel controls show invalid-but-recoverable forbidden entries do not suppress marks or paint clear pixels; separate diagnostic assertion for BPC. The EC3 ignore policy is correctly distinguished from the base-image error clause.",
+      "verdict": "SUPPORTED for these sampled cases, not entire §8.9.5.1.",
+      "residuals": "No direct newly drafted gap identified in this behavior; no claim about every JPX stencil or malformed Decode case.",
+      "related_adrs": [
+        "ADR 2812"
+      ]
+    },
+    {
+      "feature": "JPEG 2000 channel/color precedence and Decode rules",
+      "clause": "ISO 32000-2 §7.4.9, §8.9.5.1 Table 87, §8.9.5.2; T.801 Table M.25; PIMA 7667 Annex C",
+      "title": "JPX codestream colour declarations, opacity channel, and sYCC",
+      "source": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:2029, 6361-6380, 6406 onward; primary PDF printed pp.258-260 and JPX section (physical page = printed +15). §7.4.9: stated PDF ColorSpace overrides codestream color boxes; absent dictionary space uses data declarations; absent-space Decode ignored unless ImageMask; nonzero SMaskInData means exactly one opacity channel shared by color channels; width/height must match codestream. Table 87 describes codes 0/1/2. Table 87 SMaskInData explicitly defines codes 0/1/2 and required consumer behavior; §7.4.9 says nonzero has one shared opacity channel. JP2 cdef kind-1/kind-2 declarations follow JPEG 2000 Part 1 I.5.3.6 Table I-16; the generated code-2 input carries premultiplied channel values, as Table 87 requires.",
+      "errata": "EC3 updates relevant table labels/cross references; no detected erratum alters these precedence rules. Producer constraints (nonzero SMaskInData excludes /SMask, one opacity channel) do not by themselves establish mandatory reader rejection for contradictory malformed inputs.",
+      "ledger": "§8.9.5.1/2 ledger rows document channel precedence/Decode; ledger section for §7.4.9 cites ADRs 2793/2863 and JPX tests. ADR 2863 builds on 2794; ADR 2812's image changes do not supersede JPX behavior.",
+      "code": "crates/pdf-model/src/image/jpx.rs:35-120 resolves declared space, chooses codestream declarations, validates dictionary-vs-codestream dimensions, applies nonzero opacity selection and routes stencils; :270-344 writer samples repeats codestream selection and opacity handling. PIMA sYCC route selected at :63 and implemented via jpx_drawn around :972-1080; writer sYCC gamut handoff/refusal at :276-304.",
+      "tests": [
+        "crates/pdf-model/tests/jpx_channels.rs:208-269 exercises 4 ordinary channels under DeviceCMYK, stated nonzero opacity against channel-count mismatch, and matching RGB space with 4th channel ignored when SMaskInData absent (exact xref fixture).",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs:517-537 works sYCC pixel values from PIMA Annex C for in- and out-of-sRGB samples; :838-865 checks writer carried RGB values vs refusal; :873-887 checks precedence with independent expected pixel.",
+        "crates/pdf-model/tests/jpx_mask_input_audit.rs:182-230 checks valid one-bit JP2 stencil polarity and exact dictionary/header mismatch diagnostics.",
+        "crates/pdf-model/tests/transfer_functions.rs:1205-1234 checks a stencil keeps embedded JPX opacity separate from stencil shape.",
+        "drafts/ordinary_jpx_smaskindata.rs is a new unrun valid JP2 cdef code-1/code-2/zero fixture with public RGBA assertions and an independent straight/premultiplied pixel oracle. Reproducer: drafts/generate_ordinary_jpx_smaskindata.py (Pillow 13.0.0/OpenJPEG); SHA-256 straight=c8675650f3ca949f9fce1b45f90decbb59cdf3265e459fd6f1b3882cc17b3f24, premultiplied=d1ee268871ab46a2ddc8f12b65fcadcb0767e597852ac774f11555fe3f2ec4cd."
+      ],
+      "assertions": "Strong independently calculated sYCC oracle and channel-count controls. A focused exact-xref ordinary RGB+JPX cdef opacity consumer regression is now drafted in drafts/ordinary_jpx_smaskindata.rs: SMaskInData 1 straight data, 2 premultiplied data, and 0 ignored-alpha control. It remains unrun. Existing jpx_channels and stencil tests are not substitutes for this color consumer.",
+      "verdict": "PARTIAL pending execution of the new ordinary RGB embedded-opacity test; selected color/space and sYCC behavior has good independent evidence.",
+      "residuals": "Run the drafted JP2 fixtures and verify the Pillow/OpenJPEG lossless cdef codestreams pass through the sandbox with exact pixels. Current tests before draft had no ordinary color alpha consumer assertion. Avoid asserting rejection merely because a producer violated SMaskInData constraints. The checked-in scratch generator regenerates both arrays byte-for-byte in the Rust draft and records reproducible hashes; parent execution still needed.",
+      "related_adrs": [
+        "ADR 1383",
+        "ADR 2292",
+        "ADR 2794",
+        "ADR 2863"
+      ]
+    },
+    {
+      "feature": "Soft-mask image matte unblending and sampling grid/space",
+      "clause": "ISO 32000-2 §11.6.5.2 Tables 143-144; §8.9.5.2; §11.6.4.3",
+      "title": "Image /SMask resolution, matte, and mask priority",
+      "source": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10167-10215; primary PDF printed pp.419-420 (physical page = printed +15). Table 143 says a Matte-bearing soft mask grid matches parent's width/height and both map unit square; soft mask itself is DeviceGray, not stencil, no Mask/SMask; Table 144 gives Matte component arity/space. §11.6.5.2 states preblend equation, actual color values after Filter+Decode, preblend inversion before color conversion, including Indexed table entries.",
+      "errata": "EC3 Table 143/144 wording/cross references reviewed; no relevant alteration that changes these relationships found.",
+      "ledger": "§8.9.6 and §11.6.5.2 ledger entries cite image_masks.rs and relevant matte/image-mask coverage; historical decisions ADRs 1268/1324 and currently reviewed masks code cited below.",
+      "code": "crates/pdf-model/src/image/dispatch.rs:94-116 gets soft mask and prematte ahead of parent sample conversion; crates/pdf-model/src/image/jpx.rs:129-150 carries mask onto reduced decoded grid, :411 onward matte alpha-on-grid; crates/pdf-model/src/image/mask.rs soft_mask_entry/matte_colour and apply_soft_mask; crates/pdf-model/src/image/space.rs Decode map.",
+      "tests": [
+        "crates/pdf-model/tests/image_masks.rs:976-998 checks ordinary RGB black matte half-alpha unblending with direct RGBA alpha/RGB oracle; :1720-1741 checks CMYK inversion before conversion; :1755-1777 checks Indexed palette entries not indices; :903-955 tests SMask overrides explicit color key and finer mask retains grid. image_masks.rs:1155-1190 checks too-large soft mask deferred placement and :1193 onward reuse scale behavior."
+      ],
+      "assertions": "Meaningful output pixels with independent values and covered ordinary, subtractive, Indexed spaces and mask precedence/grid cases. No assertion found that simultaneous SMaskInData and invalid SMask honors a specific reader outcome; correctly treat this solely as malformed producer conflict. The test wording about size as image's grid should be read with EC3 unit-square mapping, not same per-sample alignment absent Matte.",
+      "verdict": "SUPPORTED on sampled matte inversion, masks precedence, and unit-square/grid behavior; incomplete across all codec combinations.",
+      "residuals": "A targeted JPX embedded-opacity+Matte case is not valid because Table 144 puts Matte on a subsidiary SMask image, while SMaskInData is internal; don't make a conformance failure out of an undefined /Matte key on a JPX image. More thorough color+opacity channel test remains candidate noted above.",
+      "related_adrs": [
+        "ADR 1268",
+        "ADR 1324",
+        "ADR 2812"
+      ]
+    },
+    {
+      "feature": "Soft-mask transparency group behavior",
+      "clause": "ISO 32000-2 §11.5.3, §11.6.5.1, §11.6.5.2; EC3 Table 142",
+      "title": "Knockout mask group, flags, and damaged group recovery",
+      "source": "Primary ISO §11.5.3 / §11.6.5.1 and EC3 processed §10167ff, printed pp.414-419 (physical +15). The group source may be isolated/nonisolated and knockout/nonknockout; mask result is derived from group alpha/luminosity. A rule for producers should not be elevated into reader refusal without reader-directed text.",
+      "errata": "No relevant EC3 change found in the sampled soft-mask group provisions.",
+      "ledger": "§11.6.5 ledger claims group and sample derived value, with soft_masks.rs and damaged_mask_consumer_audit.rs; related ADR 2817 documents mask knockout behavior and ADR 2812 reclassifies damaged group prefix as disclosed recovery policy, not standards-backed subset guarantee.",
+      "code": "crates/pdf-model/src/content/transparency/soft_mask.rs:273 onward handles truncated stream commentary; :344-449 resets/restores shape_only_glyph in group; :502-590 derives knockout construction only under conditions stated adjacent to code.",
+      "tests": [
+        "crates/pdf-model/tests/soft_masks.rs:177-277 luminosity/transfer/alpha; :278-340 /SMask /None control on exact-xref fixture; :458-553 separate pattern vs d1 glyph transparency; :810-853 blend; :876-935 nonisolated groups and missing BBox; crates/pdf-model/tests/soft_mask_dictionary_audit.rs::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control exact-xref, public pixels for /K false and /K true including overlap; crates/pdf-model/tests/damaged_mask_consumer_audit.rs:141ff checks truncated luminosity group rendering + BC and report."
+      ],
+      "assertions": "Public rendered alpha/color tests use explicit controls and the damaged test explicitly treats drawing as reported recovery. A current dedicated test was found on follow-up: crates/pdf-model/tests/soft_mask_dictionary_audit.rs::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control directly compares /K false and /K true public rendered pixels in overlap and unaffected regions, with exact xref and asserts the valid knockout group is fully supported.",
+      "verdict": "SUPPORTED for the changed simple isolated /K construction: current audit has exact-xref normal and knockout controls with independently computed overlap pixels. Guards for four-component and stated-backdrop branches remain unproven by this selected test; do not certify the entire mask-group clause.",
+      "residuals": "No draft needed: soft_mask_dictionary_audit.rs covers the direct knockout behavior. Residual: no selected direct assertion for the fallback guards involving four-component mask groups or luminosity /BC stated backdrop; sample any follow-up against their exact code branch before treating as a failure.",
+      "related_adrs": [
+        "ADR 2812",
+        "ADR 2817"
+      ]
+    }
+  ]
+}

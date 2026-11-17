@@ -104,8 +104,8 @@ fn an_ink_list_with_three_points_joins_each_consecutive_pair() {
 
 #[test]
 fn ink_path_six_operands_produce_a_cubic_curve_not_an_endpoint_chord() {
-    // Table 185 still requires /InkList even when /Path is present. Include a conflicting
-    // straight /InkList line to exercise the implementation's documented Path preference.
+    // EC3 #444 adds to Table 185: ignore InkList when Path is present. The conflicting
+    // straight InkList line discriminates that precedence in the chosen no-AP fallback.
     // Move to (20,20), then curve with controls (20,80), (80,80), ending at (80,20).
     // At t=1/2 the cubic is (50,65), well away from the straight endpoint chord y=20.
     let image = raster(pdf_with_ink(

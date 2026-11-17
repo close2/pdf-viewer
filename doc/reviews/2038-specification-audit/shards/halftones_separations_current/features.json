@@ -1,0 +1,132 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded review of §10.6 aggregate / §10.6.1–.4 screen applicability, §10.6.5 halftone dictionary transfer-function paths (not screen generation), and §10.8.1–.3 separations and user-requested separation simulation. It reuses the rendering_intent_transfer_current source/assertion review for Table 128–132 TransferFunction details and does not audit §8.6.7 or all of §11 overprint/transparency.",
+  "source": {
+    "locators": [
+      {
+        "clause": "10.6.1",
+        "title": "General",
+        "location": "printed p.365 / physical p.380"
+      },
+      {
+        "clause": "10.6.2",
+        "title": "Halftone screens",
+        "location": "printed pp.365–366 / physical pp.380–381"
+      },
+      {
+        "clause": "10.6.3",
+        "title": "Spot functions",
+        "location": "printed pp.366–371 / physical pp.381–386"
+      },
+      {
+        "clause": "10.6.4",
+        "title": "Threshold arrays",
+        "location": "printed p.371 / physical p.386"
+      },
+      {
+        "clause": "10.6.5.1",
+        "title": "General",
+        "location": "printed p.372 / physical p.387"
+      },
+      {
+        "clause": "10.6.5.2–.6",
+        "title": "Type 1, 6, 10, 16 and 5 halftones; Tables 128–132",
+        "location": "printed pp.374–379 / physical pp.389–394; Table 132 spans printed pp.380–381 / physical pp.395–396"
+      },
+      {
+        "clause": "10.8.1–.2",
+        "title": "General; Separations",
+        "location": "printed p.385 / physical p.400"
+      },
+      {
+        "clause": "10.8.3",
+        "title": "Separation simulation",
+        "location": "printed pp.385–386 / physical pp.400–401"
+      }
+    ],
+    "effective_ec3": [
+      "EC3 #310 physically annotates Table 129 (Type 6) on p.391 / printed p.376 and Table 132 on p.395 / printed p.380. It adds producer constraints around TransferFunction for nonprimary/nonstandard primary components and the Type 5 subdictionary. These changes do not turn the halftone screen into a required feature or change the reader's §10.5 transfer-function obligation.",
+      "EC3 #12 on physical p.395 / printed p.380 clarifies that the Type 5 child halftone shall not itself be Type 5; producer-side table language.",
+      "EC3 #311 on physical p.396 / printed p.381 strikes the entire Type 5 contrast paragraph, including its nonprimary-colourant fallback. The earlier rendering_intent_transfer_current shard correctly limits its asserted current screen/transfer behavior and does not rely on the struck fallback.",
+      "A direct annotation inventory of primary physical pp.380–401 found no Issue-tagged annotations in §10.6.1–.4 or §10.8. The page annotations in this span include links, EC3 #310/#12/#311, and PDF Association tracking annotations; they are not additional normative corrections."
+    ]
+  },
+  "features": [
+    {
+      "id": "halftone-screen-device-condition",
+      "source": "§10.1 makes applying PDF-defined halftoning conditional on the raster output device supporting it. §10.6.1 says continuous-tone devices need no halftoning and transmit transfer-corrected components directly; §10.6.2 identifies fully on/off output components as the discrete screen case. §10.6.5.1 separately permits a processor to ignore some or all file halftones and use device-suited screens.",
+      "ledger": "§10.6 aggregate is implemented; §10.6.1–.4 are inapplicable; screen generation is not implemented. The row cites ADR 1535 and the owner-accepted RFC 0009 §2.4 rationale.",
+      "implementation": "The processor's raster outputs are continuous-tone 8-bit RGB; toolkit/print output sends that raster downstream, and Route A sends a PDF to another renderer. The application does not generate bilevel/low-bit-depth device pixels or itself drive a halftoning device.",
+      "evidence": [
+        "CLAUDE.md clause-10 scope",
+        "doc/rfc/0009-what-each-exclusion-protects-and-what-lifting-it-would-mean.md §2.4",
+        "doc/questions/A254",
+        "doc/adr/1535-an-inapplicable-row-quotes-its-condition-and-a-clause-stating-no-requirement-is-a-heading.md"
+      ],
+      "assessment": "The inapplicable classification is tied to the standard's output-device premise and explicitly addresses the print path: this program produces an 8-bit RGB raster and delegates any printer screening to the platform/driver; it does not claim that a physical printer is continuous-tone. The identified flip route is the program itself generating discrete device pixels. This is a scoped owner decision supported by the active print architecture, not a universal claim that printers never require halftones.",
+      "residuals": [
+        "Reopen if the program adds direct printer/press control, a one-bit or low-bit-depth output raster, or a route that expects this processor to create PDF-defined screens.",
+        "The §10.6.5.1 ignore permission is optional device/screen behavior; it does not waive the separate §10.5 transfer functions or their halftone-dictionary TransferFunction entry."
+      ]
+    },
+    {
+      "id": "halftone-dictionary-transfer-function",
+      "source": "§10.5 requires the transfer mapping and says a TransferFunction in a halftone dictionary overrides the corresponding graphics-state function. §10.6.5 Tables 128–132 carry that entry in each halftone type; Type 5 selects component/colourant entries and Default for remaining components. Screen parameters are ignored under the device/permission rationale above.",
+      "ledger": "§10.6.5 and .1–.6 are implemented for the TransferFunction content; §10.5 is implemented. The detailed assertion review is in rendering_intent_transfer_current.",
+      "implementation": "crates/pdf-model/src/content/ext_gstate.rs::halftone_transfer and component_transfer preserve the separate `/TR` and `/HT` states. Type 5 selects RGB names and Default; other recognized dictionary types contribute their component transfer; result reaches the transfer map consumed by raster backends.",
+      "assertions": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "::a_halftone_naming_identity_turns_the_graphics_states_function_off",
+        "::a_type_5_halftone_gives_each_colourant_its_own_function",
+        "::a_default_halftone_takes_its_override_off_and_leaves_the_transfer_function"
+      ],
+      "assertion_quality": "Existing direct HT override tests inspect a display-list map through a helper rather than exercising the raster consumer. rendering_intent_transfer_current drafted public raster tests for Type 5 and Type 6 stream transfer overrides, four distinct TR component maps, and TR2 precedence; that earlier shard owns those drafts and no duplicate is made here. Parent execution status was not independently checked.",
+      "assessment": "No sampled required screen behavior is missing for this continuous-tone raster output. The transfer-function carrier path is implemented; public consumer assertion strength is the residual already recorded by the earlier shard.",
+      "related_adrs": [
+        "ADR 0204",
+        "ADR 0505"
+      ]
+    },
+    {
+      "id": "separations-and-screen-alternates",
+      "source": "§10.8.1 says subtractive device output may be produced as one separation per colourant and expressly leaves whether to produce them to processing software. §10.8.2 describes Separation/DeviceN overprint behavior for separations and says alternate colour spaces are supplied so prepress-prepared files can display on other devices; on displays that ignore overprint, appearance may differ, with cyan then yellow as the example.",
+      "ledger": "§10.8.1 and .2 implemented; §8.6.6 and §8.6.7 own the colour-space and overprint details beyond this bounded shard.",
+      "implementation": "The optional separation simulation creates process/spot planes under a reader preference. Ordinary screen mode uses alternate-space behavior. Screen and simulated press routes have distinct asserted controls.",
+      "assertions": [
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "::two_separations_multiply_in_flat_xyz",
+        "crates/pdf-model/tests/spot_planes.rs::the_separation_is_the_drawn_page_and_off_makes_none",
+        "crates/pdf-model/tests/spot_press.rs::cyan_overprinting_yellow_is_green_on_the_press"
+      ],
+      "assessment": "This shard finds the optional screen default and the alternate/press distinction explicitly exercised. Detailed overprint operation semantics are not re-certified here.",
+      "related_adrs": [
+        "ADR 1535",
+        "ADR 1228",
+        "ADR 1241"
+      ]
+    },
+    {
+      "id": "separation-simulation-four-steps",
+      "source": "§10.8.3 says a simulation can be performed when closer matching matters; its results should match four steps: (a) process as a subtractive process-colour/optional spot simulated device and determine its colours, consulting default DestOutputProfile or ColorantTable values where available; (b) convert every separation to flat XYZ on all-white matte; (c) multiply blend them; (d) convert/output to the actual device colour space. This is optional (`can`, `should`), distinct from an implementation capability requirement in Table 275 SeparationSimulation.",
+      "ledger": "§10.8 aggregate and .3 are marked implemented; Table 275's SeparationSimulation is marked met by the current static capability map.",
+      "implementation": "ViewState carries a default-off Separations preference. `simulated_press` uses a four-channel page/catalog output-intent ICC profile when available, otherwise the assumed press. Spot planes are discovered from page resources; process and spot planes feed the CPU separation resolver. The resolver converts to flat XYZ, normalizes by white matte, multiplies separations, and maps back to sRGB. GPU explicitly refuses a separated display list by name.",
+      "assertions": [
+        "crates/pdf-model/tests/colour_paths.rs::two_separations_multiply_in_flat_xyz",
+        "::a_spot_colourants_own_separation_is_what_the_simulation_renders",
+        "::a_process_component_and_a_spot_colourant_multiply",
+        "::a_none_component_adds_no_separation_to_the_simulation",
+        "crates/pdf-colour/src/colour.rs::the_white_matte_is_the_identity_of_the_multiply",
+        "crates/pdf-model/tests/spot_planes.rs and spot_press.rs source-derived plane/overprint pixels",
+        "viewer-core/tests/separations.rs preference default/change controls"
+      ],
+      "assertion_quality": "Numerical oracles are independently reasoned: two sRGB neutral 0.5 separations each map to linear 0.214041, multiply to 0.045814, and return as about 0.237012/60; a zero-tint white plane must be an identity; press cyan/yellow and spot/process controls assert visible distinctions. These are stronger than shared implementation tables, though they do not certify every profile, object type, or backend.",
+      "assessment": "The selected positive paths for all four steps have visible consumer tests and source-derived expectations. Reader preference is correctly distinct from a document's Table 275 capability requirement. No new valid-input failure was established in this bounded audit.",
+      "residuals": [
+        "Step a says default DestOutputProfile or ColorantTable values, when available for a subtractive device, should be consulted. The process route reads a four-channel output-intent profile or assumed press; no ICC ColorantTable/named-colour consumer was found. This is a SHOULD-level recommendation path and is reported as an implementation/ledger qualifier, not a mandatory SHALL defect.",
+        "No direct test was built for a ColorantTable-only profile; applicable ICC profile provenance and named-colour interpretation need separate review before promotion as a behavior failure.",
+        "This audit does not certify all ICC process profiles, all shading/image/function combinations, 16 spot-plane resource boundaries, or the GPU's deliberate separation-list refusal."
+      ]
+    }
+  ],
+  "parent_locator_correction_125": "Table130 is physical393/printed378; the physical391 annotation is Table129 TransferFunction. This corrects source provenance only."
+}

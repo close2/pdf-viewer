@@ -1,0 +1,26 @@
+[
+  {
+    "adr": "ADR 0716 — The table cells the errata struck",
+    "check": "The effective Table 120 cell changes are #190 (Descent ≤0), #152 (FontWeight integer), #474 (FontWeight 1–1000 SHALL; hundreds SHOULD), and #453 (MissingWidth predictability condition). The current global ledger-erratum finding 2038-D10 captures only the #453 qualification omission; no reader failure follows from the omission or from implementation-dependent inconsistent-width behavior.",
+    "status": "source-consistent; current D10 remains accurately qualified",
+    "residual": "Ledger owner may add #453 to §9.8.1 explanation. No implementation correction is established."
+  },
+  {
+    "adr": "ADR 1441 — A substitute is ranked by its descriptor",
+    "check": "Table 120 says descriptors provide information that enables synthesis or similar-font selection. It does not prescribe a single host font-ranking algorithm. Current Style::derive has direct assertions for representative weight, stem, angle, flags and stretch; those establish the chosen product policy without turning it into a unique ISO result.",
+    "status": "decision remains a bounded product choice",
+    "residual": "No full host font catalog or perceptual substitute-quality review was made."
+  },
+  {
+    "adr": "ADR 1220 — A sentence with no modal verb is not a debt",
+    "check": "EC3 #5 corrects the allowed keys for producer-authored FD class descriptors. The Table 122 override behavior is implemented in loading::class_faces; no ISO duty to reject an invalid FD dictionary follows from the corrected writer-side key restrictions.",
+    "status": "source-consistent in sampled behavior",
+    "residual": "No complete matrix of every class key and invalid producer combination was tested."
+  },
+  {
+    "adr": "ADR 1074 — A glyph class is decided by the character",
+    "check": "Table 123's class names and source descriptions are the basis for class choice. The reader's Unicode-character decision is a substitution policy where collection/CID assignment data is not directly available; sampled valid, ambiguous and unknown controls exist. Table 123's PDF 2.0 addition/deprecation is represented in code, but Adobe-KR lacks a dedicated public PDF consumer test in the reviewed evidence.",
+    "status": "bounded support, no demonstrated defect",
+    "residual": "Adobe-KR public-PDF coverage and complete Table 123 inventory remain unverified."
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "verdict": "T147 repairs unrelated fixture defects and revalidates four existing behavior findings without changing production code.",
+  "primary": "Parent read Table43 physical149–152, including AFRelationship continuation on152; Tables44/45 physical153–154; Tables153–155 physical463–466. Desc is required for EmbeddedFiles FileSpecs, F is required absent legacy names, and CI is indirect. #481 annotation and affected bullets are on153, not152. Table155 ends466;467 starts subsequent tables.",
+  "fixture": "Collection PDF2 now has equal 16-byte initial IDs, binary marker, F, UTF-16BE UF, matching EF entries and indirect CI. Desc was already present and is not a newly missing entry. F and UF share the displayed name, so Filename is not independent F-fallback evidence. Literal abc verifies valid Flate bytes and decoded Size3 versus Length11. Existing independent T132 covers differing F/UF names and streams.",
+  "execution": "collection-fixture-wave108: four existing failures B05/B06 after positive controls. image-fixtures-wave108: two PASS controls and existing B11/B14 failures after binary-header/no-chain-cut repair. Host/model Clippy PASS. No new test identity.",
+  "qualifications": "B11 intentionally supplies a nonnumeric Decode element and tests the explicit image inconsistency error contract, not a valid producer. B14 valid JPX cdef2 still stops at component-count refusal before its pixel oracle. D02 initial-document presentation remains unresolved. Other cells are sampled, not whole-table certification."
+}

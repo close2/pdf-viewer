@@ -1,0 +1,1 @@
+T86: combined NoZoom/NoRotate with a rotating AP Matrix and nonzero BBox passes literal public pixel extents and an unflagged control. Parent strengthened the draft because a translation-only Matrix cancels under appearance alignment. Separate existing flag tests remain useful. This covers fresh interpretation, not replacement caching or every subtype/print policy.

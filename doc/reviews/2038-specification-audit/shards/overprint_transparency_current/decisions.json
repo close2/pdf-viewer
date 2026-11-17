@@ -1,0 +1,54 @@
+{
+  "scope": "Selected decision review for the bounded features in features.json. Historical decisions are interpreted against current code and current assertions; no ADR is certified wholesale.",
+  "decisions": [
+    {
+      "adr": "0213",
+      "subject": "Pattern tiling evaluation and group shape/opacity",
+      "current_reading": "The implementation retains cell-level transparency evaluation and applies the painting mark's constants to the evaluated tiling as a whole where a group is needed. The named tests distinguish alpha-on-final-pattern from alpha-per-cell-object and exercise a cell taking its enclosing backdrop.",
+      "assessment": "Still relevant and supported for these sampled consumers. The NOTE recommending a single group for raster tiling was not treated as a mandatory optimization independent of visual behavior. Pattern_forms_current owns geometry/anchor gaps."
+    },
+    {
+      "adr": "0262",
+      "subject": "DeviceCMYK press as a group blending space",
+      "current_reading": "§11.7.2 requires ICCBased CMYK group redefinition and late conversion; current process run selection, `Press` and `Compositing` paths provide a four-component group in the cases asserted.",
+      "assessment": "Current fixtures establish selected cases with group-local values and distinct press controls. No unbounded claims about every ICC profile route or press budget are derived from this decision."
+    },
+    {
+      "adr": "1157",
+      "subject": "Optional opaque-overprint compatibility blend",
+      "current_reading": "§11.7.4.3 says a processor may consider implementing the special mode. This tree does implement it in supported 4-component target contexts. That implementation decision is permitted; once selected, its stated condition and mode arithmetic are conditional shall obligations.",
+      "assessment": "Decision remains valid. A device with native three-component additive color space may ignore opaque overprint under §8.6.7, but this does not erase the separate group-space condition in §11.7.4.3. Current test pair has an RGB/no-op case and a four-component page-group discriminating case."
+    },
+    {
+      "adr": "1158",
+      "subject": "Cost of overprint support",
+      "current_reading": "Implementation cost remains a performance decision, not a normative reading. Current measured route complexity and model-level report distinguish supported semantics from backend capabilities.",
+      "assessment": "No current source contradiction found in this shard; performance cost itself was not independently remeasured."
+    },
+    {
+      "adr": "1241",
+      "subject": "Separation/DeviceN reversion and special overprint eligibility",
+      "current_reading": "§11.7.4.3 Note 2 says a space reverting to an alternate is treated as that alternate when identifying the current space; the §8.6.7 example equates relevant DeviceN and DeviceCMYK paint. `cmyk_tints` and the press-profile test exercise this.",
+      "assessment": "Current reading is corroborated by effective text and test name; no new counterexample found. DeviceN NChannel's output-specific spot-plane routing remains under special-colour/press ownership."
+    },
+    {
+      "adr": "1279",
+      "subject": "Transfer-function per-component opacity under overprint",
+      "current_reading": "§11.7.5.2 explicitly says the overprint result must be source color for that component to qualify as opaque. The paired OPM1 vs OPM0 raster checks paint a non-identity transfer only when the source replaces the component.",
+      "assessment": "Strong targeted evidence for the selected case. It does not prove the complete six-condition truth table."
+    },
+    {
+      "adr": "1311, 1329",
+      "subject": "Spot plane output and simulation availability",
+      "current_reading": "§11.7.3 permits keeping spot components independently or substituting alternates. Current code and tests exercise spot-plane output and the RGB alternate route separately; soft-mask groups always lack spot planes and tests compare against alternate-space controls.",
+      "assessment": "Consistent in sampled paths. Neither decision implies that an ordinary RGB display can reproduce physical ink appearance."
+    }
+  ],
+  "nonclaims": [
+    "No general endorsement of all historical ADRs cited by the ledger.",
+    "No claim that tests listed in a ledger row establish every source bullet, backend, object type or exact interaction.",
+    "No claim of mandatory special overprint mode: the mode is permitted, not required by §11.7.4.3.",
+    "No claim that halftone screens must be rasterized on continuous-tone targets.",
+    "No inference that producer constraints create reader rejection duties."
+  ]
+}

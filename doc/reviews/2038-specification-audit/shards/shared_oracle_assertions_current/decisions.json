@@ -1,0 +1,23 @@
+[
+  {
+    "candidate": "CalRGB identity",
+    "decision": "Treat the unit test as a metamorphic chain check, not a standalone literal output oracle. Its expected uses the same production sRGB encode helper, so that final transfer stage can cancel. Existing literal CalGray and matrix-orientation controls narrow the shared-helper risk; a focused CalRGB literal output is still worthwhile.",
+    "draft": "drafts/calrgb_literal_srgb_samples.rs"
+  },
+  {
+    "candidate": "CMYK JPEG sample orientation",
+    "decision": "Retain as an integration/orientation assertion. The expected converter is shared, but a separate unit test pins process CMYK appearances to literal values; moreover the conversion to the display is a documented reader/device choice, not a unique ISO mandated result. No duplicate numeric test drafted."
+  },
+  {
+    "candidate": "Multitone worked examples",
+    "decision": "Treat paired direct-route equality as the example-specific composition check the ledger claims. It is not an absolute device-color oracle, but it isolates Indexed/DeviceN/tint-transform composition and source examples do not fix a specific display profile. No test gap established."
+  },
+  {
+    "candidate": "Image samples and image geometry",
+    "decision": "The two sampled image suites use literal expected source colors, packing/layout reasoning and independent coordinates; their expected values are not produced by the decoding/mapping helpers. No draft."
+  },
+  {
+    "candidate": "Font widths, font selection, path closure",
+    "decision": "The expected values are literal widths/origins, fixture-defined glyph IDs, and explicit path commands. Equivalence checks have independent controls, so these are not sole circular oracles. No draft."
+  }
+]

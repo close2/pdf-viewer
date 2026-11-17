@@ -1,0 +1,146 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "shard": "ISO 32000-2 §7.5.5–§7.5.8.4",
+    "baseline": "b901326c; source and assertion review only; parent test execution pending",
+    "prior_review_inventory": {
+      "2038_clause_inventory": "§7.5.5, .7, .8, .8.1–.8.4 were pending before this shard; §7.5.6 had partial-current-assertion-review.",
+      "prior_assertion_reviews": "Only one direct assertion entry was found for this family: an incremental-update second-class trailer key. Earlier §7.5 family evidence in ADR 0100 and cross_references.rs is reviewed here rather than treated as new coverage.",
+      "artifact_directories": [
+        "doc/reviews/2038-specification-audit/shards/ (no prior 7.5 shard)",
+        "crates/pdf-syntax/tests/file_structure_audit.rs (tracked helper suite)"
+      ],
+      "1983_inventory": "These rows had old partial/implemented records; they do not establish test assertion validity."
+    },
+    "features": [
+      {
+        "id": "file-trailer",
+        "clause": "7.5.5",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 59–60; Table 15 printed p. 59",
+        "requirements_reviewed": [
+          "startxref and %%EOF ending structure",
+          "Table 15 Size, Prev, Root, Encrypt, Info, ID semantics",
+          "EC3 Issue #101's startxref location amendment",
+          "EC3 Issue #522's informative no-decrease Size note"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/xref.rs::read",
+          "crates/pdf-syntax/src/xref.rs::read_from_startxref",
+          "crates/pdf-syntax/src/xref.rs::find_startxref",
+          "crates/pdf-syntax/src/xref.rs::XrefTable::merge_trailer",
+          "crates/pdf-syntax/src/serialize.rs trailer writing"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/cross_references.rs::a_trailer_further_back_than_the_window_is_still_the_files_trailer",
+          "crates/pdf-syntax/tests/cross_references.rs::a_previous_section_that_does_not_read_leaves_the_numbers_below_size_to_their_own_headers",
+          "crates/pdf-syntax/tests/cross_references.rs::a_previous_section_that_does_not_read_and_no_size_declares_nothing",
+          "crates/pdf-syntax/tests/incremental_update.rs::an_update_replaces_an_object_and_keeps_the_file_under_it"
+        ],
+        "verdict": "departed for Table 15's shall-ignore entries beyond /Size, with owner-confirmed robustness choice in ADR 2346; other reviewed behavior broadly matches. No claim that the departure is conformance.",
+        "residuals": [
+          "The /Size departure is not independently re-benchmarked here; ADR 2346 includes the evidence and owner confirmation.",
+          "No exhaustive audit of every producer trailer field. Recovery behavior for damaged /Prev is optional/recovery policy, not a requirement of a valid document."
+        ]
+      },
+      {
+        "id": "incremental-updates",
+        "clause": "7.5.6",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 60–61; EC3 Issue #399 is recorded in doc/errata-read.md",
+        "requirements_reviewed": [
+          "updates append and leave original bytes unchanged",
+          "an update section covers changed/replaced/deleted objects",
+          "free entries record deletion while prior object bytes stay in file",
+          "newest object copy wins",
+          "updated trailer carries previous entries except Prev and has its own EOF marker",
+          "version may be updated in catalog"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/xref.rs::read_from_startxref",
+          "crates/pdf-syntax/src/xref.rs::XrefTable::fill",
+          "crates/pdf-syntax/src/write.rs::incremental_update",
+          "crates/pdf-syntax/src/version.rs"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/incremental_update.rs::an_update_replaces_an_object_and_keeps_the_file_under_it",
+          "crates/pdf-syntax/tests/incremental_update.rs::an_update_chains_onto_an_update",
+          "crates/pdf-syntax/tests/cross_references.rs::an_incremental_update_that_deletes_an_object_is_not_undone_by_the_older_section",
+          "crates/pdf-syntax/tests/cross_references.rs::each_cross_reference_section_reports_the_trailer_it_states_rather_than_the_merge",
+          "crates/pdf-syntax/tests/incremental_update.rs::a_freed_object_is_gone_to_the_reader_and_still_in_the_file"
+        ],
+        "verdict": "partial: reviewed reader/writer path and high-value assertions; meaningful exact-offset controls exist. Parent execution pending.",
+        "residuals": [
+          "No byte-for-byte audit of every update producer or signature-preservation consumer.",
+          "Only one direct prior assertion review concerned this clause family. Corpus save tests and other readers are supplementary, not proof of every clause feature."
+        ]
+      },
+      {
+        "id": "object-streams",
+        "clause": "7.5.7",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 61–64; Table 16 printed p. 61; EC3 Issue #439 adds encrypted-document catalog to exclusions",
+        "requirements_reviewed": [
+          "Table 16 Type/N/First/Extends",
+          "header contains N number/offset pairs; offsets increase but objects need not be in object-number order (Note 6)",
+          "objects are parsed from First plus stated relative offsets and stop at next offset/end",
+          "only object values, no obj/endobj",
+          "First is authoritative",
+          "streams and bare references prohibited; generation is zero",
+          "compressed strings not separately decrypted",
+          "object stream is itself indirectly cross-referenced"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/document/object_streams.rs::object_stream_pairs",
+          "crates/pdf-syntax/src/document/object_streams.rs::Document::expand_object_stream",
+          "crates/pdf-syntax/src/document/objects.rs::Document::load",
+          "crates/pdf-syntax/src/xref.rs::entry_location",
+          "crates/pdf-syntax/src/serialize.rs::packable",
+          "crates/pdf-syntax/src/serialize.rs::flush"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/cross_references.rs::an_object_stream_locates_its_objects_at_first_plus_their_own_offset",
+          "crates/pdf-syntax/tests/cross_references.rs::a_rebuild_enters_the_objects_an_object_stream_names",
+          "crates/pdf-syntax/tests/cross_references.rs::a_scanned_object_outranks_an_object_streams_claim_on_its_number",
+          "crates/pdf-syntax/tests/serialize.rs::an_object_stream_carries_what_the_clause_permits_and_nothing_it_forbids",
+          "crates/pdf-syntax/tests/serialize.rs::a_generated_object_stream_reads_back_through_this_trees_own_reader"
+        ],
+        "verdict": "partial: first-offset and writer restrictions have useful assertions; Note 6's explicit order freedom is not directly tested. Draft added.",
+        "residuals": [
+          "No exhaustive enforcement audit of N/First, all prohibited-object classes, /Extends DAGs, or generation reuse.",
+          "Recovery scanning object streams is an optional repair path and is not required behavior for valid cross-references."
+        ]
+      },
+      {
+        "id": "xref-streams-and-hybrid-references",
+        "clause": "7.5.8.1–.4",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 65–70; Tables 17–19 pp. 65–68; EC3 Issues #246/#720 direct-object rule and #500 Table 18 offset default removal",
+        "requirements_reviewed": [
+          "xref stream is equivalent to table+trailer and startxref points to stream object",
+          "Table17 W/Index/Size/Prev/Type and direct-object constraints",
+          "Table18 types 0,1,2, unknown types mean null",
+          "big-endian fields and field defaults",
+          "xref stream itself has an xref entry",
+          "hybrid XRefStm precedence over Prev",
+          "hidden/free object overlap resolves to stream entry first"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/xref.rs::read_section",
+          "crates/pdf-syntax/src/xref.rs::read_from_startxref",
+          "crates/pdf-syntax/src/xref.rs::read_xref_stream",
+          "crates/pdf-syntax/src/xref.rs::entry_location",
+          "crates/pdf-syntax/src/document/objects.rs::Document::load"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/cross_references.rs::a_cross_reference_stream_and_a_classic_table_describe_the_same_document",
+          "crates/pdf-syntax/tests/cross_references.rs::an_absent_index_covers_object_zero_to_size",
+          "crates/pdf-syntax/tests/cross_references.rs::an_entry_type_the_standard_does_not_define_is_the_null_object",
+          "crates/pdf-syntax/tests/cross_references.rs::a_type_1_entry_with_no_offset_field_locates_nothing",
+          "crates/pdf-syntax/tests/cross_references.rs::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free"
+        ],
+        "verdict": "partial: broad parser behavior is implemented and tested; the named hybrid precedence test's companion xref-stream fixture omits the xref stream object's own required entry and is not a conforming fixture. A corrected draft is provided.",
+        "residuals": [
+          "No broad validation of all direct-object restrictions or every malformed /W and /Index shape.",
+          "No test execution in this shard; source review and test-source review are separate from parent suite result."
+        ]
+      }
+    ]
+  }
+}

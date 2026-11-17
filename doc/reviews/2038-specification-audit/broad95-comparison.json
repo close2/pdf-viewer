@@ -1,0 +1,8 @@
+{
+  "log": "eleven-crate-wave95.log",
+  "observed_failure_count": 93,
+  "expected_failure_count": 93,
+  "extra": [],
+  "missing": [],
+  "scope": "Eleven default-feature crates through checkpoint94; fiveGPU, oneengine, oneignoredstalegate outside."
+}

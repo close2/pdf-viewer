@@ -1,0 +1,65 @@
+{
+  "shard": "public current-time CRL applicability through viewer-core Report",
+  "source": {
+    "document": "ISO 32000-2:2020 + Errata Collection 3",
+    "clauses": [
+      {
+        "id": "12.8.3.4.7",
+        "title": "Revocation checking PAdES signatures at the current time",
+        "locator": "physical page 598 / printed page 583",
+        "requirement": "For the current-time check, the current UTC instant must fall within the CRL thisUpdate/nextUpdate interval for the CRL to establish current status."
+      },
+      {
+        "id": "12.8.3.4.8",
+        "title": "Revocation checking PAdES signatures at a time in the past",
+        "locator": "physical page 599 / printed page 584",
+        "requirement": "Historical signer-path validation uses the past validation instant and permits later-collected CRL evidence subject to its separate capture-before-certificate-expiry and nextUpdate-after-past-time conditions. This does not make the .4.7 current-time interval rule mode-less."
+      },
+      {
+        "id": "12.8.4.3",
+        "title": "Document Security Store (DSS)",
+        "locator": "physical pages 600\u2013601 / printed pages 585\u2013586",
+        "requirement": "The DSS dictionary is used to collect validation certificates, CRLs and OCSP responses relevant to the signature; this fixture places its CRL in the Catalog DSS."
+      }
+    ],
+    "errata": "No EC3 annotation modifies the current-versus-past CRL applicability condition in \u00a7\u00a712.8.3.4.7\u2013.8. The nearby change in this area is #448's version note under \u00a712.8.4.1, not a change to the CRL window."
+  },
+  "ledger": {
+    "file": "doc/conformance/ledger.toml",
+    "rows": [
+      {
+        "clause": "12.8.3.4.7",
+        "status": "implemented",
+        "claim": "Good status requires the asked instant between thisUpdate and nextUpdate.",
+        "tests_listed": [
+          "revocation::tests::a_crl_that_lists_a_serial_revokes_the_certificate",
+          "revocation::tests::four_things_that_must_each_stop_a_crl_from_saying_good",
+          "revocation::tests::an_ocsp_response_the_issuer_signed_is_read_and_believed",
+          "revocation::tests::a_validated_path_carries_what_the_documents_material_said_about_it"
+        ]
+      },
+      {
+        "clause": "12.8.3.4.8",
+        "status": "implemented",
+        "claim": "A timestamp-established historical instant is used for certificate validity and revocation status."
+      }
+    ]
+  },
+  "implementation_trace": [
+    "viewer-core::notes::signatures initializes BestSignatureTime::now(trust.anchors.at()).",
+    "With no trusted signature or document timestamp, the fixed instant supplied in TrustPolicy remains the best signature time; `about_one` passes it to Signature::trust, then trust::Search::walk calls revocation::status_within.",
+    "revocation::from_list checks issuer/signature and listed revocations, then accepts an unlisted certificate when asked_at <= nextUpdate. The no-policy path does not require asked_at >= thisUpdate; comments explicitly say a later-issued list answers an earlier instant.",
+    "A public report uses Verdict::of with the host's Acceptance. With RevocationMustBeGood, Unknown revocation withholds 'locally valid'; Good permits it if the other checks pass."
+  ],
+  "draft": {
+    "file": "current_crl_public_report.rs",
+    "route": "public Command::Open, Command::Trust with fixed host time and anchor, then Command::Report",
+    "controls": [
+      "A genuine signed CAdES PDF with an exact xref and embedded root/leaf chain, DSS CRL, no-recovery parse, and OpenSSL detached verification.",
+      "In-window CRL positive control at one minute before the host instant.",
+      "Same certificate, anchor, host instant, signature shape, and nextUpdate, with thisUpdate one minute after host time as the discriminating fixture.",
+      "No mode-less duplicated status call or false claim that historical later-issued evidence must be rejected."
+    ],
+    "execution": "Not run; parent handles Cargo execution/promotion. The fixture generator itself was run successfully and its OpenSSL/qpdf checks passed."
+  }
+}

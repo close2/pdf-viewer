@@ -1,0 +1,24 @@
+{
+  "reviews": [
+    {
+      "adr": "root ADR 0812",
+      "verdict": "Agree with the core descriptor-transport and no-path design; qualify the proof claims rather than the decision.",
+      "grounds": [
+        "The implementation sends the exact borrowed descriptor returned by the opened FileBytes alongside the frame header; worker claims one OwnedFd and wraps it with the length carried in the payload.",
+        "The confined integration test reaches the actual worker, parses the document, and compares all rendered bytes against the memory route. The process probes independently pin the intended pread/stat boundary.",
+        "The protocol unit test covers missing descriptor and length/content decode. The FileBytes test covers declared lengths and short physical reads. Excess descriptors are closed by decode caller ownership/drop behavior.",
+        "ISO source constrains interpretation of PDF offsets and signed ranges, not the chosen OS mechanism or descriptor quotas. Those are owner security/performance policies."
+      ],
+      "qualification": "The protocol unit test's comment says the duplicated descriptor is the same file; it actually independently opens the same path, which establishes same inode under the static fixture but does not exercise the exact same open file description. The end-to-end host test does pass the FileBytes descriptor itself, so the transport identity story is still directly supported by implementation and consumer evidence.",
+      "follow_up": "Optional strengthening: add a path-unlinked-after-open control to the existing confined integration test. This would make the identity/non-reopen property observable, but the code path and current host-worker rendering test already provide substantial evidence; no PDF compliance defect is established."
+    },
+    {
+      "adr": "ADR 0812 signature-streaming consequence",
+      "verdict": "No new verdict in this shard.",
+      "grounds": ["Signature range/digest and timestamp/revocation behavior have dedicated current review shards; this task only traced the shared FileBytes window boundary to avoid duplicating cryptographic review."]
+    }
+  ],
+  "unresolved": [
+    "Partial frame-header EOF is normalized to worker end-of-input whereas partial payload EOF is an error. This may be acceptable for a trusted local transport whose peer death is separately surfaced; it is a protocol robustness choice, not a PDF rule, and no separate test is proposed without a specified host-facing contract."
+  ]
+}

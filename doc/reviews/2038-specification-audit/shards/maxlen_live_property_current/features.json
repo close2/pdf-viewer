@@ -1,0 +1,57 @@
+{
+  "shard": "maxlen_live_property_current",
+  "baseline": "b901326c",
+  "scope": "Table 232 /MaxLen as used by scripted CharLimit changes and subsequent field text writes; this is a bounded model/API consistency review, not a whole §12.7 certification.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "clause": "§12.7.5.3, Table 232",
+    "physical_page": 556,
+    "printed_page": 541,
+    "table_entry": "MaxLen: integer; optional and inheritable; maximum length of the field's text, in characters.",
+    "ec3_review": "The table is on physical 556 / printed 541; #191's primary StrikeOut/Caret group on that page inserts 'An integer value greater than or equal to zero that is the' into the /MaxLen description. This is a producer-validity qualification. It does not create a reader duty to reject negative values. The valid draft fixtures use positive limits."
+  },
+  "owner_decisions": [
+    {
+      "source": "doc/questions/A834-four-audit-findings-that-are-the-owners-to-decide.md, item 1",
+      "decision": "Cut programmatic text values from set_field, scripts and imports to /MaxLen in pdf-model.",
+      "status": "accepted"
+    },
+    {
+      "source": "doc/adr/2840-a-text-value-is-held-to-maxlen-in-the-model-and-enforce-is-a-restriction-at-the-readers-level.md, section 1",
+      "decision": "Apply the model's cut to values entering its edit log, including script writes, against an inherited text-field /MaxLen."
+    },
+    {
+      "source": "doc/adr/1617-what-a-script-may-change-on-the-page-is-drawn-and-saved-as-the-standards-entries.md, sections 1 and 3",
+      "decision": "A script's charLimit maps to Table 232 /MaxLen and the property is saved on the field."
+    }
+  ],
+  "effective_errata": [
+    {
+      "issue": 191,
+      "source_location": "Primary PDF physical 556 / printed 541, Table 232 /MaxLen row; annotation objects 5734 (StrikeOut), 5736 (Caret).",
+      "effect": "The value is an integer greater than or equal to zero and is the maximum length.",
+      "classification": "Producer constraint; do not infer mandatory reader rejection of an invalid negative value."
+    }
+  ],
+  "implementation": {
+    "stored_limit_helper": "crates/pdf-model/src/view/fields.rs::held_to_max_len resolves the original Document's widget/field chain and reads stored /MaxLen.",
+    "scripted_limit_state": "crates/pdf-model/src/view/script_model.rs::FieldState::apply sets char_limit; script_properties exposes the override; saved scripted entries write /MaxLen.",
+    "script_value_path": "crates/pdf-model/src/view/scripts/edits.rs::apply_edits applies returned ScriptEdit values in sequence; a value reaches scripts/calculation.rs::write_text, which calls held_to_max_len with the original Document.",
+    "user_value_path": "crates/pdf-model/src/view/fields.rs::set_field also calls held_to_max_len against the original Document after the open-script property override is live."
+  },
+  "existing_assertions": [
+    {
+      "test": "crates/pdf-model/tests/max_len_model.rs::a_value_set_through_the_model_is_cut_to_max_len",
+      "coverage": "Stored /MaxLen 10 limits a host set and the saved /V."
+    },
+    {
+      "test": "crates/pdf-model/tests/max_len_model.rs::a_calculated_value_is_cut_to_max_len",
+      "coverage": "A calculation result is limited by the stored /MaxLen 2."
+    },
+    {
+      "test": "crates/pdf-model/tests/script_properties.rs::a_character_limit_is_the_maximum_length",
+      "coverage": "CharLimit(5) is serialized as /MaxLen 5; it does not write a text value after changing the limit."
+    }
+  ],
+  "draft_status": "Not executed. The proposed fixtures inject an ordered ScriptRunner result and do not claim to run ECMAScript."
+}

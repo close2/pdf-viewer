@@ -1,0 +1,9 @@
+{
+  "verdict": "Selected eight tables reconciled; public popup precedence assertion strengthened and PASS (T142).",
+  "source": "Parent read actual captions and headers:180 at505,181 at506–507,182 at507–508,183 at508–509,184 at509,185 at510,186 at510–511,187 at511. Table186 Open continues511. Direct #444/#524/#608 annotations checked; #444 Ink correction is existing D12, not a new finding.",
+  "assertion_gap": "Existing model test named all four parent overrides, but Popup supplied conflicting Contents/T only; its C/M were absent, so those assertions proved inheritance rather than precedence. Public headless test likewise had no conflicting popup metadata.",
+  "strengthening": "Public exact-xref PDF1.7 fixture now supplies distinct conflicting Contents/T/C/M in Popup and a parent M. Existing open-before-click query asserts all four parent values, linkage and geometry. Shared helper asserts no recovery/cut. Closed-click and host-activation controls continue passing.",
+  "other_assertions": "Parent read actual attachment activation with two literal payloads and catalog decoy, negative click, no extraction on open, plus present-empty Contents handling. Icon tests have nonempty/pairwise controls and explicit red stored AP. Popup model behavior, polygon closure and path precedence remain bounded prior evidence.",
+  "qualification": "AP absence is permitted for PDF1.7 under #22. Only applicable PDF2.0 no-AP fixtures are producer-nonconforming; blanket no-AP invalidity wording is withdrawn. Source leaves InkList interpolation and icon artwork choices; tests of chosen drawings do not prescribe exact normative pixels.",
+  "execution": "popup-precedence-wave104:3 PASS149 filtered; viewer-core all-target Clippy PASS. No new test identity or failure manifest entry."
+}

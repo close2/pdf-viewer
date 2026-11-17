@@ -1,0 +1,36 @@
+{
+  "reviews": [
+    {
+      "adr": "ADR 0464",
+      "title": "Inline-image extent from ASCII85 end marker",
+      "decision_slice_reviewed": "The §8.9.7 inline-image extent route uses the ASCII85 marker so it does not search into encoded bytes for an `EI` token. The draft only touches buffered and pumped decode EOF policy, not this extent algorithm.",
+      "evidence": ["doc/adr/0464-three-samples-and-the-ranges-nobody-asked-them-about.md §2", "crates/pdf-syntax/src/document/sources.rs:183–211,318", "crates/pdf-syntax/tests/inline_images.rs (ASCII85 marker extent assertions)"],
+      "assessment": "The cited normal and truncated-window assertions are directionally aligned with the route's purpose. This audit does not revalidate the specific image sample arithmetic or certify ADR 0464."
+    },
+    {
+      "adr": "ADR 0587",
+      "title": "Windowed filter chains and route-specific damaged prefixes",
+      "decision_slice_reviewed": "A damaged prefix policy differs by consumer: buffered structural streams refuse corrupt ASCII85, while the windowed content route returns the already-decoded prefix with Damage::Corrupt. The same rationale cautions against demanding identical error types or prefix retention across routes.",
+      "evidence": ["doc/adr/0587-the-chain-a-window-learned.md, section 'The prefix that belongs to one route only'", "crates/pdf-syntax/src/filter.rs::a_base85_error_keeps_the_groups_before_it", "crates/pdf-syntax/tests/ascii85_runlength_boundaries.rs"],
+      "assessment": "The rationale is coherent for corrupt alphabet/groups and separately avoids unbounded whole-buffer decode for chains. It does not explicitly settle an incomplete final `~` across both routes; I label that as reporting-policy ambiguity, not as an ISO reader conformance defect."
+    },
+    {
+      "adr": "ADR 2679",
+      "title": "Do not infer an unstated filter",
+      "decision_slice_reviewed": "A stream without /Filter is raw data; no sniffer tries Flate or another decoder based on bytes.",
+      "evidence": ["doc/adr/2679-a-stream-is-decoded-through-the-filters-it-states-and-no-other.md", "crates/pdf-syntax/src/document/decoding.rs", "crates/pdf-syntax/tests/filters.rs::filter_arrays_are_applied_in_the_order_written"],
+      "assessment": "Matches Table 5 and §7.4.1. This audit did not find a reason to reopen or an assertion that would justify trying an unstated filter."
+    },
+    {
+      "adr": "ADR 1199 and current external-stream boundary",
+      "decision_slice_reviewed": "The host owns supplied stream bytes; this public PDF syntax/model route refuses external stream data instead of opening a path itself.",
+      "evidence": ["crates/pdf-syntax/src/document.rs:457,662", "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f", "doc/reviews/1983-specification-audit/features.json rows 7.3.8.1:external-file-source and :external-filter-parameters"],
+      "assessment": "The producer-side semantics that embedded bytes are ignored are exercised and the API boundary is explicit. No external I/O or promise of external-file retrieval was found. This is a scoped review, not whole-ADR certification."
+    }
+  ],
+  "open_decision": {
+    "topic": "ASCII85 raw EOF immediately after `~`",
+    "recommendation": "Keep ambiguous unless the public decode-report contract intends uniform whole-buffer and pump diagnostics. If the parent wants uniformity, use the included candidate as an API/reporting-policy regression and retain the distinction that malformed producer data does not create a mandatory ISO refusal policy.",
+    "not_a_claim": "This is not a finding that ISO mandates rejection of a length-delimited truncated ASCII85 filter stream."
+  }
+}

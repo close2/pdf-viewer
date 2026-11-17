@@ -1,0 +1,12 @@
+{
+  "verdict": "Material anisotropy passes the sampled paths. Follow-up83 confirms the fixed near-similarity cutoff fails for thick strokes.",
+  "inspection": "Public encode chooses path-space expanded() above anisotropy1.01; a single line has its own eligible route. Parent fixed draft sampling coordinates and added nonempty visibility bounds. Added L-shaped paths to exercise expansion and all3 requested coverage modes.",
+  "execution": "Three passing test identities, each identity and diag(4,1), horizontal/vertical and straight/joined. The final log records actual adapter and observed row/column counts. Render-raster all-targets Clippy passes.",
+  "limits": "Band width far from joins under one unequal scale. No universal shear/cap/dash/zero-width/threshold proof, no assertion that every eligible optimized line invokes the configured coverage kernel.",
+  "checkpoint83": {
+    "source": "Parent reread physical175–176/printed160–161: user-space perpendicular distance band, orientation-dependent device width, achieved-width variation up to2devicepixels.",
+    "cause": "Relative anisotropy cutoff1.01 does not bound absolute width error. Width1000 under diag(1.009,1) stays on scalar expansion.",
+    "execution": "Two regressions FAIL on actual Radeon890M Vulkan. Direct path: identity1000 and perpendicular1009 controls pass; horizontal1008 fails1000±2. Parsed exact-xref PDF: complete interpretation, independent CPU1000 control passes, raster1008 fails. Page3000x2000 asserted; samples away from joins.",
+    "limits": "One width/transform/backend. Earlier3coverage-mode diag(4,1) controls still pass. No production change or performance claim."
+  }
+}

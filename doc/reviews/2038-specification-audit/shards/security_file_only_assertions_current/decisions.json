@@ -1,0 +1,11 @@
+{
+  "selected_adr_reviews": [
+    {"clause":"7.3.7","adrs":["0784","0786","0858"],"verdict":"Page recovery is guarded and scoped. First-duplicate retention remains a malformed-input choice, not derived from dictionary order; the file-only recovery test is not a generic parser test."},
+    {"clause":"7.4.7","adrs":["0014","1459","1485","2102"],"verdict":"Confined decoder and extended-template behavior are tied to bounded source and reference witnesses. The fixed-document harness supplements, but does not replace, explicit JBIG2 assertions."},
+    {"clause":"7.10.5.3","adrs":["2833","2848"],"verdict":"Deferred runtime faults and their reporting remain source-supported. The reader's 1000-stack cap exceeds the ISO minimum 100; larger stacks are not required."},
+    {"clause":"8.9.5.1","adrs":["0023"],"verdict":"Inconsistent-image error is tested with a valid exact-xref RGB control and malformed Decode lengths. Mask references are broad, while direct assertions link the image consistency claim."},
+    {"clause":"12.8.1","adrs":["0229","0472","1067"],"verdict":"Keep integrity, authenticity, anchored trust, and revocation acceptance distinct. Signed positive and negative fixtures support the verdict gate; absent revocation remains NotChecked and requires explicit weaker acceptance."}
+  ],
+  "new_findings": [],
+  "test_drafts": []
+}

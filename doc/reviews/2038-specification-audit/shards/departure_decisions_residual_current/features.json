@@ -1,0 +1,157 @@
+{
+  "baseline": "b901326c",
+  "scope": "All ten rows currently marked departed in doc/conformance/ledger.toml. This is a bounded status/ADR reconsideration using the cited current shards and primary-source locators recorded there; it is not a renewed whole-clause audit.",
+  "features": [
+    {
+      "clause": "7.4.9",
+      "title": "JPXDecode filter",
+      "departure": "Only enumerated color space 19 (CIEJab) uses the device-space fallback because the defining CIE Publication 131 is unheld and the owner declined acquisition (A348).",
+      "normative_basis": "\u00a77.4.9 requires processor support for the JPX baseline enumerated spaces and specifies a channel-count device fallback when no supported space is found. Producer-side restrictions on codestream content are not reader refusal requirements.",
+      "source_location": "Verified directly against ec3-parent-layout.txt split on form feeds: primary \u00a77.4.9 begins on physical PDF page 65, printed p. 50 (footer visible). The earlier images_current artifact says \u201cprinted pp. 258\u2013260 and JPX section\u201d; its numeric range is not a verified locator for \u00a77.4.9, so I withdraw that attribution without asserting why it appeared there.",
+      "adr_basis": [
+        "A348",
+        "ADR 2793",
+        "ADR 2863"
+      ],
+      "current_evidence": "image/jpx.rs selects the supported enumerated-space route and falls back for unsupported CIEJab; jpx_enumerated_spaces.rs::a_space_not_drawn_falls_back_to_the_device_space_of_its_channel_count is the focused fallback assertion. Other supported spaces have separate pixel assertions and corpus evidence.",
+      "assessment": "Departure remains narrowly valid. A348 is still the deciding owner policy; no successor implementation/source evidence found that makes CIEJab supported. Broader historical JPX departures are stale and must not be carried into this row.",
+      "residual": "The fallback test validates channel-count behavior, not CIEJab colorimetry; that is consistent with the expressly unsupported-space choice. No change recommended."
+    },
+    {
+      "clause": "7.5.5",
+      "title": "File trailer",
+      "departure": "Cross-reference entries numbered above trailer /Size are retained rather than ignored as missing.",
+      "normative_basis": "Table 15, printed p. 58 / physical p. 73, says such entries shall be ignored. ADR 2346 records an owner-confirmed robustness choice, not a conforming interpretation.",
+      "source_location": "Primary Table 15, printed p. 58 / physical p. 73; xref_streams/findings.txt identifies the exact rule. Parent has since added and run a direct current-entry-above-/Size behavior regression; it passes. The older-object-stream boundary test remains a separate qualifier, not evidence for ordinary current-section retention.",
+      "adr_basis": [
+        "ADR 2346",
+        "ADR 2362"
+      ],
+      "current_evidence": "pdf-syntax/src/xref.rs::next_object_number explicitly takes the maximum of the highest stated entry and /Size, and comments that files write entries past their own /Size. Current xref_streams/findings.txt confirms the ceiling is not enforced.",
+      "assessment": "Departure and ADR premise remain current. The implementation is deliberately robust to observed files; that choice does not discharge Table 15.",
+      "residual": "The initial shard did not find a direct fixture. Parent has since added and run a current-section entry-above-/Size regression, closing that assertion gap. The older-object-stream recovery boundary remains distinct; neither test changes the ISO shall-ignore requirement or makes the behavior conforming.",
+      "parent_execution": "Current explicit-entry retention above Size: new testPASS, normalSizecontrolPASS in same test. Existing cut-Prev recovered-member bound test separatelyPASS. This is a documented departure assertion on malformed Size, not a conforming-file requirement."
+    },
+    {
+      "clause": "10.7.4",
+      "title": "Scan conversion rules",
+      "departure": "The explicit \u00a710.7.4 result rules are not fully followed for area coverage/antialiasing, image sampling, and selected retraced or collapsed subpaths; selected point/band behavior is an additional decided shape case.",
+      "normative_basis": "\u00a710.7.1 NOTE says scan-conversion algorithm specifics are undefined; it does not waive the separate mandatory results in \u00a710.7.4. ADR 1560 and the current subclause note correctly preserve the departure.",
+      "source_location": "Primary locators and distinct rules are in scan_conversion_current/features.json; its findings explicitly distinguishes \u00a710.7.1 NOTE from \u00a710.7.4 shall-statements.",
+      "adr_basis": [
+        "ADR 1560",
+        "ADR 2330",
+        "ADR 2331",
+        "ADR 2553"
+      ],
+      "current_evidence": "Current raster/model tests include exact area-coverage, point/band, collapsed transform, and image sampling pixel assertions. scan_conversion_current/findings.txt says the selected behavior and its untested generalizations remain bounded.",
+      "assessment": "The \u00a710.7.4 departure remains. A stale family-level statement claims \u00a710.7.1 licenses it, contrary to ADR 1560 and the current row. A separate obsolete family statement says \u00a710.7.5 grid fitting was rejected by ADR 0028; A714/ADR 2553 later enabled a bounded CPU/raster route. Those stale statements concern summary framing and \u00a710.7.5, not reversal of this \u00a710.7.4 departure.",
+      "residual": "No new test proposed: existing literal raster tests substantiate the chosen cases, while the unresolved issue is accurate scope/policy language, not an absent discriminator. Do not generalize the selected pixel tests to every backend or shape."
+    },
+    {
+      "clause": "11.5.3",
+      "title": "Deriving a soft mask from group luminosity",
+      "departure": "For CIE-based mask-group color spaces, the implementation uses device luminosity rather than converting to CIE 1931 XYZ and taking Y.",
+      "normative_basis": "\u00a711.5.3 expressly specifies the CIE-based XYZ/Y route. The owner chose device luminosity to match other readers (A23). This is a deliberate rendering departure, not a reader refusal or a producer validity issue.",
+      "source_location": "images_current/features.json gives the verified primary \u00a711.5.3/\u00a711.6.5.1 locators, printed pp. 414\u2013419 (physical+15).",
+      "adr_basis": [
+        "A23",
+        "ADR 2552"
+      ],
+      "current_evidence": "pdf-model/src/soft_mask.rs documents the deliberate device-luminosity branch across CIE-based spaces (ADR 2552). `luminosity_departure` is narrower: it reports cases that failed to composite in their own components, and returns None when `own_components` is true. Current focused tests cover knockout behavior, not a paired CIE-vs-colorimetric luminosity oracle.",
+      "assessment": "Departure remains explicitly owner-ratified. Do not confuse the CIE-luminosity departure (device branch even for CIE spaces) with `luminosity_departure` diagnostic reporting, which identifies a different fallback: inability to composite in the group\u2019s own components.",
+      "residual": "The paired literal expected values come from the device formulas in \u00a711.5.3 Example 2, rather than the implementation. Preserve the departure label; these assertions pin the owner-chosen device branch and do not assert colorimetric-Y conformance."
+    },
+    {
+      "clause": "12.5.2",
+      "title": "Annotation dictionaries",
+      "departure": "The writer omits /AP for FreeText when it has no appearance it is permitted and able to construct.",
+      "normative_basis": "\u00a712.5.2 says a PDF writer shall include an appearance dictionary. EC3 #22/#34 define PDF 2.0 producer expectations and make rendering for absent AP implementation-dependent; they do not require a reader to reject or synthesize every missing AP.",
+      "source_location": "annotation_common_current/findings.txt: primary Table 166/\u00a712.5.2 printed pp. 467\u2013470, physical pp. 482\u2013485; EC3 #22/#34 checked there.",
+      "adr_basis": [
+        "ADR 2548"
+      ],
+      "current_evidence": "The save path returns Written::unappeared; saving.rs::an_added_note_no_face_can_set_is_named_rather_than_written_bare_in_silence asserts text remains represented and the missing appearance is reported. ADR 1857 is unrelated (zero-length round stroke); the relevant writer policy is ADR 2548. The test accounts for a local embeddable face and does not treat all environments as identical.",
+      "assessment": "This remains a deliberate writer-side departure. Current ledger text correctly limits it to the unsupported-face case; it must not be reframed as mandatory reader refusal or as a blanket missing-AP display bug.",
+      "residual": "Test demonstrates reporting and preserved data, not full rendered equivalence. No source-backed test can supply an appearance when the implementation lacks the allowed embeddable font."
+    },
+    {
+      "clause": "12.5.5",
+      "title": "Appearance streams",
+      "departure": "For a stored appearance, annotation /BM affects composition but /ca and /CA are not applied as annotation opacity constants.",
+      "normative_basis": "\u00a712.5.5's general composition sentence mentions BM, ca, and CA; Table 166 specifically says ca/CA shall not be used when an AP is present. EC3 #23/#34 remove BM from the ignore list; #56 adds MK. Table-specific and general wording remain a source tension, so retain this as the project's narrow recorded reading pending owner/source adjudication.",
+      "source_location": "annotation_common_current/findings.txt verifies Table 166 printed p. 470/physical 485 and \u00a712.5.5 printed p. 475/physical 490; amendments #23/#34/#56 are on physical 485.",
+      "adr_basis": [
+        "EC3 #23",
+        "EC3 #34",
+        "EC3 #56"
+      ],
+      "current_evidence": "annotations.rs::a_stored_appearance_ignores_the_annotations_opacity checks annotation ca=0.5 with an opaque stored stream and expects opaque output; the constructed-appearance counterpart checks the other branch. Current code applies stored /BM. annotation_common_current notes no dedicated stored-AP /BM pixel test; a targeted draft was identified there.",
+      "assessment": "Departure remains for opacity constants. Existing test proves the selected ca result, but it does not test BM. Do not overstate this as a settled universal reading of the general composition sentence; the explicit table row and EC3 history support the narrow policy, with the discrepancy still visible.",
+      "residual": "Earlier round T26 already added stored BM Multiply/Normal/default pixel test, PASS. Checkpoint54 adds outside-Rect bluecontrol to that same test and rerunsPASS. No new BMtestgap remains; ca/CA reading separately qualified."
+    },
+    {
+      "clause": "12.5.6.23",
+      "title": "Redaction annotations",
+      "departure": "Current ledger narrows the refusal to a JPX component depth above 24 bits and unusual raw JPX component-count forms the decoder cannot exactly transform, plus the independently represented function-shading calculator limit. Do not reuse historical broad >16-bit wording.",
+      "normative_basis": "Redaction requires actual removal of traces, not merely overlay. Refusing a transform the writer cannot preserve exactly is an implementation limit, but the ledger records that refusal as a departure from performing removal. Producer restrictions alone do not impose these reader refusals.",
+      "source_location": "Current primary redaction source feature and annotation_types_current artifacts are the relevant evidence; exact Table 195 locator is in annotation_types_current/findings.txt. This reconsideration relied on those locators, not a new page claim.",
+      "adr_basis": [
+        "A668",
+        "ADR 2480",
+        "ADR 2481",
+        "ADR 2868",
+        "ADR 2869"
+      ],
+      "current_evidence": "redact.rs::a_jpx_component_deeper_than_the_decoder_reads_exactly_refuses_the_page exercises >24-bit refusal. redact.rs::a_four_component_deep_jpx_image_is_written_back_as_a_jpx_file and adjacent signed-depth tests demonstrate deep 16\u201324-bit writeback via pdf_jpx_write. annotation_types_current/findings.txt says valid /RO is now drawn after removal and ledger departure is limited to /OverlayText and /IC composition.",
+      "assessment": "Historical ADR 1363/2470-era limitations above 16 bits have been superseded: ADR 2480 implemented 17\u201324-bit writeback. I found no current ledger entry or current redaction shard statement asserting that 16 bits is the present ceiling; the ledger already narrows its departure. ADR 2868 also supersedes historical treatment of valid /RO as withdrawn. This is an obsolete historical premise, not a verified stale-current-file defect.",
+      "residual": "No current file correction is identified by this review. Preserve the current >24-bit and uncommon component-shape departures, and keep /OverlayText and /IC separately identified."
+    },
+    {
+      "clause": "12.6.4.6",
+      "title": "Launch actions",
+      "departure": "The viewer does not launch an application named by an untrusted PDF Launch action; document targets may be routed through the host document-opening handoff.",
+      "normative_basis": "Table 207 permits an application to be launched or a document opened/printed, without specifying a mandatory host classifier or external process policy. The departure is owner/product policy, not evidence that the table mandates process execution in every reader.",
+      "source_location": "actions_chains_current/features.json maps Table 207 and records its scope; source was checked in the primary EC3 PDF.",
+      "adr_basis": [
+        "ADR 1358",
+        "ADR 2171",
+        "ADR 2439",
+        "A668"
+      ],
+      "current_evidence": "pdf-model parses Launch; viewer-core routes Purpose::LaunchDocument through host policy. actions_chains_current records tests of PDF opening, non-PDF refusal/reporting, and the external handoff path.",
+      "assessment": "No stale source/ADR premise found. The policy remains current and the host's classification/handoff must remain described as local behavior, not an ISO-defined PDF/non-PDF test.",
+      "residual": "The shard did not audit all external handlers or operating-system launch behavior; no new test proposed for those out-of-scope integrations."
+    },
+    {
+      "clause": "12.7.8.3.3",
+      "title": "FDF pages",
+      "departure": "Two branches remain: Table 252 /Rename=true (including its default true) is not implemented; added FDF template pages are visible but not persisted into the saved target page tree.",
+      "normative_basis": "Table 252 requires unique names when Rename=true; its NOTE leaves the algorithm open but does not make renaming optional. Table 251 says new pages shall be added to the target document. Reporting omitted pages does not satisfy either shall.",
+      "source_location": "fdf_current/findings.txt verifies Tables 251\u2013253 at printed p. 565 / physical p. 580; no directly applicable EC3 edit was found in that shard.",
+      "adr_basis": [
+        "ADR 1070",
+        "ADR 1239",
+        "ADR 2154"
+      ],
+      "current_evidence": "Existing FDF tests verify /Rename=false updates all matching fields and preserve current values for the default/true refusal. forms_data.rs::an_imported_template_adds_a_page_the_document_already_held checks the page appears in the current view, unwritten_pages=1, and the saved page tree still has one page.",
+      "assessment": "Both departures remain. ADR 2154 correctly treats omission reporting as transparency, not compliance. The open renaming algorithm is discretion over how to satisfy uniqueness, not permission to skip it.",
+      "residual": "The multiple-template paint draft is assertion-depth work for the implemented branch, not a remedy for either departure. No additional departure test proposed."
+    },
+    {
+      "clause": "12.10.2",
+      "title": "Geospatial measure dictionary",
+      "departure": "For a projected coordinate system, if every /GPTS pair is degree-shaped, the reader interprets those values as the base geographic system's degrees rather than projected eastings/northings.",
+      "normative_basis": "Table 269 says projected /GPTS values are planar eastings/northings. The owner expressly authorized the degree-shaped compatibility behavior in A271; this is not the normal projected-coordinate path.",
+      "source_location": "measurement_geospatial_current/findings.txt verifies \u00a712.10 tables at printed pp. 602\u2013605 (physical+15) and effective annotation #534; the latter does not reverse this departure.",
+      "adr_basis": [
+        "A271",
+        "ADR 1918"
+      ],
+      "current_evidence": "geospatial/mod.rs::projected_registration_points_shaped_as_degrees_are_the_base_systems_degrees and measurement_geospatial_current evidence assert the degree-shaped compatibility branch; separate tests exercise projected registrations and /PCSM.",
+      "assessment": "Departure and owner rationale remain current. A436/ADR 1958 concerns cross-datum transformations and is not authority for or against this compatibility rule. Do not claim the tests establish conformance for ordinary projected easting/northing input.",
+      "residual": "The current independent test pins the compatibility output, while normal projected controls are separate. No new test proposed."
+    }
+  ],
+  "drafts": []
+}

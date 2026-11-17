@@ -1,0 +1,1 @@
+D66 corrects the audit interpretation of issue10. Direct linked-strike geometry selects the word should in the Length sentence. It does not select the already mandatory embedded-byte-ignore sentence. Earlier source claims are superseded; their valid refusal tests remain evidence for the unchanged base-table requirement.

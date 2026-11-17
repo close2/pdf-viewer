@@ -1,0 +1,39 @@
+{
+  "shard": "file_only_native_shading_assertions_current",
+  "decisions": [
+    {
+      "clause": "12.2 / crates/viewer-ffi/src/window/chrome_tests.rs",
+      "verdict": "do not count this file as viewer-preference evidence",
+      "basis": "The actual tests cover the C window's presentation synchronization, action clock and /Dur page advance. They do not read the Table 147 preferences or check native chrome.",
+      "related_adrs": ["2308", "2436"]
+    },
+    {
+      "clause": "12.2 / hosts/windows/Quorra.Chrome.Tests/Program.cs",
+      "verdict": "retain as pure state-mapping test, qualify runtime boundary",
+      "basis": "The console directly executes ChromeState.Apply transition controls through dotnet-check, but only with XAML stubs and no Windows runtime. Its specific product choices are documented in ADRs 1145, 2200 and 2201.",
+      "related_adrs": ["1145", "2200", "2201"]
+    },
+    {
+      "clause": "12.2 / .github/workflows/ci.yml",
+      "verdict": "count only for the assertions it selects",
+      "basis": "The Windows job runs actual placement/fullscreen probes against AppWindow, while Linux cargo/native results are separate. Current CI does not probe HideWindowUI's actual XAML visibility; a focused default/hidden pair is drafted. No workflow result is claimed here.",
+      "related_adrs": ["2308", "2436", "2478"]
+    },
+    {
+      "clause": "8.7.3.1 / crates/pdf-model/tests/tiling.rs",
+      "verdict": "retain geometry/raster tests; qualify performance and order claims",
+      "basis": "The tests assert pixel outcomes and literal lattice geometry against Table 74. They do not depend on tile order, which EC3 #428 explicitly makes implementation-dependent. Running a cell stream once is an architecture/performance choice rather than a source requirement.",
+      "related_adrs": ["0477", "0810", "0827", "0828", "1031", "1080"]
+    },
+    {
+      "clause": "8.7.4.5.2 / crates/render-cpu/tests/sampled_shading.rs",
+      "verdict": "retain as CPU-grid implementation test, not a normative sampling mandate",
+      "basis": "The synthetic deferred-colour test shares its test-scene function helper with expected_at. It is useful for backend grid/interpolation defects, but neither an independent PDF parser oracle nor evidence that ISO requires one sample per device pixel. Separate exact-PDF Type 4 tests assert literal colors on each side of a discontinuity.",
+      "related_adrs": ["0408", "0406", "2325", "2340"]
+    }
+  ],
+  "drafts": [
+    "drafts/windows_hide_window_ui_probe.md"
+  ],
+  "not_run": ["Cargo tests", "Windows workflow", "dotnet-check"]
+}

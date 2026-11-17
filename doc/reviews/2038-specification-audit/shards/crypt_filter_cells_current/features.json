@@ -1,0 +1,69 @@
+{
+  "baseline": "b901326c",
+  "scope": "Table-cell review of ISO 32000-2 §7.6.2 Table 20 encryption dictionary defaults; §7.6.4.2 Table 21 EncryptMetadata; §7.6.6 Tables 25–27 crypt-filter methods, event, length, and public-key recipient-shape rules. This is not a complete encryption-handler or cryptographic certification.",
+  "primary_source": {
+    "pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "layout": "scratchpad/r2038/spec-audit/ec3-parent-layout.txt",
+    "locators": [
+      "Table 20, physical p.88 / printed p.73; the EFF continuation is physical p.89 / printed p.74",
+      "Table 21 EncryptMetadata row, physical p.94 / printed p.79 (Table 21 begins physical p.93 / printed p.78)",
+      "§7.6.6 and Table 25, physical pp.105–106 / printed pp.90–91",
+      "Table 26, physical p.107 / printed p.92; Table 27, physical pp.107–108 / printed pp.92–93"
+    ],
+    "direct_errata_check": "Read primary PDF annotation objects and nearby source text. #74 (Caret on physical 105) inserts 'or 5' in the §7.6.6 crypt-filter version condition; #184 (Carets on physical 107) repairs Table 25 Length units for public-key versus Standard handlers; #25 (Text on physical 105) limits the public-key 0xFF metadata sentinel to the StmF/default-key case with EncryptMetadata false; #16 (three inserted Carets on physical 107, each correcting struck Table 27 text) changes recipient values from strings to byte strings. #89 (three Carets on physical 92 insert 'a crypt filter' where linked StrikeOuts mark earlier words). None changes Table 20's default-value or EFF clauses. The extracted errata index was a locator, not proof."
+  },
+  "cells": [
+    {
+      "table": "20 / V, CF, StmF, StrF",
+      "normative_reader_behavior": "For V=4 or 5, absent StmF and StrF default independently to Identity. A present name must be a CF key or a Table 26 standard name. CF keys named by Table 26 are ignored. StmF selects ordinary streams other than xref streams or streams with their own Crypt filter; StrF selects strings.",
+      "implementation": "pdf-syntax/src/crypt.rs::crypt_filters resolves absent defaults independently to Identity, maps the Identity standard name directly, rejects undefined names under the reviewed handler profile, and retains a per-filter method map. pdf-syntax/src/document/encryption.rs::stream_filter routes non-Crypt streams via StmF and leaves xref streams clear. String decryption uses string_method().",
+      "assertions": [
+        "pdf-syntax/tests/encryption_fixtures.rs::an_identity_stream_filter_leaves_streams_and_decrypts_strings proves a stream default of Identity while a named StrF decrypts the literal Title; exact producer-generated AESV2 fixture.",
+        "pdf-syntax/tests/encryption.rs::an_identity_stream_filter_leaves_streams_alone checks the actual producer PDF stream bytes survive StmF Identity.",
+        "pdf-syntax/tests/encryption_fixtures.rs::a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown uses explicit Identity defaults plus an unknown CFM under the reserved CF key as a negative-interference control, with exact xref and page plaintext.",
+        "pdf-syntax/tests/public_key_witnesses.rs::separate_stmf_and_strf_defaults_use_their_own_recipient_keys is the current B57 witness: valid distinct default recipient arrays are rejected; the shared-default control passes. This is a recorded defect, not a new finding."
+      ],
+      "residual": "No sampled assertion independently omits StmF while naming an AES StrF, or omits StrF while naming an AES StmF, to prove each absent entry chooses Identity rather than copying the other default. Draft supplied as a boundary control; it does not reopen B57."
+    },
+    {
+      "table": "20 / EFF",
+      "normative_reader_behavior": "EFF chooses the filter for embedded-file streams without their own Crypt specifier. If EFF is absent and the embedded file has no own specifier, it uses StmF. A stream's own Crypt filter takes precedence.",
+      "implementation": "crypt_filters selects EFF when named, otherwise stores StmF as the embedded-file default; stream_filter first honors an explicit Crypt entry, then selects embedded_file_method for /Type /EmbeddedFile.",
+      "assertions": [
+        "pdf-syntax/tests/encryption.rs::an_embedded_file_stream_with_no_crypt_specifier_takes_the_eff_filter mutates a real producer file to remove its stream Crypt specifier, observes EFF-driven refusal, then removes EFF too and checks the stream falls through to Identity/StmF raw ciphertext bytes.",
+        "pdf-syntax/tests/encryption.rs::a_document_whose_attachment_alone_is_encrypted_opens_where_it_says_ef_open and the paired the_same_document_without_it_asks_for_the_password_doc_open_requires exercise event handling on the same producer corpus family.",
+        "pdf-syntax/src/document/encryption.rs checks a stream's own Crypt entry before the EFF branch; document comments and the embedded-file tests make that precedence explicit."
+      ],
+      "residual": "The EFF fixture preserves the producer file's exact offsets while changing same-length entries; no additional scratch fixture is warranted. It tests the reader-selected filter through authorization/refusal and the absent-EFF control, not successful plaintext decryption under an EFF-specific cipher key."
+    },
+    {
+      "table": "21 / EncryptMetadata, physical p.94 / printed p.79",
+      "normative_reader_behavior": "Standard-handler EncryptMetadata is meaningful for V=4/5 and defaults true. When false, document-level metadata is left clear. In revisions 4+, the legacy file-key derivation includes four FF bytes when metadata is not encrypted. For R5/R6, the validated Perms block carries the effective metadata boolean. Public-key Table 27's similarly named value is used only by crypt filters referenced from StmF; its false value gates the public-key key-derivation sentinel per EC3 #25.",
+      "implementation": "crypt.rs defaults missing/non-boolean/non-applicable standard-handler entries to true; legacy derivation includes FF bytes when false; valid R5/R6 Perms replaces dictionary P/metadata values. public_key.rs includes the public-key sentinel only under the default StmF and filter EncryptMetadata conditions. document/encryption.rs bypasses decryption for /Type /Metadata when the effective value is false.",
+      "assertions": [
+        "pdf-syntax/tests/encryption_fixtures.rs::unencrypted_metadata_changes_the_revision_4_key compares same R4 producer-derived behavior with true versus false in the file-key recipe and checks plaintext stream/title.",
+        "pdf-syntax/tests/encryption.rs::a_metadata_stream_is_in_the_clear_when_encrypt_metadata_is_false asserts XML bytes and that the document remains encrypted.",
+        "pdf-syntax/tests/serialize_encrypted.rs::encrypt_metadata_false_leaves_the_metadata_stream_in_the_clear asserts emitted literal XMP, reopens output, and asserts the false dictionary value.",
+        "pdf-syntax/tests/serialize_encrypted.rs::r6_writer_entries_match_an_independent_algorithms_8_to_10_vector pins the R6 Perms ciphertext including byte 8 from the independent writer vector; corpus/R5/R6 assertions separately cover metadata-false public-key key derivation (see public_key_encryption_current)."
+      ],
+      "residual": "The standard reader tests inspected do not isolate an absent EncryptMetadata key on a V=4 document with an encrypted Metadata stream; the code's default-true branch is clear but no distinct consumer assertion was located. No defect is established. A default-true output/read assertion would need an R4 encrypted metadata fixture, since R5/R6 Perms independently restores the flag."
+    },
+    {
+      "table": "25 / CFM, AuthEvent, Length; Tables 26–27",
+      "normative_reader_behavior": "CFM defaults to None; only None/V2/AESV2/AESV3 are supported and unknown values must be reported as unsupported. AuthEvent defaults DocOpen; EFOpen defers authorization until embedded-file access, but filters named by StmF/StrF are treated as DocOpen regardless of their dictionary value. Length is expressed in bytes for the Standard handler and bits for public-key handlers; AESV2/AESV3 carry fixed sizes. Identity passes bytes through. Table 27 has array-valued byte-string Recipients for defaults and one string for a stream-local Crypt filter.",
+      "implementation": "crypt.rs::method_from_cfm / AuthEvent::read / crypt_filters enforce supported method and revision pairing, event fallback, and per-name methods; public_key.rs derives default and stream-local recipient keys separately."
+    }
+  ],
+  "related_existing_findings": [
+    "B57: public-key distinct StmF/StrF recipient arrays are rejected, with shared-default positive control.",
+    "Existing Table 20 mandatory CF-Identity ignore finding in encryption shard; exact Identity-key unknown-CFM control is present.",
+    "Errata #25 and public_key_encryption_current cover the public-key metadata sentinel; do not conflate it with Standard handler Table 21.",
+    "Errata #74 corrects V=4 to V=4-or-5 for crypt filters; #184 corrects Table 25 Length units; #16 corrects Table 27 CMS representation."
+  ],
+  "scope_limits": [
+    "No complete CF/CFM/Length/AuthEvent matrix or cryptographic certification.",
+    "No new public-key recipient-shape test; B57 and its positive control are already integrated.",
+    "No assertion about malformed/nonconforming dictionary recovery beyond recorded existing behavior.",
+    "No claim that writer defaults must emit absent entries; output tests intentionally emit explicit encryption policy values."
+  ]
+}

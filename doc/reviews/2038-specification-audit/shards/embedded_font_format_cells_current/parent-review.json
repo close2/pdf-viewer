@@ -1,0 +1,6 @@
+{
+  "source": "Read physical360–361,364–365,367–368 and rendered365. Verified Table121 flags and ForceBold qualification, combined Korea1/KR row, and Table124 continuation before125. No unsupported mandatory pixel kernel inferred.",
+  "assertions": "Read truetype_flags_audit, glyph_class_audit, loading class-face test and opentype_selection_audit literal glyph IDs. Symbolic routes differ7/9; five font-program routes have actual outlines and literal IDs. Class-face test can return early when fonts are unavailable or indistinguishable; successful harness status alone does not prove that consumer executed.",
+  "adr": "Reread0039,1074,2817 font section and0049. Keep explicit Symbolic recommendation and Unicode classification ambiguity.0049 compatibility route is not a producer mapping listed in Table124.",
+  "limits": "Partial dispatch/classification evidence, not every flag raster, class membership or referenced font-standard conformance. No new execution claimed."
+}

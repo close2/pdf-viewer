@@ -1,0 +1,12 @@
+{
+  "decisions": [
+    {
+      "topic": "Accepted font recovery successor",
+      "decision": "ADR2870/A837 supersedes old blank-font behavior for unreadable programs. A failure of an older golden expectation is separate from a mandatory PDF requirement."
+    },
+    {
+      "topic": "Do not silently rebaseline",
+      "decision": "Leave recorded expectation unchanged in audit; preserve explicit failing identity and actual reports for owner review."
+    }
+  ]
+}

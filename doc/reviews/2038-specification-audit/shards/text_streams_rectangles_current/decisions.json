@@ -1,0 +1,22 @@
+[
+  {
+    "adr": "ADR 0053, The component the ledger found; ADR 0054, A destination is three spellings of one thing",
+    "decision_slice": "A shared generic name-tree mechanism can serve Dests and other Table 32 rows; behavior ownership remains with each row's clause.",
+    "reconsideration": "Retain. The current tree utility and public destination, page, attachment, script, and appearance paths demonstrate it is shared. The present audit does not treat the existence of the utility as evidence that all Table 32 consumers work."
+  },
+  {
+    "adr": "ADR 0076, The files inside the file; ADR 0094, The document inside the document",
+    "decision_slice": "EmbeddedFiles is a catalog name-tree route, and attachments remain distinct from page annotations / child-document handling.",
+    "reconsideration": "Retain ownership boundary. This shard only confirms that Table32 /EmbeddedFiles reaches the attachment consumer; filename matching, cryptographic wrapper rules, and extraction are forwarded to file_specs/encryption/associated-file audits."
+  },
+  {
+    "adr": "ADR 0091, The page that is not in the page tree",
+    "decision_slice": "Named /Pages and /Templates entries participate in form named-page construction under their distinct visibility/type rules.",
+    "reconsideration": "Retain the key-to-owner mapping. The test path is named_page::NamedPages and current named-page assertions; this does not certify every consumer of a template page."
+  },
+  {
+    "adr": "ADR 0030, Constructing an annotation's appearance, and the two roles of one key; ADR 1950, script refusal reporting",
+    "decision_slice": "An appearance is referred to by object reference and /JavaScript library scripts are consumed through the open sequence.",
+    "reconsideration": "No conflict found in sampled code. §12.5.5 directly bars name-based object references to AP streams; script name-tree entries are walked, and read_script accepts string or decoded stream. A focused script stream fixture is added because current Table32 tests use strings and current stream assertions only test unencoded ASCII budgets."
+  }
+]

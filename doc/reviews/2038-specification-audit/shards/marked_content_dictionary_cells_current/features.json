@@ -1,0 +1,94 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected dictionary/property-list intersections in §14.6 and §8.11: Table 352 BDC/DP property operands, §14.6.2 inline-versus-named property-list rule, and Table 97 OCMD membership dictionary. Tables 96 and 98–101 and the full OC configuration UI were already cell-audited in optional_content_cells_current and are not re-certified here. This is not a general §14.6/8.11 certification.",
+  "source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locations": [
+      {
+        "source": "§14.6.1 / Table 352 — Marked-content operators",
+        "physical_pages": [
+          736
+        ],
+        "printed_pages": [
+          721
+        ],
+        "caption_and_rows": "The complete Table 352 body is on physical 736; physical 735 is introductory prose and 737 begins the property-list discussion."
+      },
+      {
+        "source": "§14.6.2 Property lists",
+        "physical_page": 737,
+        "printed_page": 722
+      },
+      {
+        "source": "§8.11.2.2 / Table 97 — Entries in an optional content membership dictionary",
+        "physical_page": 293,
+        "printed_page": 278
+      }
+    ],
+    "effective_rules": [
+      "Table 352: DP and BDC properties are either an inline property-list dictionary or a name associated with a Properties subdictionary in the current resource dictionary.",
+      "§14.6.2: an all-direct property-list dictionary may be inline. If any value is an indirect reference to an object outside the content stream, the property list shall be a named resource in the current Resources/Properties and the DP/BDC operand shall be the name. The rule concerns producer form; malformed inline references do not create an unstated reader rejection duty.",
+      "§14.6.2 advises processors to use property entries consistently; this is not an instruction to assign meaning to arbitrary property keys.",
+      "Table 97: OCMD Type required; OCGs may be one dictionary or an array and null/deleted refs are ignored; absent/empty/all-null OCGs neutralizes P; P defaults AnyOn with four listed policies; optional VE, if present, takes precedence over OCGs/P. Producer arity/list constraints remain distinct from reader recovery."
+    ],
+    "errata": "The current primary PDF annotation review for §14.6/14.6.1 in marked_content_current identifies #335 placement correction, #302 separate nesting requirement, #85 cross-reference repair, and #334 NOTE/tag guidance; none adds a named property-list consumer rule beyond the current text. Table 97 semantic edits were not found in the reviewed EC3 overlays; #225 belongs to Table 99 RBGroups and #567 to Table 100 Language."
+  },
+  "cell_review": [
+    {
+      "table": 352,
+      "selected_cells": [
+        {
+          "operator": "DP",
+          "property_operand": "inline dictionary or Properties resource name",
+          "code": "crates/pdf-model/src/content/marked.rs::property_list and associated_files",
+          "evidence": "marked_content_current confirms point operator handling and named/inline list plumbing; `text_render_modes::an_inline_property_lists_booleans_are_not_operators` checks inline parser boundary; association tests exercise named Properties lookup for AF. No separate DP/ActualText consumer found."
+        },
+        {
+          "operator": "BDC",
+          "property_operand": "inline dictionary or Properties resource name",
+          "code": "crates/pdf-model/src/content/marked.rs::property_list, accessibility, optional_content",
+          "evidence": "Inline accessibility properties are asserted in accessibility.rs for /ActualText,/Alt,/Lang,/E; named OCMD lookup is asserted by public pixel tests in optional_content.rs; associated-files tests assert the named resource route. No accessibility extraction assertion found for a named Properties entry whose list has an indirect value."
+        },
+        {
+          "operator": "EMC",
+          "property_operand": "closes matching BMC/BDC sequence",
+          "code": "content interpreter marked-state stack",
+          "evidence": "marked_content_current reviews cross-stream Contents-array continuity, nested state and EMC behavior; no new closure draft justified."
+        }
+      ],
+      "verdict": "T155 now supplies the previously missing literal extraction and speech assertions for named Properties with indirect ActualText, alongside an inline control."
+    },
+    {
+      "table": 97,
+      "physical_page": 293,
+      "selected_cells": [
+        {
+          "key": "OCGs",
+          "evidence": "optional_content.rs::a_single_group_reference_is_read_without_losing_which_object_it_is exercises the single-dictionary form in a named /Properties OC operand; other public pixel tests cover arrays. Parent's current optional_content_cells_current confirms null/deleted references have a neutral control, correcting earlier stale notes."
+        },
+        {
+          "key": "P",
+          "evidence": "a_membership_dictionary_can_show_content_when_its_group_is_off contrasts OFF and ON with AllOff; Table 97 policy entries and defaults are mapped in optional_content_cells_current."
+        },
+        {
+          "key": "VE",
+          "evidence": "a_visibility_expression_outranks_the_policy_beside_it gives VE and P opposite outcomes; nested expression/resource-bound behavior is separately tested."
+        }
+      ],
+      "verdict": "Cross-checked against current matrix; no additional OCMD test or failure is proposed. The table's P/VE and visibility tests are already strong, independently observable pixel assertions."
+    }
+  ],
+  "draft": {
+    "path": "drafts/named_property_actualtext.rs",
+    "purpose": "Discriminate the named Properties resource path for a property list with an indirect ActualText string from the already-tested inline direct dictionary form, through actual text extraction and speech output.",
+    "expected": "Both forms replace drawn `drawn` glyphs with literal `replacement`; speech returns one `replacement` run with no language.",
+    "status": "Promoted as T155 to standalone named_property_actualtext_spec_audit.rs. One test PASS; all-target model Clippy PASS after removing an unused lint expectation.",
+    "fixture_validity": "Parent replaced the proposed shared helper with a standalone PDF1.7 containing seven sequential objects, complete exact xref, no chain cut or recovery, Standard14 Helvetica and both fully resolved property routes. The shared helper would introduce unrelated AcroForm data and a dangling Properties reference in its inline case."
+  },
+  "limits": [
+    "Tables 96 and 98–101 and overall OC configuration behavior are not recertified; see optional_content_cells_current and optional_content_ui_usage_residual_current.",
+    "Table 97 audit is a current-state reconciliation, not a duplicate feature inventory. No B01/B02 language claim is reopened.",
+    "No malformed content stream rejection or recovery requirement is inferred from producer-form rules.",
+    "Parent executed the standalone test and all-target model Clippy; selected evidence only."
+  ]
+}

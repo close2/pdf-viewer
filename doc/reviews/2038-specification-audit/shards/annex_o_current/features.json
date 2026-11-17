@@ -1,0 +1,90 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2:2020 EC3 Annex O \u00a7\u00a7O.1\u2013O.2.2, including object identifiers, PDF open parameters, corrections/caption notes, and the directly consumed destination clauses \u00a712.3.2.2\u2013.4. No external-network fetch or broad destination recertification.",
+  "source_locators": {
+    "o1_o2": "EC3 physical pp.991\u2013992 / printed pp.976\u2013977: URI fragment definition, separators, left-to-right execution; Table Annex O.3 begins physical p.992 / printed p.977.",
+    "object_identifiers": "Table Annex O.3 physical pp.992\u2013993 / printed pp.977\u2013978; page, nameddest, structelem, comment, ef.",
+    "open_parameters": "\u00a7O.2.2 and Table Annex O.4 physical pp.993\u2013994 / printed pp.978\u2013979; open-order note, coordinate units, zoom/view/viewrect/highlight/search/fdf.",
+    "caption_erratum": "EC3 #700 annotations over the Table Annex O.3 caption at physical p.992 / printed p.977 and Table Annex O.4 at physical p.993 / printed p.978. Captions are corrected to Annex O.1 and Annex O.2; current citations intentionally retain the published table designations per ADR 0750, with the source/citation discontinuity recorded.",
+    "destination_consumers": "Table149 explicit destinations physical457/printed442; broader destination clauses reviewed separately. Original agent printed198\u2013203 locator was incorrect."
+  },
+  "features": [
+    {
+      "feature": "URI fragment grammar, decoding and execution order",
+      "source_requirements": "\u00a7O.1 permits fragments added to a URI; \u00a7O.2 defines one or more parameters separated by AMPERSAND and multi-argument values separated by COMMA, and says fragments shall be processed/executed left-to-right. The published hexadecimal character notation is corrected by the spelling AMPERSAND/COMMA. Table captions are separately corrected by #700.",
+      "implementation": "pdf-model/src/fragment.rs::Fragment::parse splits parameter and argument separators before percent decoding; preserves sequence; unknown/unread items are retained and reported. viewer-core/src/open/fragments.rs::Open::apply_fragment walks that sequence after document OpenAction.",
+      "assertions": "pdf-model fragment unit tests exercise grammar, malformed numeric arguments, URI decoding after separator splitting, all named parameters and exact remainder preservation. viewer-core/tests/fragments.rs::a_parameter_this_program_cannot_read_is_named_and_the_others_still_run tests continued processing. Parent independently reports the open-order fixture with the catalog OpenAction control passed; no fresh execution claim is made here.",
+      "residuals": "The per-parameter consumer assertions below cover the effect of ordering where order changes an observable result. The single `ef` remainder is a separate-document handoff; host policy and actual network resolution are outside this annex reader path."
+    },
+    {
+      "feature": "page and named destination object identifiers",
+      "source_requirements": "Table Annex O.3 requires positive integer page numbers with first page=1; named destination argument is a string corresponding to a destination in the target document; when used as an open parameter, processor shall open to that page.",
+      "implementation": "Open::apply_parameter converts one-based page to index, bounds it to page count, and `go_to_named` uses Destination::read over the named destination dictionaries/tree then takes its target page and view.",
+      "assertions": "fragments.rs tests page=3 maps to index 2, out-of-range behavior is named, nameddest=page.2 selects its target, and unknown name leaves page 1 with an explanation. `pdf-model/tests/destinations.rs` covers explicit and named destination lookup and Table 149 forms.",
+      "residuals": "The out-of-range URI outcome is not prescribed by Annex O; the report is an implementation policy. The name-vs-string same-byte collision was reviewed in the earlier navigation shard and is not repeated."
+    },
+    {
+      "feature": "structure-element ID lookup and selected page",
+      "source_requirements": "Table Annex O.3 says `structID` is a byte string with URI encoding matching the `/ID` key in a StructElem. If no content is contained in its hierarchy or the ID does not match a StructElem, first page shall be identified. A successful match opens on the page of the first hierarchically contained content item.",
+      "implementation": "Fragment parsing percent-decodes bytes after separators; Open::go_to_structure_element resolves through Structure::Tree::element_by_id and destination::structure_element_page. No matching/empty outcome returns page zero.",
+      "assertions": "structure_identifiers_audit.rs verifies nested child order selects the page of the first contained MCR, exact xref/no-recovery, complete page interpretation, and empty element / first-page fallback with page=2 as a positive control. pdf-model destination tests cover /Pg absence and structure child traversal. Fragment unit tests separately exercise percent decoding, including reserved separators, but the existing public fragment structure fixture uses ASCII `Target` and the public grammar/consumer seam is not tested together.",
+      "residuals": "No missing implementation behavior observed. A standalone public-open test is drafted combining a reserved byte in /ID, URI percent encoding, hierarchy page selection, an explicit page control, and exact xref. It would test integration coverage, not establish a current defect."
+    },
+    {
+      "feature": "comment annotation selection on page already selected",
+      "source_requirements": "The `comment` ID is an annotation `/NM`; it is unique to a page but is not guaranteed document-unique. If combined with another parameter that identifies a page, comment must follow it; absent prior page selection it will not select the comment. When used as open parameter, processor shall open with the comment selected.",
+      "implementation": "The sequential loop finds `/NM` only on current page and sets viewer focus. `focus` is the product's observable selection state; source does not prescribe the ring's appearance.",
+      "assertions": "fragments.rs::a_comment_is_looked_for_on_the_page_chosen_before_it` tests `page=5&comment=\u2026` against a real /NM on fifth page, then reversed order against page one, and checks Query::Focus identity and missing-name report.",
+      "residuals": "The single corpus fixture validates concrete page uniqueness; duplicate `/NM` on different pages remains expressly unspecified, not a defect."
+    },
+    {
+      "feature": "embedded file open and subsequent fragment belongs to that file",
+      "source_requirements": "Table Annex O.3 matches `ef` bytes against the EmbeddedFiles name tree, says following parameters apply to selected embedded file, and shall open that file when used as open parameter. Its adjacent security language says processor should consider security and may prompt/prevent for untrusted input; that is discretion, not mandatory UI or rejection.",
+      "implementation": "Fragment::parse stops at ef and holds untouched remainder. Open marks the embedded file and carries remainder through Event::Extracted. Host chooses whether/how to present it; subsequent Command::Open receives bytes plus carried fragment.",
+      "assertions": "fragments.rs::an_embedded_file_carries_the_parameters_after_it checks parent remains page 1, exact raw `page=3&search=%22the%22` remainder is in Event::Extracted, no parent search runs, and opening embedded bytes with that fragment selects child page 3 and starts search. Existing single-xref fixture comes from corpus `issue17056.pdf` and test skips if corpus absent; parser unit tests independently prove remainder stays raw.",
+      "residuals": "Showing in a tab/window, extraction to disk, trust prompt, and absolute/relative host resolution are host policy. Test proves the viewer-to-host-to-viewer handoff using corpus bytes but does not exercise external I/O."
+    },
+    {
+      "feature": "open parameter ordering relative to document OpenAction",
+      "source_requirements": "\u00a7O.2.2 says fragment open parameters should be processed immediately after any other document-specified open parameters; Table 29 catalog `/OpenAction` is such an open parameter. `should` is a recommendation. Fragment internal order in \u00a7O.2 is `shall`.",
+      "implementation": "Open initialization processes catalog open action before its fragment. Parent's explicit order probe uses a valid annotation AP and strict no-recovery guard.",
+      "assertions": "Parent reports the initial-open ordering probe failed the expected complete order while the no-catalog control passed. Record this as parent-observed test result, not as my execution; parent is independently auditing/promoting the result. The direct required `shall` within fragment parameters is evidenced separately by comment and ef tests.",
+      "residuals": "The catalog/fragment ordering sentence uses `should`, not `shall`; product behavior is a source recommendation and observed implementation/test deviation should remain separately labeled."
+    },
+    {
+      "feature": "zoom percentage and offsets; Table 149 view keywords",
+      "source_requirements": "Table Annex O.4 zoom scale is integer/floating percentage (100=100%); optional left/top offsets must be supplied together and are measured from top-left page corner. `view` arguments correspond to \u00a712.3.2.2 explicit destination syntax, whose coordinates and null retention are separately normative. All Annex O coordinate values use default user space units.",
+      "implementation": "Open::apply_parameter converts zoom percentage to factor and maps offsets to default-user-space coordinates; `view` uses destination::View::from_keyword. `open/destinations.rs::apply_view` maps default user-space points through crop-box origin, page rotation, and UserUnit into display space.",
+      "assertions": "fragments.rs checks zoom 200% against view=XYZ zoom factor 2, clamping report for policy bounds, and null/factor source behavior is covered in headless destination tests. No fragment offset assertion uses a rotated, shifted CropBox and non-default UserUnit page together.",
+      "residuals": "A public geometry draft uses a page with CropBox offset, /Rotate 90 and /UserUnit 2; it asserts highlight geometry from independently derived transform values and a no-rotation/no-offset literal control. It is an assertion gap probe; whether `top left corner of page` means pre- or post-rotation coordinates needs source interpretation before elevating any mismatch. No implementation defect asserted."
+    },
+    {
+      "feature": "viewrect coordinates and FitR destination",
+      "source_requirements": "Table Annex O.4 specifies left/top offsets from page top-left and width/height; all coordinates are default-user-space units. The row says open with specified window view rectangle; Table 149 FitR defines how the rectangle is fit. (Do not duplicate known FitR centering/B24 concern.)",
+      "implementation": "viewrect converts left/top to user-space rectangle and pushes FitR; destination consumer applies Table149 fit behavior.",
+      "assertions": "fragments.rs::a_view_rectangle_is_measured_from_the_top_left_corner_of_the_page` checks selected top-left quarter and scale. B24 FitR-centering remains separately assigned and is not recertified here.",
+      "residuals": "No rotated/offset CropBox/UserUnit integration control in Annex O fragment tests; draft above covers coordinate conversion at highlight API rather than duplicating FitR centering."
+    },
+    {
+      "feature": "highlight rectangle",
+      "source_requirements": "Table Annex O.4 requires each coordinate be numeric and rectangle measured from page top-left; nature of highlighting is implementation-dependent. It is not the text selection and the source makes no required hue, opacity, lifetime, or interaction mode.",
+      "implementation": "Open::highlight converts corners and answers Query::Highlight in device-space quads. Hosts render it with their own styling.",
+      "assertions": "fragments.rs checks expected pixel quad at 10,60,20,80 on an unrotated zero-origin page and page binding/order. ADR 0357 records public query boundary and host policy. No test combines nonzero CropBox, rotation and UserUnit.",
+      "residuals": "A drafted exact-xref public query test provides that missing transform integration seam. Platform color/shape remains implementation-dependent."
+    },
+    {
+      "feature": "search and word list",
+      "source_requirements": "Table Annex O.4 says search one or more words enclosed in quotes, individual words separated by spaces, selecting the first matching word in the document. The space-in-URI note allows URI encoding. It does not require matching from current page or wraparound.",
+      "implementation": "Search parser removes enclosing syntax, then Open sets forward search at document start; viewer search consumes pages and exposes selected word.",
+      "assertions": "fragments.rs::a_search_parameter_selects_the_first_matching_word_in_the_document opens PDF20_AN001-BPC with search=\"compensation\", independently computes the earliest page holding the word from pdf-model readback, pumps one page at a time, asserts no wrap, verifies the first matching page, and checks Query::Selection text. headless.rs::a_search_reads_the_document_one_page_at_a_time_and_lands_on_the_first_occurrence provides an independent readback holding-pages list, asserts the earliest match and exact page-step count, selected text and nonempty quads, then continues to a later occurrence. The ledger O.2.2 row references selection_census but omits the direct Annex O fragment test; this is a test-reference completeness gap, not an implementation defect.",
+      "residuals": "No exhaustive tokenizer/Unicode search semantics review; the clause's 'word' encoding is broader than this shard."
+    },
+    {
+      "feature": "FDF/XFDF data import",
+      "source_requirements": "Table Annex O.4 says open then import from an FDF or XFDF URI, relative or absolute. This names a request; the host owns resolving/access policy. `should` says fdf recommended last, so not a mandatory order rule.",
+      "implementation": "Open::import_from identifies supported formats, asks Event::NeedsFile with ImportData, and accepts supply/import through shared form-data path. viewer-host owns relative/absolute and network policy.",
+      "assertions": "fragments.rs tests exact NeedFile name/purpose and then supplied FDF updates a previously different field value. Adjacent XFDF tests check request and imported value. Unsupported extension is refused by name. No actual external URI fetch is performed here.",
+      "residuals": "Absolute URI network behavior, consent and origin resolution are host policy. The test-created FDF/XFDF fixture validates data-channel handling, not external I/O."
+    }
+  ]
+}

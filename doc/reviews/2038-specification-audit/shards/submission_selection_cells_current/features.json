@@ -1,0 +1,58 @@
+{
+  "scope": "EC3 \u00a712.7.6.2 Tables 239\u2013240 and the directly analogous \u00a712.7.6.3 Tables 241\u2013242 selection behavior, with only field-name/reference selection, Include/Exclude, IncludeNoValueFields, NoExport and omitted-versus-empty Fields entries in scope.",
+  "source_locators": {
+    "table_239": "EC3 Table 239, printed p.552 / physical p.567: Fields is optional; each element is either an indirect field reference or a fully qualified field-name string; both forms may be mixed. If Fields is omitted, Include/Exclude is ignored and all fields are selected except NoExport; no-value handling follows IncludeNoValueFields.",
+    "table_240": "EC3 Table 240, printed p.553 / physical p.568: bit 1 selects versus excludes the Fields entries, with descendants included in the clear branch; bit 2 includes no-V fields by name only when set; NoExport has priority over the action array and flag.",
+    "table_241_242": "EC3 Table 241/Table 242, printed p.556 / physical p.571: Fields is optional; omitted means reset all and ignore Include/Exclude. Clear selects the named fields and descendants; set spares named fields and descendants. Primary Caret #174, object 5828, physical p.571 / printed p.556, inserts that descendants are also exempt in the set branch."
+  },
+  "source_annotations": [
+    {
+      "issue": 122,
+      "location": "physical p.567 / printed p.552, Table 239 Flags and CharSet rows",
+      "direct_inspection": "pikepdf read primary StrikeOut objects 13858 and 13862, both Subj Issue #122, QuadPoints over the word 'inheritable'; Contents are empty. The correction removes inheritance from these action-dictionary entries. The parser reads Flags/CharSet on the action itself, consistent with the corrected table; prior errata_font_annotation_reference_batch_current already reviews this behavior."
+    },
+    {
+      "issue": 174,
+      "location": "physical p.571 / printed p.556, Table 242 Include/Exclude row",
+      "direct_inspection": "pikepdf read primary Caret object 5828, Subj Issue #174, Rect [312.170,338.032,320.123,344.512], Contents \"(All descendants of the specified fields in the field hierarchy are also exempt from being reset.)\". Rendered physical page 571 shows its target immediately after \"the Fields array\" in Table 242 bit 1 set-branch; it completes the excluded-descendant rule."
+    },
+    {
+      "issue": 683,
+      "location": "physical p.571 / printed p.556, Table 241 Flags cell",
+      "direct_inspection": "pikepdf read primary StrikeOut object 5835, Subj Issue #683, Rect [274.571,514.339,325.118,526.012], QuadPoints cross out \u201cinheritable\u201d in Table241 Flags. The entry remains optional; action::reset_form reads it only from the action dictionary. Prior structured_errata_interactive_current has already reconciled this correction."
+    }
+  ],
+  "feature_matrix": [
+    {
+      "feature": "SubmitForm Fields strings and references; descendants",
+      "consumer": "action::field_targets parses both variants; submission::selected_names resolves references through widgets_under and names through fully-qualified name/prefix matching.",
+      "assertions": "submission.rs::a_no_export_field_is_left_out_even_where_the_action_names_it and ::the_include_exclude_flag_turns_the_array_inside_out test name selection/priority. form_actions_spec_audit.rs::submit_fields_reference_selects_the_referenced_fields_descendants checks indirect nonterminal selection, descendant inclusion and omitted-Fields/all-fields positive control. action.rs::each_of_the_three_form_action_types_reaches_its_own_answer parses a mixed Name+Field array, though it does not compose the mixed array.",
+      "coverage": "Reference descendants and string terminal names have public consumer checks; no direct consumer assertion for string-named nonterminal descendants or a mixed-array composed result was found. No behavior mismatch is established for those routes."
+    },
+    {
+      "feature": "SubmitForm Include/Exclude and NoExport priority",
+      "consumer": "submission::selected_names selects first; chosen filters inherited NoExport before values/format. The source says NoExport outranks the Fields array and Include/Exclude.",
+      "assertions": "Direct Include/Exclude inversion test uses one named field and a second field control. NoExport test names both a normal value and a NoExport value under one action; default submission also omits NoExport.",
+      "coverage": "The primary precedence rule has independent named-field controls. The intersection of NoExport with IncludeNoValueFields for a no-V field lacks a dedicated assertion; the draft checks this combination."
+    },
+    {
+      "feature": "SubmitForm absent Fields versus explicit empty Fields array",
+      "consumer": "action::field_targets maps absent and [] to the same empty Vec; SubmitForm has no presence bit. submission::selected_names treats any empty Vec as absent and selects every form field, before applying Include/Exclude.",
+      "assertions": "Current default-submission test covers absent Fields with Flags=0; include/exclude and IncludeNoValueFields tests cover present nonempty/absent-fields arrays, but no test compares omitted /Fields to /Fields [].",
+      "coverage": "Source distinguishes them. With Flags=0, omitted Fields selects all eligible fields, whereas an explicitly present empty array selects none. With Include/Exclude clear and IncludeNoValueFields set, explicit [] still selects none. Current parser/composer cannot preserve this distinction; the draft isolates it with exact xref, populated controls and a source-defined empty selection."
+    },
+    {
+      "feature": "ResetForm Fields strings/references, omission and descendants",
+      "consumer": "action::field_targets also maps absent and [] to the same empty Vec; ViewState::reached_by_reset treats empty as reset all. Name/reference target expansion applies descendants in both flag senses.",
+      "assertions": "view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare covers omitted Fields, string name, and both Include/Exclude senses. ::a_reset_form_action_named_by_reference_reaches_the_fields_descendants exercises reference-target descendants in both branches and widget reference control. Primary #174 is directly reflected by the exclusion assertions.",
+      "coverage": "Existing tests prove descendant inclusion/exclusion and #174. They do not distinguish `/Fields []` from omission with Include/Exclude clear. Source says omitted resets all; a present empty include list selects none. The paired draft covers that boundary."
+    },
+    {
+      "feature": "SubmitForm Include/Exclude descendant ambiguity in the set branch",
+      "consumer": "submission::selected_names expands both reference and name targets to terminal widgets/qualified-name descendants before applying `exclude`.",
+      "assertions": "The current public reference-to-parent test is in the clear/include branch only. No set-branch SubmitForm ancestor exclusion test was found. ResetForm is different: Table242 initially has an asymmetry and primary #174 explicitly adds an excluded-descendants sentence; current reset tests assert it.",
+      "coverage": "Do not call this a confirmed gap: \u00a712.7.6.2 explicitly says descendants are submitted in the clear branch, while its set branch says all fields except those listed. Unlike ResetForm #174, no equivalent SubmitForm annotation was found. This could support a literal only-listed-fields interpretation, but source scope is not sufficiently explicit here to assign expected runtime behavior; leave as an interpretation question, with no draft."
+    }
+  ],
+  "related_status": "No existing expected-failure entry was found for omitted-versus-empty action Fields. Existing 2038-B13 concerns inherited reset defaults during save and is unrelated to selection. The acknowledged Table 239/240/241/242 rows and ADRs are broader than this bounded check; no whole-clause certification is claimed."
+}

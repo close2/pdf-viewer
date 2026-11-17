@@ -1,0 +1,211 @@
+[
+  {
+    "clause": "14.7 Logical structure",
+    "title": "Aggregate",
+    "source_location": "ISO 32000-2 EC3 primary PDF, printed pp. 722\u2013741 / physical pp. 737\u2013756 for logical-structure clauses; framing checked against \u00a714.7.1 and specific child clauses. Broad row has no separate implementation rule beyond the children.",
+    "errata": "EC3 #452 renumbers former \u00a714.7.5.1.1\u2013.4 to effective \u00a714.7.5.2\u2013.5; the 2020 ledger labels remain old numbers. See detailed prior shard `logical_structure/features.json`.",
+    "ledger": "`doc/conformance/ledger.toml` marks \u00a714.7 implemented, citing structure reading, accessibility projection, and structure writing/reconciliation paths.",
+    "code": "`crates/pdf-model/src/structure.rs`, `structure/logical.rs`, `structure/owners.rs`; consumers in `viewer-core/src/accessibility.rs` and `viewer-accessibility/src/tree.rs`; writer in `pdf-transform/src/structure/`.",
+    "tests_assertions": "The broad row has no distinct test oracle. Child assertions are separately reviewed in `logical_structure`, `logical_structure_example.rs`, `structure_types`, and `structure_layout_remaining_current`. The example test asserts its mapped Chap/Head1/Para roles, class-vs-element attribute precedence, per-page ParentTree entries, IDTree lookups, cross-page paragraph references, and nonzero-generation reference. Parent current findings confirm B03/B04 for depth/fan-out; do not describe these as pending/unexecuted candidates.",
+    "verdict": "aggregate claim is directionally supported by child evidence, not independently certified",
+    "residuals": "B03/B04 are confirmed in the parent current findings: traversal depth and fan-out limits can silently truncate logical structure without setting the public truncation signal. `logical_structure/findings.txt` and `tagged_layout/decisions.json` contain prior evidence/drafts; parent findings/gate results are authoritative. Other untested tree producer constraints and invocation permutations remain bounded residuals."
+  },
+  {
+    "clause": "14.7.1",
+    "title": "General",
+    "source_location": "EC3 primary PDF, printed p. 722 / physical p. 737; opening of \u00a714.7.",
+    "errata": "No change to the general framing identified. Effective child renumbering under #452 is relevant to the cross-reference to marked-content sequences.",
+    "ledger": "Implemented. The note describes a logical structure independent of, but associated with, content; ledger further states an archive preparation policy for `/MarkInfo /Marked true`.",
+    "code": "`pdf-model/src/structure.rs` reads an optional `/StructTreeRoot`; `content.rs` retains marked-content association; archive rewrite prepares/tag-reports through `pdf-transform/src/archive/rewrite.rs`.",
+    "tests_assertions": "Worked-example and MarkInfo tests have their stated mechanism scope. Archive preparation only checks non-null StructTreeRoot before marking. Separate archive checks exist, but the whole tagged-pdf requirement is Check::Unchecked; this is not a general certification guard.",
+    "verdict": "framing supported; ledger's archive convention is a project policy, not a distinct requirement imposed by this introductory prose",
+    "residuals": "StructTreeRoot presence does not prove all Tagged PDF conventions. Existing archive positive fixture is a blank page with empty root. No new invalid document or false-positive runtime result is established here."
+  },
+  {
+    "clause": "14.7.4",
+    "title": "Namespaces",
+    "source_location": "EC3 primary PDF, printed p. 728 / physical p. 743, namespace section and Table 356 continuing nearby; exact namespace resolution also depends on \u00a714.8.6.",
+    "errata": "Source locator verified from primary footer: \u00a714.7.4 begins on physical 743 / printed 728, not printed 739.",
+    "ledger": "Implemented; names namespace reading and use in structure element role resolution.",
+    "code": "`pdf-model/src/structure.rs` (`Namespace`, `Tree::namespace`) and `structure/roles.rs` perform namespace-aware type/role mapping.",
+    "tests_assertions": "Prior `logical_structure/features.json` reviews namespace dictionary retention and root/local RoleMapNS tests; `structure_types/findings.txt` records divergent maps, cross-namespace map chains, and foreign-name homonyms. These are distinct from the default namespace assertions in \u00a714.8.6.1.",
+    "verdict": "supported for sampled namespace dictionary and mapping routes",
+    "residuals": "No whole Table 356 or malformed namespace-dictionary certification. Resolution requirements on tagged producer documents do not require reader rejection."
+  },
+  {
+    "clause": "14.7.4.1",
+    "title": "General",
+    "source_location": "EC3 primary PDF, printed p. 728 / physical p. 743, namespace general text.",
+    "errata": "Source locator verified from primary footer: \u00a714.7.4.1 is on physical 743 / printed 728.",
+    "ledger": "Implemented as framing for namespace-aware structure types.",
+    "code": "`pdf-model/src/structure/roles.rs` uses the element's explicit namespace and namespace-specific map; `structure.rs` retains namespace dictionaries.",
+    "tests_assertions": "Covered by existing explicit-vs-default namespace and namespace-specific role-map controls cited under \u00a714.7.4 and \u00a714.8.6.2; this general subclause supplies no additional independent assertion.",
+    "verdict": "no independent behavior gap found",
+    "residuals": "Do not turn the schema/interoperability rationale into a mandatory reader rejection rule."
+  },
+  {
+    "clause": "14.7.5",
+    "title": "Structure content",
+    "source_location": "Primary physical744\u2013752 / printed729\u2013737, heading and content-item children; effective numbering follows EC3#452.",
+    "errata": "EC3 #452 renumbers old .1.1 Content items and shifts marked-content, object-reference, and ParentTree clauses to effective .2, .3, .4, .5. The held primary body retains old printed headings; cite the appended erratum for effective numbering.",
+    "ledger": "Implemented; ledger child rows retain pre-EC3 numbering.",
+    "code": "`pdf-model/src/structure.rs`, `structure/logical.rs`, and `structure/owners.rs` represent child content forms and bidirectional page/content ownership.",
+    "tests_assertions": "Prior logical-structure feature records separately examine marked-content references, OBJR, ParentTree, `/Stm` and `/StmOwn`, form stream ownership, and page identity. `logical_structure_example.rs` is a separate source-example oracle.",
+    "verdict": "the aggregate is supported by reviewed child mechanisms; no extra rule in this heading",
+    "residuals": "The prior shard did not exhaust every form-XObject invocation permutation or every malformed parent-tree case. Those producer constraints do not establish required reader rejection."
+  },
+  {
+    "clause": "14.7.5.1",
+    "title": "General (structure content)",
+    "source_location": "Primary physical744 / printed729, general paragraph before content-item forms.",
+    "errata": "#452 changes the following effective subclause numbering; the base primary text still displays the former .1.1 heading.",
+    "ledger": "Implemented; describes content items as separate from the tree but associated with elements.",
+    "code": "`structure::Child` models marked content, object references, and child structure elements; owners and logical traversal resolve those associations.",
+    "tests_assertions": "Each content-item form has a separate assertion family in `logical_structure/features.json`; worked-example test also checks cross-page association.",
+    "verdict": "framing matched by the model; no independent requirement beyond child forms",
+    "residuals": "No additional test needed solely for the introductory distinction."
+  },
+  {
+    "clause": "14.7.6",
+    "title": "Structure attributes",
+    "source_location": "Primary physical752\u2013756 / printed737\u2013741, structure attribute mechanism.",
+    "errata": "EC3 #354 alters owner wording in \u00a714.7.6.1; #289 changes attribute-class precedence; #226 corrects a reference.",
+    "ledger": "Implemented; the row claims attribute attachment/class and precedence mechanisms, while meanings belong to \u00a714.8.5.",
+    "code": "`pdf-model/src/structure/attributes.rs`, `structure/tables.rs`, and `structure.rs` resolve `/A`, `/C`, owner, revision, and user properties; `viewer-core` consumes selected values.",
+    "tests_assertions": "T04: structure_attribute_stream_audit::an_attribute_object_stream_and_dictionary_are_both_read already PASS. Parent re-read the independent TextAlign Center stream and Placement Block dictionary assertions. Existing class/revision/owner precedence tests remain separate.",
+    "verdict": "mechanism supported for sampled paths, with semantic attribute obligations separate",
+    "residuals": "Do not infer every Table 376/377/382\u2013385 owner or attribute semantic is tested from this general mechanism. The prior `structure_attributes_remaining_current` covers additional specific consumers."
+  },
+  {
+    "clause": "14.7.7",
+    "title": "Example of logical structure",
+    "source_location": "EC3 primary PDF, printed p. 741 / physical p. 756; worked-example objects continue on following pages.",
+    "errata": "No applicable change identified to this example in EC3.",
+    "ledger": "Implemented; ledger explicitly treats the clause as an executable worked-example assertion rather than as an independent normative rule.",
+    "code": "`crates/pdf-model/tests/logical_structure_example.rs`.",
+    "tests_assertions": "Parent inspected `the_clauses_worked_example_reads_as_the_structure_it_describes`: the exact example's role-map chain, class-vs-element attribute precedence, per-page ParentTree array, three IDTree names, cross-page paragraph and marked-content reference, and `101 1 obj` nonzero generation are asserted.",
+    "verdict": "worked-example coverage is strong for the mechanisms it illustrates",
+    "residuals": "Example coverage is not a whole \u00a714.7 certification; no duplicate test proposed."
+  },
+  {
+    "clause": "14.8 Tagged PDF",
+    "title": "Aggregate",
+    "source_location": "EC3 primary PDF, printed pp. 745\u2013794 / physical pp. 760\u2013809 for \u00a714.8; child-specific source locators are given in prior shards.",
+    "errata": "Applicable details include #484 softening explicit BMC/BDC producer form language, #452/#133 structure numbering, #223/#226 effective Table 377, #346 Table 385, and namespace/other amendments cited in their owner shards.",
+    "ledger": "Implemented as aggregate; all child rows were settled at ledger update, but current parent findings/gate results supersede stale child-shard pending descriptions.",
+    "code": "Separate readers in `structure.rs`, `content.rs`, structure attributes/roles, and accessibility consumers. No single implementation function enforces the full tagged-PDF profile.",
+    "tests_assertions": "Current parent B03/B04 traversal failures and B43 public mixed-content AccessKit order failure remain active; detailed substitution and attribute failures also remain in their owner records. No whole Tagged PDF certificate.",
+    "verdict": "Aggregate is a summary; multiple confirmed child defects remain, not only B43.",
+    "residuals": "The general purpose clause does not prescribe one consumer policy for all tagged content. Do not recertify the aggregate from broad suite pass or from the number of settled children."
+  },
+  {
+    "clause": "14.8.2",
+    "title": "Tagged PDF and page content",
+    "source_location": "EC3 primary PDF, printed pp. 745\u2013753 / physical pp. 760\u2013768; specific rules split across 14.8.2 children.",
+    "errata": "The direct marked-content form language in .2.2 is revised by #484; other child errata are recorded in `tagged_layout` and related shards.",
+    "ledger": "Implemented aggregate of page content, artifact classification, ordering, and Unicode-related child obligations.",
+    "code": "`content.rs`, `content/marked.rs`, `structure.rs` and `structure/logical.rs`; public copied text and accessibility are separate consumers.",
+    "tests_assertions": "`tagged_layout/findings.txt` covers valid logical order, Unicode/word boundaries, artifacts and cross-shard ActualText issues. `structure_layout_remaining_current/findings.txt` records B43: public AccessKit emits ACB from valid `/K` interleaving where logical text is ABC.",
+    "verdict": "child assertions demonstrate distinct behavior; aggregate cannot be called conformant while B43 is unresolved",
+    "residuals": "No duplicate B43 test. Explicit Artifact marking is not mandatory in the face of #484 and \u00a714.8.2.2.2 expressly makes out-of-tree page/annotation content an artifact even without an Artifact tag."
+  },
+  {
+    "clause": "14.8.2.2",
+    "title": "Real content and Artifacts",
+    "source_location": "EC3 primary PDF, printed pp. 746\u2013747 / physical pp. 761\u2013762; \u00a714.8.2.2.1 and .2.2, Table 363.",
+    "errata": "EC3 #484 moves the producer statements that the two explicit marked-content forms shall be used into NOTE 2; it does not remove the rule in the next paragraph that content outside the structure tree is an artifact. #483 permits ActualText as an Artifact property-list entry.",
+    "ledger": "Implemented; reading classifies explicit and by-absence artifact spans.",
+    "code": "`content.rs` interpretation and `structure.rs::artifacts_by_absence`; `structure/attributes.rs` reads Artifact element/properties.",
+    "tests_assertions": "`pdf-model/tests/artifact_reporting_audit.rs::artifact_reporting_does_not_remove_text_and_absence_is_separate_from_declaration`, `accessibility.rs::content_no_element_reaches_is_an_artifact_by_absence`, and viewer tagged-copy artifact tests pin declared vs inferred status and text consequences. Parent's current ledger note further records the MarkInfo `/Marked true` qualification and annotation appearance exception.",
+    "verdict": "supported in tested declared and absence paths",
+    "residuals": "Artifact filtering is a consumer choice; do not assert every processor must suppress it. Do not invent a producer-invalid unmarked-content classification: \u00a714.8.2.2.2 explicitly says unreferenced page and annotation content is artifact even without an explicit Artifact tag."
+  },
+  {
+    "clause": "14.8.3",
+    "title": "Basic layout model",
+    "source_location": "EC3 primary PDF, printed pp. 753\u2013755 / physical pp. 768\u2013770; child clauses .1\u2013.3.",
+    "errata": "No new change identified for this framing row; layout-specific effective Table 377 changes are treated in the sibling layout shard.",
+    "ledger": "Implemented aggregate: .1 is introductory/no independent must; .2 reference-area model is inapplicable to current no-reflow consumer; .3 progression direction is implemented.",
+    "code": "`structure/tables.rs`, `structure/inline.rs`, `viewer-core/src/accessibility.rs` consume only relevant writing-mode/progression and bounds properties; no reflow engine is present.",
+    "tests_assertions": "`structure_layout_remaining_current/findings.txt` separates progression, reference areas, and layout attributes. `tagged_content_tables_current` already reviewed table geometry consumers; current task adds no new consumer oracle.",
+    "verdict": "aggregate framing is properly decomposed; no additional independent gap identified",
+    "residuals": "The standard allows repurposing/reflow behavior; absence of a current reflow destination is a product scope decision, not proof that the standard forbids it."
+  },
+  {
+    "clause": "14.8.4",
+    "title": "Standard structure types",
+    "source_location": "EC3 primary PDF, printed pp. 755\u2013771 / physical pp. 770\u2013786; \u00a714.8.4 is a heading with no independent prose.",
+    "errata": "#133 inserts Link elements and renumbers Ruby/warichu; #437/#141 and other table-specific changes are recorded in `structure_types` and `annex_l_structure_relationships_current`.",
+    "ledger": "Implemented aggregate over standard type vocabulary and child behavior.",
+    "code": "`structure/roles.rs::StandardType`, role resolution and viewer role mapping; structure content/links/tables use specialized child consumers.",
+    "tests_assertions": "`structure_types/findings.txt` examines type inventory, namespace mapping, roles, TH/TD scope, and replacement text; `annex_l_structure_relationships_current` covers parent-child/MathML/Ruby constraints and source errata. Separate API and producer obligations are identified there.",
+    "verdict": "no additional standalone requirement in aggregate heading; child evidence remains partial and bounded",
+    "residuals": "Do not infer exhaustive type or role certification from the all-types recognition test. Preserve producer constraints vs reader behavior."
+  },
+  {
+    "clause": "14.8.4.7",
+    "title": "Inline level structure types",
+    "source_location": "EC3 primary PDF, printed pp. 761\u2013765 / physical pp. 776\u2013780; effective Link text is appended in EC3 under #133, followed by effective Ruby/warichu .4.",
+    "errata": "#133 inserts effective \u00a714.8.4.7.3 Link elements and renumbers Ruby/warichu to .7.4. Older ledger labels for Ruby/warichu are stale; ADR 0273 addresses the renumbering, while current tests and source must use effective numbering.",
+    "ledger": "Implemented aggregate; the 2020 .7.3 row's title/body is not effective after #133.",
+    "code": "`structure.rs` inline element interpretation; `link.rs` resolves links and structure association; accessibility/copy consumers handle child text and structure order.",
+    "tests_assertions": "`structure_types/findings.txt` covers type roles and Link-specific source/errata; `annex_l_structure_relationships_current` reviews Ruby/warichu. `structure_layout_remaining_current` has B43 for the independent generic mixed-child ordering consequence; no duplicate test drafted.",
+    "verdict": "features are separated in current source/consumer evidence; aggregate status alone is not certification",
+    "residuals": "\u00a714.8.4.7.1 permits inline elements and actual content in any combination/order. The B43 issue is specifically public AccessKit order loss, not an invalid mixed-order PDF. Do not apply old Ruby numbering."
+  },
+  {
+    "clause": "14.8.4.8",
+    "title": "Other structure types",
+    "source_location": "Primary physical781\u2013786 / printed766\u2013771: other structure types.",
+    "errata": "Table-specific amendments and #141 Part note are recorded in `structure_types` and `tagged_content_tables_current`; #133 affects inline Ruby/warichu, not this family.",
+    "ledger": "Implemented aggregate.",
+    "code": "`structure.rs`, `structure/tables.rs`, `structure/attributes.rs`, `viewer-accessibility/src/role.rs` and `viewer-core` consumers.",
+    "tests_assertions": "`structure_types/findings.txt` reports List/Table/Figure/Formula/Artifact consumer evidence; `tagged_content_tables_current` reviews header relations and grid assertions; empty ActualText remains in `empty_text_replacements_current`.",
+    "verdict": "aggregate is a heading over independently scoped type behavior; sampled evidence only",
+    "residuals": "Do not equate optional producer Alt/ActualText guidance with mandatory rejection. List ordering semantics and Table consumer quality have separate scoped evidence."
+  },
+  {
+    "clause": "14.8.5",
+    "title": "Standard structure attributes",
+    "source_location": "EC3 primary PDF, printed pp. 771\u2013795 / physical pp. 786\u2013810, general and attribute-specific subclauses/tables.",
+    "errata": "#223/#226 replace Table 377; #346 updates selected Table 385 inheritability; individual amendments are logged in the layout/attribute shards.",
+    "ledger": "Implemented aggregate although selected layout rows are inapplicable. Parent current results supersede older pending notes: PrintField/list/table/artifact outcomes are in corresponding shards.",
+    "code": "`structure/attributes.rs`, `structure/tables.rs`, `structure/inline.rs`, and selected viewer accessibility/layout consumers.",
+    "tests_assertions": "Specific owner shards cover structure attributes, PrintField, list/table and inline consumers. Preserve B29 PrintField and other relevant parent findings; unrelated measurement/document-requirements findings do not substantiate these attributes.",
+    "verdict": "aggregate assertion is a ledger summary; feature-level findings are authoritative",
+    "residuals": "Do not use \u2018all children settled\u2019 as proof of semantic correctness; retain inapplicable statuses only where no consumer destination exists."
+  },
+  {
+    "clause": "14.8.5.1",
+    "title": "General",
+    "source_location": "EC3 primary PDF, printed p. 771 / physical p. 786; opening of standard attribute section.",
+    "errata": "No distinct amendment to the `/A` and `/C` attachment mechanism identified; owner and value changes are covered in dependent rows.",
+    "ledger": "Implemented; supports direct attribute objects and class-map names.",
+    "code": "`structure/attributes.rs` and `structure.rs` read direct `/A`, class `/C`, and revisions; precedence is exercised at mechanism and semantic layers.",
+    "tests_assertions": "`logical_structure/features.json` reviews direct/class attachment and precedence controls; `logical_structure_example.rs` independently checks the example's class-provided WritingMode and element-local TextAlign.",
+    "verdict": "attachment mechanism supported for sampled dictionary and class routes",
+    "residuals": "This mechanism does not certify every attribute owner, default, inheritance, value, or consumer. Those are separate rows."
+  },
+  {
+    "clause": "14.8.5.4.1",
+    "title": "General (layout attributes)",
+    "source_location": "EC3 primary PDF, printed p. 773 / physical p. 788 for \u00a714.8.5.4.1 and original Table 377; effective Table 377 is on appended EC3 physical pp. 1013\u20131014 (no ISO printed page).",
+    "errata": "EC3 #223/#226 replaces Table 377 and updates applicability cells. The original table at physical 788 / printed 773 is superseded; use the appended replacement.",
+    "ledger": "Inapplicable for the current no-reflow/layout consumer. Its sole SHALL constrains how producer-defined attribute objects are authored (owner must be Layout or the specified non-special owner); this reader does not author such objects.",
+    "code": "The reader resolves layout-owned attributes in `structure/attributes.rs`; downstream meaning is in `structure/tables.rs`, `inline.rs`, and viewer accessibility. No authoring validation path consumes the producer constraint.",
+    "tests_assertions": "Sibling layout shard verifies effective Table 377 feature mappings and consumers; no test is owed solely for rejecting an authoring violation. Prior \u00a714.8.3 review distinguishes current display from a hypothetical reflow engine.",
+    "verdict": "inapplicable status is defensible for this producer-only rule under current product scope",
+    "residuals": "Do not claim the source lacks layout rules or forbids reflow. If a future layout/reflow/export consumer uses these attributes, revisit applicability and the effective Table 377 mapping."
+  },
+  {
+    "clause": "14.8.6",
+    "title": "Standard structure namespaces",
+    "source_location": "EC3 primary PDF, printed pp. 794\u2013795 / physical pp. 809\u2013810; \u00a7\u00a714.8.6.1\u2013.3. Primary text specifies both standard namespace URIs and MathML URI.",
+    "errata": "No namespace URI/default renumbering found. MathML and role-map requirements stay distinct in effective \u00a714.8.6.3 and .2.",
+    "ledger": "Implemented; outside-standard namespace conditions are reported at document scope, not treated as an unconditional reader rejection.",
+    "code": "`structure/roles.rs` identifies PDF 1.7/PDF 2.0 namespaces, resolves role maps and reports outside-standard namespaces; `viewer-core/src/notes.rs` delivers document-level report.",
+    "tests_assertions": "`structure_types/findings.txt` records explicit/default namespace controls, namespace-specific mappings, foreign homonyms, and MathML distinctions. Existing test `an_element_stating_no_namespace_is_in_the_default_standard_one` checks the default PDF 1.7 URI; separate MathML fixture checks URI qualification.",
+    "verdict": "supported for sampled namespace defaults, role-map resolution, and reporting",
+    "residuals": "Missing `/NS` means PDF 1.7 namespace, not PDF 2.0. A PDF2 namespace dictionary is separate and must be explicitly identified. Other namespace validity is a producer/reporting question; do not reject or reinterpret unqualified tags as PDF2 by assumption."
+  }
+]

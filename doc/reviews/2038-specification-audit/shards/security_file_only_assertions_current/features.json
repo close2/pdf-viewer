@@ -1,0 +1,81 @@
+{
+  "baseline": "b901326c",
+  "inventory_source": "doc/reviews/2038-specification-audit/shards/file_only_reference_assertions_current/inventory.json (69 supplemental file references; each matching ledger row also has named sibling tests)",
+  "selection": "Five non-overlapping rows sampled for trust/security-relevant parser, decoder, evaluator, image-dictionary, and signature claims. The parent shard already sampled §7.3.8.1, §8.6.4.2, and §9.3.6.",
+  "features": [
+    {
+      "clause": "7.3.7",
+      "source_location": "Primary PDF physical 45 / printed 30; Dictionary objects, direct keys/null semantics and unordered entries.",
+      "ledger_file_reference": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "sibling_assertions": [
+        "pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value",
+        "pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key",
+        "pdf-syntax/src/parser.rs::a_null_value_does_not_survive_beside_a_real_one",
+        "pdf-syntax/tests/robustness.rs::a_dictionary_body_stops_at_the_keyword_that_ends_its_object"
+      ],
+      "actual_file_assertions": "damaged_page_dictionaries.rs uses explicit malformed-prefix fixtures to test a separate page-enumeration recovery route, with intact-page, reachable-tree, declaration-present and declaration-absent controls. It asserts page count, inherited MediaBox and recovered-entry count; it is not a general parser dictionary-conformance test.",
+      "adr_and_scope": "ADR 0784/0786 bound page recovery to empty/broken-tree cases; ADR 0858 documents first-duplicate retention as local malformed-input policy because source dictionary order is irrelevant. Recovery is not a normative obligation.",
+      "verdict": "The file pointer is supplemental and accurately paired with named dictionary assertions. The named assertions cover null-as-absence and duplicate handling, while the file covers specialized recovery. No gap or source-conformance inference from its filename alone."
+    },
+    {
+      "clause": "7.4.7",
+      "source_location": "Primary PDF physical 60–61 / printed 45–46; JBIG2Decode restrictions, JBIG2Globals and embedded sequential organization.",
+      "ledger_file_reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "sibling_assertions": [
+        "pdf-model/tests/jbig2.rs::every_jbig2_coding_mode_decodes_to_the_same_image",
+        "pdf-sandbox/src/decode.rs::a_generic_region_on_the_extended_template_decodes",
+        "pdf-sandbox/tests/t88_conformance.rs::annex_k_streams_against_their_reference_bitmaps"
+      ],
+      "actual_file_assertions": "fixed_documents.rs is a corpus-reproduction harness checking recorded report and raster/ink outcomes for previously fixed files; it is supplemental and can depend on machine-local witnesses. Named JBIG2 tests decode explicit coding-mode fixtures, an extended-template witness, and T.88 streams against reference bitmaps.",
+      "adr_and_scope": "ADRs 0014 (confined decoder worker), 1459 (extended template), 1485 (arithmetic sequence) and 2102 (dependency fork/review) are relevant. Source restricts producer streams to bitonal, page 1, embedded sequential organization, no file header/end-page/end-file markers, and separately stored globals; it does not prescribe general reader rejection for every producer violation.",
+      "verdict": "Supplementary corpus gate has one stale font expectation D51; default suite skips it. JBIG97-file comparison and extended-template witness execute andPASS. T88 initially returnsPASS with no data, then actual official reference executionPASS; see separate shard for assertion limits."
+    },
+    {
+      "clause": "7.10.5.3",
+      "source_location": "EC3 physical147 / printed132 for actual input/output/stack rules; §7.10.5.3 starts physical146.",
+      "ledger_file_reference": "crates/pdf-model/tests/function_faults.rs",
+      "sibling_assertions": [
+        "pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault",
+        "pdf-model/tests/function_faults.rs::a_tint_transform_that_errs_for_the_tint_painted_is_said",
+        "pdf-model/tests/function_faults.rs::an_images_tint_transform_that_errs_for_some_levels_is_said"
+      ],
+      "actual_file_assertions": "The model file exercises input-dependent wrong output count, boolean output and stack-overflow functions through tint, image, transfer, black-generation, mesh and shading consumers, paired with conforming controls. Evaluator unit tests distinguish errors provable on every run from runtime faults. MAX_STACK is 1000: tests hit its overflow boundary; the standard requires at least 100 and explicitly requires no implementation to provide more.",
+      "adr_and_scope": "ADRs 2833/2848 explain deferred runtime faults and surfacing them through active consumer paths. The producer brace-nesting constraint is separate from evaluator stack behavior.",
+      "verdict": "Good assertion linkage. The 1000-entry limit is a chosen implementation bound above the source minimum, not an ISO maximum. No missing minimum-capacity control or defect was found."
+    },
+    {
+      "clause": "8.9.5.1",
+      "source_location": "Primary PDF physical 273–274 / printed 258–259; Table 87 image entries and the rule that inconsistent entries shall cause an error.",
+      "ledger_file_references": [
+        "crates/pdf-model/tests/image_masks.rs",
+        "crates/pdf-model/tests/image_dimensions.rs"
+      ],
+      "sibling_assertions": [
+        "pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+        "pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+        "pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+        "pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"
+      ],
+      "actual_file_assertions": "Dictionary-consistency fixtures have exact xref entries and a valid DeviceRGB positive control that paints literal red; each malformed Decode length differs only by pair count and must be incomplete. Image-mask tests separately assert asymmetric stencil pixels, reversed Decode, and explicit/color-key masking.",
+      "adr_and_scope": "ADR 0023 treats explicit/color-key masking as source-defined mechanisms. Current checks are in image dispatch/space/mask code and named consistency tests; no host-device color is the oracle in the malformed-length tests.",
+      "verdict": "File references are broad supplemental suites; named tests link the specific source checks. Literal valid pixels and completeness controls discriminate. No missing assertion found."
+    },
+    {
+      "clause": "12.8.1",
+      "source_location": "Primary PDF physical 582–583 / printed 567–568; signature-handler verification, digest recomputation, ByteRange and signature kinds.",
+      "ledger_file_reference": "crates/pdf-signature/src/verdict/tests.rs",
+      "sibling_assertions": [
+        "pdf-signature/src/verdict/tests.rs::a_signature_whose_path_reaches_a_supplied_anchor_is_valid",
+        "pdf-signature/src/verdict/tests.rs::a_signature_under_somebody_elses_anchor_is_not_valid",
+        "pdf-signature/src/verdict/tests.rs::a_signature_under_no_anchor_at_all_says_nobody_named_one",
+        "pdf-signature/src/verdict/tests.rs::a_document_that_moved_is_not_valid_however_good_the_path_is",
+        "pdf-signature/tests/signatures.rs::every_corpus_signature_is_asked_whether_it_verifies"
+      ],
+      "actual_file_assertions": "The fixture is a genuinely signed detached CMS PDF using a test private key/root. The positive checks integrity, signature authenticity, anchored path, explicit revocation acceptance, and timestamp state. Negative controls use a different/no anchor, changed bytes, unchecked revocation under the default policy, and a broken policy constraint. Valid carries the established path/revocation/time evidence; a digest alone is not validity.",
+      "adr_and_scope": "ADRs 0229, 0472 and 1067 preserve the distinction among integrity, authenticity, anchored trust and revocation. Revocation/time subfeatures are separately audited and not recertified here.",
+      "verdict": "The file reference supplements exact named positive and negative controls and is well-linked to the validity claim. It does not certify every signature profile or imply network revocation checking. No gap was found in this sample."
+    }
+  ],
+  "limitations": "Six exact file-only pointers across five rows reviewed, not every reference in those rows or all69 pointers. Parent ran selected JBIG/image/T88 and the explicit ignored fixed-document gate; see parent-review and D51. Other assertion reading is not fresh execution."
+}

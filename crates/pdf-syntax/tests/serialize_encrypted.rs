@@ -18,11 +18,13 @@
 //! entries have to be the bytes the randomness source handed over. None of that is a round
 //! trip.
 //!
-//! **The `/Perms` test is a tamper, not a read-back.** §7.6.4.3.3 step (f) makes the decrypted
-//! block authoritative over the plaintext `/P` beside it, so the discriminating question is
-//! what a reader says when the two disagree — and a `/Perms` this writer got wrong would not
-//! survive it. Asking a correctly written file what its permissions are would be answered by
-//! `/P` alone (trap 27).
+//! **A separate vector pins the encrypted bytes independently.** The audit's Python
+//! implementation uses `PyCryptodome` and literal inputs to Algorithms 8–10. Its expected
+//! `/U`, `/UE`, `/O`, `/OE` and `/Perms` bytes do not call this crate's crypto implementation.
+//!
+//! **The `/Perms` tamper checks malformed-input recovery policy.** §7.6.4.3.3 step (f)
+//! requires agreement with `/P` in a conforming file; it does not prescribe a recovery
+//! tie-break when they disagree. The consistent output is checked by the independent vector.
 //!
 //! # The randomness is an argument
 //!
@@ -318,16 +320,11 @@ fn the_entries_are_the_three_sections_the_algorithms_name() {
     );
 }
 
-/// §7.6.4.3.3 step (f) makes the decrypted `/Perms` authoritative, and a tampered `/P` proves
-/// this writer wrote one that decrypts.
+/// Pins this reader's recovery policy when plaintext `/P` contradicts encrypted `/Perms`.
 ///
-/// > Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer, are the user
-/// > permissions. They shall match the value in the P key.
-///
-/// [`Access::ALL`] is Table 22's word with every permission granted, which is `-4`; the tamper
-/// rewrites it as `-8`, clearing bit 3 — "Print the document". A reader that could not read the
-/// block would report the tampered word, so the assertion below is about `/Perms` and nothing
-/// else.
+/// §7.6.4.3.3 step (f) requires them to agree in a conforming file. This intentionally
+/// inconsistent input is not a normative tie-break witness. The separate Algorithms8–10
+/// vector checks the writer's consistent block independently.
 #[test]
 fn a_tampered_p_loses_to_the_perms_block_this_writer_wrote() {
     let source = open(source_bytes());
@@ -353,7 +350,7 @@ fn a_tampered_p_loses_to_the_perms_block_this_writer_wrote() {
     let permissions = opened.permissions().expect("an encrypted file has some");
     assert!(
         permissions.print,
-        "§7.6.4.3.3 step (f): the decrypted /Perms outranks the /P written beside it",
+        "reader recovery policy: use decrypted /Perms when plaintext /P disagrees",
     );
     assert_eq!(permissions.revision, 6, "Table 21: this writer writes /R 6");
 }
@@ -604,5 +601,54 @@ fn the_crypt_filter_is_the_one_the_clause_permits() {
             .map(Name::as_bytes),
         Some(&b"DocOpen"[..]),
         "and the same sentence limits it to an /AuthEvent of DocOpen",
+    );
+}
+
+/// Decode literal expected bytes produced by the independent audit vector script.
+fn hex_bytes(hex: &str) -> Vec<u8> {
+    let pairs = hex.as_bytes().chunks_exact(2);
+    assert!(pairs.remainder().is_empty(), "whole hexadecimal bytes");
+    pairs
+        .map(|pair| {
+            u8::from_str_radix(std::str::from_utf8(pair).expect("ASCII hex"), 16)
+                .expect("literal hexadecimal byte")
+        })
+        .collect()
+}
+
+#[test]
+fn r6_writer_entries_match_an_independent_algorithms_8_to_10_vector() {
+    let source = open(source_bytes());
+    let written = protect_simple(&source, "reader", "keeper");
+    let opened = Document::open_with_password(written, Limits::DEFAULT, "reader")
+        .expect("the file opens with the vector's user password");
+    assert!(!opened.was_recovered(), "writer output has an exact xref");
+    let dict = encrypt_dictionary(&opened);
+
+    // Counter(0) supplies the key 00..1f, salts 20..3f and Perms filler 40..43 before any
+    // object IVs. The source password strings need no SASLprep mapping; Access::ALL is -4.
+    assert_eq!(
+        string_of(&dict, "U"),
+        hex_bytes(
+            "3e7ce5e9ea89df3544afacd00f72fa98974f901d9f444e5128a433f1219500cb202122232425262728292a2b2c2d2e2f"
+        )
+    );
+    assert_eq!(
+        string_of(&dict, "UE"),
+        hex_bytes("b857de32bbd114c7add758f69f6fe5cdc0a6f56c7bb1e33815612c2c8f876d30")
+    );
+    assert_eq!(
+        string_of(&dict, "O"),
+        hex_bytes(
+            "632761c082b9c3634b42e7ddbcf27f0662beab8f1860d8d8e0ea4d694f09f8da303132333435363738393a3b3c3d3e3f"
+        )
+    );
+    assert_eq!(
+        string_of(&dict, "OE"),
+        hex_bytes("ba791d8e04ef1053ae18c5a27bc302e9a3ad71956d4f2b2a7258cde5aa9f1b26")
+    );
+    assert_eq!(
+        string_of(&dict, "Perms"),
+        hex_bytes("54f203d0d762eae496de957fb2819587")
     );
 }

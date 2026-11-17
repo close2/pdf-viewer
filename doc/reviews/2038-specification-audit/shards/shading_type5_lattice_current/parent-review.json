@@ -1,0 +1,11 @@
+{
+  "source": "EC3 physical257–259 / printed242–244, Table82 and subsequent row/triangle prose; parent read these pages.",
+  "assertions": "Integrated crates/pdf-model/tests/shadings.rs::a_lattice_mesh_preserves_all_rows_columns_and_vertex_colours. Nine vertices with independently decoded literal point/color pairs; eight expected triangles checked irrespective of vertex winding and output order. Middle row has varying column spacing, but is straight. Complete/no-recovery/no-chain-cut asserted.",
+  "execution": "T97: PASS, lattice-images-wave75.log. Final model all-targets ClippyPASS.",
+  "limitations": [
+    "Parent rejected initial draft winding/order overconstraint: spec triangle geometry does not require the display-list vertex ordering.",
+    "Type 5 incomplete-row behavior remains unclassified here. Producer framing rules do not automatically require a reader to reject; this topology test contains only complete valid rows.",
+    "The draft is a model/display-list geometry-color oracle, not a fixed raster edge-coverage requirement. Existing single-cell test supplies public raster coverage.",
+    "No other bit widths, color spaces, truncation or incomplete-row reader behavior established. Separate T98 tests Type5 Function."
+  ]
+}

@@ -1,0 +1,41 @@
+# Valid ICC intent consumer fixture: completed source and assertion review
+
+## Result
+
+A compact, fully tagged ICC.1:2022 v4.4 monochrome Display profile now supplies a stronger *separate* public consumer regression for intent-table dispatch. It is 776 bytes and has been accepted by ICC's iccDEV 2.3.2.5 validator with `ValidationStatus.OK` and an empty report. The exact-xref PDF/Rust CPU-render draft is present but has not been compiled or run; parent execution is still required before claiming that consumer check passes.
+
+## Profile construction and provenance
+
+`make_gray_display_intent_profile.py` writes the file beside the draft. It uses `mntr`, `GRAY`, and `XYZ `; v4.4 header encoding `04400000`; a complete 128-byte header; D50 for PCS and media white; zero reserved bytes and optional identifiers; and a zero ProfileID, which means no ID is asserted. The tag table contains seven sorted unique entries with aligned, in-bounds offsets: A2B0, A2B1, A2B2, cprt, desc, kTRC, wtpt. The three transform tags are valid-shaped `mft2` one-input/three-output three-grid-point transforms. The common profile tags use `mluc`, `curv`, and `XYZ ` types. Required-tag bases are ICC.1:2022 §8.2 and Annex G Table G.6; the gray Display profile model and optional A2B tags are §8.4.4; Table 25 and §§9.2.1–9.2.3 map A2B0/1/2 to perceptual/colorimetric/saturation and identify lut16 as a permitted tag type.
+
+The colorimetric A2B1 middle knot is D50-scaled neutral XYZ (0.25 × [0.9642, 1, 0.8249]); the A2B0 and A2B2 midpoints differ to discriminate the other routes. The profile is a test stimulus, not a claim that it characterizes a real product. The validator acceptance is independent structural/conformance evidence; it cannot by itself prove every possible ICC semantic property or any PDF rule.
+
+Repeatable checks from the audit worktree:
+
+```sh
+python3 scratchpad/r2038/spec-audit/valid_icc_consumer_fixture_current/make_gray_display_intent_profile.py
+python3 scratchpad/r2038/spec-audit/valid_icc_consumer_fixture_current/derive_expected.py
+python3 scratchpad/r2038/spec-audit/valid_icc_consumer_fixture_current/validate_with_iccdev.py
+```
+
+`python3 --version` reported `Python 3.14.10`. `validate_with_iccdev.py` imports the pinned local `iccdev` package, not a network lookup. Wheel SHA-256: `5fc0b1488257826f7e508bc5cac1169ee541bda67a0774755e8a4eab2c5751bd`; loaded extension SHA-256: `979547bab940d8a759aea57fcdc2079ab823f5dffaae9275b02bc6787cf7dfa2`. Generated profile SHA-256: `16de5308d92f234fca71ae05883ff2af647ec7d8c119be270af1b078dd0da8aa`.
+
+`derive_expected.py` reads the generated mft2 table bytes back, selects the exact middle CLUT knot at input gray 0.5, decodes the u1Fixed15 XYZ values, then applies the independent D50 XYZ→sRGB matrix and IEC sRGB transfer formula used by the existing test family. Results are [253,57,60], [137,137,137], [0,167,255] for A2B0/1/2. The draft's expected RGB literals therefore characterize the viewer's screen-output path; they are not normative pixel values. The A2B1 gray value also acts as a useful neutral control while all three expected colors discriminate table selection.
+
+## Consumer and current implementation gap
+
+`gray_display_intents_spec_audit.rs` embeds the validated profile as an ICCBased `/N 1` Gray color-space stream in an exact-xref PDF 2.0. Actual content fills a visible page region at gray 0.5 with each of the three PDF rendering intents. The draft asserts no xref recovery, complete interpretation, and the middle CPU raster pixel. It is intentionally standalone scratch evidence: it does not edit production or tracked tests, and has not been executed.
+
+Existing `crates/pdf-model/tests/icc_paint_context.rs` has valuable, independently calculated output assertions for late intent changes, save/restore, separate fill/stroke sources, text, and stencil painting. Its hand-built ICC headers are deliberately minimal and do not satisfy all profile-header/common-required-tag requirements; they test focused behavior but cannot establish a conforming ICC input path. The new fixture is an additional valid-profile control, not a reason to replace those tests. The earlier B25 v5 Lab profile is complementary: it exercises a valid later-version mpet profile that this implementation routes to ICCBased Alternate, whereas this v4.4 profile uses implemented lut16 A2B paths.
+
+## ADR/status correction in the related colour-context shard
+
+The earlier `file_only_colour_context_assertions_current` shard said ADR 1242's output-intent/profile bypass remained current. That was stale. ADR 2549 is implemented and explicitly removes the ADR 1242 departure and `Unsupported::BlackGeneration`. The related shard's `decisions.json`, `findings.txt`, and ICC fixture-limit entry now describe ADR 1242 as historical only and note that the ICC valid-profile consumer evidence is pending. Do not carry the old departure forward when reviewing the current implementation.
+
+## Limits and outstanding parent work
+
+- Parent must integrate and execute the Rust draft; this reviewer ran no Cargo command.
+- ICCDEV checked profile conformance, not PDF conformance or the Rust consumer.
+- The exact display RGB outputs are local regression values, not mandated results.
+- This shard tests one Gray display profile and three A2B routes, not profile classes, LUT formats, transforms, intents, or ICC versions exhaustively.
+- No claim is made that this profile is based on measurements from real hardware.

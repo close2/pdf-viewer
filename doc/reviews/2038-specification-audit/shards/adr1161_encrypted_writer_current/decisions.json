@@ -1,0 +1,18 @@
+{
+  "shard": "adr1161_encrypted_writer_current",
+  "decisions": [
+    {
+      "adr": "root:doc/adr/1161-encryption-on-the-way-out-is-asked-for-never-inherited.md",
+      "decision": "Retain its revision-6 writer choice and explicit caller-supplied protection model. Narrow the ADR's test evidence: current round-trips are not an independent writer oracle, and the `/Perms` mismatch test is malformed-input policy, not proof of a valid-file precedence rule. Add the independent fixed vector before relying on output algorithm conformance.",
+      "basis": "Effective §7.6.4.1 deprecates revisions 1–5 for new PDF 2.0 output; Algorithms 8–10 define R6 bytes. Algorithm 2.B was corrected by EC3 #325 and ECB wording by #24. The producer-created valid file must align `/P` and `/Perms` as §7.6.4.3.3 step f says.",
+      "status": "independent-vector-draft-awaiting-parent-execution"
+    },
+    {
+      "adr": "root:doc/adr/0031-encryption-and-what-a-locked-file-is.md and root:doc/adr/0820-the-owner-of-permissions-is-the-reader.md",
+      "decision": "Do not use the current `/Perms` tamper assertion as evidence for a mandatory reader choice when valid-input source specifies consistency. Keep it only as malformed conflict-resolution behavior; independently pin writer's encrypted Perms block instead.",
+      "basis": "§7.6.4.3.3 step f says decrypted value shall match P; Algorithm 13's explanatory sentence says should match. Test deliberately changes P without changing ciphertext.",
+      "status": "qualified"
+    }
+  ],
+  "independent_script_crosscheck": "PyCryptodome R6 derivation was tested against a separately generated pikepdf R6 file: correct reader password, U validation hash, UE unwrap, P and Tadb decrypted Perms checks succeeded. No repository tests or Cargo commands run by this shard."
+}

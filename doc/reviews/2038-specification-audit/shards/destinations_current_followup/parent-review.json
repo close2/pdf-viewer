@@ -1,0 +1,9 @@
+{
+  "source": "Parent read Table149 physical457/printed442; GoToR Table203 starts physical527/printed512, not526; GoToE Table204 D cell physical529/printed514. Both require the destination in target, with §12.3.2 view semantics.",
+  "execution": "Local GoTo and direct target OpenAction controls PASS. GoToR and GoToE FAIL after Supply: page index2 is correct but scale0.5/origin(50,0) replaces required scale2/origin(-80,-200). Final log remote-destination-wave18b.log.",
+  "fixture_review": "Exact-xref PDF1.7, explicit empty page Resources, three-page targets; EF uses F/UF. Direct target controls are separately opened and cannot mask the triggered destination. No real file/network operation.",
+  "centering": "Parent independently found existing headless FitR oracle wrong. Table149 explicitly centers FitR and FitB in spare dimension; ADR0162 instead infers corner placement. Corrected existing FitR expectation to(-150,-25) and added FitB vertical/horizontal regressions; all3 FAIL. Matched-aspect controls pass before failing assertions. Whole-page Fit spare-height control PASS, so no blanket local-destination defect.",
+  "decisions": "Reopen ADR0162 centering and cross-document view propagation in ADR1227/0094 narrowly. Retain separately supported traversal/page-selection/host boundary choices. ADR2814 local coordinate fixes do not establish these paths.",
+  "residuals": "Other destination modes, named remote destinations, target OpenAction interaction and full transformed geometry matrix remain pending.",
+  "checkpoint101_source_force": "Correction: #536 SHOULD governs entireFitR smaller-factor/centering sentence, includingparticipialcentering. FitR is recommendationmismatch; FitBunamendedinstructionremains. Earliercenteringexecutionevidenceunchanged."
+}

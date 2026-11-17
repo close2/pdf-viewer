@@ -1,0 +1,92 @@
+{
+  "scope": "Bounded review of Annex L, §14.8.4.2, §14.8.4.7.4, and §14.8.6.3. This does not certify every Table L.2 parent/child cell, every structure tree consumer, every MathML vocabulary rule, or reader validation of malformed producer files.",
+  "features": [
+    {
+      "clause": "Annex L (normative); §14.8.4.2",
+      "title": "PDF 2.0 standard-namespace parent/child relationships, including role-mapped elements",
+      "source_location": "Annex L begins in the consolidated primary PDF at physical p.962 / printed p.947. Its opening rule prohibits unlisted PDF 2.0 standard-namespace parent/child pairs and explicitly extends Table L.2 to types role-mapped into that namespace. Table L.1 defines ø, ø*, 0..n, 1..n, 0..1, ‡, [a], and [b]. §14.8.4.2 is physical p.770 / printed p.755 and points at Annex L; its NOTE is informative context about structure categories and unrestricted order except where a type imposes a rule.",
+      "errata": "The EC3 primary PDF's p.962 annotations say #64, #83, #336, #349, and #440 corrected Annex L and altered its embedded PDF/spreadsheet matrix. #83 adds the P parent → Table child 0..n relationship and a note; #440 replaces undefined c entries with symmetric 0..n for WP↔Figure. #349 also adds a note at physical p.770 / printed p.755 that a PDF file is one logical document and Annex L requires a single root Document for PDF 2.0 tags; its physical p.963 annotation clarifies that StructTreeRoot is a dictionary, not a structure element. This bounded pass did not independently map every #336 matrix-cell change; that remains a full-matrix residual. The attachment annotation states the supplied files replace earlier ones. The ledger's general statement that the reader takes trees as found is a project policy boundary; it is not a statement that malformed structure is conforming.",
+      "ledger": "The Annex L implementation claim is writer-scoped: merge wraps multiple PDF 2.0 Document roots in one PDF 2.0 Document (ADR 1474). §14.8.4.2 says a nonstandard type nests by the requirements of its mapped type; the ledger says reader parsing itself does not validate child relationships.",
+      "code": "`pdf-transform/src/structure/wrapper.rs` and `write.rs` create a wrapper for multiple source roots. `Tree::standard_role` resolves roles before `in_pdf_2_0_namespace` selects the Annex L population. `pdf-transform/src/archive/tagged.rs` writes default-namespace PDF 1.7 Part/P elements and therefore is not evidence for the PDF 2.0 matrix rule. No general Table L.2 validator was found in the inspected reader path.",
+      "tests_assertions": "`merge.rs::two_pdf_2_0_documents_are_written_inside_one` checks one exact Annex L relationship: root→Document and Document→Document, including /P links and a standard-role assertion. `annex_l_role_mapping.rs::role_mapped_pdf_2_documents_are_written_inside_one` checks the same generated wrapper when each source uses a custom namespace role mapped to PDF 2.0 Document. Its source fixture is complete, exact-xref, and rejects recovery; its post-merge check validates the one wrapper relation and mapped children. `documents_outside_the_pdf_2_0_namespace_are_not_wrapped` is a default PDF 1.7 positive control. These tests do not exercise the full Table L.2 matrix or validate arbitrary source nesting.",
+      "verdict": "Narrow writer behavior is tested, including the role-mapped population. The broad ledger heading is not evidence of full matrix validation. No mandatory reader error/rejection was identified for producer-invalid nesting; preserving and reading the supplied hierarchy is a separate behavior. EC3's repaired cells must be included in any future full writer matrix audit.",
+      "residuals": "No full Table L.2-derived writer matrix or checker coverage was reviewed. Existing-source invalid pairs are not automatically a defect in a reader or transform that carries producer structure forward; generated relationships are the relevant writer obligation. This shard makes no claim about all merge/split/update synthesis paths.",
+      "related_adrs": [
+        "ADR 1461",
+        "ADR 1474",
+        "ADR 0821",
+        "ADR 0834"
+      ],
+      "attachment_provenance": {
+        "annotation": "Primary PDF physical p.962, Issue #64 and associated FileAttachment annotations. Note says #83/#336/#349/#440 corrected Annex L and altered the embedded spreadsheet/PDF; replacement matrix version dated 2024-07 is supplied in Errata Collection 2 and attachments replace the earlier embedded matrix files.",
+        "files": [
+          {
+            "name": "ISO32000-2_AnnexL_matrix-version072024.xlsx",
+            "subtype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "decoded_size": 32984,
+            "sha256": "d372710f5b2ccca20101317e7656b25bdf4570dd2b399dbaa287839783b31ed1",
+            "mod_date": "D:20240711133447+10'00'"
+          },
+          {
+            "name": "ISO32000-2_AnnexL_matrix-version072024.pdf",
+            "subtype": "application/pdf",
+            "decoded_size": 330475,
+            "sha256": "6684535e0a381f211866660f6ba9a00b14f5e618a8bc047acb6496dd3f3bd782",
+            "mod_date": "D:20240711133517+10'00'"
+          }
+        ],
+        "scope_limit": "Confirms file provenance and replacement statement, not an independent comparison of every matrix cell."
+      }
+    },
+    {
+      "clause": "14.8.4.2",
+      "title": "Role-mapped nonstandard structure types follow the mapped type's nesting rules",
+      "source_location": "Primary physical p.770 / printed p.755. The clause's `shall` makes a nonstandard element follow the nesting requirements of the type to which it is role mapped; the remaining text points to Annex L and the NOTE sketches element categories.",
+      "errata": "No direct erratum changing this sentence was identified. EC3 #133 renumbers the Ruby and Warichu material to §14.8.4.7.4; it does not change §14.8.4.2.",
+      "ledger": "The row maps the reader's standard role resolution to the accessibility consumer but treats actual nesting as a producer/file-conformance constraint. Annex L owns the corresponding writer-side rule.",
+      "code": "`structure::Tree::role`/`standard_role` resolve role maps; `viewer-core` passes the role and namespace into `AccessibilityNode`, and `viewer-accessibility::role::map` maps the resolved standard type into AccessKit. The reader does not validate the source element's parent/child topology against the mapped target type.",
+      "tests_assertions": "`structure/tests.rs::a_mapped_role_reads_as_its_standard_type` checks role-map resolution but not parent/child conformance. The Annex L integration test checks one writer-generated role-mapped Document relation. There is no sampled assertion that every mapped source element's children are validated, and no normative reader rejection rule was found to require it.",
+      "verdict": "Role semantics reach a consumer; hierarchy validation does not. This is consistent with the ledger's producer-versus-reader boundary. Do not infer a reader conformance defect from an invalid role-mapped source tree.",
+      "residuals": "The one writer integration case is Document→Document; other mapped target types and derived writer outputs are not covered by this shard.",
+      "related_adrs": [
+        "ADR 1474",
+        "ADR 0821",
+        "ADR 0834"
+      ]
+    },
+    {
+      "clause": "14.8.4.7.4; Table 369",
+      "title": "Ruby and Warichu assembly types, child sequence, and accessibility roles",
+      "source_location": "Primary physical p.780 / printed p.765; the primary text appears under the prior `.7.3` numbering because EC3 #133 inserts Link as `.7.3` and explicitly says the Ruby/Warichu text is unchanged while renumbered to `.7.4`. Table 369 defines Ruby/RB/RT/RP and Warichu/WP/WT. Ruby's child sequence is RB followed by RT or RP-RT-RP; Warichu's is WP-WT-WP. The prose defines the base text, smaller adjacent annotation, punctuation conditions, and line wrapping behavior.",
+      "errata": "EC3 #133 is a numbering insertion, not a change to the Ruby/Warichu content. Table 369's child sequence and RP producer usage constraint remain effective. The RP condition constrains where an author uses RP; no reader rejection behavior follows from it.",
+      "ledger": "The row's single test covers all seven standard types being inline. The accessibility layer maps Ruby→AccessKit Ruby, RT→RubyAnnotation, RB/RP/WT/WP→Label, and Warichu→Group. This is a product accessibility representation, not a requirement that a reader lay out ruby or warichu annotations as a visual typesetter would.",
+      "code": "`structure::StandardType` recognizes all seven types and their Inline category. `viewer-accessibility::role::map` builds the corresponding AccessKit roles; the tree builder preserves parent-child order and child text. It does not validate Table 369's required sequence or implement the layout attributes RubyAlign/RubyPosition.",
+      "tests_assertions": "`structure/tests.rs::every_ruby_and_warichu_type_is_inline` asserts only Inline classification and pre-PDF2 status. `role.rs::every_standard_structure_type_maps_to_something_that_is_not_unknown` asserts only non-Unknown mapping across all types. No assertion in the inspected accessibility tree suite checks Ruby/RubyAnnotation relation, base/annotation text, or ordered nesting. ADR 2384's statement that RB's Ruby and RT's RubyAnnotation cross is stale against the current implementation: Ruby itself maps to Role::Ruby, RB to Label, and RT to RubyAnnotation.",
+      "verdict": "Parsing and distinct role mapping exist, but sampled tests do not prove that the assembled semantic relation survives the accessibility tree consumer. This is an assertion/decision evidence gap; the current map is plausible and no ISO reader MUST to reject an invalid sequence was found. A valid sequence consumer regression is justified.",
+      "residuals": "No evidence here verifies assistive-technology speech behavior on any platform, the RubyAlign/RubyPosition layout attributes, or the RP and line-wrapping rendering semantics. The test draft is a consumer-boundary test, not a PDF parser/xref fixture.",
+      "related_adrs": [
+        "ADR 0273",
+        "ADR 2384"
+      ]
+    },
+    {
+      "clause": "14.8.6.3",
+      "title": "MathML and other namespaces; MathML formula enclosure report",
+      "source_location": "Primary physical p.810 / printed p.795. MathML is the named domain namespace; effective EC3 removes the MathML 3.0 version, and the normative reference becomes MathML Core. The amended text says the `math` element encloses the formula under a Formula structure element; it also requires explicitly defined MathML namespaces on MathML structure types and attributes. Other namespaces remain permitted subject to §14.8.6.2 role mapping.",
+      "errata": "EC3 #72 replaces the MathML sentence and removes the edition number; #719 replaces the referenced MathML 3.0 specification with MathML Core. Effective sentence and URI are not the 2020 prose. The explicit namespace-on-every-MathML-type/attribute sentence is a producer constraint over a vocabulary not enumerated by ISO 32000-2; the project explicitly declines to invent a MathML schema validator (ADR 0786).",
+      "ledger": "§14.8.6.3 is marked implemented for namespace interpretation and a document-level report when tagged MathML `math` has no Formula ancestor, plus role mapping/reporting for other namespaces. The clause's producer MUSTs are not reader rejection rules; report-on-read is an explicit project conformance policy for the actionable enclosure condition.",
+      "code": "`Tree::mathml_outside_a_formula` counts lowercase `math` in the MathML namespace absent a Formula ancestor recognized by standard-role resolution. `viewer_core::notes::tagged_structure` emits a document-level note for tagged PDFs. `Tree::standard_role` applies namespace-aware role mapping, while `namespaces_outside_the_standard` identifies foreign namespaces.",
+      "tests_assertions": "Model tests distinguish MathML `math` outside/inside a Formula, Formula at a higher ancestor, foreign `math`, and foreign homonym Formula; a case-sensitive `Math` control also exists. The note test asserts the positive diagnostic plus Formula and untagged controls. This is meaningful source-derived reporting coverage; it does not validate every MathML type/attribute namespace or role-map every MathML Core vocabulary item.",
+      "verdict": "Actionable enclosure reporting and namespace-aware interpretation have independent positives/controls. No gap identified in this sampled behavior. The normative requirement for each MathML element/attribute namespace is producer-facing and not converted into reader rejection. The other-namespace row's blanket status is broader than this bounded sample.",
+      "residuals": "Do not treat the tested role/name cases as MathML Core schema coverage. The no-MathML-namespace root gate and foreign namespace listing behavior are separately conditioned/reporting decisions; exhaustive malformed namespace inventories are outside this shard.",
+      "related_adrs": [
+        "ADR 0375",
+        "ADR 0785",
+        "ADR 0786"
+      ]
+    }
+  ],
+  "drafts": [
+    "drafts/ruby_accessibility_tree.rs"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "reviews": [
+    {
+      "adr": "1946",
+      "decision": "Reaffirm",
+      "reason": "The ratified A254/RFC 0009 boundary admits still-page media appearances and file handoff while excluding audio/video presentation and U3D/PRC active rendering. Current clauses 13.6.2 and 13.7.2.1 correctly remain feature-narrow rather than whole-clause compliance claims."
+    },
+    {
+      "adr": "0906",
+      "decision": "Reaffirm with test-strength qualification",
+      "reason": "Clause-specific refusal when the required normal AP is absent matches 13.6.2 and 13.7.2.1. The test asserts that negative branch; positive subtype-specific appearance rendering is only indirectly held by a self-regression corpus golden plus generic annotation AP tests. It is not a separate independent source oracle, but no concrete defect was established."
+    },
+    {
+      "adr": "1561",
+      "decision": "Reaffirm as local placement policy",
+      "reason": "Table 306 requires stream poster image content but does not specify placement inside Rect. The test uses literal geometry/pixels; proportional fit/centering is program choice, not EC3 conformance requirement."
+    },
+    {
+      "adr": "2382",
+      "decision": "Reaffirm narrowly",
+      "reason": "Sound/movie file handoff has a public host event path and does not claim in-process play. 13.3 remains deprecated and its legacy raw sample conversion is separately tested."
+    },
+    {
+      "adr": "2398",
+      "decision": "Reaffirm narrowly",
+      "reason": "Sample-to-WAVE conversion is a serialization bridge for host handoff, not an audio decoder/player. Existing unit assertions use literal RIFF/sample bytes."
+    },
+    {
+      "adr": "2399 / 2410",
+      "decision": "Reaffirm feature boundary; correct a stale source sentence in ledger note",
+      "reason": "Assets listing/extraction is admitted and tested; Configurations/Views remain runtime. However #166 superseded the printed Table 341 Optional/nonempty-not-stated wording: effective producer rule requires nonempty Configurations. The ledger sentence describing it as optional is historically stale even though the narrow implementation/status is otherwise justified. This does not trigger implementing playback or reject assets-only reading."
+    },
+    {
+      "adr": "0295 / 1186",
+      "decision": "Reaffirm as explicit query policy",
+      "reason": "Current-page asset surfacing and no eager full-page-tree walk are explicit viewer design choices tested through public Query/Command. They should not be narrated as a PDF-mandated scope rule."
+    }
+  ],
+  "scope_authority": "doc/scope-ratifications.md, 'Clause 13, the playing of multimedia and the rendering of 3D artwork', ratified 2026-10-08 (A254; ADR 1946), plus A631 for save/handoff and Q649/ADR 2428 for the untriggered player build."
+}

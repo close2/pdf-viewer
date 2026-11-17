@@ -1,0 +1,38 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "selected_adr_reviews": [
+      {
+        "adr": "0263",
+        "claim": "sRGB-to-DeviceCMYK press conversion uses a right-inverse/search as the assumed device default; classic formula is a deliberately different approximation.",
+        "review": "Supported by §10.4.2.1's ICC-enabled preference for §10.3 and independent cube/formula comparisons. Tie this to the chosen raster press; it does not establish a universal native printer default."
+      },
+      {
+        "adr": "1207",
+        "claim": "Table 57 stated BG/UCR replaces an implicit generation/removal step even though baseline RGB-to-CMYK uses §10.3 route.",
+        "review": "Narrow §11.7.5.3's explicit DeviceRGB-to-DeviceCMYK group condition and §10.4.2.4's formulas. Existing path tests demonstrate it. Distinguish this special input from generic ICC B2A conversion."
+      },
+      {
+        "adr": "2549",
+        "claim": "With no stated pair the group's CMYK press profile's B2A is the device default; explicit functions use §10.4.2.4 formula instead, but ICCBased CMYK group keeps B2A.",
+        "review": "Directly relevant, with profile-vs-function ambiguity. §10.4.2.4 says each device has suitable BG/UCR defaults but names no algorithm; §10.4.2.1 directs ICC-enabled conversions to §10.3, while §11.7.5.3 explicitly requires the current pair for DeviceRGB into DeviceCMYK groups. Existing independent ink-control tests support the implemented split. Keep claims scoped to this RGB-raster renderer and this special group route."
+      },
+      {
+        "adr": "0796",
+        "claim": "Conversions into ICCBased CMYK group use that profile's B2A rather than classic §10.4 formula.",
+        "review": "Consistent with §10.3 ICC conversion and §10.4.2.1 ranking; DeviceCMYK and ICCBased target distinctions matter."
+      },
+      {
+        "adr": "1266",
+        "claim": "Transfer function is attached to marks and applied after compositing at raster output.",
+        "review": "CLAUDE.md explicitly includes §10.5 for screen output. Existing transfer tests cover varied pixels and groups. Add supplied independent BG/UCR + transfer fixture to lock conversion ordering."
+      },
+      {
+        "adr": "1622",
+        "claim": "Classic §10.4.2 methods not used on ICC-enabled primary conversion branch, where choice remains optional or condition absent.",
+        "review": "Keep per-subclause status precise: 10.4.2.2 formulas feed gray/mask paths; 10.4.2.3 CMYK-to-gray is used; gray-to-CMYK and direct 10.4.2.5 are not the selected device route. Avoid aggregate claim that all are wholly unused."
+      }
+    ],
+    "not_reviewed_whole": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "shard": "xfa_attachment_assertions_current",
+  "features": [
+    {
+      "clause": "14.13.2",
+      "feature": "Original XFA attachment provenance",
+      "inspection": "Existing test already compared ordered decoded payload bytes, generic MIME, profile conformity and report. Strengthened it to assert Source relationship, source modification date and catalog AF identity.",
+      "fixture": "Corrected two existing declared stream lengths:32 and30 bytes, previously34 each. Closing packet remains11. This removes unintended reliance on stream-boundary repair.",
+      "execution": "Strengthened existing test PASS; transform all-targets Clippy PASS.",
+      "limits": "One packet-array fixture and PDF/A4e target; profile verdict shares project validator. Dynamic-XFA classification and malformed packet-array atomicity remain separate active review."
+    }
+  ]
+}

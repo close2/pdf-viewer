@@ -1,0 +1,7 @@
+{
+  "source": "Read actual test bodies, fixture helpers, current ledger citations, ADR0405 and current habit135\u2013136. Read primary AnnexI.1 physical951/936: reporting is the chosen policy, not universally mandatory.",
+  "worktree": "Parent independently ran check_presence.py with explicit audit-worktree cwd:974pdfs; issue1155 absent; four optional corpus paths present. Reviewer confirmed earlier owner-checkout mixup. Unverified other presence groups were omitted from promoted inventory.",
+  "execution": "Two known skips reproduced with success output. Four present witnesses separately pass with no skip messages; read helpers panic on present-but-unopenable input. Broad64 matches exact76 in-scope failures.",
+  "new_test": "Reused established exact-xref objects_not_understood helpers, added no-recovery check, report document/page identity and exact event/stored-note agreement. Known-data control may legitimately retain PageReports with empty notes; initial draft assumption that the collection itself must be empty was rejected, not counted as a product failure.",
+  "limits": "Inventory is bounded, not an exhaustive execution denominator for all optional branches. Do not subtract only these two from the pass count and call the remainder fully asserted. Missing producer OCR witness remains a residual."
+}

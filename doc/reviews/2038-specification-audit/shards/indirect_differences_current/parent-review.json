@@ -1,0 +1,7 @@
+{
+  "source": "Read primary7.3.10 physical49 and Table112 physical338/323. General9.6.5.1 starts337; the table and sequence rules are338. No relevant direct-only exception found.",
+  "oracle": "Independent fontTools inspection of checked-in LiberationSans-Regular.ttf confirmed GIDs527/36 and advances455/2048,1366/2048. WinAnsi defaults at39/40 name different glyphs. Parent replaced rounded PDF widths with exact values, repaired temporary borrow in draft and added indexing expectation for the bounded assembler.",
+  "code": "Read glyph_names::apply_differences resolving each member and maintaining start-code sequence. Tracked test compares literal IDs/advances through LoadedFont after complete page interpretation.",
+  "execution": "differences-wave63:2PASS; quality-model-wave63b:all-targetsPASS. No source editing or production mutation.",
+  "limits": "One TrueType encoding route only. These tests deliberately cover the permitted but discouraged Differences shape; they do not recommend it for producers or prove page pixels."
+}

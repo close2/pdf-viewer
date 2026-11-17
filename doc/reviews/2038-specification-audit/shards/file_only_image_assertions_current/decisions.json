@@ -1,0 +1,6 @@
+{
+  "Indexed": "Keep the general Decode implementation and strengthen the evidence to match the test name/comment. No production defect found.",
+  "ADR0034": "The lookup map and multiply-before-divide rationale remain defensible, but the former tolerant test did not establish exact palette identity. Current entry_of also rounds indices, so the historical truncation scenario is not asserted to be a present defect.",
+  "ADR0832": "Retain support for color keys on filtered samples: the primary warning about lossy codecs does not authorize ignoring a valid Mask. Actual corpus bands cover narrower properties than the dedicated synthetic controls.",
+  "D51": "Do not update observed ink bands to bless the unrelated stale font expectation."
+}

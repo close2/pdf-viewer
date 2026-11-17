@@ -1,0 +1,7 @@
+{
+  "source": "Parent independently read \u00a78.9.5.3 physical278/263 and #79 annotation Contents/rectangles on279\u2013280. Effective alternate algorithm differs from struck base text; Table89 and amended branches must be read together.",
+  "assertions": "Parent read coordinate fixture byte samples/matrices and literal pixels, interpolation absent/false/source-interior/seam assertions, and alternate hidden/no-OC/selected-stream-OC/Print controls. Interpolation assertion checks a mixed-gray interval16..239, not an exact bilinear scalar; this is useful policy coverage but cannot identify a unique kernel or prove mandated interpolation.",
+  "execution": "Existing tests passed in eight-crate-wave18.log; no new code or pixel oracle was added by this shard. A previous execution is not certification of every backend.",
+  "decisions": "Parent checked selected ADR1173 purpose-as-input and2100 unfiltered page-pixel reasoning; retain separation from filtered-kernel policy and reduction decisions. No full scan-conversion departure review here.",
+  "limits": "No all-codec/backends proof, no real-corpus Alternates witness. Existing malformed-entry tests are robustness evidence, not blanket valid-input coverage."
+}

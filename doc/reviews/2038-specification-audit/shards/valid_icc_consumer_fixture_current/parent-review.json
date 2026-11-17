@@ -1,0 +1,7 @@
+{
+  "source": "Read ICC.1:2022 §8.4.4 allowing optional A2B tags for monochrome Display and required grayTRC; generator header/commontags/three mft2 transforms inspected. Profile and deterministic generator live in crates/pdf-model/tests/fixtures/icc1-gray-intents.",
+  "validation": "Parent reran pinnedICC iccDEV2.3.2.5: ValidationStatus.OK, empty report;776bytes SHA25616de5308d92f234fca71ae05883ff2af647ec7d8c119be270af1b078dd0da8aa. Independent script reads quantized knots and yields253/57/60,137/137/137,0/167/255.",
+  "change": "Added exact-xref PDF2 public CPU consumer test for allthree intents. Parent added dimensions64x64 andalpha255 assertions. RequiredPDF2ID andbinaryheader present; streamlengths inspected.",
+  "execution": "New test PASS. Model all-targets Clippy PASS.",
+  "limits": "One independently validated synthetic profile, not real-device characterization or completeICC/PDFconformance. LiteralRGB values pin selected screen conversion. Existingminimalfixtures retain focused state/arithmetic value. Validator script uses scratch-local pinnedpackage; productiontests neednopython."
+}

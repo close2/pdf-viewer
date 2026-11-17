@@ -24,7 +24,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use pdf_syntax::{Document, FileBytes, ObjectId, SyntaxResult};
+use pdf_syntax::{Document, FileBytes, Object, ObjectId, SyntaxResult};
 
 /// The specification PDFs shipped in `doc/`.
 fn shipped() -> Vec<PathBuf> {
@@ -91,10 +91,17 @@ fn agree(path: &Path) -> Result<usize, String> {
         path.display()
     );
     for number in &numbers {
-        let id = ObjectId::new(*number, 0);
+        let memory_id = memory.defined_id(*number);
+        let disk_id = disk.defined_id(*number);
         assert_eq!(
-            memory.get(id),
-            disk.get(id),
+            memory_id,
+            disk_id,
+            "{}: object {number} has different defined generations",
+            path.display()
+        );
+        assert_eq!(
+            memory.get(memory_id),
+            disk.get(disk_id),
             "{}: object {number} differs",
             path.display()
         );
@@ -331,4 +338,58 @@ fn a_prev_loop_across_two_sections_reads_the_same_on_disk_as_in_memory() {
         !disk.was_recovered(),
         "both sections were read from the chain"
     );
+}
+
+/// §7.3.10 identifies an object by both number and generation. Both routes must
+/// return the literal value at generation7, while the generation-zero lookup is null.
+#[test]
+fn both_read_routes_compare_the_object_at_its_defined_nonzero_generation() {
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for object in [
+        &b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"[..],
+        &b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"[..],
+        &b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources <<>> >>\nendobj\n"[..],
+        &b"4 7 obj\n123\nendobj\n"[..],
+    ] {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(object);
+    }
+    let xref_at = bytes.len();
+    let mut xref = String::from("xref\n0 5\n0000000000 65535 f \n");
+    for (offset, generation) in offsets.iter().zip([0_u16, 0, 0, 7]) {
+        writeln!(xref, "{offset:010} {generation:05} n ").expect("xref row");
+    }
+    write!(
+        xref,
+        "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    )
+    .expect("trailer");
+    bytes.extend_from_slice(xref.as_bytes());
+
+    let directory = scratch("nonzero-generation");
+    let path = directory.join("nonzero-generation.pdf");
+    std::fs::write(&path, &bytes).expect("fixture is written");
+    let memory = Document::open(bytes).expect("in-memory PDF opens");
+    let disk =
+        Document::open(FileBytes::on_disk(&path).expect("file opens")).expect("disk PDF opens");
+
+    assert!(!memory.was_recovered() && !disk.was_recovered());
+    assert!(!memory.cross_reference_chain_was_cut() && !disk.cross_reference_chain_was_cut());
+    assert_eq!(
+        agree(&path),
+        Ok(4),
+        "the corpus comparator reaches all defined objects"
+    );
+
+    let expected_id = ObjectId::new(4, 7);
+    assert_eq!(memory.defined_id(4), expected_id);
+    assert_eq!(disk.defined_id(4), expected_id);
+    assert_eq!(memory.get(expected_id), Object::Integer(123));
+    assert_eq!(disk.get(expected_id), Object::Integer(123));
+    assert_eq!(memory.get(ObjectId::new(4, 0)), Object::Null);
+    assert_eq!(disk.get(ObjectId::new(4, 0)), Object::Null);
+    assert_eq!(memory.get(expected_id), disk.get(expected_id));
+    drop(disk);
+    std::fs::remove_dir_all(directory).expect("fixture removed");
 }

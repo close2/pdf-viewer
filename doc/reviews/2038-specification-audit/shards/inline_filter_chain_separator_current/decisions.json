@@ -1,0 +1,27 @@
+{
+  "decisions": [
+    {
+      "topic": "Scope of EC3 #20",
+      "decision": "Apply the exact added phrase to NOTE 2's optional skip procedure. Do not require the reader to implement or use that optimization as a conformance obligation.",
+      "basis": "The primary caret at physical p. 283 / printed p. 268 inserts ‘its final or only filter’ into a note whose sentence begins ‘To skip an image a processor can’. That modal describes an available optimization. The separate operative filter and data framing rules remain reader behavior requirements."
+    },
+    {
+      "topic": "Filter order and which stage exposes the EOD marker",
+      "decision": "For a file whose bytes were Flate-compressed then ASCII85-encoded, use decoder array [/ASCII85Decode /FlateDecode]. ASCII85 is the final encoding stage and the first decoding stage, so its ~> marker frames the encoded inline-image input; subsequent Flate decoding yields the samples.",
+      "basis": "§7.4.1 Example 2 states the exact decode list for data encoded using LZW and ASCII85 ‘in that order’; its Example 3 describes Flate followed by ASCII85 and /Filter [/ASCII85Decode /FlateDecode]. Current `Document::filtered_extent` asks the first decoder, consistent with this outer encoding.",
+      "caveat": "‘final filter’ is potentially ambiguous without naming encode/decode direction. The explicit primary examples settle the test's case; this review does not infer that NOTE 2 creates another filter-array-order rule."
+    },
+    {
+      "topic": "Missing test and candidate",
+      "decision": "Add one narrow assertion for the valid two-stage inline chain. The fixture has independently fixed 16 grayscale samples, zlib bytes, and ASCII85 bytes; spaces around two existing ASCII85 characters expose a literal whitespace-delimited EI token without changing the encoded stream. Assert that the marker, not the embedded EI, ends the image and that the chain decodes to the literal sample bytes. Include a no-false-token positive control first.",
+      "basis": "The current public inline-image marker test uses only /A85; the syntax crate separately tests /A85 then /Fl decoding only as an ordinary stream. The proposed case joins those two asserted features without sharing the implementation as its oracle.",
+      "draft": "drafts/inline_ascii85_outer_filter_chain.rs",
+      "status": "Draft only; not executed. The PDF embeds the exact content stream in an exact-xref page with Resources, correct stream Length, no /L (PDF 1.7), no recovery and an intact xref chain."
+    },
+    {
+      "topic": "What the test does not demand",
+      "decision": "Do not assert that subsequent whitespace after ID must be physically skipped or excluded from the scanned bytes. Current decoding preserves it, and ASCII85 ignores it; NOTE 2's skip recipe does not require this reader to take that route.",
+      "basis": "The implementation consumes the one required delimiter and leaves additional white-space in the encoded data. The current public API scans/decodes rather than exposing a skip-only consumer, so asserting skip execution would test an unpromised optimization."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "source": "Parent read Table57physical180\u2013182 includingD,Font,BM,ca; genericrule49/34. Fontfirstitem expresslyindirect; no selectedparameterdirect-onlyexception. Read ADR2820\u00a73 firstrecognizedblendmode rationale.",
+  "implementation": "Parent inspected ext_gstate::apply_ext_gstate dasharray andphase resolve,scalarca get_key;stated_blend_mode resolves arraymembers thenfirstrecognizedmode.",
+  "draft_changes": "Fixed blend_fixture returntype mismatch before compilation; consolidated duplicate renderhelpers. Replacedphase0 with5 andexplicitwhitebackground. At x14black,x20white,x30black;defaultphase0 orsolidfallback paintsx20 andfails. Outsidepointwhite. LiteralScreenredoverbluehalfalpha[128,0,255] within3levels, distinct fromNormal.",
+  "execution": "indirect-graphics-wave58.log2PASS;quality-model-wave58bPASS after test-onlyborrow/unusedlint-expectfixes.",
+  "limits": "OuterD/BM arrays direct; nestedarray/members andscalaralphaindirect. No arbitraryExtGStatefields, softmasktransfer, overprint orallmediumcertificate. ExistingrelatedADRs notwhollyrecertified."
+}

@@ -1,0 +1,50 @@
+{
+  "log": "eleven-crate-wave53.log",
+  "run": 7189,
+  "passed": 7118,
+  "failed": 71,
+  "skipped": 58,
+  "exact_match": true,
+  "missing": [],
+  "unexpected": [],
+  "scope": [
+    "pdf-archive",
+    "pdf-colour",
+    "pdf-font",
+    "pdf-model",
+    "pdf-signature",
+    "pdf-syntax",
+    "pdf-transform",
+    "render-cpu",
+    "viewer-accessibility",
+    "viewer-core",
+    "viewer-host"
+  ],
+  "excluded": [
+    {
+      "binary": "render-gpu::stroke_composition_spec_audit",
+      "test": "direct_gpu_backend_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "render-raster::stroke_composition_spec_audit",
+      "test": "gpu_coverage_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "render-raster::stroke_composition_spec_audit",
+      "test": "compute_coverage_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "pdf-script::matrix2d_reference_spec_audit",
+      "test": "matrix2d_constructor_and_reference_methods_are_available_to_a_document_realm",
+      "finding": "2038-B52",
+      "log": "appearance-matrix-wave52.log",
+      "requires": "pdf-script/engine"
+    }
+  ]
+}

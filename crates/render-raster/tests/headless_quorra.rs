@@ -58,7 +58,9 @@ fn compare_at(what: &str, list: &pdf_render::DisplayList, scale: f32) -> Compari
     let cpu = CpuRasterizer::new()
         .rasterize(list, target)
         .expect("the CPU oracle draws every fixture");
-    let ours = raster()
+    let mut backend = raster();
+    println!("adapter: {}", backend.adapter_description());
+    let ours = backend
         .rasterize(list, target)
         .unwrap_or_else(|e| panic!("{what}: raster refused: {e}"));
     raster_compare::compare(&cpu, &ours).expect("same dimensions")
@@ -487,13 +489,14 @@ fn cpu_and_quorra_agree_on_a_four_component_page() {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "requires the gates or release profile: tiny-skia uses wrapping SIMD arithmetic"
+)]
 fn cpu_and_quorra_agree_on_all_sixteen_blend_modes() {
     // Release only, for the reason `cpu_and_gpu_agree_on_every_blend_mode` records:
     // `tiny-skia`'s u16 SIMD lanes wrap on purpose, so debug overflow checks fire
     // *inside the oracle* on modes that are perfectly correct in release.
-    if cfg!(debug_assertions) {
-        return;
-    }
     assert_within_tolerance(
         "blend modes",
         compare("blend modes", &test_scenes::blend_modes()),

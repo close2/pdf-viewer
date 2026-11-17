@@ -1,0 +1,9 @@
+{
+  "verdict": "B66: explicit empty Fields array collapses to omission, affecting both submission membership and reset targets. Two public consumer regressions FAIL after controls pass.",
+  "source": "Parent read primary567 Table239,568 Table240,570 reset prose,571 Tables241/242. Direct pikepdf #122 strikes inheritable in Flags/CharSet (13858/13862); #683 strikes inheritable in reset Flags (5835); #174 adds excluded descendants (5828). None changes omitted-versus-empty distinction.",
+  "fixture": "Exactxref PDF1.7, parsed without recovery; four fields with valid DA/DR and NeedAppearances true. Two populated values/defaults, one blank ordinary field and one blank NoExport field. Action read from indirect object and composed/performed through public model API; no network or native UI claimed.",
+  "controls": "Submission omitted Flags0/1 includes first/second, Flags2/3 also includes blank name-only but never NoExport. Explicitempty exclude1 and nonempty first-only include0 pass. Both explicitempty include0/2 outputs computed before joint assertion: got first/second and blank/first/second respectively, expected both empty. Reset omission0/1, first-only include0 and emptyexclude1 pass; emptyinclude0 changes both values to factory defaults and marks both reset, expected originalone/two and neither reset.",
+  "cause": "action::field_targets returns empty Vec for omitted and []; selected_names/reached_by_reset treat empty as all. One shared representation/selection finding, not two independent causes.",
+  "interpretation": "SubmitPDF is a distinct whole-document path and excluded from this rule. SubmitForm ancestor exclusion remains an interpretation residual; no new oracle invented from asymmetric prose. Reset descendants already covered under #174. ADR1062 model/host boundary retained; ADR1198 Required report policy is separate.",
+  "execution": "empty-fields-wave94 2FAIL; model/corealltargets Clippy94bPASS."
+}

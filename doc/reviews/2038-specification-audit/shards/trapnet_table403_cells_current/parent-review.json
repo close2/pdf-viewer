@@ -1,0 +1,5 @@
+{
+  "source": "Read complete841–842 including explicit writer validation and passive stale-network regeneration, all Table403 cells. Actual annotation scan found links only. Version snapshot includes page/resource/Form-resource/OPI references; this is not generic viewer metadata support.",
+  "assertions": "Read screen_annotation_audit literal red/blue View/Print tests, normal AS alternatives and LastModified fixture. Read generic no_table_171_subtype catch-all assertion: reporting-only, not pixels/freshness. No runtime Table403 freshness consumer. Source actor ambiguity remains explicit.",
+  "decisions": "Read1035 status-as-residue rule. Legacy stored appearance compatibility is distinct from trap construction and metadata tracking. No new reader rejection/regeneration duty inferred from writer restrictions or passive wording. No new runtime test."
+}

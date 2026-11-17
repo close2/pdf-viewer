@@ -1,0 +1,54 @@
+Offline PAdES test witness, generated 2026-11-16 with OpenSSL 4.1.0.
+
+The checked-in `pades-valid.pdf` is a one-page PDF 2.0 with classic exact xref offsets, one
+/Sig widget, and /SubFilter /ETSI.CAdES.detached. OpenSSL `cms -sign -binary -cades -md sha256`
+created CMS SignedData with one signer, contentType, messageDigest, signingTime, and
+signingCertificateV2 (ESSCertIDv2 matching the included signer certificate). The PDF has no /M
+entry, no /Cert entry, and the ByteRange spans every byte outside the complete /Contents hex value.
+ByteRange values are 0 443 16829 300. The 8192-byte Contents slot contains CMS DER and legal zero
+padding. The test-only self-signed RSA-2048 certificate is included as a host anchor for local
+RFC 5280 path validation. There is no CRL/OCSP material; tests explicitly accept UnknownRevocation
+and do not claim revocation was checked or good.
+
+`pades-tampered.pdf` changes one digit in the page MediaBox (200 to 201) outside Contents; all
+offsets, file length, ByteRange, xref entries, and CMS bytes remain fixed. It remains a valid
+syntactic PDF and is a useful negative integrity control.
+
+The checked-in certificate validity is notBefore `2026-11-16 10:45:42 UTC`, notAfter
+`2036-11-13 10:45:42 UTC`. The test's fixed verifier time is Unix 1,800,000,000 (`2027-01-15
+08:00:00 UTC`), inside that interval. Test execution has no wall-clock dependency.
+
+To generate a semantically equivalent fixture into a caller-supplied scratch directory:
+
+```sh
+./scratchpad/r2038/spec-audit/signatures_current/fixture/generate.sh /tmp/pades-fixture
+```
+
+The script creates a fresh test-only private key and self-signed certificate under that output
+directory, builds the exact-xref PDF and same-range tampered control, and verifies both with
+`qpdf --check`. It prints the generated certificate validity and a fixed Unix verifier instant one
+hour after notBefore. That printed instant is valid for the *generated* certificate; the checked-in
+test continues to use its separate pinned certificate and fixed 2027 instant. The generated private
+key is disposable and must never be used for real signing. No real credential is involved. Outputs
+are semantically reproducible but not byte-identical: a fresh key/certificate and CMS signingTime
+change between runs. The checked-in PDFs/CMS are immutable test inputs; test execution needs no
+private key.
+
+Independent checks were run against the checked-in fixture (not as Cargo tests):
+
+```sh
+openssl cms -verify -binary -inform DER -in pades-cms.der \
+  -content pades-signing-input.bin -noverify -out /dev/null
+# CMS Verification successful
+openssl cms -verify -binary -inform DER -in pades-cms.der \
+  -content pades-tampered-input.bin -noverify -out /dev/null
+# exits nonzero, as expected
+qpdf --check pades-valid.pdf
+# no syntax or stream encoding errors
+openssl cms -cmsout -print -inform DER -in pades-cms.der
+# includes id-smime-aa-signingCertificateV2
+```
+
+A separate Python check confirmed ByteRange arithmetic and every xref offset. OpenSSL `-noverify`
+establishes CMS signature math only; it does not establish certificate-path or revocation validity.
+The drafted viewer test supplies the certificate as an actual trust anchor for its path check.

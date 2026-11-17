@@ -1,0 +1,41 @@
+{
+  "scope_note": "Selected decision review only. This is a follow-up for DPart hierarchy/metadata and annotation associated files; it does not restate whole ADRs or reopen GoToDp behavior.",
+  "decisions": [
+    {
+      "adr": "1461",
+      "topic": "Writer-side DPart obligations and examples",
+      "review": "ADR 1461's applicability premise remains current: \u00a714.12.2/.3 producer MUSTs bind this program when split/merge/update writes a page list or preserves a DPart hierarchy. Reader-side support is a separate path through the catalog DPartRoot to DPart nodes. It also calls \u00a714.13.10 examples executable fixtures. EC3 #612 now changes the child array to direct indirect references, so the archived decision's historical nested array examples/comments should not be quoted as current source.",
+      "disposition": "Retain the writer/reader distinction and example-test methodology; correct the Table 409 DParts shape in current evidence and replace ADR 0253\u2019s stale Table 409a unavailability premise with the appended-page locator. Do not infer malformed-tree reader rejection from writer constraints."
+    },
+    {
+      "adr": "1040",
+      "topic": "Catalog-root DPart traversal to expose DPart AF",
+      "review": "The root traversal remains the necessary route for \u00a714.13.8 DPart AF. attachment::attachments walks the catalog hierarchy and appends embedded specs. Existing attachment unit test exercises the listing but uses the superseded nested child array and omits page DPart back-pointers; it proves current permissive handling, not a producer-conforming fixture. The new draft supplies the EC3-current shape.",
+      "disposition": "Retain. Add the source-valid DPart AF test proposal and qualify existing nested-array evidence."
+    },
+    {
+      "adr": "0295",
+      "topic": "A parsed attachment needs a reachable consumer route",
+      "review": "Its `read what the clause names` audit model remains useful: annotation /AF reaches pointer activation, while DPart /AF reaches attachment enumeration. The public clicked-annotation test verifies literal bytes and an off-target negative control. It does not assert no recovery and has no Params dictionary; \u00a714.13.2 says Params SHOULD be present and, if present, SHALL include /ModDate. Missing Params alone is not a mandatory producer defect, but the draft strengthens the fixture.",
+      "disposition": "Retain the route conclusion; strengthen fixture validity and no-recovery evidence."
+    },
+    {
+      "adr": "1065",
+      "topic": "Annotation handler and associated object on activation",
+      "review": "ADR 1065 anchors the \u00a712.5.1 handler boundary and recognizes annotation behavior through its subtype clause. For \u00a714.13.9, the consumer path is the viewer pointer: the activated annotation supplies its associated file, not a requirement to open a rich-media player for every subtype.",
+      "disposition": "Retain the narrow file-extraction interpretation; do not expand the ask into clause 13 media playback."
+    },
+    {
+      "adr": "0253",
+      "topic": "EC3 #374 property-list key and EXAMPLE 2 ambiguity",
+      "review": "ADR0253 records the EC3 #374 MCAF correction but its unavailable Table409a premise is stale: the held primary has the table and NOTE4 at appended physical1015. The current clause ledger already links the table. The printed direct-array AF example is legacy compatibility evidence, not proof of the amended dictionary/MCAF rule. No mandatory rejection of legacy AF is inferred.",
+      "disposition": "Retain the unresolved distinction. Keep EXAMPLE 2 as example evidence and the MCAF property-list route as separate evidence."
+    },
+    {
+      "adr": "1184",
+      "topic": "Not applicable to this shard",
+      "review": "ADR 1184 concerns \u00a77.4.9 JPX baseline wording. It has no Issue #29/erratum claim; the relevant ISO source annotation for #29 is a separate locator. No JPX baseline interpretation applies to DParts or annotation AF.",
+      "disposition": "No DPart or associated-file conclusion is drawn from ADR 1184."
+    }
+  ]
+}

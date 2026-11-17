@@ -1,0 +1,35 @@
+{
+  "baseline": "b901326c",
+  "scope": "7.6.7 producer condition and reader fallback; partial source/code/assertion review.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "pages": "physical109\u2013110 / printed94\u201395",
+    "errata": "Parent inspected actual annotations109\u2013111; #424 on109 concerns previous7.6.6 example missing slash, not wrapper rules."
+  },
+  "features": [
+    {
+      "feature": "Custom-handler wrapper construction",
+      "obligations": "Producer may embed custom-encrypted PDF. Automatic opening construction requires Collection initialD and hiddenH, one EmbeddedFiles entry, catalogAF, FilespecAFRelationshipEncryptedPayload and EP subtype; Version is dotted name, not real.",
+      "ledger": "7.6.7 writer-side",
+      "implementation": "serialize_encrypted uses Protected standard security; incremental writer preserves existing Encrypt; searches found no custom-wrapper construction in transform/core writers.",
+      "verdict": "Retain conditional writer-side classification. Serializer can carry a source wrapper; that is not evidence of a new custom handler producer."
+    },
+    {
+      "feature": "Fallback wrapper and payload identification",
+      "implementation": [
+        "pdf-model/file_spec.rs EncryptedPayload::read",
+        "attachment.rs payload metadata",
+        "collection.rs Initial/View",
+        "viewer-core Query::Attachments and Collection"
+      ],
+      "assertions": [
+        "file_spec::an_encrypted_payload_is_named_by_its_cryptographic_filter: subtype/version/type plus absentEP control",
+        "file_spec::a_payload_missing_its_required_subtype_is_still_a_payload: malformed dictionary information retained, not mandatory reader acceptance",
+        "attachment::an_attachments_thumbnail_and_encrypted_payload_are_listed_with_it: payload metadata and real thumbnaildecode",
+        "viewer-core/headless::a_collections_initial_document_reaches_a_host: fourliteralD outcomes"
+      ],
+      "verdict": "Selected dictionary and publiccollection consumers have discriminating assertions. Wrapper is drawn as ordinary unencrypted PDF without customhandler; fullwrapper publicrender+metadata fixture is not supplied by the sampled tests.",
+      "limits": "Existing modelhelpers have zero-page container and short opaque payload, omit fullwrapperAF; they are dictionary probes, not conforming encrypted payload or wholewrapper evidence. No customdecryption certification or malformed-reader rejection mandate inferred."
+    }
+  ]
+}

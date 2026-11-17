@@ -1,0 +1,45 @@
+{
+  "shard": "image_filters_remaining_current",
+  "baseline": "b901326c",
+  "scope": "Selected reader behavior in ISO 32000-2:2020 EC3 §§7.4.8 DCTDecode, 7.4.9 JPXDecode, and 7.4.10 Crypt filter. This is not a complete JPEG/JPEG 2000/security-handler certification.",
+  "source_locators": {
+    "dct": "§7.4.8 physical PDF pp.63–64 / printed pp.48–49; Table 13 physical p.64 / printed p.49.",
+    "jpx": "§7.4.9 physical PDF pp.65–67 / printed pp.50–52. EC3 Issue #29 is annotated on physical p.65 / printed p.50.",
+    "crypt_filter": "§7.4.10 physical p.67 / printed p.52; Table 14 continues on the next page. Defaults, crypt-filter choices, and decryption behavior are owned by §§7.6.2 and 7.6.6, not established by §7.4.10 alone."
+  },
+  "features": [
+    {
+      "feature": "DCT ColorTransform source and precedence",
+      "requirement": "Table 13 resolves the Adobe marker first, then the filter DecodeParms ColorTransform, then defaults to 1 for three frame components and 0 otherwise; 0 means identity and 1 means the stated YCbCr/RGB or YCbCrK/CMYK transform. The parameter is ignored for one or two components. §7.4.8 also requires progressive JPEG decoding.",
+      "code": ["crates/pdf-model/src/image/dct.rs::adobe_transform", "crates/pdf-model/src/image/dct.rs::colour_transform", "crates/pdf-model/src/image/dct.rs::decode_jpeg"],
+      "assertions": ["crates/pdf-model/tests/colour_transform.rs", "crates/pdf-model/tests/dct_components.rs", "crates/pdf-model/tests/colour_paths.rs"],
+      "assessment": "Selected precedence/default paths have discriminating pixel tests and independent arithmetic oracles, including APP14 over contradictory DecodeParms, DecodeParms over default, three/four component distinctions, one/two-component ignore, and foreign APP14 identifier handling. Frame component count comes from JPEG frame metadata, not the decoder's provisional color-space label. Progressive support is a shall in §7.4.8, but this bounded pass did not enumerate every progressive process/scan mode; no whole-codec claim is made. Adobe TN #5116 remains a forward reference outside this clause's Table 13 tests."
+    },
+    {
+      "feature": "JPX package, declared ColorSpace precedence, Decode, opacity, and color-specification selection",
+      "requirement": "§7.4.9 expects a full JPX file structure. If image-dictionary ColorSpace exists, it controls interpretation and JPX color specifications are ignored; otherwise supported data specifications are ranked, an unsupported ICC specification must fall to a lower specification, and no supported specification falls back by ordinary channel count. With no dictionary ColorSpace, Decode is ignored unless ImageMask is true. The one-shared-opacity-channel limits and SMaskInData behaviors are source distinctions, but the B14 opacity-channel defect is outside this slice.",
+      "code": ["crates/pdf-model/src/image/jpx.rs::jpx_colour_choice", "crates/pdf-model/src/image/jpx.rs::jpx_drawn", "crates/pdf-model/src/image/jpx.rs::codestream_colour_space", "crates/pdf-model/src/image/jpx.rs::decode_jpx"],
+      "assertions": ["crates/pdf-model/tests/jpx_enumerated_spaces.rs", "crates/pdf-model/tests/jpx_decode_array.rs", "crates/pdf-model/tests/jpx_channels.rs", "crates/pdf-model/tests/jpx_mask_input_audit.rs"],
+      "assessment": "Full-package fixtures and direct pixel oracles exercise stated-space override, precedence, supported enumerated spaces, Device fallback, and Decode-present/absent behavior. Existing unsupported-first specification tests include enumerated 19, which EC3 #29 excludes from the effective PDF 2.0 producer-permitted JPX feature set; treat that assertion as tolerance/recovery coverage for such input, not proof that enum19 is a conforming current input or a required-support gap. Do not generalize the present source constraint to legacy PDF versions without reviewing their controlling specifications/extensions. A valid but locally unsupported ICC profile followed by a supported lower specification is not established by this pass: a structurally valid, independently validated profile fixture is still needed to exercise the explicit ICC-fallback SHALL."
+    },
+    {
+      "feature": "EC3 Issue #29 effect on the JPX baseline restriction",
+      "requirement": "The strike/caret on physical p.65 replaces “except for” with “excluding” in the sentence limiting data to JPX baseline features: effective PDF 2.0 wording excludes enumerated color space 19 (CIEJab), while the next sentence separately requires support for enum12 CMYK.",
+      "source": "Primary PDF annotation #29; scratchpad/r2038/spec-audit/image_filters_remaining_current/errata-29-primary-page.png. Existing errata inventory misses this correction.",
+      "assessment": "This changes the producer-permitted set for effective PDF 2.0 input: enum19 is baseline in T.801, but the PDF producer sentence now excludes it from data used in PDF image XObjects. A separate §7.4.9 reader sentence says processors shall support the JPX baseline enumerated spaces, which still includes enum19. Because the producer rule excludes enum19, this shard does not settle how those adjacent obligations interact or establish a conforming PDF fixture for a reader-support test. Record this as a bounded source-scope tension, not a behavior defect or a reader rejection requirement. The test module's opening comment that enum19 is baseline is literally supported by T.801; what needs clarification is its eligibility for PDF data under EC3 #29. Do not generalize the effective-source producer restriction to legacy PDF versions without reviewing their controlling standards/extensions."
+    },
+    {
+      "feature": "Crypt filter placement, Name, and stream decryption integration",
+      "requirement": "§7.4.10 requires a Crypt filter to be first in the Filter array and says DecodeParms Name selects the named crypt filter. The missing Name default and algorithms are in §§7.6.2/.6.6. For streams with a Crypt entry, stream-level crypt selection overrides the document's default stream filter; Crypt itself is a pass-through stage after the object bytes are decrypted.",
+      "code": ["crates/pdf-syntax/src/document/encryption.rs::stream_filter", "crates/pdf-syntax/src/crypt.rs::named_method", "crates/pdf-syntax/src/crypt.rs::decrypt_stream", "crates/pdf-syntax/src/filter.rs::decode_reported"],
+      "assertions": ["crates/pdf-syntax/tests/public_key_witnesses.rs::a_stream_s_own_crypt_filter_decrypts_under_its_own_recipients_key", "crates/pdf-syntax/tests/public_key_witnesses.rs::a_reader_the_stream_s_own_list_does_not_name_is_refused_that_stream", "crates/pdf-syntax/tests/encryption_fixtures.rs"],
+      "assessment": "A real public-key CMS fixture exercises a named, non-Identity per-stream Crypt filter end-to-end, including independent script-documented key/CMS construction, successful plaintext controls, and recipient-refusal behavior. Standard handler Identity tests are outside the requested duplicate B07 case and are not used as evidence for named-filter cryptography. The code locates a Crypt entry anywhere in the filter list; §7.4.10's first-position sentence is a producer constraint, and this review found no reader rejection requirement for malformed ordering."
+    }
+  ],
+  "explicit_residuals": [
+    "No complete progressive JPEG process/scan matrix or Adobe TN #5116 conformance audit.",
+    "No valid independently checked profile that this implementation rejects was available to test the unsupported-ICC lower-specification requirement; the branch is present but not independently exercised here.",
+    "No whole JPX baseline-set certification; supported space rows have prior focused review, and this shard only samples how the selection/fallback reaches them.",
+    "No Crypt filter algorithm/security-handler certification; dictionary semantics and recipient-key behavior belong to the separate §7.6 shards."
+  ]
+}

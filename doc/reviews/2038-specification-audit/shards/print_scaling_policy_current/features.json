@@ -1,0 +1,60 @@
+{
+  "scope": "EC3 §12.2 Table 147 print preferences and Table 148 only as needed to trace the current print-plan consumers. Read-only audit in /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit; root verified with pwd and git rev-parse --show-toplevel. No tests were run in this shard.",
+  "source": {
+    "locator": "EC3 PDF Table 147, printed pp. 439-440 (physical pp. 454-455); Table 148, printed p. 440 (physical p. 455). The table's per-entry wording and modal conditions are controlling.",
+    "print_scaling": "When a print dialogue is displayed, select the stated scaling option; None means no page scaling, AppDefault means the interactive processor's default, unrecognised names fall back to AppDefault, absent defaults to AppDefault. Even with the dialogue suppressed, honour it if parameters are provided from another source.",
+    "duplex": "The paper handling option used when printing from the print dialogue; the three listed values are Simplex, flip short edge, and flip long edge. Default is implementation-dependent.",
+    "pick_tray_by_pdf_size": "Presets the input-tray-by-page-size checkbox in the dialogue. True means that checkbox is checked. No effect on operating systems that do not provide picking an input tray by size. Default is implementation-dependent.",
+    "print_page_range": "Initializes the print dialogue with an even number of integers interpreted as inclusive first/last page pairs; first page is 1. Default is implementation-dependent.",
+    "num_copies": "Number of copies printed when the print dialogue opens. Default is implementation-dependent, typically 1.",
+    "enforce_boundary": "Table 148 names PrintScaling only, and only when Table 147 has a valid non-AppDefault value. This shard did not re-audit the existing Enforce finding; it is a separate restriction/UI-lock behavior, not a print-default setting."
+  },
+  "features": [
+    {
+      "id": "print-scaling-dialog-default",
+      "requirement": "For an interactive print dialogue, select None or AppDefault as stated; use AppDefault for unknown names or absence. AppDefault is host-defined. The clause separately says this preference shall still be honoured when the dialogue is suppressed and parameters come from another source.",
+      "ledger": "doc/conformance/ledger.toml §12.2 partial; existing note names PrintDefaults and host dialogue wiring, while partial is attributed to Enforce's UI lock and other viewer-preference departures.",
+      "implementation": "viewer-host::printing::Defaults copies PrintScaling. GTK maps None to 100% and leaves AppDefault to GTK's own default. Qt's PrintJob maps None to actual size; otherwise its dialog selects the product's Shrink to fit default. Both host paths are interactive-dialog paths. Separate C ABI print APIs accept caller media/scale and expose preferences by Query; whether the Table 147 sentence changes that caller-specified placement is not established by this inspection.",
+      "assertions": "viewer-core/tests/print_preferences.rs checks model/query values and that print-only preferences do not alter screen pixels; viewer-host::printing tests Defaults and scale geometry. Qt's host test obtains a PrintJob without QtPrintSupport/QPrintDialog but uses a silent committed PDF. No test in the reviewed files asserts a non-default preference reaching the native dialog controls. Prior audit already recorded the GTK/Enforce dialog-driving limitation; not repeated as a new finding.",
+      "verdict": "Core preference data and defaults are evidenced. The interactive native control propagation is statically visible but has no focused assertion in the inspected tests; this is a test-quality gap, not evidence of a current behavior failure. AppDefault remains a host policy choice."
+    },
+    {
+      "id": "duplex-dialog-default",
+      "requirement": "Use the stated duplex option when printing from the dialogue. Omitted value leaves the choice implementation-dependent.",
+      "ledger": "§12.2 partial, same aggregate row.",
+      "implementation": "Defaults stores Option<Duplex>; GTK sets simplex/vertical/horizontal; Qt bridge maps to QPrinter DuplexNone/LongSide/ShortSide and leaves no stated value unset.",
+      "assertions": "Query test asserts FlipLongEdge and absent None; host Defaults test asserts the same. Native-dialog mapping exists in GTK/Qt source; no focused non-default assertion of the native settings was found in this read.",
+      "verdict": "The value is not merely metadata: both interactive paths statically pass it to toolkit print settings. The mapping needs focused regression coverage; no contrary runtime observation was made. The default is not Simplex."
+    },
+    {
+      "id": "tray-by-pdf-size-dialog-default",
+      "requirement": "When the OS provides the ability to select an input tray by page size, true presets the associated checkbox. The source explicitly makes this conditional and says no effect on OSes without that ability.",
+      "ledger": "§12.2 partial, same aggregate row.",
+      "implementation": "Model and viewer-host::PrintDefaults preserve Option<bool>; GTK deliberately does not map it because GtkPrintSettings offers a selected source/tray setting, not the page-size checkbox semantics named by the clause. QtPrintJob carries no tray field and QPrintDialog setup does not name such an option.",
+      "assertions": "Query test and Defaults test check Some(true) and absent None. No assertion demonstrates support on an OS/toolkit that exposes the specific checkbox.",
+      "verdict": "No breach established: the source's OS capability condition is explicit, and the inspected GTK/Qt paths provide no matching page-size tray control. Preserve this as a host capability boundary; do not claim the preference is enacted by these dialogues on a capable platform absent evidence of such a platform/control."
+    },
+    {
+      "id": "print-page-range-dialog-default",
+      "requirement": "Use each inclusive 1-based first/last pair as an initial dialogue selection. The source says this initializes the dialogue; it does not require the processor to restrict the eventual job after the user changes it.",
+      "ledger": "§12.2 partial, same aggregate row.",
+      "implementation": "Defaults preserves 1-based pairs. GTK converts to zero-based GtkPageRange and selects Ranges. Qt flattens all pairs into QtPrintJob, then creates QPageRanges, clamps ranges to the document page count, and initializes QPrintDialog when at least one valid range remains.",
+      "assertions": "Core Query and host Defaults tests assert [1,1] / multiple range membership. Static host code carries all pairs in GTK and Qt; no test in reviewed current paths asserts actual native-dialog ranges for multiple pairs. The old Qt single-pair bridge issue was previously recorded fixed (ADR 2814); this review does not reopen it as a defect.",
+      "verdict": "Correctly characterized as dialog initialization rather than a mandatory restriction on the print operation. Multiple-pair host conversion merits a targeted assertion, but no current failure was observed. Qt's clamp and GTK's direct ranges are differing host handling of out-of-document inputs; source here does not establish a required malformed/out-of-range policy."
+    },
+    {
+      "id": "num-copies-dialog-default",
+      "requirement": "Initialize the print dialogue with the stated number of copies. In absence, implementation-dependent, typically one.",
+      "ledger": "§12.2 partial, same aggregate row.",
+      "implementation": "Defaults preserves the optional i64. GTK sets n_copies only when it fits i32. Qt narrows to i32 (out-of-range becomes zero) and QPrinter receives the count only when positive. No value leaves native toolkit default intact.",
+      "assertions": "Query test and Defaults test assert 3 and absent None. No reviewed test asserts native dialog copy-count propagation.",
+      "verdict": "Ordinary positive values reach both host dialogs in code. Large or nonpositive integers encounter toolkit representation/validity limits and are not evidence of a defect without a source requirement for arbitrary copy counts; Annex C explicitly recognizes implementation representation limits."
+    }
+  ],
+  "limitations": [
+    "No GTK/Qt native print dialog or printer was run in this shard; static consumer trace only.",
+    "No claim about every operating system's print-dialog tray capability.",
+    "No re-audit of §12.2 screen preferences, /PrintArea-/PrintClip rendering, /Enforce, or page-placement mathematics; those belong to prior findings.",
+    "No new assertion that the no-dialog C ABI must disregard a caller-specified placement in favor of PrintScaling; the source condition says honor the preference, but the API's scale/media inputs and policy interaction need a separate direct reading before judging it."
+  ]
+}

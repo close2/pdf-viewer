@@ -1,0 +1,23 @@
+{
+  "source_sha256": "d372710f5b2ccca20101317e7656b25bdf4570dd2b399dbaa287839783b31ed1",
+  "orientation": "Column is parent; row is child. Opposite-direction cells are separate constraints.",
+  "selected_cells": {
+    "C2": "StructTreeRoot 1",
+    "D2": "Document",
+    "M2": "P",
+    "AC2": "WP",
+    "AH2": "Table",
+    "AP2": "Figure",
+    "B3": "Document",
+    "B10": "P",
+    "B28": "WP",
+    "B33": "Table",
+    "B41": "Figure",
+    "C3": "1",
+    "D3": "0..n",
+    "M33": "0..n",
+    "AH10": "\u2205",
+    "AC41": "0..n",
+    "AP28": "\u2205"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "shard": "file_only_consumer_assertions_batch3_current",
+  "decisions": [
+    {
+      "clause": "7.3.7 / 9.6.4(b)",
+      "verdict": "retain scoped evidence; qualify recovery policy",
+      "basis": "The code/test deliberately opens a malformed object through a named damaged-dictionary API and asserts the ordinary lookup stays Null. The no-glyph result for an absent CharProcs key is explicit in the consumer clause. This does not make malformed dictionaries producer-valid or establish universal permissive parsing.",
+      "adr_review": "ADR 0018 explains Type 3 missing glyph behavior; ADR 0439 explains name-keyed recovery. ADR 0784/0858/0866 describe the recovery boundary and consumer. No stale source rationale identified in this bounded review."
+    },
+    {
+      "clause": "7.7.2 / 8.11",
+      "verdict": "retain direct raster consumer evidence",
+      "basis": "The exact-xref fixtures exercise conditional configuration and rendering outcomes with pixel controls. They are stronger than corpus counts or parser equality, but do not imply all optional-content UI/event behavior is implemented.",
+      "adr_review": "ADR 0017 and 0044 address initial state/visibility; ADR 0065 and 0143 address user-facing group state/order. Nothing in this review contradicts the current decisions."
+    },
+    {
+      "clause": "7.7.3.3",
+      "verdict": "retain literal geometry assertions",
+      "basis": "Dimensions and mark coordinates are checked against fixed values with offset/inheritance controls. The tests do not rely on writer-reader roundtrip or a second renderer as the oracle.",
+      "adr_review": "ADR 0038 and 0389 describe UserUnit/box scaling; ADR 0097 and 0305 distinguish actual page objects from unrelated dictionaries. No new issue found in the sampled tests."
+    },
+    {
+      "clause": "9.4.3",
+      "verdict": "qualify file pointer; direct TJ ratio test has a numeric gap",
+      "basis": "The direct test only checks a 2:1 total-origin-distance ratio at 50% horizontal scale. Since glyph advance scales by 2:1, a mutation that ignores TJ can still satisfy that ratio. The scratch draft isolates TJ delta against identical no-TJ strings and asserts +10 and +5 points at 10 pt. The corpus extractor is not the normative oracle; EC3 #165/#550 concern string syntax.",
+      "adr_review": "ADR 0022 addresses text rendering modes and is not the TJ rule; no decision reversal inferred. The source and test boundary are recorded to avoid attributing text syntax errata to numeric positioning."
+    },
+    {
+      "clause": "12.2",
+      "verdict": "the selected source file is not Table 147 evidence; review other paths separately",
+      "basis": "The three Rust functions test C-window presentation/action-clock state; none reads viewer preferences or asserts chrome. The workflow has a separate Windows runtime probe for placement/fullscreen and a pure `ChromeState` console check, but those are different inventory pointers.",
+      "adr_review": "ADR 0071 concerns applying preferences to pixels, ADR 0122 discusses the full preference surface and ADR 1429 the Qt geometry behavior. The present test's narrower hide/presentation assertions do not contradict them."
+    }
+  ],
+  "test_drafts": []
+}

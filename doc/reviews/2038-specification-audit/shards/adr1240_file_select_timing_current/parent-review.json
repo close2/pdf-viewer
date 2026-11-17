@@ -1,0 +1,6 @@
+{
+  "verdict": "Keep shared FileSelect chooser/type gate; revisit acquisition timing promise.",
+  "source": "Primary physical555/printed540 Table231 and #392 distinguish actual pathname submission semantics from local timing policy.",
+  "inspection": "GTK changed and Qt textEdited handlers synchronously reach edit_of/read_chosen; CommitField callbacks are separate. Existing host/model tests assert literal bytes and invalidation, not native read timing.",
+  "limits": "Source discrepancy against historical ADR1216/1240; no native read-count measurement, mandatory ISO commit timing, or production fix claimed."
+}

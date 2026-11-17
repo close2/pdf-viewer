@@ -1,0 +1,143 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": {
+    "scope": "ISO 32000-2:2020 §12.3.5.1, §12.3.5.2, EC3-moved §12.3.5.3 (published §12.3.6), Tables 153-160; printed pp.447-457, physical PDF pp.462-472",
+    "features": [
+      {
+        "id": "portable_collection",
+        "source": "§12.3.5.1, p.447; Table 153",
+        "modality": "reader SHALL",
+        "rule": "Collection presence requires portable-collection presentation; only EmbeddedFiles name-tree entries are members.",
+        "implementation": "Query::Collection and shared viewer-host collection_rows over attachment query.",
+        "tests": "host_mappings.rs::a_collection_becomes_a_folder_tree_with_the_schemas_columns tests folder/file presentation.",
+        "verdict": "implemented with positive collection assertion."
+      },
+      {
+        "id": "schema_absent",
+        "source": "Table 153, p.448",
+        "modality": "reader MAY",
+        "rule": "With no Schema, processor may choose useful FileSpec defaults.",
+        "implementation": "No forced columns; attachment list remains.",
+        "tests": "No specific default-column assertion found.",
+        "verdict": "no defect; optional reader choice."
+      },
+      {
+        "id": "D_initial",
+        "source": "Table 153, p.448; prose p.447",
+        "modality": "reader SHALL; wrapper is producer SHALL",
+        "rule": "Missing/invalid D means container; unmatched valid key means first item; empty tree means empty preview; match identifies initial document. Unencrypted wrapper requires D name its sole payload.",
+        "implementation": "Collection::initial_document and Query::Collection return Container/Embedded/FirstFile/Empty; shared rows mark matching item.",
+        "tests": "host_mappings.rs::the_document_a_collection_opens_on_is_the_row_set_apart checks selection/fallback; headless checks answer.",
+        "verdict": "resolution/fallback implemented. Open interpretation: embedded content is not displayed, only its row emphasized while container page remains. Treat as owner/scope question, not confirmed defect."
+      },
+      {
+        "id": "view_D",
+        "source": "Table 153, p.448",
+        "modality": "reader SHALL",
+        "rule": "D default; details mode presents all Schema information in multiple columns.",
+        "implementation": "cells include only file-related F/Desc/Size/ModDate/CreationDate; S/D/N and CompressedSize values are None/blank.",
+        "tests": "host_mappings.rs::a_collection_becomes_a_folder_tree_with_the_schemas_columns has positive F/Desc/Size controls; CompressedSize is hidden in fixture; no CI cell assertions.",
+        "verdict": "confirmed gap for CI-backed S/D/N and CompressedSize."
+      },
+      {
+        "id": "view_T",
+        "source": "Table 153, p.448",
+        "modality": "reader SHALL",
+        "rule": "Tile mode uses icon and subset of Schema information.",
+        "implementation": "TILE_FIELDS=2; truncates visible columns.",
+        "tests": "table_153s_details_and_tile_views_are_two_presentations_of_one_collection compares D/T.",
+        "verdict": "implemented; subset size is choice."
+      },
+      {
+        "id": "view_H",
+        "source": "Table 153, p.448",
+        "modality": "SHALL plus SHOULD",
+        "rule": "Initially hidden; explicit user action must expose; processor should display D document.",
+        "implementation": "Initially closed sidebar / explicit Files tab; D policy as above.",
+        "tests": "H mapping/UI tests; native gates separate.",
+        "verdict": "SHALL appears implemented; preserve SHOULD modality."
+      },
+      {
+        "id": "view_C_navigator",
+        "source": "Table 153, p.448; effective §12.3.5.3",
+        "modality": "producer SHALL / reader behavior",
+        "rule": "C only valid with Navigator; Navigator ref required for C.",
+        "implementation": "Model parses Navigator; presentation resolves layout.",
+        "tests": "navigator host selection tests.",
+        "verdict": "valid shape handled; producer violation is not a reader-refusal requirement."
+      },
+      {
+        "id": "schema_tables_154_155",
+        "source": "Tables 154-155, pp.449-451",
+        "modality": "producer SHALL; reader SHALL/SHOULD",
+        "rule": "Writer-chosen schema keys identify same /CI keys. Subtype required: S text, D PDF date, N number in CI; F/Desc/ModDate/CreationDate/Size/CompressedSize are FileSpec values. /N heading SHALL be presented; /O fields ascending; /V defaults true; /E defaults false and editing support is SHOULD.",
+        "implementation": "Model parses fields and CI for sorting; host maps only file-related columns, no field editing located.",
+        "tests": "email model example parses schema; host fixture covers F/Desc/Size only.",
+        "verdict": "confirmed presentation gap above; E absence alone is not a SHALL defect."
+      },
+      {
+        "id": "sort_table_156",
+        "source": "§12.3.5.1 prose and Table 156, pp.451-452",
+        "modality": "reader SHALL; producer constraints",
+        "rule": "S name/array fields; array keys break ties. A bool/array, default true, short arrays default true, extras ignored. Text lexical (NOTE says implementation dependency), numeric and dates sort by type. /P is ignored.",
+        "implementation": "sorted_keys and host order; lexical chosen; absent/missing/ties have implementation choices.",
+        "tests": "model primary/secondary order and host order tests.",
+        "verdict": "core behavior covered. Exact A-array length and /P-ignore assertions not established in this pass; targeted residual, not inferred failure."
+      },
+      {
+        "id": "colors_table_157",
+        "source": "Table 157, pp.452-453",
+        "modality": "optional colors + NOTE recommends use",
+        "rule": "Optional suggested RGB colors for view/card/text.",
+        "implementation": "parsed and named unused furniture.",
+        "tests": "unused_furniture tests/message.",
+        "verdict": "not a SHALL gap."
+      },
+      {
+        "id": "split_table_158",
+        "source": "p.453 prose/Table 158",
+        "modality": "split MAY; conditional explicit semantics",
+        "rule": "Available display MAY split navigation and preview; user may adjust. H/V/N, N full navigation region; Position 0..100 and ignored for N. If Split absent D/no View indicates horizontal, T vertical, H/C no splitter.",
+        "implementation": "N maps to whole_window; H/V/Position unused because current panel is paired with container page.",
+        "tests": "table_158s_n_gives_the_whole_window_to_the_file_navigation_view.",
+        "verdict": "optional furniture omission is plausible. If implementation claims to consume Split, explicit values/default orientation deserve separate interpretation; ADR 1252's blanket claim that all are optional is too broad."
+      },
+      {
+        "id": "folders_table_159",
+        "source": "§12.3.5.2 Tables 159 and prose, pp.453-455",
+        "modality": "mostly producer SHALL; reader SHOULD on ordering; Free condition only on adding",
+        "rule": "Unique nonnegative IDs; required names/Parent/Child/Next as applicable; sibling order SHOULD match collection sort/name; optional metadata; Free IDs used/updated only when adding folder.",
+        "implementation": "Reader walks Child/Next, validates/reports names, case-normalizes; no folder insertion API.",
+        "tests": "folder tree, cycles, invalid names/key, corpus fixture.",
+        "verdict": "mostly handled; producer constraints not reader rejection duties; Free not triggered by current operations."
+      },
+      {
+        "id": "folder_keys_names",
+        "source": "§12.3.5.2 prose, pp.454-455",
+        "modality": "processor MAY support invalid names; error SHALL if rejecting; folder membership SHALL; flat list SHOULD if none",
+        "rule": "UAX #21 case-normalized uniqueness; invalid-name policy; all EmbeddedFiles in folder structure; <digits>filename maps ID; malformed key goes to root; absent folders should show flat list.",
+        "implementation": "case normalization/report; all files retained; nonconforming/missing IDs root; flat fallback.",
+        "tests": "model restricted-name and host key/root tests.",
+        "verdict": "implemented; invalid-name support is permitted choice, not strict error gap."
+      },
+      {
+        "id": "navigator_layouts",
+        "source": "effective §12.3.5.3, Table 160 and prose, pp.456-457",
+        "modality": "producer SHALL; reader mostly SHOULD",
+        "rule": "Layout name or array, standard D/T/H/FilmStrip/FreeForm/Linear/Tree; array selection first recognized/capable is SHOULD; at least one standard name singly/final is producer SHALL; D/T/H match View. Detailed layout behaviors predominantly SHOULD.",
+        "implementation": "preferred layout chosen against DRAWN_LAYOUTS; 7 named modes; unsupported values reported.",
+        "tests": "model preferred-order and host named-layout tests.",
+        "verdict": "core capability is present. Preserve SHOULD/producer/reader distinction."
+      },
+      {
+        "id": "ec3_clause_number",
+        "source": "EC3 Issue #477 completed; effective heading pp.456-457",
+        "modality": "erratum changes clause identity",
+        "rule": "Published §12.3.6 Navigators moved/demoted to §12.3.5.3 Collection navigators.",
+        "implementation": "ledger/code cite published §12.3.6; EC3 annotation mentions move.",
+        "tests": "citation gate follows published Markdown.",
+        "verdict": "for effective-text review §12.3.5.3 is current amended identity; ADR 0083's 'not a clause' premise conflicts with accepting completed EC3. Preserve local citation convention separately."
+      }
+    ]
+  }
+}

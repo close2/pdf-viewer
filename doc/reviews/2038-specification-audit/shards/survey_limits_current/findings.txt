@@ -1,0 +1,42 @@
+# Survey traversal limits and archive consumers
+
+## Outcome
+
+The traversal limits themselves are reasonable implementation safeguards. The archive validator has a narrower correctness gap: when the content survey stops at one of those safeguards, the PDF/A transparency row can treat an unseen transparent mark as absent and return `Outcome::Met`.
+
+The right boundary is not “support every possible PDF.” ISO 32000-2 Annex C (informative, printed pp. 849-852; physical pages can differ in the bound source copy) expressly recognizes processor/device limits, says an exceeded internal limit causes an error, and notes that PDF subset standards may mandate specific limits. That allows refusal or an explicit incomplete result. It does not turn an incomplete walk into a successful check.
+
+## Source and adopted obligation
+
+ISO 32000-2:2020 Annex Q is normative (printed pp. 982-983). Q.1 specifies a method for a processor to determine whether a page contains elements involved in transparency. Q.2 checks the graphics state of each rendered element and directs the reader into forms, images, text, and annotation appearances; Q.3-Q.5 give those recursive routes. Q.1's note says PDF 2.0 itself does not require this method, while PDF subset standards may choose to mandate it.
+
+The held PDF/A-2 text, §6.2.10 (`/home/cl/projects/pdf-viewer/doc/pdfa/ISO_19005-2_2011.md`, “Transparency”), permits transparency, points to its own Annex A determination method as the method a conforming reader should use, and then says transparent pages without a document PDF/A output intent must have a Group with a CS. The held PDF/A-4 text, §6.2.9 (`/home/cl/projects/pdf-viewer/doc/pdfa/ISO_19005-4_2020.md`), likewise permits transparency and requires a document output intent or a page-level output intent/Group with CS. Therefore a missing page observation can hide a violation of the actual file requirement even though unbounded processing is not required.
+
+`doc/conformance/ledger.toml` marks the Annex Q aggregate and Q.1-Q.5 implemented. Its note (around lines 6938-6979) says the archive conversion invokes the method for the subset standards and enumerates existing semantic coverage. The ledger's actual tests check the detection cases and edge state transitions; none of those test names establishes completeness after the walk hits an internal cap.
+
+## Concrete data path
+
+`crates/pdf-archive/src/survey.rs` defines the 20,000,000-Step token budget, depth 8 and 4096 nested-stream cap (lines 181-187). `survey/operators.rs` sets `stopped_short` when the shared token budget is exhausted. `survey/xobjects.rs` sets it when a form would exceed depth or stream count. `survey/records.rs` also sets it if the 100,000-observation population is full. `Survey::stopped_short()` exposes the fact, while `page_is_transparent(page)` is only a bool backed by membership in the set (survey.rs lines 1070-1092); false cannot distinguish “walked and opaque” from “not reached.”
+
+The archive consumer is the exact place this ambiguity becomes a conformance claim: `crates/pdf-archive/src/table/graphics.rs::transparent_pages_without_a_blending_space` (around lines 4899-4914) filters pages solely through `survey.page_is_transparent(index)` and does not check `survey.stopped_short()`. The PDF/A-2 `graphics/a-transparent-page-has-a-blending-space` and PDF/A-4 `graphics/a-transparent-page-has-a-blending-space-or-an-output-intent` predicates then record no finding if the transparent page was unseen. The public `pdf_archive::check` path consequently returns `Outcome::Met` for that row. `Report::judge` maps an empty findings collection from an implemented predicate to `Met`; `Report::checked` counts it as checked, and it does not enter `Report::unchecked`. The report's static unchecked discipline therefore does not cover this runtime-incomplete case.
+
+Other consumers demonstrate a safer handling pattern without implying every survey consumer is defective. `pdf-transform/src/archive/overprint.rs::zeroing` refuses immediately on `stopped_short` because an unobserved state may change the rewrite. `archive/sites.rs` broadens to every page after a short survey rather than treating the observed page set as complete. `duplicate_profiles`, `default_rgb/page_contexts`, `supplied_cmyk`, and `reader_resources` also branch on the flag. ADR 1978 explicitly describes a stopped survey's empty list as not being absence. The graphics archive predicate is an unhandled distinct consumer.
+
+## Minimal regressions drafted
+
+`drafts/incomplete_transparency_report.rs` contains generated exact-xref, non-recovery fixtures:
+
+- A valid acyclic Form chain with the transparent painted element at the bottom: eight Forms are the within-limit control, and nine exceed the current depth cap. The control must be detected and fail the no-Group/no-output-intent row. The over-limit report must not say `Met` because it has not seen the last form.
+- 4096 sibling Forms and 4097 sibling Forms isolate the stream-count cap from nesting. The last in-limit Form paints with alpha below one and proves the positive detection control; the one beyond the cap is not read. The over-limit report must not say `Met`.
+
+The candidate PDFs are structurally generated with authoritative xref tables, fixed trailer IDs, valid stream lengths, acyclic resource references, and `was_recovered()==false`. They are PDF files with a PDF/A file-rule violation in the within-limit control; that is the intended validator oracle. The draft asserts only “not `Met`” for truncated cases, allowing a clear unchecked/refusal behavior rather than prescribing a new report API. It has not been compiled or executed.
+
+No 20-million-token test is drafted because an exact boundary test would need to lex a very large valid stream and is not a small regression. The code path shows the same `stopped_short` signal is raised; it remains statically unverified at that cap. The 100,000 observation-cap consumers are also outside the completed dependency audit.
+
+## ADR disposition and limits
+
+- **ADR 1055:** retain its explicit cross-check boundary. It correctly says comparisons cover places both machines ran and documents that deeper-than-bound places are not paired. That is not a conformance-coverage rule.
+- **ADR 1978:** retain the stopped-survey refusal for transformations. It is a relevant precedent for not treating an incomplete population as an empty one.
+- **ADR 2820:** retain its Annex Q painted-state correction. Its semantic tests do not cover depth/token/stream cutoffs, and this finding does not challenge those corrections.
+
+This audit does not claim the base PDF standard requires unbounded processing, that any fixture was executed, or that every archive predicate consuming Survey data has this bug. The immediate source-supported correction is to keep the transparency row from becoming `Met` when the walk cannot determine the page's state; audit the other Survey-backed predicates separately by their actual dependencies.

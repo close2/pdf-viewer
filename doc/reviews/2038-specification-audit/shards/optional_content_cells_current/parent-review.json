@@ -1,0 +1,8 @@
+{
+  "verdict": "T123: same-event AND assertion strengthened and mutation-validated. Existing B51 remains the only recorded behavior gap from this reviewed subset.",
+  "source": "Parent actual292/293/299-301/303-305 table definitions. Corrected cross-reference-only locations for98/100/101. #225 nonempty inner RBGroups is producer condition; #567 language visibility note. Table100 nested key conditions retained; no mandatory malformed-input rejection inferred.",
+  "assertions": "Parent read every_category_of_every_dictionary_has_to_agree: original only ON followed by OFF, so last-writer-wins would pass. Replaced with16 cases: separate applications both orders and single application both category orders, each four View/Export combinations. Exact center RGBA and transparent outside, exactxref/noRecovery, complete interpretation.",
+  "mutation": "Temporary Recommendation::On also sets verdict.on=true. Original assertionPASS; strengthened assertionFAIL at OFF-then-ON. Production restored byte-exact SHA256 2a189a46bcdc135dcc59ea14829869895cfed1dcdab2ffbd4b9524860ac713b5; gitdiffempty; restored strengthened testPASS.",
+  "execution": "oc-and-wave92PASS; oc-and-mutation-wave92 oldPASS/newFAIL; oc-and-restored-wave92PASS; model/hostalltargets Clippy92cPASS.",
+  "limits": "Some legacy BaseStateOFF-in-default fixtures violate Table99 producer restriction and demonstrate compatibility only. Parent read valid optional_content_config_audit controls: D ON/OFF arrays vs alternate, explicitViewIntent, Usage application/missingUsage/event controls. No entire8.11 or native toolkit certification."
+}

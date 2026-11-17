@@ -1,0 +1,48 @@
+{
+  "baseline": "b901326c",
+  "scope": "Focused follow-up on public-key s5 documents whose Table 20 StmF and StrF name different crypt filters; source-premise and reader-consumer audit only, not a complete public-key handler audit.",
+  "primary": [
+    {
+      "locator": "Table 20, physical 88 / printed 73",
+      "text_effect": "StmF is the default filter for streams and StrF is the default filter for strings. Each is independently optional, independently names a CF key or standard filter, and independently defaults to Identity. No rule requires these names to match."
+    },
+    {
+      "locator": "Table 25, physical 106 / printed 91",
+      "text_effect": "Each supported crypt filter name has its corresponding file-encryption key; a reader may cache the key for streams using the same filter."
+    },
+    {
+      "locator": "Table 27, physical 107 / printed 92",
+      "text_effect": "For a filter referenced from StmF or StrF, Recipients is an array of CMS byte strings. Only a filter referenced from a stream Crypt decode-parameter dictionary uses one CMS string."
+    },
+    {
+      "locator": "§7.6.5.2 and §7.6.5.3, physical 102–105 / printed 87–90",
+      "text_effect": "s5 is the permitted public-key form when crypt filters are used; the recipient CMS yields seed and permissions, and the relevant recipient-array bytes participate in the per-key digest."
+    }
+  ],
+  "implementation": [
+    "crates/pdf-syntax/src/crypt/public_key.rs::filter_lists chooses StmF, or StrF only when StmF is Identity, as the single document-level recipient list.",
+    "The loop over other CF dictionaries treats every other recipient-bearing filter as a stream-local filter and requires its Recipients entry to be a single string; a conforming distinct StrF recipient array is therefore rejected as UnsupportedEncryption.",
+    "crates/pdf-syntax/src/crypt.rs::Encryption stores one document key for both string and stream decryptions; `document/encryption.rs` routes strings through string_method() with that common key. Separate own_keys exist only for stream Crypt decode-parameter filters.",
+    "A conforming fixture with distinct StmF and StrF arrays and distinct seed-derived keys should therefore distinguish both parser acceptance and per-type key selection."
+  ],
+  "test_draft": "crates/pdf-syntax/tests/public_key_witnesses.rs: separate_stmf_and_strf_defaults_use_their_own_recipient_keys; one_shared_default_filter_decrypts_both_strings_and_streams_as_control",
+  "expected_assertions": [
+    "Both PDFs open with the checked-in testnutzer certificate/key, require no recovery, and have no cut xref chain.",
+    "In both PDFs, the page content stream yields literal text `Stream key` and Catalog /Lang yields literal bytes `fr-FR`.",
+    "The shared-default control has a single CF name and one recipient array used as both StmF and StrF; its string and stream are encrypted under the same derived file key but their distinct object keys.",
+    "The target names different StmF and StrF CFs, each with its own valid Recipients array and a distinct seed-derived key."
+  ],
+  "validity_controls": [
+    "Use PDF 1.7, V=4, SubFilter adbe.pkcs7.s5, two named AESV2 CF dictionaries, and each named as its own Table 20 default.",
+    "Each default filter has a one-item Recipients array containing a genuine OpenSSL CMS EnvelopedData object for the same recipient, with its own 20-byte seed and the same permission word.",
+    "Derive independent AESV2 file keys as first 16 bytes of SHA-1(seed || that filter's CMS DER), then apply Algorithm 1's object-specific key derivation and AES-CBC IV/padding for object 4 stream and object 1 string.",
+    "The draft asserts exact xref and no recovery, plus positive plaintext at both consumers. No malformed-input refusal claim is involved."
+  ],
+  "limitations": [
+    "B57 records the executed rejection. Downstream distinct-key assertions cannot yet execute because opening fails.",
+    "Independent verifier decrypts CMS and AES payloads extracted from retained PDF bytes, not just regenerated ciphertext. Uses OpenSSL and independently derived keys; no external PDF-reader conformance certification.",
+    "qpdf --check exits at unsupported Adobe.PubSec; it is explicitly not treated as a successful syntax or encryption validator.",
+    "This case does not address different recipients/permissions across the two defaults, crypt-filter access timing, embedded-file defaults, or all SubFilter/V combinations."
+  ],
+  "execution": "Parent integrated public_key_witnesses assertions: distinct default arrays FAIL at UnsupportedEncryption, shared default control PASS. Exact decrypted stream and Lang literals replace an unsuitable ToUnicode helper. crypto-wave74c.log. Type4 mesh separately PASS in mesh-crypto-wave74b.log; model/syntax ClippyPASS."
+}

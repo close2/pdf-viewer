@@ -452,6 +452,21 @@ fn every_value_of_the_parameter_dictionary_is_where_the_file_says() {
             .expect("a line");
         let first_object = header_end + second_line + 1;
         let parameters_number = object_at(bytes, first_object as u64).expect("part 2");
+        assert!(!read.document.was_recovered(), "{name}: exact writer xref");
+        let parameters_object = read
+            .document
+            .get(read.document.defined_id(parameters_number));
+        let parameters_dictionary = parameters_object.as_dict().expect("parameter dictionary");
+        // EC3 #153 gives the current format version as 1.0. Read the actual dictionary,
+        // independently of State::Linearized accepting it; integer 1 and real 1.0 agree.
+        assert_eq!(
+            parameters_dictionary
+                .get("Linearized")
+                .and_then(Object::as_number)
+                .map(f64::to_bits),
+            Some(1.0_f64.to_bits()),
+            "{name}: current linearization format version"
+        );
         let end = bytes[first_object..]
             .windows(6)
             .position(|w| w == b"endobj")
@@ -1553,4 +1568,63 @@ fn qpdf_checks_the_linearisation_this_writer_wrote() {
             "{name}: qpdf reads the file as broken"
         );
     }
+}
+
+/// EC3 #331 changes F.3.2's eligible PDF version floor to 1.2. Use only basic
+/// page dictionaries and path operators so the old header is valid input.
+fn linearized_basic_page(minor: u8) -> Result<Vec<u8>, Refusal> {
+    let mut bytes = file(
+        &[
+            (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+            (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+            (3, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>".to_vec()),
+            (4, stream("", b"0 g 10 10 20 20 re f\n")),
+        ],
+        1,
+        None,
+    );
+    // The fixed-width edit preserves every xref offset.
+    bytes[7] = b'0' + minor;
+    let original = Document::open(bytes.clone()).expect("basic page opens");
+    assert!(!original.was_recovered(), "exact xref");
+    assert_eq!(
+        original.version(),
+        Some(pdf_syntax::Version { major: 1, minor })
+    );
+    run(&bytes, linear_plan(Shape::default(), Streams::Carry))
+}
+
+fn assert_eligible_linearized_header(bytes: &[u8]) {
+    let output = Document::open(bytes.to_vec()).expect("linearized output opens");
+    assert!(!output.was_recovered(), "writer supplied exact xref");
+    assert!(
+        matches!(state(&output), State::Linearized(_)),
+        "a linearized positive control"
+    );
+    let version = output.version().expect("output states a version");
+    assert!(
+        version >= pdf_syntax::Version { major: 1, minor: 2 },
+        "F.3.2 as corrected by #331 requires at least PDF 1.2 for this organization, got {version}"
+    );
+}
+
+#[test]
+fn linearizing_pdf_1_0_refuses_or_raises_the_header_to_the_ec3_floor() {
+    // Refusal is an acceptable alternative to emitting a format below its version floor.
+    if let Ok(bytes) = linearized_basic_page(0) {
+        assert_eligible_linearized_header(&bytes);
+    }
+}
+
+#[test]
+fn linearizing_pdf_1_1_refuses_or_raises_the_header_to_the_ec3_floor() {
+    if let Ok(bytes) = linearized_basic_page(1) {
+        assert_eligible_linearized_header(&bytes);
+    }
+}
+
+#[test]
+fn linearizing_pdf_1_2_is_the_ec3_version_floor_control() {
+    let bytes = linearized_basic_page(2).expect("PDF 1.2 is eligible for linearization");
+    assert_eligible_linearized_header(&bytes);
 }

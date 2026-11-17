@@ -1,0 +1,131 @@
+{
+  "scope": "Bounded audit of \u00a712.8.3.2 PKCS #1; \u00a712.8.3.3.2 CMS revocation attribute; \u00a712.8.3.4.2 PAdES signature-dictionary constraints; and \u00a7\u00a712.8.3.4.6-.8 CRL/OCSP revocation at current and past validation times. Prior \u00a712.8.3.4.5 open-trigger and \u00a712.8.5 DTS/DocMDP carveout reviews are not repeated.",
+  "features": [
+    {
+      "clause": "12.8.3.2",
+      "title": "PKCS #1 signatures",
+      "source": "EC3 primary printed p.578 (physical p.593), adjacent Table 260 and \u00a712.8.3.2 paragraph",
+      "effective_rules": [
+        "PKCS #1 PDF signatures are deprecated in PDF 2.0",
+        "The only SubFilter that should be used is adbe.x509.rsa_sha1; signer certificate chain shall be in /Cert"
+      ],
+      "implementation": "Legacy reader verifies the raw PKCS #1 signature against certificate in /Cert, reports missing or incompatible key; host trust-anchor path is separate from cryptographic verification.",
+      "assertions": [
+        "signature.rs has direct key match, no-certificate, cryptographic positive and wrong-key controls",
+        "trust/verdict tests use supplied anchor and preserve identity/trust distinction"
+      ],
+      "status_review": "Implemented support for this deprecated legacy format is consistent with reader interoperability; producer-facing should/deprecation language is not a reader-side mandate to reject it.",
+      "caveats": [
+        "Do not call the self-contained signer certificate chain trusted without a host-supplied anchor",
+        "PKCS #1 format support does not imply DSA/ECDSA support in this subfilter: Table 260 says no"
+      ]
+    },
+    {
+      "clause": "12.8.3.3.2",
+      "title": "Revocation of CMS-based signatures",
+      "source": "EC3 primary printed p.580 (physical p.595), ASN.1 grammar and text",
+      "effective_rules": [
+        "Source applies its producer rule to SubFilter other than ETSI.CAdES.detached",
+        "RevocationInfoArchival attribute OID is printed",
+        "Grammar permits optional explicit CRL and OCSP sequences plus otherRevInfo",
+        "otherRevInfo encoding is OCTET STRING and format/type interpretation is left application dependent"
+      ],
+      "implementation": "revocation::archived reads CRLs/OCSPs from signed attributes; merges with DSS material; skips unsupported otherRevInfo; status checks against issuer/path per RFC 5280/6960 with Unknown as default.",
+      "assertions": [
+        "Revocation module has strong direct CRL/OCSP cryptographic and status vectors with Good/Revoked/Unknown controls",
+        "No direct test was found calling archived() or proving a CMS signed attribute routes its CRL/OCSP into status(); ledger cites status tests, not attribute extraction"
+      ],
+      "status_review": "Code path exists; direct extraction-to-status assertion gap. Parser-level positive/negative draft included, with intentionally limited claim: it tests attribute routing and reuses independently tested CRL verification, not full valid CMS signature binding.",
+      "caveats": [
+        "The source's non-CAdES clause is a producer condition; reader reading an attribute outside that range is not itself a conformance error",
+        "Custom otherRevInfo interpretation is not standardized; skipping it is not evidence of parsing an unknown custom format"
+      ]
+    },
+    {
+      "clause": "12.8.3.4.2",
+      "title": "PAdES signature dictionary",
+      "source": "EC3 primary printed pp.581-582 (physical pp.596-597), first paragraph",
+      "effective_rules": [
+        "ETSI.CAdES.detached Contents is DER-encoded CMS SignedData",
+        "ByteRange covers entire file except Contents and includes signature dictionary",
+        "Cert key prohibited",
+        "signing time is in /M or signing-time attribute but not both"
+      ],
+      "implementation": "pades_departures checks DER status, whole-file/Contents exclusion, Cert, dual signing times, and DER is also enforced where it affects digest interpretation.",
+      "assertions": [
+        "signature.rs::a_pades_signature_is_held_to_the_rules_that_need_no_certificate has explicit conforming and departing control",
+        "signature.rs::a_pades_signature_is_held_to_every_attribute_rule_that_needs_no_certificate and encoding tests assert individual consequences"
+      ],
+      "status_review": "No gap found in this clause's dictionary-level assertions. Departure reporting and signature cryptographic validity remain separate.",
+      "caveats": [
+        "BER outside signed/authenticated attribute DER-only area is reportable source departure but remains readable; do not collapse into failed signature math"
+      ]
+    },
+    {
+      "clause": "12.8.3.4.6",
+      "title": "PAdES revocation model",
+      "source": "EC3 primary physical598 / printed583",
+      "effective_rules": [
+        "Handler shall use CRLs, OCSP, or both, to check every certificate in path",
+        "Inputs are identified using validation parameters",
+        "Time modes: current UTC or past UTC when qualifying timestamp token is present",
+        "After signer certificate expiry is a separate LTV clause"
+      ],
+      "implementation": "Trust::Search performs revocation checking per certificate along a successfully validated path; uses document material only; CRL and OCSP paths support issuer/responder authorization, freshness and signed assertions.",
+      "assertions": [
+        "revocation/tests.rs asserts CRL and OCSP Good/Revoked, stale/invalid signature/issuer use, not-covered Unknown",
+        "trust/tests.rs asserts path revocation composes through path",
+        "no network lookup is performed; document-carrying material and host anchors remain separate"
+      ],
+      "status_review": "The delegated source and assertions support the method set, path coverage and conservative Unknown status. No valid gap found in this row by itself.",
+      "caveats": [
+        "The local input set restricts methods to document-carried CRLs/OCSP and host-supplied validation context; it does not fetch network responders",
+        "No trust-store configuration is inferred from a PDF"
+      ]
+    },
+    {
+      "clause": "12.8.3.4.7",
+      "title": "Revocation at current UTC time",
+      "source": "EC3 primary physical598 / printed583",
+      "effective_rules": [
+        "Current check is before expiry of signer's certificate and checks each cert in signer's path",
+        "CRL appropriate only if now lies in thisUpdate-to-nextUpdate interval",
+        "OCSP response appropriate only if captured before expiry of signer's certificate"
+      ],
+      "implementation": "Revocation status functions take caller instant; CRL code does not reject a current instant before thisUpdate. Neither the shared revocation Subject nor from_response receives the signer's notAfter, so the OCSP captured-before-expiry condition is not enforced at this layer. The same generic status check is used whether the instant is host current time or an authenticated past timestamp.",
+      "assertions": [
+        "Fixed-time revocation fixtures assert literal timestamps, current Good/Revoked, stale CRL -> Unknown, untrusted issuer -> Unknown",
+        "No assertion found for a current-time CRL whose thisUpdate is after now",
+        "No assertion found for OCSP response captured after the signer's notAfter; current leaf-status tests do not establish this PAdES-specific condition"
+      ],
+      "status_review": "Two source-to-code gaps: .7 requires current UTC within both thisUpdate and nextUpdate, but from_list has no lower-bound check; it also requires OCSP response capture before signer expiry, but the revocation evaluator has no signer expiry input. The existing future-issued CRL test can support historical-time semantics only; it is not a valid current-time oracle. Keep current/past mode and certificate-expiry context distinct.",
+      "caveats": [
+        "OCSP thisUpdate and producedAt are distinct; the source's capture cutoff must not be inferred from thisUpdate. producedAt is the response-generation timestamp available in the parsed response, but capture semantics should be confirmed before a test equates them",
+        "The CRL lower-bound condition is explicit in EC3 \u00a712.8.3.4.7 even though the implementation comments cite a one-ended freshness interpretation from ETSI EN 319 102-1; source priority / adopted scope should be resolved explicitly"
+      ]
+    },
+    {
+      "clause": "12.8.3.4.8",
+      "title": "Revocation at a past time",
+      "source": "EC3 primary physical599 / printed584",
+      "effective_rules": [
+        "A present signature-timestamp token requires signer signature verification at token UTC time and revocation checking of signer path at that time plus timestamp-authority path",
+        "For current status of TSA path, keyCompromise/cACompromise/missing revocation reason invalidates use of token time",
+        "Other TSA revocation reasons permit token time only if revocation occurred after token UTC time",
+        "CRL captured before signer certificate expiry and nextUpdate later than token time; OCSP captured before signer certificate expiry and producedAt later than token time"
+      ],
+      "implementation": "Timestamp token establishment reports its path revocation status but declares Time::Established whenever a path reaches an anchor, even if Trust::Anchored carries Revocation::Revoked. notes.rs then takes every Established signature/doc timestamp time as BestSignatureTime without consulting Time.revocation. On signer-path revocation lookup, from_list/from_response also do not receive signer notAfter, so .8's material-captured-before-signer-expiry test cannot be enforced there.",
+      "assertions": [
+        "timestamp tests assert token signature, digest binding, authority anchoring and asked-at semantics; revocation tests assert CRL/OCSP answers and reasons",
+        "No inspected assertion covers TSA-path current revocation reason determining whether timestamp genTime is admissible as historical signer-validation time"
+      ],
+      "status_review": "Parent B41 confirms signature-attribute time selector uses genTime despite known TSA keyCompromise. Document timestamp chain and capture-before-expiry concerns are unexecuted residuals, not confirmed failures.",
+      "caveats": [
+        "`Time::Established` may intentionally expose a cryptographically/path anchored instant while carrying `revocation`; the defect is that callers treating the instant as BestSignatureTime do not apply \u00a712.8.3.4.8's reliability condition",
+        "Host acceptance of Unknown revocation does not excuse known Revoked TSA authority status",
+        "No network retrieval required; fixture must provide valid signed revocation material and trusted anchor"
+      ]
+    }
+  ],
+  "errata": "No EC3 errata annotation was found at the six assigned clause locators. Adjacent errata touching other signature subclauses should not be imported into these findings without checking the actual edited passage."
+}

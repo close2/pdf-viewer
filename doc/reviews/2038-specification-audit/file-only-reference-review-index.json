@@ -1,0 +1,561 @@
+{
+  "scope": "Selected assertion reading per exact ledger pointer, not full referenced-file/feature conformance. Some reviewed pointers have no direct assertion of the owning subtype; see shard limits.",
+  "total": 69,
+  "partially_reviewed": 69,
+  "remaining": 0,
+  "references": [
+    {
+      "clause": "7.3.7",
+      "path": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.3.7",
+      "path": "crates/pdf-model/tests/damaged_char_procs.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.3.8.1",
+      "path": "crates/pdf-syntax/tests/stream_keyword_padding.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_reference_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.3.8.1",
+      "path": "crates/pdf-syntax/tests/real_documents.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_reference_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.6",
+      "path": "crates/pdf-model/tests/corpus.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.7",
+      "path": "crates/pdf-model/tests/fixed_documents.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.8",
+      "path": "crates/pdf-model/tests/colour_transform.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.8",
+      "path": "crates/pdf-model/tests/corpus.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.8",
+      "path": "crates/pdf-model/tests/fixed_documents.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.4.9",
+      "path": "crates/pdf-model/tests/corpus.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.7.2",
+      "path": "crates/pdf-syntax/tests/real_documents.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.7.2",
+      "path": "crates/pdf-model/tests/optional_content.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.7.3.3",
+      "path": "crates/pdf-model/tests/page_geometry.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.7.3.3",
+      "path": "crates/pdf-model/tests/contents_entry.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.7.3.3",
+      "path": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10",
+      "path": "raster/crates/raster-function-conformance/src/case.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.1",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.1",
+      "path": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.1",
+      "path": "raster/crates/raster-function-conformance/src/reference.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.2",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.2",
+      "path": "crates/pdf-model/tests/sampled_function_extent.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.3",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.4",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.4",
+      "path": "crates/pdf-model/tests/hostile_functions.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5",
+      "path": "raster/crates/raster-function-conformance/src/reference.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.2",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "crates/pdf-model/tests/function_faults.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json",
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "crates/pdf-model/tests/shadings.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "raster/crates/raster-function-conformance/src/case.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "raster/crates/raster-function-conformance/src/reference/stack.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "7.10.5.3",
+      "path": "raster/crates/raster-function-conformance/src/corpus/refusal.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_function_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.6.4.2",
+      "path": "crates/pdf-model/tests/colour_paths.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_reference_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.3.1",
+      "path": "crates/pdf-model/tests/tiling.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.4.5.2",
+      "path": "crates/render-cpu/tests/sampled_shading.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "path": "crates/render-cpu/tests/shading_placement.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "path": "raster/crates/raster-gpu/tests/a_steep_ramp_is_read_at_its_own_t.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "path": "raster/crates/raster-gpu/tests/shading_steps.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.7.4.5.8",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.9.5.1",
+      "path": "crates/pdf-model/tests/image_masks.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.9.5.1",
+      "path": "crates/pdf-model/tests/image_dimensions.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.9.5.2",
+      "path": "crates/pdf-model/tests/decode_arrays.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_image_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "8.9.6.4",
+      "path": "crates/pdf-model/tests/fixed_documents.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_image_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "9.3.6",
+      "path": "crates/pdf-model/tests/text_render_modes.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_reference_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "9.3.6",
+      "path": "crates/pdf-model/tests/glyph_clip_direction.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_reference_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "9.4.3",
+      "path": "crates/pdf-model/tests/text_extraction.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
+    },
+    {
+      "clause": "10.7",
+      "path": "crates/render-gpu/tests/headless_gpu.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "10.7",
+      "path": "crates/pdf-render/src/paint.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.3.4",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.3.5",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.3.5.3",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.4.6",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_remaining_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.5",
+      "path": "crates/pdf-model/tests/soft_masks.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.5",
+      "path": "crates/render-cpu/tests/soft_mask.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.6.6",
+      "path": "crates/pdf-model/tests/transparency_groups.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.6.6",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7",
+      "path": "crates/pdf-model/tests/colour_paths.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7",
+      "path": "crates/pdf-model/tests/soft_masks.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7.2",
+      "path": "crates/test-scenes/src/lib.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7.5.3",
+      "path": "crates/pdf-model/tests/icc_paint_context.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7.5.3",
+      "path": "crates/pdf-model/tests/black_generation_paint.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "11.7.5.3",
+      "path": "crates/pdf-model/tests/pattern_tint_context.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "12.2",
+      "path": "crates/viewer-ffi/tests/window_chrome.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
+    },
+    {
+      "clause": "12.2",
+      "path": "crates/viewer-ffi/src/window/chrome_tests.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "12.2",
+      "path": "hosts/windows/Quorra.Chrome.Tests/Program.cs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "12.2",
+      "path": ".github/workflows/ci.yml",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
+    },
+    {
+      "clause": "12.8.1",
+      "path": "crates/pdf-signature/src/verdict/tests.rs",
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/security_file_only_assertions_current/features.json"
+      ]
+    }
+  ]
+}

@@ -694,9 +694,10 @@ fn a_pieces_pages_state_no_document_part_the_piece_does_not_carry() {
 /// Web capture's content database does not cross into a piece, and the report says so.
 ///
 /// §14.10.1 records the database in two structures, the catalog's `/SpiderInfo` and §14.10.3.1's
-/// name trees; a piece carries neither, because the family is deprecated with PDF 2.0 and §3.15
-/// makes that a part of the standard that should not be written into a PDF 2.0 document
-/// (ADR 1461).
+/// name trees. This PDF 1.7 fixture checks the product's deliberate omission/reporting policy
+/// for a derived piece (ADR 1461). Section 3.15 additionally recommends not writing these
+/// deprecated structures into PDF 2.0 output; that version-specific recommendation is not
+/// itself the reason an older-version output must omit them.
 #[test]
 fn a_piece_carries_no_web_capture_database() {
     let source = support::web_capture();

@@ -1,0 +1,74 @@
+{
+  "scope": "Narrow assertion-quality follow-up for the implemented ISO 32000-2:2020 \u00a712.3.3 outline feature, focusing on Count/open-state consumers and Table 151 color/style actually reaching the public panel. This is not a whole-clause certification.",
+  "source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locator": "General12.3.3 physical459/444; Table150 physical460/445; Table151 C/F physical461/446. Parent verified exact C row and root Count conditional.",
+    "ec3": "No relevant changed EC3 outline annotation was identified in the prior effective-source check. The optional `/F` style flag's specified bits and `/C` DeviceRGB/default are in the base text.",
+    "requirements": "\u00a712.3.3 says items at a level appear in linked-list order, open children become visible, closed descendants are hidden, a visible item activates its destination/action, and users may open/close items. Table 151 item Count sign represents open/closed and its positive magnitude is the recursively computed number of visible descendants; leaf Count is omitted. Table 151 `/C` specifies DeviceRGB text color, default black; `/F` plus Table 152 bits 1 and 2 specify italic and bold. These are screen presentation semantics for a processor that displays the outline; the clause does not require every implementation to have a panel."
+  },
+  "features": [
+    {
+      "id": "outline-count-visible-hierarchy",
+      "clause": "\u00a712.3.3; Tables 150\u2013151",
+      "source_location": "Printed pp.444\u2013445 (physical pp.459\u2013460): open/closed sign, visible descendants, recursively counted positive item Count, and hidden descendants under a closed item.",
+      "ledger": "doc/conformance/ledger.toml \u00a712.3.3 is implemented.",
+      "code": [
+        "crates/pdf-model/src/outline.rs::read_item",
+        "crates/pdf-model/src/outline.rs::Outline::visible_count",
+        "crates/viewer-ui/src/chrome.rs::Sidebar::flatten",
+        "crates/viewer-ui/src/chrome.rs::Sidebar::toggled"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/outline.rs::the_visible_count_skips_a_closed_items_descendants",
+        "crates/viewer-ui/tests/panel.rs::closing_a_subtree_does_not_renumber_the_items_below_it",
+        "crates/viewer-ui/tests/outline_count_audit.rs::pdf_outline_count_controls_initial_panel_visibility_and_user_toggle",
+        "crates/pdf-model/tests/outlines.rs::a_stated_count_agrees_with_the_count_the_clause_defines"
+      ],
+      "assertion_quality": "Strong and independently triangulated. The exact-xref UI fixture has positive-count open parent and nested child, negative-count closed child with its own grandchild, a sibling after that branch, checks computed root visible_count=5, asserts initial depth-first visible row order and item identities, then toggles the closed child to reveal/hide its descendant without shifting identity. It also checks no recovery. The model/corpus test separately applies the clause algorithm to producer counts; known count disagreements are producer inconsistencies, not a reader-error requirement.",
+      "verdict": "Covered for recursive count/open-state interpretation and the viewer-ui panel consumer. The panel is a product choice; do not turn producer validity constraints on matching stored count into mandatory reader rejection."
+    },
+    {
+      "id": "outline-rgb-public-panel-rendering",
+      "clause": "\u00a712.3.3; Table 151",
+      "source_location": "Table151 C physical461/446.",
+      "ledger": "doc/conformance/ledger.toml \u00a712.3.3 is implemented.",
+      "code": [
+        "crates/pdf-model/src/outline.rs::colour",
+        "crates/viewer-ui/src/chrome.rs::Sidebar::flatten",
+        "crates/viewer-ui/src/chrome.rs::Sidebar::rows"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/outline.rs outline item decoding tests assert explicit `[1,0,0]` and default black",
+        "crates/viewer-ui/tests/panel.rs panel raster tests use outline items, but the shared `item` helper supplies only default black"
+      ],
+      "assertion_quality": "The parser-level value has a positive test, and the public consumer maps all three components into the text paint. Existing panel output assertions prove that outline ink is rendered, but do not pass a non-default outline color or discriminate default-black behavior at the drawn output. The prior \u00a712.3.3 shard's assertion label 'outline rendering tests' should not be read as visual verification of `/C`.",
+      "verdict": "Concrete assertion gap, not a demonstrated runtime defect. Draft `drafts/outline_colour_reaches_panel_pixels.rs` is an exact-xref public-consumer control: same title in explicit red and omitted-/C black items, parser checks, no-recovery check, and independent red-dominant pixel count in the rendered first row versus zero in the black control. No claim about exact glyph outlines or antialiasing.",
+      "parent_result": "New exact-xref source-to-Sidebar CPU raster control PASS: red ink in first row, actual black ink in second title region, no red in default row."
+    },
+    {
+      "id": "outline-style-flags-public-panel-rendering",
+      "clause": "\u00a712.3.3; Table 151; Table 152",
+      "source_location": "Printed pp.445\u2013446 (physical pp.460\u2013461): `/F` bits are numbered low to high; bit 1 italic, bit 2 bold, all other bits shall be zero.",
+      "ledger": "doc/conformance/ledger.toml \u00a712.3.3 is implemented.",
+      "code": [
+        "crates/pdf-model/src/outline.rs::read_item",
+        "crates/viewer-ui/src/chrome.rs::Sidebar::flatten",
+        "crates/viewer-ui/src/chrome.rs::Chrome::face_of"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/outline.rs::reads_an_outline_item and associated item assertions cover flag decode",
+        "crates/pdf-script/tests/hook.rs::the_bookmark_root_walks_the_outline_a_person_sees_and_execute_asks_the_host checks script-facing style numeric value, not visual row font",
+        "crates/viewer-ui/tests/panel.rs does not set non-default bold/italic in its outline helper"
+      ],
+      "assertion_quality": "The data mapping is asserted in the model and the script-facing projection. I found no assertion that an actual sidebar rendered outline with `/F 1` or `/F 2` selects the corresponding face. Existing generic panel ink assertions cannot distinguish style flags.",
+      "verdict": "Limited visual-assertion gap; no runtime failure demonstrated. ADR 0144 says the outline screen's style bits and `/C` are done, which is supported by the code path but its test claim needs to distinguish parser/script model evidence from a rendered-output oracle. I did not draft a font-shape test because font substitution/pixel geometry needs a carefully bounded independent oracle; the color case is cleaner."
+    }
+  ],
+  "current_execution": "This audit agent did not run Cargo. Existing baseline-nextest.log contains a PASS line for `viewer-ui::outline_count_audit::pdf_outline_count_controls_initial_panel_visibility_and_user_toggle`; parent must use its current gate evidence for promotion. The new color test is only a scratch draft and has not been compiled or executed.",
+  "residuals": [
+    "No claim that the optional outline panel is required in every conforming processor.",
+    "No exhaustive verification of invalid link structures, count mismatch diagnostics, native Qt/GTK row styling, clipping of long titles, or all host pathways.",
+    "The proposed color oracle checks visible red-vs-black pixel relations through the CPU rasterizer; parent should confirm public type names and row bounds when promoting, and execute it before treating it as evidence.",
+    "No test was drafted for italic/bold raster appearance; current evidence is parser and script-value assertions plus code tracing only."
+  ]
+}

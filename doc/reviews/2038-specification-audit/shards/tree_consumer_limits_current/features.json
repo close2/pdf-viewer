@@ -1,0 +1,21 @@
+[
+  {
+    "feature": "7.9.6/.7 bounded traversal and completeness",
+    "title": "Finite traversal is permitted; current APIs collapse exhaustion into ordinary absence/partial enumeration.",
+    "source_location": "\u00a77.9.6 printed pp.119\u2013121 (physical pp.134\u2013136); \u00a77.9.7 printed pp.122\u2013123 (physical pp.137\u2013138); Annex C.1/C.2/Table C.1 printed p.850 (physical p.865), C.3 printed p.851 (physical p.866)",
+    "errata": "EC3 #214 changes name-key ordering wording and #307 adds a producer no-null-key rule; neither sets a tree-depth limit or changes traversal completeness. No applicable erratum found that gives a reader a tree-depth threshold.",
+    "ledger": "7.9.6 name-tree-node-shape/name-tree-kids/name-tree-limits/name-tree-efficiency/name-tree-pairs; 7.9.7 number-tree-shape/number-tree-kids/number-tree-limits/number-tree-pairs. Both are marked implemented. The notes describe lookup and enumeration but do not state the 64-level bound or report behavior.",
+    "code": "crates/pdf-syntax/src/tree.rs: MAX_DEPTH=64; lookup::descend returns None when depth>64; collect returns normally when depth>64, so name_pairs/name_entries/number_pairs expose a successful Vec missing deeper entries. Consumers: destination.rs named destination lookup; page_label.rs range enumeration; attachment.rs EmbeddedFiles; collection.rs embedded_file_keys; named_page.rs Pages/Templates; view/script_sites.rs JavaScript library. Several other clause-specific consumers use the same generic helper.",
+    "tests": "trees_strings_current includes valid modest-depth exact-xref indirect-Kids controls for destination and page labels. Existing tree.rs traversal tests use direct dictionary Kids and do not establish deep valid-PDF behavior. `deep_page_tree_order_spec_audit.rs` exercises the separate page-tree bound and is excluded here. No found public assertion tests a name/number tree beyond the helper's boundary and requires complete data or a disclosed refusal.",
+    "assertions": "The helper returns Option/Vec without a completion flag or resource-limit error. Public destination lookup turns the missed key into None; page labels yield no label/range; attachments and collection keys return a partial ordinary list; named pages and script libraries similarly have no tree-truncation marker. This is a static consumer-contract finding, not a claim that each consumer otherwise mishandles trees.",
+    "verdict": "explicit implementation depth cap is a permissible resource bound in principle, but current generic traversal silently turns limit exhaustion into absence or a normal partial enumeration; no consumer disclosure/refusal path found",
+    "residuals": "Select and document a public completeness/refusal contract before asserting a specific diagnostic. No runtime failure claimed. This is design/documentation follow-up; no user approval needed to record it.",
+    "related_adrs": [
+      "ADR 0053 \u2014 shared name/number tree traversal",
+      "ADR 0054 \u2014 tree lookup shape",
+      "ADR 0076 \u2014 traversal implementation rationale",
+      "ADR 2671 \u2014 bounded number-tree writer/reader behavior is separate and explicitly refuses extension inputs it cannot read"
+    ],
+    "parent_qualification": "Annex C is explicitly INFORMATIVE. Its error description is not a normative UI/reporting SHALL. D41 records inaccurate cyclic/malicious-only comment and missing completeness contract, not a proven ISO defect. A valid unary chain is not ruled out by Tables36/37; no required numeric bound inferred."
+  }
+]

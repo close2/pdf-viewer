@@ -1,0 +1,7 @@
+{
+  "source": "Parent read primary35\u201340,46 and actual #193/#365 annotations; inspected classifier, comment/string readers and exact test assertions.",
+  "execution": "lexical-context-wave39.log:2PASS; quality-wave39.log:syntax all-targets Clippy PASS.",
+  "limit": "Framing rows partially indexed; string/stream child reviews are not silently expanded.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede draft wording."
+}

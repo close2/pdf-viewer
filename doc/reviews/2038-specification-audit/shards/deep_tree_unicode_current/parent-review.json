@@ -1,0 +1,8 @@
+{
+  "verdict": "T149 strengthens two existing integration tests; bothPASS.",
+  "name_tree": "Original A/a/b/z and absentB remain. Added a-NUL versus a, and UTF8 composedé versus decomposede+acute in different indirect leaves with distinct literal page targets. Exact Limits and byte-sorted leaves; encoded strings use ASCII hex in PDF1.7. Additional absent keys do not match. This tests raw-byte lookup, not normalization policy for human search.",
+  "number_tree": "Preserved original11 pages and21 objects, with all five label assertions including Z. Read actual number_pairs API and bind resolved object before dictionary borrow. Explicit keys[0,2,10] precede PageLabels consumption, separating generic traversal order from the consumer sorting. This is traversal order, not an exhaustive comparator proof.",
+  "rejected_draft": "A first attempt constructed a replacement number tree with a dangling reference and out-of-range labels; parent rejected it without integration. Final change uses the original valid fixture and preserves its test identity.",
+  "execution": "tree-assertions-wave110:2PASS; quality-wave110:model all-target Clippy PASS. No new identity for these two strengthened tests.",
+  "limits": "Sampled UTF8 byte sequences, prefix controls and tree shapes; not every encoding, key/value type or consumer."
+}

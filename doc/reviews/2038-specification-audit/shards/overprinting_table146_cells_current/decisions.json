@@ -1,0 +1,28 @@
+{
+  "scope": "Selected decision reconsideration only; not a wholesale ADR review.",
+  "decisions": [
+    {
+      "adr": "1157",
+      "topic": "Implementing transparent-model compatible overprinting after the four-component group path was added",
+      "current_evidence": "The first Table 146 row's OPM1 zero-tint rule has independent named-color, OPM0, all-nonzero, Separation/DeviceN reversion, and press-profile controls. The primary table's final group-object row separately says Cs in every column; NOTE 2 explains that special compatibility mode reverts to Normal because group paint loses per-component source provenance.",
+      "assessment": "The ADR's reachability derivation is consistent with its explicit row-by-row enumeration: row 9 (group) is reachable and remains Cs. Existing assertions sample other rows but do not directly exercise a transparency Form XObject invoked while OP/OPM1 is enabled. The new draft targets that narrow witness; no conformance defect is asserted pending execution.",
+      "source": "Primary Table 146 physical 447–448 / printed 432–433; NOTE 2 is on physical 448 / printed 433.",
+      "implementation": "xobject.rs dispatches grouped forms into run_transparency_group; current elementary special-mode selection is in overprint.rs::overprint_blend/special_overprint."
+    },
+    {
+      "adr": "1158",
+      "topic": "Cost and capability report boundary",
+      "assessment": "No change suggested. Raster/press backend refusal and capability reporting are not evidence that the model-level group row is exercised; this shard does not turn a backend policy into a requirement to simulate a physical press."
+    },
+    {
+      "adr": "1169",
+      "topic": "Ask the OPM1 condition once across four group-space tints",
+      "assessment": "The specific CMYK zero-component assertions remain well matched to the source. The group-row draft avoids the historical per-half question by testing one source paint at one invocation and comparing against fully painted controls."
+    },
+    {
+      "adr": "1170",
+      "topic": "Implicit groups around elementary special-mode paint and combined paint",
+      "assessment": "No challenge to the two implicit-group constructions. They are distinct from an explicit Form XObject that is itself a group; the latter is the narrow assertion residual addressed by the draft."
+    }
+  ]
+}

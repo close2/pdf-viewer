@@ -1,0 +1,6 @@
+{
+  "source": "Parent freshly checked actual PDF #114 object1892/reply1894;#25 object2160/reply2162;#81 object10313/reply10315;#135 object2224/reply2226. Direct replies carry Completed. Read surrounding page77/Table16 and inspected get_key N/First, public-key flags and prior bounded owner reviews.",
+  "census": "Independent all-marker scan of Subj/T/Contents on physical1\u2013450 confirms165 IDs with no multi-ID annotations or field-only additions.516 issue-marked annotations include144 withIRT; they are not516 rootthreads. Oldledger/current-shard citation counts are a textual snapshot and no semanticcoverage metric; do not add early/late ID counts because an issue may crosspage451.",
+  "test": "New cross_references::object_stream_dictionary_values_may_reference_uncompressed_objects PASS; existing direct-value control PASS. Parent added third compressed Info member with Title containing literal newline/endstream/newline, making naive marker termination unable to read it. Exactxref, uncompressed integer references, Pages/Page types andParent relation checked.",
+  "limits": "Positive valid representation test; no newly claimed mandatory rejection of compressed-valued entries. Review covers fourselectedcorrections, not all165issue semantics. N/First/Length tested; everyotherentryrepresentation not certified."
+}

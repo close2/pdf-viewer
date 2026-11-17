@@ -1,0 +1,1 @@
+B51 confirmed: VisiblePages omits Second despite both pages visibly arranged. AllPages and nested collection label control PASS. T66 list-wide Language exact/partial sets render correctly. See parent-review.json for source and final execution. Original malformed AS/state and radio initialization concerns do not establish mandatory reader repair.

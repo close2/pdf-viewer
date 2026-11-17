@@ -6694,6 +6694,56 @@ fn the_external_filter_becomes_the_streams_filter() {
     );
 }
 
+/// Table 5 external filter parameters survive embedding and affect the decoded data.
+#[test]
+fn external_nondefault_decode_parameters_reach_the_embedded_stream_decoder() {
+    // One PNG Up row, one component, four bytes. The previous-row bytes are all zero, so these
+    // filtered bytes reconstruct literally to the valid form content `q\nQ\n`.
+    let png_up_row = [2, b'q', b'\n', b'Q', b'\n'];
+    let external_bytes = pdf_syntax::serialize::flate_encode(&png_up_row, 9)
+        .expect("the valid Flate payload encodes");
+    let source = a_document_whose_stream_points_outside_it(
+        "/F (logo.dat) /FFilter /FlateDecode \
+         /FDecodeParms << /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 4 >>",
+        b"",
+    );
+    let parsed = Document::open(source.clone()).expect("valid source fixture");
+    assert!(!parsed.was_recovered());
+    assert!(!parsed.cross_reference_chain_was_cut());
+    let at = ObjectId {
+        number: 6,
+        generation: 0,
+    };
+    let (report, output) = convert_with_external_data(&source, at, &external_bytes);
+    assert_eq!(
+        decision(&report, "file-structure/no-external-stream-data"),
+        Decision::Mechanical(Rewrite::ExternalDataEmbedded)
+    );
+    let output = output.expect("the caller supplied the external file bytes");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let document = Document::open(output).expect("the rewritten PDF opens");
+    assert!(!document.was_recovered(), "the serializer writes its xref");
+    assert!(!document.cross_reference_chain_was_cut());
+    let object = document.get(at);
+    let stream = object
+        .as_stream()
+        .expect("object 6 remains the Form XObject stream");
+    assert!(!Document::is_external(stream), "F is removed");
+    assert!(stream.dict.get("FFilter").is_none());
+    assert!(stream.dict.get("FDecodeParms").is_none());
+    assert!(
+        matches!(stream.dict.get("Filter"), Some(pdf_syntax::Object::Name(name)) if name.as_bytes() == b"FlateDecode")
+    );
+    let decoded = document
+        .decoded_stream_data_reported(stream)
+        .expect("the rewritten filter chain and nondefault predictor decode");
+    assert_eq!(&*decoded.data, b"q\nQ\n");
+    assert_eq!(decoded.damage, None);
+}
+
 #[test]
 fn a_filter_key_with_no_file_is_removed_and_nothing_else_changes() {
     // Table 5 gives `/FFilter` meaning only through `/F`: with no external file named, it states
@@ -7274,6 +7324,10 @@ fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end preservation fixture and its byte/association controls"
+)]
 fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one() {
     // `doc/pdf-a-mitigations.md` section 7's addition: the XFA resource is XML, so a target that
     // holds a file of any type can keep it as one rather than losing the form's definition
@@ -7282,8 +7336,8 @@ fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds
     // complete text of this XML element" — so the resource is the streams end to end, the first
     // opening the document element and the last closing it. That is the shape Annex K's own
     // EXAMPLE 1 prints, and the one this fixture is built from.
-    let open = stream("/Length 34", b"<xdp:xdp xmlns:xdp=\"http://x/\">\n");
-    let template = stream("/Length 34", b"<template xmlns=\"http://t/\"/>\n");
+    let open = stream("/Length 32", b"<xdp:xdp xmlns:xdp=\"http://x/\">\n");
+    let template = stream("/Length 30", b"<template xmlns=\"http://t/\"/>\n");
     let close = stream("/Length 11", b"</xdp:xdp>\n");
     let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
     let source = Conforming {
@@ -7358,6 +7412,35 @@ fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds
             .map(|name| name.as_bytes().to_vec()),
         Some(b"application/octet-stream".to_vec()),
         "§14.13.2's own value for a media type the writer does not know"
+    );
+
+    assert_eq!(
+        document
+            .get_key(specification, "AFRelationship")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Source".to_vec()),
+        "the original XFA resource is the source of the associated content"
+    );
+    let params = document.get_key(&embedded.dict, "Params");
+    let params = params.as_dict().expect("Table 45's Params");
+    assert_eq!(
+        stated_date(&document, params, "ModDate"),
+        pdf_syntax::Date::parse("D:20260101000000Z"),
+        "the associated-file modification date comes from the source PDF's Info /ModDate"
+    );
+    let associated = document.get_key(&catalog, "AF");
+    let associated = associated.as_array().expect("catalog /AF");
+    assert_eq!(
+        associated.len(),
+        1,
+        "the document has one attached XFA resource"
+    );
+    let associated_spec = document.resolve(associated.first().expect("the association"));
+    assert_eq!(
+        associated_spec.as_dict(),
+        Some(specification),
+        "catalog /AF names the same file specification as EmbeddedFiles"
     );
 
     let attached = &conversion(&report).attached;
@@ -17082,3 +17165,165 @@ mod type3_width_as_drawn;
 // description given a procedure painting nothing (ADR 2918).
 #[path = "archive/type3_glyphs.rs"]
 mod type3_glyphs;
+
+// The preserve remedy promises the original resource atomically, including for malformed input.
+// This is a repository integrity contract, not a valid-PDF conformance requirement.
+#[test]
+fn xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet() {
+    let packet = b"<xdp:xdp xmlns:xdp=\"http://x/\">\n";
+    let opening = stream(&format!("/Length {}", packet.len()), packet);
+    let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] \
+                  /XFA [(xdp:xdp) 7 0 R (template) (not-a-stream)] >>"
+            .to_owned(),
+        objects: vec![field, String::from_utf8(opening).expect("ASCII stream")],
+        info: Some("/ModDate (D:20260101000000Z)".to_owned()),
+        ..Conforming::default()
+    }
+    .build();
+    let parsed = Document::open(source.clone()).expect("exact-xref malformed-packet fixture opens");
+    assert!(
+        !parsed.was_recovered(),
+        "packet type is the intentional defect, not xref framing"
+    );
+    let config = "[site.\"forms/no-xfa-key\"]\nremedy = \"preserve\"\nkeep-xfa = \"attach\"\n";
+    let plan = plan_from(config, Target::Four(Flavour::E));
+    let (report, output) = convert_with_plan(&source, &plan);
+    if let Some(bytes) = &output {
+        let result = Document::open(bytes.clone()).expect("unexpected output opens");
+        let catalog = result.catalog().expect("output catalog");
+        let associated = result.get_key(&catalog, "AF");
+        let associated = associated
+            .as_array()
+            .expect("unexpected attachment association");
+        let spec = result.resolve(associated.first().expect("attached file specification"));
+        let spec = spec.as_dict().expect("file specification dictionary");
+        let ef = result.get_key(spec, "EF");
+        let ef = ef.as_dict().expect("EF dictionary");
+        let embedded = result.get_key(ef, "F");
+        let embedded = embedded.as_stream().expect("unexpected attachment stream");
+        let payload = result
+            .decoded_stream_data(embedded)
+            .expect("payload decodes");
+        eprintln!(
+            "unexpected attachment: {:?}; decision: {:?}",
+            String::from_utf8_lossy(&payload),
+            decision(&report, "forms/no-xfa-key")
+        );
+    }
+    assert!(
+        output.is_none(),
+        "a partial XML packet must not be filed as the original resource"
+    );
+    assert!(matches!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Refused(Because::NotBuiltYet(reason)) if reason.contains("XFA")
+    ));
+}
+
+// Audit2038: screening permission does not authorize losing an active transfer function.
+fn threshold_transfer_fixture(target: Target, transfer: bool) -> Vec<u8> {
+    let entry = if transfer {
+        "/TransferFunction 8 0 R"
+    } else {
+        ""
+    };
+    Conforming {
+        target,
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            format!("<< /Type /Halftone /HalftoneType 6 /Width 2 /Height 2 /Length 4 {entry} >>\nstream\n@P`p\nendstream"),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0.25 0.25 0.25 rg 10 10 50 50 re f".to_vec())),
+        ..match target { Target::Two(_) => Conforming::part_two(), Target::Four(_) => Conforming::default() }
+    }.build()
+}
+
+fn threshold_transfer_pixel(bytes: &[u8]) -> [u8; 4] {
+    use pdf_render::{Rasterizer as _, TargetSpec};
+    let document = Document::open(bytes.to_vec()).expect("exact-xref archive fixture");
+    assert!(!document.was_recovered());
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let state = pdf_model::view::ViewState::of(&document);
+    let interpreted = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(interpreted.is_complete(), "{:?}", interpreted.unsupported);
+    let list = interpreted.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("bounded target");
+    let raster = render_cpu::CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("CPU pixels");
+    assert_eq!((raster.width, raster.height), (200, 200));
+    // Pixel (30,169) is well inside the user-space rectangle, clear of antialiasing edges.
+    let at = (169usize * 200 + 30) * 4;
+    raster.data[at..at + 4].try_into().expect("one RGBA pixel")
+}
+
+#[test]
+fn threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four() {
+    let target = Target::Four(Flavour::Plain);
+    let control = threshold_transfer_fixture(target, false);
+    assert_eq!(threshold_transfer_pixel(&control), [64, 64, 64, 255]);
+    let mut only_screen = Authorisations::default();
+    only_screen.authorise(Loss::Halftone);
+    let (control_report, control_output) = convert(&control, target, only_screen);
+    assert!(
+        matches!(decision(&control_report, "graphics/halftone-type-is-one-or-five"),
+        Decision::Authorised { losses, rewrite: Rewrite::HalftoneWrittenDefault }
+        if losses == Losses::one(Loss::Halftone))
+    );
+    let control_output = control_output.expect("TF-free threshold screen converts");
+    assert_eq!(threshold_transfer_pixel(&control_output), [64, 64, 64, 255]);
+
+    let source = threshold_transfer_fixture(target, true);
+    // Type2 C0=1,C1=0,N=1 maps each literal 0.25 component to 0.75 (191/255).
+    assert_eq!(threshold_transfer_pixel(&source), [191, 191, 191, 255]);
+    let (report, output) = convert(&source, target, only_screen);
+    // Part4's erratum #314 removes the transfer prohibition. It does not authorize losing
+    // the producer's color mapping. A converter may preserve it or refuse this combination.
+    if let Some(output) = output {
+        assert_eq!(
+            threshold_transfer_pixel(&output),
+            [191, 191, 191, 255],
+            "Loss::Halftone promises screen appearance is unchanged: {}",
+            conversion(&report).render()
+        );
+    }
+}
+
+#[test]
+fn threshold_transfer_under_pdf_a_two_requires_separate_loss_authorisation() {
+    let target = Target::Two(Level::B);
+    let source = threshold_transfer_fixture(target, true);
+    assert_eq!(threshold_transfer_pixel(&source), [191, 191, 191, 255]);
+    for transfer_authorised in [false, true] {
+        let mut losses = Authorisations::default();
+        losses.authorise(Loss::Halftone);
+        if transfer_authorised {
+            losses.authorise(Loss::TransferFunction);
+        }
+        let (report, output) = convert(&source, target, losses);
+        let answer = decision(
+            &report,
+            "graphics/halftone-transfer-function-only-where-required",
+        );
+        if transfer_authorised {
+            assert!(
+                matches!(answer, Decision::Authorised { losses, rewrite: Rewrite::TransferFunctionRemoved }
+                if losses == Losses::one(Loss::TransferFunction)),
+                "{answer:?}"
+            );
+            let output = output.expect("both losses are authorized for PDF/A-2");
+            assert_eq!(threshold_transfer_pixel(&output), [64, 64, 64, 255]);
+        } else {
+            assert!(output.is_none(), "transfer loss was not authorized");
+            assert!(
+                matches!(answer, Decision::Unauthorised { losses, .. }
+                if losses == Losses::one(Loss::TransferFunction)),
+                "{answer:?}"
+            );
+        }
+    }
+}

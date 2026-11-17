@@ -1,4 +1,8 @@
-//! A type 0 Table 18 record needs only its stated type byte.
+//! Tolerant handling of a malformed type-0 cross-reference stream record.
+//!
+//! Table 17 forbids a zero second width in `/W`. This fixture deliberately violates that
+//! producer rule; it checks that accepted malformed input cannot resurrect an older object.
+//! `type0_deletion_spec_audit.rs` supplies the conforming hybrid deletion control.
 
 use std::fmt::Write as _;
 
@@ -48,7 +52,7 @@ fn type_zero_entry_without_next_free_or_generation_fields_marks_object_deleted()
     );
     bytes.extend_from_slice(table.as_bytes());
 
-    let document = Document::open(bytes).expect("valid hybrid xref fixture");
+    let document = Document::open(bytes).expect("tolerated malformed hybrid xref fixture");
     assert!(
         !document.was_recovered(),
         "the declared sections are readable"

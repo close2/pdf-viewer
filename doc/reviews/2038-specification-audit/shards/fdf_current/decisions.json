@@ -1,0 +1,30 @@
+[
+  {
+    "adr": "ADR 2816",
+    "decision_reviewed": "One Table 251 FDF page dictionary describes one new page even when `/Templates` names several pages; field/option/script changes remain distinct.",
+    "evidence": "§12.7.8.3.3's opening sentence and Table 251 say the FDF Pages array contains page dictionaries and the Templates array gives named pages serving on that page. `fdf_template_count_audit` asserts two-template-one-page versus two-page dictionaries. Current `layered_page` also chooses first template geometry and array-order drawing, but the source gives no transform/order rule; ADR 2816 documents that as a local choice.",
+    "verdict": "cardinality reading is correct; geometric composition details must remain documented implementation choices",
+    "residuals": "Current count assertion does not prove each template's marks reach the combined page; a two-color pixel draft is supplied. Do not certify the unspecified overlay order/transform as normative."
+  },
+  {
+    "adr": "ADR 2154",
+    "decision_reviewed": "The template page is visible in current ViewState but not written into the saved page tree; the save reports each unwritten page.",
+    "evidence": "Table 251 says new pages shall be added to the target document; `forms_data.rs::an_imported_template_adds_a_page_the_document_already_held` checks the visible appended page, unwritten_pages=1, and that save retains the original page tree. The ledger status remains departed.",
+    "verdict": "departure and reporting are accurately separated; report does not discharge the shall",
+    "residuals": "Not a persistence implementation. Renaming fields on an imported template would additionally need a writable field tree/page structure."
+  },
+  {
+    "adr": "ADR 1239",
+    "decision_reviewed": "An external Table 253 `/F` is an asynchronous host request while the import is in progress; supplied bytes are copied so no foreign indirect references reach the target interpreter.",
+    "evidence": "Model tests distinguish awaiting external file, missing local page, successful supplied in-memory Document, declined file and invalid bytes. viewer-core tests inspect `Purpose::NamedPage` events and user-facing status. `carried_page` rebuilds page resources/content and discards `/Parent`; `forms_data::carried` resolves references. This respects source Table 253 optional `/F` semantics without live file/network effects.",
+    "verdict": "sound host/model separation with concrete in-memory assertions",
+    "residuals": "Current sampled named-page tests use string `/F`; a dictionary file-spec `/UF` precedence draft is included. URL-form file spec behavior was not audited."
+  },
+  {
+    "adr": "ADR 0907 and ADR 1070",
+    "decision_reviewed": "The import/by-name statement for FDF fields is treated as actionable even where prose is indicative; `/Rename=false` applies template field attributes to every same-name target field. The true branch is not silently treated as false.",
+    "evidence": "Table 252 expressly states false behavior and Table 249's importing-by-name sentence specifies replacement. `fdf_template_fields_audit` uses two same-named target widgets and asserts both read back the imported value. Explicit/default true tests preserve prior target values and record the refusal.",
+    "verdict": "false-branch treatment and explicit departure are evidence-aligned",
+    "residuals": "The normative true branch remains unmet; the no-algorithm note does not make the required outcome optional."
+  }
+]

@@ -1,0 +1,56 @@
+{
+  "scope": "Reconsider only ADR premises implicated by the ten selected errata. The errata are not generalized into new implementation requirements.",
+  "decisions": [
+    {
+      "issue": 174,
+      "adr": "0753",
+      "review": "Retain. Table 242's set-flag descendant exemption is now explicit in EC3; current implementation and paired reset/spare descendant tests match it."
+    },
+    {
+      "issue": 193,
+      "adr": "none located in the relevant reviewed shards",
+      "review": "Correct the historical source locator/synopsis. Binary transport can bind application transport paths; do not dismiss it as producer-only. No lexer-rejection requirement follows, and no complete transport audit is claimed."
+    },
+    {
+      "issue": 195,
+      "adr": "0728; scope ADR 1946",
+      "review": "Retain the reading that the edit changes the scope statement for U3D/PRC requirements rather than creating 3D rendering support duties. Clause-13 exclusion remains independently ratified."
+    },
+    {
+      "issue": 260,
+      "adr": "1535; related transfer screen decisions in 0505",
+      "review": "Retain only with its stated output-device condition: this application emits continuous-tone RGB and delegates halftoning. HTO is parsed/removed by a separate PDF/A-4 transformation; that does not imply active screen rendering."
+    },
+    {
+      "issue": 272,
+      "adr": "0724",
+      "review": "Retain. The annotation is at \u00a77.5.2's header binary-marker sentence despite the page straddling later cross-reference headings. The current writer test asserts that the immediate following comment starts with four high bytes."
+    },
+    {
+      "issue": 278,
+      "adr": "none behaviorally implicated; CID decision slice 2817 is not changed by punctuation",
+      "review": "No decision revision indicated; correction removes punctuation only, not CMap grammar or mapping semantics."
+    },
+    {
+      "issue": 282,
+      "adr": "0708; scope ADR 1946",
+      "review": "Retain recognition/refusal of GoTo3DView under the adopted 3D/RichMedia execution exclusion. The corrected target alternatives remain part of the excluded action runtime."
+    },
+    {
+      "issue": 292,
+      "adr": "1059 / successor 2820 resource-resolution policy",
+      "review": "Separate the producer rule from reader recovery: PDF 2.0 independent forms must carry their resources, but Table 93 does not command reader rejection. Existing fallback is an explicit policy and must not be called producer-conforming for a modern independent form."
+    },
+    {
+      "issue": 296,
+      "adr": "1004",
+      "review": "Retain permissive UTF-16/32 reads as deliberate tolerance. #296 is a UTF-8 producer requirement and the emitted packet test directly checks it; the reader is not ordered to reject other bytes."
+    },
+    {
+      "issue": 306,
+      "adr": "0019",
+      "review": "Retain the inline-image dictionary/value distinction. Effective Table 91 lowercase parenthetical disambiguation is matched by the `/I` key-position test and long-spelling control."
+    }
+  ],
+  "overall": "No new behavior failure established. Parent distinguishes explicit reader/device initialization for HTO and application binary-transport obligations from producer-only constraints. Historical #193 source synopsis is inaccurate; selected actual assertions provide bounded evidence."
+}

@@ -1,0 +1,6 @@
+{
+  "source": "Parent primary checks correct structure-content start744/729, structure-attributes start752/737, other-types start781/766. Effective Table377 replacement is1013\u20131014, not the old table. Artifact-by-absence rule at762/747 prevents an invented requirement to explicitly tag all artifacts.",
+  "assertions": "Parent read complete worked-example test: mapped roles, class precedence, IDTree, per-page ownership, cross-page references and generation101/1 are asserted. Namespace tests deliberately disagree between root and explicit namespace maps; cross-namespace chain reaches LI. Tagged fixture asserts default namespace. Stream attribute control T04 already PASS.",
+  "scope": "Current B03/B04/B43 and substitution/attribute findings remain authoritative. No new test/run or whole-clause certificate. A general reader rejection duty is not inferred from producer constraints.",
+  "archive_boundary": "Whole tagged-pdf check in pdf-archive/table/document_level.rs is Unchecked; specific checks do not establish a universal guard. Presence-only preparation and blank-page positive fixture are narrow evidence. No runtime false positive claimed."
+}

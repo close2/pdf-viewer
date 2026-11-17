@@ -132,6 +132,37 @@ fn notes(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+#[expect(clippy::panic, reason = "missing callback is an explicit test failure")]
+fn assert_import_order(calls: &[Seen]) {
+    let position = |script: &str| calls.iter().position(|seen| seen.script == script);
+    let Some(doc) = position("/* Doc function */ function fdfHelper(){return 1;}") else {
+        panic!("Table 248 /Doc script should run: {calls:?}");
+    };
+    let Some(before) = position("/* before import */ void 0;") else {
+        panic!("Table 248 /Before script should run: {calls:?}");
+    };
+    let Some(after) = position("/* after import */ void 0;") else {
+        panic!("Table 248 /After script should run: {calls:?}");
+    };
+    let Some(rights_ready) = position("/* after permissions ready */ void 0;") else {
+        panic!("Table 248 /AfterPermsReady script should run: {calls:?}");
+    };
+    assert!(doc < before, "Doc scripts execute before Before: {calls:?}");
+    assert!(
+        before < after,
+        "Table 248 places Before and After on opposite sides of import: {calls:?}"
+    );
+    // ADR 2816 chooses this order when usage rights are already determined at document open.
+    // Table 248's separate rights-ready condition is still not observable through this runner.
+    assert!(
+        after < rights_ready,
+        "ADR 2816 dispatches After before AfterPermsReady: {calls:?}"
+    );
+    assert_eq!(value_for(&calls[before], "name"), Some("old"));
+    assert_eq!(value_for(&calls[after], "name"), Some("imported"));
+    assert_eq!(value_for(&calls[rights_ready], "name"), Some("imported"));
+}
+
 /// With script execution enabled, Table 248 adds Doc scripts before Before, executes Before while
 /// the old target field is still present, and runs After only after the imported value is active.
 /// `AfterPermsReady` also must follow import; its separate rights-ready timing is not observable in
@@ -211,23 +242,7 @@ fn fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order
         .unwrap_or_else(PoisonError::into_inner)
         .calls
         .clone();
-    let position = |script: &str| calls.iter().position(|seen| seen.script == script);
-    let Some(doc) = position("/* Doc function */ function fdfHelper(){return 1;}") else {
-        panic!("Table 248 /Doc script should run: {calls:?}");
-    };
-    let Some(before) = position("/* before import */ void 0;") else {
-        panic!("Table 248 /Before script should run: {calls:?}");
-    };
-    let Some(after) = position("/* after import */ void 0;") else {
-        panic!("Table 248 /After script should run: {calls:?}");
-    };
-    let Some(rights_ready) = position("/* after permissions ready */ void 0;") else {
-        panic!("Table 248 /AfterPermsReady script should run: {calls:?}");
-    };
-    assert!(doc < before, "Doc scripts execute before Before: {calls:?}");
-    assert_eq!(value_for(&calls[before], "name"), Some("old"));
-    assert_eq!(value_for(&calls[after], "name"), Some("imported"));
-    assert_eq!(value_for(&calls[rights_ready], "name"), Some("imported"));
+    assert_import_order(&calls);
     assert!(
         import_notes
             .iter()

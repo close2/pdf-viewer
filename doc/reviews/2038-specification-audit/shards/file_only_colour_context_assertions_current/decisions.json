@@ -1,0 +1,34 @@
+{
+  "baseline": "b901326c",
+  "bounded_decisions": [
+    {
+      "topic": "Do the four broad file-only references independently establish all of §11.7 and §11.7.5.3?",
+      "decision": "No. The §11.7 file pointer has a named CMYK route-equivalence test and several other tests, but it is not one isolated assertion and does not prove the family as a whole. The more focused §11.7.5.3 test files provide current-paint, intent, and pattern-context evidence; the ledger also names separate transparency_groups tests for group-at-Do and exception routes."
+    },
+    {
+      "topic": "Is current BG/UCR at painting distinguished from setting/selecting color earlier?",
+      "decision": "Yes for sampled cases. `solid_selection_order_matches_image_and_clause_arithmetic` asserts the same literal output with the pair before or after solid/stroke/stencil/image source setup. Pattern tint tests separately change the pair after selection and restore through q/Q. They are observable raster assertions, not merely state-reader tests."
+    },
+    {
+      "topic": "Are the expected values independent and normatively unique?",
+      "decision": "The ICC intent expected values are independently computed from test-local profile table values and explicit math. The BG/UCR input-side CMYK vector is hand-derived from §10.4.2.4, while [52,62,79] is specific to the viewer's assumed press rendering. Treat that as a useful regression oracle, not a uniquely ISO-required screen result."
+    },
+    {
+      "topic": "Does an unverified generated ICC profile make the intent tests invalid?",
+      "decision": "It limits the claim: these tests discriminate the parser/renderer over intentionally distinct local A2B tables, but do not certify all ICC profile validity constraints or all real profiles. No malformed-reader rejection conclusion follows."
+    },
+    {
+      "topic": "Is a duplicate draft needed for these pointers?",
+      "decision": "No identified gap warrants one. The most direct DeviceRGB-to-DeviceCMYK sample has the independently derived formula and visible literal pixel; patterned and cached uses have pair-change controls; intent tests have independent table-derived expected values. Group-at-Do is handled by other named tests in the clause row and is outside this four-pointer set."
+    }
+  ],
+  "selected_adr_reconsiderations": [
+    {"adr":"1207", "review":"The explicit current BG/UCR pair for the DeviceRGB→DeviceCMYK group route is scoped to the source bullets. The direct source-derived-pixel tests support the sampled route; do not generalize to ICC B2A or every RGB conversion."},
+    {"adr":"2549", "review":"B2A as the renderer's default when no explicit pair is stated is a policy construction alongside §10.4.2.1's ICC preference; the tests with explicit pairs do not independently settle that default choice."},
+    {"adr":"1242", "review":"Historical only: its output-intent/profile departure was explicitly removed by ADR 2549. The current code/ledger no longer carries that exception, and Unsupported::BlackGeneration is removed. Do not cite ADR 1242 as the current policy."},
+    {"adr":"2276", "review":"The paint-time CMYK family decision matches the group-space distinction, but this audit did not revisit the ADR's selected/output-intent selection matrix or its known narrower residual."},
+    {"adr":"2199", "review":"Pattern tint conversion state loss was explicitly identified and repaired by retaining source/components and current conversion context. Current pattern tests exercise later-pair and restoration cases; no stale exclusion inferred."},
+    {"adr":"1266", "review":"Transfer timing is distinct: §11.7.5.3's NOTE places transfer after compositing/rasterization. Its tests/decision are not evidence for BG/UCR selection timing and were not recertified here."}
+  ],
+  "execution": "No Cargo or Rust tests were run by this reviewer. Parent previously reported the selected press literal test PASS; this shard makes no new run claim."
+}

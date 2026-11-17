@@ -964,4 +964,64 @@ mod engine {
             view.script_reports()
         );
     }
+
+    // Table 221: both JS text forms reach the engine, with a later action calling the definition.
+    #[test]
+    fn a_name_tree_script_in_a_text_stream_defines_a_function_the_open_action_executes() {
+        let source = "function mark(){ this.getField('Log').value='from-stream'; }";
+        let stream = format!(
+            "<< /Length {} >>\nstream\n{}\nendstream",
+            source.len(),
+            source
+        );
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] /DR << /Font << /Helv 7 0 R >> >> >> \
+             /Names << /JavaScript << /Names [(library label) 5 0 R] >> >> \
+             /OpenAction << /S /JavaScript /JS (mark\\(\\);) >>",
+            "/Resources << >>",
+            &[4],
+            &[
+                text_field("Log", "", "/V ()"),
+                "<< /S /JavaScript /JS 6 0 R >>".to_owned(),
+                stream,
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+            ],
+        );
+
+        assert!(!document.was_recovered(), "fixture uses its exact xref");
+        let mut view = engine_view(&document);
+        assert_eq!(view.run_open_scripts(&document, 0), 2);
+        assert_eq!(value(&view, &document, "Log"), "from-stream");
+        assert!(
+            view.script_reports().is_empty(),
+            "{:?}",
+            view.script_reports()
+        );
+    }
+
+    #[test]
+    fn a_direct_string_control_defines_the_same_function() {
+        let source = "function mark(){ this.getField('Log').value='from-string'; }";
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] /DR << /Font << /Helv 6 0 R >> >> >> \
+             /Names << /JavaScript << /Names [(library label) 5 0 R] >> >> \
+             /OpenAction << /S /JavaScript /JS (mark\\(\\);) >>",
+            "/Resources << >>",
+            &[4],
+            &[
+                text_field("Log", "", "/V ()"),
+                format!("<< /S /JavaScript /JS ({source}) >>"),
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+            ],
+        );
+        assert!(!document.was_recovered(), "fixture uses its exact xref");
+        let mut view = engine_view(&document);
+        assert_eq!(view.run_open_scripts(&document, 0), 2);
+        assert_eq!(value(&view, &document, "Log"), "from-string");
+        assert!(
+            view.script_reports().is_empty(),
+            "{:?}",
+            view.script_reports()
+        );
+    }
 }

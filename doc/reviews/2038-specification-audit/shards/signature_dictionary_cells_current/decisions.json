@@ -1,0 +1,33 @@
+{
+  "decisions": [
+    {
+      "topic": "Table256 DigestMethod effective status",
+      "source": "EC3 #117 strikes Required and inserts Optional; deprecated in PDF2.0. Table256 value list remains. Do not read old parenthetical as active.",
+      "current_decision": "Treat an absent digest method as conforming. Current signatures report it as absent, while present known/outside names are preserved for reporting. Do not conflate it with CMS ByteRange digest selection.",
+      "evidence": "signature.rs::a_reference_dictionary_says_which_digest_its_modification_analysis_uses and viewer-core notes controls.",
+      "residual": "No new test or conformance claim about a transform-specific digest calculation; source/API route requires a separate focused review if the ledger promises it."
+    },
+    {
+      "topic": "Table257 /P type and recovery",
+      "source": "EC3 #152 changes Table257 /P from number to integer. Valid choices are 1/2/3; absent defaults to2.",
+      "current_decision": "A real-valued /P test expecting fallback is a malformed-input recovery control, not a valid document showing a reader failure. Preserve this distinction.",
+      "evidence": "signature.rs::a_docmdp_level_written_as_a_real_takes_the_tables_default."
+    },
+    {
+      "topic": "DTS-only DocMDP carveout",
+      "source": "Table257 P cell and §12.8.2.2.1 state only necessary data for subsequent DSS/DTS updates shall not count; §12.8.5.3 requires ignoring DTS/DSS presence in evaluation.",
+      "current_decision": "Retain the narrowly observed B18 failure: valid timestamp update registration is reported NotClassified, while unrelated page content in a mixed update remains outside carveout. This is already in global findings and should be corrected once, not duplicated.",
+      "related_adr": "ADR0907's 'by construction' reasoning covers operation restriction's not consulting DSS/DTS, not the independent revision classifier."
+    },
+    {
+      "topic": "FieldMDP renamed field identity",
+      "source": "Table259/#33 says selected field names are fully qualified. It does not prescribe cross-revision name/object correspondence after /T changes.",
+      "current_decision": "Retain B42's execution as an unresolved comparison-policy witness, not mandatory ISO failure. Stable-name controls are valid; same-object rename identity remains inference-qualified.",
+      "related_adr": "ADR1096 defines Data scope and notes no production host currently invokes this comparison API; it does not decide rename identity."
+    },
+    {
+      "topic": "Test drafting",
+      "current_decision": "No new drafts. Existing valid B18 fixture/control, #152 malformed real-value recovery, stable FieldMDP controls, and B42 comparison seam collectively cover the bounded selected questions."
+    }
+  ]
+}

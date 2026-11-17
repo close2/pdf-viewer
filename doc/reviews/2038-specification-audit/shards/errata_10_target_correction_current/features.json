@@ -1,0 +1,31 @@
+{
+  "scope": "Exact target of EC3 issue10, Table5 F cell, physical47/printed32.",
+  "source": {
+    "page_height": 841.92,
+    "strike_quad": [
+      303.519,
+      191.369,
+      332.532,
+      191.369,
+      303.519,
+      181.409,
+      332.532,
+      181.409
+    ],
+    "bbox_word": "should",
+    "bbox": [
+      303.51882,
+      648.838,
+      332.53228,
+      660.51112
+    ],
+    "replacement": "shall"
+  },
+  "effective_rule": "Length SHALL still specify the number of embedded bytes even when F supplies external data. The separate embedded-bytes-ignore sentence was already mandatory.",
+  "supersedes": [
+    "shards/errata_early_behavior_current/findings.txt issue10 target attribution",
+    "shards/stream_dictionary_cells_current/findings.txt issue10 target attribution",
+    "shards/stream_dictionary_cells_current/decisions.json issue10 attribution"
+  ],
+  "impact": "Audit source correction only. Existing refusal assertion still tests base Table5 behavior; it does not demonstrate the corrected Length producer obligation."
+}

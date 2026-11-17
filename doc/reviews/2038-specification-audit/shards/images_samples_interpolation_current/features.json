@@ -1,0 +1,63 @@
+{
+  "baseline": "b901326c",
+  "scope": ["8.9.2", "8.9.3", "8.9.4", "8.9.5.3", "8.9.5.4"],
+  "source_method": "Effective PDF 2.0 plus EC3; physical page is printed page + 15. The alternate-image algorithm is amended by Issue #79 markup, so extracted body text alone is insufficient.",
+  "features": [
+    {
+      "clause": "8.9.2",
+      "source_location": "printed 255, physical 270; heading 'Image parameters'. The paragraph states four interrelated image parameters: format, data, user-space correspondence, and sample-to-colour mapping.",
+      "ledger": "doc/conformance/ledger.toml:1923-1928",
+      "implementation": ["crates/pdf-model/src/image/dispatch.rs", "crates/pdf-model/src/image/space.rs", "crates/pdf-model/src/content/xobject.rs"],
+      "assertions": ["crates/pdf-model/tests/image_coordinates_audit.rs::non_square_source_grid_maps_row_major_onto_the_transformed_unit_square", "crates/pdf-model/tests/bit_depths.rs", "crates/pdf-model/tests/decode_arrays.rs"],
+      "assessment": "The standalone image_coordinates_audit fixture supplies a valid 3x2 DeviceRGB image with explicit width, height, 8-bit samples, stream data, placement matrix, and literal six-color expectations. It demonstrates all four parameter roles in one valid XObject; it is not an exhaustive assertion for every image format or colour family. The broader format and mapping families belong to the separately reviewed image decoding shards.",
+      "verdict": "supported for the sampled valid XObject; clause-wide assertion inventory not repeated here",
+      "residuals": ["This focused render fixture does not enumerate all image codecs, component counts, or colour-space families."],
+      "related_adrs": ["0101", "1302", "2100"]
+    },
+    {
+      "clause": "8.9.3",
+      "source_location": "printed 255-256, physical 270-271; heading 'Sample representation'. Specifies high-order-bit-first packing, row byte alignment, unsigned sample values, and component interleaving; physical 271 contains the component-interleaving and sample-grid prose.",
+      "ledger": "doc/conformance/ledger.toml:1931-1936",
+      "implementation": ["crates/pdf-model/src/image/unpack.rs", "crates/pdf-model/src/image/dispatch.rs"],
+      "assertions": ["crates/pdf-model/tests/bit_depths.rs::a_row_restarts_on_a_byte_boundary", "crates/pdf-model/tests/bit_depths.rs::sixteen_bit_samples_are_two_bytes_most_significant_first", "crates/pdf-model/tests/bit_depths.rs::two_bit_samples_are_four_to_a_byte", "crates/pdf-model/tests/image_coordinates_audit.rs::non_square_source_grid_maps_row_major_onto_the_transformed_unit_square"],
+      "assessment": "The ledger's named packing tests target byte-row restart, bit order and 16-bit byte order; the coordinate audit's six independently literal RGB samples additionally asserts row-major component/sample interpretation through the public render path. The coordinate fixture uses 8-bit components, so it is not evidence for the other bit depths; those are separately asserted in bit_depths.rs.",
+      "verdict": "sampled assertions align with the cited representation features",
+      "residuals": ["This shard did not re-audit every bit-depth, inline-image, or codec-specific representation path."],
+      "related_adrs": ["0101"]
+    },
+    {
+      "clause": "8.9.4",
+      "source_location": "printed 256-257, physical 271-272; heading 'Image coordinate system'. The image-space origin is upper-left, sample cells are row-major, and [1/w 0 0 -1/h 0 1] maps source coordinates into the unit square; printed 257 carries the matrix and Figure 49.",
+      "ledger": "doc/conformance/ledger.toml:1939-1944",
+      "implementation": ["crates/render-cpu/src/image.rs", "crates/render-gpu/src/scene.rs", "crates/pdf-render/src/paint.rs"],
+      "assertions": ["crates/pdf-model/tests/image_coordinates_audit.rs::non_square_source_grid_maps_row_major_onto_the_transformed_unit_square", "crates/pdf-model/tests/image_coordinates_audit.rs::a_reflected_image_reverses_columns_without_reversing_rows", "crates/pdf-model/tests/image_coordinates_audit.rs::image_cells_follow_both_columns_of_a_skewed_ctm"],
+      "assessment": "Strong discriminating public-render coverage: a 3x2 grid with six distinct literal colours is placed into a 60x60 square, then under reflection and skew. Assertions cover row orientation, aspect-ratio independence, both transform columns and outside-image white controls. The exact-xref helper asserts Document::was_recovered() is false and interpretation completeness; expected pixels derive directly from the encoded sample bytes and stated matrices.",
+      "verdict": "strong focused coverage of the source-to-user coordinate mapping",
+      "residuals": ["CPU raster is the literal pixel oracle; the separate existing render-cpu image_placement suite covers ordinary placement and the ledger separately names GPU, but this audit did not execute or re-audit every backend."],
+      "related_adrs": ["1302", "2100"]
+    },
+    {
+      "clause": "8.9.5.3",
+      "source_location": "printed 263, physical 278; heading 'Image interpolation'. Table 87 is printed 259, physical 274: /Interpolate is optional boolean, default false. The clause states the flag is only a hint and a processor may ignore it.",
+      "ledger": "doc/conformance/ledger.toml:1971-1977",
+      "implementation": ["crates/pdf-model/src/image/dispatch.rs:151-154", "crates/pdf-render/src/paint.rs:618-644,801-803", "crates/render-cpu/src/image.rs:134-137", "crates/render-gpu/src/scene.rs:1144-1147", "crates/render-raster/src/scene/images.rs:70-92"],
+      "assertions": ["crates/pdf-model/tests/image_interpolation_audit.rs::ordinary_image_interpolation_hint_is_parsed_and_honored_on_magnified_reflected_images", "crates/pdf-render/src/paint.rs::interpolate_decides_a_magnified_image_and_nothing_else"],
+      "assessment": "The public-render fixture has exact xref offsets, valid 2x1 grayscale samples, normal and reflected placement, explicit false versus absent default controls, stable source-interior samples and seam controls. It asserts the current CPU bilinear outcome for true; the test comment explicitly identifies this as local policy. Exact bilinear values are not a normative conformance oracle because the source permits ignoring the hint and does not prescribe a filter kernel. The dispatch parser uses only boolean true as enabled and otherwise defaults false.",
+      "verdict": "flag plumbing/default supported; filter-kernel assertion is implementation policy, not a normative requirement",
+      "residuals": ["No normative requirement to produce bilinear/mixed pixels, nor to honor true, is inferred. Backend-specific filtering equivalence was not asserted."],
+      "related_adrs": ["0025", "0101", "1302", "2100"]
+    },
+    {
+      "clause": "8.9.5.4",
+      "source_location": "printed 264-265, physical 279-280; Table 89 printed 264/physical 279. Effective Issue #79 EC3 markups: physical 279 replaces terminal-hidden wording and printing selection; physical 280 replaces ordinary alternate selection and adds step (e). Footer confirms printed pages 264-265.",
+      "primary_markup_evidence": "pikepdf inspection of Issue #79 annotations: physical 279 replacement caret says hidden base content -> nothing; another says printed + any DefaultForPrinting true -> that alternate printed. Physical 280 replacement caret says choose first alternate with visible /OC, skip entries lacking /OC, and do not inspect selected /Image stream's own /OC; a text annotation adds step (e): if c/d identify none, render base. Strikeout annotation rectangles on both pages mark superseded text; raw pdftotext includes that struck text.",
+      "ledger": "doc/conformance/ledger.toml:1979-1987",
+      "implementation": ["crates/pdf-model/src/content/xobject.rs:70-113", "crates/pdf-model/src/content/image.rs:121-225,228-267", "crates/pdf-model/src/view/settings.rs"],
+      "assertions": ["crates/pdf-model/tests/optional_content.rs::a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates", "crates/pdf-model/tests/optional_content.rs::a_base_image_with_no_group_shows_the_first_visible_alternate", "crates/pdf-model/tests/optional_content.rs::an_alternate_with_no_group_is_not_shown_and_the_base_image_is", "crates/pdf-model/tests/optional_content.rs::a_base_image_whose_alternates_are_all_hidden_is_drawn_itself", "crates/pdf-model/tests/optional_content.rs::the_selected_alternates_own_image_group_is_not_examined", "crates/pdf-model/tests/optional_content.rs::a_default_for_printing_alternate_is_chosen_only_when_the_pdf_is_being_printed", "crates/pdf-model/tests/optional_content.rs::a_base_image_stating_a_group_never_reaches_default_for_printing", "crates/pdf-model/tests/optional_content.rs::a_designated_alternate_is_printed_whatever_its_own_group_says"],
+      "assessment": "Existing synthetic valid PDF fixtures assert source-derived black/white pixel identities and named controls for each relevant branch: hidden/visible base, first visible alternate versus later candidate, no-/OC alternate skipped, no selected alternate falls back to base, print-only DefaultForPrinting, base /OC prevents alternate selection, and selected alternate's image-stream /OC is not rechecked. These are end-to-end interpretation/raster tests. The code path is split correctly between base visibility in draw_xobject and c/d selection in alternate_image. Table 89 allows at most one print-designated entry; malformed multiple designations are not elevated into a new normative case.",
+      "verdict": "effective amended algorithm is implemented and meaningfully asserted for sampled paths",
+      "residuals": ["No corpus PDF in the recorded census exercises /Alternates; evidence is synthetic. This shard did not exhaust Table 89 malformed-entry handling or re-audit optional-content expression semantics."],
+      "related_adrs": ["0092", "0253", "0375", "1173", "1174"]
+    }
+  ]
+}

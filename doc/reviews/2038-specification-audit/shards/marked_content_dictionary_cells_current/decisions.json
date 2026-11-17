@@ -1,0 +1,48 @@
+{
+  "scope": "Selected current decision checks related to marked-content property resources and membership dictionaries.",
+  "decisions": [
+    {
+      "related_adrs": [
+        "ADR 0060"
+      ],
+      "topic": "Inline dictionaries and named Properties resources",
+      "review": "Retain the two-form resolver. The source permits direct property dictionaries inline and requires a named resource when a list has an indirect value. Current parser/interpreter supports the name route; a remaining assertion-quality gap is specifically that no accessibility/text extraction test was found for named resource + indirect ActualText. The draft targets that public consumer, rather than redefining property-list syntax.",
+      "status": "narrow assertion gap drafted; no production finding"
+    },
+    {
+      "related_adrs": [
+        "ADR 1894"
+      ],
+      "topic": "Streaming marked-content state across Contents pieces",
+      "review": "Retain. The existing public test opens a marked sequence in one page Contents-array stream and closes it in the next, with visible/hidden controls. This is not repeated in the present draft.",
+      "status": "no new gap"
+    },
+    {
+      "related_adrs": [
+        "ADR 2304",
+        "ADR 2406"
+      ],
+      "topic": "Operator-family dispatch split",
+      "review": "No source mismatch found in the reviewed property operand paths; these implementation-organization decisions do not change the Table 352 forms.",
+      "status": "retained"
+    },
+    {
+      "related_adrs": [
+        "ADR 2684"
+      ],
+      "topic": "Undefined optional-content property resource in archive processing",
+      "review": "Keep scoped to archive treatment of undefined optional-content resources. It does not create a general requirement to reject a missing /Properties name during content interpretation.",
+      "status": "retained; no duplicate issue"
+    },
+    {
+      "related_adrs": [
+        "ADR 0017",
+        "ADR 0178",
+        "ADR 2684"
+      ],
+      "topic": "Membership-policy and missing-resource behavior",
+      "review": "ADR 0017 establishes the rendered visibility obligations and membership-policy implementation; ADR 0178 scopes page reachability for the layer UI; ADR 2684 handles an undefined named OC property in archive validation. Current optional_content_cells_current contains controls for single-group OCGs, policy/VE precedence, and null-reference neutrality. The older optional_content_current summary that called null neutrality uncovered is stale; do not elevate it to a present defect.",
+      "status": "current tests retained; no new draft"
+    }
+  ]
+}

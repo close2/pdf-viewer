@@ -1,0 +1,42 @@
+[
+  {
+    "decision": "Treat an erratum according to its corrected modal and audience. A table's writer validity rule does not create a reader rejection obligation, and a SHOULD recommendation does not become a SHALL.",
+    "issues": [
+      90,
+      139,
+      191,
+      258,
+      297,
+      299,
+      392,
+      536,
+      679
+    ],
+    "basis": "Primary PDF page annotations and amended wording: #90 scopes the CR rule to providing Contents; #139 forbids endpoint /Prev or /Next; #191 requires nonnegative MaxLen; #258 says Name-form GoToE destinations are not provided; #297/#299 revise feature-version markers; #392 conditions RV on non-null V; #536 changes fit recommendation to SHOULD; #679 corrects RichMedia argument type. Most of these bind producers or clause-13 functionality outside the reader's selected scope.",
+    "result": "Do not add reader-error behavior or invalid-input conformance tests for these producer constraints. Verify only the writer behavior the product claims to produce, and preserve tolerant-reader behavior unless an independent requirement says otherwise."
+  },
+  {
+    "decision": "Record the two meaningful annotation clarifications, #254 and #318, in the effective-source evidence even though code already matches them.",
+    "issues": [
+      254,
+      318
+    ],
+    "basis": "#254's added NOTE states that an absent ClassMap class is empty and adds no attributes; structure/attributes.rs currently skips it. #318's eight Carets change DA's type descriptions from string to byte string in tables/prose; variable_text routes DA as &[u8] and parses it as PDF operators.",
+    "result": "No behavior defect established. The current errata inventory/owner notes should cite the effective annotations for traceability; no new test is necessary unless the parent wants a source-specific regression for missing ClassMap."
+  },
+  {
+    "decision": "Retain the already documented Issue #191 owner correction to 12.7.5.3.",
+    "basis": "The primary PDF's physical p.556 / printed p.541 annotation strike/caret overlays Table 232 /MaxLen and inserts the nonnegative integer qualification. The file's current errata-read discussion says #191 is filed under \u00a712.7.5.4 but belongs to \u00a712.7.5.3.",
+    "result": "The clause correction is about the producer-valid MaxLen value. Current form code consumes nonnegative MaxLen limits and tests valid truncation; no requirement to reject negative values was inferred for readers."
+  },
+  {
+    "decision": "Treat Issue #618 as cross-reference-only and Issue #679 as excluded RichMedia action behavior.",
+    "basis": "#618 extends Table 226 /AA's pointer to Table 199; it does not change the referenced action requirements. #679 changes Table 223's RichMediaCommand argument type from number to real; its action family is excluded by the current clause-13 product scope.",
+    "result": "No duplicate test draft. The independently assigned script-action shard owns Table 199 behavior and its engine-enabled validation; it does not turn #618 into a separate engine requirement."
+  },
+  {
+    "decision": "Current code and ledger take precedence over historical scope assumptions.",
+    "basis": "ADR 1634 explicitly amends 1122/1197; 1635 amends the earlier regeneration decision. Current 12.7.5.3 reads and lays out RV.",
+    "result": "Withdraw the draft rich-text exclusion. Keep the non-null producer condition and actual current consumer evidence."
+  }
+]

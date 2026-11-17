@@ -1,0 +1,107 @@
+{
+  "scope": "Tests whose source returns successfully from a missing fixture or optional input path; this is a source/presence audit, not an execution report.",
+  "workspace": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "observed": {
+    "doc_pdfjs_directory_present": true,
+    "doc_pdfjs_pdf_count": 974,
+    "issue1155_pdf_present": false,
+    "issue1155_nearby_names": [
+      "issue11555.pdf",
+      "issue1155r.pdf"
+    ],
+    "doc_corpora_submodules": "The four selected optional corpus files are PRESENT in this audit worktree. Earlier absent-file claims came from the owner checkout and are withdrawn.",
+    "test_execution": "Parent reproduced the two early returns with success output; separately ran four present-corpus controls and broad64. See gate-results.json."
+  },
+  "candidates": [
+    {
+      "test": "crates/pdf-model/tests/text_layer.rs::invisible_text_is_placed_too",
+      "fixture": "doc/pdf.js/test/pdfs/issue1155.pdf",
+      "presence": "absent while the corpus directory is present",
+      "missing_branch": "prints 'skipped: doc/pdf.js is not checked out' and returns",
+      "assertions_if_loaded": [
+        "readback text is nonempty",
+        "glyph count is zero",
+        "text layer is nonempty",
+        "each placement center is within page bounds"
+      ],
+      "ledger_rows": [],
+      "independent_coverage": "selection_geometry.rs::invisible_modes_place_every_glyph_they_do_not_draw and text_render_modes.rs exercise rendering modes 3/7 with deterministic inputs; this is additional real OCR-corpus evidence, not sole coverage of invisible text selection.",
+      "related_behavior": "9.3.6, but the current row does not cite this test. It cites the independent selection_geometry test."
+    },
+    {
+      "test": "crates/viewer-core/tests/headless.rs::a_page_that_could_not_be_drawn_whole_says_so",
+      "fixture": "doc/pdf.js/test/pdfs/issue1155.pdf",
+      "presence": "absent while the corpus directory is present",
+      "missing_branch": "prints 'skipped: doc/pdf.js is not checked out' and returns",
+      "assertions_if_loaded": [
+        "Open emits a nonempty Event::Reported note set",
+        "Query::Reports retains one page-0 report with the same note count"
+      ],
+      "ledger_rows": [
+        "I.1"
+      ],
+      "independent_coverage": "objects_not_understood.rs uses valid synthetic PDFs and checks partial rendering plus Query::Reports for unknown filters and silent treatment of an unknown dictionary key; it does not assert the public Open Event::Reported channel. New deterministic Open event test now checks document/page identity, literal missing-object note and equality with stored notes."
+    },
+    {
+      "test": "crates/pdf-model/tests/articles.rs::a_producers_own_thread_is_walked_to_its_beads",
+      "fixture": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-3110-poems-beads.pdf",
+      "presence": "present in the audit worktree; earlier absence claim withdrawn",
+      "missing_branch": "prints skip and returns",
+      "assertions_if_loaded": [
+        "two article threads",
+        "expected poem titles and bead counts",
+        "each bead has a page",
+        "rings close"
+      ],
+      "independent_coverage": "This producer witness is available and executes here; other synthetic coverage remains separate.",
+      "test_execution": "PASS in broad64 and selected success-output run present-corpus-controls-wave64.log, with no skip message. Parent inspected the read/open/skip helper."
+    },
+    {
+      "test": "crates/pdf-model/tests/collections.rs::a_producers_own_portable_collection_is_read_with_its_folders",
+      "fixture": "doc/corpora/format-corpus/pdfCabinetOfHorrors/digitally_signed_3D_Portfolio.pdf",
+      "presence": "present in the audit worktree; earlier absence claim withdrawn",
+      "missing_branch": "prints skip and returns",
+      "assertions_if_loaded": [
+        "producer collection/view/schema fields",
+        "folder tree and five embedded-file keys",
+        "folder naming and file-to-folder associations"
+      ],
+      "independent_coverage": "This producer witness is available and executes here; other synthetic coverage remains separate.",
+      "test_execution": "PASS in broad64 and selected success-output run present-corpus-controls-wave64.log, with no skip message. Parent inspected the read/open/skip helper."
+    },
+    {
+      "test": "crates/pdf-model/tests/composite_fonts.rs::an_identity_h_fonts_partial_to_unicode_is_completed_by_the_program",
+      "fixture": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-5838-0024320-reduced.pdf",
+      "presence": "present in the audit worktree; earlier absence claim withdrawn",
+      "missing_branch": "prints skip and returns",
+      "assertions_if_loaded": [
+        "literal extracted string Honors Research Project"
+      ],
+      "ledger_rows": [
+        "9.10.2 and 9.10.3; inspect current row before claiming test is sole proof"
+      ],
+      "independent_coverage": "This producer witness is available and executes here; other synthetic coverage remains separate.",
+      "test_execution": "PASS in broad64 and selected success-output run present-corpus-controls-wave64.log, with no skip message. Parent inspected the read/open/skip helper."
+    },
+    {
+      "test": "crates/pdf-model/tests/composite_fonts.rs::a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it",
+      "fixture": "doc/corpora/pdfbox/pdfbox/src/test/resources/input/PDFBOX-4322-Empty-ToUnicode-reduced.pdf",
+      "presence": "present in the audit worktree; earlier absence claim withdrawn",
+      "missing_branch": "prints skip and returns",
+      "assertions_if_loaded": [
+        "literal extracted string is empty"
+      ],
+      "ledger_rows": [
+        "9.10.2"
+      ],
+      "independent_coverage": "This producer witness is available and executes here; other synthetic coverage remains separate.",
+      "test_execution": "PASS in broad64 and selected success-output run present-corpus-controls-wave64.log, with no skip message. Parent inspected the read/open/skip helper."
+    }
+  ],
+  "classification": {
+    "present_corpus_but_absent_exact_pdf": "issue1155.pdf is absent from a present974-PDF corpus. Both tests return successfully and print a misleading submodule-absence message. One is explicitly cited by implemented ledger I.1. The repository habit requires a panic when a present corpus lacks the required input; current guards fail that distinction.",
+    "absent_optional_submodule": "No such absence established among the four selected optional corpus paths in this worktree. General optional-submodule skip policy remains valid, but does not describe these observations.",
+    "present_fixture_optional_branch": "Source permits early return if moved/removed; presently the named input exists. Do not equate existence with a test having executed."
+  },
+  "parent_correction": "The initial reviewer ran presence checks in the owner checkout despite naming the audit worktree. Parent corrected the inventory with a reproducible script and selected execution. No owner checkout data or edits were imported."
+}

@@ -1,0 +1,41 @@
+# §8.11 optional-content audit (bounded feature pass)
+
+Scope read: effective ISO 32000-2:2020 consolidated with EC3, §8.11.1 through §8.11.4.5; Tables 96–101; linked Table 166; EC3 errata index and `doc/errata-read.md`; ledger rows 8.11 through 8.11.4.5; current optional-content code and named public tests. This is feature-granular sampling, not certification of the whole clause.
+
+## Source-to-ledger map and main conclusions
+
+The ledger has rows for every §8.11 subclause, all currently `implemented`. The source divides into four materially different groups: OCG/OCMD state model (Tables 96–97); points where graphics become optional (marked content, forms/images/annotations); default configuration (Tables 98–99); and automatic usage/event adjustment (Tables 100–101). The feature map records each and distinguishes reader behavior from producer validity and UI choices.
+
+The strongest already-tested obligations are the ordinary BaseState/ON/OFF behavior, all four OCMD policy directions at least in part, one-group indirect-reference identity, VE taking precedence, a VE depth limit being reported, hidden graphics-state side effects, undeclared-group and no-OCProperties behavior, own-/OC handling for a form and annotation, and View/Print/Export lifecycle. Parent/ledger statements that “nothing under §8.11 is owed” describe the adopted implementation scope; this pass does not independently certify every listed table branch.
+
+Two focused source-derived assertion gaps are worth promoting for public tests:
+
+1. **Nested parent visibility on XObjects.** Table 96 prose says an inner group cannot show content while a parent group is hidden, and §8.11.3.3 says the XObject group is combined with visibility in the invocation context. The current own-/OC test has only a form whose own group is off. `drafts/nested_visibility.rs::visible_form_oc_is_still_hidden_by_its_outer_marked_content_context` builds a valid exact-xref PDF with an ON form inside hidden outer BDC scope; separate left-form/right-after-EMC pixels are independent controls. It asserts the public rendered output and refuses unsupported recovery. It is a draft, unrun.
+2. **Null membership references neutralize P.** Table 97 explicitly requires null/deleted references ignored and says P has no effect when all OCG refs are null/deleted. Existing tests do not demonstrate that. `drafts/nested_visibility.rs::null_membership_references_make_policy_have_no_effect` compares `/OCGs [null] /P /AnyOn` (visible) with a real OFF group and the same AnyOn policy (hidden). Draft, unrun.
+
+Current `Visibility::operand` maps an OCG whose state cannot be read (including an intent-filtered OCG) to true. Under a VE `And`, true is a neutral placeholder; under `Or` and `Not`, it can affect the result. The exact meaning of “no effect on visibility” when that group appears inside a boolean expression is not settled by the source text reviewed. Treat as a standards interpretation question, not a conformance defect.
+
+## Defaults, author requirements, and reader policy
+
+Some source constraints are explicitly on the file producer: the default configuration's BaseState must be ON; its Intent must be View; dictionary/table required fields and valid VE arity; empty inner arrays in RBGroups (EC3 Issue #225). This audit does not infer mandatory reader error/recovery behavior from those clauses. By contrast, §8.11.4.2 directly says that absent OCProperties means optional content structures are ignored; that behavior has a public pixel assertion. If an invalid `OCProperties` object occurs, required-value clauses do not automatically say which reader diagnostic or recovery result is mandatory.
+
+Table 100 is not a list of eight equal state algorithms: CreatorInfo and PageElement are descriptive categories, while View/Print/Export/Zoom/User/Language supply state recommendations when selected by AS. Issue #567 notes that optional-content Language does not change the language of the content; it adds no visibility rule. Table 101 category arrays and multiple same-event dictionaries are separately important; tests cover several combinations, but this pass did not establish every language exact/partial tie branch or every category default.
+
+Table 99 Order, ListMode, RBGroups and Locked serve interactive presentation/change behavior; Configs merely permits alternate configurations. “Optional” Configs does not require alternate-configuration UI. This pass did not re-audit the whole layer-panel tree or every RBGroups behavior. `groups_referenced_by` tests are UI/reachability evidence, not runtime visibility evidence.
+
+## Errata and ADR check
+
+EC3 Issues #686 and #707 only repair the PDF object wrapping in §8.11.3.2 examples; no change to their normative content. Issue #225 adds a writer constraint to RBGroups' nested arrays. Issue #567 clarifies that Usage/Language is not the content's language. No other §8.11 behavioral erratum was found in the reviewed index.
+
+ADR 0017 explains why optional content required its own evaluator and why absent OCProperties is decisive, but its old “interactive half is not implemented” status has been superseded by current work. ADR 1173's purpose channel and operation-duration event overlay agree with §8.11.4.5, and tests exercise them. ADR 0178 addresses page group reachability for the layer panel; it does not evidence the rendering evaluator. ADR 1261's aggregate-child status rule is coherent, while the feature-level gaps above show why an aggregate `implemented` label is not itself assertion evidence.
+
+## Shading extension page correction
+
+The prior `shading_current/extension_features.json` now uses printed source pages from the ISO PDF footer (Type 2 p.233–234, Type 3 p.235–237, Table 77 common bounds/background p.230–234) and keeps processed Markdown lines as separate source locators. Parent reported extension mesh tests pass with an independent Bernstein inversion oracle; the non-unit axial/radial Domain draft remains unrun. This keeps the correction separate from the original committed shading feature inventory as requested.
+
+## Remaining work
+
+- Parent to inspect and run the two optional-content drafts; both remain unverified here.
+- Re-audit View-language exact versus partial matching and multiple matching groups if the current `implemented` claim needs branch-complete evidence.
+- Re-audit the complete interactive Order/ListMode/RBGroups/Locked consumer path before making a blanket §8.11 family statement.
+- Decide the ignored-intent/VE composition reading before turning that ambiguity into a normative test.

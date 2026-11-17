@@ -1,0 +1,8 @@
+[
+  {
+    "adr": "2729",
+    "verdict": "Retain component-based TIFF correction; undefined-depth refusal is deliberate policy.",
+    "basis": "ISO §7.4.4.4 explicitly distinguishes TIFF component arithmetic from PNG byte arithmetic. Existing independent carry/wrap tests and new PNG contrast controls support the distinction.",
+    "limits": "No fresh performance conclusion; malformed-input refusal is not an ISO MUST reject."
+  }
+]

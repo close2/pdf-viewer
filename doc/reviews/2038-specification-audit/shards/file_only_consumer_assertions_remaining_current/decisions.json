@@ -1,0 +1,35 @@
+{
+  "selected_reviews": [
+    {
+      "clause": "7.4.6",
+      "file_only_reference": "pdf-model/tests/corpus.rs",
+      "verdict": "SUPPLEMENTAL_ONLY; no gap found",
+      "reason": "The corpus walk is explicitly ignored and submodule-dependent. It is not the proof for fax parameters. Named parameter tests provide direct controls, and this worktree currently has the 974-file input tree; no test execution was performed."
+    },
+    {
+      "clause": "7.4.8",
+      "file_only_reference": "pdf-model/tests/corpus.rs",
+      "verdict": "SUPPLEMENTAL_ONLY; no gap found",
+      "reason": "Literal constructed-JPEG tests cover the PDF ColorTransform default/precedence. The corpus/fixed-document references are broad regression witnesses and do not replace those expected-value assertions."
+    },
+    {
+      "clause": "7.4.9",
+      "file_only_reference": "pdf-model/tests/corpus.rs",
+      "verdict": "SUPPLEMENTAL_DELEGATED-CODESTREAM_CHECK; no gap found",
+      "reason": "The OpenJPEG comparison is conditional on an external tool and available corpus inputs. The PDF-specific ColorSpace and Decode interactions have separate constructed public/model tests; this pass did not run either suite."
+    },
+    {
+      "clause": "10.7 / 10.7.3",
+      "file_only_reference": "render-gpu/tests/headless_gpu.rs",
+      "verdict": "FIXTURE/BACKEND SUPPORT ONLY; no gap found",
+      "reason": "The direct smoothness assertion is a deterministic literal test in pdf-render/src/shading.rs. Headless GPU agreement is secondary and GPU-related returns in other named tests do not gate that unit assertion."
+    },
+    {
+      "clause": "11.4.6",
+      "file_only_reference": "test-scenes/src/lib.rs",
+      "verdict": "FIXTURE BUILDER ONLY; no gap found",
+      "reason": "The referenced file has no assertions. Named model/CPU tests use its scenes alongside independent literal pixel controls, so the builder reference itself is not counted as verification. CPU/GPU equality remains corroborative, not the source oracle."
+    }
+  ],
+  "scope": "Five additional rows from the file-only inventory were inspected. This is not a whole-clause recertification and no production or test changes are proposed."
+}

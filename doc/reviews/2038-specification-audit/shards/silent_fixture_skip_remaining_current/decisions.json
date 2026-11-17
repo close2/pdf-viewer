@@ -1,0 +1,37 @@
+{
+  "reviews": [
+    {
+      "item": "D45 issue1155 fixture skip",
+      "verdict": "Confirmed existing coverage-transparency finding; do not count as a new finding in this follow-up.",
+      "basis": "Exact issue1155 leaf remains absent and its two original corpus tests return early. However T84 already supplies an integrated passing deterministic Open-event consumer control; it is not an outstanding draft.",
+      "evidence": "Prior scratchpad/r2038/spec-audit/silent_fixture_skip_current inventory and this shard's filesystem/source recheck."
+    },
+    {
+      "item": "Optional producer witnesses",
+      "verdict": "Reconfirm final current parent disposition: all four producer witnesses present; no new correction needed.",
+      "basis": "Checkpoint64 parent-review already corrected the original owner-checkout mixup and executed all four witnesses. This pass independently reconfirms their current presence, not a newly discovered error in the promoted final disposition.",
+      "evidence": "Explicit audit-worktree filesystem checks for each full path."
+    },
+    {
+      "item": "Article and collection corpus census error handling",
+      "verdict": "Qualify as readable-corpus inventories; no current silent pass or implementation defect established.",
+      "basis": "Each census continues over per-file read/parse failures, so a specific failed file is omitted from its population. Both have non-vacuous sentinels: articles requires two /Threads entries and collections requires exactly 22 embedded-file keys; empty population does not succeed. No failed input was observed and the named producer-specific witnesses are tested separately.",
+      "evidence": "crates/pdf-model/tests/articles.rs::no_pdfjs_document_states_an_article; crates/pdf-model/tests/collections.rs::no_pdfjs_document_is_a_portable_collection; respective \u00a712.4.3 and \u00a712.3.5 ledger rows."
+    },
+    {
+      "item": "URW CFF machine-font test",
+      "verdict": "Transparent environment-dependent early return, not an identified reader conformance gap.",
+      "basis": "The machine-specific directory does not exist here and the test prints that the population is unavailable. Ten shipped CFF faces are exercised by a separate deterministic test in the same module. The machine-face test is not directly named by a ledger test entry in the reviewed search.",
+      "evidence": "crates/pdf-font/src/stretch_cff_tests.rs::every_shipped_cff_face_draws_its_outlines_at_the_windows_scale and ::every_urw_face_on_this_machine_takes_its_fitting."
+    },
+    {
+      "item": "New test or patch",
+      "verdict": "No new draft warranted in this follow-up.",
+      "basis": "The only absent sampled PDF.js leaf is already D45; T84 closes its bounded Open-event assertion gap while the producer fixture remains missing. Other sampled guards have present inputs or explicit optional machine conditions. Census expected counts prevent empty-population success."
+    }
+  ],
+  "residuals": [
+    "The corpus census loops deliberately omit individual read/open failures without emitting a per-file failure list. This limits what their aggregate absence claims establish, but no specific current skipped file was identified here.",
+    "Parent checked current silent_fixture_skip_current/parent-review.json: final disposition already records974pdfs and four present/executed producer witnesses. Historical raw draft language must not override that current review."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "scope": "Selected aggregate-framing checks only. These decisions do not certify complete ADRs or the underlying leaf features.",
+  "decisions": [
+    {
+      "topic": "Colour specification versus device rendering",
+      "source": "§8.6.1; Clause 10; optional separation simulation sentence",
+      "review": "Keep PDF colour-space semantics and device rendering policy separate. The source requires colour reproduction for a rendering processor but explicitly makes separation simulation optional and points device calibration/halftoning to Clause 10. Do not promote an unimplemented printer-specific effect into a universal colour-space reader defect.",
+      "status": "No new departure or defect found; leaf evidence remains distributed among colour and rendering shards."
+    },
+    {
+      "topic": "One downstream pipeline for marks and image samples",
+      "source": "§8.6.2 final paragraph",
+      "review": "Images ignore the current graphics-state colour parameter when selecting source samples, but later colour-processing stages treat those samples like SC/sc values. This supports shared conversion plumbing while retaining image-specific Decode/mask/SMask semantics. Do not collapse the two stages into one source-value rule.",
+      "status": "Aggregate framing is consistent with separate image and colour-space owners; no new cross-family regression established."
+    },
+    {
+      "topic": "Ignored operations in d1 glyphs and uncoloured patterns",
+      "source": "§8.6.8; Table 73; EC3 #551; §§8.7.3.3, 9.6.4",
+      "review": "The restriction is a runtime interpretation rule for specific content contexts. Tests need actual downstream paint/state assertions and controls; dictionary parse acceptance alone is weak. The source permits image masks while suppressing other image painting. EC3 #551 changed a producer-side Table 73 CS resource shape statement; it does not require a reader to reject name-valued forms.",
+      "status": "Existing narrow assertions support selected routes; full operator/image enumeration remains unreviewed. No blanket conformance conclusion."
+    },
+    {
+      "topic": "Font aggregate rows do not supersede leaf audit",
+      "source": "§§9.1, 9.2, 9.7, 9.10",
+      "review": "Text positioning, font data, glyph rendering and extraction have distinct consumers. Aggregate tests can substantiate a connection between paths but cannot substitute for leaf semantics. The current shard evidence has explicit residuals for encoding/CMaps, extraction, rendering, and tagged text.",
+      "status": "No independently omitted overview algorithm identified in this pass."
+    }
+  ]
+}

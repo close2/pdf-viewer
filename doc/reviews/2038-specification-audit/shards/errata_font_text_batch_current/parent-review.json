@@ -1,0 +1,7 @@
+{
+  "source": "Freshly enumerated nine issue groups and read physical325 string-operand rules, physical330 corrected list, descriptor notes and relevant example targets. #550 is ordering at the lexer/font boundary; #165 is a writer escaping condition.",
+  "test": "Parent checked exact xref objects, embedded Liberation Sans CID36/GID36 metrics (1366/2048 em), explicit CMap and ToUnicode code0041. Both escaped and hex forms assert literal expected text/count/advance independently. This is interpretation/text placement, not a pixel test.",
+  "decision": "Current standard.rs/substitute.rs comments and ADR0396/1916 premise still cite the obsolete unhyphenated list spelling. Parent read is_standard_name test: both spellings accepted. Keep tolerant alias behavior; record corrected current source rationale without rewriting historical ADRs.",
+  "execution": "model-wave61b.log two tests pass; quality-model-wave61b.log all targets pass. Initial command invocation error and Clippy formatting/fixture-length issues were corrected; no product failure arose from them.",
+  "residuals": "CR-output assertion for selected literal-string writers remains missing; Differences indirect names remain untested separately; no all-font certificate."
+}

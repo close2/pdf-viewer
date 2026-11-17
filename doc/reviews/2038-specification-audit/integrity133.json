@@ -1,0 +1,13 @@
+{
+  "checkpoint": 133,
+  "unique_findings": 318,
+  "unique_expected_failure_identities": 117,
+  "manifest_finding_references_resolve": true,
+  "ledger_rows": 883,
+  "all_ledger_rows_partial": true,
+  "indexed_shards": 309,
+  "all_indexed_artifacts_exist": true,
+  "unique_partial_table_matrices": 172,
+  "duplicate_json_keys": 0,
+  "scope": "Structural artifact integrity, not semantic certification. Checked all durable JSON with duplicate-key rejection; current inventory/shard/matrix links resolve. Final broad observed/expected identities match separately."
+}

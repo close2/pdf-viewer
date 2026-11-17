@@ -1,0 +1,58 @@
+{
+  "scope": "Bounded Table 29 catalog-entry matrix against effective ISO 32000-2:2020 EC3, current reader/host consumers, linked clause evidence and current assertions. This is not a certification of each linked clause or every possible catalog value.",
+  "source": {
+    "document": "ISO_32000-2_sponsored_EC3.pdf",
+    "table": "§7.7.2 Table 29, physical pp.113–117 / printed pp.98–102; §7.7.2 prose physical p.112 / printed p.97. Physical page numbers are verified against printed footer via extracted page layout, not inferred from formfeed count.",
+    "errata_checked": "Actual EC3 annotation objects/rectangles on Table 29 physical pp.114–117; see errata list below."
+  },
+  "matrix": [
+    {"key":"Type","cell":"Required name /Catalog","consumer":"pdf-syntax Document::catalog and catalog callers","assertions":"minimal PDF/catalog tests; broad document tests","assessment":"Required root type path is exercised; no Table29-wide claim from this cell."},
+    {"key":"Version","cell":"Optional PDF 1.4 name; later catalog version can supersede header; absent/lower follows header","consumer":"version.rs and transform update/merge","assertions":"version and incremental-update shards","assessment":"Separately reviewed; not re-audited here."},
+    {"key":"Extensions","cell":"Optional dictionary, ISO 32000-1 extensions","consumer":"compatibility extension parser and producer routes","assertions":"compatibility_extensions_current; annex_e_writer_names_current","assessment":"Separately reviewed; EC3 #242 changes writer requirement to direct object."},
+    {"key":"Pages","cell":"Required indirect reference to page-tree root","consumer":"pdf_model::page::Pages; transform writer preconditions","assertions":"page_geometry/page_tree_nodes and optimize tests","assessment":"Extensively owned elsewhere; not re-audited."},
+    {"key":"PageLabels","cell":"Optional PDF 1.3 number tree","consumer":"page labels and accessibility/UI callers","assertions":"page label shards","assessment":"Linked consumer evidence exists; not re-audited."},
+    {"key":"Names","cell":"Optional name dictionary; PDF 2 unencrypted wrapper uses EmbeddedFiles tree","consumer":"names/attachments/collection","assertions":"file_specs_current, collections, archive wrappers","assessment":"Linked obligations reviewed in dedicated shards."},
+    {"key":"Dests","cell":"Optional PDF 1.1 dictionary; no indirect-only constraint after EC3 #106","consumer":"named destinations/navigation","assertions":"destinations_current_followup uses catalog /Dests indirect","assessment":"Direct catalog dictionary form not found in selected assertions; implementation's get_key/as_dict supports either form. No defect inferred; optional coverage opportunity."},
+    {"key":"ViewerPreferences","cell":"Optional dictionary; reader preference if absent","consumer":"viewer_preferences","assertions":"viewer_preferences_layout_current","assessment":"Separately reviewed."},
+    {"key":"PageLayout","cell":"Optional name; defaults SinglePage","consumer":"viewer_core layout and all three hosts","assertions":"viewer_preferences_layout_current","assessment":"Six values and public layout covered in linked shard."},
+    {"key":"PageMode","cell":"Optional name; defaults UseNone","consumer":"viewer-host tab/panel selection","assertions":"viewer_preferences_layout_current","assessment":"Six values and host behavior covered in linked shard."},
+    {"key":"Outlines","cell":"Optional dictionary; EC3 #106 removes indirect-only producer constraint","consumer":"outlines","assertions":"outlines_threads_current","assessment":"Empty direct dictionary is not observably distinct from absent; nonempty direct root cannot provide required indirect Parent backrefs. No new meaningful reader test identified."},
+    {"key":"Threads","cell":"Optional PDF 1.1 array; EC3 #106 removes indirect-only producer constraint","consumer":"article/thread model","assertions":"outlines_threads_current; viewer-core/tests/articles.rs includes catalog /Threads [6 0 R]","assessment":"Direct array is positively tested; no gap established."},
+    {"key":"OpenAction","cell":"Optional PDF 1.1 dictionary or array; if absent open first page top/default magnification","consumer":"viewer open sequence/actions","assertions":"viewer_preferences_layout_current; actions_chains_current","assessment":"Direct and ordering semantics separately reviewed; not duplicated."},
+    {"key":"AA","cell":"Optional PDF 1.2 document-level additional-actions dictionary","consumer":"pdf-model/src/view/script_sites.rs::document_entry and run_document_scripts; archive action policy","assertions":"document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations; ::print_triggers_follow_a_successful_start_and_active_finish; document_trigger_timing_residual_audit.rs::catalog_save_triggers_follow_xfa_cancellation_and_public_save_outcome","assessment":"Current source reads catalog /AA via Document::get_key, and public tests assert trigger execution. Those fixtures use a direct /AA dictionary and direct /WS-/DS-/WC-/WP-/DP action values. Indirect /AA and indirect trigger values are not directly asserted; draft adds a direct/indirect equivalence control. This is a coverage gap only, not a behavior defect."},
+    {"key":"URI","cell":"Optional PDF 1.1 URI information dictionary","consumer":"relative URI action resolution","assertions":"actions_chains_current and file-spec/action tests","assessment":"Direct /URI form tested; indirect variant not targeted in this pass."},
+    {"key":"AcroForm","cell":"Optional PDF 1.2 interactive form dictionary","consumer":"form model/viewer","assertions":"form shards and document trigger fixtures","assessment":"Separately reviewed."},
+    {"key":"Metadata","cell":"Optional PDF 1.4 stream; shall be indirect","consumer":"XMP document metadata","assertions":"metadata_current","assessment":"Linked consumer and entry-specific obligation reviewed elsewhere."},
+    {"key":"StructTreeRoot","cell":"Optional PDF 1.3 dictionary; EC3 #348 adds indirect-reference requirement","consumer":"tagged structure/accessibility","assertions":"logical_structure/tagged_layout","assessment":"Linked consumer review; reader/writer obligations distinct."},
+    {"key":"MarkInfo","cell":"Optional PDF 1.4 dictionary","consumer":"tagged-document status","assertions":"tagged_layout","assessment":"Linked consumer review."},
+    {"key":"Lang","cell":"Optional PDF 1.4 text string; absent or invalid means language unknown after #105; #135 clarifies text","consumer":"accessibility/language defaults","assertions":"language_pronunciation_current; structured_errata_security_current","assessment":"Catalog string and precedence behavior reviewed separately."},
+    {"key":"SpiderInfo","cell":"Optional PDF 1.3 dictionary; deprecated PDF 2.0 by #672","consumer":"legacy web capture","assertions":"deprecated_web_prepress_current","assessment":"Deprecation/inapplicability reviewed; no current web capture consumer claim."},
+    {"key":"OutputIntents","cell":"Optional PDF 1.4 array","consumer":"output-intent/color-management consumers","assertions":"output_intents_current and colour-context shards","assessment":"Page/catalog intent behavior reviewed elsewhere; fixture-validity limits are recorded there."},
+    {"key":"PieceInfo","cell":"Optional PDF 1.4 dictionary of private application data","consumer":"preservation/producer private data","assertions":"Table29 ledger rationale and §14.5 policy","assessment":"General-purpose processors may ignore private data; no missing reader behavior inferred."},
+    {"key":"OCProperties","cell":"Optional PDF 1.5 dictionary; required if optional content is present","consumer":"optional-content configuration/rendering","assertions":"optional_content_current and file-only consumer assertions","assessment":"Consumer/render behavior reviewed elsewhere."},
+    {"key":"Perms","cell":"Optional PDF 1.5 user-permissions dictionary","consumer":"digital-signature permissions","assertions":"signature and encryption shards","assessment":"Reviewed elsewhere."},
+    {"key":"Legal","cell":"Optional PDF 1.5 attestations dictionary","consumer":"legal attestations","assertions":"requirements/signature related owners","assessment":"Not independently re-audited; no unsupported claim made here."},
+    {"key":"Requirements","cell":"Optional PDF 1.7 array","consumer":"document requirement reporting","assertions":"document_requirements_current","assessment":"Policy/report behavior reviewed elsewhere."},
+    {"key":"Collection","cell":"Optional PDF 1.7 collection dictionary; unencrypted wrapper identifies payload and starts hidden","consumer":"collections/attachment presentation","assertions":"collections and archive wrapper tests","assessment":"Wrapper requirements reviewed separately."},
+    {"key":"NeedsRendering","cell":"Optional boolean default false; deprecated PDF 2.0","consumer":"XFA dynamic-layout classification","assertions":"annex_i_k_current and adr1257_1270_archive_claims_current","assessment":"Owner accepted dynamic XFA as scheduled future work; permission to decline page generation remains explicit meanwhile. Not treated as absent feature being silently supported."},
+    {"key":"DSS","cell":"Optional PDF 2.0 dictionary","consumer":"validation-related signature data","assertions":"signature validation shards","assessment":"Reviewed elsewhere."},
+    {"key":"AF","cell":"Optional PDF 2.0 array of associated file specifications","consumer":"associated files/document parts","assertions":"dpart_associated_files_current and file_specs_current","assessment":"Reviewed elsewhere."},
+    {"key":"DPartRoot","cell":"Optional PDF 2.0 dictionary; EC3 #614 adds indirect-reference requirement","consumer":"document-part hierarchy","assertions":"dpart_limits_current and dpart_associated_files_current","assessment":"Reviewed elsewhere."}
+  ],
+  "ec3_table29_annotations": [
+    {"issue":106,"physical_pages":[114,115],"effect":"Strikes three Table 29 indirect-reference requirements for Dests, Outlines, Threads; no blanket reader rejection obligation follows."},
+    {"issue":242,"physical_page":114,"effect":"Caret adds 'shall be a direct object' to Extensions."},
+    {"issue":105,"physical_page":116,"effect":"Caret adds invalid catalog Lang handling as unknown, with reference to §14.9.2."},
+    {"issue":135,"physical_page":116,"effect":"Text note clarifies text includes PDF text strings and textual content."},
+    {"issue":348,"physical_page":116,"effect":"Caret adds indirect-reference requirement to StructTreeRoot."},
+    {"issue":672,"physical_page":116,"effect":"Caret marks SpiderInfo deprecated in PDF 2.0."},
+    {"issue":614,"physical_page":117,"effect":"Caret adds indirect-reference requirement to DPartRoot."},
+    {"issue":439,"physical_page":117,"effect":"Amends §7.5.7 prohibition on putting encrypted-document catalog in an object stream; not a Table 29 cell edit."}
+  ],
+  "unreviewed_or_limited": [
+    "This is a Table 29 entry matrix, not a re-review of every linked clause or exhaustive values for each entry.",
+    "Legal and DSS were mapped to existing owners but not independently re-audited in this pass.",
+    "No direct-vs-indirect public control was added for Dests or URI; these are optional assertion gaps and no implementation failure was found.",
+    "Direct /AA tests already exercise all five document trigger moments, while the draft concerns only indirect representation."
+  ]
+}

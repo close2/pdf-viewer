@@ -1,0 +1,29 @@
+{
+  "reviews": [
+    {
+      "adr":"0162",
+      "scope":"Table 149 view geometry, including content bounds and null components",
+      "verdict":"Reopen the geometry interpretation narrowly. The ADR's inference that /FitR and /FitB place their rectangle/content-box top-left at the window corner is contradicted by Table 149's explicit requirement to center the rectangle/bounding box in the unused dimension. Existing headless assertions at viewport 300x400 lock in corner placement and are wrong; current apply_view repeats that interpretation. Retain only separately supported claims about zoom fitting, null components, transformed coordinates, and content-box source, subject to their own tests. Parent is adding a discriminating centered geometry regression; it was not run here."
+    },
+    {
+      "adr":"2814",
+      "scope":"Table 149 coordinate transformations and preservation of null coordinates on page jumps",
+      "verdict":"Retain only the coordinate/null conclusions actually supported by their tests. Reopen the local /FitR and /FitB placement inference: the explicit centering language is not met by the corner-only implementation/assertion. Separately reopen application to cross-document GoToR/GoToE destinations: replacement paths appear to carry page but not Table 149 View. Both are narrow findings, not a claim about the whole ADR."
+    },
+    {
+      "adr":"1227",
+      "scope":"GoToR target file request, policy and replacement",
+      "verdict":"Retain the filesystem/host boundary, named file request and target page-selection behavior. The existing test establishes 0-based page index 2 but not the D destination's magnification/location; note the narrow view-propagation gap/defect separately. No requirement to reject a producer-invalid page index is inferred here."
+    },
+    {
+      "adr":"0094",
+      "scope":"GoToE embedded file walk and destination in target",
+      "verdict":"Retain the embedded target traversal and page selection. Existing integration evidence tests page index only; `jump_into`'s apparent omission of Table 149 view is distinct from the correctness of the /T walk. Reconsider the action-view portion narrowly, subject to test execution."
+    },
+    {
+      "adr":"2814 section 2",
+      "scope":"Catalog OpenAction action execution",
+      "verdict":"Not directly implicated in this follow-up. Target-document OpenAction is independent from the triggering GoToR/GoToE destination; positive controls should use a separate directly opened target so its own pending view cannot mask the action's view omission."
+    }
+  ]
+}

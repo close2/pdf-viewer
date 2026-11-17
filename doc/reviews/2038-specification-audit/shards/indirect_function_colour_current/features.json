@@ -1,0 +1,35 @@
+{
+  "scope": "Focused \u00a77.3.10 direct/indirect numeric-array representation audit for sampled Type 0 functions and CalGray spaces. Includes direct-versus-indirect exact-xref controls, parser consumers, and selected assertion review. Not certification of all function types, all CIE spaces, or arbitrary reference-chain depth.",
+  "source": {
+    "general_rule": "Primary physical49/printed34 \u00a77.3.10 says direct/indirect semantics equivalent unless documented otherwise. \u00a77.3.9 physical48 defines null, includes nonexistent-reference-as-null and dictionary-null-equivalent-to-omission;7.3.10 repeats undefined-reference-as-null. Draft relocation of dictionary omission to7.3.10 corrected.",
+    "function_tables": "\u00a77.10.1 starts printed p.123 / physical p.138. Table 38 spans printed pp.124\u2013125 / physical pp.139\u2013140; its Domain/Range are arrays of numeric pairs. \u00a77.10.2 spans printed pp.125\u2013127 / physical pp.140\u2013142; Type 0 Table 39 is printed pp.125\u2013126 / physical pp.140\u2013141 and uses Size, Encode, Decode and Range arrays. EC3 #30 at the Type 2 Domain discussion (printed p.128 / physical p.143) clarifies two producer-side constraints for noninteger/negative N; it does not alter reference representation.",
+    "colour_table": "\u00a78.6.5.2 and Table 62, printed p.186 / physical p.201. CalGray WhitePoint is required as an array of three numbers, Gamma is an optional positive number with default 1. The selected review found no effective EC3 correction to Table 62's fields or direct/indirect representation.",
+    "special_rules": "No function- or CalGray-specific direct-only rule was identified for these ordinary object values. Do not borrow the special direct-only constraints of cross-reference stream dictionaries (\u00a77.5.8.2) as a counterexample; they concern xref bootstrap data, not functions or colour spaces."
+  },
+  "features": [
+    {
+      "id": "sampled-function-indirect-numeric-arrays",
+      "source_location": "\u00a77.3.10 physical49/printed34; \u00a77.10.1 physical138/printed123; Table38 physical139\u2013140/printed124\u2013125; \u00a77.10.2 physical140\u2013142/printed125\u2013127; Type0 Table39 physical140\u2013141/printed125\u2013126.",
+      "requirement": "A function's Domain and Range arrays and a sampled function's Encode and Decode arrays may be indirect; numeric elements in each array may themselves be indirect. The referenced values retain the same meaning and array order.",
+      "implementation": "crates/pdf-colour/src/function.rs::parse_within obtains Domain and Range through pairs(document,...). `pairs` calls `numbers`; `numbers` uses Document::get_key for the array and Document::resolve for each item. `parse_sampled` likewise reads Size, Decode, and Encode through these helpers before sample interpolation.",
+      "existing_assertions": "functions_spec_audit.rs exercises direct Domain/Range, Type 0 direct Decode/Encode and sample interpolation. sampled_functions_spec_audit.rs and function unit tests exercise sampled interpolation, order, and sample interpretation. In the inspected tests, these paths use direct numeric arrays; no ordinary-function direct/indirect equivalence pair with referenced array members was found. Existing direct assertions are algorithm evidence, not evidence of indirect representation.",
+      "draft": "drafts/indirect_function_colour_spec_audit.rs::sampled_function_indirect_arrays_and_numeric_members_keep_the_direct_result. Exact-xref Type0 PDFs compare direct arrays to indirect Domain/Range/Encode/Decode arrays whose numeric members are references. Raw sample bytes [0,255], /Encode [0,1], input0.5 and /Decode [0,1] independently predict0.5. The Range [-1,1] control makes ignoring Decode produce0, so the Decode assertion is discriminating.",
+      "verdict": "Inspected parser code resolves array-valued keys and their numeric members consistently with \u00a77.3.10. A focused assertion gap remains; draft supplies a public Function::parse/eval control. No implementation failure is established."
+    },
+    {
+      "id": "calgray-indirect-whitepoint-and-gamma",
+      "source_location": "\u00a77.3.10 physical49/printed34; \u00a78.6.5.2/Table62 physical201/printed186.",
+      "requirement": "CalGray's WhitePoint array and its three numeric components may be indirect; its Gamma number may be indirect. The same parsed CIE space and conversion apply.",
+      "implementation": "crates/pdf-colour/src/colour/parsing.rs::parse_cal_gray resolves the CalGray dictionary and gets Gamma through Document::get_key; crates/pdf-colour/src/colour/entries.rs::numbers resolves the WhitePoint array and each numeric member through Document::resolve.",
+      "existing_assertions": "colour.rs::calgray_applies_its_gamma_before_the_white_point and neighbouring CalGray tests exercise conversion with directly constructed ColourSpace values. Parsing tests for CalGray/CalRGB/Lab use direct dictionaries and arrays; no direct-vs-indirect CalGray fixture was found in the inspected colour tests.",
+      "draft": "drafts/indirect_function_colour_spec_audit.rs::calgray_whitepoint_array_members_and_gamma_resolve_indirectly compares direct and indirect parsed colour-space dictionaries. Both state D50 WhitePoint and Gamma2; at gray0.5, expected linear luminance is0.25 and the independently stated sRGB transfer formula gives approximately0.53709873 in each channel.",
+      "verdict": "Inspected code resolves the dictionary values and WhitePoint members. The public conversion-path assertion is absent from the searched test tree; draft adds a paired indirect positive and independent neutral sample oracle. No behavior failure is established."
+    }
+  ],
+  "limits": [
+    "The function draft covers Type0 only. It does not add a Type2 C0/C1/N or Type3 Bounds/Encode indirect fixture; code inspection indicates the same Document access/resolution helpers are used, but those type-specific paths are not tested by this shard.",
+    "The CalGray draft covers WhitePoint and Gamma, not BlackPoint, CalRGB Gamma/Matrix, or Lab Range.",
+    "Drafts are scratch-only and unexecuted; parent owns integration and execution. No malformed-only rejection condition is inferred."
+  ],
+  "parent_execution": "Two tracked derivative testsPASS after stronger nondefault function fields and appropriate colourprecision qualification; seeparent-review."
+}

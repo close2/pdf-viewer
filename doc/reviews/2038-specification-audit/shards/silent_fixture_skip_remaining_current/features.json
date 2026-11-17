@@ -1,0 +1,76 @@
+{
+  "baseline": "166ed1a91b2f64ef38e672fb939b5ab195b07938",
+  "scope": "Bounded second pass over test early-return, optional-input and zero-item/vacuity candidates. Read current ledger references and assertions for high-value candidates; filesystem checks use the explicit audit worktree including its symlinked corpora. No Cargo/tests run.",
+  "worktree_presence": {
+    "pdfjs_top_level_pdf_count": 974,
+    "issue1155_pdf": false,
+    "other_named_pdfjs_witnesses_sampled": {
+      "issue17215.pdf": true,
+      "issue17492.pdf": true,
+      "160F-2019.pdf": true,
+      "issue3214.pdf": true,
+      "attachment.pdf": true,
+      "annotation-fileattachment.pdf": true,
+      "bug1937438_af_from_latex.pdf": true,
+      "poppler-742-0-fuzzed.pdf": true,
+      "auth-event-ef-open.pdf": true
+    },
+    "optional_producer_witnesses_sampled": {
+      "PDFBOX-3110-poems-beads.pdf": true,
+      "pdfCabinetOfHorrors/digitally_signed_3D_Portfolio.pdf": true,
+      "PDFBOX-5838-0024320-reduced.pdf": true,
+      "PDFBOX-4322-Empty-ToUnicode-reduced.pdf": true
+    },
+    "machine_font_collection": {
+      "path": "/usr/share/fonts/opentype/urw-base35",
+      "present": false,
+      "affected_test": "crates/pdf-font/src/stretch_cff_tests.rs::every_urw_face_on_this_machine_takes_its_fitting"
+    }
+  },
+  "reviewed_candidates": [
+    {
+      "test": "crates/viewer-core/tests/headless.rs::a_page_that_could_not_be_drawn_whole_says_so and crates/pdf-model/tests/text_layer.rs::invisible_text_is_placed_too",
+      "fixture": "doc/pdf.js/test/pdfs/issue1155.pdf",
+      "current_branch": "Both exact fixture lookups miss even though the pdf.js directory is present; source takes a successful early return before corpus-specific assertions.",
+      "existing_independent_assertions": "Deterministic invisible rendering-mode tests exist. Checkpoint64 T84 already integrated and passed a deterministic Open Event::Reported assertion in objects_not_understood.rs, in addition to Query::Reports; issue1155 producer witness itself remains unavailable.",
+      "ledger_rows": [
+        "9.3.6",
+        "Annex I.1"
+      ]
+    },
+    {
+      "test": "crates/pdf-model/tests/articles.rs::no_pdfjs_document_states_an_article",
+      "ledger_row": "12.4.3",
+      "potential_vacuity": "Corpus read errors and Document::open failures are continued over, but the test then requires exactly two /Threads catalog entries and zero page /B entries. A missing directory returns early; an empty directory does not pass. This is not an all()-over-empty test. The exact total remains a corpus census over readable PDFs, so failed reads are not individually reported.",
+      "source_status": "No evidence in this shard that any specific current file hit a read/open failure; do not call this a current skip or conformance defect."
+    },
+    {
+      "test": "crates/pdf-model/tests/collections.rs::no_pdfjs_document_is_a_portable_collection",
+      "ledger_row": "12.3.5",
+      "potential_vacuity": "Corpus read/open errors are continued over. Assertions require zero collections and /RFs plus exactly 22 embedded-file keys; a wholly empty or unreadable corpus fails the exact count. It is a census of readable inputs, not a completeness check for each unreadable item.",
+      "source_status": "No current failed path was established; no new skip finding."
+    },
+    {
+      "test": "crates/pdf-model/src/structure/tests.rs::a_document_whose_own_namespaces_all_role_map_is_read_and_says_nothing",
+      "ledger_row": "14.8.6",
+      "fixture": "doc/pdf.js/test/pdfs/bug1937438_af_from_latex.pdf (present)",
+      "current_branch": "The explicit read-error skip guard is false by presence; if loaded, the test first asserts the fixture declares nonstandard namespaces and then checks the resolved result is empty."
+    },
+    {
+      "test": "crates/pdf-font/src/stretch_cff_tests.rs::every_urw_face_on_this_machine_takes_its_fitting",
+      "ledger_reference": "No direct ledger test reference found for this function in the reviewed ledger search.",
+      "current_branch": "The URW system font directory is absent in this environment, so the test would print a diagnostic and return before its per-face loop. It is explicitly machine-dependent; the same file has `every_shipped_cff_face_draws_its_outlines_at_the_windows_scale` over ten bundled fonts.",
+      "status": "No missing general reader assertion established; the current CFF machine-face population is unavailable and is not silently confused with bundled-face coverage. Parent read bundled CFF test and its negative plant: the unscaled original passed as fitted output must be rejected by proved(), so global all-None drawing cannot silently pass the entire test family. Individual machine-font population remains absent."
+    },
+    {
+      "test": "crates/viewer-host/tests/every_host_that_arms_a_report_asks_for_it.rs::a_host_that_arms_the_documents_report_also_asks_for_it",
+      "current_branch": "Source enumeration returns on a missing `src` directory and individual source read errors become empty text, but the test asserts the arming set is nonempty and compares it to the asking set. Current workspace paths inspected exist; no read failure was observed by filesystem inspection.",
+      "status": "Its set comparison is not vacuous on an empty workspace. No current silent pass established."
+    }
+  ],
+  "execution": "No tests were run. Fixture presence is not evidence a branch executed; current execution status remains parent-owned.",
+  "unreviewed": [
+    "No complete audit of all test helper early returns, external tool gates, ignored corpus tests or all data enumeration errors.",
+    "No claim that the absence of another failure proves every ledger test assertion executes."
+  ]
+}

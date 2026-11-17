@@ -1,0 +1,1273 @@
+{
+  "root": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "precheck_counts": {
+    "function-basename-present": 4090,
+    "file-only": 69
+  },
+  "file_only_reference_count": 69,
+  "ledger_matched_reference_count": 69,
+  "all_references_have_named_sibling_tests": true,
+  "references": [
+    {
+      "clause": "7.3.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-syntax/src/parser.rs::a_null_value_does_not_survive_beside_a_real_one",
+        "crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key",
+        "crates/pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value",
+        "crates/pdf-syntax/tests/robustness.rs::a_dictionary_body_stops_at_the_keyword_that_ends_its_object",
+        "crates/pdf-syntax/tests/serialize.rs::a_reference_the_assembly_does_not_hold_is_written_as_null_and_counted"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.3.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_char_procs.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-syntax/src/parser.rs::a_null_value_does_not_survive_beside_a_real_one",
+        "crates/pdf-syntax/src/parser.rs::a_null_value_reads_the_same_as_an_absent_key",
+        "crates/pdf-syntax/src/parser.rs::a_repeated_key_keeps_the_first_value",
+        "crates/pdf-syntax/tests/robustness.rs::a_dictionary_body_stops_at_the_keyword_that_ends_its_object",
+        "crates/pdf-syntax/tests/serialize.rs::a_reference_the_assembly_does_not_hold_is_written_as_null_and_counted"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.3.8.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-syntax/tests/stream_keyword_padding.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/contents_entry.rs::a_part_the_file_states_is_empty_is_not_a_missing_content_stream",
+        "crates/pdf-syntax/src/document.rs::a_stream_whose_data_is_in_a_file_has_no_data_here"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.3.8.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-syntax/tests/real_documents.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/contents_entry.rs::a_part_the_file_states_is_empty_is_not_a_missing_content_stream",
+        "crates/pdf-syntax/src/document.rs::a_stream_whose_data_is_in_a_file_has_no_data_here"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-ccitt/tests/coding.rs::a_damaged_row_is_the_previous_row_and_the_decode_goes_on",
+        "crates/pdf-ccitt/tests/coding.rs::a_second_damaged_row_in_a_row_is_white_and_the_count_is_the_limit",
+        "crates/pdf-ccitt/tests/coding.rs::t4_figure_10_first_part_of_a_scan_line",
+        "crates/pdf-ccitt/tests/coding.rs::t4_figure_11_last_part_of_a_scan_line",
+        "crates/pdf-ccitt/tests/coding.rs::the_tolerance_is_inert_where_the_entry_does_not_apply",
+        "crates/pdf-ccitt/tests/coding.rs::with_no_rows_tolerated_the_first_damaged_row_is_the_error",
+        "crates/pdf-model/src/image/ccitt.rs::end_of_block_overrides_the_rows_parameter",
+        "crates/pdf-model/tests/ccitt.rs::a_scanned_page_comes_back_mostly_white",
+        "crates/pdf-model/tests/ccitt.rs::black_is_1_gives_the_exact_complement",
+        "crates/pdf-model/tests/ccitt_bound.rs::a_columns_that_is_not_the_padded_width_is_refused",
+        "crates/pdf-model/tests/ccitt_bound.rs::a_damaged_row_is_concealed_as_the_row_above_where_the_entry_applies",
+        "crates/pdf-model/tests/ccitt_bound.rs::at_zero_the_damaged_row_ends_the_decode_where_the_entry_applies",
+        "crates/pdf-model/tests/ccitt_bound.rs::columns_may_be_the_width_rounded_up_to_a_byte_boundary",
+        "crates/pdf-model/tests/ccitt_bound.rs::damage_before_the_first_line_refuses_the_picture_out_loud",
+        "crates/pdf-model/tests/ccitt_bound.rs::damaged_data_draws_the_lines_before_the_damage_and_says_so",
+        "crates/pdf-model/tests/ccitt_bound.rs::damaged_rows_is_inert_where_end_of_line_is_false",
+        "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_false_reaching_the_whole_height_says_nothing",
+        "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_false_stops_at_rows_and_blanks_the_rest_out_loud",
+        "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image",
+        "crates/pdf-model/tests/inline_images.rs::a_group_3_fax_ends_on_six_end_of_lines_rather_than_two",
+        "crates/pdf-model/tests/inline_images.rs::a_group_4_fax_ends_at_its_end_of_block_pattern",
+        "crates/pdf-model/tests/inline_images.rs::a_group_4_fax_without_an_ei_inside_it_ends_where_it_always_did"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/jbig2.rs::every_jbig2_coding_mode_decodes_to_the_same_image",
+        "crates/pdf-sandbox/src/decode.rs::a_generic_region_on_the_extended_template_decodes",
+        "crates/pdf-sandbox/tests/t88_conformance.rs::annex_k_streams_against_their_reference_bitmaps"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.8",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/colour_transform.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/image/dct.rs::a_ycck_codestreams_four_channels_stay_four",
+        "crates/pdf-model/tests/banded_decodes.rs::a_scan_without_its_eoi_is_never_cut_differently_at_its_rows",
+        "crates/pdf-model/tests/colour_transform.rs::with_neither_the_clauses_default_of_one_governs_whatever_the_identifiers_spell",
+        "crates/pdf-model/tests/dct_components.rs::a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image",
+        "crates/pdf-model/tests/dct_components.rs::a_dnl_marker_defines_or_redefines_the_frames_number_of_lines",
+        "crates/pdf-model/tests/dct_components.rs::a_frame_past_the_decoders_default_dimension_limit_is_still_this_crates_budget",
+        "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_ends_at_its_own_end_of_image_marker",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_thumbnails_own_end_of_image_does_not_end_the_outer_one",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_without_an_ei_inside_it_ends_where_it_always_did"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.8",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/image/dct.rs::a_ycck_codestreams_four_channels_stay_four",
+        "crates/pdf-model/tests/banded_decodes.rs::a_scan_without_its_eoi_is_never_cut_differently_at_its_rows",
+        "crates/pdf-model/tests/colour_transform.rs::with_neither_the_clauses_default_of_one_governs_whatever_the_identifiers_spell",
+        "crates/pdf-model/tests/dct_components.rs::a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image",
+        "crates/pdf-model/tests/dct_components.rs::a_dnl_marker_defines_or_redefines_the_frames_number_of_lines",
+        "crates/pdf-model/tests/dct_components.rs::a_frame_past_the_decoders_default_dimension_limit_is_still_this_crates_budget",
+        "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_ends_at_its_own_end_of_image_marker",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_thumbnails_own_end_of_image_does_not_end_the_outer_one",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_without_an_ei_inside_it_ends_where_it_always_did"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.8",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/image/dct.rs::a_ycck_codestreams_four_channels_stay_four",
+        "crates/pdf-model/tests/banded_decodes.rs::a_scan_without_its_eoi_is_never_cut_differently_at_its_rows",
+        "crates/pdf-model/tests/colour_transform.rs::with_neither_the_clauses_default_of_one_governs_whatever_the_identifiers_spell",
+        "crates/pdf-model/tests/dct_components.rs::a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image",
+        "crates/pdf-model/tests/dct_components.rs::a_dnl_marker_defines_or_redefines_the_frames_number_of_lines",
+        "crates/pdf-model/tests/dct_components.rs::a_frame_past_the_decoders_default_dimension_limit_is_still_this_crates_budget",
+        "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_ends_at_its_own_end_of_image_marker",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_thumbnails_own_end_of_image_does_not_end_the_outer_one",
+        "crates/pdf-model/tests/inline_images.rs::a_jpeg_without_an_ei_inside_it_ends_where_it_always_did"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.4.9",
+      "status_from_inventory": "departed",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour/extended_srgb.rs::a_colour_outside_srgb_is_told_from_rounding",
+        "crates/pdf-colour/src/colour/extended_srgb.rs::sycc_reaches_e_srgb_by_annex_c",
+        "crates/pdf-colour/src/colour/extended_srgb.rs::the_composed_matrix_is_annex_e_s_e3",
+        "crates/pdf-colour/src/colour/extended_srgb.rs::the_neutral_patch_table_decodes_to_its_own_luminances",
+        "crates/pdf-model/src/jpeg2000.rs::a_cielab_box_states_its_illuminant",
+        "crates/pdf-model/src/jpeg2000.rs::every_white_point_is_the_cie_datas_own_sum",
+        "crates/pdf-model/tests/jpeg2000.rs::every_corpus_codestream_decodes_to_the_reference_softwares_samples",
+        "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_beside_a_declared_space_is_applied",
+        "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_with_no_declared_space_is_ignored",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_space_not_drawn_falls_back_to_the_device_space_of_its_channel_count",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_specification_not_drawn_gives_way_to_the_next",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_colour_space_sets_the_data_s_specifications_aside",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_indexed_space_sets_the_data_s_palette_aside",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_writer_is_handed_sycc_inside_srgb_and_refused_it_outside",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_writer_is_refused_e_srgb_samples_by_name",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cielab_is_drawn_through_lab",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cielab_under_a_colour_temperature_is_drawn_under_the_radiators_white_point",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cielab_under_d65_is_drawn_through_lab_with_that_white_point",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cmyk_is_the_colour_its_four_samples_state",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::e_srgb_is_drawn_as_pima_7667_defines_it",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::e_sycc_is_drawn_as_annex_b_defines_it",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::romm_rgb_with_equal_components_is_neutral",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::srgb_grey_is_drawn_as_its_samples",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::srgb_is_drawn_as_its_samples",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::sycc_is_drawn_as_pima_7667_annex_c_converts_it",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::sycc_with_no_chroma_is_neutral",
+        "crates/pdf-model/tests/jpx_enumerated_spaces.rs::the_higher_precedence_is_used",
+        "crates/pdf-transform/tests/archive/kept_codestream.rs::every_answering_profile_keeps_a_bare_codestream_in_a_jp2_file"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.7.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-syntax/tests/real_documents.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::table_29s_display_entries_are_not_table_147s",
+        "crates/pdf-transform/tests/optimize.rs::a_document_only_recovery_reads_is_refused_by_name_rather_than_reported_as_an_error",
+        "crates/pdf-transform/tests/optimize_corpus.rs::every_corpus_document_is_rewritten_smaller_and_says_the_same_thing",
+        "crates/viewer-host/src/panel.rs::every_page_mode_that_names_a_panel_reaches_one"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.7.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/optional_content.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::table_29s_display_entries_are_not_table_147s",
+        "crates/pdf-transform/tests/optimize.rs::a_document_only_recovery_reads_is_refused_by_name_rather_than_reported_as_an_error",
+        "crates/pdf-transform/tests/optimize_corpus.rs::every_corpus_document_is_rewritten_smaller_and_says_the_same_thing",
+        "crates/viewer-host/src/panel.rs::every_page_mode_that_names_a_panel_reaches_one"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/page_geometry.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/contents_entry.rs::a_contents_entry_that_is_a_bare_integer_says_so_too",
+        "crates/pdf-model/tests/page_geometry.rs::a_page_whose_ancestry_states_no_media_box_is_drawn_on_a_default_and_says_so",
+        "crates/pdf-transform/tests/archive.rs::a_device_cmyk_page_under_part_two_gets_the_devicen_default",
+        "crates/pdf-transform/tests/pages.rs::a_negative_rotation_is_reduced_into_one_turn",
+        "crates/pdf-transform/tests/pages.rs::a_rotation_is_the_clauses_multiple_of_90_and_the_others_are_untouched",
+        "crates/pdf-transform/tests/pages.rs::an_angle_that_is_not_a_multiple_of_90_is_refused_by_name",
+        "crates/pdf-transform/tests/verbs.rs::the_page_box_asked_for_is_the_rasters_extent_and_the_unstated_boxes_default_to_the_crop_box"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/contents_entry.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/contents_entry.rs::a_contents_entry_that_is_a_bare_integer_says_so_too",
+        "crates/pdf-model/tests/page_geometry.rs::a_page_whose_ancestry_states_no_media_box_is_drawn_on_a_default_and_says_so",
+        "crates/pdf-transform/tests/archive.rs::a_device_cmyk_page_under_part_two_gets_the_devicen_default",
+        "crates/pdf-transform/tests/pages.rs::a_negative_rotation_is_reduced_into_one_turn",
+        "crates/pdf-transform/tests/pages.rs::a_rotation_is_the_clauses_multiple_of_90_and_the_others_are_untouched",
+        "crates/pdf-transform/tests/pages.rs::an_angle_that_is_not_a_multiple_of_90_is_refused_by_name",
+        "crates/pdf-transform/tests/verbs.rs::the_page_box_asked_for_is_the_rasters_extent_and_the_unstated_boxes_default_to_the_crop_box"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/contents_entry.rs::a_contents_entry_that_is_a_bare_integer_says_so_too",
+        "crates/pdf-model/tests/page_geometry.rs::a_page_whose_ancestry_states_no_media_box_is_drawn_on_a_default_and_says_so",
+        "crates/pdf-transform/tests/archive.rs::a_device_cmyk_page_under_part_two_gets_the_devicen_default",
+        "crates/pdf-transform/tests/pages.rs::a_negative_rotation_is_reduced_into_one_turn",
+        "crates/pdf-transform/tests/pages.rs::a_rotation_is_the_clauses_multiple_of_90_and_the_others_are_untouched",
+        "crates/pdf-transform/tests/pages.rs::an_angle_that_is_not_a_multiple_of_90_is_refused_by_name",
+        "crates/pdf-transform/tests/verbs.rs::the_page_box_asked_for_is_the_rasters_extent_and_the_unstated_boxes_default_to_the_crop_box"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::every_width_table_39_lists_is_read_and_no_other"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/case.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::every_width_table_39_lists_is_read_and_no_other"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_exponential_function_interpolates_between_its_endpoints"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.1",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_exponential_function_interpolates_between_its_endpoints"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.1",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_exponential_function_interpolates_between_its_endpoints"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_order_3_function_of_two_inputs_reproduces_a_bicubic",
+        "crates/pdf-colour/src/function.rs::an_order_3_function_reproduces_a_cubic_at_and_between_its_samples",
+        "crates/pdf-colour/src/function.rs::an_order_3_splines_two_end_pieces_are_one_cubic",
+        "crates/pdf-colour/src/function.rs::every_width_table_39_lists_is_read_and_no_other",
+        "crates/pdf-colour/src/function.rs::example_2_reads_each_point_of_its_domain_from_its_own_sample",
+        "crates/pdf-colour/src/function.rs::order_3_below_four_samples_is_ignored_and_an_unlisted_order_refused"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/sampled_function_extent.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_order_3_function_of_two_inputs_reproduces_a_bicubic",
+        "crates/pdf-colour/src/function.rs::an_order_3_function_reproduces_a_cubic_at_and_between_its_samples",
+        "crates/pdf-colour/src/function.rs::an_order_3_splines_two_end_pieces_are_one_cubic",
+        "crates/pdf-colour/src/function.rs::every_width_table_39_lists_is_read_and_no_other",
+        "crates/pdf-colour/src/function.rs::example_2_reads_each_point_of_its_domain_from_its_own_sample",
+        "crates/pdf-colour/src/function.rs::order_3_below_four_samples_is_ignored_and_an_unlisted_order_refused"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::an_exponential_function_interpolates_between_its_endpoints"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.4",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_nested_stitching_functions_steps_map_to_the_outer_domain"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.4",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/hostile_functions.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_nested_stitching_functions_steps_map_to_the_outer_domain"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::arithmetic_follows_postscript_stack_order",
+        "crates/pdf-colour/src/function.rs::folding_agrees_with_the_evaluator_over_every_operator",
+        "crates/pdf-colour/src/function.rs::the_witness_pages_program_keeps_no_inexact_operator",
+        "crates/pdf-transform/tests/archive.rs::a_device_cmyk_page_under_part_two_gets_the_devicen_default"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::arithmetic_follows_postscript_stack_order",
+        "crates/pdf-colour/src/function.rs::folding_agrees_with_the_evaluator_over_every_operator",
+        "crates/pdf-colour/src/function.rs::the_witness_pages_program_keeps_no_inexact_operator",
+        "crates/pdf-transform/tests/archive.rs::a_device_cmyk_page_under_part_two_gets_the_devicen_default"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_bit_shift_moves_left_for_a_positive_count_and_shifts_zeros_in_going_right",
+        "crates/pdf-colour/src/function.rs::a_boolean_is_never_equal_to_a_number_and_a_number_never_to_a_boolean",
+        "crates/pdf-colour/src/function.rs::a_conditions_number_is_true_exactly_when_it_is_not_zero",
+        "crates/pdf-colour/src/function.rs::a_conforming_program_is_not_refused",
+        "crates/pdf-colour/src/function.rs::a_program_whose_comparison_provably_reads_a_boolean_is_refused",
+        "crates/pdf-colour/src/function.rs::a_refused_program_is_a_function_error_rather_than_a_value",
+        "crates/pdf-colour/src/function.rs::a_token_spelling_infinity_is_no_more_a_number_than_an_operator",
+        "crates/pdf-colour/src/function.rs::an_integer_operator_truncates_a_real_operand",
+        "crates/pdf-colour/src/function.rs::an_ordering_operator_reads_a_boolean_as_a_number_rather_than_refusing_it",
+        "crates/pdf-colour/src/function.rs::atan_answers_in_degrees_over_the_whole_circle",
+        "crates/pdf-colour/src/function.rs::equality_is_exact_rather_than_approximate",
+        "crates/pdf-colour/src/function.rs::integer_arithmetic_stays_integer_and_is_exact_where_a_float_is_not",
+        "crates/pdf-colour/src/function.rs::integer_division_truncates_toward_zero_and_its_remainder_follows_the_dividend",
+        "crates/pdf-colour/src/function.rs::not_is_the_operator_its_operands_type_selects",
+        "crates/pdf-colour/src/function.rs::round_takes_a_tie_to_the_greater_integer",
+        "crates/pdf-colour/src/function.rs::stack_operators_move_what_they_say",
+        "crates/pdf-colour/src/function.rs::the_bitwise_and_logical_operators_differ_in_the_type_of_their_answer",
+        "crates/pdf-colour/src/function.rs::the_boolean_and_bitwise_operators_are_the_same_operator_on_zero_and_one",
+        "crates/pdf-colour/src/function.rs::the_four_operators_that_drop_a_fraction_disagree_only_on_a_tie"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/function_faults.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/case.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference/stack.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/refusal.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/function.rs::a_fault_a_clone_meets_is_the_functions",
+        "crates/pdf-colour/src/function.rs::a_program_that_computes_no_real_number_still_answers_within_its_range",
+        "crates/pdf-colour/src/function.rs::a_program_that_errs_on_every_run_is_refused",
+        "crates/pdf-colour/src/function.rs::a_tint_transform_shaped_program_evaluates",
+        "crates/pdf-colour/src/function.rs::a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+        "crates/pdf-colour/src/function.rs::an_empty_operand_stack_reads_as_the_integer_zero",
+        "crates/pdf-colour/src/function.rs::an_error_that_depends_on_the_input_is_recorded_as_a_fault"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.6.4.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/colour_paths.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/ccitt.rs::a_scanned_page_comes_back_mostly_white",
+        "crates/pdf-model/tests/colour_paths.rs::a_grey_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/colour_paths.rs::a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.3.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/tiling.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-archive/tests/resource_fallbacks.rs::a_tiling_pattern_stating_no_resources_is_read_against_nothing",
+        "crates/pdf-model/src/content/transparency.rs::a_pattern_in_a_form_starts_from_the_forms_state_at_its_do",
+        "crates/pdf-model/tests/damaged_content_streams.rs::a_damaged_tiling_pattern_draws_its_prefix_and_reports_the_shortfall",
+        "crates/pdf-model/tests/hostile_budgets.rs::a_fill_of_many_edges_does_not_pay_for_the_rows_it_cannot_reach",
+        "crates/pdf-model/tests/hostile_budgets.rs::a_tiling_over_its_budget_keeps_whole_rows",
+        "crates/pdf-model/tests/hostile_budgets.rs::a_tiling_whose_cell_is_empty_loops_nothing_and_reports_nothing",
+        "crates/pdf-model/tests/hostile_budgets.rs::a_tiling_whose_cell_marks_is_bounded_by_its_own_budget",
+        "crates/pdf-model/tests/missing_resources.rs::a_tiling_pattern_stating_no_resources_is_read_against_nothing",
+        "crates/pdf-model/tests/tiling.rs::a_cell_is_clipped_to_its_bounding_box",
+        "crates/pdf-model/tests/tiling.rs::a_cells_operators_are_read_once_and_not_once_per_site",
+        "crates/pdf-model/tests/tiling.rs::a_constant_spacing_lattice_steps_by_a_whole_number_of_device_pixels",
+        "crates/pdf-model/tests/tiling.rs::a_no_distortion_lattice_steps_by_exactly_what_the_file_states",
+        "crates/pdf-model/tests/tiling.rs::a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states",
+        "crates/pdf-model/tests/tiling.rs::a_rule_stated_at_both_cell_edges_weighs_one_rule",
+        "crates/pdf-model/tests/tiling.rs::constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not",
+        "crates/pdf-model/tests/tiling.rs::each_site_is_the_cells_marks_displaced_by_the_lattice",
+        "crates/pdf-model/tests/tiling.rs::every_site_the_fill_states_is_painted",
+        "crates/pdf-model/tests/tiling.rs::the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one",
+        "crates/pdf-render/src/repeat.rs::a_second_cell_stating_the_first_cells_box_still_moves_it"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.4.5.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/render-cpu/tests/sampled_shading.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/shadings.rs::a_clipped_grid_is_the_whole_grids_cells_bit_for_bit",
+        "crates/pdf-model/tests/shadings.rs::a_function_based_shading_maps_its_domain_through_its_matrix",
+        "crates/pdf-model/tests/shadings.rs::a_function_based_shadings_discontinuity_lands_at_the_device_pixel",
+        "crates/pdf-model/tests/shadings.rs::a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it",
+        "crates/pdf-model/tests/shadings.rs::a_function_based_shadings_grid_is_the_same_however_it_is_divided",
+        "crates/pdf-model/tests/shadings.rs::a_window_of_a_magnified_page_draws_what_the_whole_page_has_there",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_sampled_shading_by_name",
+        "crates/render-raster/tests/headless_quorra.rs::a_shading_the_device_could_not_colour_carries_no_program",
+        "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_device_evaluated_function_shading",
+        "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_sampled_shading",
+        "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_the_witness_pages_folded_program",
+        "crates/render-raster/tests/headless_quorra.rs::quorra_names_the_program_it_will_not_bound_and_draws_the_grid"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/render-cpu/tests/shading_placement.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+        "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+        "crates/render-cpu/tests/a_level_where_the_paint_is_the_pixel.rs::a_ramps_cell_is_its_colour_at_the_pixels_own_t"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-gpu/tests/a_steep_ramp_is_read_at_its_own_t.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+        "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+        "crates/render-cpu/tests/a_level_where_the_paint_is_the_pixel.rs::a_ramps_cell_is_its_colour_at_the_pixels_own_t"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "raster/crates/raster-gpu/tests/shading_steps.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+        "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+        "crates/render-cpu/tests/a_level_where_the_paint_is_the_pixel.rs::a_ramps_cell_is_its_colour_at_the_pixels_own_t"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.7.4.5.8",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/shadings.rs::a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v",
+        "crates/pdf-model/tests/shadings.rs::a_lattice_patchs_silhouette_follows_the_device",
+        "crates/pdf-model/tests/shadings.rs::a_mesh_the_patch_bound_cuts_short_is_reported",
+        "crates/pdf-model/tests/shadings.rs::a_patch_whose_conversion_bends_travels_with_a_lattice",
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_patch_mesh",
+        "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_patch_mesh"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.9.5.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/image_masks.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/attachment.rs::an_images_associated_file_reads_back_through_the_general_reader",
+        "crates/pdf-model/tests/bit_depths.rs::a_depth_of_three_is_refused_by_name",
+        "crates/pdf-model/tests/bit_depths.rs::an_image_that_requires_a_colour_space_and_states_none_is_refused_by_name",
+        "crates/pdf-model/tests/colour_paths.rs::an_output_intent_reaches_an_image_an_inline_image_a_shading_and_a_mesh",
+        "crates/pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+        "crates/pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+        "crates/pdf-model/tests/rendering_intent.rs::an_image_without_an_intent_takes_the_graphics_states",
+        "crates/pdf-model/tests/rendering_intent.rs::an_images_own_intent_selects_the_transform_its_samples_take",
+        "crates/pdf-model/tests/rendering_intent.rs::an_images_own_intent_turns_black_point_compensation_off"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.9.5.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/image_dimensions.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/attachment.rs::an_images_associated_file_reads_back_through_the_general_reader",
+        "crates/pdf-model/tests/bit_depths.rs::a_depth_of_three_is_refused_by_name",
+        "crates/pdf-model/tests/bit_depths.rs::an_image_that_requires_a_colour_space_and_states_none_is_refused_by_name",
+        "crates/pdf-model/tests/colour_paths.rs::an_output_intent_reaches_an_image_an_inline_image_a_shading_and_a_mesh",
+        "crates/pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+        "crates/pdf-model/tests/image_dictionary_consistency_audit.rs::an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+        "crates/pdf-model/tests/rendering_intent.rs::an_image_without_an_intent_takes_the_graphics_states",
+        "crates/pdf-model/tests/rendering_intent.rs::an_images_own_intent_selects_the_transform_its_samples_take",
+        "crates/pdf-model/tests/rendering_intent.rs::an_images_own_intent_turns_black_point_compensation_off"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.9.5.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/decode_arrays.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "8.9.6.4",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/dct_components.rs::a_colour_key_a_jpegs_samples_miss_leaves_the_image_painted",
+        "crates/pdf-model/tests/dct_components.rs::a_colour_key_masks_only_where_every_component_is_inside_its_range",
+        "crates/pdf-model/tests/dct_components.rs::a_colour_key_over_a_jpeg_hides_the_samples_it_names",
+        "crates/pdf-model/tests/image_masks.rs::a_colour_key_array_of_the_wrong_length_is_reported",
+        "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_a_twelve_bit_jpeg_2000_image_is_compared_in_twelve_bits",
+        "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_eight_bit_jpeg_2000_image_is_applied",
+        "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_indexed_jpeg_2000_image_names_table_entries",
+        "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_indexed_space_ranges_over_the_index",
+        "crates/pdf-model/tests/image_masks.rs::a_sixteen_bit_colour_key_separates_samples_the_eight_bit_raster_cannot",
+        "crates/pdf-model/tests/image_masks.rs::a_sixteen_bit_jpeg_2000_colour_key_reaches_the_top_of_its_domain",
+        "crates/pdf-model/tests/image_masks.rs::colour_key_masking_removes_the_samples_inside_the_range",
+        "crates/pdf-model/tests/image_masks.rs::the_colour_key_bounds_are_inclusive",
+        "crates/pdf-sandbox/src/protocol.rs::a_raster_of_more_than_eight_bits_round_trips_at_its_own_precision"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "9.3.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/text_render_modes.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/render_real_pdf.rs::a_real_documents_text_clip_reaches_what_it_paints_afterwards",
+        "crates/pdf-model/tests/selection_geometry.rs::invisible_modes_place_every_glyph_they_do_not_draw"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "9.3.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/glyph_clip_direction.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/render_real_pdf.rs::a_real_documents_text_clip_reaches_what_it_paints_afterwards",
+        "crates/pdf-model/tests/selection_geometry.rs::invisible_modes_place_every_glyph_they_do_not_draw"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "9.4.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/text_extraction.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/text_state.rs::horizontal_scaling_reaches_a_tj_adjustment"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "10.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/render-gpu/tests/headless_gpu.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-render/src/shading.rs::a_smoothness_tolerance_only_ever_asks_for_more_samples"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "10.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-render/src/paint.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-render/src/shading.rs::a_smoothness_tolerance_only_ever_asks_for_more_samples"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.3.4",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour.rs::a_bidirectional_profiles_press_converts_in_through_its_own_table",
+        "crates/pdf-colour/src/colour.rs::a_calibrated_greys_route_in_is_the_inverse_of_its_curve_out",
+        "crates/pdf-model/tests/transparency_groups.rs::a_cal_rgb_page_group_composites_its_components_and_leaves_by_the_matrix",
+        "crates/pdf-model/tests/transparency_groups.rs::a_calibrated_page_group_composites_its_component_and_leaves_by_the_curve",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_group_inside_a_grey_page_composites_in_colour_and_leaves_as_grey",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_painted_into_a_bidirectional_press_goes_in_through_its_from_cie_table",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements",
+        "crates/pdf-model/tests/transparency_groups.rs::a_lab_page_group_is_reported_as_the_space_the_clause_forbids",
+        "crates/pdf-model/tests/transparency_groups.rs::a_matrix_profile_page_group_composites_in_its_components",
+        "crates/pdf-model/tests/transparency_groups.rs::a_one_component_profile_page_group_composites_in_its_component",
+        "crates/pdf-model/tests/transparency_groups.rs::a_one_component_space_the_clause_does_not_list_is_reported_though_nothing_composites",
+        "crates/pdf-model/tests/transparency_groups.rs::a_page_group_of_one_component_paints_every_mark_in_its_grey",
+        "crates/pdf-model/tests/transparency_groups.rs::an_isolated_cal_rgb_group_composites_in_its_components_and_leaves_by_the_cube",
+        "crates/pdf-model/tests/transparency_groups.rs::an_isolated_calibrated_group_composites_in_its_component_and_leaves_by_the_curve",
+        "crates/pdf-model/tests/transparency_groups.rs::an_isolated_group_of_one_component_composites_its_elements_in_grey",
+        "crates/pdf-render/src/blending.rs::a_linear_map_is_exact_from_its_corners",
+        "crates/render-cpu/tests/four_component_page.rs::a_four_component_page_composites_in_ink_and_converts_once",
+        "crates/render-cpu/tests/group_constructions.rs::a_group_in_a_three_component_blending_space_composites_its_components"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.3.5",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.3.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/render-cpu/src/blend.rs::hue_of_red_over_blue_is_the_clauses_arithmetic",
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.4.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/content/transparency.rs::a_forms_knockout_group_takes_a_shared_mode_to_its_do",
+        "crates/pdf-model/src/content/transparency.rs::a_group_under_the_other_reading_whose_raster_is_not_its_shape_is_read_under_its_own",
+        "crates/pdf-model/src/content/transparency.rs::a_knockout_group_reads_each_element_under_the_alpha_source_it_was_painted_under",
+        "crates/pdf-model/src/content/transparency.rs::a_restored_alpha_source_is_the_one_a_knockout_group_reads",
+        "crates/pdf-model/src/content/transparency.rs::a_stencil_painted_through_a_pattern_keeps_its_shape",
+        "crates/pdf-model/src/content/transparency.rs::a_stencils_alpha_is_its_shape_inside_a_knockout_group",
+        "crates/pdf-model/src/content/transparency.rs::a_text_objects_glyphs_are_each_read_under_the_alpha_source_they_were_shown_under",
+        "crates/pdf-model/src/content/transparency.rs::a_translucent_shadings_shape_is_where_it_paints",
+        "crates/pdf-model/src/content/transparency.rs::an_smasks_alpha_is_opacity_and_the_shape_is_the_image_rectangle",
+        "crates/pdf-model/src/content/transparency.rs::parts_under_different_modes_are_drawn_on_the_groups_own_backdrop",
+        "crates/pdf-model/src/content/transparency.rs::the_mode_at_the_do_is_the_clauses_own_arithmetic",
+        "crates/pdf-model/src/content/transparency.rs::the_mode_at_the_do_survives_a_constant_alpha_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge",
+        "crates/pdf-model/tests/transparency_groups.rs::a_bare_translucent_knockout_element_reads_its_constant_as_opacity",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_paints_only_its_topmost_element",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_reports_only_where_the_two_models_differ",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_groups_elements_blend_against_the_pages_own_backdrop",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_rule_that_can_show_nothing_leaves_the_group_the_backdrop_it_has",
+        "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely",
+        "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_is_scoped_to_what_the_groups_content_painted_under",
+        "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+        "crates/pdf-model/tests/transparency_groups.rs::the_object_is_added_to_the_backdrop_the_shape_left_behind",
+        "crates/render-cpu/tests/group_constructions.rs::a_clipped_knockout_element_replaces_nothing_outside_its_clip",
+        "crates/render-cpu/tests/group_constructions.rs::a_knockout_groups_element_composites_with_the_groups_own_backdrop",
+        "crates/render-cpu/tests/group_constructions.rs::a_translucent_knockout_element_shows_the_initial_backdrop_not_the_element_below",
+        "crates/render-cpu/tests/knockout_element_coverage.rs::a_knockout_element_knocks_out_the_area_it_covers",
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_knockout_group",
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_knockout_group_that_states_its_shape",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_knockout_group_on_its_own_backdrop",
+        "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_knockout_element_that_states_its_shape",
+        "crates/render-raster/tests/headless_quorra.rs::quorra_refuses_a_knockout_group_on_its_own_backdrop",
+        "crates/render-raster/tests/headless_quorra.rs::quorra_states_what_it_will_not_stage"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.5",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/soft_masks.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_soft_mask"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.5",
+      "status_from_inventory": "implemented",
+      "reference": "crates/render-cpu/tests/soft_mask.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_soft_mask"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.6.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/transparency_groups.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour/press.rs::a_page_naming_twenty_one_presses_gets_every_one",
+        "crates/pdf-colour/src/colour/press.rs::the_press_that_does_not_fit_is_refused_by_name_and_the_named_stay_reachable",
+        "crates/pdf-colour/src/icc.rs::a_two_way_profile_is_charged_at_least_what_the_perceptual_table_adds_to_its_clone",
+        "crates/pdf-model/src/content/list_budget.rs::the_presses_a_page_named_are_charged_to_the_same_bound_as_its_list",
+        "crates/pdf-model/tests/overprint.rs::a_group_that_is_not_isolated_redefines_nothing",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_painted_into_a_bidirectional_press_goes_in_through_its_from_cie_table",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_in_a_press_paints_only_its_topmost_element",
+        "crates/pdf-model/tests/transparency_groups.rs::a_page_naming_many_presses_is_drawn_in_each_and_spends_no_other_page",
+        "crates/pdf-model/tests/transparency_groups.rs::a_press_group_inside_a_cal_rgb_group_leaves_by_the_cube_into_the_components",
+        "crates/pdf-model/tests/transparency_groups.rs::a_press_inside_a_press_converts_between_the_two_at_its_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_second_space_inside_the_pair_is_composited_in_it_and_converted_into_the_press",
+        "crates/pdf-model/tests/transparency_groups.rs::an_isolated_cal_rgb_group_composites_in_its_components_and_leaves_by_the_cube",
+        "crates/pdf-model/tests/transparency_groups.rs::the_same_group_on_the_page_is_drawn_in_its_grey_and_composited_in_the_pages_ink",
+        "crates/pdf-transform/tests/archive.rs::a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_assumed_inks",
+        "crates/render-cpu/tests/group_constructions.rs::a_group_with_its_own_blending_space_composites_in_it",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_group_in_a_three_component_blending_space",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_group_in_its_own_blending_space",
+        "crates/render-raster/tests/own_space_groups.rs::a_four_component_group_resolves_its_pair_after_compositing",
+        "crates/render-raster/tests/own_space_groups.rs::a_three_component_group_resolves_its_cube_after_compositing"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.6.6",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour/press.rs::a_page_naming_twenty_one_presses_gets_every_one",
+        "crates/pdf-colour/src/colour/press.rs::the_press_that_does_not_fit_is_refused_by_name_and_the_named_stay_reachable",
+        "crates/pdf-colour/src/icc.rs::a_two_way_profile_is_charged_at_least_what_the_perceptual_table_adds_to_its_clone",
+        "crates/pdf-model/src/content/list_budget.rs::the_presses_a_page_named_are_charged_to_the_same_bound_as_its_list",
+        "crates/pdf-model/tests/overprint.rs::a_group_that_is_not_isolated_redefines_nothing",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_painted_into_a_bidirectional_press_goes_in_through_its_from_cie_table",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_in_a_press_paints_only_its_topmost_element",
+        "crates/pdf-model/tests/transparency_groups.rs::a_page_naming_many_presses_is_drawn_in_each_and_spends_no_other_page",
+        "crates/pdf-model/tests/transparency_groups.rs::a_press_group_inside_a_cal_rgb_group_leaves_by_the_cube_into_the_components",
+        "crates/pdf-model/tests/transparency_groups.rs::a_press_inside_a_press_converts_between_the_two_at_its_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_second_space_inside_the_pair_is_composited_in_it_and_converted_into_the_press",
+        "crates/pdf-model/tests/transparency_groups.rs::an_isolated_cal_rgb_group_composites_in_its_components_and_leaves_by_the_cube",
+        "crates/pdf-model/tests/transparency_groups.rs::the_same_group_on_the_page_is_drawn_in_its_grey_and_composited_in_the_pages_ink",
+        "crates/pdf-transform/tests/archive.rs::a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_assumed_inks",
+        "crates/render-cpu/tests/group_constructions.rs::a_group_with_its_own_blending_space_composites_in_it",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_group_in_a_three_component_blending_space",
+        "crates/render-gpu/tests/headless_gpu.rs::the_gpu_refuses_a_group_in_its_own_blending_space",
+        "crates/render-raster/tests/own_space_groups.rs::a_four_component_group_resolves_its_pair_after_compositing",
+        "crates/render-raster/tests/own_space_groups.rs::a_three_component_group_resolves_its_cube_after_compositing"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/colour_paths.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_translucent_marks_own_transfer_function_is_used_at_no_point"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/soft_masks.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/tests/transfer_functions.rs::a_translucent_marks_own_transfer_function_is_used_at_no_point"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7.2",
+      "status_from_inventory": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour/press.rs::a_page_naming_twenty_one_presses_gets_every_one",
+        "crates/pdf-colour/src/colour/press.rs::the_press_that_does_not_fit_is_refused_by_name_and_the_named_stay_reachable",
+        "crates/pdf-colour/src/icc.rs::a_two_way_profile_is_charged_at_least_what_the_perceptual_table_adds_to_its_clone",
+        "crates/pdf-model/src/content/list_budget.rs::the_presses_a_page_named_are_charged_to_the_same_bound_as_its_list",
+        "crates/pdf-model/tests/overprint.rs::a_default_colour_space_outranks_the_redefinition",
+        "crates/pdf-model/tests/overprint.rs::a_group_of_another_count_inside_keeps_the_ancestors_redefinition",
+        "crates/pdf-model/tests/overprint.rs::a_redefined_device_cmyk_keeps_its_overprint_mode",
+        "crates/pdf-model/tests/overprint.rs::a_soft_masks_group_redefines_device_cmyk_by_its_own_space",
+        "crates/pdf-model/tests/overprint.rs::device_cmyk_inside_an_isolated_iccbased_cmyk_group_is_the_groups_space",
+        "crates/pdf-model/tests/overprint.rs::device_cmyk_on_an_iccbased_cmyk_page_group_is_that_groups_space",
+        "crates/pdf-model/tests/transparency_groups.rs::a_cal_rgb_page_group_composites_its_components_and_leaves_by_the_matrix",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_converted_into_a_named_press_comes_back",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_group_inside_a_grey_page_composites_in_colour_and_leaves_as_grey",
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_painted_into_a_bidirectional_press_goes_in_through_its_from_cie_table",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it",
+        "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_in_a_press_paints_only_its_topmost_element",
+        "crates/pdf-model/tests/transparency_groups.rs::a_page_naming_many_presses_is_drawn_in_each_and_spends_no_other_page",
+        "crates/pdf-model/tests/transparency_groups.rs::a_press_inside_a_press_converts_between_the_two_at_its_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_second_space_inside_the_pair_is_composited_in_it_and_converted_into_the_press",
+        "crates/pdf-model/tests/transparency_groups.rs::the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press",
+        "crates/pdf-model/tests/transparency_groups.rs::the_three_routes_to_a_press_all_composite_in_it"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/icc_paint_context.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour.rs::a_cie_colour_enters_the_press_by_its_own_intent_not_the_groups",
+        "crates/pdf-colour/src/icc.rs::the_intent_selects_the_from_cie_table_a_colour_enters_by",
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/rendering_intent.rs::a_perceptual_intent_selects_the_profiles_perceptual_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::a_saturation_intent_selects_the_profiles_saturation_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::an_uncoloured_icc_tint_uses_the_intent_at_each_paint",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_in_a_cmyk_group_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_into_the_output_intents_press_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_an_icc_based_parent_takes_no_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_the_output_intents_press_takes_the_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_painted_into_a_cmyk_parent_is_converted_by_the_functions_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_profiled_patterns_bound_rgb_tint_is_separated_by_the_pair_when_painted",
+        "crates/pdf-model/tests/transparency_groups.rs::a_stated_black_generation_keeps_the_page_in_its_space",
+        "crates/pdf-model/tests/transparency_groups.rs::the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_reaches_image_and_shading_paints_through_their_caches",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_separates_a_device_rgb_paint_only_while_it_is_current"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/black_generation_paint.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour.rs::a_cie_colour_enters_the_press_by_its_own_intent_not_the_groups",
+        "crates/pdf-colour/src/icc.rs::the_intent_selects_the_from_cie_table_a_colour_enters_by",
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/rendering_intent.rs::a_perceptual_intent_selects_the_profiles_perceptual_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::a_saturation_intent_selects_the_profiles_saturation_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::an_uncoloured_icc_tint_uses_the_intent_at_each_paint",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_in_a_cmyk_group_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_into_the_output_intents_press_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_an_icc_based_parent_takes_no_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_the_output_intents_press_takes_the_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_painted_into_a_cmyk_parent_is_converted_by_the_functions_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_profiled_patterns_bound_rgb_tint_is_separated_by_the_pair_when_painted",
+        "crates/pdf-model/tests/transparency_groups.rs::a_stated_black_generation_keeps_the_page_in_its_space",
+        "crates/pdf-model/tests/transparency_groups.rs::the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_reaches_image_and_shading_paints_through_their_caches",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_separates_a_device_rgb_paint_only_while_it_is_current"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-model/tests/pattern_tint_context.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-colour/src/colour.rs::a_cie_colour_enters_the_press_by_its_own_intent_not_the_groups",
+        "crates/pdf-colour/src/icc.rs::the_intent_selects_the_from_cie_table_a_colour_enters_by",
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/rendering_intent.rs::a_perceptual_intent_selects_the_profiles_perceptual_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::a_saturation_intent_selects_the_profiles_saturation_transform",
+        "crates/pdf-model/tests/rendering_intent.rs::an_uncoloured_icc_tint_uses_the_intent_at_each_paint",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_in_a_cmyk_group_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_colour_into_the_output_intents_press_is_separated_by_the_stated_functions",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_an_icc_based_parent_takes_no_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_device_rgb_group_into_the_output_intents_press_takes_the_pair_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_group_painted_into_a_cmyk_parent_is_converted_by_the_functions_at_the_do",
+        "crates/pdf-model/tests/transparency_groups.rs::a_profiled_patterns_bound_rgb_tint_is_separated_by_the_pair_when_painted",
+        "crates/pdf-model/tests/transparency_groups.rs::a_stated_black_generation_keeps_the_page_in_its_space",
+        "crates/pdf-model/tests/transparency_groups.rs::the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_reaches_image_and_shading_paints_through_their_caches",
+        "crates/pdf-model/tests/transparency_groups.rs::the_pair_separates_a_device_rgb_paint_only_while_it_is_current"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "12.2",
+      "status_from_inventory": "partial",
+      "reference": "crates/viewer-ffi/tests/window_chrome.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::a_page_range_below_the_first_page_states_nothing",
+        "crates/pdf-model/src/viewer_preferences.rs::table_147s_entries_are_read",
+        "crates/pdf-model/tests/page_geometry.rs::view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped",
+        "crates/viewer-core/tests/enforced_preferences.rs::an_enforce_over_app_default_restricts_nothing",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_ask_either_answer_prints_and_a_no_holds_the_scaling",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_off_nothing_is_held_or_said",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_on_the_scaling_is_held_to_the_documents",
+        "crates/viewer-core/tests/enforced_preferences.rs::by_default_an_enforced_scaling_is_warned_of_and_left_to_the_reader",
+        "crates/viewer-core/tests/print_preferences.rs::a_print_preference_changes_no_pixel_of_the_screen",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_half_of_table_147_is_answered_to_a_host",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_pair_decides_the_page_rendered_for_paper",
+        "crates/viewer-ffi/src/window/held_tests.rs::a_question_raised_while_presenting_waits_until_the_presentation_ends",
+        "crates/viewer-host/src/documents.rs::a_title_bar_takes_dc_title_first_and_the_information_title_after",
+        "crates/viewer-host/src/presentation.rs::a_fitted_window_keeps_its_chrome_and_takes_the_pages_size",
+        "crates/viewer-host/src/presentation.rs::the_windows_size_and_place_are_owed_once",
+        "crates/viewer-host/src/restriction.rs::the_menu_a_document_may_not_hide_says_which_clause_and_why",
+        "crates/viewer-qt/src/host/tests.rs::a_centre_the_platform_will_not_give_is_said_and_titled",
+        "crates/viewer-qt/src/host/tests.rs::a_silent_document_is_titled_by_its_file_and_placed_nowhere",
+        "crates/viewer-qt/src/host/tests.rs::table_147s_window_entries_reach_the_window"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "12.2",
+      "status_from_inventory": "partial",
+      "reference": "crates/viewer-ffi/src/window/chrome_tests.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::a_page_range_below_the_first_page_states_nothing",
+        "crates/pdf-model/src/viewer_preferences.rs::table_147s_entries_are_read",
+        "crates/pdf-model/tests/page_geometry.rs::view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped",
+        "crates/viewer-core/tests/enforced_preferences.rs::an_enforce_over_app_default_restricts_nothing",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_ask_either_answer_prints_and_a_no_holds_the_scaling",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_off_nothing_is_held_or_said",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_on_the_scaling_is_held_to_the_documents",
+        "crates/viewer-core/tests/enforced_preferences.rs::by_default_an_enforced_scaling_is_warned_of_and_left_to_the_reader",
+        "crates/viewer-core/tests/print_preferences.rs::a_print_preference_changes_no_pixel_of_the_screen",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_half_of_table_147_is_answered_to_a_host",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_pair_decides_the_page_rendered_for_paper",
+        "crates/viewer-ffi/src/window/held_tests.rs::a_question_raised_while_presenting_waits_until_the_presentation_ends",
+        "crates/viewer-host/src/documents.rs::a_title_bar_takes_dc_title_first_and_the_information_title_after",
+        "crates/viewer-host/src/presentation.rs::a_fitted_window_keeps_its_chrome_and_takes_the_pages_size",
+        "crates/viewer-host/src/presentation.rs::the_windows_size_and_place_are_owed_once",
+        "crates/viewer-host/src/restriction.rs::the_menu_a_document_may_not_hide_says_which_clause_and_why",
+        "crates/viewer-qt/src/host/tests.rs::a_centre_the_platform_will_not_give_is_said_and_titled",
+        "crates/viewer-qt/src/host/tests.rs::a_silent_document_is_titled_by_its_file_and_placed_nowhere",
+        "crates/viewer-qt/src/host/tests.rs::table_147s_window_entries_reach_the_window"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "12.2",
+      "status_from_inventory": "partial",
+      "reference": "hosts/windows/Quorra.Chrome.Tests/Program.cs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::a_page_range_below_the_first_page_states_nothing",
+        "crates/pdf-model/src/viewer_preferences.rs::table_147s_entries_are_read",
+        "crates/pdf-model/tests/page_geometry.rs::view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped",
+        "crates/viewer-core/tests/enforced_preferences.rs::an_enforce_over_app_default_restricts_nothing",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_ask_either_answer_prints_and_a_no_holds_the_scaling",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_off_nothing_is_held_or_said",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_on_the_scaling_is_held_to_the_documents",
+        "crates/viewer-core/tests/enforced_preferences.rs::by_default_an_enforced_scaling_is_warned_of_and_left_to_the_reader",
+        "crates/viewer-core/tests/print_preferences.rs::a_print_preference_changes_no_pixel_of_the_screen",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_half_of_table_147_is_answered_to_a_host",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_pair_decides_the_page_rendered_for_paper",
+        "crates/viewer-ffi/src/window/held_tests.rs::a_question_raised_while_presenting_waits_until_the_presentation_ends",
+        "crates/viewer-host/src/documents.rs::a_title_bar_takes_dc_title_first_and_the_information_title_after",
+        "crates/viewer-host/src/presentation.rs::a_fitted_window_keeps_its_chrome_and_takes_the_pages_size",
+        "crates/viewer-host/src/presentation.rs::the_windows_size_and_place_are_owed_once",
+        "crates/viewer-host/src/restriction.rs::the_menu_a_document_may_not_hide_says_which_clause_and_why",
+        "crates/viewer-qt/src/host/tests.rs::a_centre_the_platform_will_not_give_is_said_and_titled",
+        "crates/viewer-qt/src/host/tests.rs::a_silent_document_is_titled_by_its_file_and_placed_nowhere",
+        "crates/viewer-qt/src/host/tests.rs::table_147s_window_entries_reach_the_window"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "12.2",
+      "status_from_inventory": "partial",
+      "reference": ".github/workflows/ci.yml",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-model/src/viewer_preferences.rs::a_page_range_below_the_first_page_states_nothing",
+        "crates/pdf-model/src/viewer_preferences.rs::table_147s_entries_are_read",
+        "crates/pdf-model/tests/page_geometry.rs::view_area_and_view_clip_choose_what_is_displayed_and_what_is_clipped",
+        "crates/viewer-core/tests/enforced_preferences.rs::an_enforce_over_app_default_restricts_nothing",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_ask_either_answer_prints_and_a_no_holds_the_scaling",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_off_nothing_is_held_or_said",
+        "crates/viewer-core/tests/enforced_preferences.rs::at_on_the_scaling_is_held_to_the_documents",
+        "crates/viewer-core/tests/enforced_preferences.rs::by_default_an_enforced_scaling_is_warned_of_and_left_to_the_reader",
+        "crates/viewer-core/tests/print_preferences.rs::a_print_preference_changes_no_pixel_of_the_screen",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_half_of_table_147_is_answered_to_a_host",
+        "crates/viewer-core/tests/print_preferences.rs::the_print_pair_decides_the_page_rendered_for_paper",
+        "crates/viewer-ffi/src/window/held_tests.rs::a_question_raised_while_presenting_waits_until_the_presentation_ends",
+        "crates/viewer-host/src/documents.rs::a_title_bar_takes_dc_title_first_and_the_information_title_after",
+        "crates/viewer-host/src/presentation.rs::a_fitted_window_keeps_its_chrome_and_takes_the_pages_size",
+        "crates/viewer-host/src/presentation.rs::the_windows_size_and_place_are_owed_once",
+        "crates/viewer-host/src/restriction.rs::the_menu_a_document_may_not_hide_says_which_clause_and_why",
+        "crates/viewer-qt/src/host/tests.rs::a_centre_the_platform_will_not_give_is_said_and_titled",
+        "crates/viewer-qt/src/host/tests.rs::a_silent_document_is_titled_by_its_file_and_placed_nowhere",
+        "crates/viewer-qt/src/host/tests.rs::table_147s_window_entries_reach_the_window"
+      ],
+      "semantics": "inventory_metadata_only"
+    },
+    {
+      "clause": "12.8.1",
+      "status_from_inventory": "implemented",
+      "reference": "crates/pdf-signature/src/verdict/tests.rs",
+      "path_exists": true,
+      "matching_ledger_rows": 1,
+      "same_row_named_tests": [
+        "crates/pdf-signature/src/signature.rs::a_certification_signature_states_what_may_change_after_it",
+        "crates/pdf-signature/src/signature.rs::a_document_timestamp_is_checked_against_its_message_imprint",
+        "crates/pdf-signature/src/signature.rs::a_reference_dictionary_says_which_digest_its_modification_analysis_uses",
+        "crates/pdf-signature/src/signature.rs::a_signature_dictionary_names_the_values_its_file_wrote_indirectly",
+        "crates/pdf-signature/src/signature.rs::a_signature_states_whether_its_reference_dictionary_is_critical",
+        "crates/pdf-signature/src/signature.rs::a_signed_document_says_whether_its_signed_bytes_moved",
+        "crates/pdf-signature/src/signature.rs::a_signed_range_ends_at_an_end_of_file_marker_or_says_where_it_does_end",
+        "crates/pdf-signature/src/signature.rs::a_signed_range_leaves_out_the_signature_value_and_nothing_else",
+        "crates/pdf-signature/src/signature.rs::a_signed_range_leaving_out_two_regions_or_none_is_named",
+        "crates/pdf-signature/src/verdict/tests.rs::a_path_to_a_listed_service_carries_the_listing",
+        "crates/pdf-signature/src/verdict/tests.rs::a_path_to_the_readers_own_anchor_is_locally_valid",
+        "crates/pdf-signature/tests/signatures.rs::every_corpus_signature_is_asked_the_third_question_both_ways",
+        "crates/pdf-signature/tests/signatures.rs::every_corpus_signature_is_asked_whether_it_verifies",
+        "crates/pdf-signature/tests/signatures.rs::every_corpus_signature_is_asked_whether_its_document_changed",
+        "crates/pdf-signature/tests/signatures.rs::every_corpus_signature_says_what_its_range_leaves_out_and_where_it_stops",
+        "crates/pdf-syntax/src/document.rs::a_signature_dictionary_is_recognised_by_its_type",
+        "crates/pdf-syntax/src/document.rs::a_signature_dictionary_with_no_type_is_recognised_by_its_byte_range",
+        "crates/pdf-transform/tests/foreign_corpus.rs::what_this_suite_writes_is_read_the_same_way_by_poppler_and_mupdf",
+        "crates/viewer-core/src/notes.rs::a_reference_dictionary_naming_a_digest_for_an_analysis_nobody_makes_says_so",
+        "crates/viewer-core/src/notes.rs::a_signature_calling_its_reference_dictionary_critical_says_so"
+      ],
+      "semantics": "inventory_metadata_only"
+    }
+  ]
+}

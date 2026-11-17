@@ -1,0 +1,32 @@
+{
+  "shard": "viewer_preferences_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "decisions": [
+    {
+      "adr": "0071",
+      "topic": "ViewArea/ViewClip are pixel-bearing reader preferences despite PDF 2.0 writer deprecation",
+      "review": "Agree. Table 147 states the view rectangle and clip semantics, and current Page display/clip consumers plus boundary tests are relevant. Deprecation does not remove reading behavior. The previous shard covers the detailed page geometry, so this review does not duplicate its assertions."
+    },
+    {
+      "adr": "0182; 0142; 0143",
+      "topic": "Document opening and panel/layout consumers",
+      "review": "Current catalog PageMode/PageLayout values are separate initial-window inputs. Sidebar rows are a product realization of UseOutlines/UseThumbs/UseOC/UseAttachments; the optional article-navigation facility and exact sidebar presentation are not mandatory UI design. Existing presentation, host, UI and layout tests exercise the public path. The catalog values themselves are normative 'shall be used when opened' requests and are not made optional by UI freedom."
+    },
+    {
+      "adr": "#275 / current EC3 source",
+      "topic": "UseAttachments in NonFullScreenPageMode",
+      "review": "The original primary PDF overlay at physical 453 / printed 438 inserts UseAttachments into Table 147's value list. The current implementation/parser and host test both accept it. It is a correction to the entry's legal value set, not just an example or a producer exception. No defect found."
+    },
+    {
+      "adr": "2840 (Enforce owner policy), prior Enforce ADRs in viewer_preferences_layout_current",
+      "topic": "PrintScaling Enforce boundary",
+      "review": "The source limits Table 148 to PrintScaling only when a valid value other than AppDefault is present. Model parsing applies that condition; the current policy ADR determines handling at the reader/UI layer. Native dialog inability to lock a selection remains an implementation boundary already recorded by the parent review, not a reason to reinterpret Table 148. No new gap found."
+    },
+    {
+      "adr": "0746; 0200; 1239",
+      "topic": "Article ordering and navigation route",
+      "review": "Reuse the existing corrected #320 reading-order interpretation in ADR 0746 and the thorough articles audit; ADR 0200/1239 concern the optional UI/remote action path. No stale order-conflict claim is carried forward, and no repeated test is proposed. Table 162/163 required links/data are distinct from optional next-bead UI controls."
+    }
+  ],
+  "decision": "No new source-derived behavioral gap was identified in the reviewed cells. Existing parser, presentation, article-model and public UI assertions provide controls at the relevant consumer boundaries. No draft added. Preserve task/table numbering corrections: Table146 is overprinting, Tables153/154 are collections, and article structures are Tables162/163."
+}

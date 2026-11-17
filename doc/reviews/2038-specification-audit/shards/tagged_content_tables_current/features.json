@@ -1,0 +1,72 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 with Errata Collection 3",
+  "scope": "Feature-level review of §14.8.3, §14.8.5.4, and adjacent §14.8.2.2 artifact-consumer classification only; not whole-clause certification.",
+  "features": [
+    {
+      "clause": "14.8.3.3",
+      "title": "Progression direction",
+      "source_location": "Primary PDF physical 768 / printed 753 (§14.8.3.3). Source says BLSEs shall stack in block-progression order and first BLSE is generally placed at the before edge.",
+      "errata": "No effective EC3 change found to the eight Table 378 WritingMode values or §14.8.3.3 stacking rule. Issue #189 is an explanatory cross-reference in Table 378, not a changed direction/value rule.",
+      "ledger": "§14.8.3 aggregate is implemented; §14.8.3.3 is separately implemented. Table 378 is addressed by §14.8.5.4.2.",
+      "code": "pdf-model/src/structure.rs::WritingMode::read and block_progression map all eight names to four block directions. allocation_rectangle moves before/after edges along the corresponding page axis. Tree::writing_mode reads and inherits the attribute; default is LrTb.",
+      "tests": "structure/tests.rs::the_allocation_rectangle_moves_the_edges_the_writing_mode_calls_before_and_after covers LrTb and TbRl, default, inheritance, and noninherited spacing; a_vertical_writing_mode_equalises_the_other_pair_of_edges covers RTL axis treatment. No test found for all eight parsed names, invalid-name behavior, BottomToTop, or LeftToRight rectangle outputs.",
+      "assertions": "Existing assertions establish two representative axes. The source lists four block directions across eight modes, so a compact table-driven mapping and exact coordinate oracle would cover the two unexercised directions and all names without implying that the viewer reflows page content.",
+      "verdict": "implemented_with_test_gap",
+      "residuals": "This reader uses WritingMode for allocation bounds and table-cell progression, not for full layout/reflow. §14.8.3.3 permits reasonable variation in downstream layout; the ledger status should not be read as claiming a reflow engine. The suggested test is model-level and does not certify complete pagination/packing behavior.",
+      "related_adrs": ["ADR 1535", "ADR 2384"]
+    },
+    {
+      "clause": "14.8.5.4.2",
+      "title": "General layout attributes; Table 378",
+      "source_location": "Primary PDF physical 790 / printed 775 (§14.8.5.4.2); Table 378 at physical 791–792 / printed 776–777. WritingMode is optional and inheritable; Placement and the other common attributes are not reviewed here beyond current shard inventories.",
+      "errata": "Issue #189 adds a reference to §14.8.3.3 in Placement/WritingMode material; no behavior change. No EC3 change found to the eight-value WritingMode set.",
+      "ledger": "Table 378 aggregate is implemented; individual attribute rows are mostly treated as inapplicable or covered by narrower audits. WritingMode has a concrete reader consumer in allocation and cell placement.",
+      "code": "Tree::writing_mode applies inherited attributes and default LrTb. WritingMode::read declines unknown names; downstream APIs use the default rather than rejecting the PDF.",
+      "tests": "Existing allocation and table assertions cover LrTb/TbRl. The draft would check all eight value names and all four distinct before/after edge pairs.",
+      "assertions": "Source-derived behavior can be tested independently with literal rectangles; no renderer oracle is needed.",
+      "verdict": "implemented_with_test_gap",
+      "residuals": "No claim is made here about Placement floating behavior or the other Table 378 entries, which remain outside this bounded feature check.",
+      "related_adrs": ["ADR 1535"]
+    },
+    {
+      "clause": "14.8.5.4.5",
+      "title": "Content and allocation rectangles",
+      "source_location": "Primary PDF physical 802 / printed 787 (§14.8.5.4.5). It defines content rectangles and BLSE allocation rectangles from SpaceBefore/SpaceAfter.",
+      "errata": "Issue #152 changes GlyphOrientationVertical's type cell in Table 380; it does not add a reader obligation for this implementation. Issue #223 adjusts Table 377 producer attribute applicability; Issue #189 is a cross-reference. Table 380 has a separate NOTE 2 correcting TextPosition in the 2020 table.",
+      "ledger": "§14.8.5.4.4 is split: four text attributes have consumers; five reflow-oriented attributes are marked inapplicable in ADR 2384. §14.8.5.4.5 is implemented for source bounds, cell equalization, and BLSE spacing.",
+      "code": "The current structure model and accessibility layout export use BaselineShift, TextPosition, TextDecorationType, and TextDecorationColor; allocation_rectangle applies before/after spacing according to block direction. The tree’s cell grid computes logical rows/columns and span geometry.",
+      "tests": "The structure_attributes_remaining_current shard maps Table 384 spans, header relations and prior layout attributes to model, headless and accessibility assertions. This shard did not rerun those tests or re-audit their fixture internals. Current direction tests are limited as described above.",
+      "assertions": "The existing table consumer assertions are substantive for row/column spans and header association; viewer-core retains TableCell placement metadata. viewer-accessibility publishes header identity/description. The adapter’s public output does not expose AccessKit row/column/span properties as AT-SPI Table/TableCell interfaces; this is already an explicit platform limitation in ADR 0300/0312 and doc/todo/31.",
+      "verdict": "previously_reviewed_no_new_failure",
+      "residuals": "No whole-Table-380 certification is made here. AccessKit grid placement reaching a platform table interface remains an explicitly tracked product/platform limitation; it is not newly classified as an ISO reader failure by this shard.",
+      "related_adrs": ["ADR 0300", "ADR 0312", "ADR 0715", "ADR 2384"]
+    },
+    {
+      "clause": "14.8.2.2.1 and 14.8.5.8",
+      "title": "Artifact text and Type/Subtype classification reaching accessibility clients",
+      "source_location": "Primary PDF physical 808–809 / printed 793–794, Table 385; §14.8.2.2.1 describes artifacts as ancillary and says a text-to-speech engine may decide not to speak running heads/page numbers. This artifact subset is retained as a prior partial review, not expanded here.",
+      "errata": "EC3 #346 makes Table 385 entries noninheritable. The effective source also includes the marked-content reporting note correction reviewed in the existing artifact shard; no new change to the classification policy found here.",
+      "ledger": "§14.8.5.8 and artifact reporting are implemented, with prior artifact audits. Table 385 classification is parsed and converted to a description in AccessKit nodes.",
+      "code": "pdf-model interprets artifact metadata; viewer-accessibility::tree::artifact creates a human-readable description. Standard Artifact maps to AccessKit GenericContainer, and viewer-accessibility applies common_filter; existing role comments state GenericContainer nodes are filtered from the platform tree. The test an_artifact_says_which_kind_of_artifact_it_is inspects raw TreeUpdate descriptions, not the final AT-SPI bus.",
+      "tests": "artifact_reporting_audit checks preserved drawn text, declaration versus classification by absence, and logical text exclusions. viewer-accessibility/tests/tree.rs checks raw AccessKit description text. No end-to-end bus assertion was found for an artifact’s classification.",
+      "assertions": "There is an evidence boundary between parsed/raw-tree reporting and the consumer-facing platform tree. Since source says the consumer may decide whether to speak Pagination/PageNum rather than requiring a client to do so, the absence of a bus node is a product/API visibility question, not a demonstrated mandatory-reader conformance failure.",
+      "verdict": "consumer_visibility_unverified_policy_question",
+      "residuals": "Confirm whether artifact nodes are intentionally suppressed by the adapter or ever retained due to tree context; if the product intends screen-reader users to use pagination classification, add a consumer-level test or expose the metadata through a reachable channel. No requirement to speak artifacts is inferred.",
+      "related_adrs": ["ADR 0743", "ADR 0300", "ADR 0312"]
+    },
+    {
+      "clause": "14.8.2.2.1 and §§14.8.2.4–.5",
+      "title": "Artifact classification, whitespace, and hyphenation scope accounting",
+      "source_location": "Prior `tagged_layout` review includes §14.8.2.4–.5 source text and tests; Table 385 is physical 808–809 / printed 793–794.",
+      "errata": "No new errata issue identified in this review. Prior tagged_layout source check includes effective annotations and errata for whitespace/reversed-show-string handling.",
+      "ledger": "Whitespace and hyphen semantics have a dedicated prior tagged_layout audit; they are not silently treated as missing from this new shard.",
+      "code": "Whitespace joining, soft-hyphen restoration, and text classification were handled in tagged_layout. Artifact distinction remains surfaced in model interpretation and raw accessibility nodes as detailed above.",
+      "tests": "Do not duplicate the prior source-derived whitespace/hyphen tests. Artifact raw report is tested, but final AT-SPI bus visibility is not established by the raw TreeUpdate test.",
+      "assertions": "Whitespace/hyphen coverage is already assigned and reviewed. The one remaining boundary is consumer visibility of artifact classification, qualified as a policy question.",
+      "verdict": "prior_review_whitespace; artifact_consumer_policy_question",
+      "residuals": "This is scope accounting only for whitespace/hyphen behavior; no new assertion audit was performed.",
+      "related_adrs": ["ADR 1100", "ADR 0743"]
+    }
+  ]
+}

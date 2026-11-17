@@ -1,0 +1,36 @@
+{
+  "scope_note": "Selected decision reviews for §7.3.10 font metric value consumers; no blanket recertification of font clauses or ADRs.",
+  "source_corrections": [
+    {
+      "erratum": "EC3 #106",
+      "location": "Table 109, physical p.329 / printed p.314",
+      "finding": "The primary-page #106 StrikeOut (physical p.329 / printed p.314) removes the Table 109 FontDescriptor row phrase that it shall be an indirect reference. The separate standard-14 all-or-none paragraph is struck by #47/#48 on that page. The corrected source permits a direct FontDescriptor under Table 109; §9.6.3 applies the same entries to TrueType fonts subject to its listed differences.",
+      "disposition": "The simple-font draft includes a direct-descriptor case and does not treat a direct descriptor as malformed. The stream named by FontFile2 remains indirect because streams are required to be indirect objects."
+    }
+  ],
+  "decisions": [
+    {
+      "adr": "2722",
+      "topic": "Font dictionaries written inline during archive transformation",
+      "review": "The ADR uses §7.3.10 direct/indirect equivalence to explain where a converter traverses and materializes font dictionaries. It is about transform traversal, including the descriptor/program route; it does not test display-time resolution of array members in /Widths, /W, /W2, or /DW2.",
+      "disposition": "Retain its stated transform decision. Do not cite it as proof of metric-array reader assertions."
+    },
+    {
+      "adr": "2162",
+      "topic": "Writing a direct font dictionary out as an object during transformation",
+      "review": "The ADR's direct/indirect equivalence rationale concerns a font dictionary embedded in resources and transform output. It does not establish the selected nested metric-value consumers' assertion coverage.",
+      "disposition": "Retain its bounded transformation rationale; this shard adds a separate reader-side assertion candidate."
+    },
+    {
+      "adr": "1094",
+      "topic": "Preserving dictionary-stated metrics when a glyph program is refused",
+      "review": "This ADR is directly relevant to the simple-font test seam: LoadedFont::metrics_only exists to consume dictionary-stated advances without relying on a glyph program. The scratch fixture uses that public API and literal source values, so an embedded/substituted program cannot mask whether Widths and MissingWidth were read.",
+      "disposition": "Retain; the proposed direct/indirect variants provide a narrow regression for the values this public metrics-only path reads."
+    }
+  ],
+  "limits": [
+    "The two draft tests were not compiled or executed by this shard.",
+    "Differences name-reference equivalence has visible code support but was not promoted to a defect or third test.",
+    "The CID fixture uses the embedded Liberation Sans font's actual hmtx widths for GID/CID 5 and 6 (727/2048 and 1139/2048 em); W and DW match those values. W2/DW2 are independent explicit vertical metric statements."
+  ]
+}

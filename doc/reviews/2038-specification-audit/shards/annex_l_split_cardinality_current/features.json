@@ -1,0 +1,57 @@
+{
+  "scope": "Focused producer audit of Annex L delegated Ruby/Warichu child cardinality when split prunes page-local structure content. This does not certify Annex L generally.",
+  "source": {
+    "primary": "ISO 32000-2:2020 EC3, \u00a714.8.4.7.3 Table 369, physical p.780 / printed p.765; Annex L Table L.2 replacement attachment, XLSX version 07-2024; \u00a714.8.6.1-.2 namespace applicability.",
+    "errata": "The physical p.780 annotation inspection found no erratum changing Table 369's Ruby/Warichu child-sequence sentences. `doc/errata-read.md` does not list a correction to that table. The nearby #223 annotation concerns Table 377 attribute applicability, not Table 369.",
+    "matrix": {
+      "attachment": "scratchpad/r2038/spec-audit/ISO32000-2_AnnexL_matrix-version072024.xlsx",
+      "sha256": "d372710f5b2ccca20101317e7656b25bdf4570dd2b399dbaa287839783b31ed1",
+      "directed_cells": [
+        {
+          "cell": "AA27",
+          "parent": "Warichu",
+          "child": "WT",
+          "value": "[b]"
+        },
+        {
+          "cell": "AA28",
+          "parent": "Warichu",
+          "child": "WP",
+          "value": "[b]"
+        },
+        {
+          "cell": "M26",
+          "parent": "P",
+          "child": "Warichu",
+          "value": "0..n"
+        }
+      ],
+      "legend": "[b] delegates containment details to \u00a714.8.4.7.3; Table 369 then requires Warichu's three-child sequence WP, WT, WP. This is a directional relation and a type-specific cardinality, not a rule about arbitrary reader rejection."
+    }
+  },
+  "feature": {
+    "clause": "Annex L Table L.2 [b] cells; \u00a714.8.4.7.3 Table 369; \u00a714.7.5.2/.4 split writer relations",
+    "ledger": [
+      "doc/conformance/ledger.toml clause L (writer-side Annex L)",
+      "doc/conformance/ledger.toml clauses 14.7.2, 14.7.5.2, 14.7.5.4 and 14.8.4.7.3"
+    ],
+    "source_obligation": "Table 369 requires Warichu to contain the ordered sequence WP, WT, WP; it says WP typically contains text. Table 355 makes K optional; the candidate WP elements omit it. The revised source fixture uses WP elements with absent K and a WT with two page-local line MCRs; a separate paragraph is on page 2.",
+    "implementation": [
+      "crates/pdf-transform/src/split.rs::plan_structure",
+      "crates/pdf-transform/src/structure/hierarchy.rs::Carry::keep and Carry::child",
+      "crates/pdf-transform/src/structure/write.rs::Carry::element"
+    ],
+    "implementation_behavior": "Successful split prunes both contentless WP elements and writes WT alone, violating the required sequence under the documented valid absent-K premise.",
+    "tests": [
+      "crates/pdf-transform/tests/warichu_split_spec_audit.rs::each_page_split_keeps_empty_warichu_boundary_elements",
+      "crates/pdf-transform/tests/warichu_split_spec_audit.rs::each_page_split_keeps_warichu_boundaries_with_text"
+    ],
+    "test_assertions": "warichu_split_spec_audit: empty-boundary case FAIL, with-text control PASS. Source WP WT WP becomes WT after successful split. Source/output have exact xref, no recovery or cut chain, complete interpretation and expected glyph counts; source ParentTree mapping asserted. No raster or all-matrix certificate.",
+    "fixture_validity": "Parent accepts absent optional K with typical-only WP content as a valid boundary representation. This is the explicit source premise; no page-spanning WT assumption. Test asserts successful preservation, not a policy-neutral refusal contract. A future explicit refusal policy needs a separate assertion.",
+    "verdict": "2038-B56: executed split preservation failure. Parent source/fixture adjudication is recorded explicitly.",
+    "residuals": [
+      "Other delegated cardinalities and all matrix cells remain unverified.",
+      "Future explicit refusal policy needs its own contract and assertion."
+    ]
+  }
+}

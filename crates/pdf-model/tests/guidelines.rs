@@ -149,13 +149,21 @@ fn an_absent_key_is_table_397s_default() {
     );
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let read = guidelines::of(&document, &page);
-    assert_eq!(read.lines[0].style, BoxStyle::TABLE_397);
+    assert_eq!(
+        read.lines[0].style,
+        BoxStyle {
+            colour: [0.0, 0.0, 0.0],
+            width: 1.0,
+            dash: vec![]
+        }
+    );
     assert!(read.lines[0].stated);
     assert_eq!(
         read.lines[1].style,
         BoxStyle {
+            colour: [0.0, 0.0, 0.0],
+            width: 1.0,
             dash: vec![3.0],
-            ..BoxStyle::TABLE_397
         }
     );
 }

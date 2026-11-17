@@ -1,0 +1,51 @@
+{
+  "reviewed_decisions": [
+    {
+      "adr": "ADR 0746",
+      "subject": "Article page /B order after EC3 Issue #320",
+      "review": "Retain the sequence check for the beads of a single thread on one page, and retain membership-only comparison when multiple threads share a page. The published phrases conflicted: Table 31 said natural reading order and §12.4.3 said drawing order. Issue #320 supplies the amendment (removes natural; replaces drawing with reading), and ADR 0746 explicitly records the amendment and the reason it selects sequence for a single thread. The residual multiple-thread ambiguity is real because neither the amendment nor the clause orders different threads against one another. The comparison helper has no consumer beyond its own unit tests, so this is not evidence of a rendering or user-visible defect. Table 31's Optional/recommended /B wording still conflicts with §12.4.3's shall-contain paragraph; no parser/reporting duty is inferred from that producer-side conflict.",
+      "evidence": [
+        "doc/adr/0746-the-order-two-clauses-could-not-agree-on.md",
+        "crates/pdf-model/src/article.rs module documentation and page_array_agrees documentation",
+        "crates/pdf-model/src/article.rs tests a_pages_bead_array_agrees_with_the_threads and a_bead_array_out_of_order_disagrees_where_one_thread_supplies_the_page",
+        "doc/md/ISO_32000-2_sponsored_EC3.md Table 31 and §12.4.3 text"
+      ],
+      "verdict": "Retain current single-thread sequence/multi-thread membership behavior. Parent independently read full ADR0746 and article.rs: both correctly explain #320; preliminary stale-rationale concern is withdrawn. Presence wording conflict remains separate."
+    },
+    {
+      "adr": "ADR 0200",
+      "subject": "Article Read tab and activation",
+      "review": "The UI is an optional implementation of the clause's may-provide navigation facilities. It correctly routes activation through the standard thread-action machinery and bead rectangle. Thread information /I and title are optional; an untitled thread remains representable. Tests cover empty list, titled and untitled rows, activating by object, landing on the first bead's page and FitR scale, and a separately stated thread action. Nothing in §12.4.3 mandates a sidebar, tab name, or a next-bead button.",
+      "evidence": [
+        "doc/adr/0200-a-sixth-tab-for-a-clause-no-document-exercises.md",
+        "crates/viewer-ui/tests/panel.rs::the_read_tab_lists_a_thread_and_a_click_follows_it",
+        "crates/viewer-core/tests/articles.rs::activating_a_thread_goes_to_its_first_bead",
+        "crates/viewer-core/tests/headless.rs::a_thread_action_shows_the_bead_and_not_merely_its_page",
+        "doc/md/ISO_32000-2_sponsored_EC3.md §12.4.3 and Table 163"
+      ],
+      "verdict": "Accept as a product choice within the permission; do not characterize the chosen panel controls as normative requirements."
+    },
+    {
+      "adr": "ADR 0405",
+      "subject": "Article producer-corpus evidence",
+      "review": "The corpus witness assertion was broadened from pdf.js-only absence to producer PDFs. pdf-model article tests include a real pdfbox document and verify thread titles, bead/page links and ring closure; this supplements, rather than replaces, exact fixtures. Do not treat the observed corpus count as an ISO requirement or as coverage of every malformed producer case.",
+      "evidence": [
+        "doc/adr/0405-a-census-of-the-absences-this-tree-asserts.md",
+        "crates/pdf-model/tests/articles.rs"
+      ],
+      "verdict": "Retain corpus evidence with its named population and limited inference."
+    },
+    {
+      "adr": "ADR 1922 and ADR 1934",
+      "subject": "Outline object exposure to scripts",
+      "review": "ADR 1934 explicitly supersedes ADR 1922's earlier refusal of outline reads: bookmark properties now read from the same model outline and execute through activation; write operations remain refused. This confirms the outline is consumed beyond the UI panel. ADR 1934's reader view still reflects the outline parser's supported projection, not a requirement that the parser validate redundant Prev/Last/Parent links or producer correctness.",
+      "evidence": [
+        "doc/adr/1922-the-bookmark-root-answers-what-holds-of-every-root-and-refuses-the-outline-by-name.md",
+        "doc/adr/1934-the-bookmark-object-answers-from-the-outline-read-on-first-use-and-execute-is-a-click.md",
+        "crates/pdf-model/src/view/script_bookmarks.rs",
+        "crates/pdf-script/tests/fixtures.rs"
+      ],
+      "verdict": "ADR 1934 is the current choice; avoid citing ADR 1922's prior refusal as current behavior."
+    }
+  ]
+}

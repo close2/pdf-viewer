@@ -17,12 +17,12 @@
 //!
 //! §11.4.6's knockout is drawn rather than reported — with the element's shape stated apart
 //! from its alpha where the two differ (ADR 0234) — and the tests below measure it against
-//! the clause's own two-stage arithmetic at the pixel. What is still *not* implemented is
-//! reported: a non-isolated group whose elements blend, a group blending colour space that is
-//! not the device's, and the knockout elements whose shape one alpha channel cannot be
-//! separated from. The conditions those reports fire on are pinned below, because a report
-//! that names a page where the output cannot differ costs that page its place in the oracle's
-//! comparison (see `doc/HANDOVER.md`, trap 11).
+//! the clause's own two-stage arithmetic at the pixel. Later tests also exercise non-isolated
+//! blending and groups with their own blending colour spaces. Assertions about unsupported
+//! combinations are scoped to their fixtures; they do not mean those entire feature families
+//! are unimplemented. The diagnostic conditions matter because a report that names a page
+//! where the output cannot differ costs that page its place in the oracle's comparison
+//! (see `doc/HANDOVER.md`, trap 11).
 
 #![expect(
     clippy::expect_used,
@@ -2779,16 +2779,16 @@ const HALF_REGISTRATION: &str = "0 0 0 0 k 0 0 100 100 re f\n\
 /// > DeviceCMYK shall be redefined within the transparency group to be the same as the
 /// > blending colour space
 ///
-/// The expected pixel is the *clause's* arithmetic and not this tree's: half of registration
-/// black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4, and `press_xyz_of` says what colour that is. ADR
-/// 0272.
+/// Half of registration black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4. The expected pixel is
+/// independently derived from the fixture's sixteen quantized CLUT corners, black point
+/// compensation and the selected sRGB display transform. It pins this renderer's output
+/// policy, not a device-independent pixel required by ISO. ADR 0272.
 #[test]
 fn the_three_routes_to_a_press_all_composite_in_it() {
-    let profile =
-        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
-    let wanted = profile.to_rgb(&[0.5, 0.5, 0.5, 0.5]);
-    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
-    let expected = [level(wanted.r), level(wanted.g), level(wanted.b)];
+    // At the midpoint, average the sixteen u1Fixed15 XYZ corners, compensate the all-ink
+    // black point, then apply the D50-adapted sRGB matrix and transfer curve. Rounded
+    // encoded channels are [169, 149, 147]; no production ICC helper supplies the oracle.
+    let expected = [169, 149, 147];
 
     let routes = [
         (
@@ -2828,6 +2828,7 @@ fn the_three_routes_to_a_press_all_composite_in_it() {
             "a press reached by {route} is drawn rather than reported: {reported}"
         );
         let painted = pixel(&drawn, 50, 50);
+        assert_eq!(painted[3], 255, "{route}: the paper is opaque");
         for (axis, (got, want)) in painted.iter().zip(expected).enumerate() {
             assert!(
                 (i32::from(*got) - want).abs() <= 2,
@@ -6321,5 +6322,66 @@ fn a_black_generation_that_is_not_a_function_is_reported_as_the_files() {
         ],
         "{:?}",
         drawn.unsupported
+    );
+}
+
+/// §11.6.6, final paragraph: each Do invocation is composited as a separate group.
+///
+/// This detects reusing a previously composited group result (which contains its first
+/// invocation's backdrop) as the second call's result. Reusing a backdrop-independent cached
+/// rendering of group content is allowed, provided it is composited against the current
+/// backdrop at each invocation.
+#[test]
+fn a_repeated_group_invocation_uses_its_new_backdrop() {
+    let group = "/Group << /S /Transparency >>"; // non-isolated by Table 145 default
+    let bbox = "[0 0 20 20]";
+    let form = "/GN gs 0.5 g 0 0 20 20 re f"; // screen 50% gray against current backdrop
+
+    let first_over_white = fixture(group, bbox, form, "1 g 0 0 100 100 re f /Fm Do");
+    let opened = Document::open(first_over_white.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let white = interpret(first_over_white);
+    assert!(white.is_complete(), "{:?}", white.unsupported);
+    assert_eq!(
+        pixel(&white, 10, 90),
+        [255, 255, 255, 255],
+        "Screen(white, 0.5 gray) remains white on the first invocation"
+    );
+
+    let after_black_overpaint = fixture(
+        group,
+        bbox,
+        form,
+        "1 g 0 0 100 100 re f /Fm Do 0 g 0 0 100 100 re f",
+    );
+    let opened = Document::open(after_black_overpaint.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let black = interpret(after_black_overpaint);
+    assert!(black.is_complete(), "{:?}", black.unsupported);
+    assert_eq!(
+        pixel(&black, 10, 90),
+        [0, 0, 0, 255],
+        "the later full-page black paint covers the first invocation"
+    );
+
+    let two_bytes = fixture(
+        group,
+        bbox,
+        form,
+        "1 g 0 0 100 100 re f /Fm Do 0 g 0 0 100 100 re f /Fm Do",
+    );
+    let opened = Document::open(two_bytes.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let two = interpret(two_bytes);
+    assert!(two.is_complete(), "{:?}", two.unsupported);
+    assert_eq!(
+        pixel(&two, 10, 90),
+        [128, 128, 128, 255],
+        "the second invocation screens gray against the then-current black backdrop"
+    );
+    assert_eq!(
+        pixel(&two, 30, 90),
+        [0, 0, 0, 255],
+        "outside the form's BBox the page remains black"
     );
 }

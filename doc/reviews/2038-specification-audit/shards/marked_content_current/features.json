@@ -1,0 +1,41 @@
+[
+  {
+    "feature": "Marked-content operator stack and matched sequence boundaries",
+    "clause": "ISO 32000-2:2020 §§8.2, 14.6.1; Table 32 as corrected by EC3 Issue #85; §14.6.1 errata #302 and #335",
+    "source_location": "Primary PDF physical 735–737 (printed 720–722); §8.2 Table 32 physical 177 (printed 162). EC3 overlays are in doc/errata-read.md at Issues #85, #302, #335.",
+    "errata": "#335 removes the prohibition on marked content inside a graphics object and permits it at content-stream level or within a text object. #302 adds BX/EX and q/Q to the properly/separately nested operator pairs. #85 corrects Table 32's marked-content table cross-reference to Table 352. #301 capitalization edits do not change behavior.",
+    "ledger": "doc/conformance/ledger.toml rows §8.2 and §§14.6, 14.6.1",
+    "code": "crates/pdf-model/src/content/run/marked_ops.rs; crates/pdf-model/src/content/marked.rs; crates/pdf-model/src/content/reader.rs; crates/pdf-model/src/appearance.rs::spliced",
+    "tests": ["crates/pdf-model/tests/optional_content.rs::a_marked_content_section_may_span_two_parts_of_the_contents_array", "crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"],
+    "assertions": "The page Contents-array test opens /OC BDC in one stream and closes EMC in the next, and checks both hidden content and an after-EMC control under ON and OFF configurations. This directly exercises the sole §14.6.1 reader requirement: treat a page's Contents array as one stream for marked-content boundaries. The variable-text test exercises matching nested section termination for /Tx splicing. The interpreter pushes BMC/BDC and pops EMC, including while inside BT; MP/DP do not affect the stack.",
+    "verdict": "supported for the sampled consumer obligations; no reader-side conformance gap found",
+    "residuals": "The page Contents-array test checks interpretation completeness but does not itself assert was_recovered()==false. The producer-only nesting constraints do not create a reader duty to reject violations. No standalone MP behavior test is justified: MP/DP are points and have no rendering effect; DP's relevant OCG reference consequence is tested separately.",
+    "related_adrs": ["ADR 1894 (content stream division/join and mark-state handling)", "ADR 2304 (Table 50 operator-family dispatch)", "ADR 2406 (interpreter operator-loop module split)"]
+  },
+  {
+    "feature": "Property-list operand forms and named Properties lookup",
+    "clause": "ISO 32000-2:2020 §14.6.2; §14.6.1 BDC/DP operands; §8.11.3.2 where /OC consumes a property list",
+    "source_location": "Primary PDF physical 736–737 (printed 721–722); EC3 Issue #374 changes the associated-file property-list key to /MCAF (errata location in doc/errata-read.md; it has no ISO printed page).",
+    "errata": "EC3 #374 supplies /MCAF for associated-file tagged content. This shard treats it only as a property-list consumer example; it does not re-audit associated-file interpretation.",
+    "ledger": "doc/conformance/ledger.toml rows §§14.6.2, 14.6.1, 8.11.3.2",
+    "code": "crates/pdf-model/src/content/marked.rs::property_list; crates/pdf-model/src/content/run/marked_ops.rs::begin_marked_properties; content reader tokenizes inline dictionaries as a single operand",
+    "tests": ["crates/pdf-model/tests/text_render_modes.rs::an_inline_property_lists_booleans_are_not_operators", "crates/pdf-model/tests/accessibility.rs::an_af_tagged_section_associates_a_file_with_what_it_draws", "crates/pdf-model/tests/optional_content.rs::a_marked_content_section_may_span_two_parts_of_the_contents_array"],
+    "assertions": "property_list accepts an inline dictionary directly and resolves a name through the current Resources/Properties dictionary. Inline-property test checks true/false/null remain values, not content operators. Optional-content tests resolve named OC property resources and compare visible/hidden output. Existing accessibility test is a further named-property consumer, but its AF semantics are outside this shard.",
+    "verdict": "both allowed property-list forms are implemented and exercised by consumer tests",
+    "residuals": "§14.6.2's shall about placing indirect values in named resources and its direct-only inline allowance constrain producers. They do not require a reader to reject inline dictionaries containing indirect references or other malformed content. A missing named property resource is tolerated; no general rendering obligation requires a diagnostic for it. Some property-list keys (e.g. metadata) have a general data reader but no UI surface; that is not a reader failure under this scope.",
+    "related_adrs": ["ADR 0060 (inline dictionary and named-resource property list handling)", "ADR 2684 (undefined optional-content property list represented as empty membership dictionary for archive survey)"]
+  },
+  {
+    "feature": "Operator placement and producer-side sequence constraints",
+    "clause": "ISO 32000-2:2020 §14.6.1 as amended by EC3 Issues #302 and #335; §14.6.2",
+    "source_location": "Primary PDF physical 735–737 (printed 720–722); see errata overlays in doc/errata-read.md.",
+    "errata": "#335 supersedes base-text wording that marked-content operators could not occur within graphics objects and explicitly allows marked content at stream level or within a text object. #302 adds graphics state and compatibility sections to pairs required to be separately nested.",
+    "ledger": "doc/conformance/ledger.toml rows §§14.6.1 and 14.6.2",
+    "code": "crates/pdf-model/src/content/run/marked_ops.rs; crates/pdf-model/src/content/run.rs; crates/pdf-model/src/appearance.rs::spliced",
+    "tests": ["crates/pdf-model/tests/optional_content.rs::a_marked_content_section_may_span_two_parts_of_the_contents_array", "crates/pdf-model/tests/text_render_modes.rs::an_inline_property_lists_booleans_are_not_operators"],
+    "assertions": "Operator dispatch is available at content level and inside text sequences. The splice counts nested BMC/BDC/EMC to identify the matching EMC. Since a conforming producer balances q/Q and BX/EX separately with marked sections, replacement does not cut across those states.",
+    "verdict": "no mandatory reader rejection or recovery behavior follows from these writer constraints; implementation accommodates valid placements and boundaries",
+    "residuals": "Tests do not exhaustively assert every valid operator-placement context. That is coverage breadth, not evidence of incorrect behavior. Invalid placement/nesting must not be turned into an asserted required reader error.",
+    "related_adrs": ["ADR 1894", "ADR 2304", "ADR 2406"]
+  }
+]

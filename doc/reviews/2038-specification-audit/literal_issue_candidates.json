@@ -1,0 +1,10 @@
+{
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "source_sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
+  "method": "Issue IDs in annotation Subj; exact literal #ID absent from selected current shard prose filenames. This can miss semantic ownership, numeric JSON issue fields, alternative citation styles and prior-round evidence. It is not a count of unimplemented or unreviewed features.",
+  "selected_prose_files": 573,
+  "selected_prose_sha256": "91a322e3607891ee21fd788fa4b88e33cfbb0f5543012147103f54e86c376fea",
+  "unique_issue_ids": 360,
+  "candidate_count": 0,
+  "candidates": []
+}

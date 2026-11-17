@@ -1,0 +1,137 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected Table 146 cell audit only: all row categories and conditional columns were transcribed from the primary source; implementation/assertion review focused on the first-row CMYK zero-tint cell, the Separation/DeviceN reversion path, and the final group-object row. This does not certify every source-space × output-route cell or a physical press.",
+  "source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "table": {
+      "caption": "Table 146 — Overprinting behaviour in the transparent imaging model",
+      "start": {
+        "physical": 447,
+        "printed": 432
+      },
+      "continuation": {
+        "physical": 448,
+        "printed": 433
+      }
+    },
+    "locator_method": "Primary PDF page footer checked directly; Table 146 begins on physical page 447 / printed page 432 and continues on physical 448 / printed 433. The table caption, not the preceding clause reference, is the locator.",
+    "annotations": "The prior overprint_transparency_current shard checked primary physical pages 439–450 and recorded no EC3 annotations in this range. I did not find an annotation attached to the Table 146 rows or notes."
+  },
+  "table_cell_map": [
+    {
+      "source": "DeviceCMYK directly specified, not sampled image",
+      "affected": "C/M/Y/K process component",
+      "OPfalse": "Cs",
+      "OPtrue_OPM0": "Cs",
+      "OPtrue_OPM1": "Cs when nonzero, else Cb",
+      "current_assertions": [
+        "pdf-model/tests/overprint.rs::a_zero_component_under_overprint_mode_one_keeps_the_backdrops",
+        "pdf-model/tests/overprint.rs::overprint_mode_zero_erases_the_components_the_source_does_not_name",
+        "pdf-model/tests/overprint.rs::a_colour_with_no_zero_component_asks_for_nothing"
+      ],
+      "assessment": "The key conditional cell has a named four-component group-space oracle, direct nonzero control, OPM0 control, and all-nonzero control. The fixture is an explicit page transparency group with DeviceCMYK, not an ordinary RGB display test."
+    },
+    {
+      "source": "DeviceCMYK directly specified, not sampled image",
+      "affected": "other process component",
+      "OPfalse": "Cs",
+      "OPtrue_OPM0": "Cs",
+      "OPtrue_OPM1": "Cs",
+      "current_assertions": [],
+      "assessment": "For this implementation's tested four-component group, this category is unreachable; for a sampled image the table has separate source-space handling and §8.6.7 excludes nonzero OPM. This row's general all-Cs value is not directly isolated by a separate assertion."
+    },
+    {
+      "source": "DeviceCMYK directly specified, not sampled image",
+      "affected": "spot colourant",
+      "OPfalse": "Cs (=0)",
+      "OPtrue_OPM0": "Cb",
+      "OPtrue_OPM1": "Cb",
+      "current_assertions": [
+        "pdf-model/tests/spot_planes.rs::overprint_mode_one_leaves_the_spot_backdrop"
+      ],
+      "assessment": "This test paints a LogoGreen Separation first, then direct DeviceCMYK on a page with a DeviceCMYK transparency group; it inspects command blend masks and shows the CMYK mark keeps the existing spot plane under OPM1. It is only an OPM1 selected assertion, not all three columns, and does not establish Separation/DeviceN source rows."
+    },
+    {
+      "source": "Any process colour space, including other DeviceCMYK",
+      "affected": "process component",
+      "OPfalse": "Cs",
+      "OPtrue_OPM0": "Cs",
+      "OPtrue_OPM1": "Cs",
+      "current_assertions": [
+        "pdf-model/tests/overprint.rs::a_colour_converted_into_another_profiles_press_is_the_source_colour"
+      ],
+      "assessment": "A converted-to-other-press process colour has a literal same-source control. This is a selected route rather than every non-CMYK process space."
+    },
+    {
+      "source": "Any process colour space, including other DeviceCMYK",
+      "affected": "spot colourant",
+      "OPfalse": "Cs (=0)",
+      "OPtrue_OPM0": "Cb",
+      "OPtrue_OPM1": "Cb",
+      "current_assertions": [],
+      "assessment": "The process-only test cited elsewhere has no spot plane, so it provides no evidence for this cell. No assertion in the reviewed tests directly isolates this row."
+    },
+    {
+      "source": "Separation or DeviceN",
+      "affected": "process component",
+      "OPfalse": "Cs (=0)",
+      "OPtrue_OPM0": "Cb",
+      "OPtrue_OPM1": "Cb",
+      "current_assertions": [
+        "pdf-model/tests/overprint.rs::two_separation_spaces_overprinting_are_the_colour_the_alternate_names",
+        "pdf-model/tests/overprint.rs::the_overprint_clauses_own_example_is_an_equivalence",
+        "pdf-model/tests/overprint.rs::a_separation_reverting_to_the_presss_own_profile_takes_the_mode"
+      ],
+      "assessment": "Fixtures give independent named DeviceCMYK results for Separation and DeviceN reversion paths. This does not establish spot-name rows."
+    },
+    {
+      "source": "Separation or DeviceN",
+      "affected": "named spot colourant",
+      "OPfalse": "Cs",
+      "OPtrue_OPM0": "Cs",
+      "OPtrue_OPM1": "Cs",
+      "current_assertions": [],
+      "assessment": "The five-colourant DeviceN test checks separated plane tints without overprint; the Cyan/Yellow Separation test uses only process plates. Neither asserts this Table 146 named-spot row. No directly discriminating assertion was found."
+    },
+    {
+      "source": "Separation or DeviceN",
+      "affected": "unnamed spot colourant",
+      "OPfalse": "Cs (=0)",
+      "OPtrue_OPM0": "Cb",
+      "OPtrue_OPM1": "Cb",
+      "current_assertions": [],
+      "assessment": "The cited LogoGreen backdrop test has a Separation source mark followed by a direct CMYK mark; it supports the preceding direct-CMYK-to-spot row, not this Separation/DeviceN-source row. No directly discriminating assertion was found."
+    },
+    {
+      "source": "A group, not an elementary object",
+      "affected": "all colour components",
+      "OPfalse": "Cs",
+      "OPtrue_OPM0": "Cs",
+      "OPtrue_OPM1": "Cs",
+      "current_assertions": [],
+      "assessment": "No direct public invocation-level group-row assertion was found in the reviewed current test bodies. A bounded draft distinguishes group paint from elementary direct-CMYK overprint and controls inner OP state."
+    }
+  ],
+  "implementation": {
+    "elementary_route": "crates/pdf-model/src/content/overprint.rs::overprint_blend / special_overprint; process channel mask is computed from four source tints only for DeviceCMYK group compositing.",
+    "colorant_route": "crates/pdf-model/src/content/overprint.rs::object_overprint and crates/pdf-model/src/content/colour.rs::cmyk_tints; sampled image/shading have separate own-colour-space behavior, and spot planes are handled separately.",
+    "group_route": "crates/pdf-model/src/content/xobject.rs::draw_xobject -> run_transparency_group. A Form XObject with /Group is executed as a group; no elementary-object special overprint blend is selected at the invocation site."
+  },
+  "ledger": {
+    "file": "doc/conformance/ledger.toml",
+    "owner": "11.7.4.3 and aggregate 11.7.4 / 11.7.4.5",
+    "status": "implemented (owner ledger wording records the selected branch; this review does not certify the whole table)"
+  },
+  "residuals": [
+    "No end-to-end physical separations/press proof; selected spot assertions exercise simulated planes.",
+    "The group-object row now has a public regression in the integrated test; the strengthened pixel-array version had not yet been rerun at handoff. All other row/column combinations are not exhaustively tested.",
+    "Sampled image and shading parameter applicability is separately specified and was not re-audited in full here."
+  ],
+  "execution": {
+    "integrated_test": "crates/pdf-model/tests/overprint_group_row_spec_audit.rs::a_transparency_group_invocation_uses_the_group_row_not_elementary_opm1",
+    "parent_report": "Initial wave131b run passed. Parent noticed the first scratch tuple comparison could pass because the diagnostic overprints boolean differed even when pixels did not; the integrated assertion now compares pixel arrays directly. Rerun of that strengthened form was pending at handoff.",
+    "scratch_draft": "drafts/table146_group_object.rs is the pre-integration scratch source and is superseded by the integrated test."
+  },
+  "parent_execution": "Checkpoint131: overprint_group_row_spec_audit PASS with pixel-only equality and negative controls, opaque/source-paint guards and separate metadata checks. This closes the selected explicit group invocation gap; all matrices remain partial."
+}

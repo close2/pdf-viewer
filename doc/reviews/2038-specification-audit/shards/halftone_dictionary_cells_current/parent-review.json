@@ -1,0 +1,7 @@
+{
+  "source": "Read Table128 at physical389 plus AccurateScreens continuation390;129 at390–391;130 at393 including both squared byte blocks/order. Read388 HalftoneName exception. Checked actual #310 at391 (Type6 Table129), #310/#12 at395 (Table132), and #311 strike at396. Corrected prior Table130/391 mismatch.",
+  "consumer": "Read ext_gstate::halftone_transfer: HT accepts dictionary/stream; Type5 component dispatch is the only type branch, all other types use generic component_transfer. Screen dimensions/threshold bytes/frequency are not used by this continuous-tone raster.",
+  "assertions": "Read all four halftone_transfer_public_spec_audit bodies: Type5 per-component literal128/64/64 versus32/32/32; Type6 stream128 versus32; distinct RGB maps32/128/191 exclude gray slot; TR2 precedence191 versus32. Broad123 includes these PASS. Existing Type1 helper-map evidence is narrower than public pixels. No additional Type10 clone required merely to repeat the same stream path.",
+  "decisions": "Read selected1535 conditional scope;0204/0505 transfer versus screening;1965 named-screen loss;2034 threshold-screen loss. Retain current continuous-tone screen permission while preserving transfer obligation. Archive decisions are separate from this reader review; combined threshold-plus-transfer authorization remains a follow-up, not certified here.",
+  "limits": "No Type10-specific assertion, actual threshold screening, accurate-screen or press output certification. Name exception qualifies Required cells. No new behavior finding or runtime test."
+}

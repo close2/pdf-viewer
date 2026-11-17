@@ -1,0 +1,10 @@
+{
+  "verdict": "B63defaultstyle inheritance confirmed; T120QprecedencePASS. Table227threeflags/Table228fourentries partially mapped.",
+  "source": "Parentreadphysical545inheritance,547flags,548variabletext,555RichTextcondition; actual318bytestring and392nonnull annotations checked. DSoptionalnoninheritance permits missingownDS; ownRVpresentandHiagreesV. NonterminalRVwithoutownrequiredRV would not bevalidwitness.",
+  "cause": "Field::chain()/Inherited::chain return TWO dictionaries, not an arbitrary ancestor vector. READ_UP_THE_CHAIN includesDS and inheritedcache flattens all ancestors. rich_text::nearest then findsancestorDS in flattened map. Parent corrected reviewer cause wording.",
+  "execution": "rich_text_default_style_noninheritance_spec_auditFAIL:ancestorDS36pt rows32..58 (27) vsdefault rows44..52(9). Local36pttallerandlocal12ptoverancestor36pt controls executed BEFORE failure. quadding_field_tree_precedence_spec_auditPASS:literalleft/rightedges,centerx100±3,equalwidthanddefault==left. Exactxref/noRecovery,completeinterpretation,PDF1.7NeedAppearancestrue,DA/DRfont,ownRVmatchingHi.",
+  "quality": "modelalltargetsClippyPASSquality-wave89c afterdocbackticksfixed;89earlierDSonlyqualityPASS.",
+  "adr": "ADR2448unlimited designatedinheritance retained; noninheritable convenienceentries need ownterminalboundary. No fullXFA support change.",
+  "assertion_review": "ParentreadTable227ReadOnlyedit/import,NoExportselection,Requiredowedreport bodies. Requiredminimalfixture lacksrenderresources/APflag; it establishes compositionreport only, not validfullPDF or actualhostrefusal. Hostmay_submit does not inspectowed; further source/policy review pending, notyetfinding.",
+  "limits": "CPU inkrows prove selected visible consequence, not everyrichstyle orbackend. Qlayout exactpaddingis productpolicy; tests bound standardalignmentandprecedence. NoRV valid-inputfailureclaimed."
+}

@@ -826,3 +826,45 @@ fn a_root_that_reaches_its_dictionary_through_a_reference_is_written() {
         "and it is the catalog rather than the link"
     );
 }
+
+/// Section14.4: a new file has two equal identifiers, belonging to the derived file.
+/// The literal source IDs deliberately differ, so merely carrying either source slot fails.
+#[test]
+fn a_new_files_identifier_pair_is_equal_and_distinct_from_its_source() {
+    for form in [Form::Table, Form::Stream] {
+        let source = open(one_page());
+        let mut assembly = Assembly::new(vec![&source]);
+        copy_whole(&mut assembly, &source, 4);
+        let output = open(write_out(&assembly, form).0);
+        assert!(!output.was_recovered(), "both xref encodings must be valid");
+        let ids = output
+            .trailer()
+            .get("ID")
+            .and_then(Object::as_array)
+            .expect("output ID array");
+        assert_eq!(ids.len(), 2);
+        let first = ids
+            .first()
+            .and_then(Object::as_string)
+            .expect("first byte string");
+        let second = ids
+            .get(1)
+            .and_then(Object::as_string)
+            .expect("second byte string");
+        assert!(!first.is_empty());
+        assert_eq!(
+            first, second,
+            "a newly written file has one initial identifier"
+        );
+        assert_ne!(
+            first,
+            &[1, 2],
+            "the source's permanent ID belongs to another file"
+        );
+        assert_ne!(
+            second,
+            &[3, 4],
+            "the source's changing ID is not the new file ID"
+        );
+    }
+}

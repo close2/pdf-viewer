@@ -1,0 +1,6 @@
+{
+  "scope": "Selected15 existing table source-span checks only.",
+  "reconciliation": "reconciliation.json",
+  "parent_review": "parent-review.json",
+  "verdict": "No confirmed mismatch. Parent rejected proposed Table163 correction after reading continuation P/R rows on476."
+}

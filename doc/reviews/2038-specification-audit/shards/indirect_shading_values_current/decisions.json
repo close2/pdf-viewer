@@ -1,0 +1,15 @@
+[
+  {
+    "decision": "Keep current nested reference implementation; add consumer assertions.",
+    "basis": "General 7.3.10 equivalence and Tables 77/79/80 supply no direct-only exception for these dictionary values.",
+    "execution": "Two public CPU raster tests pass, with literal colors and direct controls."
+  },
+  {
+    "decision": "Mesh stream bytes are outside this reference assertion.",
+    "basis": "Encoded sample bytes are not PDF object-reference syntax."
+  },
+  {
+    "decision": "Use analytic pixels and both extension polarities.",
+    "basis": "The axial sample maps to t=.35375, radial mid sample to t=.4. Parent corrected the before-axis coordinate to x=7 and added reversed [false true] controls so the second reference is not tested only at its default false value."
+  }
+]

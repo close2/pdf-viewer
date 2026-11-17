@@ -1,0 +1,10 @@
+{
+  "finding": "2038-D51",
+  "gate": "pdf-model::fixed_documents::every_document_a_round_fixed_is_still_fixed",
+  "execution": "Explicit --run-ignored only:77checked0absent, one testFAIL, two failedchecks on PDFIUM-407-0.pdf. fixed-documents-wave75b.log.",
+  "expected": "Text{operations:197}, ink7.791..8.791",
+  "actual": "No expected Text report; ink14.633. One short image-sample report and three checksum font refusals reporting drawn from a substitute face instead.",
+  "cause": "Recorded fixed-document session896/ADR0836 expects blank labels from refused fonts; accepted A837/ADR2870 now substitutes while retaining refusal/incomplete reporting. Current load_font/kept implements that decision.",
+  "disposition": "Stale test expectation, not established production regression. Diagnostics improved to print actual reports and count failedchecks accurately; expected band/report unchanged pending reviewed replacement.",
+  "limits": "Corpus ink band depends on rendering environment; do not simply bless current14.633. Verify selected substitute and independently justified new oracle before updating expectation. This gate is ignored by default broad run."
+}

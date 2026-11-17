@@ -1,0 +1,49 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "0029",
+      "topic": "Composite fonts are a CMap code-to-CID mapping plus an independent CID-to-glyph mapping",
+      "check": "Current CodeMapping::Composite preserves both maps separately. CMap code length/value and the CID-to-glyph route are visible in loading/codes.rs, composite.rs, and loading/glyphs.rs. Existing tests distinguish variable-width codes, a nonidentity predefined CMap, W indexed by CID, and mapped GIDs.",
+      "status": "Retain for the inspected behavior.",
+      "limit": "Some corpus checks skip when optional corpus checkout is absent; deterministic map stream fixture draft addresses one specific gap."
+    },
+    {
+      "adr": "0140",
+      "topic": "Carry and resolve required predefined CMap data",
+      "check": "§9.7.5.2 says a processor shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7, Adobe-KR-9. Current data/cmaps contains compiled data and predefined tests; named mapping tests use Adobe 90ms-RKSJ-H. No contrary source evidence found.",
+      "status": "Retain for this shard; all names/data and licensing were not recounted."
+    },
+    {
+      "adr": "1092",
+      "topic": "Read an Encoding CMap bfrange array destination as the stated CID mapping although §9.7.5.4 c constrains producers",
+      "check": "The source distinction is sound: §9.7.5.4 c is a producer constraint, while §9.7.6.2 lists bfchar and corresponding ranges in the reader's lookup. Current parser's stride/resynchronization and tests were inspected. This is an explicit malformed-input recovery choice, not a claim of required conforming-file behavior.",
+      "status": "Retain, with the recovery-policy qualification."
+    },
+    {
+      "adr": "0350",
+      "topic": "Hollow embedded Type2 font with a remapping stream does not collapse metrics-derived text geometry",
+      "check": "Source clauses separate glyph outline selection from text geometry; tests in test-scenes/ocr_text_layer use a hollow loca and CIDToGIDMap remapping, with nonempty expected CID width statements, and assert extracted text, shape counts and selection bands. The implementation does not infer selection geometry from outlines.",
+      "status": "Retain for the tested CSDK fixture; fixture maker's map-generation helpers are not an independent numeric oracle."
+    },
+    {
+      "adr": "2817",
+      "topic": "Type1 dictionary over OpenType CFF uses §9.6.5.2 glyph-name selection rather than TrueType cmap route",
+      "check": "Table 124/§9.9.1 selection bullets and changed opening.rs helper agree. `opentype_selection_audit.rs` uses exact xref and distinct GID expectations; CFF's post v3 omits names and its cmap offers conflicting glyphs, making route selection observable. The same CFF bare Type1C and glyf controls pass at the assertion level.",
+      "status": "Retain for the specific selection premise; not full OpenType conformance."
+    },
+    {
+      "adr": "2870",
+      "topic": "Draw from a substitute face for a present but unreadable embedded font program",
+      "check": "§9.5 and §9.8.1 permit substitute selection for an unavailable program but do not require this particular recovery. Current helper retains the originating refusal and excludes no-code-reaches-glyph. This is a product policy decision rather than an OpenType/CID conformance duty.",
+      "status": "No reconsideration from this bounded CID/OpenType pass.",
+      "limit": "The new unreadable-program substitution tests and actual host report contract were not exhaustively reviewed here."
+    }
+  ],
+  "draft": {
+    "file": "drafts/cid_map_big_endian_and_short_fallback.rs",
+    "basis": "Table 115 bytes 2*c and 2*c+1 with high-order byte first; §9.7.6.3 says if Type2 CIDToGIDMap stream has no GID for a code, substitute the glyph for CID 0.",
+    "assertions": "CID 5 has GID 37 from bytes 10-11 (positive mapped control); CID 6 is beyond the 12-byte map and falls back through CID 0 to GID 36. The PDF uses exact offsets, asserts !was_recovered(), real nonempty outlines and public interpretation glyph count.",
+    "execution": "Draft only; parent has not promoted or run it."
+  }
+}

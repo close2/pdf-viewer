@@ -1,0 +1,126 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft/run status. Neither whole-clause nor all-feature certification.",
+  "reviewer_record": [
+    {
+      "feature": "Image forms: XObject and inline image; mask variants and interpolation; all bit depths",
+      "effective_source": "§8.9.1; §8.9.3; §8.9.5.3; §8.9.7",
+      "ledger_rows": [
+        "8.9",
+        "8.9.1",
+        "8.9.3",
+        "8.9.5.3",
+        "8.9.7"
+      ],
+      "granularity": "Rows distinct; umbrella rows aggregate not substitutes for clause obligations.",
+      "audit_note": "Bit depths, row-byte alignment, XObject/inline routes, and inline abbreviation/filter terminators are individually represented. §8.9.5.3 Interpolate is a separate row; verify assertions distinguish nearest vs interpolated patterns, not simply dictionary acceptance."
+    },
+    {
+      "feature": "Image placement matrix and image parameters; coordinate order/orientation",
+      "effective_source": "§8.9.2; §8.9.4; Tables 85-86",
+      "ledger_rows": [
+        "8.9.2",
+        "8.9.4"
+      ],
+      "granularity": "Both rows exist and are mapped to placement tests.",
+      "audit_note": "Image row-top orientation, matrix placement and rotations are directly test-addressed. No reason to infer sample correctness from transform tests."
+    },
+    {
+      "feature": "Image dictionary required entries, filter/sample consistency, intent, ColorSpace/JPX precedence, /OC visibility, /Alternates, masks and transparency entries",
+      "effective_source": "§8.9.5.1 Table 87, Table 88, §7.4.9 cross-reference; EC3 #215",
+      "ledger_rows": [
+        "8.9.5.1",
+        "8.9.5.4",
+        "8.9.6.3",
+        "8.9.6.4",
+        "11.6.4.3",
+        "11.6.5.2"
+      ],
+      "granularity": "One Table 87 row fans across multiple ledger rows where consumer behavior is defined elsewhere; the .1 row lists the whole table but does not independently grant evidence to every entry.",
+      "audit_note": "Required width/height/space/depth and now base /Decode cardinality have focused errors; intent, optional content, alternates, explicit/color-key/soft masks are separately represented. Candidate missing base Decode element type validation is in findings/draft. Ordinary JPX SMaskInData 1/2 consumer rendering was missing a focused row-level test; draft ordinary_jpx_smaskindata.rs is now prepared. Producer constraints don't imply reader must reject contradictory malformed entries."
+    },
+    {
+      "feature": "General Decode arrays, per-space default pairs, clamp and inversion",
+      "effective_source": "§8.9.5.2 Tables 88-89",
+      "ledger_rows": [
+        "8.9.5.2",
+        "8.9.6.2",
+        "8.9.6.4"
+      ],
+      "granularity": "Decode row owns generalized mapping; stencil inversion and color-key raw-domain comparison are specific consumer obligations in mask rows.",
+      "audit_note": "General map and defaults include direct pixel assertions. Current validator does not validate nonnumeric values in an otherwise correct-length base array; possible missing granularity is in findings. JPX absent-ColorSpace exception is in §7.4.9/8.9.5.1 row."
+    },
+    {
+      "feature": "Image color-key mask raw sample tuple, inclusive ranges, codecs/depths, Mask/SMask precedence",
+      "effective_source": "§8.9.6.1, §8.9.6.4, §11.6.4.3",
+      "ledger_rows": [
+        "8.9.6",
+        "8.9.6.4",
+        "11.6.4.3"
+      ],
+      "granularity": "Distinct clause behavior is represented in both image mask and transparency precedence rows.",
+      "audit_note": "Tests assert raw-sample pre-Decode behavior and codec-specific domains, inclusive limits, indexed entries, /SMask winning over /Mask, plus current graphics-state interaction. Verify malformed array entries are reported as stated; don't treat warning about lossy filters as reader exemption."
+    },
+    {
+      "feature": "Explicit stencil mask decode and mapping; image-mask forbidden keys under EC3 #215",
+      "effective_source": "§8.9.6.2; §8.9.5.1 Table 87; EC3 #215",
+      "ledger_rows": [
+        "8.9.6.2",
+        "8.9.5.1"
+      ],
+      "granularity": "Subclause row plus general dictionary row.",
+      "audit_note": "Public pixels cover normal/inverted stencil, fill color/pattern, mask transform, dimensions and soft-mask interplay. EC3 ignore of forbidden /Mask and /ColorSpace and BPC error are separately tested. A forbidden producer entry alone is not mandatory reader rejection."
+    },
+    {
+      "feature": "Soft-mask image precedence, sample-grid mapping, matte preblend inversion in correct color domain, /SMaskInData",
+      "effective_source": "§11.6.4.3; §11.6.5.2 Tables 143-144; §8.9.5.1 Table 87",
+      "ledger_rows": [
+        "11.6.4.3",
+        "11.6.5.2",
+        "8.9.5.1"
+      ],
+      "granularity": "Table 143/144 image details owned by .5.2; ordering/priorities owned by .4.3; JPX packaging behavior also referenced from .5.1.",
+      "audit_note": "Matte in RGB, CMYK and Indexed domains and no-Matte different grid are asserted. Table 143 equality of dimensions applies only where Matte is present; otherwise grids are independent and both map unit square. Ordinary color JPX embedded alpha draft closes key public consumer gap. `/Matte` on an embedded-alpha image is not a valid combo because Table 144 belongs to the SMask dictionary."
+    },
+    {
+      "feature": "Graphics-state soft-mask dictionary /G, subtype, BBox/Matrix, /BC, transfer, alpha and luminosity, knockout group behavior",
+      "effective_source": "§11.5.1-11.5.3; §11.6.5.1 Table 142; §11.6.6 cross-reference",
+      "ledger_rows": [
+        "11.5",
+        "11.5.1",
+        "11.5.2",
+        "11.5.3",
+        "11.6.5.1",
+        "11.6.6"
+      ],
+      "granularity": "Separate derivation rows and dictionary row. 11.5.3 is departed only for CIE-based luminosity branch per owner ratification; other measured spaces/branches are implemented. Do not report the whole row as missing.",
+      "audit_note": "Matrix order, /None, alpha/color independence, luminosity, transfer function including outside BBox, backdrop, resources and simple /K true overlap are covered. `soft_mask_dictionary_audit.rs` is a direct pixel regression for knockout vs normal. Damaged group prefix is an explicitly chosen, reported recovery, not a guaranteed ISO subset."
+    },
+    {
+      "feature": "Transparency shape/opacity source precedence, image opacity, alpha constants, image's own mask override vs graphics-state mask",
+      "effective_source": "§11.6.2; §11.6.4.1-11.6.4.4; §11.6.4.3",
+      "ledger_rows": [
+        "11.6.2",
+        "11.6.4",
+        "11.6.4.1",
+        "11.6.4.2",
+        "11.6.4.3",
+        "11.6.4.4",
+        "8.9.6"
+      ],
+      "granularity": "Distinct object alpha/shape vs constant vs graphics-state mask vs image dictionary mask semantics are represented in separate rows; image direct masks also appear §8.9.6.",
+      "audit_note": "Image mask and transparency consumers are tested. Keep behavior of invalid simultaneous /SMask and nonzero /SMaskInData separate: standard says producer shall not do so, but no automatic reader error follows."
+    },
+    {
+      "feature": "Blend modes, blending color space and alpha equations; group and patterns in transparency",
+      "effective_source": "§11.6.2, §11.6.3, §11.6.6, §11.6.7",
+      "ledger_rows": [
+        "11.6.2",
+        "11.6.3",
+        "11.6.6",
+        "11.6.7"
+      ],
+      "granularity": "Separate rows with tests and explicit backend behavior (GPU refusal is surfaced).",
+      "audit_note": "The ledger has granular test lists for named blend functions, group isolation/knockout/own spaces, patterns, nested conversion and backend unsupported cases. Scope is broad and was not exhaustively replayed here; no missing top-level row found."
+    }
+  ]
+}

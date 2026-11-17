@@ -752,3 +752,139 @@ fn an_empty_owner_password_opens_a_revision_6_document_as_its_owner() {
     let document = open(&bytes, USER).expect("and the user password is still the user's");
     assert!(!document.permissions().expect("encrypted").owner);
 }
+
+/// Table 20 requires CF entries named by Table 26 to be ignored before interpretation.
+#[test]
+fn a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown() {
+    let older = REVISION_4;
+    let control = older_document(
+        older,
+        4,
+        "/StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let control = open(&control.bytes, USER).expect("valid Identity-only control opens");
+    assert!(!control.was_recovered(), "exact-xref control");
+    assert_eq!(page_content(&control), CONTENT);
+
+    let ignored = older_document(
+        older,
+        4,
+        "/CF << /Identity << /CFM /Unsupported >> >> /StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let ignored = open(&ignored.bytes, USER)
+        .expect("Table 20 requires a CF entry named Identity to be ignored");
+    assert!(!ignored.was_recovered(), "exact-xref challenged fixture");
+    assert_eq!(page_content(&ignored), CONTENT);
+}
+
+// Insertable companion test for crates/pdf-syntax/tests/encryption_fixtures.rs.
+// It uses that file's clause-derived exact-xref R4 builder and literal plaintext constants.
+// This covers only absent-default selection; it is not a crypto known-answer vector.
+
+/// Table 20 defaults each omitted entry to Identity, not to the other default entry.
+#[test]
+fn absent_stream_and_string_defaults_are_identity() {
+    let both_absent = older_document(REVISION_4, 4, "", (Method::Identity, Method::Identity));
+    let explicit_identity = older_document(
+        REVISION_4,
+        4,
+        "/StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let stream_default_fixture = older_document(
+        REVISION_4,
+        4,
+        "/CF << /StdCF << /Type /CryptFilter /CFM /AESV2 /Length 16 \
+         /AuthEvent /DocOpen >> >> /StrF /StdCF",
+        (Method::Identity, Method::Aes128),
+    );
+    let unencrypted_title_fixture = older_document(
+        REVISION_4,
+        4,
+        "/CF << /StdCF << /Type /CryptFilter /CFM /AESV2 /Length 16 \
+         /AuthEvent /DocOpen >> >> /StmF /StdCF",
+        (Method::Aes128, Method::Identity),
+    );
+
+    let absent_document = open(&both_absent.bytes, USER).expect("omitted defaults use Identity");
+    let explicit_document = open(&explicit_identity.bytes, USER).expect("Identity control opens");
+    let stream_identity_doc = open(&stream_default_fixture.bytes, USER)
+        .expect("an omitted StmF defaults to Identity even when StrF is AESV2");
+    let clear_title_doc = open(&unencrypted_title_fixture.bytes, USER)
+        .expect("an omitted StrF defaults to Identity even when StmF is AESV2");
+    let observations = [
+        &absent_document,
+        &explicit_document,
+        &stream_identity_doc,
+        &clear_title_doc,
+    ]
+    .map(|document| {
+        (
+            !document.was_recovered(),
+            page_content(document),
+            title(document),
+        )
+    });
+    assert!(
+        both_absent
+            .bytes
+            .windows(CONTENT.len())
+            .any(|w| w == CONTENT)
+    );
+    assert_eq!(
+        observations,
+        std::array::from_fn(|_| (true, CONTENT.to_vec(), TITLE.to_vec()))
+    );
+}
+
+/// Table 14 defaults an omitted Crypt Name to Identity even beside an AES `StmF`.
+#[test]
+fn a_crypt_filter_with_no_name_uses_identity_instead_of_stmf() {
+    let older = REVISION_4;
+    let owner_entry = owner_entry(OWNER, USER, older);
+    let key = file_key(USER, &owner_entry, older);
+    let dictionary = format!(
+        "<< /Filter /Standard /V 4 /R 4 /Length 128 {} /O {} /U {} /P {} >>",
+        aesv2_filters("StdCF", "StdCF"),
+        hex_string(&owner_entry),
+        hex_string(&user_entry(&key, older)),
+        older.flags,
+    );
+    let original = document(&dictionary, &key, Method::Aes128, Method::Aes128, true);
+    let mut expected = CONTENT.to_vec();
+    expected.push(b'\n');
+    expected.extend_from_slice(IN_THE_CLEAR);
+    for omitted in [
+        "",
+        "/Name /Identity",
+        "/DecodeParms [<< /Type /CryptFilterDecodeParms /Name /Identity >>]",
+    ] {
+        let mut bytes = original.clone();
+        // Equal-width edits preserve every exact xref offset. The initial ID pair is equal.
+        let second_id = hex_string(b"fixture-id-other");
+        let first_id = hex_string(&ID0);
+        assert_eq!(second_id.len(), first_id.len());
+        let at = bytes
+            .windows(second_id.len())
+            .position(|w| w == second_id.as_bytes())
+            .expect("second trailer ID");
+        bytes[at..at + second_id.len()].copy_from_slice(first_id.as_bytes());
+        if !omitted.is_empty() {
+            let positions: Vec<_> = bytes
+                .windows(omitted.len())
+                .enumerate()
+                .filter_map(|(i, w)| (w == omitted.as_bytes()).then_some(i))
+                .collect();
+            assert_eq!(positions.len(), 1, "exactly one parameter occurrence");
+            let at = positions[0];
+            bytes[at..at + omitted.len()].fill(b' ');
+        }
+        let document = open(&bytes, USER).expect("valid R4 fixture opens");
+        assert!(!document.was_recovered());
+        assert!(!document.cross_reference_chain_was_cut());
+        assert_eq!(page_content(&document), expected, "omitted={omitted}");
+        assert_eq!(title(&document), TITLE);
+    }
+}

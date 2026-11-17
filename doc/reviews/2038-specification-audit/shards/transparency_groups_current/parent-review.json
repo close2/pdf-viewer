@@ -1,0 +1,6 @@
+{
+  "execution": "transparency-repeated-wave13.log82/82PASS,1skipped; includes newlypromoted repeatedDo control and81existinggroup tests.",
+  "oracle": "Opaque red group composited with halfopacity into white: RGB255,127or128,127or128 once; RGB255,63or64,63or64 twice. Independent source-over expectation with1LSB tolerance. Exactxref/norecovery/fullinterpretation.",
+  "scope": "CPU pixel consumer; repeated invocation is prose followingTable145, not a Table145entry. Existing ownspace/nonisolatedtests run; agent source/assertion review narrower than entire81tests.",
+  "correction": "Header unimplemented-family claims contradictedcurrentlater tests; updated header to describe scoped diagnostics and current successful paths. No production/ADR changes."
+}

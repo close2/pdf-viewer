@@ -1,0 +1,49 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2 §7.3.10 direct/indirect semantic equivalence as consumed by simple-font Widths and descriptor metrics and CIDFont W/W2 metric arrays; Encoding Differences considered but no independent defect established.",
+  "features": [
+    {
+      "clause": "7.3.10",
+      "feature": "Except where documented to the contrary, any object value may be direct or indirect with equivalent semantics.",
+      "source_location": "doc/ISO_32000-2_sponsored_EC3.pdf, printed p.34 / physical p.49; paragraph following the indirect-reference syntax and note on chains.",
+      "ledger": "doc/conformance/ledger.toml §7.3.10 is implemented and its note names direct/indirect equivalence broadly, including a historical writer miss in a transform. The ledger's cited tests are not font-array equivalence tests.",
+      "effective_rule": "References can occur as array elements as well as dictionary values; the source says ‘any object value’ and names both positions. Apply unless a specific clause states otherwise. This is a representation equivalence rule, not a requirement to reject an otherwise readable document for using a permitted indirect spelling."
+    },
+    {
+      "clause": "9.6.2.1",
+      "feature": "Simple Type 1/TrueType Widths array, individual width entries, FontDescriptor and its numeric members.",
+      "source_location": "doc/ISO_32000-2_sponsored_EC3.pdf, Table 109, printed pp.313–314 / physical pp.328–329. Widths row says indirect reference preferred. EC3 #106's StrikeOut (annotation physical p.329 / printed p.314) removes the FontDescriptor row's ‘shall be an indirect reference’ text. The separate standard-14 all-or-none paragraph is struck by #47/#48 on the same page. §9.6.3 says TrueType dictionaries use the Type 1 entries subject to listed differences. The descriptor's MissingWidth is specified by §9.8.1 Table 120, printed p.344 / physical p.359.",
+      "ledger": "§9.6.2.1 is implemented; note covers standard-14 exceptions and Errata Collection 3 changes. Existing simple_font_widths_audit checks literal direct Widths values and actual glyph origins, but not an indirect Widths array/member pair. Existing metrics unit tests use direct arrays/dictionaries.",
+      "effective_rule": "The /Widths array and each value can be indirect under §7.3.10; an indirect array and references to its numeric members must yield the same stated advances. After #106, Table 109 also permits the FontDescriptor dictionary itself to be direct. Its MissingWidth member can be indirect under §7.3.10. TrueType fonts use these entries under §9.6.3."
+    },
+    {
+      "clause": "9.7.4.3",
+      "feature": "CIDFont /W, nested per-CID width arrays, /DW2, /W2 and nested triplets.",
+      "source_location": "doc/ISO_32000-2_sponsored_EC3.pdf, printed pp.332–334 / physical pp.347–349. The prose and Examples 1–3 specify the direct forms; no exception to §7.3.10 appears in the read passage.",
+      "ledger": "§9.7.4.3 is implemented. composite_font_fixtures.rs asserts clause examples for direct /W, /DW2 and /W2 values; no fixture in those bodies compares direct and indirect representations.",
+      "effective_rule": "The outer metric arrays, nested lists, and numeric values are object values. A consumer should resolve permitted references at each nesting level and derive the same glyph advance and vertical metrics."
+    },
+    {
+      "clause": "9.6.5.2",
+      "feature": "Encoding /Differences array elements.",
+      "source_location": "doc/ISO_32000-2_sponsored_EC3.pdf, printed pp.322–324 / physical pp.337–339, especially Table 112 and its following text.",
+      "ledger": "§9.6.5.2 is implemented. glyph_names.rs resolves each Differences item while iterating, but located assertions chiefly use direct arrays and names.",
+      "effective_rule": "A reference to a numeric start-code or glyph-name object in the Differences array is within §7.3.10's general rule unless a specific array rule says otherwise. This audit did not independently prove the chosen public glyph-name consequence, so it is recorded as code support rather than a separate conformance finding."
+    }
+  ],
+  "test_evidence": {
+    "simple_font_widths_audit": "crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph checks glyph origins against literal 667/722 values, but all Widths and individual entries are direct. The proposed fixture also compares a direct FontDescriptor, permitted by #106, and an indirect MissingWidth member.",
+    "composite_font_fixtures": "crates/pdf-model/tests/composite_font_fixtures.rs::the_w_array_of_example_1_states_each_width and ::the_w2_array_of_example_3_states_each_vertical_metric check literal ISO example metrics but use direct outer/nested arrays and numbers.",
+    "implementation": "metrics.rs stated_widths resolves Widths through get_key and each item through Document::resolve; composite_widths/composite_vertical_metrics resolve outer values, nested list entries and numeric elements; Vertical::read resolves DW2 items. glyph_names.rs apply_differences resolves each Differences item. These paths appear to implement the equivalence; this is an assertion-coverage gap, not an observed code defect."
+  },
+  "decisions": [
+    "No general reader rejection is due for the indirect spellings: §7.3.10 explicitly gives equivalent semantics; applicable font clauses separately specify when a container itself is required or preferred indirect.",
+    "Do not overstate the direct fixture limitation as proof of a defect. Current code visibly resolves the specified forms at each examined metric path; new tests would freeze a standards-derived behavior against regressions.",
+    "The direct producer constraints (e.g. width values consistent with the font program and valid metric grouping) remain applicable to both representations. Fixture controls preserve the same semantic values and only change object indirection.",
+    "No font-specific ADR was found that argues for different semantics. ADR 2722's direct-font traversal addresses conversion of font dictionaries written inline and explicitly cites §7.3.10; it does not claim to test nested Widths/W/W2 values. ADR 2162 addresses direct font dictionary materialization and likewise is adjacent context, not this exact consumer behavior."
+  ],
+  "residuals": [
+    "The §9.6.5.2 Differences path was code-read but no separate public consumer test was drafted; glyph remapping plus its independent metric outcome needs a carefully selected glyph with known embedded-program mapping.",
+    "No execution claim: tests are drafts only; parent handles promotion and execution."
+  ]
+}

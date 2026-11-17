@@ -1,0 +1,3958 @@
+{
+  "scope_warning": "Row references index partial evidence. They neither certify every requirement nor turn a test reference into proof. All clause rows retain pending work unless an explicit complete feature inventory proves otherwise.",
+  "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
+  "shards": [
+    {
+      "shard": "final_quality_checkpoints126_130_current",
+      "artifact": "shards/final_quality_checkpoints126_130_current/features.json",
+      "ledger_owners": [
+        "10.5",
+        "10.6.5.3",
+        "12.6.3",
+        "14.7.2",
+        "14.7.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "overprinting_table146_cells_current",
+      "artifact": "shards/overprinting_table146_cells_current/features.json",
+      "ledger_owners": [
+        "11.7.4.3",
+        "11.7.4.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "soft_mask_image_dictionary_cells_current",
+      "artifact": "shards/soft_mask_image_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "11.6.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_pattern_type5_stream_current",
+      "artifact": "shards/shading_pattern_type5_stream_current/features.json",
+      "ledger_owners": [
+        "8.7.4.1",
+        "8.7.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "trapnet_table403_cells_current",
+      "artifact": "shards/trapnet_table403_cells_current/features.json",
+      "ledger_owners": [
+        "14.11.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "watermark_fixed_print_cells_current",
+      "artifact": "shards/watermark_fixed_print_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.6.22"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_page_event_cells_current",
+      "artifact": "shards/annotation_page_event_cells_current/features.json",
+      "ledger_owners": [
+        "12.6.3",
+        "12.6.4.17"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "halftone_transfer_archive_loss_current",
+      "artifact": "shards/halftone_transfer_archive_loss_current/features.json",
+      "ledger_owners": [
+        "10.5",
+        "10.6.1",
+        "10.6.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "collection_folder_cells_current",
+      "artifact": "shards/collection_folder_cells_current/features.json",
+      "ledger_owners": [
+        "12.3.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_content_item_cells_current",
+      "artifact": "shards/structure_content_item_cells_current/features.json",
+      "ledger_owners": [
+        "14.7.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "pattern_dictionary_cells_current",
+      "artifact": "shards/pattern_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.2",
+        "8.7.3",
+        "8.7.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "halftone_dictionary_cells_current",
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "10.6.5.1",
+        "10.6.5.2",
+        "10.6.5.3",
+        "10.6.5.4",
+        "10.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "collection_presentation_cells_current",
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "ledger_owners": [
+        "12.3.5.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_root_element_cells_current",
+      "artifact": "shards/structure_root_element_cells_current/features.json",
+      "ledger_owners": [
+        "14.7.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_stream_dictionary_cells_current",
+      "artifact": "shards/font_stream_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.9.1",
+        "14.3.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "uri_action_cells_current",
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "ledger_owners": [
+        "12.6.2",
+        "12.6.4.8",
+        "12.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "compatibility_graphics_state_current",
+      "artifact": "shards/compatibility_graphics_state_current/features.json",
+      "ledger_owners": [
+        "7.8.2",
+        "8.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "widget_characteristics_cells_current",
+      "artifact": "shards/widget_characteristics_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.6.19"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_overlay_targets_second_current",
+      "artifact": "shards/errata_overlay_targets_second_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "7.5.8.2",
+        "7.9.3",
+        "7.9.4",
+        "7.11.4.1",
+        "13.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "additional_action_event_cells_current",
+      "artifact": "shards/additional_action_event_cells_current/features.json",
+      "ledger_owners": [
+        "12.6.3",
+        "12.6.4.17",
+        "12.7.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "embedded_font_format_cells_current",
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "ledger_owners": [
+        "9.8.2",
+        "9.8.3.3",
+        "9.9.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fdf_dictionary_cells_current",
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "12.7.8.3.1",
+        "12.7.8.3.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "destination_action_dictionary_cells_current",
+      "artifact": "shards/destination_action_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "12.6.4.3",
+        "12.6.4.4",
+        "12.3.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dct_crypt_parameter_cells_current",
+      "artifact": "shards/dct_crypt_parameter_cells_current/features.json",
+      "ledger_owners": [
+        "7.4.8",
+        "7.4.10",
+        "7.6.6",
+        "7.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_overlay_targets_current",
+      "artifact": "shards/errata_overlay_targets_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "7.4.1",
+        "7.12.5",
+        "7.12.6",
+        "8.10.2",
+        "9.8.1",
+        "10.6.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_attribute_dictionary_cells_current",
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "14.8.5.4.7",
+        "14.8.5.5",
+        "14.8.5.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_dictionary_cells_current",
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "12.8.2.1",
+        "12.8.2.2",
+        "12.8.2.2.1",
+        "12.8.2.2.2",
+        "12.8.2.4",
+        "12.8.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "marked_content_dictionary_cells_current",
+      "artifact": "shards/marked_content_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "14.6.1",
+        "14.6.2",
+        "14.9.4",
+        "8.11.2.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "matrix_source_locator_integrity_current",
+      "artifact": "shards/matrix_source_locator_integrity_current/features.json",
+      "ledger_owners": [
+        "12.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_10_target_correction_current",
+      "artifact": "shards/errata_10_target_correction_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "7.3.8.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "cmap_dictionary_cells_current",
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.7.3",
+        "9.7.5.2",
+        "9.7.5.3",
+        "9.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stream_external_file_cells_current",
+      "artifact": "shards/stream_external_file_cells_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "7.3.8.2",
+        "7.4.1",
+        "7.4.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "measurement_dictionary_cells_current",
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "12.9.1",
+        "12.9.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "filter_parameter_cells_current",
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "ledger_owners": [
+        "7.4.4.3",
+        "7.4.4.4",
+        "7.4.6",
+        "7.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "simple_font_dictionary_cells_current",
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.6.1",
+        "9.6.2.1",
+        "9.6.2.2",
+        "9.6.5.1",
+        "9.6.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "image_measurement_consumer_current",
+      "artifact": "shards/image_measurement_consumer_current/features.json",
+      "ledger_owners": [
+        "8.9.5.1",
+        "12.9.1",
+        "12.10.2",
+        "12.10.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "image_alternatives_inline_current",
+      "artifact": "shards/image_alternatives_inline_current/features.json",
+      "ledger_owners": [
+        "8.9.5.2",
+        "8.9.5.4",
+        "8.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "image_dictionary_cells_second_review_current",
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "ledger_owners": [
+        "8.9.5.1",
+        "8.9.5.2",
+        "8.9.5.4",
+        "8.9.7",
+        "14.13.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "deep_tree_unicode_current",
+      "artifact": "shards/deep_tree_unicode_current/features.json",
+      "ledger_owners": [
+        "7.9.6",
+        "7.9.7",
+        "12.3.2.4",
+        "12.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tree_string_cells_current",
+      "artifact": "shards/tree_string_cells_current/features.json",
+      "ledger_owners": [
+        "7.9.1",
+        "7.9.2.1",
+        "7.9.4",
+        "7.9.6",
+        "7.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fixture_claim_validity_current",
+      "artifact": "shards/fixture_claim_validity_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "7.5.2",
+        "7.7.3.1",
+        "7.7.3.3",
+        "7.11.3",
+        "7.11.4.1",
+        "8.10.4",
+        "9.7.4.2",
+        "14.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "embedded_file_cells_current",
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "ledger_owners": [
+        "7.11.3",
+        "7.11.4.1",
+        "12.3.5.1",
+        "14.13"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "text_state_cells_current",
+      "artifact": "shards/text_state_cells_current/features.json",
+      "ledger_owners": [
+        "9.3",
+        "9.3.1",
+        "9.3.2",
+        "9.3.3",
+        "9.3.4",
+        "9.3.5",
+        "9.3.6",
+        "9.3.7",
+        "9.4.1",
+        "9.4.2",
+        "9.4.3",
+        "9.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "xref_dictionary_cells_current",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "7.5.2",
+        "7.5.4",
+        "7.5.5",
+        "7.5.6",
+        "7.5.7",
+        "7.5.8.2",
+        "7.5.8.3",
+        "7.5.8.4",
+        "14.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "viewer_preferences_cells_current",
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "ledger_owners": [
+        "7.7.2",
+        "12.2",
+        "12.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "freetext_fixture_validity_current",
+      "artifact": "shards/freetext_fixture_validity_current/features.json",
+      "ledger_owners": [
+        "12.5.6.6",
+        "12.7.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "colour_dictionary_cells_current",
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "8.6.5.2",
+        "8.6.5.3",
+        "8.6.5.4",
+        "8.6.5.5",
+        "8.6.6.3",
+        "8.6.6.4",
+        "8.6.6.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_shapes_cells_current",
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.6.8",
+        "12.5.6.9",
+        "12.5.6.10",
+        "12.5.6.11",
+        "12.5.6.12",
+        "12.5.6.13",
+        "12.5.6.14",
+        "12.5.6.15"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stream_dictionary_cells_current",
+      "artifact": "shards/stream_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "7.3.8",
+        "7.3.8.1",
+        "7.3.8.2",
+        "7.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "functions_dictionary_cells_current",
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "7.10.1",
+        "7.10.2",
+        "7.10.3",
+        "7.10.4",
+        "7.10.5",
+        "7.10.5.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_subtype_cells_current",
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.6.5",
+        "12.5.6.6",
+        "12.5.6.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "patch_mesh_cells_current",
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.7",
+        "8.7.4.5.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "mesh_shading_cells_current",
+      "artifact": "shards/mesh_shading_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.5",
+        "8.7.4.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_border_cells_current",
+      "artifact": "shards/annotation_border_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.2",
+        "12.5.4",
+        "12.5.6.5",
+        "12.5.6.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "destination_array_cells_current",
+      "artifact": "shards/destination_array_cells_current/features.json",
+      "ledger_owners": [
+        "12.3.2.1",
+        "12.3.2.2",
+        "12.6.4.3",
+        "12.6.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tiling_type1_distortion_bound_current",
+      "artifact": "shards/tiling_type1_distortion_bound_current/features.json",
+      "ledger_owners": [
+        "8.7.3.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "soft_mask_dictionary_cells_current",
+      "artifact": "shards/soft_mask_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "11.5.2",
+        "11.6.5.1",
+        "11.6.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "page_transition_cells_current",
+      "artifact": "shards/page_transition_cells_current/features.json",
+      "ledger_owners": [
+        "7.7.3.3",
+        "12.4.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "outline_dictionary_cells_current",
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "12.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tiling_pattern_cells_current",
+      "artifact": "shards/tiling_pattern_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.2",
+        "8.7.3.1",
+        "8.7.3.2",
+        "8.7.3.3",
+        "8.6.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_specification_cells_current",
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "ledger_owners": [
+        "7.11.3",
+        "7.11.4.1",
+        "7.11.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "type3_dictionary_cells_current",
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.2.4",
+        "9.6.4",
+        "8.3.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "crypt_filter_cells_current",
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "ledger_owners": [
+        "7.6.2",
+        "7.6.4.2",
+        "7.6.5.3",
+        "7.6.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "type0_cmap_cells_current",
+      "artifact": "shards/type0_cmap_cells_current/features.json",
+      "ledger_owners": [
+        "9.7.3",
+        "9.7.5.2",
+        "9.7.5.3",
+        "9.7.5.4",
+        "9.7.6.1",
+        "9.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_dictionary_cells_current",
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.4.2",
+        "8.7.4.3",
+        "8.7.4.5.3",
+        "8.7.4.5.4",
+        "10.7.4",
+        "11.6.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "cid_font_dictionary_cells_current",
+      "artifact": "shards/cid_font_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.7.3",
+        "9.7.4.1",
+        "9.7.4.2",
+        "9.7.4.3",
+        "9.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dynamic_field_flags_current",
+      "artifact": "shards/dynamic_field_flags_current/features.json",
+      "ledger_owners": [
+        "12.7.4.1",
+        "12.7.6.2",
+        "12.6.4.16"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "unknown_annotation_pointer_current",
+      "artifact": "shards/unknown_annotation_pointer_current/features.json",
+      "ledger_owners": [
+        "12.5.1",
+        "12.5.3",
+        "12.5.5",
+        "E.1",
+        "E.2",
+        "7.12.2",
+        "7.12.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "maxlen_live_property_current",
+      "artifact": "shards/maxlen_live_property_current/features.json",
+      "ledger_owners": [
+        "12.7.5.3",
+        "12.6.4.16"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "submission_selection_cells_current",
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "ledger_owners": [
+        "12.7.6.2",
+        "12.7.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "trees_labels_cells_current",
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "ledger_owners": [
+        "7.9.6",
+        "7.9.7",
+        "12.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_appearance_cells_current",
+      "artifact": "shards/annotation_appearance_cells_current/features.json",
+      "ledger_owners": [
+        "12.5.2",
+        "12.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "optional_content_cells_current",
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "ledger_owners": [
+        "8.11.2.1",
+        "8.11.2.2",
+        "8.11.2.3",
+        "8.11.4.2",
+        "8.11.4.3",
+        "8.11.4.4",
+        "8.11.4.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "soft_mask_cells_current",
+      "artifact": "shards/soft_mask_cells_current/features.json",
+      "ledger_owners": [
+        "11.6.4.3",
+        "11.6.5.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "form_xobject_cells_current",
+      "artifact": "shards/form_xobject_cells_current/features.json",
+      "ledger_owners": [
+        "8.10.1",
+        "8.10.2",
+        "8.10.3",
+        "8.10.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "required_submission_policy_current",
+      "artifact": "shards/required_submission_policy_current/features.json",
+      "ledger_owners": [
+        "12.7.4.1",
+        "12.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "choice_locality_current",
+      "artifact": "shards/choice_locality_current/features.json",
+      "ledger_owners": [
+        "12.7.4.1",
+        "12.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "variable_text_cells_current",
+      "artifact": "shards/variable_text_cells_current/features.json",
+      "ledger_owners": [
+        "12.7.4.1",
+        "12.7.4.3",
+        "12.7.5.3",
+        "12.7.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_descriptor_cells_current",
+      "artifact": "shards/font_descriptor_cells_current/features.json",
+      "ledger_owners": [
+        "9.8",
+        "9.8.1",
+        "9.8.2",
+        "9.8.3.1",
+        "9.8.3.2",
+        "9.8.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "linearization_dictionary_cells_current",
+      "artifact": "shards/linearization_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "F.1",
+        "F.3.2",
+        "F.3.3",
+        "F.3.6",
+        "F.4.1",
+        "F.4.2",
+        "F.4.3",
+        "F.4.4",
+        "F.4.5",
+        "F.4.6",
+        "F.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "page_dictionary_cells_current",
+      "artifact": "shards/page_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "7.7.3.3",
+        "7.7.3.4",
+        "12.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "form_dictionary_residual_consumers_current",
+      "artifact": "shards/form_dictionary_residual_consumers_current/features.json",
+      "ledger_owners": [
+        "12.7.3",
+        "12.7.4.1",
+        "12.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "catalog_table29_cells_current",
+      "artifact": "shards/catalog_table29_cells_current/features.json",
+      "ledger_owners": [
+        "7.7.2",
+        "7.3.10",
+        "12.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "image_dictionary_cells_current",
+      "artifact": "shards/image_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "8.9.5.1",
+        "8.9.5.2",
+        "8.9.6.3",
+        "8.9.6.4",
+        "7.4.9",
+        "14.13.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "feature_table_cell_granularity_current",
+      "artifact": "shards/feature_table_cell_granularity_current/features.json",
+      "ledger_owners": [
+        "12.7.3",
+        "12.7.4.1",
+        "12.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "table57_graphics_state_matrix_current",
+      "artifact": "shards/table57_graphics_state_matrix_current/features.json",
+      "ledger_owners": [
+        "8.4.5",
+        "9.3.1",
+        "10.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1190_confined_operations_current",
+      "artifact": "shards/adr1190_confined_operations_current/features.json",
+      "ledger_owners": [
+        "7.5.6",
+        "7.6.2",
+        "12.7.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "raster_clip_flatten_adr_current",
+      "artifact": "shards/raster_clip_flatten_adr_current/features.json",
+      "ledger_owners": [
+        "8.5.4",
+        "10.7.2",
+        "10.7.4",
+        "11.3.7.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1235_named_page_appearance_current",
+      "artifact": "shards/adr1235_named_page_appearance_current/features.json",
+      "ledger_owners": [
+        "12.7.7",
+        "12.7.8.3.2",
+        "12.7.8.3.3",
+        "12.5.5",
+        "8.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1257_1270_archive_claims_current",
+      "artifact": "shards/adr1257_1270_archive_claims_current/features.json",
+      "ledger_owners": [
+        "12.7.2",
+        "12.7.3",
+        "14.13.2",
+        "14.13.3",
+        "K.1",
+        "K.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1162_1187_output_protection_current",
+      "artifact": "shards/adr1162_1187_output_protection_current/features.json",
+      "ledger_owners": [
+        "7.6.1",
+        "7.6.2",
+        "7.6.4.1",
+        "12.5.6.23"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1240_file_select_timing_current",
+      "artifact": "shards/adr1240_file_select_timing_current/features.json",
+      "ledger_owners": [
+        "12.7.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "raster_adr0085_stroke_width_current",
+      "artifact": "shards/raster_adr0085_stroke_width_current/features.json",
+      "ledger_owners": [
+        "8.4.3.2",
+        "10.7.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "raster_adr0082_determinism_current",
+      "artifact": "shards/raster_adr0082_determinism_current/features.json",
+      "ledger_owners": [],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "xfa_attachment_assertions_current",
+      "artifact": "shards/xfa_attachment_assertions_current/features.json",
+      "ledger_owners": [
+        "14.13.2",
+        "14.13.3",
+        "7.11.4",
+        "12.7.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr0812_descriptor_boundary_current",
+      "artifact": "shards/adr0812_descriptor_boundary_current/features.json",
+      "ledger_owners": [
+        "7.5.1",
+        "7.5.4",
+        "7.5.5",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "valid_icc_consumer_fixture_current",
+      "artifact": "shards/valid_icc_consumer_fixture_current/features.json",
+      "ledger_owners": [
+        "8.6.5.5",
+        "8.6.5.8",
+        "11.7.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1161_encrypted_writer_current",
+      "artifact": "shards/adr1161_encrypted_writer_current/features.json",
+      "ledger_owners": [
+        "7.6.2",
+        "7.6.3.3",
+        "7.6.4.3.3",
+        "7.6.4.3.4",
+        "7.6.4.4.7",
+        "7.6.4.4.8",
+        "7.6.4.4.9"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_transparency_assertions_current",
+      "artifact": "shards/file_only_transparency_assertions_current/features.json",
+      "ledger_owners": [
+        "11.3.4",
+        "11.3.5",
+        "11.3.5.3",
+        "11.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_transparency_colour_assertions_current",
+      "artifact": "shards/file_only_transparency_colour_assertions_current/features.json",
+      "ledger_owners": [
+        "11.6.6",
+        "11.7.2",
+        "11.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_colour_context_assertions_current",
+      "artifact": "shards/file_only_colour_context_assertions_current/features.json",
+      "ledger_owners": [
+        "11.7",
+        "11.7.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_document_assertions_current",
+      "artifact": "shards/file_only_document_assertions_current/features.json",
+      "ledger_owners": [
+        "7.4.8",
+        "7.7.2",
+        "7.7.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_shading_render_assertions_current",
+      "artifact": "shards/file_only_shading_render_assertions_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.3",
+        "8.7.4.5.8",
+        "10.7",
+        "10.7.3",
+        "10.7.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "expanded_shared_oracles_current",
+      "artifact": "shards/expanded_shared_oracles_current/features.json",
+      "ledger_owners": [
+        "11.7.2",
+        "11.7.5.3",
+        "10.4.2.4",
+        "10.8.3",
+        "11.3.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_image_assertions_current",
+      "artifact": "shards/file_only_image_assertions_current/features.json",
+      "ledger_owners": [
+        "8.9.5.2",
+        "8.9.6.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_consumer_assertions_batch3_current",
+      "artifact": "shards/file_only_consumer_assertions_batch3_current/features.json",
+      "ledger_owners": [
+        "7.3.7",
+        "7.7.2",
+        "7.7.3.3",
+        "8.11",
+        "9.4.3",
+        "9.6.4",
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_native_shading_assertions_current",
+      "artifact": "shards/file_only_native_shading_assertions_current/features.json",
+      "ledger_owners": [
+        "12.2",
+        "8.7.3.1",
+        "8.7.4.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "behavior_fixture_second_review_current",
+      "artifact": "shards/behavior_fixture_second_review_current/features.json",
+      "ledger_owners": [
+        "14.11.2.1",
+        "8.7.3.1",
+        "10.7.4",
+        "8.6.5.5",
+        "14.11.5",
+        "Q.2",
+        "12.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fixture_and_tj_oracles_current",
+      "artifact": "shards/fixture_and_tj_oracles_current/features.json",
+      "ledger_owners": [
+        "7.5.4",
+        "7.7.3.2",
+        "9.7.4.1",
+        "9.3.4",
+        "9.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_consumer_assertions_remaining_current",
+      "artifact": "shards/file_only_consumer_assertions_remaining_current/features.json",
+      "ledger_owners": [
+        "7.4.6",
+        "7.4.8",
+        "7.4.9",
+        "10.7",
+        "10.7.3",
+        "11.4.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fixed_font_substitution_assertions_current",
+      "artifact": "shards/fixed_font_substitution_assertions_current/features.json",
+      "ledger_owners": [
+        "9.5",
+        "9.6.2.1",
+        "9.8.1",
+        "9.9.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "ignored_fixture_gates_current",
+      "artifact": "shards/ignored_fixture_gates_current/features.json",
+      "ledger_owners": [
+        "7.5.4",
+        "7.7.3.2",
+        "9.7.4.1",
+        "14.7.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_function_assertions_remaining_current",
+      "artifact": "shards/file_only_function_assertions_remaining_current/features.json",
+      "ledger_owners": [
+        "7.10",
+        "7.10.1",
+        "7.10.2",
+        "7.10.3",
+        "7.10.4",
+        "7.10.5",
+        "7.10.5.2",
+        "7.10.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_type5_lattice_current",
+      "artifact": "shards/shading_type5_lattice_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_function_oracles_current",
+      "artifact": "shards/shading_function_oracles_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.5",
+        "8.7.4.5.6",
+        "8.7.4.5.7",
+        "8.7.4.5.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "calculator_oracle_assertions_current",
+      "artifact": "shards/calculator_oracle_assertions_current/features.json",
+      "ledger_owners": [
+        "7.10.1",
+        "7.10.5.2",
+        "7.10.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "security_file_only_assertions_current",
+      "artifact": "shards/security_file_only_assertions_current/features.json",
+      "ledger_owners": [
+        "7.3.7",
+        "7.4.7",
+        "7.10.5.3",
+        "8.9.5.1",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "t88_fixture_execution_current",
+      "artifact": "shards/t88_fixture_execution_current/features.json",
+      "ledger_owners": [
+        "7.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_e_writer_names_current",
+      "artifact": "shards/annex_e_writer_names_current/features.json",
+      "ledger_owners": [
+        "E",
+        "E.2",
+        "7.12.3",
+        "7.12.5",
+        "7.12.6",
+        "14.7.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fixed_document_expectations_current",
+      "artifact": "shards/fixed_document_expectations_current/features.json",
+      "ledger_owners": [
+        "7.4.7",
+        "9.6.2.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dual_public_key_default_filters",
+      "artifact": "shards/dual_public_key_default_filters/features.json",
+      "ledger_owners": [
+        "7.6.5.2",
+        "7.6.5.3",
+        "7.6.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_mesh_oracles_current",
+      "artifact": "shards/shading_mesh_oracles_current/features.json",
+      "ledger_owners": [
+        "8.7.4.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_metadata_media_current",
+      "artifact": "shards/structured_errata_metadata_media_current/features.json",
+      "ledger_owners": [
+        "12.2",
+        "12.8.4.2",
+        "12.8.4.3",
+        "12.8.6",
+        "12.8.7",
+        "12.10.2",
+        "12.10.3",
+        "12.11.1",
+        "12.11.2",
+        "13.2.4.2",
+        "13.2.6.1",
+        "13.2.7.2.2",
+        "13.6.2",
+        "13.7.2.2",
+        "E.2",
+        "Q.5",
+        "14.11.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_graphics_current",
+      "artifact": "shards/structured_errata_graphics_current/features.json",
+      "ledger_owners": [
+        "8.6.6.5",
+        "8.4.5",
+        "8.6.5.9",
+        "8.4.1",
+        "10.7.2",
+        "8.6.8",
+        "10.4.2.2",
+        "10.4.2.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_security_current",
+      "artifact": "shards/structured_errata_security_current/features.json",
+      "ledger_owners": [
+        "7.6.5.2",
+        "7.6.5.3",
+        "7.6.4.3.3",
+        "7.5.7",
+        "7.7.3.3",
+        "7.7.2",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_interactive_current",
+      "artifact": "shards/structured_errata_interactive_current/features.json",
+      "ledger_owners": [
+        "12.5.1",
+        "12.5.6.18",
+        "12.5.6.6",
+        "12.5.6.24",
+        "12.3.5",
+        "12.7.5.2.2",
+        "12.7.5.5",
+        "12.7.6.2",
+        "12.7.8.3.3",
+        "12.8.1",
+        "12.8.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_split_cardinality_current",
+      "artifact": "shards/annex_l_split_cardinality_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.7.3",
+        "14.7.2",
+        "14.7.5.2",
+        "14.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_consumer_rules_remaining_current",
+      "artifact": "shards/annex_l_consumer_rules_remaining_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.2",
+        "14.8.6.1",
+        "14.8.6.2",
+        "14.7.2",
+        "14.7.3",
+        "14.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "silent_fixture_skip_remaining_current",
+      "artifact": "shards/silent_fixture_skip_remaining_current/features.json",
+      "ledger_owners": [
+        "12.4.3",
+        "12.3.5",
+        "9.6.2.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_reference_assertions_current",
+      "artifact": "shards/file_only_reference_assertions_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "8.6.4.2",
+        "9.3.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transition_visual_consumer_current",
+      "artifact": "shards/transition_visual_consumer_current/features.json",
+      "ledger_owners": [
+        "12.4.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "lang_hex_and_predictor_bpc_current",
+      "artifact": "shards/lang_hex_and_predictor_bpc_current/features.json",
+      "ledger_owners": [
+        "7.3.4",
+        "7.4.4.4",
+        "7.9.2.2.2",
+        "8.9.5.1",
+        "14.9.2",
+        "14.9.2.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "binary_transport_consumers_current",
+      "artifact": "shards/binary_transport_consumers_current/features.json",
+      "ledger_owners": [
+        "7.2.2",
+        "7.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch4_current",
+      "artifact": "shards/errata_weak_dispositions_batch4_current/features.json",
+      "ledger_owners": [
+        "7.2.3",
+        "7.3.10",
+        "7.4.4.3",
+        "7.5.8.2",
+        "7.12.2",
+        "8.9.5.1",
+        "10.6.5.6",
+        "12.8.1",
+        "14.2",
+        "14.3.3",
+        "14.4",
+        "14.9.2.2",
+        "F"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch5_current",
+      "artifact": "shards/errata_weak_dispositions_batch5_current/features.json",
+      "ledger_owners": [
+        "7.3.4.2",
+        "7.3.5",
+        "7.5.5",
+        "7.5.8",
+        "8.5.3.1",
+        "9.7.3",
+        "12.4.2",
+        "12.5.6",
+        "12.7.5.4",
+        "14.11.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch6_current",
+      "artifact": "shards/errata_weak_dispositions_batch6_current/features.json",
+      "ledger_owners": [
+        "7.3.4.3",
+        "12.7.5.5",
+        "12.10.2",
+        "12.10.3",
+        "12.11.2",
+        "14.4",
+        "14.8.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_conflict_and_choice_second_review_current",
+      "artifact": "shards/errata_conflict_and_choice_second_review_current/features.json",
+      "ledger_owners": [
+        "12.4.2",
+        "12.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "inline_filter_chain_separator_current",
+      "artifact": "shards/inline_filter_chain_separator_current/features.json",
+      "ledger_owners": [
+        "7.4.1",
+        "8.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch1_current",
+      "artifact": "shards/errata_weak_dispositions_batch1_current/features.json",
+      "ledger_owners": [
+        "7.4.9",
+        "7.5.5",
+        "7.5.7",
+        "7.5.8",
+        "7.10.3",
+        "7.12",
+        "8.9.7",
+        "10.6.5.6",
+        "14.12.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch2_current",
+      "artifact": "shards/errata_weak_dispositions_batch2_current/features.json",
+      "ledger_owners": [
+        "7.5.4",
+        "7.5.5",
+        "7.5.6",
+        "7.3.4.2",
+        "7.12",
+        "12.3.2.4",
+        "12.7.5.2.4",
+        "12.7.5.5",
+        "13.7.2.3.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_weak_dispositions_batch3_current",
+      "artifact": "shards/errata_weak_dispositions_batch3_current/features.json",
+      "ledger_owners": [
+        "7.2.2",
+        "7.5.2",
+        "8.4.5",
+        "8.9.7",
+        "8.10.2",
+        "9.7.5.3",
+        "12.6.4.16",
+        "12.7.6.3",
+        "12.11.2",
+        "14.3.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "native_print_defaults_tests_current",
+      "artifact": "shards/native_print_defaults_tests_current/features.json",
+      "ledger_owners": [
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "print_scaling_policy_current",
+      "artifact": "shards/print_scaling_policy_current/features.json",
+      "ledger_owners": [
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_matrix_cell_review_current",
+      "artifact": "shards/annex_l_matrix_cell_review_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_universe_current",
+      "artifact": "shards/annotation_universe_current/features.json",
+      "ledger_owners": [
+        "12.8.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_visibility_print_current",
+      "artifact": "shards/annotation_visibility_print_current/features.json",
+      "ledger_owners": [
+        "12.5.2",
+        "12.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_file_parameters_current",
+      "artifact": "shards/indirect_file_parameters_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "7.11.3",
+        "7.11.4.1",
+        "14.13.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_disposition_crosswalk_current",
+      "artifact": "shards/errata_disposition_crosswalk_current/features.json",
+      "ledger_owners": [
+        "9.6.2.1",
+        "12.3.2.4",
+        "14.8.4.8.3",
+        "L"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "revocation_failure_second_review_current",
+      "artifact": "shards/revocation_failure_second_review_current/features.json",
+      "ledger_owners": [
+        "12.8.3.4.7",
+        "12.8.3.4.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shared_oracle_assertions_current",
+      "artifact": "shards/shared_oracle_assertions_current/features.json",
+      "ledger_owners": [
+        "8.6.5.3",
+        "8.6.4",
+        "8.6.6.6",
+        "8.9.3",
+        "8.9.4",
+        "9.6.2.1",
+        "9.6.5.4",
+        "9.9.1",
+        "8.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_view_flags_current",
+      "artifact": "shards/annotation_view_flags_current/features.json",
+      "ledger_owners": [
+        "12.5.3",
+        "12.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "qualified_failure_second_review_current",
+      "artifact": "shards/qualified_failure_second_review_current/features.json",
+      "ledger_owners": [
+        "12.3.2.4",
+        "12.3.2.2",
+        "12.8.2.3",
+        "12.8.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "silent_fixture_skip_current",
+      "artifact": "shards/silent_fixture_skip_current/features.json",
+      "ledger_owners": [
+        "I.1",
+        "9.3.6",
+        "12.4.3",
+        "12.3.5",
+        "9.10.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_media_annex_batch_current",
+      "artifact": "shards/errata_media_annex_batch_current/features.json",
+      "ledger_owners": [
+        "7.3.3",
+        "13.2.4.2",
+        "13.2.4.3",
+        "13.6.3.1",
+        "13.6.4.1",
+        "13.6.4.3",
+        "13.6.4.6",
+        "13.6.5",
+        "13.6.7.3.3",
+        "13.6.7.4",
+        "13.7.2.2.2",
+        "14.10.5.3",
+        "F.3.1",
+        "F.3.2",
+        "F.3.3",
+        "14.3.2",
+        "14.6",
+        "14.7.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_differences_current",
+      "artifact": "shards/indirect_differences_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "9.6.5",
+        "9.6.5.1",
+        "9.6.5.2",
+        "9.6.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_font_annotation_reference_batch_current",
+      "artifact": "shards/errata_font_annotation_reference_batch_current/features.json",
+      "ledger_owners": [
+        "12.7.5.5",
+        "12.7.6.2",
+        "12.7.8.3.1",
+        "12.7.4.3",
+        "12.8.3.4.4",
+        "12.9.1",
+        "12.8.4.4",
+        "12.3.5",
+        "12.5.6.17",
+        "12.6.4.6",
+        "12.8.1",
+        "12.8.3.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_shading_values_current",
+      "artifact": "shards/indirect_shading_values_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "8.7.4.3",
+        "8.7.4.5.3",
+        "8.7.4.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_interactive_batch_current",
+      "artifact": "shards/errata_interactive_batch_current/features.json",
+      "ledger_owners": [
+        "12.3.2.2",
+        "12.3.3",
+        "12.4.2",
+        "12.5.2",
+        "12.5.6.2",
+        "12.5.6.5",
+        "12.5.6.6",
+        "12.6.3",
+        "12.6.4.2",
+        "12.6.4.4",
+        "12.6.4.18",
+        "12.7.4.1",
+        "12.7.4.3",
+        "12.7.5.3",
+        "14.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_structure_metadata_batch_current",
+      "artifact": "shards/errata_structure_metadata_batch_current/features.json",
+      "ledger_owners": [
+        "14.3.1",
+        "14.5",
+        "14.6.1",
+        "14.7.3",
+        "14.8.3.3",
+        "14.8.4.7.2",
+        "14.8.4.8.3",
+        "14.8.5.1",
+        "14.8.5.2",
+        "14.8.5.3",
+        "14.8.5.4.2",
+        "14.8.5.8",
+        "14.8.6.1",
+        "14.8.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_font_text_batch_current",
+      "artifact": "shards/errata_font_text_batch_current/features.json",
+      "ledger_owners": [
+        "7.9.2.2.1",
+        "9.3.6",
+        "9.4.3",
+        "9.6.2.2",
+        "9.6.3",
+        "9.6.4",
+        "9.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_graphics_security_batch_current",
+      "artifact": "shards/errata_graphics_security_batch_current/features.json",
+      "ledger_owners": [
+        "7.4.1",
+        "7.6.3",
+        "7.6.4.2",
+        "7.6.4.4.2",
+        "7.6.7",
+        "7.11.6",
+        "8.2",
+        "8.6.5.5",
+        "8.7.3.1",
+        "8.7.4.5.8",
+        "11.6.6",
+        "14.8.5.2",
+        "14.8.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_numeric_syntax_batch_current",
+      "artifact": "shards/errata_numeric_syntax_batch_current/features.json",
+      "ledger_owners": [
+        "7.5.6",
+        "7.5.7",
+        "7.5.8",
+        "7.6.2",
+        "7.6.4.3.2",
+        "7.6.4.3.3",
+        "7.6.5.2",
+        "7.7.2",
+        "7.7.3.2",
+        "7.8.3",
+        "7.9.2.2.1",
+        "7.9.2.4",
+        "7.9.4",
+        "8.7.3",
+        "8.9.5.1",
+        "11.6.5.2",
+        "14.7.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_reference_editorial_current",
+      "artifact": "shards/errata_reference_editorial_current/features.json",
+      "ledger_owners": [
+        "7.3.2",
+        "7.5.7",
+        "7.8.3",
+        "8.4.3.5",
+        "8.9.5.1",
+        "8.10.2",
+        "9.4.1",
+        "9.7.5.3",
+        "12.2",
+        "14.3.2",
+        "14.13.5",
+        "F"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_font_values_current",
+      "artifact": "shards/indirect_font_values_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "9.6.2.1",
+        "9.6.3",
+        "9.6.5.2",
+        "9.7.4.3",
+        "9.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_graphics_state_current",
+      "artifact": "shards/indirect_graphics_state_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "8.4.5",
+        "11.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_annotation_parameters_current",
+      "artifact": "shards/indirect_annotation_parameters_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "12.5.2",
+        "12.5.3",
+        "12.5.5",
+        "12.6.2",
+        "12.6.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_function_colour_current",
+      "artifact": "shards/indirect_function_colour_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "7.10.1",
+        "7.10.2",
+        "8.6.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "indirect_filter_parameters_current",
+      "artifact": "shards/indirect_filter_parameters_current/features.json",
+      "ledger_owners": [
+        "7.3.10",
+        "7.4.1",
+        "7.4.4.3",
+        "7.4.4.4",
+        "7.5.8.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_early_behavior_current",
+      "artifact": "shards/errata_early_behavior_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "7.5.8.2",
+        "7.5.8.3",
+        "7.5.8.4",
+        "7.6.3.1",
+        "9.10.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_late_behavior_current",
+      "artifact": "shards/errata_late_behavior_current/features.json",
+      "ledger_owners": [
+        "14.8.4.8.3",
+        "L",
+        "12.6.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "partial_writer_decisions_current",
+      "artifact": "shards/partial_writer_decisions_current/features.json",
+      "ledger_owners": [
+        "12.2",
+        "12.8",
+        "12.8.3",
+        "12.8.3.4",
+        "12.8.3.4.4",
+        "7.6",
+        "7.6.5",
+        "7.6.5.3",
+        "7.6.7",
+        "E.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_early_residual_current",
+      "artifact": "shards/errata_early_residual_current/features.json",
+      "ledger_owners": [
+        "7.5.7",
+        "7.6.5.3",
+        "7.7.2",
+        "7.7.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "departure_decisions_residual_current",
+      "artifact": "shards/departure_decisions_residual_current/features.json",
+      "ledger_owners": [
+        "10.7.4",
+        "11.5.3",
+        "12.10.2",
+        "12.5.2",
+        "12.5.5",
+        "12.5.6.23",
+        "12.6.4.6",
+        "12.7.8.3.3",
+        "7.4.9",
+        "7.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stored_ap_blend_residual_current",
+      "artifact": "shards/stored_ap_blend_residual_current/features.json",
+      "ledger_owners": [
+        "12.5.2",
+        "12.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_late_residual_current",
+      "artifact": "shards/errata_late_residual_current/features.json",
+      "ledger_owners": [
+        "13.6.4.6",
+        "13.7.2.2.2",
+        "14.8.6.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "appearance_state_residual_current",
+      "artifact": "shards/appearance_state_residual_current/features.json",
+      "ledger_owners": [
+        "12.5.5",
+        "12.7.5.2.3",
+        "12.7.5.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "filter_assertion_residual_current",
+      "artifact": "shards/filter_assertion_residual_current/features.json",
+      "ledger_owners": [
+        "7.4.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "navigation_geometry_residual_current",
+      "artifact": "shards/navigation_geometry_residual_current/features.json",
+      "ledger_owners": [
+        "7.7.3.3",
+        "12.3.2.2",
+        "12.3.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "outline_assertion_residual_current",
+      "artifact": "shards/outline_assertion_residual_current/features.json",
+      "ledger_owners": [
+        "12.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "script_corpus_error_provenance_current",
+      "artifact": "shards/script_corpus_error_provenance_current/features.json",
+      "ledger_owners": [
+        "12.6.4.17"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "optional_content_ui_usage_residual_current",
+      "artifact": "shards/optional_content_ui_usage_residual_current/features.json",
+      "ledger_owners": [
+        "8.11.4.3",
+        "8.11.4.4",
+        "8.11.4.5",
+        "12.6.4.13"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tree_consumer_limits_current",
+      "artifact": "shards/tree_consumer_limits_current/features.json",
+      "ledger_owners": [
+        "7.9.6",
+        "7.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transform_preservation_residual_current",
+      "artifact": "shards/transform_preservation_residual_current/features.json",
+      "ledger_owners": [
+        "7.5.6",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "rendition_preconditions_current",
+      "artifact": "shards/rendition_preconditions_current/features.json",
+      "ledger_owners": [
+        "12.5.6.18",
+        "12.6.4.14",
+        "12.6.4.17"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "simple_font_encoding_residual_current",
+      "artifact": "shards/simple_font_encoding_residual_current/features.json",
+      "ledger_owners": [
+        "9.6.5.4",
+        "D.2",
+        "D.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "media_framing_current",
+      "artifact": "shards/media_framing_current/features.json",
+      "ledger_owners": [
+        "12.5.6.16",
+        "12.5.6.17",
+        "12.5.6.18",
+        "12.6.4.9",
+        "12.6.4.10",
+        "12.6.4.14",
+        "12.6.4.18",
+        "13.1",
+        "13.2.3",
+        "13.2.3.2",
+        "13.2.4",
+        "13.2.4.1",
+        "13.2.6",
+        "13.2.7.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_framing_current",
+      "artifact": "shards/signature_framing_current/features.json",
+      "ledger_owners": [
+        "12.8",
+        "12.8.2",
+        "12.8.2.1",
+        "12.8.2.2",
+        "12.8.2.2.1",
+        "12.8.2.2.2",
+        "12.8.3",
+        "12.8.3.1",
+        "12.8.3.3",
+        "12.8.3.3.1",
+        "12.8.3.4",
+        "12.8.3.4.1",
+        "12.8.4",
+        "12.8.4.1",
+        "12.8.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "script_action_execution_current",
+      "artifact": "shards/script_action_execution_current/features.json",
+      "ledger_owners": [
+        "12.6.4.17"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_security_framing_current",
+      "artifact": "shards/file_security_framing_current/features.json",
+      "ledger_owners": [
+        "7.5",
+        "7.5.8",
+        "7.6",
+        "7.6.1",
+        "7.6.4",
+        "7.6.4.3",
+        "7.6.4.4",
+        "7.6.5",
+        "7.7",
+        "7.7.1",
+        "7.7.3",
+        "7.7.3.1",
+        "7.7.3.2",
+        "7.9"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "text_colour_optional_framing_current",
+      "artifact": "shards/text_colour_optional_framing_current/features.json",
+      "ledger_owners": [
+        "8.1",
+        "8.3",
+        "8.3.2",
+        "8.4.3.1",
+        "8.5.1",
+        "8.6.4",
+        "8.6.4.1",
+        "8.6.5",
+        "8.6.6.1",
+        "8.6.6.2",
+        "8.6.6.6",
+        "8.11",
+        "8.11.1",
+        "8.11.2",
+        "8.11.3",
+        "8.11.4",
+        "8.11.4.1",
+        "9.3",
+        "9.4",
+        "9.6",
+        "9.6.1",
+        "9.6.2",
+        "9.6.5",
+        "9.7.4",
+        "9.7.5",
+        "9.7.6",
+        "9.8",
+        "9.9"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "logical_structure_framing_current",
+      "artifact": "shards/logical_structure_framing_current/features.json",
+      "ledger_owners": [
+        "14.7",
+        "14.7.1",
+        "14.7.4",
+        "14.7.4.1",
+        "14.7.5",
+        "14.7.5.1",
+        "14.7.6",
+        "14.7.7",
+        "14.8",
+        "14.8.2",
+        "14.8.2.2",
+        "14.8.3",
+        "14.8.4",
+        "14.8.4.7",
+        "14.8.4.8",
+        "14.8.5",
+        "14.8.5.1",
+        "14.8.5.4.1",
+        "14.8.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "document_interchange_framing_current",
+      "artifact": "shards/document_interchange_framing_current/features.json",
+      "ledger_owners": [
+        "14.1",
+        "14.3",
+        "14.9",
+        "14.9.1",
+        "14.9.2",
+        "14.11",
+        "14.11.1",
+        "14.11.2",
+        "14.11.6",
+        "14.13",
+        "F",
+        "F.3",
+        "F.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_ocsp_producedat_public",
+      "artifact": "shards/signature_ocsp_producedat_public/features.json",
+      "ledger_owners": [
+        "12.8.3.4.8",
+        "12.8.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "rendering_framing_current",
+      "artifact": "shards/rendering_framing_current/features.json",
+      "ledger_owners": [
+        "10.1",
+        "10.3",
+        "10.4",
+        "10.4.2",
+        "10.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "graphics_transparency_framing_current",
+      "artifact": "shards/graphics_transparency_framing_current/features.json",
+      "ledger_owners": [
+        "8.4",
+        "8.4.1",
+        "8.4.3",
+        "8.5",
+        "8.5.2",
+        "8.5.3",
+        "8.5.3.3",
+        "8.7",
+        "8.7.1",
+        "8.7.3",
+        "8.7.4",
+        "8.7.4.5",
+        "8.8",
+        "8.8.1",
+        "8.9",
+        "8.9.5",
+        "8.9.6",
+        "8.9.6.1",
+        "8.10",
+        "8.10.3",
+        "11.1",
+        "11.2",
+        "11.3",
+        "11.4",
+        "11.5",
+        "11.6",
+        "11.6.4",
+        "11.6.5",
+        "11.7",
+        "11.7.1",
+        "11.7.4",
+        "11.7.5",
+        "11.7.5.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "interactive_framing_current",
+      "artifact": "shards/interactive_framing_current/features.json",
+      "ledger_owners": [
+        "12.1",
+        "12.3",
+        "12.3.1",
+        "12.3.2",
+        "12.3.5",
+        "12.4",
+        "12.4.1",
+        "12.4.4",
+        "12.5",
+        "12.5.1",
+        "12.5.6",
+        "12.5.6.1",
+        "12.6",
+        "12.6.1",
+        "12.6.4",
+        "12.6.4.1",
+        "12.7",
+        "12.7.1",
+        "12.7.4",
+        "12.7.5",
+        "12.7.5.1",
+        "12.7.5.2",
+        "12.7.5.2.1",
+        "12.7.6",
+        "12.7.6.1",
+        "12.7.8",
+        "12.7.8.1",
+        "12.7.8.3",
+        "12.9",
+        "12.9.1",
+        "12.10",
+        "12.10.1",
+        "12.11",
+        "12.11.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_colour_aggregate_current",
+      "artifact": "shards/font_colour_aggregate_current/features.json",
+      "ledger_owners": [
+        "8.6",
+        "8.6.1",
+        "8.6.2",
+        "8.6.3",
+        "8.6.8",
+        "9.1",
+        "9.2",
+        "9.2.1",
+        "9.2.2",
+        "9.2.3",
+        "9.7",
+        "9.7.1",
+        "9.7.2",
+        "9.10",
+        "9.10.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "content_stream_foundations_current",
+      "artifact": "shards/content_stream_foundations_current/features.json",
+      "ledger_owners": [
+        "7.8",
+        "7.8.2",
+        "7.7.3.3",
+        "8.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_specification_remaining_current",
+      "artifact": "shards/file_specification_remaining_current/features.json",
+      "ledger_owners": [
+        "7.11",
+        "7.11.2",
+        "7.11.2.1",
+        "7.11.2.2",
+        "7.11.4",
+        "7.11.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "calculator_lexical_framing_current",
+      "artifact": "shards/calculator_lexical_framing_current/features.json",
+      "ledger_owners": [
+        "7.4",
+        "7.4.4",
+        "7.10",
+        "7.10.5",
+        "7.10.5.1",
+        "7.10.5.2",
+        "7.2.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_crl_public_current",
+      "artifact": "shards/signature_crl_public_current/features.json",
+      "ledger_owners": [
+        "12.8.3.4.7",
+        "12.8.3.4.8",
+        "12.8.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "remaining_multimedia_controls_current",
+      "artifact": "shards/remaining_multimedia_controls_current/features.json",
+      "ledger_owners": [
+        "13.2",
+        "13.2.1",
+        "13.2.7",
+        "13.2.7.1",
+        "13.2.7.2",
+        "13.2.7.5",
+        "13.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_layout_remaining_current",
+      "artifact": "shards/structure_layout_remaining_current/features.json",
+      "ledger_owners": [
+        "14.8.2.5",
+        "14.8.2.5.1",
+        "14.8.2.6",
+        "14.8.2.6.1",
+        "14.8.2.6.2",
+        "14.8.3.1",
+        "14.8.3.2",
+        "14.8.5.4.6",
+        "14.8.5.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "lexical_foundations_current",
+      "artifact": "shards/lexical_foundations_current/features.json",
+      "ledger_owners": [
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.3.4",
+        "7.3.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_crl_current",
+      "artifact": "shards/signature_crl_current/features.json",
+      "ledger_owners": [
+        "12.8.3.4.7",
+        "12.8.3.4.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "three_d_scope_current",
+      "artifact": "shards/three_d_scope_current/features.json",
+      "ledger_owners": [
+        "12.5.6.25",
+        "12.6.4.16",
+        "13.6",
+        "13.6.1",
+        "13.6.3",
+        "13.6.3.1",
+        "13.6.3.2",
+        "13.6.3.3",
+        "13.6.4",
+        "13.6.4.1",
+        "13.6.4.2",
+        "13.6.4.3",
+        "13.6.4.4",
+        "13.6.4.5",
+        "13.6.4.6",
+        "13.6.4.7",
+        "13.6.5",
+        "13.6.6",
+        "13.6.7",
+        "13.6.7.1",
+        "13.6.7.2",
+        "13.6.7.3",
+        "13.6.7.3.1",
+        "13.6.7.3.2",
+        "13.6.7.3.3",
+        "13.6.7.3.4",
+        "13.6.7.3.5",
+        "13.6.7.3.6",
+        "13.6.7.4",
+        "13.6.2",
+        "13.7",
+        "13.7.1",
+        "13.7.2",
+        "13.7.2.2",
+        "13.7.2.2.1",
+        "13.7.2.2.2",
+        "13.7.2.2.3",
+        "13.7.2.2.4",
+        "13.7.2.2.5",
+        "13.7.2.2.6",
+        "13.7.2.3",
+        "13.7.2.3.3",
+        "13.7.2.3.4",
+        "13.7.2.3.5",
+        "13.7.2.3.6",
+        "13.7.2.3.6.1",
+        "13.7.2.3.6.2",
+        "13.7.2.3.6.3",
+        "13.7.2.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transparency_foundations_current",
+      "artifact": "shards/transparency_foundations_current/features.json",
+      "ledger_owners": [
+        "11.3.1",
+        "11.3.2",
+        "11.4.1",
+        "11.4.2",
+        "11.4.3",
+        "11.5.1",
+        "11.5.2",
+        "11.6.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "coordinate_foundations_current",
+      "artifact": "shards/coordinate_foundations_current/features.json",
+      "ledger_owners": [
+        "8.3.1",
+        "8.3.2.1",
+        "8.3.2.2",
+        "8.3.2.4",
+        "8.3.2.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_revocation_current",
+      "artifact": "shards/signature_revocation_current/features.json",
+      "ledger_owners": [
+        "12.8.3.2",
+        "12.8.3.3.2",
+        "12.8.3.4.2",
+        "12.8.3.4.6",
+        "12.8.3.4.7",
+        "12.8.3.4.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signature_revocation_crosscheck",
+      "artifact": "shards/signature_revocation_crosscheck/features.json",
+      "ledger_owners": [
+        "12.8.3.4.7",
+        "12.8.3.4.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "field_mdp_identity_current",
+      "artifact": "shards/field_mdp_identity_current/features.json",
+      "ledger_owners": [
+        "12.8.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "usage_rights_current",
+      "artifact": "shards/usage_rights_current/features.json",
+      "ledger_owners": [
+        "12.8.2.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "layout_attributes_remaining_current",
+      "artifact": "shards/layout_attributes_remaining_current/features.json",
+      "ledger_owners": [
+        "14.8.5.4.3",
+        "14.8.5.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "deprecated_web_prepress_current",
+      "artifact": "shards/deprecated_web_prepress_current/features.json",
+      "ledger_owners": [
+        "14.10",
+        "14.10.1",
+        "14.10.2",
+        "14.10.3",
+        "14.10.3.1",
+        "14.10.3.2",
+        "14.10.3.3",
+        "14.10.3.4",
+        "14.10.4",
+        "14.10.4.1",
+        "14.10.4.2",
+        "14.10.4.3",
+        "14.10.5",
+        "14.10.5.1",
+        "14.10.5.2",
+        "14.10.5.3",
+        "14.10.5.4",
+        "14.10.6",
+        "14.11.4",
+        "14.11.6.1",
+        "14.11.6.3",
+        "14.11.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_basics_graphical_effects_current",
+      "artifact": "shards/font_basics_graphical_effects_current/features.json",
+      "ledger_owners": [
+        "9.2.1",
+        "9.2.2",
+        "9.2.3",
+        "9.7.1",
+        "9.7.2",
+        "9.10",
+        "9.10.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fdf_forms_current",
+      "artifact": "shards/fdf_forms_current/features.json",
+      "ledger_owners": [
+        "12.7.8.1",
+        "12.7.8.2",
+        "12.7.8.2.1",
+        "12.7.8.2.2",
+        "12.7.8.2.3",
+        "12.7.8.2.4",
+        "12.7.8.3.4",
+        "12.7.9"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "unencrypted_wrapper_current",
+      "artifact": "shards/unencrypted_wrapper_current/features.json",
+      "ledger_owners": [
+        "7.6.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "default_colour_bpc_current",
+      "artifact": "shards/default_colour_bpc_current/features.json",
+      "ledger_owners": [
+        "8.6.5.6",
+        "8.6.5.7",
+        "8.6.5.9",
+        "8.6.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stroke_composition_consumers_current",
+      "artifact": "shards/stroke_composition_consumers_current/features.json",
+      "ledger_owners": [
+        "8.5.3.2",
+        "11.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "halftones_separations_current",
+      "artifact": "shards/halftones_separations_current/features.json",
+      "ledger_owners": [
+        "10.6",
+        "10.6.1",
+        "10.6.2",
+        "10.6.3",
+        "10.6.4",
+        "10.6.5",
+        "10.8.1",
+        "10.8.2",
+        "10.8.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "overprint_transparency_current",
+      "artifact": "shards/overprint_transparency_current/features.json",
+      "ledger_owners": [
+        "11.6.7",
+        "11.7.2",
+        "11.7.3",
+        "11.7.4.1",
+        "11.7.4.2",
+        "11.7.4.3",
+        "11.7.4.4",
+        "11.7.4.5",
+        "11.7.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "multimedia_data_current",
+      "artifact": "shards/multimedia_data_current/features.json",
+      "ledger_owners": [
+        "13.2.4.2",
+        "13.2.4.3",
+        "13.2.5",
+        "13.2.6.2",
+        "13.2.6.3",
+        "13.2.7.3",
+        "13.2.7.4.1",
+        "13.2.7.4.2",
+        "13.2.7.4.3",
+        "13.2.7.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "legacy_media_annotations_current",
+      "artifact": "shards/legacy_media_annotations_current/features.json",
+      "ledger_owners": [
+        "13.3",
+        "13.4",
+        "13.6.2",
+        "13.7.2.1",
+        "13.7.2.3.1",
+        "13.7.2.3.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "text_streams_rectangles_current",
+      "artifact": "shards/text_streams_rectangles_current/features.json",
+      "ledger_owners": [
+        "7.7.4",
+        "7.9.3",
+        "7.9.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "document_requirements_current",
+      "artifact": "shards/document_requirements_current/features.json",
+      "ledger_owners": [
+        "12.11.1",
+        "12.11.2",
+        "12.11.3",
+        "12.11.4",
+        "12.11.5",
+        "12.11.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stroke_fill_geometry_current",
+      "artifact": "shards/stroke_fill_geometry_current/features.json",
+      "ledger_owners": [
+        "8.4.3.2",
+        "8.4.3.3",
+        "8.4.3.4",
+        "8.4.3.5",
+        "8.5.3.2",
+        "8.5.3.3.2",
+        "8.5.3.3.3",
+        "11.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "measurement_geospatial_current",
+      "artifact": "shards/measurement_geospatial_current/features.json",
+      "ledger_owners": [
+        "12.9.1",
+        "12.9.2",
+        "12.10.2",
+        "12.10.3",
+        "12.10.4",
+        "12.10.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "identifiers_procsets_current",
+      "artifact": "shards/identifiers_procsets_current/features.json",
+      "ledger_owners": [
+        "14.2",
+        "14.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dpart_limits_current",
+      "artifact": "shards/dpart_limits_current/features.json",
+      "ledger_owners": [
+        "14.12.2",
+        "14.12.3",
+        "14.13.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "survey_limits_current",
+      "artifact": "shards/survey_limits_current/features.json",
+      "ledger_owners": [
+        "Q",
+        "Q.1",
+        "Q.2",
+        "Q.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tagged_content_tables_current",
+      "artifact": "shards/tagged_content_tables_current/features.json",
+      "ledger_owners": [
+        "14.8.3.3",
+        "14.8.5.4.2",
+        "14.8.5.4.5",
+        "14.8.2.2.1",
+        "14.8.5.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "general_conformance_current",
+      "artifact": "shards/general_conformance_current/features.json",
+      "ledger_owners": [
+        "6.1",
+        "6.2",
+        "6.3",
+        "6.3.1",
+        "6.3.2",
+        "6.3.2.1",
+        "6.3.2.2",
+        "6.3.2.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_i_k_current",
+      "artifact": "shards/annex_i_k_current/features.json",
+      "ledger_owners": [
+        "I",
+        "I.1",
+        "I.2",
+        "I.3",
+        "K",
+        "K.1",
+        "K.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_structure_relationships_current",
+      "artifact": "shards/annex_l_structure_relationships_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.2",
+        "14.8.4.7.4",
+        "14.8.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transparency_detection_annex_q_current",
+      "artifact": "shards/transparency_detection_annex_q_current/features.json",
+      "ledger_owners": [
+        "Q",
+        "Q.1",
+        "Q.2",
+        "Q.3",
+        "Q.4",
+        "Q.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "output_intents_current",
+      "artifact": "shards/output_intents_current/features.json",
+      "ledger_owners": [
+        "14.11.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "empty_text_replacements_current",
+      "artifact": "shards/empty_text_replacements_current/features.json",
+      "ledger_owners": [
+        "14.9.3",
+        "14.9.4",
+        "14.9.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "compatibility_extensions_current",
+      "artifact": "shards/compatibility_extensions_current/features.json",
+      "ledger_owners": [
+        "7.8.2",
+        "7.12",
+        "7.12.1",
+        "7.12.2",
+        "7.12.3",
+        "7.12.4",
+        "7.12.5",
+        "7.12.6",
+        "E",
+        "E.1",
+        "E.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dpart_associated_files_current",
+      "artifact": "shards/dpart_associated_files_current/features.json",
+      "ledger_owners": [
+        "14.12",
+        "14.12.1",
+        "14.12.2",
+        "14.12.3",
+        "14.12.4",
+        "14.12.4.1",
+        "14.12.4.2",
+        "14.13.8",
+        "14.13.9",
+        "14.13.10"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "image_filters_remaining_current",
+      "artifact": "shards/image_filters_remaining_current/features.json",
+      "ledger_owners": [
+        "7.4.8",
+        "7.4.9",
+        "7.4.10"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_remaining_current",
+      "artifact": "shards/annotation_remaining_current/features.json",
+      "ledger_owners": [
+        "12.5.1",
+        "12.5.6.4",
+        "12.5.6.14",
+        "12.5.6.20",
+        "12.5.6.21",
+        "12.5.6.22",
+        "12.5.6.24",
+        "14.11.3",
+        "14.11.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "navigation_actions_current",
+      "artifact": "shards/navigation_actions_current/features.json",
+      "ledger_owners": [
+        "12.4.4.2",
+        "12.5.6.3",
+        "12.6.4.5",
+        "12.6.4.7",
+        "12.6.4.15"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "language_pronunciation_current",
+      "artifact": "shards/language_pronunciation_current/features.json",
+      "ledger_owners": [
+        "14.9.2.1",
+        "14.9.2.2",
+        "14.9.2.3",
+        "14.9.2.4",
+        "14.9.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transparency_compositing_current",
+      "artifact": "shards/transparency_compositing_current/features.json",
+      "ledger_owners": [
+        "11.3.3",
+        "11.3.4",
+        "11.3.5",
+        "11.3.5.1",
+        "11.3.5.2",
+        "11.3.5.3",
+        "11.3.6",
+        "11.3.7",
+        "11.3.7.1",
+        "11.3.7.2",
+        "11.3.7.3",
+        "11.3.8",
+        "11.4.4",
+        "11.4.5",
+        "11.4.7",
+        "11.4.8",
+        "11.6.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "reference_xobjects_current",
+      "artifact": "shards/reference_xobjects_current/features.json",
+      "ledger_owners": [
+        "8.10.4",
+        "8.10.4.1",
+        "8.10.4.2",
+        "8.10.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "standard_security_algorithms_current",
+      "artifact": "shards/standard_security_algorithms_current/features.json",
+      "ledger_owners": [
+        "7.6.3.2",
+        "7.6.3.3",
+        "7.6.4.3.1",
+        "7.6.4.3.2",
+        "7.6.4.3.3",
+        "7.6.4.3.4",
+        "7.6.4.4.1",
+        "7.6.4.4.2",
+        "7.6.4.4.3",
+        "7.6.4.4.4",
+        "7.6.4.4.5",
+        "7.6.4.4.6",
+        "7.6.4.4.7",
+        "7.6.4.4.8",
+        "7.6.4.4.9",
+        "7.6.4.4.10",
+        "7.6.4.4.11",
+        "7.6.4.4.12"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_attributes_remaining_current",
+      "artifact": "shards/structure_attributes_remaining_current/features.json",
+      "ledger_owners": [
+        "14.8.5.5",
+        "14.8.5.6",
+        "14.8.5.7",
+        "14.8.5.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_type1_current",
+      "artifact": "shards/shading_type1_current/features.json",
+      "ledger_owners": [
+        "8.7.4.1",
+        "8.7.4.2",
+        "8.7.4.4",
+        "8.7.4.5.1",
+        "8.7.4.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "type3_fonts_current",
+      "artifact": "shards/type3_fonts_current/features.json",
+      "ledger_owners": [
+        "9.6.2.3",
+        "9.6.4",
+        "9.6.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "forms_remaining_current",
+      "artifact": "shards/forms_remaining_current/features.json",
+      "ledger_owners": [
+        "12.7.5.5",
+        "12.7.6.1",
+        "12.7.6.2",
+        "12.7.6.4",
+        "12.7.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "scan_conversion_current",
+      "artifact": "shards/scan_conversion_current/features.json",
+      "ledger_owners": [
+        "10.7",
+        "10.7.1",
+        "10.7.2",
+        "10.7.3",
+        "10.7.4",
+        "10.7.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_o_current",
+      "artifact": "shards/annex_o_current/features.json",
+      "ledger_owners": [
+        "O",
+        "O.1",
+        "O.2",
+        "O.2.1",
+        "O.2.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "rendering_intent_transfer_current",
+      "artifact": "shards/rendering_intent_transfer_current/features.json",
+      "ledger_owners": [
+        "8.6.5.8",
+        "10.5",
+        "10.6.5.1",
+        "10.6.5.2",
+        "10.6.5.3",
+        "10.6.5.4",
+        "10.6.5.5",
+        "10.6.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "simple_font_encodings_current",
+      "artifact": "shards/simple_font_encodings_current/features.json",
+      "ledger_owners": [
+        "9.6.5.1",
+        "9.6.5.2",
+        "9.6.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "marked_content_current",
+      "artifact": "shards/marked_content_current/features.json",
+      "ledger_owners": [
+        "14.6",
+        "14.6.1",
+        "14.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotations_markup_current",
+      "artifact": "shards/annotations_markup_current/features.json",
+      "ledger_owners": [
+        "12.5.6.6",
+        "12.5.6.7",
+        "12.5.6.8",
+        "12.5.6.9",
+        "12.5.6.11",
+        "12.5.6.12",
+        "12.5.6.13"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "coordinates_graphics_state_current",
+      "artifact": "shards/coordinates_graphics_state_current/features.json",
+      "ledger_owners": [
+        "8.2",
+        "8.3.2.3",
+        "8.3.3",
+        "8.3.4",
+        "8.4.1",
+        "8.4.2",
+        "8.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "images_samples_interpolation_current",
+      "artifact": "shards/images_samples_interpolation_current/features.json",
+      "ledger_owners": [
+        "8.9.2",
+        "8.9.3",
+        "8.9.4",
+        "8.9.5.3",
+        "8.9.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "forms_buttons_choices_current",
+      "artifact": "shards/forms_buttons_choices_current/features.json",
+      "ledger_owners": [
+        "12.7.5.2.1",
+        "12.7.5.2.2",
+        "12.7.5.2.3",
+        "12.7.5.2.4",
+        "12.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "special_colour_spaces_current",
+      "artifact": "shards/special_colour_spaces_current/features.json",
+      "ledger_owners": [
+        "8.6.6.3",
+        "8.6.6.4",
+        "8.6.6.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "text_extraction_cmaps_current",
+      "artifact": "shards/text_extraction_cmaps_current/features.json",
+      "ledger_owners": [
+        "9.10.1",
+        "9.10.2",
+        "9.10.3",
+        "9.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "actions_chains_current",
+      "artifact": "shards/actions_chains_current/features.json",
+      "ledger_owners": [
+        "12.6.1",
+        "12.6.2",
+        "12.6.4.6",
+        "12.6.4.8",
+        "12.6.4.11",
+        "12.6.4.13"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "destinations_current_followup",
+      "artifact": "shards/destinations_current_followup/features.json",
+      "ledger_owners": [
+        "12.3.2.1",
+        "12.3.2.2",
+        "12.6.4.2",
+        "12.6.4.3",
+        "12.6.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "colour_spaces_current",
+      "artifact": "shards/colour_spaces_current/features.json",
+      "ledger_owners": [
+        "8.6.2",
+        "8.6.3",
+        "8.6.4.2",
+        "8.6.4.3",
+        "8.6.4.4",
+        "8.6.5.1",
+        "8.6.5.2",
+        "8.6.5.3",
+        "8.6.5.4",
+        "8.6.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_descriptors_current",
+      "artifact": "shards/font_descriptors_current/features.json",
+      "ledger_owners": [
+        "9.8.1",
+        "9.8.2",
+        "9.8.3",
+        "9.8.3.1",
+        "9.8.3.2",
+        "9.8.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "trees_strings_current",
+      "artifact": "shards/trees_strings_current/features.json",
+      "ledger_owners": [
+        "7.9.1",
+        "7.9.2",
+        "7.9.2.1",
+        "7.9.2.2",
+        "7.9.2.2.1",
+        "7.9.2.3",
+        "7.9.2.4",
+        "7.9.6",
+        "7.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "viewer_preferences_layout_current",
+      "artifact": "shards/viewer_preferences_layout_current/features.json",
+      "ledger_owners": [
+        "7.7.2",
+        "12.2",
+        "12.6.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_common_current",
+      "artifact": "shards/annotation_common_current/features.json",
+      "ledger_owners": [
+        "12.5.2",
+        "12.5.3",
+        "12.5.4",
+        "12.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_structure_current",
+      "artifact": "shards/file_structure_current/features.json",
+      "ledger_owners": [
+        "7.3.9",
+        "7.3.10",
+        "7.5.1",
+        "7.5.2",
+        "7.5.3",
+        "7.5.4",
+        "7.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "syntax_streams_filters_current",
+      "artifact": "shards/syntax_streams_filters_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "7.3.8.2",
+        "7.4.1",
+        "7.4.2",
+        "7.4.3",
+        "7.4.4.1",
+        "7.4.4.2",
+        "7.4.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "thumbnails_transitions_current",
+      "artifact": "shards/thumbnails_transitions_current/features.json",
+      "ledger_owners": [
+        "12.3.4",
+        "12.4.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "text_state_current",
+      "artifact": "shards/text_state_current/features.json",
+      "ledger_owners": [
+        "9.3.1",
+        "9.3.2",
+        "9.3.3",
+        "9.3.4",
+        "9.3.5",
+        "9.3.6",
+        "9.3.7",
+        "9.3.8",
+        "9.4.1",
+        "9.4.2",
+        "9.4.3",
+        "9.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "outlines_threads_current",
+      "artifact": "shards/outlines_threads_current/features.json",
+      "ledger_owners": [
+        "12.3.3",
+        "12.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_specs_current",
+      "artifact": "shards/file_specs_current/features.json",
+      "ledger_owners": [
+        "7.11.1",
+        "7.11.2.1",
+        "7.11.2.2",
+        "7.11.3",
+        "7.11.4.1",
+        "7.11.4.2",
+        "7.11.5",
+        "7.11.6",
+        "14.13.1",
+        "14.13.2",
+        "14.13.3",
+        "14.13.4",
+        "14.13.5",
+        "14.13.6",
+        "14.13.7",
+        "14.13.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "basic_syntax_current",
+      "artifact": "shards/basic_syntax_current/features.json",
+      "ledger_owners": [
+        "7.2.1",
+        "7.2.2",
+        "7.2.3",
+        "7.2.4",
+        "7.3.1",
+        "7.3.2",
+        "7.3.3",
+        "7.3.4.1",
+        "7.3.4.2",
+        "7.3.4.3",
+        "7.3.5",
+        "7.3.6",
+        "7.3.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "cid_opentype_current",
+      "artifact": "shards/cid_opentype_current/features.json",
+      "ledger_owners": [
+        "9.7.3",
+        "9.7.4.1",
+        "9.7.4.2",
+        "9.7.4.3",
+        "9.7.5.1",
+        "9.7.5.2",
+        "9.7.5.3",
+        "9.7.5.4",
+        "9.7.6.1",
+        "9.7.6.2",
+        "9.7.6.3",
+        "9.9.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "pattern_forms_current",
+      "artifact": "shards/pattern_forms_current/features.json",
+      "ledger_owners": [
+        "8.6.6",
+        "8.7.2",
+        "8.7.3.1",
+        "8.7.3.2",
+        "8.7.3.3",
+        "8.10.1",
+        "8.10.2",
+        "10.7.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_dictionaries_current",
+      "artifact": "shards/font_dictionaries_current/features.json",
+      "ledger_owners": [
+        "9.6.4",
+        "9.7.6.1",
+        "9.9.1",
+        "9.9.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_types_current",
+      "artifact": "shards/annotation_types_current/features.json",
+      "ledger_owners": [
+        "12.5.6.7",
+        "12.5.6.10",
+        "12.5.6.19",
+        "12.5.6.23"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fdf_current",
+      "artifact": "shards/fdf_current/features.json",
+      "ledger_owners": [
+        "12.7.8.3.1",
+        "12.7.8.3.2",
+        "12.7.8.3.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "page_boundaries_current",
+      "artifact": "shards/page_boundaries_current/features.json",
+      "ledger_owners": [
+        "14.11.2.1",
+        "14.11.2.2",
+        "7.7.3.4",
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "metadata_current",
+      "artifact": "shards/metadata_current/features.json",
+      "ledger_owners": [
+        "14.3.1",
+        "14.3.2",
+        "14.3.3",
+        "14.3.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "public_key_encryption_current",
+      "artifact": "shards/public_key_encryption_current/features.json",
+      "ledger_owners": [
+        "7.6.5.1",
+        "7.6.5.2",
+        "7.6.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transparency_groups_current",
+      "artifact": "shards/transparency_groups_current/features.json",
+      "ledger_owners": [
+        "11.6.2",
+        "11.6.3",
+        "11.6.4.1",
+        "11.6.4.2",
+        "11.6.6",
+        "Q.1",
+        "Q.2",
+        "Q.3",
+        "Q.4",
+        "Q.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signatures_transforms",
+      "artifact": "shards/signatures_transforms/features.json",
+      "ledger_owners": [
+        "12.8.2.2.1",
+        "12.8.2.2.2",
+        "12.8.4.2",
+        "12.8.4.3",
+        "12.8.4.4",
+        "12.8.4.5",
+        "12.8.5.1",
+        "12.8.5.2",
+        "12.8.5.3",
+        "12.8.6",
+        "12.8.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "page_resources_current",
+      "artifact": "shards/page_resources_current/features.json",
+      "ledger_owners": [
+        "7.7.3.1",
+        "7.7.3.2",
+        "7.7.3.3",
+        "7.7.3.4",
+        "7.8.1",
+        "7.8.2",
+        "7.8.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "inline_images_current",
+      "artifact": "shards/inline_images_current/features.json",
+      "ledger_owners": [
+        "8.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "paths_current",
+      "artifact": "shards/paths_current/features.json",
+      "ledger_owners": [
+        "8.4.2",
+        "8.4.3.6",
+        "8.5.2.1",
+        "8.5.2.2",
+        "8.5.3.1",
+        "8.5.3.3.1",
+        "8.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "optional_content_current",
+      "artifact": "shards/optional_content_current/features.json",
+      "ledger_owners": [
+        "8.11.2.1",
+        "8.11.2.2",
+        "8.11.2.3",
+        "8.11.3.1",
+        "8.11.3.2",
+        "8.11.3.3",
+        "8.11.4.2",
+        "8.11.4.3",
+        "8.11.4.4",
+        "8.11.4.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "media_viability",
+      "artifact": "shards/media_viability/features.json",
+      "ledger_owners": [
+        "13.2.2",
+        "13.2.3.1",
+        "13.2.3.3",
+        "13.2.6.1",
+        "13.2.7.2.1",
+        "13.2.7.2.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "predictors_current",
+      "artifact": "shards/predictors_current/features.json",
+      "ledger_owners": [
+        "7.4.4.3",
+        "7.4.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "named_actions_current",
+      "artifact": "shards/named_actions_current/features.json",
+      "ledger_owners": [
+        "12.6.4.12"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "signatures_current",
+      "artifact": "shards/signatures_current/features.json",
+      "ledger_owners": [
+        "12.8.1",
+        "12.8.3.3.1",
+        "12.8.3.4.3",
+        "12.8.3.4.4",
+        "12.8.3.4.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_d_encoding",
+      "artifact": "shards/annex_d_encoding/features.json",
+      "ledger_owners": [
+        "D",
+        "D.1",
+        "D.2",
+        "D.3",
+        "D.4",
+        "D.5",
+        "D.6",
+        "9.6.5.1",
+        "9.6.5.4",
+        "9.10.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "shading_current",
+      "artifact": "shards/shading_current/features.json",
+      "ledger_owners": [
+        "8.7.4.3",
+        "8.7.4.5.3",
+        "8.7.4.5.4",
+        "8.7.4.5.5",
+        "8.7.4.5.6",
+        "8.7.4.5.7",
+        "8.7.4.5.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "images_current",
+      "artifact": "shards/images_current/features.json",
+      "ledger_owners": [
+        "8.9.1",
+        "8.9.5.1",
+        "8.9.5.2",
+        "8.9.6.2",
+        "8.9.6.3",
+        "8.9.6.4",
+        "11.5.3",
+        "11.6.4.3",
+        "11.6.5.1",
+        "11.6.5.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "forms_current",
+      "artifact": "shards/forms_current/features.json",
+      "ledger_owners": [
+        "12.7.2",
+        "12.7.4.1",
+        "12.7.4.2",
+        "12.7.4.3",
+        "12.7.5.3",
+        "12.7.6.3",
+        "12.7.8.3.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_f_linearization",
+      "artifact": "shards/annex_f_linearization/features.json",
+      "ledger_owners": [
+        "F.1",
+        "F.2",
+        "F.3.1",
+        "F.3.2",
+        "F.3.3",
+        "F.3.4",
+        "F.3.5",
+        "F.3.6",
+        "F.3.7",
+        "F.3.8",
+        "F.3.9",
+        "F.3.10",
+        "F.3.11",
+        "F.4.1",
+        "F.4.2",
+        "F.4.3",
+        "F.4.4",
+        "F.4.5",
+        "F.4.6",
+        "F.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "logical_structure",
+      "artifact": "shards/logical_structure/features.json",
+      "ledger_owners": [
+        "14.7.2",
+        "14.7.3",
+        "14.7.4.2",
+        "14.7.5.1.1",
+        "14.7.5.2",
+        "14.7.5.3",
+        "14.7.5.4",
+        "14.7.6.1",
+        "14.7.6.2",
+        "14.7.6.3",
+        "14.7.6.4",
+        "14.8.5.2",
+        "14.8.5.3",
+        "14.8.5.4",
+        "14.8.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "collections",
+      "artifact": "shards/collections/features.json",
+      "ledger_owners": [
+        "12.3.5.1",
+        "12.3.5.2",
+        "12.3.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "fax_jbig2",
+      "artifact": "shards/fax_jbig2/features.json",
+      "ledger_owners": [
+        "7.4.6",
+        "7.4.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "encryption",
+      "artifact": "shards/encryption/features.json",
+      "ledger_owners": [
+        "7.6.2",
+        "7.6.3",
+        "7.6.3.1",
+        "7.6.4.1",
+        "7.6.4.2",
+        "7.6.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "colour_conversion",
+      "artifact": "shards/colour_conversion/features.json",
+      "ledger_owners": [
+        "10.2",
+        "10.3.1",
+        "10.3.2",
+        "10.4.1",
+        "10.4.2.1",
+        "10.4.2.2",
+        "10.4.2.3",
+        "10.4.2.4",
+        "10.4.2.5",
+        "10.5",
+        "11.7.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "xref_streams",
+      "artifact": "shards/xref_streams/features.json",
+      "ledger_owners": [
+        "7.5.5",
+        "7.5.6",
+        "7.5.7",
+        "7.5.8.1",
+        "7.5.8.2",
+        "7.5.8.3",
+        "7.5.8.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "navigation",
+      "artifact": "shards/navigation/features.json",
+      "ledger_owners": [
+        "12.3.2.1",
+        "12.3.2.2",
+        "12.3.2.3",
+        "12.3.2.4",
+        "12.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structure_types",
+      "artifact": "shards/structure_types/features.json",
+      "ledger_owners": [
+        "14.8.4.1",
+        "14.8.4.3",
+        "14.8.4.4",
+        "14.8.4.5",
+        "14.8.4.6",
+        "14.8.4.7.1",
+        "14.8.4.7.2",
+        "14.8.4.7.3",
+        "14.8.4.8.1",
+        "14.8.4.8.2",
+        "14.8.4.8.3",
+        "14.8.4.8.4",
+        "14.8.4.8.5",
+        "14.8.4.8.6",
+        "14.8.4.8.7",
+        "14.8.6.1",
+        "14.8.6.2",
+        "14.9.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "functions_current",
+      "artifact": "shards/functions_current/features.json",
+      "ledger_owners": [
+        "7.10.1",
+        "7.10.2",
+        "7.10.3",
+        "7.10.4",
+        "7.10.5.1",
+        "7.10.5.2",
+        "7.10.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "font_substitution_current",
+      "artifact": "shards/font_substitution_current/features.json",
+      "ledger_owners": [
+        "9.2.4",
+        "9.5",
+        "9.6.2.1",
+        "9.6.2.2",
+        "9.6.3",
+        "9.7.4.2",
+        "9.7.5.2",
+        "9.8.1",
+        "9.9.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tagged_layout",
+      "artifact": "shards/tagged_layout/features.json",
+      "ledger_owners": [
+        "14.8.1",
+        "14.8.2.1",
+        "14.8.2.2.1",
+        "14.8.2.2.2",
+        "14.8.2.3",
+        "14.8.2.4",
+        "14.8.2.5.1",
+        "14.8.2.5.2",
+        "14.8.2.5.3",
+        "14.8.2.6.1",
+        "14.8.2.6.2",
+        "14.9.3",
+        "14.9.4",
+        "14.9.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    }
+  ]
+}

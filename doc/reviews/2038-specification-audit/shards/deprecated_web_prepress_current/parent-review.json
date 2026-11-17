@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary817,834,840,842\u2013843 and exact ledger notes; each deprecation condition retained. Section3.15 reader-ignore/writer guidance uses SHOULD. Existing annotation appearance obligations remain separately reviewed.",
+  "assertions": "Inspected split/merge web-capture tests, PDF1.7 fixture and writer omission lists. Tests discriminate named trees and report counts; they establish the selected omission policy for old-version outputs. Clarified test comments to avoid claiming PDF2.0 writer guidance itself mandates that outcome.",
+  "qualification": "Static generic-copy observation about OPI/SeparationInfo is unexecuted and remains a recommendation/preservation residual, not a failure. PDF/A OPI removal belongs to its separate archive profile. Reader guidance does not imply mandatory refusal of older inputs.",
+  "decision": "Retain conditional inapplicability for capture/prepress metadata while distinguishing ordinary page/appearance rendering, product writer retention policy, and PDF2.0 producer recommendations.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent qualifications supersede reviewer draft descriptions."
+}

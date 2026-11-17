@@ -1,0 +1,28 @@
+{
+  "scope": "Second review of finding quality, evidence and source strength; no test reruns or implementation edits.",
+  "reviews": [
+    {
+      "finding": "2038-B41",
+      "decision": "RETAIN, qualify direct consumer scope",
+      "reason": "The .4.8 text expressly makes a known TSA-path keyCompromise reason disqualify genTime. The test checks the actual `signature_timestamps_instant` caller helper with a verified timestamp token/imprint, current signed revocation material, positive Good control, known KeyCompromise control and corrupted-evidence Unknown control. It does not run the full report/fallback route, but that limits the consequence claim rather than invalidating the selector witness.",
+      "evidence_limit": "Outer CMS and chain are independently verified in the committed fixture provenance, but the Rust test itself is a private helper seam and does not assert the outer signature or final signer verdict."
+    },
+    {
+      "finding": "2038-B44",
+      "decision": "RETAIN, restrict to PAdES current-time path",
+      "reason": "The .4.7 current CRL interval is explicit. Public Report uses the fixed host time because no trusted timestamp exists; the paired CRL thisUpdate values bracket that time and both signatures/paths are verified. The positive current CRL reaches local validity, while the recorded future-CRL run reaches local validity contrary to the .7 interval.",
+      "adr_note": "ADR 1112's generic one-ended `nextUpdate` rule remains useful for historical queries, but shared application must preserve .4.7's separate current-time semantics. This does not justify a global lower bound on all `from_list` callers."
+    },
+    {
+      "finding": "2038-B47",
+      "decision": "RETAIN with explicit provenance qualification",
+      "reason": "The .4.8 signed producedAt condition is explicit, and both real Good OCSP controls have status windows that bracket the trusted token time. The public test requires the same digest/signature/binding/imprint/time controls before the validity assertion. The early response is generated before signer expiry in the fixed fixture construction, but the PDF does not carry a trusted timestamp over the DSS revision; the test cannot establish general capture-time provenance.",
+      "evidence_limit": "Do not equate response-level producedAt with response capture time, and do not say this test covers the separate capture-before-expiry predicate."
+    }
+  ],
+  "source_review": {
+    "primary": "ISO 32000-2:2020 + EC3 §12.8.3.4.7 (physical 598 / printed 583) and §12.8.3.4.8 (physical 599 / printed 584), directly inspected in source markdown and PDF.",
+    "annotations": "Direct pikepdf inspection of PDF physical pages 598 and 599 found only navigation links, no editorial/errata annotations changing these conditions.",
+    "external_material": "No local copies of RFC 6960 or ETSI EN 319 102-1 were found; this review does not claim independent certification against those external documents."
+  }
+}

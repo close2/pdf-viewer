@@ -1,0 +1,54 @@
+{
+  "shard": "file_security_framing_current",
+  "baseline": "b901326c",
+  "scope": "Bounded source/assertion review of remaining file/resource framing rows; existing owners retained for detailed encryption, xref, and name-tree work.",
+  "features": [
+    {
+      "id": "page-tree-any-shape-depth-boundary",
+      "clause": "7.7.3.1-7.7.3.2; Table 30",
+      "source_location": "Effective EC3 primary PDF physical 117 / printed 102: \u00a77.7.3.1 says the page tree defines page order and processors shall be prepared for any tree form built from the specified node types. Physical 118 / printed 103 begins Table 30 required node entries, including indirect Kids and writer-consistent Count. No relevant EC3 amendment to the any-form sentence found in doc/errata-read.md.",
+      "ledger": "Rows 7.7.3, 7.7.3.1, 7.7.3.2 marked implemented; prior page_resources_current audit does not certify every tree form and explicitly leaves graph/bounds unaudited.",
+      "implementation": "crates/pdf-model/src/page.rs: MAX_TREE_DEPTH=64; `find_leaf`, `reaches_a_page`, `count_leaves`, and `every_leaf` stop after the bound. When the probe fails, `Pages::new` performs additive object scan recovery; `found_by_scanning` exposes it. `crates/viewer-core/src/notes.rs::about` reports that the tree leads to no page and gives the count found by scan; for a valid over-depth tree the \u201cleads to no page\u201d clause is inaccurate, though the scan/order is disclosed.",
+      "existing_assertions": "page_geometry::a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give and page_tree_nodes.rs cover common branching/unbalanced shapes, exact order, and damaged cycles. I found no valid unary tree over the depth boundary. Existing cycle test is malformed input and cannot stand in for this case.",
+      "assessment": "Confirmed B48: depth64 keeps Kids order; depth65 returns both pages in object-number order. Recovery is disclosed, so this is not silent truncation. A truthful explicit resource-limit refusal may be an acceptable future response; changed successful page order does not follow the source-defined ordering.",
+      "draft": "Promoted to crates/pdf-model/tests/deep_page_tree_order_spec_audit.rs. Final targeted pair1PASS1FAIL; exactxref/reciprocalParent/Count/Resources/MediaBox/content preconditions inspected. Initial shallow failure was an expected-content LF omission, corrected before confirmation.",
+      "related_adrs": [
+        "ADR 0782 (Count authority/recovery is not this valid-tree case)",
+        "ADR 1533 (scanned page list is disclosed; reassess whether its policy covers a valid shape boundary)"
+      ]
+    },
+    {
+      "id": "file-structure-and-cross-reference",
+      "clauses": "7.5.1-.8.4",
+      "source_location": "Primary PDF physical 68-83 / printed 53-68. Earlier file_structure_current reviews .1-.4; xref_streams shard covers .5-.8.4. Physical footer/printed page pairs were checked on the relevant primary pages.",
+      "ledger": "Rows are covered in file_structure_current and xref_streams; Table 15 /Size handling remains the explicit departure in ADR 2346. Existing B21 long-prefix header search is owned by the file-structure audit; do not duplicate.",
+      "assertions": "Incremental updates, xref/object streams, trailers, and exact-offset fixtures are in current shard evidence. One hybrid xref-stream fixture omission and missing note-6 ordering assertion are already reported in xref_streams; parent execution remains separate.",
+      "verdict": "No additional distinct finding in this bounded framing review. Recovery behavior for malformed xref structures is not treated as a valid-file requirement."
+    },
+    {
+      "id": "encryption-framing-and-handler-entry",
+      "clauses": "7.6.1-.7, with detailed algorithms/permission/filter rows separately owned",
+      "source_location": "Primary PDF physical 86-110 / printed 71-95. \u00a77.6.2 application/exception rules physical 86-89; handler and algorithms physical 91-105; public-key area physical 101-104; crypt filters and wrapper physical 104-110. Check exact subsection in the encryption/public-key/crypt-filter owners before using any subclause-level claim.",
+      "ledger": "Existing encryption, standard_security_algorithms_current, public_key_encryption_current, and crypt-filter-owner shards cover detailed requirements. Current code is in pdf-syntax/src/crypt.rs, document decryption, and serializer; actual reader consumer is the Document/object/stream pipeline.",
+      "errata": "EC3 #542 alters AES padding text; #74/#184 modify crypt-filter text; #89 amends standard-handler crypt-filter wording; #196 inserts public-key permission subsection. Those are evaluated in their owner artifacts. No independent table claim made from errata index headings alone.",
+      "current_assertions": "Existing generated R6/R5 and real PDFBox/OpenSSL/CMS fixtures have independent plaintext expectations and controls, plus stream/string encryption and metadata controls in encryption/public_key owners. B07 Table20 `/Identity` CF entry ignore mismatch remains assigned to encryption owner; do not duplicate. This pass did not certify all algorithm vectors or every exception.",
+      "verdict": "No new distinct valid-input defect confirmed by the framing pass. Handler and algorithm concerns stay qualified per existing owner artifact; malformed dictionaries do not automatically impose reader rejection."
+    },
+    {
+      "id": "document-hierarchy-and-name-dictionary",
+      "clauses": "7.7.1-.4; Table 32 plus delegated child categories",
+      "source_location": "Primary PDF physical 111-129 / printed 96-114. \u00a77.7.1 general hierarchy begins physical 111 / printed 96; name dictionary \u00a77.7.4/table 32 at physical 124-125 / printed 109-110; physical 125 includes EC3 visible amendments to name-tree categories. Exact footer/page locators verified on primary, not inferred from extracted index.",
+      "ledger": "Catalog, page-tree, and names rows are marked implemented, but child category meanings have their own feature owners. \u00a77.7.4's Tables 32 mapping covers named destination, appearance, JavaScript, pages, templates, IDS, URLS, and embedded files; EC3 #214/#672 table amendments and #481 note are in name-tree/media owners.",
+      "implementation_assertions": "Catalog/name-tree lookup is used across navigation, actions, attachments, and scripts. Existing name-tree/tree-string audit checks ordering, byte keys, limits and malformed forms; text_streams_rectangles_current owns JavaScript text stream semantics. This pass did not re-audit the delegated category algorithms.",
+      "verdict": "No additional distinct framing defect. The general hierarchy paragraph is descriptive; concrete child semantics must be assessed by their own rows, not certified from the aggregate."
+    },
+    {
+      "id": "basic-object-framing-and-strings",
+      "clauses": "7.9.1-.7",
+      "source_location": "Primary PDF physical 129-138 / printed 114-123; \u00a77.9.3 text streams physical 132 / printed 117; \u00a77.9.5 rectangles physical 133 / printed 118; \u00a77.9.6 trees physical 134-136 / printed 119-121.",
+      "ledger": "Text-stream and rectangle assertions are recorded in text_streams_rectangles_current; string/name/tree-specific comparisons are in trees_strings_current. These bounded tests do not prove all objects or consumer contexts.",
+      "errata_and_assertions": "EC3 #214 name/string clarifications and #322 terminology are reflected in owner shards. Existing string/tree tests distinguish byte names, encoded strings and node ordering; date and rectangle semantics have their own owner tests. The public text stream unicode/name-tree consumer gap is already drafted in text_streams_rectangles_current.",
+      "verdict": "No additional distinct framing defect; no aggregate certification is claimed."
+    }
+  ]
+}

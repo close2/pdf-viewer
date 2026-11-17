@@ -1,0 +1,30 @@
+{
+  "decisions": [
+    {
+      "adr": "0286",
+      "premise": "Implement Annex D.4 MacExpertEncoding rather than reject it or substitute Latin glyph names.",
+      "review": "Retain. Table 112 explicitly permits MacExpertEncoding as a BaseEncoding; existing tests assert sparse-table behavior and 165 entries, and the Annex D scratch comparator reports all 165 assignments matching primary-PDF extraction. This review found no full-table mismatch. The assignment gap identified here is a separate §9.6.5.4 final-fill step, not a reason to reverse the MacExpert table decision."
+    },
+    {
+      "adr": "0015",
+      "premise": "Use the ordered §9.6.5.4 TrueType mapping routes rather than direct byte-to-Unicode lookup.",
+      "review": "Retain. The existing A/B public route test is discriminating for swapped Differences, but its ASCII values do not distinguish post-Differences StandardEncoding fill from WinAnsi or direct cmap mapping. New draft uses code 168 and literal source/font controls to cover that gap."
+    },
+    {
+      "adr": "0067",
+      "premise": "§9.6.5.4's last processor-chosen mapping is permission, not a fixed mapping requirement.",
+      "review": "Retain, but this permission applies only after the clause's preceding mapping methods cannot map the character. The draft's MacExpert code 168 remains unassigned before the required StandardEncoding fill; once the specified fill is applied, `currency` maps through the font's Unicode cmap. A later direct cmap answer for the same code cannot substitute for that earlier defined route."
+    },
+    {
+      "adr": "2677, 2683",
+      "premise": "Encoding and Difference interpretation belongs to the font dictionary even when font program data is shared.",
+      "review": "Retain. Draft builds a distinct dictionary per base encoding over the same embedded font bytes and independently asserts its selected GID/advance. No shared-program cache issue is implicated."
+    },
+    {
+      "adr": "1942, 1943",
+      "premise": "Certain later ToUnicode/processor-chosen cmap routes are permitted after ordinary encoding/name routes decline.",
+      "review": "No reconsideration needed. These later paths do not override the §9.6.5.4 mandatory StandardEncoding table fill. Their existence makes the MacExpert code-168 draft particularly useful: it detects a plausible nonstandard cmap glyph that would otherwise mask the missing fill."
+    }
+  ],
+  "source_qualification": "The primary fill target has explicit /BaseEncoding /MacExpertEncoding and no Differences, so it does not depend on the Table 112 recommendation against Differences on TrueType. The separate overlay control uses Differences and retains that SHOULD qualification. The old no-BaseEncoding draft remains unresolved: Table 112 defaults an embedded font to its built-in encoding, while §9.6.5.4 describes Standard fill in the nonsymbolic glyph-name-table route; this shard does not infer which governs that default interaction."
+}

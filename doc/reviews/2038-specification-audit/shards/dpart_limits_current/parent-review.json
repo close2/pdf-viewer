@@ -1,0 +1,8 @@
+{
+  "source": "Parent re-read primary850\u2013851 and855, including #609/#612, and collect/first_page plus attachment deduplication. Corrected locator to855/840. A finite acyclic unary tree may exceed64; the source does not make it a cycle.",
+  "assertions": "Depth64 attachment PASS; depth65 silently omitted with only catalog-control.txt and its ordinary note, FAIL. Exactxref/Open/page/root/Parent/backlink controls, PDF2ID and recommended file Params. Parent first shared an embedded stream between controls, triggering legitimate attachment deduplication; rejected that run and used distinct streams.",
+  "qualification": "This is a truthful-result product regression. Either listing the valid attachment or explicitly disclosing DPart truncation passes. It does not demand unlimited traversal. MAX_PARTS is inspected but not crossed.",
+  "rationale": "The seen set is not universally effective: collect resolves flat child references before the reference check. Nested-array references still reach the set. Depth guards bound flat cycles as well as valid chains; historical clause-derived bound rationale remains unsound.",
+  "baseline": "b901326c",
+  "scope": "Partial feature/assertion review; parent qualifications supersede draft wording."
+}

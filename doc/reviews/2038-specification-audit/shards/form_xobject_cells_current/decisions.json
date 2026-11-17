@@ -1,0 +1,36 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "id": "form-resources-version-boundary",
+      "decision": "Do not treat the modern missing-Resources form as automatically producer-invalid. EC3 #292 makes independence a requirement only from PDF 2.0; before that it is strongly recommended. The 1.1-and-earlier statement was demoted to informative note. The PDF 1.7 no-Resources assertion witnesses a compatibility choice, not a universal normative fallback obligation.",
+      "current_code": "draw_xobject falls back to page_resources whenever form Resources is absent, and does not use invoker resources. Explicit form Resources remains authoritative.",
+      "evidence": [
+        "missing_resources.rs::a_form_that_states_no_resources_uses_the_pages",
+        "missing_resources.rs::a_form_with_its_own_resources_does_not_reach_past_them",
+        "missing_resources.rs::a_form_nested_in_a_form_inherits_the_pages_resources_and_not_its_invokers"
+      ],
+      "adr_review": ["ADR 0255", "ADR 1059", "ADR 1055 section 5"],
+      "verdict": "Keep compatibility behavior; no confirmed defect. Do not test mandatory rejection for PDF 2.0 omission absent a distinct reader duty."
+    },
+    {
+      "id": "form-table93-consumer-coverage",
+      "decision": "Table 93 contains rendering entries and descriptive/metadata entries. Core rendered behavior (BBox, Matrix, Resources, Group, OC) has owner assertions; Ref, AF, structure keys and metadata have separate consumers/owner shards. Optional OPI/Measure/PtData/PieceInfo/LastModified do not become screen-rendering requirements merely because their table cells exist.",
+      "evidence": [
+        "form_xobjects_audit.rs pixel and state assertions",
+        "transparency_groups.rs group subtype and BBox assertions",
+        "optional_content.rs::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off",
+        "reference_xobjects_current shard",
+        "associated_file_examples.rs::example_3s_equation_is_associated_with_its_form",
+        "structure/tests.rs form StructParent/StructParents fixtures"
+      ],
+      "verdict": "No additional valid, in-scope missing consumer was established in this bounded pass. Existing global B29 is not duplicated; it concerns Form StructElem accessibility-attribute propagation, not this Table 93 review."
+    },
+    {
+      "id": "form-table93-errata-and-cross-references",
+      "decision": "Record #291 as an Annex F pointer, #292 as the Resources text change, and #463 as StructParent/StructParents mutual exclusion plus content-item/container distinction. Do not count p.285 Issue #19 as a Table 93 annotation; its target is preceding Table 87.",
+      "evidence": "Primary PDF annotations/overlays and footer-verified locations: #291/#292 physical 287 (printed 272), #463 physical 288 (printed 273).",
+      "verdict": "The source locations and effects are bounded to those table cells. The Annex F resource-ordering requirements remain with the Annex F owner shard."
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "decisions": [
+    {
+      "question": "Is mesh parameter-before-function already independently tested?",
+      "decision": "Yes for Type 4 and Types 6/7: existing public nonlinear pixels distinguish t interpolation followed by t² from interpolating endpoint colors. No for Type 5: its distinct lattice row parser is not in those fixtures.",
+      "basis": ["crates/pdf-model/tests/shadings.rs::a_mesh_with_a_function_interpolates_the_parameter", "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type6_calls_function_with_interpolated_patch_parameter", "::type7_calls_function_with_interpolated_patch_parameter", "ISO 32000-2 §8.7.4.5.6, Table 82"]
+    },
+    {
+      "question": "Is the Type 5 candidate source-valid and discriminating?",
+      "decision": "Yes on paper: it uses two rows, two vertices each, valid Type 5 widths and Decode, one t per vertex, a Type 2 function with domain covering the t interval, and a direct DeviceRGB result. The sample lies on the cell diagonal with barycentric t=0.505, making the correct red about 65 and the wrong color-first red about 129.",
+      "basis": ["scratchpad/r2038/spec-audit/shading_function_oracles_current/drafts/type5_interpolates_t_before_function.rs", "ISO 32000-2 Table 82 / §8.7.4.5.5"]
+    },
+    {
+      "question": "Do ADRs 0292/1217/2546 decide against the test?",
+      "decision": "No. ADR 0292 accords with t-first interpolation; 1217 and 2546 are device-pixel patch tessellation and patch color-conversion choices. Neither covers Type 5 lattice Function execution.",
+      "basis": ["ADR 0292", "ADR 1217", "ADR 2546"]
+    }
+  ]
+}

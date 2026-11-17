@@ -1,0 +1,15 @@
+{
+  "generator": "generate_jpx.py",
+  "parent_regeneration": "PASS: both committed byte arrays match independent generator hashes",
+  "fixtures": {
+    "JP2_STRAIGHT_ALPHA": {
+      "length": 271,
+      "sha256": "c8675650f3ca949f9fce1b45f90decbb59cdf3265e459fd6f1b3882cc17b3f24"
+    },
+    "JP2_PREMULTIPLIED_ALPHA": {
+      "length": 268,
+      "sha256": "d1ee268871ab46a2ddc8f12b65fcadcb0767e597852ac774f11555fe3f2ec4cd"
+    }
+  },
+  "limits": "Independent generator/known input pixels establish fixture content; passing code0/code1 controls do not prove code2 decoding."
+}

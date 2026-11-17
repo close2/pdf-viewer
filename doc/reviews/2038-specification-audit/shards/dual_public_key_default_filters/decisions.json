@@ -1,0 +1,12 @@
+{
+  "decisions": [
+    {
+      "topic": "Independent default filters",
+      "decision": "Tables20/27 do not restrict StmF and StrF to the same name or key. Preserve support for both default recipient arrays and their keys; no production fix in audit."
+    },
+    {
+      "topic": "Assertion independence",
+      "decision": "Expected plaintext is literal; external CMS/AES implementation verifies actual retained bytes. Shared-default control discriminates unrelated crypto/fixture failure."
+    }
+  ]
+}

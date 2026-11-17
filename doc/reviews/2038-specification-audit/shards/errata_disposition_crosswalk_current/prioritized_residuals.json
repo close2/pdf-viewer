@@ -1,0 +1,123 @@
+{
+  "baseline": "b901326c",
+  "method": "Manual audit of nine weak, grouped, inventory-missed, or contradictory issue mappings after running build_crosswalk.py. This supplements the 360-row discovery crosswalk; it does not certify those IDs or infer behavior from absence of an exact citation.",
+  "priorities": [
+    {
+      "priority": "high",
+      "issue": 331,
+      "source": "EC3 Annex F, F.3.2; physical 899 / printed 884",
+      "crosswalk_signal": "Source/disposition candidate in the reviewed Annex F batch. Parent's exact old-version public optimizer regression now reports failing PDF 1.0/1.1 outputs and a passing 1.2 control.",
+      "manual_disposition": "Parent's exact old-version public optimizer regression reports PDF 1.0 and 1.1 linearization outputs fail the new minimum-1.2 condition, while the 1.2 control passes. This is a writer conformance finding for the linearization output/version path, not merely an absent test or a reader obligation.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_media_annex_batch_current/features.json, results row id 331",
+        "doc/reviews/2038-specification-audit/shards/errata_media_annex_batch_current/findings.txt, parent result B55",
+        "crates/pdf-transform/src/optimize.rs passes document.version() to the serializer; crates/pdf-syntax/src/serialize.rs::header_version has no 1.2 table-output floor"
+      ],
+      "residual": "Already durably recorded as B55 with two failing public linearizer assertions and a passing1.2 control at checkpoint63. No new failure from the crosswalk."
+    },
+    {
+      "priority": "high",
+      "issue": 179,
+      "source": "\u00a713.2.4.2 Table 285 / MH row, physical 637 / printed 622; nearby data-BU paragraph and Tables 287/289",
+      "crosswalk_signal": "Promoted source-disposition review at checkpoint63; no unpromoted scratch source is needed.",
+      "manual_disposition": "The actual Table 285 mark replaces a Table 287 cross-reference with Table 289. Nearby data-specific prose still places /BU in Table 287, whose semantics differ from Table 289 section offsets. Parent confirmed this is an effective-source inconsistency; the public BU judge tests pass the implementation's clear neighboring BU interpretation. Do not call it a production defect.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_media_annex_batch_current/features.json, results row id 179",
+        "doc/reviews/2038-specification-audit/shards/errata_media_annex_batch_current/findings.txt, D44 and public BU judge result"
+      ],
+      "residual": "Standards-owner clarification is still needed to resolve the conflicting Table 285 reference; current test evidence covers the direct BU prose, not the contradictory reference."
+    },
+    {
+      "priority": "high",
+      "issue": 288,
+      "source": "Primary PDF physical 459; subject also marks issue 162",
+      "crosswalk_signal": "Literal-only current evidence; missing as a row from the older late issue index even though the annotation subject includes #288.",
+      "manual_disposition": "Parent read the grouped StrikeOut12965 and Caret12967 on physical459/printed444. The replacement explicitly allows optional SD in the PDF2.0 dictionary destination and names action Tables202\u2013204. Current12.3.2.4 ledger explicitly cites both#162/#288 and Destination::preferring_structure.",
+      "evidence": [
+        "Primary physical459 annotation objects12965/12967, grouped#162/#288",
+        "Current ledger12.3.2.4 and destination.rs::named/::preferring_structure",
+        "destination.rs::a_named_destinations_structure_destination_takes_precedence_over_its_page_destination: literal page/view expectations for catalog name and tree string, plainD control, unreadableSD fallback"
+      ],
+      "residual": "Existing assertion is a model resolver unit fixture with a deliberately minimal structure tree, not a full tagged-PDF validity or public activation witness. The explicit grouped source disposition is now recorded. Older issue-index omission remains a traceability finding."
+    },
+    {
+      "priority": "high",
+      "issue": 336,
+      "source": "Annex L attachment annotation, physical 962 / printed 947",
+      "crosswalk_signal": "Source-disposition/assertion candidate, but the existing per-issue inventory omits #336 as a later marker in a multi-issue subject.",
+      "manual_disposition": "Current Annex L audit preserves attachment hashes and the group #64/#83/#336/#349/#440 replacement context. It explicitly says the #336 matrix-cell changes were not independently mapped cell by cell. Treat this as partial source/attachment evidence, not proof of all corrected relationships.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/annex_l_structure_relationships_current/features.json, feature 0 errata and attachment_provenance",
+        "doc/reviews/2038-specification-audit/shards/annex_l_structure_relationships_current/parent-review.json, limits",
+        "primary PDF p962 subject groups #64, #83, #336, #349, #440"
+      ],
+      "residual": "Cell-by-cell mapping of #336's replacement matrix effects remains open."
+    },
+    {
+      "priority": "medium",
+      "issue": 48,
+      "source": "\u00a79.6.2.1\u2013.2 standard-14 font availability, physical 329\u2013330 / printed 314\u2013315",
+      "crosswalk_signal": "The direct primary census sees #48 as a later marker in subjects `Issue #47 and #48`; the old early issue inventory has no #48 row. Current font shards cite the grouped correction.",
+      "manual_disposition": "The #47/#48 grouped source correction withdraws the standard-14 availability SHALL premise. ADR 0253 and current font notes conclude this does not require readers to provide every standard-14 font. This is an explicit grouped disposition, not an unreviewed behavior defect; avoid double-counting the shared annotation as two independent edits.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_font_text_batch_current/decisions.json, ADR 0253 review",
+        "doc/reviews/2038-specification-audit/shards/indirect_font_values_current/findings.txt, grouped #47/#48 source correction",
+        "primary PDF p329\u2013330 subjects include both IDs"
+      ],
+      "residual": "The old issue index is incomplete for this later subject marker; the grouped source disposition is present in current font evidence."
+    },
+    {
+      "priority": "medium",
+      "issue": 71,
+      "source": "\u00a714.8.4.8.3 / Table 371, physical 782 / printed 767",
+      "crosswalk_signal": "The direct primary census sees #71 after #45 in the combined subject; the old late issue inventory has no #71 row. A per-issue row exists in current source batch.",
+      "manual_disposition": "The current errata structure-metadata row calls this a clarification: a combined caret adds `or both` to the TH description, with no independent new behavior. Its own code_tests field says the relevant assertion bodies still need inspection before claiming test coverage. The source effect is reviewed; assertion strength remains qualified.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_structure_metadata_batch_current/features.json, features row issue 71",
+        "primary PDF p782 combined subject `Issue #45 and #71`"
+      ],
+      "residual": "Inspect the named table grid/header assertion bodies if the project needs a positive behavior-coverage claim; the existing shard explicitly withholds that claim."
+    },
+    {
+      "priority": "medium",
+      "issue": 13,
+      "source": "Tables 89 and 143, physical 274\u2013275 / printed 259\u2013260 and physical 435\u2013436 / printed 420\u2013421",
+      "crosswalk_signal": "Per-issue result row in the numeric-syntax errata batch; the row is coupled to six informative Text notes, not a new decoder rule.",
+      "manual_disposition": "The parent corrected the locators and read the actual annotation rectangles: six cross-references target ImageMask/Alternates, SMask/StructParent/ID/OPI restrictions and point to Table 143. The batch explicitly says existing soft-mask tests sample only some rules and do not certify all six. No defect is inferred from the incomplete assertion sample.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_numeric_syntax_batch_current/findings.txt, #13 row",
+        "doc/reviews/2038-specification-audit/shards/errata_numeric_syntax_batch_current/parent-review.json, source check"
+      ],
+      "residual": "Do not present selected generic mask tests as coverage of all six restrictions; no new unsupported-input rejection requirement was established."
+    },
+    {
+      "priority": "low",
+      "issue": 14,
+      "source": "Grouped errata targets at physical 274, 453\u2013454, 855; printed 259, 438\u2013439, 840",
+      "crosswalk_signal": "One multi-ID `issues` feature record (shared annotation group); no standalone per-ID test was added.",
+      "manual_disposition": "The reference/editorial shard maps #14's image-mask terminology, viewer-preference table references and CropBox spelling, and ties operative preference/print behavior to existing literal-boundary assertions. It states that these sampled assertions are not complete preference/association coverage and that no tests were added or rerun for editorial changes.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/errata_reference_editorial_current/features.json, issues array [14]",
+        "doc/reviews/2038-specification-audit/shards/errata_reference_editorial_current/findings.txt"
+      ],
+      "residual": "Editorial changes do not warrant a new defect label; retain the shard's bounded coverage limits."
+    },
+    {
+      "priority": "low",
+      "issue": 1,
+      "source": "Table 167 / \u00a7\u00a712.5.5 and 12.5.3, physical 486\u2013487 / printed 471\u2013472",
+      "crosswalk_signal": "Issue is present in a rich feature row's `errata` field rather than a numeric `issue` field; direct-key matching correctly classifies a source/disposition/assertion candidate.",
+      "manual_disposition": "The annotation-common feature records the corrected Invisible cross-reference and scopes the behavior to unsupported/nonstandard subtypes without a handler. It names implementation and a flag matrix that tests the standard/unknown split. Residuals explicitly avoid claiming exhaustive Table 171 coverage or reserved-bit rejection.",
+      "evidence": [
+        "doc/reviews/2038-specification-audit/shards/annotation_common_current/features.json, reviewer_record item 8",
+        "doc/reviews/2038-specification-audit/shards/annotation_common_current/decisions.json, ADR 0628 review"
+      ],
+      "residual": "No additional gap established by the crosswalk; keep the recorded subtype-family boundary."
+    }
+  ],
+  "crosswalk_limits": [
+    "Automated candidate classes are based on fields and exact issue markers, not semantic validation.",
+    "The primary /Subj universe is 360 issue IDs; the older early/late page inventories union to 356 because they omit four later markers in grouped subjects.",
+    "Primary source dispositions and test strength for all remaining IDs were not manually reread in this crosswalk."
+  ]
+}

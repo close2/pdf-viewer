@@ -1,0 +1,30 @@
+{
+  "review_status": "source-backed reconsideration; no test execution",
+  "decisions": [
+    {
+      "adr": "ADR 1535",
+      "decision_review": "retain",
+      "basis": "§14.10.1 and the scoped §14.11 clauses explicitly say deprecated with PDF 2.0; §3.15 defines deprecated with SHOULD language. The ledger rows quote this condition. This supports the reader-side ignore choice, not mandatory rejection.",
+      "qualification": "Do not turn the SHOULD into a mandatory reader or writer conformance failure."
+    },
+    {
+      "adr": "ADR 1461",
+      "decision_review": "retain with writer-rationale qualification",
+      "basis": "The ADR's whole-program pass properly checks writer paths. The current merge/split implementation omits Web Capture records and names them in warnings.",
+      "qualification": "The paired web-capture test fixture is PDF 1.7 and split preserves source version; merge uses max input version. Therefore deprecation in PDF 2.0 is not the normative explanation for omission in this fixture. Treat omission as deliberate transformation policy; the scoped source does not mandate preservation through merge/split."
+    },
+    {
+      "adr": "ADR 1172",
+      "decision_review": "retain",
+      "basis": "It correctly says a table entry vocabulary is not itself a list of processor requirements; §14.11.4 is independently marked deprecated. `/SeparationInfo` being unconsumed is not on its own proof of defect.",
+      "qualification": "§3.15 says should be ignored, not shall be ignored; this is a reader recommendation rather than a refusal requirement."
+    },
+    {
+      "adr": "ADR 2410 / ADR 1473 (writer-side context)",
+      "decision_review": "retain distinct scopes",
+      "basis": "ADR 2410 discusses §14.10's merge behavior; ADR 1473 addresses §14.3 metadata and its version-dependent PDF 2.0 writer treatment. The latter is a useful analogy for checking output version but does not prove behavior for Web Capture, SeparationInfo, or OPI.",
+      "qualification": "Generic merge/split copying may retain OPI/SeparationInfo into PDF 2.0 output. That is a potential SHOULD recommendation gap, not a SHALL failure. No writer test establishes this output case. Archive-specific OPI removal is governed by ISO 19005, not this PDF 2.0 deprecation review."
+    }
+  ],
+  "follow_up": "If maintainers want an explicit writer policy decision, construct a valid PDF 2.0 source with these keys, transform it, and assert the chosen preservation/removal/report behavior. The source alone does not make that policy test a normative conformance gate."
+}

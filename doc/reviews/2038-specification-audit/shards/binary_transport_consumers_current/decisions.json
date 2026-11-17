@@ -1,0 +1,32 @@
+{
+  "reviews": [
+    {
+      "item": "EC3 #193 effective transport duty",
+      "verdict": "Retain as an application transport requirement; withdraw any characterization as producer-only or as a parser-rejection requirement.",
+      "basis": "The annotation removes 'containing binary data' from the shall-transport sentence. The entire PDF file must travel as binary to preserve every byte. A parser may still choose recovery behavior for malformed files; the erratum does not require rejection.",
+      "evidence": "Primary EC3 physical36/printed21 and actual #193 overlay; official errata page https://pdf-issues.pdfa.org/32000-2-2020/clause07.html"
+    },
+    {
+      "item": "Existing core save assertion",
+      "verdict": "Strong direct evidence for one important consumer: the exact original binary PDF bytes remain as the saved incremental-update prefix.",
+      "basis": "a_saved_document_carries_the_edit_and_the_file_under_it checks saved.starts_with(&bytes) for a present real PDF containing NUL and high bytes, then reopens the result and observes the edit. This is not merely a text/file-size assertion.",
+      "evidence": "crates/viewer-core/tests/headless.rs::a_saved_document_carries_the_edit_and_the_file_under_it; scratchpad/r2038/spec-audit/baseline-nextest.log index 5680/6518 PASS"
+    },
+    {
+      "item": "ADR0122 assertion that the representation obligations are met",
+      "verdict": "Qualified support, not a full application-wide proof.",
+      "basis": "Reviewed local open/save paths remain byte-oriented, writer saves use std::fs::write, and the core integration test exercises exact binary prefix preservation. The FFI ABI's C integration opens and saves a real PDF and uses a byte-buffer accessor; however, that integration checks length rather than raw content, while the unit accessor value is ASCII. No PDF network-transfer path owned by the application was established in this bounded trace. Therefore the evidence supports the concrete core/local routes without certifying every caller or external transport. Parent clarification: ADR0122's two by-construction claims concern ASCII tokens/keys and hexadecimal string spelling, not binary transport itself. Its transport synopsis still mentions binary files, predating193 unconditional wording.",
+      "evidence": "doc/adr/0122-what-the-writing-and-the-pointer-did-to-the-ledger.md; viewer-ffi/src/abi/event_stream.rs::quorra_event_bytes; crates/viewer-ffi/tests/a_c_program_drives_the_abi.rs; crates/viewer-host/src/native_window.rs; crates/viewer-core/tests/headless.rs"
+    },
+    {
+      "item": "Additional regression test",
+      "verdict": "No new test draft in this shard.",
+      "basis": "The core binary-prefix assertion is directly useful; a C-boundary prefix comparison remains possible with a literal input-byte oracle. This pass records that narrower gap without duplicating the core test or claiming C content preservation is already asserted. Raw accessor code uses an explicit byte count and copy.",
+      "evidence": "The existing core assertion and raw ABI implementation above; no execution was performed in this shard."
+    }
+  ],
+  "residuals": [
+    "If assurance specifically requires the compiled C boundary to prove embedded NUL/high-byte round-trip, strengthen the existing C integration to compare returned saved bytes with the original prefix. That is a test-quality enhancement, not a defect established by current implementation evidence.",
+    "External network transport and applications following returned URIs remain outside this shard's ownership trace."
+  ]
+}

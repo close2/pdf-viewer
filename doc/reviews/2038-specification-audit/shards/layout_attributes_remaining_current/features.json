@@ -1,0 +1,106 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "feature-level review of §14.8.5.4.3/Table 379 and §14.8.5.4.4/Table 380; no full-clause or whole-ADR certification",
+  "source_locations": [
+    {"physical_page": 795, "printed_page": 780, "text": "Table 379 begins: SpaceBefore, SpaceAfter, StartIndent, EndIndent."},
+    {"physical_page": 796, "printed_page": 781, "text": "Table 379 continues: TextIndent, TextAlign, BBox."},
+    {"physical_page": 797, "printed_page": 782, "text": "Table 379 continues: Width, Height, BlockAlign."},
+    {"physical_page": 798, "printed_page": 783, "text": "Table 379 ends: InlineAlign, TBorderStyle, TPadding; §14.8.5.4.4 lead-in states Table 380 applies to ILSEs and may also be specified on BLSEs for immediate child content items."},
+    {"physical_page": 799, "printed_page": 784, "text": "Table 380: BaselineShift, LineHeight, TextPosition, TextDecorationColor, TextDecorationThickness, TextDecorationType."},
+    {"physical_page": 800, "printed_page": 785, "text": "Table 380 continuation: RubyAlign, RubyPosition, GlyphOrientationVertical."},
+    {"physical_page": 802, "printed_page": 787, "text": "Primary PDF Issue #152 overlays Table 380 GlyphOrientationVertical type `number` with `integer`."},
+    {"physical_page": 1013, "printed_page": null, "text": "EC3 Issues #223/#226 replace Table 377; corrected applicability rows include BLSEs and non-Inline placed ILSEs for some Table 379 fields, and ILSEs plus BLSEs containing content for LineHeight/BaselineShift."},
+    {"physical_page": 1014, "printed_page": null, "text": "Continued EC3 replacement Table 377 lists TextDecorationType, TextPosition, TextDecorationColor, TextDecorationThickness, GlyphOrientationVertical and Ruby mappings."}
+  ],
+  "features": [
+    {
+      "clause": "14.8.5.4.3",
+      "table": 379,
+      "feature": "SpaceBefore / SpaceAfter",
+      "normative_features": ["Optional, noninheritable; default 0.", "Measured in default user space in the block-progression direction.", "Table 377 EC3 applicability is any BLSE and ILSEs with Placement other than Inline.", "Adjacent spacing collapse and first/last reference-area edge rules describe a reflow/layout sequence."],
+      "ledger": "14.8.5.4.3 says both are read for §14.8.5.4.5 allocation rectangles; §14.8.5.4.5 owns the rectangle behavior and current layout scope.",
+      "implementation": "Tree::block_spacing reads the noninherited attributes/defaults; Tree::allocation uses the values and WritingMode. It does not construct or reflow a neighboring BLSE sequence, so the max-between-neighbors and first/last-in-reference-area layout rules have no reader-side execution path.",
+      "assertions": "Existing structure tests `the_allocation_rectangle_moves_the_edges_the_writing_mode_calls_before_and_after` and `a_negative_spacing_still_leaves_a_rectangle_the_right_way_up` assert rectangle coordinates. Their fixtures are model-level exact-value assertions; broader allocation behavior is covered by the separate §14.8.5.4.5 audit, not re-certified here.",
+      "verdict": "Implemented for the exposed allocation rectangle; no required reader reflow gap found.",
+      "residuals": ["No independent test in this shard for the Table 377 non-Inline-placement eligibility; applying values on a producer-invalid ILSE/Inline is permissive parsing, not a mandatory reader rejection defect.", "Neighbor collapse and boundary omission are writer/layout behavior; this reader has no layout engine or alternate-format exporter that needs those results."]
+    },
+    {
+      "clause": "14.8.5.4.3",
+      "table": 379,
+      "feature": "StartIndent / EndIndent / TextIndent / TextAlign",
+      "normative_features": ["StartIndent and EndIndent are inheritable and default to 0; negative values may be implementation-dependent.", "EC3 Table 377 maps StartIndent/EndIndent to BLSEs and non-Inline placed ILSEs; TextIndent/TextAlign apply to specified text-containing BLSEs.", "They position/reformat line content and distinguish first-line/hanging indentation and text alignment."],
+      "ledger": "The row counts these among the ten Table 379 attributes outside current rendering/allocation consumers.",
+      "implementation": "No layout/reflow engine consumes these values, and no public view/export path claims to return a newly laid out representation. PDF drawing commands already provide the page's resulting positions.",
+      "assertions": "No tests asserting these values reach a consumer were found in the source/code paths named by the ledger. This is consistent with the product's no-reflow scope, not evidence of a failed rendering assertion.",
+      "verdict": "No reader conformance defect established; explicitly layout-process attributes with no current destination.",
+      "residuals": ["A future reflow/export feature must revisit all applicability, inheritance and value rules; this review did not test author-invalid placement/type combinations."]
+    },
+    {
+      "clause": "14.8.5.4.3",
+      "table": 379,
+      "feature": "BBox",
+      "normative_features": ["Optional, noninheritable rectangle in default user space enclosing the structure element's visible content.", "Producer guidance says it should appear for content not suited to reflow; notes/examples identify figures, formulas, graphics and images.", "EC3 Table 377 maps this across Figures/Formulas/Artifacts/Tables, as applicable."],
+      "ledger": "The row treats BBox as the result-valued exception among layout attributes and credits ADR 0301; tests named are `a_block_level_element_states_the_rectangle_enclosing_its_visible_content` and public headless `an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states`.",
+      "implementation": "Tree::bounds reads the result; viewer-core carries it through viewport coordinates; viewer-accessibility publishes a Component rectangle for content the text layer cannot place.",
+      "assertions": "The named tests assert a source-stated rectangle survives model/public conversion. Prior ADR 0301 gives a census and motivates no-text Figures; this shard did not re-audit those fixtures, clipping, precedence or rectangle normalization.",
+      "verdict": "Existing implementation/assertion path is concrete; no new finding. Prior geometry/BBox review owns remaining test-quality questions.",
+      "residuals": ["Do not infer that the `should` producer recommendation is a reader rejection rule.", "This shard deliberately did not recertify BBox precedence or all no-text content kinds."]
+    },
+    {
+      "clause": "14.8.5.4.3",
+      "table": 379,
+      "feature": "Width / Height",
+      "normative_features": ["Optional noninheritable dimensions for specified illustration/table/cell elements; Auto default; Table 377 limits applicability.", "The entries constrain content-rectangle extents in a layout process; they supply no placement origin.", "§14.8.5.4.6 has conditional authoring constraints for Figure/Form/Formula extents."],
+      "ledger": "Classified as two of ten inapplicable layout attributes; ledger explicitly notes no origin and no reader consumer.",
+      "implementation": "No rendering/accessibility geometry consumer reads these dimensions; visible geometry is taken from marks, structure BBox and content rectangles under the separately audited clauses.",
+      "assertions": "No Width/Height layout consumer assertion appears in current code/test paths. The Figure/Form/Formula producer conditions were reviewed in the separate .4.6 audit and are not reader-side missing behavior here.",
+      "verdict": "No reader conformance defect established; layout parameters without current reflow consumer.",
+      "residuals": ["Do not treat conditional `shall` authoring requirements in .4.6 as a mandate to reject or synthesize dimensions while displaying the existing appearance."]
+    },
+    {
+      "clause": "14.8.5.4.3",
+      "table": 379,
+      "feature": "BlockAlign / InlineAlign / TBorderStyle / TPadding",
+      "normative_features": ["Table-cell-only layout controls; BlockAlign controls BLSE children, InlineAlign controls ILSE children, and cell content rectangle becomes descendants' reference area.", "TBorderStyle/TPadding have defaults and precedence against BorderStyle/Padding; values affect border and content/allocation geometry."],
+      "ledger": "Ten other attributes are classed inapplicable because the application displays the already produced page and has no table layout/export engine.",
+      "implementation": "The table/accessibility tree reads roles, spans, scopes, headers and cell bounds; it does not reposition cell children, draw reconstructed borders or apply padding from the structure attributes.",
+      "assertions": "Existing table tests assert role/header relationships and geometry, not this reflow styling. Prior table/cell-geometry shard owns bounds and spans; no new cell-layout assertion is appropriate while no reflow consumer exists.",
+      "verdict": "No mandatory reader behavior gap identified; writer/layout semantics are outside this display consumer.",
+      "residuals": ["TBorderStyle and TPadding precedence would need direct assertions if a table layout/export consumer is added."]
+    },
+    {
+      "clause": "14.8.5.4.4",
+      "table": 380,
+      "feature": "BaselineShift",
+      "normative_features": ["Optional, noninheritable default 0; distances and direction are source-defined; shift applies to the element/content/descendants and child's shift is relative to shifted parent baseline.", "The section lead-in allows Table 380 attributes on BLSEs for immediate child content. EC3-replaced Table 377 specifically maps BaselineShift to any ILSE and BLSEs containing ILSEs or direct/nested content.", "A shifted element may be superscript, subscript, or inline graphic; the clause does not equate sign with semantic meaning."],
+      "ledger": "The row states a chosen mapping from summed shift sign to platform Sup/Sub and tests inline-chain summation, reset at blocks and Figure/Form/Formula, explicit TextPosition precedence, and public text-run delivery.",
+      "implementation": "Tree::inline_statements parses BaselineShift. viewer-core::Inline::enter accumulates it only for an inline chain, resets at BLSEs/illustrations; viewer-accessibility maps resulting choice to AccessKit VerticalOffset on text runs; viewer-ffi exports style values.",
+      "assertions": "`a_baseline_shift_is_summed_along_the_inline_chain_and_read_by_its_sign` checks Paragraph shift as Normal, nested Span shifts/cancellation, block reset and illustration reset; headless Table 380 test verifies public run positions for inline text. A634 explicitly calls shift-to-position a project mapping choice.",
+      "verdict": "No PDF-rendering/reflow reader conformance failure established. Effective source permits BLSE values; current code deliberately omits them from the accessibility VerticalOffset mapping. This is a product representation-policy boundary, not proof that the page is laid out incorrectly.",
+      "residuals": ["ADR 2384's stated inline-chain rationale should be read as the accessibility TextPosition mapping policy, not as a claim that BLSE BaselineShift is outside Table 380/Table 377 applicability.", "No current consumer exports reconstructed layout geometry where the omitted whole-block shift can be compared as a concrete mismatch. Do not force a public Sup oracle without owner policy deciding whole-block text offset semantics."]
+    },
+    {
+      "clause": "14.8.5.4.4",
+      "table": 380,
+      "feature": "TextPosition / TextDecorationType / TextDecorationColor",
+      "normative_features": ["TextPosition (PDF 2.0) and decoration color inherit; decoration type propagates only into directly nested ILSEs and excludes nested BLSEs/non-text content.", "Named values/defaults and RGB component range are specified; unspecified decoration color follows current fill color at start of associated content.", "EC3 Table 377 lists applicability to the Table 380/ILSE family; Table 380 may be placed on BLSEs for child content."],
+      "ledger": "Four of nine Table 380 values cross to a platform text interface: these three plus BaselineShift; ADR 2384 and ADR 2422 document platform/cross-ABI decisions.",
+      "implementation": "Tree::inline_statements reads the four attrs via §14.8.5.3 ranking; viewer-core resolves inheritance by element category and own text; viewer-accessibility puts values on run nodes; viewer-ffi exposes an explicit C style API.",
+      "assertions": "Model test checks allowed/unknown value handling; core tests check decoration inheritance stopping at blocks, all-descendant color and TextPosition precedence; headless verifies own text; accessibility test verifies platform run attrs; FFI test verifies ABI. These assert actual values/controls, though default fill color is not carried and the AccessKit bridge chooses black (documented policy); C ABI preserves unknown color as absent.",
+      "verdict": "Implemented for the adopted accessibility export. No new reader defect found.",
+      "residuals": ["AT-SPI exposes only underline/strikethrough among the AccessKit values; overline/vertical offset are bridge capabilities, not this model's missing parse.", "The specified current-fill fallback for omitted decoration color is not derivable from the accessibility readback; black is an explicit bridge choice, not the table default."]
+    },
+    {
+      "clause": "14.8.5.4.4",
+      "table": 380,
+      "feature": "LineHeight / GlyphOrientationVertical / TextDecorationThickness / RubyAlign / RubyPosition",
+      "normative_features": ["LineHeight values/default and inline descendants scope; GlyphOrientationVertical specifies vertical-text glyph selection/orientation; decoration thickness controls rendered rule width; ruby attributes format RT relative to RB.", "Table 377 maps vertical text and RB/RT/RP applicability; EC3 Issue #152 changes GlyphOrientationVertical's type from number to integer, and Issues #223/#226 replace the applicable element mapping."],
+      "ledger": "Five Table 380 entries are explicitly named as having no counterpart in the current platform text interface/reflow destination; Ruby roles themselves cross elsewhere.",
+      "implementation": "No current reflow/export layout engine or AccessKit property consumes these attributes. Ruby roles map RB/RT elements, but their placement/alignment is not exported as layout geometry.",
+      "assertions": "No value assertions reach these fields in the current consumer tests. That is consistent with the documented destination boundary; source-defined type/default handling and producer constraints were not tested as a reader rejection matrix.",
+      "verdict": "No mandatory reader failure established; currently unsupported destination capability, explicitly scoped.",
+      "residuals": ["A future reflow/export consumer must implement and test all cell defaults, inheritance and applicability, including Issue #152's integer type and ruby ordering/alignment."]
+    }
+  ]
+}

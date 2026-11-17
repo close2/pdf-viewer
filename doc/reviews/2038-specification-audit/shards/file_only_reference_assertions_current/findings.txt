@@ -1,0 +1,37 @@
+# File-only ledger test-reference audit
+
+Baseline: `b901326c`. This is a focused audit of file-level test references, not a review of all 69 referenced clause families. Commands used the audit worktree. I read the current ledger, its file-only inventory, three selected primary-source passages, actual assertion bodies, and selected ADRs. No Cargo, Git mutation, tracked edit, or production edit was made.
+
+## What the inventory means
+
+`ledger-symbol-precheck.json` reports 69 file-only test references alongside 4,090 function-basename references. The reproducible `inventory.py` reparses the current ledger and preserves every file-only entry with its row clause, reference path, path-existence result, and sibling named test references. At baseline it found all 69 paths in matching ledger rows; each of those same rows also has at least one `::test_name` entry. This makes the raw count a measure of broad supplemental pointers, not 69 rows whose only test evidence is an unqualified file.
+
+That automated fact is deliberately narrow. A named test in the same row does not prove that it covers the feature a file-level reference was meant to indicate, so the following three samples were checked against source and assertion bodies directly. The other 64 references remain in `inventory.json` without semantic disposition.
+
+## §7.3.8.1 — stream syntax and keyword separator
+
+Primary source: physical p.46 / printed p.31. A stream is indirect, its dictionary is direct, and the `stream` keyword must be followed by LF or CRLF, not bare CR. Data starts after that marker; the dictionary Length determines the stream extent.
+
+The file-only entry `crates/pdf-syntax/tests/stream_keyword_padding.rs` is accompanied by named tests in the same ledger row. `a_conforming_marker_is_not_a_recovery` exercises both valid endings and verifies unchanged data with no report. The padding-recovery test separately checks the policy for malformed spaces/tabs and report counts across direct, indirect, wrong and missing Length forms. `spaces_no_marker_ends_are_left_where_they_are` and `a_length_that_counts_the_padding_as_data_wins` are meaningful negative controls: they prevent recovery from moving a data boundary that the source or explicit Length has not authorized it to move. The SafeDocs fax witness is optional because the corpus path may not exist; the exact synthetic tests are deterministic.
+
+ADR 1365's separation of source syntax from a deliberately reported malformed-file recovery is sound. The recovery is not itself a normative reader obligation. No valid-input gap was found in this sample.
+
+## §8.6.4.2 — DeviceGray
+
+Primary source: physical p.197 / printed p.182, with the selection/initialization text continuing at physical p.198 / printed p.183. The prose requires one grayscale component in [0,1], with 0 black, 1 white, and intermediate gray levels. Selecting DeviceGray initializes its current color to 0.0.
+
+The file-only `crates/pdf-model/tests/colour_paths.rs` reference is accompanied by the specific assertions `a_grey_is_the_same_however_it_is_drawn` and `a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black`. They cross-check the `g/G`, `cs/CS` plus `sc/SC`, and image routes; test black/white and intermediate values; and check both stroking and nonstroking initialization. The evidence is more informative than the file reference alone.
+
+The source's discussion of device color explicitly warns results can vary from device to device. Thus exact 8-bit RGB expectations for 0.2 and 0.6 establish this CPU implementation's chosen mapping, not a universal ISO RGB output. The source-level required distinctions (range, endpoints, gray ordering, and initialized black) are still plainly asserted. No separate DeviceGray ADR supplies a stronger byte-level rule; no new behavior defect or test draft follows.
+
+## §9.3.6 — text rendering modes
+
+Primary source: physical p.318 / printed p.303; Table 104 is physical p.319 / printed p.304. The text mode combines fill, stroke, and clip operations; the operations have path-equivalent effects, use graphics parameters in user space, and text clipping is applied after the text object's marks. The clip persists until restoration of an earlier clip.
+
+The file-only pointers to `text_render_modes.rs` and `glyph_clip_direction.rs` are supplemental. The actual suite asserts fill-only mode 0, stroke color and mode 1, per-glyph mode 2 ordering, user-space stroke width, mode 7 clip and no text paint, clipping activation at ET, q/Q lifetime, empty-outline behavior, Type 3 behavior, and undefined-mode reporting. `text_state_residual_audit.rs::hidden_optional_content_still_contributes_text_clip` separately covers the optional-content interaction described in ADR 0022. Parent/current shards also contain raster and real-document controls. These concrete assertions support the sampled obligations; the whole file's presence is not being counted as proof.
+
+ADR 0022's three-operation reading and the empty-outline rule remain aligned with the effective text. ADR 0396 addresses substituted-glyph winding; ADR 0844 connects text stroking to user-space stroke adjustment. No contradiction surfaced in this bounded check. No additional test was justified.
+
+## Limits
+
+This pass semantically reviewed three ledger rows containing five of the 69 inventory entries. It neither clears nor indicts the remaining references. In particular, a file reference to a test-scenes builder, source module, corpus harness, or multi-purpose integration suite still needs an assertion-level link before it can be relied on for a specific feature. The inventory records which named siblings exist; it does not make that semantic link automatically.

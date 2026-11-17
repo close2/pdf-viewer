@@ -1,0 +1,31 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "Table 88 DeviceN default Decode",
+      "review": "This is a mandatory per-component default, not a guessed one-pair shortcut. The existing generic DeviceN tint tests and image Decode tests do not together prove an image with multiple DeviceN components receives one [0 1] pair per component. The scratch draft separates omitted default, exact explicit default control, and one reversed component with independently calculated outputs.",
+      "decision": "Retain source reading; parent should inspect the exact-xref draft and run it before promoting. It is a narrow candidate, not a confirmed current behavior failure.",
+      "adr_review": "ADR 2812 is relevant to error handling of inconsistent image dictionary entries and EC3 #215; it does not cover correct-length DeviceN default mapping. Do not broaden its error mandate to this valid fixture."
+    },
+    {
+      "topic": "Table 89 alternate selection under EC3 #79",
+      "review": "ADR 0092's original selection sentence had a source inconsistency and predates EC3 #79. Its claim that the first alternate without OC is selected despite the clause's no-image sentence must not be reused as current authority without the amendment. ADR 1173 and successor 1174 define the current host Purpose input and print/export scope; current optional-content tests use Purpose and distinguish visible output. Primary effective §8.9.5.4 plus #79 controls this audit.",
+      "decision": "Retain the current Purpose-aware implementation and selected tests as evidence for branches actually asserted. Do not call all Table 89/algorithm behavior certified. No new test draft is needed for the already discriminated print default, first-visible ordering, or fallback branches.",
+      "residuals": [
+        "Duplicate DefaultForPrinting designations violate the source's at-most-one producer constraint; current deterministic choice is not evaluated as a mandatory reader-error behavior.",
+        "OCMD is not separately isolated here from OCG; optional-content sibling audit owns membership dictionary behavior."
+      ]
+    },
+    {
+      "topic": "Tables 91-92 inline abbreviations",
+      "review": "Table 91 permits `/D` as the Decode key and Table 92 permits device/filter abbreviations in value position. Existing dictionary tests assert precedence/unlisted-key behavior and the overloaded uppercase-I contexts, but the public inline rendering test set appears not to draw a sample whose value depends on `/D` specifically. `inline_image.rs::expand_key` has an explicit D mapping, but that code line is implementation evidence, not a consumer assertion.",
+      "decision": "Draft the missing public `/D [1 0]` image pixel discriminator. Compare a default sample, full-name Decode, and abbreviation through exact-xref PDF content rendering. Keep the expected gray values literal and derived from the table's linear map.",
+      "source_qualification": "EC3 #3 requires abbreviation precedence when abbreviation/full key conflict in either order; current dictionary-audit test already covers W/Width in both orders. This draft does not duplicate that test. EC3 #306 changes the parenthetical explanation `(uppercase I)` to `(uppercase i)`; the Table 91 abbreviation remains uppercase I and the Table 92 Indexed row is unchanged. This does not create a lowercase-normalization requirement."
+    },
+    {
+      "topic": "Malformed inline image policy boundary",
+      "review": "ADR 2759 addresses reporting syntax faults in malformed content streams. Neither it nor Table 91's key list justifies a new rejection claim for unknown keys or incomplete malformed structures beyond explicit source language. Current tests for unlisted-key ignore behavior and byte extents are separate from valid `/D` mapping.",
+      "decision": "Do not add a malformed-input negative test. The `/D` candidate is a valid input with a positive control."
+    }
+  ]
+}

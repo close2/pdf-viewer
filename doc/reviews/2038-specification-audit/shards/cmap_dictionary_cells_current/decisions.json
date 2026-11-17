@@ -1,0 +1,36 @@
+{
+  "decisions": [
+    {
+      "topic": "Supplement field and character-collection identity",
+      "source": "Table114 requires the field; §9.7.3 explicitly says it shall not be used to determine compatibility. #518 on physical p344 removes the alternate array shape for CMap-side CIDSystemInfo.",
+      "current_decision": "Use Registry/Ordering to identify compatibility and collection mapping; do not compare Supplement as part of compatibility. Current code's collection_names behavior matches this.",
+      "residual": "Keep separate from §9.7.5.2's processor-version/new-supplement no-display sentence; that branch has no reliable fixture provenance yet."
+    },
+    {
+      "topic": "Predefined CMap set and selected source data",
+      "source": "§9.7.5.2 requires four specified character collections and Table116 lists predefined CMap names. Table117 is explicitly empty; its following prose is still normative.",
+      "current_decision": "Count the pinned 239-map Adobe inventory and data/parser tests as support evidence; combine with a literal Type0 public mapping test. Do not infer support from Table117's empty rows.",
+      "support": "ADR0140, predefined.rs tests, composite_font_fixtures.rs exact 90ms-RKSJ-H consumer.",
+      "residual": "No all-name table transcription in CI. Pinned data hashes and complete-carried-map tests mitigate this, but do not assert independent full mapping equivalence."
+    },
+    {
+      "topic": "Version-limited newer-supplement CIDs",
+      "source": "Post-Table117 prose states CIDs introduced in a later supplement than the processor's corresponding supported PDF version are not displayed. Table117 says version information is in each collection's normative reference, not in this standard's table.",
+      "current_decision": "Record as an unresolved source/data question, not a confirmed runtime failure. The runtime path is version-neutral, but no later-supplement CID has yet been independently identified from an authoritative held reference.",
+      "next_evidence_needed": "Authoritative version-to-supplement mapping and at least one CID known to be added after the supported supplement; then valid embedded Type0 positive/control fixture.",
+      "no_test": "Do not create a test using an invented CID/supplement assignment."
+    },
+    {
+      "topic": "Encoding CMap stream UseCMap evidence",
+      "source": "Table118 and §9.7.5.4(a).",
+      "current_decision": "Mark the prior test gap closed by current T129. Test is tracked, exact-xref, public Type0 page, exact inherited/override GIDs, actual outlines, and passed wave97/wave111. Do not duplicate ToUnicode or add another stream chain without a new source-backed feature.",
+      "related_adrs": [
+        "ADR 0029, composite CMap and CID-to-glyph separation",
+        "ADR 0045, WMode duplicate consistency/refusal policy",
+        "ADR 0140, predefined maps",
+        "ADR 0298, ToUnicode UseCMap path only",
+        "ADR 1092, Encoding CMap range parsing"
+      ]
+    }
+  ]
+}

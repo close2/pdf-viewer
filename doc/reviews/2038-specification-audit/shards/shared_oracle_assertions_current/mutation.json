@@ -1,0 +1,8 @@
+{
+  "source": "crates/pdf-colour/src/colour/cie.rs",
+  "sha256": "7bae4cf19999b59d0faee2c4f562c904617fa8385c7238f885c9072b19b8de44",
+  "restored_exactly": true,
+  "mutation": "Replace final sRGB transfer by constant zero for these finite inputs.",
+  "mutant_exit": 100,
+  "restored_exit": 0
+}

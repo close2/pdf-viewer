@@ -1,0 +1,107 @@
+{
+  "scope": "Bounded review of ISO 32000-2:2020(E) §8.6.6.3–.5 and relevant EC3 annotations: Indexed, Separation, DeviceN/NChannel. This does not certify all clause 8.6 colour conversion, output-device colourant availability, clause 10.8.3 rendering, printing behavior, malformed-input recovery, or every attribute in Tables 70–72.",
+  "source": {
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "page_rule": "PDF physical page = ISO printed page + 15; sampled footers identify ISO 32000-2:2020(E). Where EC3 changes normative text, the StrikeOut/Caret annotation pair controls over the plain-text extraction."
+  },
+  "ledger": {
+    "file": "doc/conformance/ledger.toml",
+    "rows": [
+      {"clause":"8.6.6.3", "status":"implemented", "listed_test_count":4, "tests":["pdf-colour::an_indexed_space_reads_its_table", "inline_images::a_colour_space_name_is_looked_up_in_the_resources", "dct_components::an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index", "indexed_out_of_range::an_out_of_range_index_is_adjusted_to_the_nearest_entry"]},
+      {"clause":"8.6.6.4", "status":"implemented", "listed_test_count":6, "tests":["colour_paths::the_none_colourant_marks_nothing", "colour_paths::the_all_colourant_is_a_complemented_tint", "spot_planes::a_process_named_separation_paints_the_process_plane_directly", "spot_planes::a_process_colour_paints_no_spot_ink", "archive::the_first_definition_wins_where_the_configuration_says_so_and_the_report_names_it", "archive::most_used_keeps_the_definition_the_file_states_oftenest_rather_than_the_earliest"]},
+      {"clause":"8.6.6.5", "status":"implemented", "listed_test_count":21, "coverage":"Colorants key/name consistency, NChannel process mapping and simulation, None, spot curves, multi-plane and archival consumers; full names are in the ledger row."}
+    ],
+    "round_inventory": "doc/reviews/2038-specification-audit/clause-inventory.json still lists all three review states as pending with no current artifacts."
+  },
+  "features": [
+    {
+      "clause":"8.6.6.3",
+      "source_location":"printed pp.199–200 / physical pp.214–215",
+      "requirements_sampled":[
+        "Four-element Indexed form; base can be device/CIE or Separation/DeviceN but not Pattern/Indexed; hival <=255 and lookup has m*(hival+1) bytes are producer constraints.",
+        "Selecting Indexed initializes colour to index 0; each sample is an index; lookup bytes scale into each base component's range, bytes are consecutive by entry.",
+        "For operator values, real index rounds nearest with exact 0.5 up; values outside [0,hival] are adjusted to nearest endpoint."
+      ],
+      "code":[
+        "crates/pdf-colour/src/colour/parsing.rs::parse_indexed (260–312)",
+        "crates/pdf-colour/src/colour/queries.rs::ColourSpace::entry_of (399–425)",
+        "crates/pdf-colour/src/colour/queries.rs::ColourSpace::initial_colour (220–275)",
+        "crates/pdf-model/src/content/colour.rs::set_colour_space (393–498)",
+        "crates/pdf-model/src/image/space.rs, image/unpack.rs, image/jpx.rs"
+      ],
+      "assertions":[
+        "crates/pdf-colour/src/colour.rs::an_indexed_space_reads_its_table checks a green entry and high clamp (direct unit).",
+        "crates/pdf-model/tests/indexed_out_of_range.rs::an_out_of_range_index_is_adjusted_to_the_nearest_entry checks negative/high values and 6.5 up, but its optional corpus file causes skip when absent.",
+        "crates/pdf-model/tests/dct_components.rs::an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index is a public DCT image consumer.",
+        "drafts/indexed_rounding_initial.rs is a self-contained public exact-xref test of implicit index 0, 0.49, 0.5 and endpoint controls (draft only).",
+        "drafts/indexed_lab_lookup.rs is public exact-xref Lab byte scaling plus direct Lab control (draft only)."
+      ],
+      "assessment":"The read/lookup and integer/tie/clamp rules have direct code assertions; raster consumer tests cover image samples. Existing operator tie test depends on an optional corpus witness, so the self-contained exact-xref draft preserves the independently derived two-entry palette discriminator. Parser accepts producer-invalid hival/lookup shapes without validation; no normative reader-rejection rule was inferred."
+    },
+    {
+      "clause":"8.6.6.4",
+      "source_location":"printed pp.200–202 / physical pp.215–217",
+      "requirements_sampled":[
+        "Four-element Separation; single tint [0,1], subtractive convention; initial value 1.",
+        "All applies collectively to available colourants and complements tint on additive output; None produces no output. Reader must support these on any output, ignoring alternate/function although valid parameter values must still be provided.",
+        "On additive displays, a normal Separation always uses alternate and tint transform; direct colourant availability is for subtractive output. Alternate must be device/CIE, not special."
+      ],
+      "code":[
+        "crates/pdf-colour/src/colour/separation.rs::parse_separation (125–145)",
+        "crates/pdf-colour/src/colour/queries.rs::initial_colour and entry conversion",
+        "crates/pdf-colour/src/colour/to_rgb.rs",
+        "crates/pdf-model/src/content/colour.rs::set_colour_space (393–498)"
+      ],
+      "assertions":[
+        "crates/pdf-model/tests/colour_paths.rs::the_none_colourant_marks_nothing uses a valid Separation and preserves green background.",
+        "crates/pdf-model/tests/colour_paths.rs::the_all_colourant_is_a_complemented_tint uses valid parameters and expected grayscale endpoints/tint complement.",
+        "crates/pdf-model/tests/spot_planes.rs::a_process_named_separation_paints_the_process_plane_directly covers a named process plane.",
+        "drafts/special_space_initial_tints.rs publicly checks initial tint 1 with explicit full/zero controls (draft only)."
+      ],
+      "assessment":"The substantive additive-device consumer path (alternate tint transformation) and special All/None behavior are discriminated. `a_special_colourant_does_not_need_a_readable_tint_transform` is malformed-input tolerance only and is not counted as conformance evidence; valid All/None transform-ignore evidence exists in other tests. Direct selected-space public initial tint is absent in current tests; draft supplies one and a tint-zero control."
+    },
+    {
+      "clause":"8.6.6.5",
+      "source_location":"printed pp.203–211 / physical pp.218–226; Table 70 starts printed p.206 / physical p.221; Tables 71–72 at printed pp.208–209 / physical pp.223–224",
+      "requirements_sampled":[
+        "DeviceN names define ordered input arity; names are unique except repeatable None; All is forbidden; reserved CMYK process names. DeviceN values are subtractive tints; selecting the space initializes all components to 1.",
+        "On additive devices unavailable colors use alternate/tint transform; NChannel has Subtype NChannel and per-component alternate route; DeviceN or omitted Subtype keeps prior behavior. Table 70 requires Colorants entries for all NChannel spot colorants; each key maps to a Separation naming that same colourant. Table 71 maps Components to corresponding process-space components. At most one process space; process component order and natural values apply. CMYK may be a subset/order; non-CMYK names follow process order. Tables 70–72 provide optional mixing information and may be ignored.",
+        "All-None DeviceN always discards; a None component in a reverting DeviceN passes its tint to transform. EC3 #309 changes the producer rule: None shall not be used in NChannel; this is a writer constraint, not a reader rejection rule."
+      ],
+      "code":[
+        "crates/pdf-colour/src/colour/separation.rs::parse_separation (special names, all-None, simulation, process, transform order)",
+        "crates/pdf-colour/src/colour/separation.rs::nchannel_process (Table 71 route)",
+        "crates/pdf-colour/src/colour/parsing.rs and colour/entries.rs (attributes and names)",
+        "crates/pdf-colour/src/colour/spots.rs::nchannel_separations and DeviceSpots",
+        "crates/pdf-model/src/colourants.rs (public spot-plane selection)"
+      ],
+      "assertions":[
+        "crates/pdf-model/tests/colour_paths.rs::a_devicen_of_only_none_colourants_marks_nothing.",
+        "::a_devicen_passes_its_none_components_to_the_tint_transform checks a valid plain DeviceN transform and asymmetric input order.",
+        "::an_nchannel_space_of_process_components_is_its_process_space; ::an_omitted_process_component_is_admitted_only_for_cmyk; ::a_cmyk_process_space_may_be_a_profile_rather_than_the_device_name.",
+        "::an_nchannel_process_space_answers_without_a_readable_tint_transform is malformed-transform tolerance, not proof that invalid producer data is conforming.",
+        "::a_spot_components_own_separation_is_stated_and_not_taken; ::a_spot_colourants_own_separation_is_what_the_simulation_renders; ::a_process_only_nchannel_is_unmoved_by_the_simulation.",
+        "crates/pdf-model/src/colourants.rs::a_colorants_entry_states_its_colourants_separation and ::a_colorants_entry_of_another_colourant_is_not_read_as_this_ones.",
+        "crates/pdf-model/tests/spot_colourants.rs::the_mixing_hints_example_names_its_two_spots_and_separates_them.",
+        "drafts/special_space_initial_tints.rs checks public full-tint initial values against explicit controls (draft only)."
+      ],
+      "assessment":"Table 71 process routing and Table 70 key/name constraints have independent public/consumer assertions. None in NChannel is prohibited for writers after EC3 #309; the existing None-pass assertion is plain DeviceN. Table72 mixing hints may be ignored. The API/default distinction for NChannel spot-component evaluation is an accepted user-authorized policy under ADR 1229; simulation is available when requested. This does not certify the whole clause or all host integrations."
+    }
+  ],
+  "ec3_annotation_review": {
+    "issue":"#309",
+    "actual_location":"StrikeOut annotation on PDF physical p.221 / printed p.206; same-issue replacement Caret on physical p.220 / printed p.205. The same-issue marks change DeviceN None wording across the page break.",
+    "strikeout_text":"which may be present only for DeviceN colour spaces that do not have the NChannel subtype",
+    "replacement_text":"The special name None shall not be used in DeviceN colour spaces that have the NChannel subtype.",
+    "method":"/usr/bin/python with pikepdf 10.18.1 enumerated PDF /Annots and selected /Subj Issue #309, reading /Subtype, /Rect and /Contents; pdftotext -layout verified footer/page and mutool rendered the annotation overlay.",
+    "inventory_discrepancy":"The doc/errata-read.md row correctly identifies §8.6.6.5 and physical p.221; its description says the amendment concerns /Colorants, but the attached StrikeOut/Caret actually changes the DeviceN /None wording. The row's 'untouched' label is historical round 418 context, not treated here as the current review verdict. The 8.6.6.5 ledger note describes the actual amendment."
+  },
+  "unreviewed_requirements":[
+    "Full sampled-image routes for every supported decoder beyond DCT/JPX/inline samples noted; no exhaustive §8.6.6.3 consumer census in this shard.",
+    "All legal Separation names and actual subtractive hardware colourant-availability paths; raster target is additive.",
+    "Full Table 70/71/72 malformed-entry policy, unknown attribute-key policy, and every optional MixingHints processing possibility.",
+    "Full end-to-end desktop host visibility of the separation-simulation preference (model-level render path reviewed only).",
+    "Producer-side conformance constraints are not reader rejection duties and were not asserted as such."
+  ]
+}

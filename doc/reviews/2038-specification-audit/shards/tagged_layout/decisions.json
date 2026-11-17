@@ -1,0 +1,77 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": [
+    {
+      "adr": "1163",
+      "decision": "Content absent from the structure tree is classified as artifact for a tagged file, while an archival append must still describe content it preserves.",
+      "review": "The reader's by-absence classification follows the final §14.8.2.2.2 sentence and is gated on the document's MarkInfo claim. The appended-page issue is a distinct writer obligation and ADR's choice not to label preserved content as decorative is a plausible semantic preservation decision. The clause leaves what processors do with artifacts open, so neither the reader's reporting nor archive writer's preservation should be phrased as a universal consumer must-drop/must-retain rule.",
+      "evidence": [
+        "crates/pdf-model/src/content.rs::by_absence",
+        "crates/pdf-model/src/structure.rs::artifacts_by_absence",
+        "crates/pdf-model/tests/accessibility.rs::content_no_element_reaches_is_an_artifact_by_absence",
+        "doc/adr/1163-a-page-the-tree-does-not-reach-is-an-artifact.md"
+      ],
+      "residuals": "Not a complete audit of the archive tagging writer."
+    },
+    {
+      "adr": "1948",
+      "decision": "Logical copy is built from structure pieces, accounts for declared artifacts, and refuses to promise a complete logical copy where unexplained bytes remain.",
+      "review": "Retain as a product/copy policy grounded in the two orders and the consumer latitude of §14.8.2.2.1 NOTE 3. The distinction between producer-declared artifacts and a reader's by-absence inference is careful: the former may be omitted by copy policy; unexplained bytes can be forgotten real content, so a logical answer is withheld. The spec defines logical order, but it does not prescribe clipboard separators or completeness-return types.",
+      "evidence": [
+        "crates/pdf-model/src/structure.rs::logical_range",
+        "crates/viewer-core/src/select.rs::logical_copy",
+        "crates/viewer-core/tests/tagged_copy.rs::text_nothing_reaches_keeps_the_copy_in_page_order",
+        "doc/adr/1948-a-tagged-page-is-copied-in-its-structure-s-pieces-and-its-artifacts-stay-out.md"
+      ],
+      "residuals": "Clipboard characters and fallback order are consumer choices; traversal bound gap recorded in features.json."
+    },
+    {
+      "adr": "0257",
+      "decision": "Structure traversal uses a high global element bound and reports truncation rather than exposing a prefix as complete.",
+      "review": "The general rationale is sound and directly supports §14.8.2.5's depth-first definition. This bounded audit found the current MAX_ELEMENTS stop sets `Reading::truncated`, but MAX_DEPTH and MAX_CHILDREN stops do not. Those resource caps silently truncate deep/wide trees, so current code only partially meets ADR's report-the-bound design and the logical-order API's completeness signal.",
+      "evidence": [
+        "crates/pdf-model/src/structure.rs::Tree::walk, MAX_DEPTH, MAX_CHILDREN, MAX_ELEMENTS, Walk.truncated",
+        "crates/pdf-model/src/structure/logical.rs::Tree::descend",
+        "scratchpad/r2038/spec-audit/logical_structure/hierarchy_truncation_draft.rs",
+        "doc/adr/0257-the-joins-that-were-missing-and-a-walk-that-saw-half-a-tree.md"
+      ],
+      "residuals": "Separate Logical Structure shard already drafts exact-xref tests. No reader rejection claim is made."
+    },
+    {
+      "adr": "1502 and 1515",
+      "decision": "Geometry-based separator inference uses a global baseline threshold adjusted by per-font observed gap steps.",
+      "review": "Retain as the explicitly documented fallback where a PDF omits word-breaking whitespace. §14.8.2.6.2 itself calls stated whitespace the route that avoids heuristics and NOTE 2 says clients define words differently; these ADRs should not be interpreted as a Tagged PDF requirement or as validator success for conforming producers. `inferred_separators` and corpus counts make the fallback observable.",
+      "evidence": [
+        "crates/pdf-model/src/content/text/word_gaps.rs",
+        "crates/pdf-model/src/content/report.rs::Interpretation.inferred_separators",
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::a_show_string_boundary_is_not_a_word_boundary",
+        "crates/pdf-model/tests/logical_order.rs corpus measurements",
+        "doc/adr/1502-a-word-gap-is-half-a-space.md",
+        "doc/adr/1515-a-word-gap-is-lowered-per-font-where-the-pages-own-steps-say-so.md"
+      ],
+      "residuals": "Tagged producer whitespace is a separate document requirement; word parsing remains consumer-specific."
+    },
+    {
+      "adr": "1970",
+      "decision": "An annotation that the structure tree names is placed in its logical position in copy.",
+      "review": "The interpretation matches §14.8.2.5.2 and the fixture distinguishes three order sources: /Annots array, stream sequence and tree. Do not treat a widget's existence alone as its logical position; OBJR is the route sampled. The clause's output is logical order, while any annotation presentation/copy form is downstream policy.",
+      "evidence": [
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::an_annotation_is_placed_where_the_structure_puts_it_and_not_where_annots_lists_it",
+        "crates/pdf-model/src/structure/logical.rs",
+        "doc/adr/1970-an-annotation-the-tree-names-is-copied-where-it-names-it.md"
+      ],
+      "residuals": "Test does not cover all annotation types or multi-page forms."
+    },
+    {
+      "adr": "1971",
+      "decision": "When producing clipboard copy, retain U+00AD but remove the line-break whitespace immediately after it.",
+      "review": "This is a consumer choice rather than a result commanded by §14.8.2.3; it preserves the Unicode character and its future line-break opportunity while avoiding copying the incidental line division. The tests distinguish the soft hyphen from ordinary hyphen handling and check both page/logical copy paths. The choice remains open to product revision without calling the reader nonconforming.",
+      "evidence": [
+        "crates/viewer-core/src/select.rs::rejoined",
+        "crates/viewer-core/tests/tagged_copy.rs::a_word_a_soft_hyphen_divided_is_copied_whole_in_both_orders",
+        "doc/adr/1971-a-copy-undoes-a-soft-hyphen-s-division-and-keeps-the-character.md"
+      ],
+      "residuals": "No producer-side soft/hard hyphen validator reviewed."
+    }
+  ]
+}

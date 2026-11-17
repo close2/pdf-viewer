@@ -1,0 +1,38 @@
+[
+  {
+    "adr": "ADR 0158 — A name that ends in the word Symbol",
+    "decision_check": "The decision to read Nonsymbolic only as one input to substitution/default encoding, not to infer symbolic status from a BaseFont substring, matches Table 121's descriptor bit and §9.6.5.4. The current path reads Nonsymbolic from the descriptor; actual PDF integration coverage for contradictory flags comes from issue20232.pdf and tests the Symbolic priority separately.",
+    "status": "boundedly supported; not whole-ADR certification",
+    "residuals": "No new miss observed in the sampled code and tests."
+  },
+  {
+    "adr": "ADR 1411 — A font program tells us what its page could not draw",
+    "decision_check": "The invalid both-set Symbolic/Nonsymbolic producer case follows §9.8.2's explicit recommendation to check Symbolic; the public report records the producer contradiction, and the encoding/glyph outcome is checked on the corpus witness. That is a reader choice supported by a should, not an ISO-mandated error response.",
+    "status": "source-consistent in sampled behavior",
+    "residuals": "No separate PDF integration pixel pair for both-set and neither-set flags was reviewed."
+  },
+  {
+    "adr": "ADR 0716 — The table cells the errata struck",
+    "decision_check": "The ledger/code account for #190, #474, and #152, but omit #453 from the §9.8.1 feature map. Errata-read.md maps #453 to MissingWidth wording: predictable results require all codes outside Widths to map to glyphs whose widths equal MissingWidth; otherwise processor behavior is implementation-dependent. Current deterministic MissingWidth behavior remains permissible, but the ledger narrative should cite this qualification.",
+    "status": "claim coverage omission, not confirmed implementation defect",
+    "residuals": "Parent should decide whether to add #453 to the durable §9.8.1 ledger explanation during promotion."
+  },
+  {
+    "adr": "ADR 1220 — A sentence with no modal verb is not a debt",
+    "decision_check": "EC3 #5 corrects §9.8.3.3's contradictory producer-key restriction. Class descriptor override application is a reader behavior; not validating/rejecting a producer-invalid class descriptor is not automatically a reader failure. Existing tests exercise a valid disjoint class example and selected refusal cases.",
+    "status": "no contrary reader obligation found",
+    "residuals": "No public integration assertion was inspected for the whole set of class names or each prohibited override."
+  },
+  {
+    "adr": "ADR 1441 — A substitute is ranked by its descriptor",
+    "decision_check": "§9.8.1 says metrics enable synthesis or similar-font selection, which is a capability statement; choosing installed faces/ranking by descriptors is product policy. The reader's selection is asserted by direct style tests, but the choice is not an ISO requirement to synthesize/choose a particular face.",
+    "status": "decision remains appropriately labeled as choice",
+    "residuals": "No substitution-quality or complete host font catalog audit performed in this shard."
+  },
+  {
+    "adr": "ADR 1074 — A glyph class is decided by the character",
+    "decision_check": "The standard identifies classes through collection/ordering/supplement and describes them by glyph/character; the implementation's Unicode-class decision is intentionally a substitute policy where registered CMap data is unavailable. Code tables include Adobe-KR and deprecated compatibility rows. Existing unit tests cover sampled valid, ambiguous and undecidable classes.",
+    "status": "boundedly supported, no demonstrated defect",
+    "residuals": "Adobe-KR public-document path and the full Table 123 class inventory were not integration-tested here."
+  }
+]

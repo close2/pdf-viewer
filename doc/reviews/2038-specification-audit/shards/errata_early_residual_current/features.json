@@ -1,0 +1,51 @@
+{
+  "scope": "Errata annotation census for the sponsored EC3 primary PDF, physical pages 1\u2013450, followed by source-to-code/assertion review of four high-value unreferenced IDs: #25, #81, #114, #135. This is not a complete semantic review of every issue annotation.",
+  "inventory": {
+    "reproduction": "python3 doc/reviews/2038-specification-audit/shards/errata_early_residual_current/index_annotations.py (from repository root; writes scratchpad index)",
+    "tool": "pikepdf 10.18.1",
+    "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "physical_pages": [
+      1,
+      450
+    ],
+    "unique_issue_ids": 165,
+    "issue_marked_annotations": 516,
+    "issue_marked_annotations_with_irt": 144,
+    "unique_ids_with_explicit_ledger_hash_match": 92,
+    "unique_ids_without_explicit_ledger_hash_match": 73,
+    "unique_ids_mentioned_in_current_shards": 110,
+    "unique_ids_without_an_explicit_feature-ledger_match_or_any_current-shard_hash_match": 34,
+    "interpretation": "All /Subj, /Contents, and /T fields were scanned for every Issue #N marker. This reproduces the /Subj-only set: 165 unique IDs and 516 issue-marked annotations, no annotation with multiple IDs, and no IDs found only outside /Subj. Of the 516 annotations, 144 have /IRT; they are issue-marked annotations, not necessarily roots. Counts are exact textual references matching #N, not coverage verdicts. Many annotations map to source behavior already reviewed without the Issue ID citation. No ID mismatch alone is a defect. Compact issue annotation/reply/status and annotation-shape data is in issues.json; full Contents bodies are intentionally not copied."
+  },
+  "reviewed_candidates": [
+    {
+      "issue": 25,
+      "annotation": "physical p.105 / printed p.90; Text annotation with inserted Notes 1\u20132; thread has completed status. It qualifies public-key key-derivation step (c): the 0xFF bytes apply only to the document-level key for the default StmF crypt filter when that filter's EncryptMetadata is false; s3/s4 have no crypt-filter way to leave metadata plaintext, so step (c) is skipped.",
+      "effective_feature": "\u00a77.6.5.3 public-key encryption algorithms in printed numbering; physical p.105. #196's inserted permissions heading creates a renumbering issue for later headings, so source body and effective subsection numbering should be distinguished.",
+      "mapping": "No explicit Issue #25 citation found in the old feature ledger or current shard text. The current public-key shard reviews the file-key path and its AES128/AES256 ExposedMeta witnesses, which exercise a default-stream EncryptMetadata=false case. Code in crates/pdf-syntax/src/crypt/public_key.rs gates the flag on from_stream and encrypt_metadata; s3/s4 set the flag true; own per-stream keys call file_key with the metadata flag false. No contrary behavior found. This annotation is substantially behavior-covered without ID-level attribution; no defect established."
+    },
+    {
+      "issue": 81,
+      "annotation": "physical p.120 / printed p.105; Text annotation inserts a note. Thread is completed.",
+      "effective_feature": "Table 31 Page /Resources and /Contents rows, physical p.119\u2013120 / printed p.104\u2013105.",
+      "mapping": "No explicit Issue #81 citation in the old feature ledger or current shard text. Existing feature row table31_resources records Resources as required and inheritable, and page_resources_current reads the Contents-absent/empty and Resources semantics. The note clarifies that absent Contents does not waive the required resource dictionary, direct or inherited. This is a producer validity clarification; no new malformed-reader rejection policy follows. No behavior gap established."
+    },
+    {
+      "issue": 114,
+      "annotation": "physical p.77 / printed p.62; Text annotation says to insert a normative paragraph before Note 3; reply status is completed.",
+      "effective_feature": "\u00a77.5.7 Object streams, immediately before Note 3; the paragraph says an ObjStm dictionary entry value is direct or an indirect uncompressed object.",
+      "mapping": "No explicit Issue #114 citation in the old feature ledger or current shard text. Table 16 has an aggregate row for Type/N/First but no distinct entry-value representation row. The serializer's flush writes Type, N, First, Filter, Length directly and Extends as a reference to an ordinary uncompressed stream, so its emitted dictionary meets the rule by construction. Reader get_key resolves indirect values, but the inspected object-stream tests use direct N/First/Length; a valid indirect-uncompressed positive fixture is a meaningful assertion gap. This is not a malformed-input rejection defect. See draft for /N, /First, and /Length references to top-level uncompressed integer objects, with an exact xref stream and reachable page-tree result."
+    },
+    {
+      "issue": 135,
+      "annotation": "physical p.116 / printed p.101; Text annotation adds a note to Table 29 /Lang; thread is completed.",
+      "effective_feature": "Table 29 Catalog /Lang row, physical p.116 / printed p.101. The note clarifies that document text includes both PDF text strings and textual content.",
+      "mapping": "No explicit Issue #135 citation in the old feature ledger or current shard text. The current language_pronunciation_current shard traces catalog Lang into accessibility/content language and distinguishes catalog default from nested language overrides, so the note's main semantic effect has a current owner. No separate language behavior defect established by this census."
+    }
+  ],
+  "other_source_checks": [
+    "Issue #110 on physical p.77 adds an informative Note 4 about processing an object stream before catalog metadata where the catalog is stored there. It does not prohibit all catalog object streams. The separate #439 insertion on physical p.112 explicitly prohibits the catalog in an encrypted document from being in an object stream; file_security_framing_current has already reviewed #439. No additional behavior defect is asserted for #110.",
+    "Issues #302, #309, #310, and #311 lack old-ledger #N matches but are directly reviewed in existing marked_content_current, special_colour_spaces_current, rendering_intent_transfer_current, and halftones_separations_current artifacts. This confirms why an absent ledger ID cannot be treated as an absent feature review.",
+    "The #260 HTO insertion has a Table 57 feature row. Its lack of a reader branch is already qualified by the output-device halftoning applicability assessment in halftones_separations_current; this census does not reopen that decision."
+  ]
+}

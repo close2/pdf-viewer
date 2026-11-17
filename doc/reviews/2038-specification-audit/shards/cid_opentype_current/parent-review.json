@@ -1,0 +1,6 @@
+{
+  "execution": "cid-wave15.log:13 tests pass across the new CID map test, five OpenType selection controls, six composite fixtures and Type3 restore control.",
+  "fixture_corrections": "Promoted test uses std::io::Write; checked-in LiberationSans units2048, glyph36 A/glyph37 B widths1366, exact PDF width666.9921875 and scaled FontBBox. These replace inconsistent draft widths/bounds.",
+  "oracle": "CID5 maps through bytes00 25 to known GID37; absent CID6 maps to CID0 which explicitly maps to GID36. Source §9.7.6.3 requires CID0 mapping, not necessarily GID0. Both outline-bearing glyphs produce two public Fill commands; exact xref/no recovery and complete interpretation guard premises.",
+  "limits": "Only selected mapping/metrics/format-selection behaviors reviewed. Q859 MissingWidth/substitute policy remains open; not full OpenType program validation."
+}

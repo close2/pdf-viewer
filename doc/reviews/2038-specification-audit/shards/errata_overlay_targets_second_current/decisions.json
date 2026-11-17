@@ -1,0 +1,31 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "issue": 379,
+      "decision": "Retain current source interpretation. #379 replaces both indirect-object-number bullets; current wrong-generation test is semantic resolution evidence, not direct proof of raw spelling restrictions. No reader rejection gap follows."
+    },
+    {
+      "issue": 246,
+      "decision": "Retain xref_dictionary_cells_current interpretation. #246's caret broadens directness for every Table 5 value and nested members and forbids /F; the current summary distinguishes Table 17 and trailer rules. Representative valid stream tests are not an exhaustive invalid-producer matrix, which is not required for a reader finding."
+    },
+    {
+      "issue": 276,
+      "decision": "Retain general literal-or-hex byte-string rule and context exceptions. The unlinked 2 caret is note numbering after insertion of NOTE 1, not a new byte-string semantic rule."
+    },
+    {
+      "issue": 251,
+      "decision": "Retain current zero-offset model and explicitly record deletion of the separate local-time sentence. Existing offset/instant assertions match the corrected wording; no broader date-calendar claim."
+    },
+    {
+      "issue": 155,
+      "decision": "Retain producer-side MIME subtype restriction. A reader's permissive retention of a subtype does not violate the writer-form constraint; no rejection policy asserted."
+    },
+    {
+      "issue": 481,
+      "decision": "Retain separate p153 FileSpec and p656 alternate-presentation dispositions. The latter clarifies storage but does not reverse §13.5's explicit permission not to support slideshow presentations. Existing owner shards cover both locations; do not overextend attachment tests to slideshow execution."
+    }
+  ],
+  "new_findings": [],
+  "source_mismatch_screened": "None in the second sample. Earlier first-sample #10 source attribution is a separate already-promoted D66 correction. The first-sample #216 allegation was withdrawn after inspecting its second pair on physical 50."
+}

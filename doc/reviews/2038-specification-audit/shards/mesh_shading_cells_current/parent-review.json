@@ -1,0 +1,8 @@
+{
+  "verdict": "Type5 per-vertex padding is now directly tested and passes (T137).",
+  "source": "Parent read actual Table82 physical258–259 and Type4 vertex-padding rule physical257. Type5 expressly inherits the Type4 format except absent flags. Parent inspected annotations on254–268, including259 omitted from initial shard scan: no operative mesh dictionary edits; #682 at267 is removal of an editorial green line.",
+  "oracle": "Literal two-triangle coordinates and grayscale endpoints are computed from Decode[0 100 0 100 0 1]. The 8-bit control runs first. Low-bit records have 2+2+1 meaningful bits: 00 C8 38 F0; a further variant sets all ignored padding bits, 07 CF 3F F7. Each variant independently matches both literal vertex/color triplets, with exactly two triangles and no duplicate match.",
+  "execution": "Initial and final Type5 tests PASS; strengthened nonzero-padding control PASS in padding-nonzero-wave102. Model Clippy PASS before the added constant-input variant.",
+  "limits": "Public display-list geometry/color proof, not renderer pixel coverage or every legal width. Type4 incomplete triangles explicitly cause an error in source; a complete-file refusal policy does not follow automatically. No malformed-input failure claimed.",
+  "checkpoint103_extension": "T139 adds all48 legal Table82 coordinate/component width pairs. An independent ASCII bit-string fixture uses zero/one endpoints and nonzero padding; all produce the same literal two triangle/color triplets. PASS in mesh-widths-wave103 and model Clippy PASS. This covers allowed representations at endpoints, not every interior numeric sample."
+}

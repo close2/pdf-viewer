@@ -1,0 +1,21 @@
+# ADR 1161 R6 encrypted-writer audit
+
+This is a bounded review of the output side only. I verified the explicit audit worktree is `/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit`. No Cargo test, Git mutation, or shared build was run.
+
+**The principal remaining gap is an independent check of the R6 bytes the writer emits.** The existing `the_entries_are_the_three_sections_the_algorithms_name` test verifies field lengths, the four supplied salt slices, and distinct U/O prefixes; it reads the dictionary through this crate. Other R6 output tests are useful integration/exception controls, but `a_written_file_opens_on_either_password_and_refuses_a_third` is still same-family round-trip evidence. It does not independently pin the hash, wrapped file keys, or encrypted permissions block.
+
+I wrote `drafts/r6_writer_vector.py`, using PyCryptodome rather than the Rust crypto code, for the existing deterministic `Counter(0)` fixture: user password `reader`, owner password `keeper`, file key 00..1f, salts 20..3f, filler 40..43, `/P=-4`, `/EncryptMetadata=true`. It produces these expected entries:
+
+- `/U`: `3e7ce5e9ea89df3544afacd00f72fa98974f901d9f444e5128a433f1219500cb202122232425262728292a2b2c2d2e2f`
+- `/UE`: `b857de32bbd114c7add758f69f6fe5cdc0a6f56c7bb1e33815612c2c8f876d30`
+- `/O`: `632761c082b9c3634b42e7ddbcf27f0662beab8f1860d8d8e0ea4d694f09f8da303132333435363738393a3b3c3d3e3f`
+- `/OE`: `ba791d8e04ef1053ae18c5a27bc302e9a3ad71956d4f2b2a7258cde5aa9f1b26`
+- `/Perms`: `54f203d0d762eae496de957fb2819587`
+
+The helper's Algorithm 2.B logic was cross-checked independently against a pikepdf-generated R6 file: derivation from `/U` validated the user hash, `/UE` unwrapped the file key, and `/Perms` decrypted to the file's `/P` with `Tadb`. `drafts/r6_writer_vector_test.rs` compares the Rust writer output against the literal expected entries. This draft has not been run; parent should integrate/run it before treating the output gap as closed.
+
+Other current writer assertions provide meaningful sampled evidence: signature `/Contents` remains clear while `/Name` is encrypted, metadata stays clear when requested, compressed object strings travel with the encrypted object-stream carrier, catalog remains outside an object stream per EC3 #439, a refusing entropy source stops output, and deterministic supplied entropy yields deterministic bytes. The `/ID` assertion only establishes that `/ID` text exists, not that its pair is direct and unencrypted. This is an assertion-strength residual, not a defect found in output. `SystemEntropy` is delegated to the platform RNG; this review does not claim statistical validation.
+
+The `/Perms` tamper test is intentionally inconsistent: it changes plaintext `/P` from -4 to -8 while retaining ciphertext for -4. Effective §7.6.4.3.3 step f says decrypted bytes shall match `/P` in a conforming file. Therefore that test records malformed-input recovery policy, not a mandatory normative tie-break and not evidence that a valid emitted block matches `/P`. The independent vector above does test the writer's consistent `/Perms` output.
+
+Source: effective EC3 Algorithms 8–10, printed pp. 85–86 / physical pp. 100–101; §7.6.4.3.3 counterpart and consistency rule; EC3 #325 owner/user Algorithm 2.B correction and #24 ECB correction. Exact feature decisions and test names are in `features.json` and `decisions.json`.

@@ -1,0 +1,27 @@
+{
+  "scope": "Cross-cutting application of \u00a77.3.10 to annotation common values and linked action/destination dictionaries. Reviewed direct/indirect entry access, reference chains, and schema-specific reference requirements. Excluded action-family semantics beyond this distinction.",
+  "decision": "No confirmed behavior defect found. Current readers resolve valid indirect objects in common annotation and general action slots. Keep raw reference handling for slots whose table requires an indirect reference or whose consumer needs identity.",
+  "test_drafts": [
+    {
+      "file": "drafts/indirect_annotation_values_pixel.rs",
+      "purpose": "Compare an ordinary direct-value annotation control to a valid fixture where /Rect is an indirect array with individually indirect numeric entries, /F is indirect, /AP is an indirect dictionary, /AS is indirect, and the AP state stream is indirect. Assert direct fixture paints literal red at the center, indirect visible fixture paints the same red at the same center, indirect NoView fixture leaves independent green page content visible. Assert complete interpretation and `!document.was_recovered()` for every fixture.",
+      "status": "Draft only; no Cargo run."
+    },
+    {
+      "file": "drafts/indirect_link_action_target.rs",
+      "purpose": "Compare direct `/A << /S /GoTo /D [page /Fit] >>` control with a valid `/A` indirect GoTo action whose `/S`, `/D` destination array and destination `/Fit` name are indirect; public `link::links` and `link::target` must both resolve page index 1. Exact xref, two-page control PDF and `!was_recovered` guard.",
+      "status": "Draft only; no Cargo run."
+    }
+  ],
+  "source_exceptions": [
+    "Table 166 `/P` is expressly an indirect page reference.",
+    "Table 213 movie `/Annotation` is expressly an indirect annotation reference.",
+    "Rendition and GoToDp target entries have their own indirect-reference requirements; retain raw references and defer GoToDp details to its shard."
+  ],
+  "implementation_notes": [
+    "`Document::get_key` resolves values and reference chains; `Document::resolve` is bounded and turns cycles/depth exhaustion into null.",
+    "`Dictionary::get` is intentionally retained at sites requiring raw reference identity; do not mechanically convert these to `get_key`.",
+    "Rectangles and destination parameter arrays already resolve their individual elements, satisfying the focus case even when the array itself is indirect."
+  ],
+  "parent_execution": "Two tracked derivativesPASS; literalRGBA, outsideRect, direct/indirectNoView controls; publiclinktarget1. ModelalltargetsClippyPASS."
+}

@@ -1,0 +1,167 @@
+{
+  "baseline": "b901326c",
+  "scope": "Effective ISO 32000-2:2020 EC3 §§12.8.4.2–.5, 12.8.5.1–.3, 12.8.6 and 12.8.7; directly coupled DocMDP/Table 257 signature-transform classification only. Producer-only LTV/attestation creation and complete signature-profile certification are outside this shard.",
+  "features": [
+    {
+      "id": "dss-material-streams",
+      "clauses": [
+        "12.8.4.2",
+        "12.8.4.3",
+        "Table 261"
+      ],
+      "norm": "A present catalog /DSS is a dictionary. Its Certs, CRLs, and OCSPs arrays hold indirect references to streams with DER certificate/CRL/OCSP bytes; these are usable collateral for validation. These are file-structure/producer statements and reader inputs, not instructions to fetch network material.",
+      "implementation": [
+        "crates/pdf-signature/src/signature/security_store.rs::security_store",
+        "::streams",
+        "::security_store_entries",
+        "::SecurityStore::material",
+        "crates/pdf-signature/src/revocation.rs::Material::read",
+        "crates/pdf-signature/src/timestamp.rs::chain"
+      ],
+      "assertions": [
+        "crates/viewer-core/src/notes.rs::a_document_carrying_a_security_store_says_what_is_in_it_and_claims_nothing_from_it",
+        "crates/pdf-signature/src/signature.rs::a_documents_own_declaration_can_be_held_against_it",
+        "crates/pdf-signature/src/revocation/tests.rs::an_ocsp_response_the_issuer_signed_is_read_and_believed",
+        "crates/pdf-signature/src/timestamp/tests.rs::a_later_timestamp_covers_the_earlier_one_and_the_material_beside_it"
+      ],
+      "verdict": "The reader consumes decoded bytes and keeps unreadable-object refusals visible; actual certificate-path and revocation verification are separate and host-policy-bound. The broad DSS note fixture has empty streams deliberately and asserts they are not usable CRL/OCSP evidence. No reader duty to manufacture/populate a DSS was found.",
+      "evidence_limit": "MAX_STORE_ENTRIES=1024 is an implementation resource bound not stated by the standard; excess entries are surfaced as refusals. This shard did not audit the precise interoperability impact of that bound."
+    },
+    {
+      "id": "vri-record-and-selection",
+      "clauses": [
+        "12.8.4.3",
+        "12.8.4.4",
+        "12.8.4.5",
+        "Tables 261–262"
+      ],
+      "norm": "VRI is optional; a writer's VRI identifies one successfully validated CMS signature and selected material from DSS. Its key is uppercase base-16 SHA-1 over the complete hex Contents string including zero padding. Empty Cert/CRL/OCSP arrays are omitted; CRL/OCSP references must also be in DSS. The preferred data search order in .5 is expressly 'should': VRI, DSS, embedded signature data.",
+      "implementation": [
+        "crates/pdf-signature/src/signature/security_store.rs::Vri",
+        "::security_store",
+        "::SecurityStore::material",
+        "crates/viewer-core/src/notes.rs::security_store"
+      ],
+      "assertions": [
+        "crates/viewer-core/src/notes.rs::a_document_carrying_a_security_store_says_what_is_in_it_and_claims_nothing_from_it",
+        "crates/pdf-signature/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"
+      ],
+      "verdict": "Reader retains raw VRI keys/values and reports VRI count/TS claim, but neither verifies key-to-signature correspondence nor narrows material selection; it applies all DSS CRL/OCSP candidates. This departs from the preferred order (a SHOULD), not an unconditional SHALL. Existing `ABCDEF` fixtures are explicitly synthetic malformed-shape/count witnesses, not valid VRI-key conformance. The report's phrase 'recorded for N signature(s)' counts VRI dictionaries; it does not verify their binding or successful validation, so should not be read as a finding about those signatures. No DSS-writing obligation applies to this reader.",
+      "draft": null
+    },
+    {
+      "id": "dts-discovery-and-integrity",
+      "clauses": [
+        "12.8.5.1",
+        "12.8.5.2",
+        "Table 255"
+      ],
+      "norm": "A DTS establishes the complete PDF contents at its token time. It is an RFC 3161/5816 token from a trusted TSA in a standard signature dictionary. ByteRange shall cover the whole PDF except Contents, and discovery shall examine signature fields. It is treated as a digital signature in most respects and validated with its own parameters. EC3 #55 adds that a document timestamp follows a certification signature if present.",
+      "implementation": [
+        "crates/pdf-signature/src/timestamp.rs::chain",
+        "crates/pdf-signature/src/signature.rs::signatures",
+        "crates/pdf-signature/src/signature.rs::Signature::timestamp_imprint",
+        "crates/pdf-signature/src/viewer/notes call chain"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/timestamp/tests.rs::a_tokens_tst_info_states_every_member_rfc_3161_defines",
+        "::a_token_that_chains_to_a_supplied_anchor_states_its_instant",
+        "::a_later_timestamp_covers_the_earlier_one_and_the_material_beside_it",
+        "::a_range_that_stops_short_of_the_material_names_the_object_it_left_out",
+        "crates/viewer-core/src/notes.rs::a_document_carrying_a_timestamp_says_what_it_covers_and_calls_it_no_time"
+      ],
+      "verdict": "Timestamp field discovery, range/imprint, token/time, path and stacked-coverage behavior have distinct tests. The later-timestamp tests include cases where required earlier timestamp collateral lies outside the newer token. Reader does not create a timestamp (producer SHALLs remain out of scope). #55 is accounted for in errata-read.md:1273; whether the reader reports an order violation is not asserted by the cited tests and is not needed to verify cryptographic timestamp validity.",
+      "errata": "doc/errata-read.md:1273 (#55); no identified EC3 correction changes .5.2 or .5.3 reader validation semantics."
+    },
+    {
+      "id": "docmdp-validation-material-carveout",
+      "clauses": [
+        "12.8.2.2.2 Table 257 lead-in",
+        "12.8.5.3"
+      ],
+      "norm": "An incremental update containing only data necessary to add DSS and/or document timestamps is not a document change for Table 257. Later when evaluating DocMDP, DTS/DSS presence shall be ignored. The exception is update-scoped, not a global exemption for any update that happens to carry LTV material.",
+      "implementation": [
+        "crates/pdf-signature/src/revision.rs::classify_one",
+        "::dispositions",
+        "::update_of",
+        "::Comparison::against"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/revision.rs::an_update_adding_only_a_security_store_is_not_a_change_to_the_document",
+        "::an_update_carrying_a_security_store_and_more_is_refused_rather_than_carved_out",
+        "crates/pdf-signature/src/timestamp/tests.rs::a_later_timestamp_covers_the_earlier_one_and_the_material_beside_it"
+      ],
+      "verdict": "DSS-only and mixed DSS+page-update controls independently test the 'only' condition. A DTS-only update registered as a signature field/widget is not covered by the current exception classifier: /DocTimeStamp objects are classified as validation material, but the new widget, page /Annots registration, and catalog/AcroForm registration changes are not. Existing timestamp-chain tests do not call DocMDP comparison. This is a concrete carveout gap, not an inference from absence of an old test. `drafts/docmdp_dts_carveout.rs` is a standalone public-API test using valid CAdES and RFC 3161 fixtures; it asserts the DTS-only allow case and a mixed page-change control without pinning implementation-specific collateral classes/counts. Parent ran the promoted test: crypto controls pass; the DTS-only case returns `NotClassified { level: None, objects: 7 }`, while the mixed page-change control passes its rejection assertion.",
+      "draft": "drafts/docmdp_dts_carveout.rs"
+    },
+    {
+      "id": "permissions-composition-and-docmdp",
+      "clauses": [
+        "12.8.6",
+        "Table 263 /DocMDP"
+      ],
+      "norm": "Permissions need approval from each present permission handler and the security handler. A /DocMDP entry requires a signature with a DocMDP transform; processors shall enforce its /P and validate the corresponding signature according to whether permissions were violated. This is independent of encryption.",
+      "implementation": [
+        "crates/pdf-signature/src/signature.rs::permissions",
+        "::modification",
+        "crates/pdf-model/src/restriction.rs::asserted",
+        "crates/viewer-core/src/notes.rs::modifications",
+        "crates/pdf-signature/src/revision.rs::Comparison"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/signature.rs::a_certification_signature_states_what_may_change_after_it",
+        "crates/pdf-model/tests/restrictions.rs::a_certification_withholds_a_change_and_not_a_reading_at_every_level",
+        "crates/pdf-signature/src/revision.rs::a_change_that_is_none_of_the_tables_operations_is_refused_rather_than_permitted",
+        "::an_update_adding_only_a_security_store_is_not_a_change_to_the_document",
+        "::an_update_carrying_a_security_store_and_more_is_refused_rather_than_carved_out"
+      ],
+      "verdict": "Operation restrictions compose at the caller; DocMDP comparison separately checks signed/current revisions and reports violation/unrankable outcomes. RestrictionPolicy defaults off under explicit owner policy, while the public Report computes signature state when invoked. Do not interpret the off policy as transform validation or as a standards exemption. The DTS registration omission above prevents a complete carveout claim.",
+      "errata": "doc/errata-read.md:237 records #131 for §12.7.5.5 Table 236 /P (DSS/DTS-only update exception); the same exception text is independently present in Table 257 in the effective PDF. doc/errata-read.md:1273 records #55 timestamp ordering."
+    },
+    {
+      "id": "usage-rights-ur3",
+      "clauses": [
+        "12.8.2.3",
+        "12.8.6 Table 263 /UR3",
+        "Tables 258 and 263"
+      ],
+      "norm": "UR3 is deprecated but usable. Additional rights are enabled only if its signature is valid and recognized. Modifying beyond the granted rights SHOULD cause the processor to remove the UR signature before writing. Table 263 also makes a UR3 signature reachable from /Perms rather than a signature field.",
+      "implementation": [
+        "crates/pdf-signature/src/signature.rs::Permissions",
+        "::usage_rights",
+        "::UsageRights::grants",
+        "::UsageRights::permits",
+        "crates/pdf-signature/src/revision.rs::Comparison::against_usage_rights",
+        "crates/pdf-model/src/restriction.rs::asserted",
+        "crates/viewer-core/src/notes.rs::every_signature",
+        "::modifications",
+        "crates/pdf-model/src/view.rs save path"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/signature.rs::a_certification_signature_states_what_may_change_after_it",
+        "crates/pdf-signature/src/revision.rs::what_an_update_did_after_a_usage_rights_signature_is_ranked_against_table_258",
+        "crates/pdf-model/tests/forms_data.rs::a_save_beyond_the_granted_usage_rights_withdraws_the_signature",
+        "crates/viewer-core/src/notes.rs::what_an_update_did_after_a_usage_rights_signature_is_ranked_against_table_258"
+      ],
+      "verdict": "Signature dictionaries reachable only through /Perms /UR3 are added to the public signature report and undergo integrity/trust evaluation; rights, transform comparison and save-withdrawal are separate. The actual reader doesn't enable an otherwise unavailable feature, so the positive permission-enabling branch has no public consumer. The SHOULD withdrawal path is implemented. Do not infer UR3 verification merely from a table parse; its signature is separately included in every_signature."
+    },
+    {
+      "id": "legal-attestation-reader-report",
+      "clauses": [
+        "12.8.7",
+        "Table 264"
+      ],
+      "norm": "Writers SHOULD create a Legal dictionary when creating a certification signature; where present it shall be catalog /Legal and its entries shall specify all content that may cause unexpected rendering. Attestation text is optional. Reviewers should establish trust and may review questionable content in this context. Table entries are statements, mostly optional; the text gives no counting/identity algorithm.",
+      "implementation": [
+        "crates/pdf-signature/src/signature/legal_information.rs::legal",
+        "::Legal::disagreements",
+        "::census"
+      ],
+      "assertions": [
+        "crates/pdf-signature/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"
+      ],
+      "verdict": "The implementation retains author statements and compares ten census-able Table 264 categories against an object walk. Its sole direct test has independent expected controls: one URI agrees and two declared Launch actions disagree with zero found. It omits a number of Table 264 categories, but neither writer creation nor exhaustive independent count checking is an identified reader SHALL. Verdict remains partial library support; no legal-dictionary creation is owed to this reader.",
+      "errata": "EC3 #218 actually targets Table263 /UR3 on physical608/593, not Table264 Legal. It requires a nonempty Reference array with exactly one UR signature reference. Current usage_rights and notes consume it; malformed-cardinality recovery remains unspecified. D50 records stale source/consumer rationale."
+    }
+  ]
+}

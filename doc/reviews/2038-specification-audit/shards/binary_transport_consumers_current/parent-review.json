@@ -1,0 +1,6 @@
+{
+  "source": "Parent previously verified193 marks, now read ADR0122 and core saved-document assertion body. ADR0122 two by-construction claims refer to ASCII tokens/keys and hex strings; not an independent transport proof.",
+  "assertions": "Parent confirms form_two_pages.pdf is23136bytes with25NUL/1182highbytes/10FF in THIS worktree; baseline-nextest records exact testPASS5680/6518. Body compares entire saved prefix then checks written appearance/readback. If fixture absent, early return exists; it is present here.",
+  "ffi": "Read quorra_event_bytes pointer/count/BufferTooSmall/copy_from_slice implementation. Compiled C form-save block checks reported size; another block inspects ASCII modification-date syntax. Neither establishes complete binary-prefix preservation at C boundary. Core assertion is stronger for that specific claim.",
+  "limits": "Source-level local path trace only; no new execution or complete external transport certificate. C boundary byte comparison remains possible with an independent input-byte oracle."
+}

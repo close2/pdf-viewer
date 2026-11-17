@@ -1,0 +1,160 @@
+{
+  "scope": "EC3 structure/metadata issue batch; annotations verified against held primary PDF; no clause-wide certification",
+  "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "features": [
+    {
+      "issue": 45,
+      "clause": "14.8.4.8.3 / Table 371",
+      "source_location": "physical 782, printed 767; Table 371; combined annotation with #71",
+      "errata": "Caret inserts 'or both' in the TH cell description, clarifying that header cells can describe rows and columns together.",
+      "strength": "clarification of content description; no new processing algorithm",
+      "ledger": "14.8.4.8.3 implemented; table feature tests should be evaluated as owners of actual header-scope semantics",
+      "code_tests": "crates/pdf-model/src/structure.rs and structure/tables.rs; crates/pdf-model/src/structure/tests.rs::a_header_cell_states_its_axis_and_a_cell_states_its_spans, ::a_cells_headers_are_its_rows_then_its_columns and viewer-accessibility/tests/tree.rs::a_header_cells_axis_decides_its_role_and_the_rest_is_said_in_words (not re-run here)",
+      "verdict": "clarifying; no independent defect established",
+      "residuals": "Confirm exact #45/#71 Table 371 overlay is present in promoted errata inventory; do not require rejection from this producer description."
+    },
+    {
+      "issue": 62,
+      "clause": "14.8.6.2 / Annex H.8.2",
+      "source_location": "physical 940 / printed 925, Annex H; note after first paragraph of H.8.2",
+      "errata": "Adds a NOTE: Reference, TOC and TOCI are standard PDF 1.7 structure types and valid in PDF 2.0 under the default standard namespace.",
+      "strength": "informative example clarification; aligns with \u00a714.8.6.1 default namespace rule",
+      "ledger": "14.8.6.1/.2 implemented",
+      "code_tests": "Tree namespace/default-role behavior and namespace tests; source-backed inventory/artifacts should cite this example note",
+      "verdict": "no new obligation; existing default namespace behavior is controlling",
+      "residuals": "Check the example-specific consumer assertion if the appendix example itself is claimed as tested; no reason to add rejection coverage."
+    },
+    {
+      "issue": 65,
+      "clause": "14.8.6.2",
+      "source_location": "physical 810 / printed 795",
+      "errata": "Adds Example 1 illustrating structure element /NS and namespace /RoleMapNS using indirect objects.",
+      "strength": "informative example",
+      "ledger": "14.8.6.2 implemented",
+      "code_tests": "crates/pdf-model/src/structure/tests.rs::a_namespaces_own_role_map_is_the_one_that_applies and related namespace tests",
+      "verdict": "example aligns with tested role-map path; no new normative behavior",
+      "residuals": "Example uses abbreviated object numbering/ellipses, not a standalone conformance fixture."
+    },
+    {
+      "issue": 69,
+      "clause": "14.5 / Table 350",
+      "source_location": "physical 734, printed 719; Table 350 and note below",
+      "errata": "Widens permissible page-piece dictionary keys to second-class names, conforming product names, or well-known data types; strongly recommends second-class names.",
+      "strength": "producer-facing key definition and recommendation; private data may be ignored by general-purpose processors",
+      "ledger": "14.5 implemented; ledger note already acknowledges #69 as producer naming rule",
+      "code_tests": "metadata and archive ModDate tests are distinct; no consumer of arbitrary private PagePiece values identified",
+      "verdict": "no reader defect/rejection obligation established",
+      "residuals": "Do not interpret the second-class-name SHOULD as mandatory validation by a general-purpose reader."
+    },
+    {
+      "issue": 71,
+      "clause": "14.8.4.8.3 / Table 371",
+      "source_location": "physical 782, printed 767; combined with #45",
+      "errata": "Same combined caret as #45: 'or both' clarifies TH description.",
+      "strength": "clarification",
+      "ledger": "14.8.4.8.3 implemented",
+      "code_tests": "Table grid/header scope assertions exist; details require current row test-body inspection before citing coverage",
+      "verdict": "no independent new behavior",
+      "residuals": "Issue object is combined (#45 and #71); do not count the single overlay twice as two separate edits."
+    },
+    {
+      "issue": 108,
+      "clause": "Annex A / A.2",
+      "source_location": "physical 859 / printed 844, Annex A",
+      "errata": "Corrects Table A.1's marked-content operator table title to 'Table 352 - Marked-content operators'.",
+      "strength": "editorial cross-reference/title correction",
+      "ledger": "14.6 implemented; operator semantics owned by 14.6 and operator rows",
+      "code_tests": "marked content and operators tests",
+      "verdict": "no semantic change",
+      "residuals": "Annex A page has annex pagination, not ISO printed-page numbering."
+    },
+    {
+      "issue": 126,
+      "clause": "14.6.1 NOTE 3 and 14.7.3",
+      "source_location": "physical 735 / printed 720 (\u00a714.6.1 NOTE 3); physical 742 / printed 727 (\u00a714.7.3)",
+      "errata": "Both pairs replace rolemapped with role mapped. They do not delete NOTE 3.",
+      "strength": "terminology correction consistent with role mapping already defined in \u00a7\u00a714.7.3\u201314.7.4",
+      "ledger": "14.6.1 and 14.7.3 implemented",
+      "code_tests": "marked-content tag handling and role-map semantics have separate owners; namespace/role-map tests include a_namespaces_own_role_map_is_the_one_that_applies and a_role_map_may_lead_into_another_namespace; ADR 0560 notes #126",
+      "verdict": "Spacing correction only; the draft statement that #126 withdrew NOTE 3 is false and withdrawn.",
+      "residuals": "Preserve both annotation locations when inventorying the issue."
+    },
+    {
+      "issue": 188,
+      "clause": "14.8.5.4.2 / Table 378 Placement",
+      "source_location": "physical 791, printed 776",
+      "errata": "Adds NOTE that default depends on context and two examples: Figure under P is ILSE/default Inline; Figure under Sect is BLSE/default Block.",
+      "strength": "clarifies table's stated optional-attribute defaults; examples are informative",
+      "ledger": "14.8.5.4.2 implemented",
+      "code_tests": "Tree::attribute/attributes reads explicit and class-provided values; structure/tests.rs::an_attribute_is_found_through_a_class_and_overridden_by_the_elements_own checks only stated /Placement, and ::a_class_map_answers_only_what_the_elements_own_attributes_did_not checks precedence. Neither tests context-derived defaults; writing-mode/allocation tests do not test effective Placement defaults",
+      "verdict": "unresolved effective-value API scope gap, not confirmed reader rendering defect",
+      "residuals": "Tree::attribute explicitly returns stated values without inherited/default steps; its API does not promise effective Placement. No reflow consumer found. The contextual default remains a residual for any future effective-layout API."
+    },
+    {
+      "issue": 224,
+      "clause": "14.8.3.3 and 14.8.5.1\u2013.3 notes/prose",
+      "source_location": "physical 768 / printed 753 (\u00a714.8.3.3), 786 / printed 771 (\u00a714.8.5.1\u2013.2), and 787 / printed 772 (\u00a714.8.5.3)",
+      "errata": "Five caret insertions add 'structure' to phrasing in attribute/structure context notes.",
+      "strength": "terminology clarification across progression direction and attribute-owner/value prose",
+      "ledger": "14.8.3.3 and 14.8.5.1\u2013.3 implemented",
+      "code_tests": "structure attribute owner/value and writing-mode tests; ADR 0653 accounts for #224",
+      "verdict": "no independent behavior change established",
+      "residuals": "Annotation spread requires preserving all five insertion locations if publishing an inventory."
+    },
+    {
+      "issue": 303,
+      "clause": "14.6.1 editorial note",
+      "source_location": "physical 735, printed 720",
+      "errata": "StrikeOut 6812 removes NOTE 1 about sequences of complete graphics objects. The combined #303/#334 editor note requests note renumbering.",
+      "strength": "Removal of an informative note, plus editorial renumbering.",
+      "ledger": "14.6.1 implemented",
+      "code_tests": "marked-content operators/state tests",
+      "verdict": "Do not cite the withdrawn note as a complete-graphics-object restriction. Existing marked-content-within-BT assertions support the relevant construction; no new failure established.",
+      "residuals": "Distinguish editor note and deleted pagination/numbering matter from standard text."
+    },
+    {
+      "issue": 347,
+      "clause": "14.8.5.8 / Table 385 Artifact attributes",
+      "source_location": "physical 809, printed 794; primary body is Table 385, although the annotation NOTE says Table 382",
+      "errata": "Adds NOTE that artifact /Type and /Subtype meanings intentionally differ from \u00a77.3.7 conventions to align with Table 363. Annotation text calls this Table 382, but the actual artifact attributes table on the annotated page is Table 385; preserve the stale cross-reference discrepancy.",
+      "strength": "informative interpretation clarifying special-key semantics",
+      "ledger": "14.8.5.8 implemented",
+      "code_tests": "structure/tests.rs::an_artifact_element_says_which_kind_of_artifact_it_is and viewer-accessibility/tests/tree.rs::an_artifact_says_which_kind_of_artifact_it_is assert owner-specific Type/Subtype values",
+      "verdict": "clarification; implementation is already keyed to artifact semantics",
+      "residuals": "Do not globally change dictionary-key handling based on general conventions."
+    },
+    {
+      "issue": 357,
+      "clause": "14.8.5.2 / Table 376",
+      "source_location": "physical 787, printed 772; continuation of Table 376 beginning at physical 786",
+      "errata": "Three corrections replace 'version' with 'level' and one value with 'level 2, revision 1' in the CSS owner rows.",
+      "strength": "corrects version-level nomenclature in attribute owner table",
+      "ledger": "14.8.5.2 implemented",
+      "code_tests": "generic attribute-owner resolution; no PDF processor maps into these CSS serialization levels; ADR 0653 accounts for #357",
+      "verdict": "not a new reader algorithm; no test gap established",
+      "residuals": "Avoid claiming code validation of unrelated CSS translation-level values from generic owner tests."
+    },
+    {
+      "issue": 703,
+      "clause": "14.8.4.7.2 / Table 368",
+      "source_location": "physical 777, printed 762",
+      "errata": "Editor note says examples in Table 368 are renumbered sequentially as consequence of another erratum.",
+      "strength": "editorial renumbering note",
+      "ledger": "14.8.4.7.2 implemented",
+      "code_tests": "inline structure type tests",
+      "verdict": "no semantic change",
+      "residuals": "Examples are not independently executed conformance obligations."
+    },
+    {
+      "issue": 742,
+      "clause": "14.3.1 General",
+      "source_location": "physical 729, printed 714",
+      "errata": "Caret inserts 'meta' into the phrase 'document data', yielding 'document metadata' in the first bullet under the metadata storage methods.",
+      "strength": "terminology correction clarifying the subject as document metadata",
+      "ledger": "14.3 metadata and tagged structure rows own any corresponding behavior",
+      "code_tests": "metadata / structure test consumers",
+      "verdict": "terminology correction; no distinct executable behavior added",
+      "residuals": "Attribution verified against page image and caret target; metadata streams and Info remain separate mechanisms."
+    }
+  ]
+}

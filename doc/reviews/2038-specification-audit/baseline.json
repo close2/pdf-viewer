@@ -1,0 +1,11 @@
+{
+  "commit": "b901326c230faa5d2cb288016339b9d5c6288527",
+  "started_utc": "2026-11-16T07:43:30.420370+00:00",
+  "branch": "audit/specification-evidence-2026-11-16",
+  "previous_audit_commit": "4015a9ae2942dcf67ddd938af074368830c28eb2",
+  "weekly_used_at_start": 29,
+  "ceiling_used_percent": 85,
+  "reserve_remaining_percent": 15,
+  "stop_new_dispatch_at_used_percent": 81,
+  "scope": "Continue previous effective-spec/EC3 feature, implementation, assertion-quality and selected ADR audit. Verify dispositions of prior findings against new main, then expand unreviewed areas. Add missing tests; no production fixes or historical record rewrites."
+}

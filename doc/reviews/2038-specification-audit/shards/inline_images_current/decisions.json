@@ -1,0 +1,14 @@
+[
+  {
+    "adr": "0019",
+    "assessment": "Retain shared image decoder and expansion boundary. EOD route superseded original three-way extent approach via0464/0466/0467. CRLF tolerance is a documented choice with unresolved single-byte separator edge, not independently proven harmless."
+  },
+  {
+    "adr": "0464/0466/0467",
+    "assessment": "First decoding filter delimits encoded input; source Table5 order and \u00a77.3.8.2 self-limiting data support this. Assertions use deliberately embedded EI/EOI decoys and exact remaining suffix."
+  },
+  {
+    "adr": "0904/0912/0913",
+    "assessment": "0904 truncation superseded by0912 nearest-integer recovery, implemented centrally by integer_entry. Ledger8.9.7 repeats old truncation claim despite test distinguishing W2.9. Neither rounding rule is mandated for producer-invalid real width."
+  }
+]

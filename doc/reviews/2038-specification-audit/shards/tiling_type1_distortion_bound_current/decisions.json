@@ -1,0 +1,17 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "Type 1 behavior when the whole-BBox matrix snap exceeds the cap",
+      "decision": "Do not treat snap refusal as permission to leave nonintegral device-pixel spacing. The source SHALL remains in force. Consider a bounded XStep/YStep adjustment or another in-bound method; if no method can meet both requirements, report an explicit interpretation limit rather than saying the source does not ask for consistency.",
+      "source": "Table 74 Type 1, primary physical p.236/printed221; continuation and step definition, p.237/printed222. It says the processor MAY adjust XStep, YStep, and matrix; SHALL consistently space by a device-pixel multiple; SHALL NOT exceed 1 device pixel distortion. No exception for a wide BBox appears.",
+      "caveat": "The PDF does not precisely define the distortion metric over an entire lattice. XStep-only adjustment changes each local interval by 0.4 px, while cumulative displacement from the originally desired lattice grows with site index. The test's intended finite region/cell and measured offsets should be reviewed by the parent before promoting this as definitive runtime nonconformance."
+    },
+    {
+      "topic": "ADR 1080's statement that a cell whose snap exceeds one pixel is not asked to be consistently spaced",
+      "decision": "Potentially unsupported by the normative text. ADR1080's algorithm measures full transformed BBox-corner movement; when >1 it returns None, and caller preserves original step. This is a discretionary algorithm restriction but turns the Type1 SHALL into the Type2 treatment. The source's MAY lists changing XStep/YStep as available controls and does not state that a particular whole-cell matrix adjustment is the only permitted solution.",
+      "evidence": "Current code: pdf-render/src/lattice.rs::snap_lattice and pdf-model/src/content/pattern/lattice.rs::Interpreter::lattice. Existing unit test explicitly records no snap for wide BBox; public tests only test in-bound small cell. ADR1765 checks read/implementation but does not adjudicate fallback. ADR1031 is historical and was superseded for viewer-stated magnification by ADR1080.",
+      "classification": "Policy/conformance interpretation concern; the public regression draft is not run. No failure ID assigned."
+    }
+  ]
+}

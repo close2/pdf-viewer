@@ -1,0 +1,7 @@
+{
+  "verdict": "T121: two passing tests characterize Required-empty report/body/host policy and actual viewer event delivery; not an ISO fully conforming export claim.",
+  "source": "Parent read primary physical547 Table227 and568-570 Table240/prose, direct annotations547/567-570. Required field lacks value deliberately. General IncludeNoValueFields does not erase Required condition; source prescribes no hard-refusal algorithm. ADR1198 report-only policy retained; no new behavior gap.",
+  "execution": "required-policy-wave92c:2PASS. Compose included/omitted yields parsed FDF name-only/no field, owed names Required; all four host outcomes asserted with no network. Open plus Presented gives exactly one Required report before exactly one Submit; body and Send policy checked.",
+  "rejected": "Initial core path draft listened only to Open and missed deferred action delivery. It failed before Presented was added; this was a test-trigger error, not product failure.",
+  "limits": "No actual network/native toolkit presentation. Structurally valid exact-xref PDF1.7 AcroForm DA/DR/NeedAppearances; deliberately unmet Required-at-export condition."
+}

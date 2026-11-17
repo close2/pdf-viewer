@@ -1,0 +1,62 @@
+[
+  {
+    "file": "5712688.pdf",
+    "sha256": "b85b8d151380db375bab5838c8e98f3e883b84bbf649357403ba4d253693c2bc",
+    "script_objects": 263,
+    "named_functions": [
+      "TFCase_Format",
+      "TFConstrHide",
+      "TFConstrShow",
+      "TFMV",
+      "TFOpen",
+      "TFRightJustify_Format",
+      "TFST",
+      "TFTemplate_Format",
+      "TFTemplate_KeyStroke"
+    ],
+    "TFMC_calls": 9,
+    "TFMC_function_definition": false,
+    "bare_defaultValue_comparison": false,
+    "Matrix2D_constructions": 0,
+    "limits": "Static named-function/pattern scan only; cannot prove absence of every dynamic assignment or intended producer semantics."
+  },
+  {
+    "file": "6081264.pdf",
+    "sha256": "c439e3960c2a6095d06dbda111a06b6a2f929e4562487dda2e5e99e7000b20f4",
+    "script_objects": 116,
+    "named_functions": [
+      "goNext",
+      "tab_next"
+    ],
+    "TFMC_calls": 0,
+    "TFMC_function_definition": false,
+    "bare_defaultValue_comparison": true,
+    "Matrix2D_constructions": 0,
+    "limits": "Static named-function/pattern scan only; cannot prove absence of every dynamic assignment or intended producer semantics."
+  },
+  {
+    "file": "REDHAT-1167020-11.pdf",
+    "sha256": "b2c8692e26e5106d1ac7708db8168648c5e5a10c9dbb58f92427ccfdbcd4cb20",
+    "script_objects": 99,
+    "named_functions": [
+      "CornerSmiley",
+      "DoZroCk",
+      "DrawAxis",
+      "DrawTransform",
+      "GetMatrix",
+      "GetMx",
+      "InvertMx",
+      "JustifyPts",
+      "MkStr",
+      "SetIdentity",
+      "SetMatrix",
+      "SetRotated",
+      "SetSmileyOrigin"
+    ],
+    "TFMC_calls": 0,
+    "TFMC_function_definition": false,
+    "bare_defaultValue_comparison": false,
+    "Matrix2D_constructions": 5,
+    "limits": "Static named-function/pattern scan only; cannot prove absence of every dynamic assignment or intended producer semantics."
+  }
+]

@@ -293,16 +293,35 @@ fn horizontal_scaling_reaches_the_character_spacing_too() {
 }
 
 /// §9.3.4 and §9.4.3: a `TJ` adjustment is scaled horizontally as well.
+///
+/// Comparing with an otherwise identical string without the numeric adjustment isolates
+/// the required +10 and +5 point deltas from the font's own advance.
 #[test]
 fn horizontal_scaling_reaches_a_tj_adjustment() {
     let plain = placements("BT /F1 10 Tf 0 0 Td [(A) -1000 (A)] TJ ET");
     let halved = placements("BT /F1 10 Tf 50 Tz 0 0 Td [(A) -1000 (A)] TJ ET");
+
+    let plain_control = placements("BT /F1 10 Tf 0 0 Td (AA) Tj ET");
+    let halved_control = placements("BT /F1 10 Tf 50 Tz 0 0 Td (AA) Tj ET");
+    for positions in [&plain, &halved, &plain_control, &halved_control] {
+        assert_eq!(positions.len(), 2, "each string must place both glyphs");
+    }
 
     let plain_step = plain[1].0 - plain[0].0;
     let halved_step = halved[1].0 - halved[0].0;
     assert!(
         (halved_step - plain_step / 2.0).abs() < 0.01,
         "the TJ adjustment scales with Th: {plain_step} then {halved_step}"
+    );
+    let plain_delta = plain[1].0 - plain_control[1].0;
+    let halved_delta = halved[1].0 - halved_control[1].0;
+    assert!(
+        (plain_delta - 10.0).abs() < 0.01,
+        "-1000 at 10 pt moves the next origin by +10 points: {plain_delta}"
+    );
+    assert!(
+        (halved_delta - 5.0).abs() < 0.01,
+        "50% Tz scales the numeric adjustment to +5 points: {halved_delta}"
     );
 }
 

@@ -1,0 +1,34 @@
+{
+  "decisions": [
+    {
+      "adr": "ADR 0037 — A shading's own bounding box",
+      "decision_review": "Retain the distinction between shading target coordinates and the caller's transform. Table 77 BBox is an additional temporary clip; current implementation carries target placement and intersects it with the current clip. The cited BBox test is Type 2, so it does not alone establish the Type 1 Matrix × BBox interaction. Drafted a Type 1 discriminating control.",
+      "source_check": "Table 77 physical PDF pp.245–246; Type 1 Table 78 physical p.248.",
+      "status": "premise supported; test coverage narrower than ADR prose might suggest"
+    },
+    {
+      "adr": "ADR 0150 — A domain is a parallelogram",
+      "decision_review": "Retain. Table 78 maps the Domain rectangle through Matrix into a rectangle or parallelogram. Existing public raster test uses a rotated transform and checks painted center plus transparent corners, with identity-like full-page control. The missing BBox interaction is separate from this decision.",
+      "source_check": "§8.7.4.5.2 and Table 78, physical p.248.",
+      "status": "source-supported; meaningful raster assertions present"
+    },
+    {
+      "adr": "ADR 0339 / ADR 0408 — Type 1 function grid is device-dependent and bounded",
+      "decision_review": "No fixed grid resolution should be elevated to a PDF requirement. The discontinuity test pins a source-derived color transition at a device-pixel boundary and checks endpoint controls; the divided/whole test checks consistency under partitioning. This is implementation policy backed by raster behavior, not a normative grid-size claim.",
+      "source_check": "§8.7.4.4 interpolation under §10.7.3; §8.7.4.5.2 describes function-based shading; exact source does not prescribe a sample grid.",
+      "status": "retain qualified implementation policy"
+    },
+    {
+      "adr": "ADR 0529 — The wash painted",
+      "decision_review": "Retain the two Type 1 branches: with Background, points outside transformed Domain but in the area to be painted receive Background; with no Background they remain unpainted. Existing Type 1 pattern test compares both branches. Table 76 says sh ignores Background, and direct sh code follows a distinct route; existing direct-sh ignored-Background regression uses axial shading, so the draft adds Type 1 coverage.",
+      "source_check": "Table 76 and Table 77 printed pp.230–231 / physical pp.245–246; §8.7.4.5.2 printed p.233 / physical p.248.",
+      "status": "source-supported; Type 1 direct-sh assertion gap drafted"
+    },
+    {
+      "adr": "ADR 1765 — shading feature-ledger re-read",
+      "decision_review": "Its mapped implementation claims are supported by inspected code. Its common BBox evidence points to a Type 2 test, which should be represented as cross-type implementation evidence rather than direct Type 1 assertion coverage. The current no-read behavior for AntiAlias is not certified: Table 77 says the optional entry is a flag indicating whether to filter, and I found no separate permission to ignore a true value. Since the source gives no fixed filter kernel or exact pixel oracle, this remains a qualified coverage/interpretation residual, not a confirmed defect.",
+      "source_check": "Table 77 physical pp.245–246.",
+      "status": "reconcile test-coverage granularity; AntiAlias no-read remains unresolved"
+    }
+  ]
+}

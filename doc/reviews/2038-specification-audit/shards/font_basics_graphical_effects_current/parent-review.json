@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary311/296 graphicaleffects,356/341 actual#324 ToUnicodecrossref,370/355 extractionintro. No newmappingalgorithm in#324.",
+  "assertions": "Final glyph clipping1PASS through exact-xrefPDF toCPU. Parent embedded fullchecked-inLiberationSans (sha256 f8ace1f892b2bd9dc1792ba7f097fa7588f84fed48321480e04de5390828221f), independently readfontTools H/GID43UPM2048stemx168..359,y0..1409; pixel9,15inside,40,40outside. Allalpha255. Fill-onlytextcontrolpaintsoutside;clipretainsinsideandwhiteoutside.",
+  "draft_corrections": "Initial x8 sample landed on antialiased edge and failed72green; not a productdefect. x9 fixedsamplepassed. ReplacedStandard14route with explicit embeddedprogram/metrics tobind oracle to inspectedoutline; finalcPASS. DraftioWriteString corrected. No alltextmodes/Type3 certification.",
+  "decision": "Retain selectedtextmode/CID/extraction architecture. Newpublicpixel complements internalclipcommand assertions. Earlier B15/B27/B28 mapping findings remain independently scoped.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review; parent corrections supersede raw reviewer draft descriptions."
+}

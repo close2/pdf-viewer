@@ -1,0 +1,38 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent B17 and gate-results supersede draft status. No full §12.8/AnnexL certification.",
+  "reviewer_record": {
+    "selected_adrs": [
+      {
+        "adr": "ADR 1044",
+        "decision": "move document-level report and its signature byte-range work from Open to Command::Report after the first frame",
+        "scope": "launch cost and host report scheduling",
+        "review": "Accepted as an implementation/performance choice where the specification leaves timing open; it cannot satisfy or override §12.8.3.4.5's explicit PAdES trigger on opening a signed document. This is the direct source of the bounded conformance concern."
+      },
+      {
+        "adr": "ADR 0215",
+        "decision": "separate integrity, public-key authenticity, and trust; defer signature reporting and distinguish PAdES structural rules from PAdES verification rules",
+        "scope": "semantic model and reporting schedule",
+        "review": "The three-question distinction is sound and prevents an unsupported 'valid' claim. Its report-only scheduling rationale conflicts with the effective PAdES open trigger, even if the current API has not yet defined an open-time user-visible validity event."
+      },
+      {
+        "adr": "ADR 1039 / ADR 1076",
+        "decision": "trust anchors are supplied by a host and are never silently taken from the platform or file",
+        "scope": "RFC 5280 path validation policy input",
+        "review": "Reaffirmed. This correctly keeps verification policy with the host. The missing open-time execution remains independently observable from the call graph; this review does not assert that absent host anchors must be replaced with a built-in trust store."
+      },
+      {
+        "adr": "ADR 1067 / ADR 1071 / ADR 1112",
+        "decision": "use document-carried revocation material, establish timestamp authorities before using their time, and choose the earliest established proof instant",
+        "scope": "revocation and time inputs to a signature verdict",
+        "review": "No contrary source evidence found in this bounded review; these decisions are not a substitute for running the checks at the clause's stated trigger."
+      },
+      {
+        "adr": "ADR 2834 / ADR 2835 / ADR 2866 / ADR 2886",
+        "decision": "derive EU signature qualification and trusted-list evidence from authenticated, host-supplied lists and report the basis",
+        "scope": "additional qualification/reporting semantics",
+        "review": "Related user-report features are distinct from ISO's core cryptographic verification and signing. No additional gap assessed here; this shard does not recertify these ADRs."
+      }
+    ],
+    "no_adr_scope": "Annex L is tagged structure parent-child conformance, not a digital-signature method. ADR 0716's Table L.2 errata accounting is relevant only to the separate writer row, not to §12.8."
+  }
+}

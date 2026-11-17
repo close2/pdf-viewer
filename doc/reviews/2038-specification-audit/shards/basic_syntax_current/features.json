@@ -1,0 +1,78 @@
+{
+  "scope": "§7.2.1–7.2.4 and §7.3.1–7.3.7; selected indirect reference behavior already tested in spec_basic_objects. Parent source/assertion review; not all parser/recovery/write sites certified.",
+  "source": "Consolidated EC3 sourceMD basic lexical/object clauses; annotation index checked physical35–45: #193/#143 editorial, #365 braces only Type4, #494 octal label, #731 no comments inside hexadecimal strings, #438 equivalent escaped dictionary keys.",
+  "features": [
+    {
+      "clauses": [
+        "7.2.1",
+        "7.2.2",
+        "7.2.3",
+        "7.2.4"
+      ],
+      "feature": "Tokens, six whitespace bytes, eight general delimiters and comment line endings",
+      "assertions": [
+        "lexical_spec_audit.rs literal byte sets and suffix after CR/LF/CRLF comments",
+        "name_escaping.rs braces raw/escaped one-token controls"
+      ],
+      "verdict": "Literal tables and token outcomes are discriminating. Type4 braces use separate function tokenizer; source footnote #365 agrees. No whole tokenizer certification."
+    },
+    {
+      "clauses": [
+        "7.3.1",
+        "7.3.2",
+        "7.3.3"
+      ],
+      "feature": "Object types and decimal number forms",
+      "assertions": [
+        "spec_basic_objects.rs signed and decimal examples",
+        "heterogeneous array preserves Boolean/integer/real/name/string order",
+        "writer no exponent/radix guard plus extreme finite roundtrip"
+      ],
+      "verdict": "Concrete source examples pass existing baseline. Writer roundtrip alone is not independent; explicit no-exponent guard adds discrimination. All range/precision paths remain residual."
+    },
+    {
+      "clauses": [
+        "7.3.4.1",
+        "7.3.4.2",
+        "7.3.4.3"
+      ],
+      "feature": "Byte strings, nesting, escapes, EOL normalization, hexadecimal whitespace and odd nibble",
+      "assertions": [
+        "literal_strings_names_audit.rs Table3 and octal low-byte values, continuations, all hex whitespace",
+        "lexer.rs unescaped CR/LF/CRLF versus LFCR and <414> literal [0x41,0x40]",
+        "parser_limit_boundaries_audit.rs decoded-byte bounds"
+      ],
+      "verdict": "Source-derived bytes distinguish lexical semantics. Hex junk tolerance is recovery policy, not the source whitespace requirement; see D08. New limit tests pass, but they do not establish peak allocation bounds."
+    },
+    {
+      "clauses": [
+        "7.3.5"
+      ],
+      "feature": "Binary names and allowed writer spellings",
+      "assertions": [
+        "name_escaping.rs Table4 manual pairs, escaped token followed by 12 Tf, distinct high bytes/space/slash",
+        "all1..255 write/read control excludes forbiddenNUL"
+      ],
+      "verdict": "Manual pairs make this more than paired writer/parser agreement. Raw and escaped braces both legal; writer preference is policy."
+    },
+    {
+      "clauses": [
+        "7.3.6",
+        "7.3.7"
+      ],
+      "feature": "Ordered heterogeneous arrays, nested dictionaries and null entries",
+      "assertions": [
+        "spec_basic_objects.rs exact mixed values/nested dictionary fields",
+        "parser.rs null entry equivalent to absent and abbreviation behavior",
+        "new complete at-bound/one-over array/dictionary/depth tests"
+      ],
+      "verdict": "Producer uniqueness and direct-stream constraints do not impose mandatory reader rejection. First duplicate key is tolerant policy. Prior adversarial is_err tests use unclosed inputs and cannot alone prove named resource limit enforcement."
+    }
+  ],
+  "residual": [
+    "All writer consumers",
+    "Full indirect object/cross-reference semantics beyond previously reviewed controls",
+    "Peak lexer string allocation before parser size check",
+    "Complete malformed-input policy inventory"
+  ]
+}

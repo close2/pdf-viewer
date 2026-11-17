@@ -1,0 +1,6 @@
+{
+  "source": "Parent read primary physical283 including NOTE2 and exact annotation placement. #20 is an optional L-based skip recipe, not the earlier operative ID exception. Read first-filter extent and array-order decoder implementations.",
+  "oracle": "Independently used Python base64.a85decode then zlib.decompress on both literals; both exactly3eafcc59b3fc6cdbf0078f3ca9187518. Fake whitespace-delimited EI preserves ASCII85 value. Test checks entire encoded extent, resumption and literal decoded samples for both variants.",
+  "execution": "crates/pdf-model/tests/inline_filter_chain_spec_audit.rs:onePASS; model all-targets ClippyPASS. Parent added required std::io::Write trait and scoped lint expectations.",
+  "limits": "Scanner/decoder integration only; no optional skip optimization or pixel/native output certified. PDF1.7 intentionally has no L or optional ID."
+}

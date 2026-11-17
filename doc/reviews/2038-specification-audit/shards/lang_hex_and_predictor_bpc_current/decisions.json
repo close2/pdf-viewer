@@ -1,0 +1,16 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "area": "Language parsing / consumer precedence",
+      "related_decisions": ["ADR 0063", "ADR 0134", "ADR 0214", "ADR 0623"],
+      "review": "Retain the existing catalog-to-structure inheritance and explicit structure override decisions. The new draft exercises those same semantics with hex-string dictionary values; it does not propose changing precedence, the language model, or pronunciation support. It adds a public consumer assertion because generic hex-string parsing elsewhere does not by itself prove that /Lang uses that path."
+    },
+    {
+      "area": "Image sample BPC and predictor DecodeParms BPC",
+      "related_decisions": ["ADR 0036", "ADR 0081"],
+      "review": "The source-specific requirement is independent interpretation of DecodeParms for the predictor stage and the image dictionary for final sample unpacking. The test uses a supported filter pipeline whose predictor sees ASCIIHex text, then a later filter yields legal 1-bpc image samples. It makes no malformed-input rejection claim and does not imply that predictor Colors/Columns generally need not match the stage data they describe."
+    }
+  ],
+  "note": "ADR references are related implementation premises, not evidence that the exact paired-field behavior was previously tested. The source clauses and current code/assertion paths were checked directly for this shard."
+}

@@ -1,0 +1,184 @@
+{
+  "scope": "Focused audit of ISO 32000-2:2020(E) §§9.2.1-.3, 9.7.1-.2, and §9.10's introductory requirement split, including relevant effective EC3 annotations. This is not certification of font encodings, text state/positioning, CMap syntax, or all extraction routes.",
+  "source": {
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": {
+      "9.2.1": "printed p. 293 / physical p. 308",
+      "9.2.2": "printed p. 294 / physical p. 309",
+      "9.2.3": "printed p. 296 / physical p. 311",
+      "9.7.1": "printed p. 327 / physical p. 342",
+      "9.7.2": "printed p. 328 / physical p. 343",
+      "9.10 and 9.10.1": "printed p. 355 / physical p. 370",
+      "EC3 #324": "printed p. 341 / physical p. 356; Table 119 ToUnicode cross-reference"
+    },
+    "locators_verified": "Primary PDF footer pages and page text; locations are not inferred from markdown line offsets.",
+    "effective_annotations": [
+      {
+        "issue": "#324",
+        "page": "physical 356",
+        "effect": "Corrects the Table 119 ToUnicode cross-reference to §9.10. This is a reference correction, not a new reader algorithm or an extra obligation."
+      },
+      {
+        "issue": "#376",
+        "page": "physical 326 (outside this shard's clause list; §9.4.4 text rendering matrix)",
+        "effect": "The annotation asks to change NOTE 2 into normative text for the text-rendering matrix. It concerns recomputation of Trm before each glyph and is relevant to the text-state consumer, but the operative row belongs to §9.4.4 and is not claimed as reviewed here."
+      }
+    ]
+  },
+  "features": [
+    {
+      "clause": "9.2.1",
+      "title": "General",
+      "requirements_sampled": [
+        "The standard distinguishes an abstract character from a rendered glyph and the PDF font dictionary from the font program that supplies glyph descriptions.",
+        "A text string is interpreted as character codes selecting glyphs; rendering a glyph is the abstract execution of its glyph description. Font programs may be embedded or obtained externally."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.2.1 (implemented)",
+      "implementation": [
+        "crates/pdf-font/src/loading.rs",
+        "crates/pdf-model/src/content/text/show.rs",
+        "crates/pdf-model/src/content.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/composite_fonts.rs::a_utf8_shaped_codespace_yields_codes_of_several_lengths",
+        "crates/pdf-model/tests/composite_font_fixtures.rs::a_predefined_cmap_named_by_the_type_0_font_is_resolved",
+        "crates/pdf-model/tests/text_render_modes.rs::mode_0_fills_only",
+        "crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor"
+      ],
+      "verdict": "The abstraction is concretely reflected in separate font loading, code decoding, glyph placement and extraction paths; the reviewed tests assert selected decoding and rendered/extracted output. The overview adds no separate algorithm beyond the detailed font and text clauses.",
+      "residuals": [
+        "This is not a review of all glyph technologies, external font acquisition, fallback, or program execution."
+      ]
+    },
+    {
+      "clause": "9.2.2",
+      "title": "Basics of showing text",
+      "requirements_sampled": [
+        "Before painting, Tf identifies a current resource name resolving to a font dictionary and sets its standard glyph size; Td establishes the initial text position; Tj paints selected glyphs using the current font and text parameters.",
+        "The font-size operand scales glyphs defined at standard size into text space; actual size also depends on text matrix, text state, and CTM."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.2.2 (implemented)",
+      "implementation": [
+        "crates/pdf-model/src/content/text/show.rs",
+        "crates/pdf-model/src/content/text/placement.rs",
+        "crates/pdf-model/src/content/text/end_object.rs",
+        "crates/pdf-model/src/content.rs",
+        "crates/pdf-font/src/loading.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/text_state_units_audit.rs::tc_and_tw_are_unscaled_text_units_then_horizontal_tz_scales_them",
+        "crates/pdf-model/tests/text_render_modes.rs::a_font_nothing_defines_is_reported_by_the_show_under_it_and_not_by_tf",
+        "crates/pdf-model/tests/text_state_vertical_spec_audit.rs::vertical_tj_is_subtracted_from_vertical_coordinate_and_not_scaled_by_tz",
+        "crates/pdf-model/tests/composite_fonts.rs::a_vertical_font_advances_down_the_page_rather_than_across_it"
+      ],
+      "verdict": "The core show-font, font-size, position and text-space routes are assigned to detailed text-state/position rows and have actual consumer tests. This overview review does not duplicate those sibling audits.",
+      "residuals": [
+        "No independent full 12-unit-to-UserUnit scaling oracle was added in this shard."
+      ]
+    },
+    {
+      "clause": "9.2.3",
+      "title": "Achieving special graphical effects",
+      "requirements_sampled": [
+        "Glyph paint uses current nonstroking and/or stroking graphics-state colours according to Tr; default glyph paint is black in DeviceGray.",
+        "Text rendering modes can fill, stroke, convert glyph outlines to a path, add those outlines as the clip, or combine the effects. Text clipping applies to subsequent painting and persists until the graphics state restores an earlier clip."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.2.3 (implemented)",
+      "implementation": [
+        "crates/pdf-model/src/content/text/show.rs",
+        "crates/pdf-model/src/content/text/glyph_painting.rs",
+        "crates/pdf-model/src/content/text/placement.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/text_render_modes.rs::mode_1_strokes_only_and_in_the_stroking_colour (distinct fill/stroke colours)",
+        "crates/pdf-model/tests/text_render_modes.rs::mode_2_fills_then_strokes_each_glyph_in_turn",
+        "crates/pdf-model/tests/text_render_modes.rs::mode_7_clips_what_follows_and_paints_nothing (clip path, rule and later command association)",
+        "crates/pdf-model/tests/text_render_modes.rs::the_clip_begins_at_et",
+        "crates/pdf-model/tests/text_render_modes.rs::a_text_clip_survives_et_and_ends_at_q",
+        "crates/pdf-model/tests/text_render_modes.rs::a_type3_glyph_draws_in_mode_4_and_adds_nothing_to_the_clip"
+      ],
+      "verdict": "Mode selection, current stroke colour, per-glyph combined operation order, clip timing/lifetime, no-outline cases, and the Type 3 exception are asserted. The selected mode-7 tests inspect display-list geometry/association, but do not independently assert rendered pixels from the downstream CPU consumer. A narrow public raster draft is provided.",
+      "residuals": [
+        "drafts/text_clip_affects_later_paint.rs is unexecuted. It uses a legacy-valid PDF 1.7 Standard 14 Helvetica font; exact xref is guarded by was_recovered=false, and an unclipped same-fixture raster control distinguishes the intended outside pixel.",
+        "No mode-by-mode pixel oracle is proposed; Table 104 command/clip tests already discriminate the selected structure and paint-state rules."
+      ]
+    },
+    {
+      "clause": "9.7.1",
+      "title": "General (composite fonts)",
+      "requirements_sampled": [
+        "A composite font's sequence of one or more bytes is decoded to select a glyph from its descendant CIDFont; simple-font byte-per-glyph behavior differs.",
+        "PDF composite fonts use one descendant CIDFont and a Type 0 root."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.7.1 (implemented)",
+      "implementation": [
+        "crates/pdf-font/src/composite.rs",
+        "crates/pdf-font/src/cmap.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/composite_font_fixtures.rs::a_codespace_of_several_lengths_splits_a_string_where_its_ranges_say",
+        "crates/pdf-model/tests/composite_fonts.rs::a_utf8_shaped_codespace_yields_codes_of_several_lengths",
+        "crates/pdf-model/tests/composite_font_fixtures.rs::a_predefined_cmap_named_by_the_type_0_font_is_resolved"
+      ],
+      "verdict": "The overview's decoding distinction and root/descendant representation are materially tested by variable-length CMap fixtures and the Type 0 consumer. No duplicate test is needed for this abstraction.",
+      "residuals": [
+        "All individual codespace matching, encoding inheritance, descendant eligibility, and CID-to-program constraints remain owned by the specialized CMap/CID audit rows."
+      ]
+    },
+    {
+      "clause": "9.7.2",
+      "title": "CID-Keyed fonts overview",
+      "requirements_sampled": [
+        "Character collections are ordered; CIDs identify positions in that collection. A CMap maps character codes to CIDs and PDF's font number is 0.",
+        "A CID-keyed font combines a CMap with a CIDFont containing glyph descriptions and is represented by a Type 0 font. CID ranges may have implementation limits per Annex C."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.7.2 (implemented)",
+      "implementation": [
+        "crates/pdf-font/src/composite.rs",
+        "crates/pdf-font/src/cmap.rs",
+        "crates/pdf-font/src/loading.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances",
+        "crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics",
+        "crates/pdf-model/tests/composite_font_fixtures.rs::a_predefined_cmap_named_by_the_type_0_font_is_resolved",
+        "crates/pdf-font/src/loading.rs::a_code_the_to_unicode_omits_is_selected_through_the_collection"
+      ],
+      "verdict": "The overview architecture connects to actual code/glyph selection and collection tests. This is derivative evidence, not a whole-clause certification; compatibility and the details of CIDSystemInfo/CIDToGID/CMap mapping are separate rows.",
+      "residuals": [
+        "No unbounded-CID requirement is inferred; Annex C expressly permits implementation limits."
+      ]
+    },
+    {
+      "clause": "9.10 / 9.10.1",
+      "title": "Extraction of text content / General",
+      "requirements_sampled": [
+        "Text information content is distinct from rendered glyph appearance and supports searching, indexing, and export.",
+        "If standard font encoding/name/CID identification does not provide Unicode, ToUnicode or ActualText may supply it; appearance may remain renderable when character content cannot be recovered.",
+        "If all mapping methods fail, the source allows the processor to choose a character value."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.10 (implemented)",
+      "implementation": [
+        "crates/pdf-font/src/loading.rs and loading/glyphs.rs",
+        "crates/pdf-font/src/tounicode.rs",
+        "crates/pdf-model/src/content/text/show.rs",
+        "crates/pdf-model/src/content/marked.rs",
+        "crates/pdf-model/src/readback.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor",
+        "crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_an_independent_extractor_across_the_pdfjs_corpus",
+        "crates/pdf-model/tests/composite_fonts.rs::a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it",
+        "crates/pdf-model/tests/text_render_modes.rs::mode_3_paints_nothing_and_still_extracts_its_text",
+        "crates/pdf-model/tests/text_render_modes.rs::actual_text_replaces_what_a_sequence_reads_back",
+        "crates/pdf-model/tests/text_extraction.rs::the_text_we_draw_agrees_with_pdfboxs_frozen_extraction"
+      ],
+      "verdict": "The aggregate path has independent extractor comparisons and direct tests separating rendered visibility from extracted Unicode, including unmapped composite codes and ActualText. Current §9.10 ledger note describes the readback and search consumers. No additional introductory-path defect found.",
+      "residuals": [
+        "This does not re-certify precedence, UTF-16 mapping, glyph-name lookup, CID collection mappings, replacement text, reading order, word segmentation, or language handling; those belong to specialized rows.",
+        "EC3 #324 corrects the Table 119 ToUnicode cross-reference to §9.10; no behavior shift was found."
+      ]
+    }
+  ]
+}

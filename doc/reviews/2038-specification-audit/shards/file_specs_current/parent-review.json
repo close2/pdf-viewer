@@ -1,0 +1,7 @@
+{
+  "scope": "Parent independently traced FileSpec raw-byte helper docs and public name consumers. Raw helpers are not effective-path consumers; no conformance failure recorded. URL F/UF remains interpretation question.",
+  "fixture_corrections": "PDF2 fonts have explicit Helvetica x/y AFM metrics500 and descriptor, valid trailerID; matching EF F/UF; colored Pattern space; balanced dictionaries; exact lengths and glyph bbox. Ordinary y and nested x are distinct controls; pattern includes red CPU pixel; decoded payload bytes are asserted.",
+  "draft_failure": "Initial Type3 test expected nested glyph-construction text x in extraction. readback.rs deliberately suppresses it; actual enclosing a remains extracted, association reported with empty range. Draft premise rejected, not product failure.",
+  "execution": "mcaf-wave15b.log:3PASS before added decoded-payload controls; final run separately in gate-results.",
+  "limits": "Metadata and annotation-appearance AF public enumeration remain unproved. No universal attachment-panel duty inferred. ADR0918/2799 deliberately scope panel population."
+}

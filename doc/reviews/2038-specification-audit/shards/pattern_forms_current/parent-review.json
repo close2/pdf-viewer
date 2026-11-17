@@ -1,0 +1,6 @@
+{
+  "execution": "pattern-syntax-wave15.log: new tiling test fails on far pixel [255,0,0,255] versus transparent. Ordinary BBox and near-boundary positive controls pass.",
+  "source": "Parent verified Table74 physical236/printed221 and §10.7.4 physical399/printed384. Boundaries clip the cell; even empty-interior shapes include crossed pixels for scan conversion. This supports a boundary clip, not omitting the clip.",
+  "decision": "Challenge ADR0056 only for zero-extent BBox. The regression avoids exact boundary-row ownership and excludes empty viewport/page-boundary questions.",
+  "promoted": "crates/pdf-model/tests/degenerate_tiling_bbox_clip_spec_audit.rs"
+}

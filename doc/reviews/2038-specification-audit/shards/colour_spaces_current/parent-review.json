@@ -1,0 +1,7 @@
+{
+  "source": "Parent read Tables64–68 at physical204–208; ICC Range must constrain before Alternate range. Wider Lab a/b range is valid. Later ICC versions may be embedded and use Alternate when unsupported. ICC.2:2023 required tags, mpet/matf structure and version field (§7.2.6) checked.",
+  "fixture_validation": "Parent reproduced generator bytes and official ICC iccDEV2.3.2.5 ValidationStatus.OK/empty report. Profile and wheel hashes plus reproduction instructions are beside committed fixture. Local structural validator is not independent validation. Earlier LCMS version rejection is not evidence of an invalid profile.",
+  "execution": "Unsupported ICC2 profile fallback FAIL: observed RGB[255,0,128], required direct-Lab clamped control[255,0,126]. Independent unclamped/clamped controls differ before assertion. DeviceRGB reset consumer PASS with red and explicit black controls. Exactxref and complete interpretation asserted.",
+  "draft_corrections": "PDF2 fixture gets ID; all control PDFs include the referenced ICC stream. No dangling unused resource reference remains. Agent decisions saying unexecuted describe draft stage; parent logs supersede that execution status.",
+  "limits": "Only nonstroking DeviceRGB reset directly tested. ICC fallback mismatch is2 blue levels in this calibrated synthetic profile, not a claim of actual monitor characterization. Future support for this profile requires reviewing the fallback fixture. Indexed Lab belongs to next shard."
+}

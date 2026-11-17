@@ -1,0 +1,54 @@
+{
+  "baseline": "b901326c",
+  "reviews": [
+    {
+      "adr": "0181",
+      "title": "A form says whether it has signature fields, and the clause says to ask",
+      "relevant_cell": "Table 225 bit 1, under the Table 224 SigFlags entry",
+      "decision": "Do not carry ADR 0181's original absent/clear-bit inference forward as source truth. The current record should follow ADR 2814 section 6: Table 225 states 'If set' (positive implication), while §12.8.5.2 separately says timestamp existence is determined by examining signature fields. The later owner decision makes the walk regardless of SigFlags. This is directly relevant to the Table 224 cell; the error was treating a may-not-scan permission as a negative assertion.",
+      "evidence_limit": "Current viewer-core/tests/sigflags_discovery_audit.rs includes set-versus-absent and set-versus-zero candidate controls, and pdf-signature/src/signature.rs::tests::a_form_declaring_no_signature_fields_is_walked_all_the_same covers the unit-level absent-flag path. This inventory did not rerun them or recertify every signature discovery route."
+    },
+    {
+      "adr": "1159",
+      "title": "A flag that names nobody",
+      "relevant_cell": "Table 224 NeedAppearances",
+      "decision": "Retain construction of the changed widget's appearance and a truthful named residue for widgets this writer could not construct. Qualify the evidence boundary: the clause condition is across all visible widgets, but the reviewed tests establish edited-widget residue, not census of untouched visible widgets lacking AP when another widget is saved. ADR 1159 itself acknowledges that the flag is per widget in its condition; the no-census observation is a bounded test gap, not a proved defect without a valid source fixture demonstrating the writer obligation is triggered.",
+      "evidence_limit": "No full-document widget census test is recommended until the owner decides whether this writer must repair nonconforming untouched inputs; the current evidence supports describing the boundary, not a confirmed defect."
+    },
+    {
+      "adr": "2448",
+      "title": "The range of field inheritance is unlimited",
+      "relevant_cell": "Table 226 inheritable FT, Ff, V, DV",
+      "decision": "Retain the no-fixed-depth interpretation and its direct deep-chain read evidence. Keep the separate write-placement concern from forms_current: a deep or unlimited read does not prove saving distinct effective descendant defaults when an inherited shared /V is written. Parent-reported test outcome was runtime PASS and saved/reopened FAIL; classify the latter as persistence, not read inheritance.",
+      "evidence_limit": "No conclusion here about all 13 implementation-resolved keys, cycle policy, or whole ADR."
+    },
+    {
+      "adr": "0736",
+      "title": "A dictionary with no name reaches is a Widget",
+      "relevant_cell": "Table 226 /T",
+      "decision": "Read the current Table 226 cell after EC3 #28. The correction strikes Required and inserts Optional, consistent with §12.7.4.2's Widget-without-T paragraph. Do not repeat historical ADR narrative as though an absent /T remains a producer violation.",
+      "evidence_limit": "The prior source/assertion shard directly distinguishes absent T from empty T. This inventory makes no broader claim about all unnamed annotations."
+    },
+    {
+      "adr": "2814",
+      "title": "The viewer does what the tables say of views, triggers and the objects a click reaches",
+      "relevant_cell": "Table 224 SigFlags and Table 226 field-AA trigger references",
+      "decision": "Section 6 explicitly supersedes ADR 0181's inference that absent/clear bit 1 means no signature field. It also calls out widget/trigger access. For Table 226 /AA, current code has field/widget trigger lookup, but the cell-specific review did not locate an isolated assertion that proves inherited field AA and widget proximity jointly reach activation. Keep a narrowly scoped test-coverage gap; do not infer missing all-action support from this.",
+      "evidence_limit": "This is a point review of the two cited sections, not an ADR-wide restatement."
+    },
+    {
+      "adr": "1369",
+      "title": "An untagged page's fields are controls",
+      "relevant_cell": "Table 226 /TU",
+      "decision": "Retain the model's T identity/TU shown-name split and its use by form and accessibility consumers. The feature-level `a_text_fields_flags_cross_as_the_control_they_describe` assertion provides a literal `/TU` versus `/T` distinction; do not use an accessibility control path to claim every native form surface is covered.",
+      "evidence_limit": "No new host-specific tooltip/accessibility rendering run was made in this inventory."
+    },
+    {
+      "adr": "1062",
+      "title": "The request is composed in the core, transmission is handed to the host",
+      "relevant_cell": "Table 226 /TM and exported form-data names",
+      "decision": "Keep composition versus network transmission separated. The host loopback tests establish the composed body reaches the host. A newer executed HTML-only exact-xref witness establishes that Table 226 /TM is not used for that export route. `mapping_name` exists in submission.rs for Table 240 click coordinates, while `Entry.name` is selected as the fully qualified field name. Also, the local helper walks ancestors even though Table 226 does not designate TM inheritable. Scratch controls separate a terminal-local mapping, an ancestor-only mapping, and absence everywhere; parent should confirm cross-clause interpretation before promoting either point as a failure.",
+      "evidence_limit": "Parent reports an executed HTML-only control with distinct T/TM fails the Table 226 export-name expectation, while no-TM control passes. This supports a bounded HTML export gap; it says nothing about FDF/XFDF. The separate ancestor-only coordinate draft is not executed and still needs reconciliation with Table 240."
+    }
+  ]
+}

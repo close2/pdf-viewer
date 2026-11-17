@@ -1,0 +1,40 @@
+{
+  "shard": "errata_weak_dispositions_batch6_current",
+  "decisions": [
+    {
+      "issue": 632,
+      "related_decision": "ADR 0085 and structure_attributes_remaining_current PrintField review",
+      "reconsideration": "The effective correction changes only the prose gloss from Listbox to List box; the `lb` name is unchanged. Retain the separate review's conclusion that parsing Table 383 is not enough: the clause identifies the accessibility mechanism for noninteractive flattened fields, while no production consumer currently carries the PrintField semantics to AccessibilityNode. The tracked public viewer-core test currently has cb/rb controls but no lb-specific case; parent reported role/state/description controls failed and title passed at checkpoint26. This broader gap predates and is not created by #632.",
+      "limit": "Do not use the one-word erratum alone to claim a changed required platform role or interaction behavior."
+    },
+    {
+      "issue": 656,
+      "related_decision": "No runtime ADR; editorial correction",
+      "reconsideration": "Treat the physical p.616 Text annotation as the effective editorial instruction for all listed tables (269\u2013274 and 276). The struck/caret cells are not the full scope of the correction. Unchanged body words in other listed tables are not a behavioral gap, and no reader implementation requirement follows from the column label.",
+      "limit": "Keep this in source editorial disposition, not a runtime conformance finding."
+    },
+    {
+      "issue": 680,
+      "related_decision": "\u00a712.7.5.5 signature-seed writer scope",
+      "reconsideration": "Retain the seed-value scope boundary: `/V` in Table 237 sets the capability floor of the seed-value dictionary parser used when applying a signature. The `/Requirements` dictionary `/V` covered by document-requirement ADRs is a separate field and cannot stand in for this one. Current code's signature-verification support does not create a signing-time obligation to honor this seed value.",
+      "limit": "Do not claim that Table 237 `/V` is implemented or tested just because requirement-dictionary versions are."
+    },
+    {
+      "issue": 691,
+      "related_decisions": [
+        "ADR 0712",
+        "ADR 0121/0129",
+        "ADR 0817"
+      ],
+      "reconsideration": "Retain MD5 as a current local ID-generation choice, while removing any claim that \u00a714.4 recommends MD5 by name after the strike. The surviving text recommends attempts at uniqueness and leaves the means open. Keep ID-slot tests separate from algorithm choice and cryptographic uniqueness guarantees.",
+      "limit": "No MD5 collision resistance claim."
+    },
+    {
+      "issue": 731,
+      "related_decision": "Hex-string lexical recovery and archive diagnostics",
+      "reconsideration": "Retain the byte-oriented lexer: valid whitespace is ignored; nonhex, nonwhitespace bytes are accepted by a recovery path but recorded in `HexadecimalStrings::strayed`, and archive validation consumes that telemetry. The note clarifies that a producer cannot place a comment inside the token. It does not require a conforming reader to reject such a malformed string.",
+      "limit": "Do not describe permissively parsed comments as legal hexadecimal-string syntax."
+    }
+  ],
+  "overall": "No new confirmed valid-input behavior defect from these five issue corrections. #632 overlaps a broader separately documented PrintField consumer gap; #656 is editorial; #680 is a signing-time seed-value constraint; #691 removes an optional algorithm example; #731 clarifies malformed lexical input while the reader retains diagnostics."
+}

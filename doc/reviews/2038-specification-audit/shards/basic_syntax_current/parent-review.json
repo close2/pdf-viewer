@@ -1,0 +1,4 @@
+{
+  "execution": "Four new parser tests pass in pattern-syntax-wave15.log. Existing basic lexical/object controls passed earlier broad runs; no claim new rerun of all.",
+  "finding": "D08 documents overbroad source attribution in lexer::read_hex_string; T18 adds limit controls. No production behavior changed."
+}

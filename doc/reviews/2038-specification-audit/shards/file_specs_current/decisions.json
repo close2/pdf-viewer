@@ -1,0 +1,39 @@
+{
+  "decisions": [
+    {
+      "decision": "Do not classify the current FDF Table 253 dictionary path as an implementation defect.",
+      "evidence": "named_page::Reference::read resolves a dictionary /F and chooses UF before F; parent draft contrasts different names and checks ViewState::import's awaited file name. The draft has not been run in this shard.",
+      "disposition": "Coverage improvement. Separate it from FileSpec completeness because it is a dedicated consumer."
+    },
+    {
+      "decision": "Flag FileSpec path helpers as a source-to-API mismatch candidate, with low confidence on reader impact.",
+      "evidence": "Table 43 says reader shall use UF when present instead of F. from_dictionary keeps F in bytes; components(), is_absolute(), resolve_against() use bytes. Existing test checks only display_name precedence, and no production caller of these path helpers was found in the scoped search.",
+      "disposition": "Add a test that exposes different path components for F versus UF, but parent should decide whether API is promised as effective reader behavior or raw legacy bytes before filing a conformance failure."
+    },
+    {
+      "decision": "Treat embedded associated-file MIME/Params and file-spec dictionary validity statements as producer constraints unless a clause gives a reader action.",
+      "evidence": "\u00a714.13.2 says stream dictionary should contain Params/ModDate and shall have valid MIME subtype; Table 43 has required/indirect constraints on producer dictionaries. These do not by themselves state reader rejection or recovery behavior.",
+      "disposition": "Check preservation/reporting and robust reading; do not assert mandatory parse rejection."
+    },
+    {
+      "decision": "Do not certify all \u00a714.13 carrier coverage from the shared associated() helper.",
+      "evidence": "The helper reads any dictionary, but normative carrier enumeration additionally needs callers, especially metadata streams, marked-content in Type 3 glyph descriptions, patterns, and annotation appearances.",
+      "disposition": "Keep carrier-dispatch residual explicit pending direct public-consumer evidence."
+    },
+    {
+      "decision": "External path-opening consumers consistently receive the preferred displayed name in the paths traced; the path helpers are not on those call paths.",
+      "evidence": "GoToR/GoToE target_root uses FileSpec::display_name for non-URL target roots; named_page::Reference::read selects UF before F; ImportData parses F as FileSpec and supplies display_name; viewer-host then splits the supplied string in resolve_import/read_import. Attachment names use display_name for associated specs; EmbeddedFiles tree entries use the tree key.",
+      "disposition": "Do not claim an end-to-end local file-open defect. Retain the helper API contract question separately."
+    },
+    {
+      "decision": "MCAF nested content coverage exists by interpreter recursion; annotation appearance and metadata-stream AF lack a concrete public enumeration/report path.",
+      "evidence": "content/run/marked_ops.rs calls associated_files on AF BDC. content/text/type3.rs and content/pattern/cell.rs recurse through self.run with the same Interpreter; page Interpretation publishes associated_files. Tests cover page MCAF. In contrast, no associated_files consumer outside Interpretation/report and no annotation appearance hook was found. Metadata AF has no caller in the Attachment panel/query walk.",
+      "disposition": "Describe Type3/form/pattern as supported by shared interpreter route but untested as carriers. Record AP and metadata carrier omissions as product/public API coverage gaps, not automatic ISO reader failures."
+    },
+    {
+      "decision": "Nested marked-content routes are genuinely supported by the page interpreter and now have focused scratch drafts; metadata and annotation-appearance paths remain outside current public reporting.",
+      "evidence": "marked_ops populates the same Interpreter field for AF BDC. Type3, form, and tiling-cell code call self.run recursively; `Interpretation::associated_files` returns the collected spans. New tests use distinct target/decoy specs, descriptions, relationships, ModDate metadata, ordinary Span controls, and exact xrefs. Metadata stream AF has no caller in the attachment-list traversal; appearance-specific code does not use the page interpreter. ADR 0918 scoped external notes to catalog; ADR 2799 explicitly sets the panel population to catalog and page-in-view and states relationship is informational.",
+      "disposition": "Keep implementation promise at shared parser + public page Interpretation scope; do not assert user-interface obligation for all carriers. Update any ledger prose that says all eight carriers are read so it distinguishes parser capability from actual dispatch."
+    }
+  ]
+}

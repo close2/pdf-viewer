@@ -1,0 +1,38 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings/gate-results supersede draft/run status. Not whole-clause certification.",
+  "parent_notes": "AGL draft controls corrected against primary source; five promoted assertions fail. Four initial mesh controls pass; Type6 corner source is Figure45/prose, not dictionary Table83. Further mesh review remains pending.",
+  "reviewer_record": {
+    "decisions": [
+      {
+        "adr": "0286",
+        "review": "core encoding change supported; bounded source verification complete",
+        "basis": "Annex D.4 Table D.4 contains 165 code/name assignments. Direct extraction from the current ISO source PDF matches all 165 implementation entries and reveals no extra mapped codes. Existing tests cover table size, allowed encoding name, and a discriminating six-name overlap with Latin encodings, but do not permanently compare each row against the primary table. The note that an expert font program's built-in encoding may differ remains important: MacExpert presence does not decide encoding precedence, which is §9.6.5.1's rule.",
+        "source": "ISO 32000-2 Annex D.4, printed pp. 874–875; doc/adr/0286-the-expert-set-and-the-punctuation-that-would-have-been-right.md; crates/pdf-font/src/encoding.rs::MAC_EXPERT"
+      },
+      {
+        "adr": "0318",
+        "review": "D.6 character-name reading supported; pairing assertion is not a full source oracle",
+        "basis": "Annex D.1 says the Annex's sets/encodings are to be predefined; D.6 presents CHAR, NAME and CODE, and names the code ordering rationale. Direct source-PDF comparison matches all 188 names and all 187 non-space CHAR values. The implementation supplies U+0020 for the blank CHAR cell named `space`, via the AGL mapping. The public specimen test gives exact codepoint controls and verifies that ASCII fallthrough no longer occurs. Its paired-array cardinality test cannot alone detect a same-position shared transcription error, so source comparison remains important.",
+        "source": "ISO 32000-2 Annex D.1 and Table D.6, printed pp. 872 and 875–876; doc/adr/0318-the-band-has-a-shape-and-the-annex-prints-the-character.md; crates/pdf-font/src/encoding.rs; crates/pdf-model/tests/silent_fonts.rs::a_dingbats_page_reads_back_the_characters_annex_d6_states"
+      },
+      {
+        "adr": "2723",
+        "review": "conversion-specific premise preserved; not a base-table correction",
+        "basis": "Annex D.2 retains `hyphen` at WinAnsi octal 255 and `space` at WinAnsi octal 240/MacRoman octal 312. Notes 5 and 6 say producers intending soft hyphen/nonbreaking space may state that through /Differences; ISO's example does so. ADR 2723's transformation supplies those explicit names for its narrowly selected PDF/A cases and duplicates a glyph when widths diverge. That changes extraction for converted output by design, but does not imply a reader should globally reinterpret the Annex D base codes. No source conflict found.",
+        "source": "ISO 32000-2 Annex D.2 notes 5–6 and following Differences example, printed p. 872; doc/adr/2723-a-code-annex-d-encodes-twice-reaches-a-copy-of-its-twins-glyph.md"
+      },
+      {
+        "adr": "2836",
+        "review": "consumer premise confirmed; sequence mapping defect reaches exposed text and search",
+        "basis": "Viewer Query::Text returns the interpreted page text, and Query::Find searches that same readback; the existing viewer test verifies this using an independent eacute scalar expectation. The new exact-xref Type 3 draft routes an AGL sequence through the actual glyph name with embedded path descriptions and checks both queries. Current `text_for` cannot produce the expected AGL sequence, so the ADR's single-readback consumer architecture propagates this gap to page text and search.",
+        "source": "doc/adr/2836-the-text-of-the-pages-on-the-screen-is-one-question-on-the-boundary.md; crates/viewer-core/tests/page_text.rs; crates/pdf-model/src/type3.rs::Type3Font::text"
+      },
+      {
+        "adr": "2844",
+        "review": "reading-versus-copy boundary unchanged; API exposes the affected string",
+        "basis": "Query::Text is a reading and answers independently of copy permission; the FFI exposes the same page text. The AGL sequence issue concerns what readback says, not a permission or clipboard behavior. No change to the ADR's copy-boundary distinction is indicated.",
+        "source": "doc/adr/2844-a-pages-text-on-the-boundary-is-a-reading-not-a-copy.md; crates/viewer-core/tests/page_text.rs; crates/viewer-ffi/src/session.rs"
+      }
+    ]
+  }
+}

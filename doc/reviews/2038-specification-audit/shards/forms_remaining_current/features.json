@@ -1,0 +1,41 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2:2020 EC3 §12.7.5.5 signature fields; §12.7.6.1/.2/.4 form actions; §12.7.4.3 only at the edge of signature and form-action appearances. Printed pages: 533, 543–545, 552–556; relevant Table 228, Tables 235–240 and 243, with EC3 #131, #158, #159 and #680.",
+  "features": [
+    {
+      "feature": "Signature field type/value, one-widget restriction, visibility and stored appearance",
+      "source": "§12.7.5.5, printed pp.543–544 (physical pp.558–559): FT shall be Sig; V if present shall be a signature dictionary. Rect locates the field; invisible signature rectangles have zero area; Hidden/NoView also mean not visible. A signature field never refers to more than one annotation. A visible field's AP should be created at signature time; the AP is not used by signature verification and a processor shall not encode validation status into that AP. §12.7.4.3 Table 228 /DA remains the general variable-text appearance route, but a signature field's value is a signature dictionary, not text.",
+      "ledger": "§12.7.5.5 is marked implemented. The parent-added signature_fields_spec_audit.rs checks that a supplied red AP paints for a visible unsigned field and that Hidden, NoView, and zero Rect controls paint nothing. This isolates reader visibility and use of stored AP; it does not test AP generated at signing time or any UI validation badge.",
+      "verdict": "Those reader-visible assertions are substantive and match the reviewed rules. The tested AP is caller-supplied; the tested field has no V. The signature-specific clause does not require constructing an AP for an unsigned signature field. No finding here establishes validation-status overlay behavior; that was separately reviewed in the §12.8 shard.",
+      "residuals": "No AP-with-valid-signed-field rendering assertion in this bounded shard. A host may display validation information separately, but this clause prohibits incorporating status in the AP; no public test here inspects the saved AP bytes after verification. This is not a whole-clause signature certification."
+    },
+    {
+      "feature": "Signature field /Lock field restrictions and Table 236 /P document permission",
+      "source": "§12.7.5.5, printed pp.544–545 (physical pp.559–560): Table 235 /Lock is an indirect reference; prose below Table 235 says locked values shall no longer change after that signature is signed. Table 236 defines All/Include/Exclude and PDF 2.0 /P. #131 adds the DSS/DTS-only carveout to /P. #680, #158 and #159 concern /SV and its DigestMethod parser entries.",
+      "ledger": "Ledger lists `a_signed_signature_field_locks_the_fields_its_lock_names` and `a_signed_locks_permission_entry_states_what_may_still_be_changed`; code routes field-name locks and /P through `pdf_signature::signature::{field_locks,field_lock_permissions}` and `restriction::asserted`.",
+      "verdict": "The reader-side restriction is genuinely in scope: filling fields and saving are public viewer behavior, and ADR 0284/1156 correctly distinguish field-value restrictions from signature verification. However, the shared `forms_data.rs::form_locking` witness calls `/V << /Type /Sig /ByteRange [...] >>` a signed signature while omitting Table 255's required `/Contents`. Therefore the lock and /P tests do not currently prove their claimed condition on a conforming signed field. A standalone scratch draft now uses a genuine CAdES signature over an exact-xref PDF, an identical unsigned-field control, and a second unlisted field. OpenSSL independently verifies the CMS; the Rust draft checks ByteRange integrity, lock selection and field-specific restriction. No Cargo test was run by this shard.",
+      "residuals": "Parent must compile/run the draft, assert no recovery for both inputs, inspect ByteRange and cryptographic-binding results, then decide whether to replace the malformed existing witness. The new fixture does not contain /P, so it does not validate the independent Table 236 /P cases. No signing-status rule beyond the source's 'after ... signed' condition is inferred."
+    },
+    {
+      "feature": "Seed-value dictionaries and seed corrections",
+      "source": "Table 235 /SV and Table 237, printed p.545 (physical p.560); #680 leaves the /Ver cell untouched; #158 removes the DSA/SHA-1-specific digest statement; #159 changes DigestMethod to an unordered array with corrected values.",
+      "ledger": "The signature-field row says /SV is unread because this product has no PDF signing operation; `doc/errata-read.md` records #680/#158/#159 as untouched/cited.",
+      "verdict": "No current appearance, import or validation API consumes /SV as a signing constraint, and the clause locates its use at the time a signature is applied. This is a current consumer boundary, not an explicit scope-ratification claim that PDF signing is permanently excluded. The validator must not treat seed values as validation requirements; §12.8.3.4 states that they are workflow constraints and says they shall not be enforced during validation.",
+      "residuals": "No signing action is implemented or exercised here. Do not report the unparsed /SV as an open-time reader defect; revisit if a PDF signing workflow is introduced."
+    },
+    {
+      "feature": "Form-action type recognition and submit-form transmission",
+      "source": "§12.7.6.1, printed p.552 (physical p.567), names SubmitForm, ResetForm, ImportData. §12.7.6.2, printed pp.552–555 (physical pp.567–570), Table 239 and Table 240; the action transmits selected field names/values to URL, with format/method/field selection controlled by those tables.",
+      "ledger": "§12.7.6.1 generic recognition test; §12.7.6.2 model composition, viewer/host submit path and loopback transmission tests. Current tests include `form_actions_spec_audit.rs` field-descendant / coordinate / encoding controls and `viewer-host/tests/submit.rs::each_format_reaches_the_server_as_it_was_composed`.",
+      "verdict": "Good separation of parser, composer, and network consumer evidence. Exact expected body, method, media type and response are compared against a loopback server; field-selection tests include an all-fields control. The host applies its own submit policy before transmission; the PDF clause does not mandate bypassing that policy.",
+      "residuals": "Table 240 bit 11 ExclNonUserAnnots is explicitly owed: its predicate is the current-user name as determined by the remote server, and this application has no current-user/server identity channel. The implementation reports this limitation and withholds the affected annotation subset rather than claiming it selected correctly. That remains an implementation limitation for a deployment that has such a user identity; it is not evidence that the table's condition is optional. Other producer-only flag validity constraints are not recast as reader rejection rules."
+    },
+    {
+      "feature": "Import-data action and supported FDF/XFDF inputs",
+      "source": "§12.7.6.4, printed p.556 (physical p.571), says a processor shall import FDF, XFDF or another format it supports; Table 243 requires S=ImportData and a file specification F.",
+      "ledger": "The row says Table 243 file/format is parsed, delivered as a host request, and applied through FormsData; model and viewer-core tests exercise FDF/XFDF data, import-trigger paths and host-supply behavior.",
+      "verdict": "The action's file request is asserted in `form_actions_spec_audit.rs::import_action_becomes_a_file_request_with_the_named_format`; actual import value and appearance changes are tested separately. Host filesystem/network choice is policy at the file-request boundary, not a PDF-mandated direct file open. FDF and XFDF are the supported formats named by the clause; unsupported third formats are not a violation of 'any other format that it supports.'",
+      "residuals": "This audit did not rerun full Qt/GTK host file-dialog and response sequences. It does not recertify FDF/XFDF serialization or field-value replacement."
+    }
+  ]
+}

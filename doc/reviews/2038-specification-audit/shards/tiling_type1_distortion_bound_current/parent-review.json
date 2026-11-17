@@ -1,0 +1,10 @@
+{
+  "verdict": "B72 Type1 largeBBox spacingFAIL; D64 ADR1080 fallback premise unsupported.",
+  "source": "Parent independently read actualTable74physical236–237 andADR1080. Type1 SHALL use consistent device-pixel-multiple spacing; MAY adjustments and <=1pixel distortion cap do not state an exception for thischosenalgorithm. #294caption/#428fillorder do notchange theseconstraints.",
+  "fixture": "ValidexactxrefPDF1.7, BBox[0,0,100,10.4], step10.4, identitypatternmatrix, ViewStatemagnification1. Opaque2unitbarfitsBBox; overlapping cell boxes allowed byNOTE2. NoRecovery/cut, completeinterpretation. Type2wideBBoxcontrolpreserves10.4; ordinarysmallBBoxType1controlsnaps10.",
+  "observed": "Publicinterpretation displaylist yields10.400002adjacentcolumnoffset forwideBBoxType1; requestedwholepixelspacingassertionFAIL. Testhelperrequires>=2distinctcolumns; cannotpassvacuously. This is device-scaled placement evidence, not a new rendered-pixel/GPU run.",
+  "cause": "snap_lattice rounds10.4to10 byscalingmatrix10/10.4; full100unitBBoxcornerdistortion~3.846>1 returnsNone. Interpreter map_or(stated) silentlyplaces originalnonintegralstep. Existing privateunitexpectsNone and smallBBoxpublictests neverexercise fallback.",
+  "decision": "Retain ordinarysnap and distortionchecking, reject categoricalclaim thatsource no longerasks consistency when thismatrixsnapfails. Step-onlyadjustment is an allowedcandidate; thetest requireswholepixelspacing without prescribing10ratherthan11 or a repairalgorithm.",
+  "limits": "Exact distortion metric is not fullyspecified; do notpresentproposedstep-onlyrepair as formalproof for allbounds/transforms. Parent removeddraft assertion thatstepdistance itselfisnormativelythecompleteonepixeldistortionmetric. Type3andotherfallbackbranches notexecuted.",
+  "execution": "type1-spacing-wave1011FAIL35filtered; model/corealltargetsClippyPASS."
+}

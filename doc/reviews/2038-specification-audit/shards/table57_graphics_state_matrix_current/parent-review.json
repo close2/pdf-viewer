@@ -1,0 +1,7 @@
+{
+  "verdict": "29 effective keys inventoried; selected valid Font consumer now PASS; all coverage remains partial.",
+  "source": "Parent reread physical180–182/printed165–167, Font operands and cumulative gs rule; checked primary #360 annotation. Other conditions rely on qualified reviewer/source records.",
+  "execution": "extgstate_font_valid_consumer_spec_audit::extgstate_font_sets_the_indirect_font_and_text_size_like_tf PASS in table-cells-wave85b.log. Valid PDF1.7 Standard14 exact-xref, complete interpretation, two glyph placements. Helvetica667/1000 at24 gives16.008; Courier600/1000 at12 gives7.2; gs replaces both prior font/size and unrelated LW gs preserves them.",
+  "corrections": "Parent rejected stale pending statuses: four public transfer tests already PASS wave23c; two indirect ExtGState tests already PASS wave58. Exact current function locators checked, not proof every assertion is sufficient. Reviewed four public transfer test bodies, no rerun.",
+  "limits": "Glyph-placement and state control, not a full raster/glyph-shape or cache proof. No complete Table57 certification."
+}

@@ -1,0 +1,41 @@
+{
+  "scope": "Reconsider only decisions materially governing effective Table 87 cells and the boundaries with the sibling image/transparency clauses.",
+  "decisions": [
+    {
+      "adr": "2812",
+      "decision": "agree with the bounded image-dictionary consistency correction, but preserve its limits",
+      "evidence": "The primary §8.9.5.1 reader sentence expressly requires an error for an attempted base image whose entries disagree. Table 87 states Decode cardinality and stencil BPC/Decode rules; current dispatch checks those before reading samples. EC3 #215 independently says to ignore forbidden /Mask and /ColorSpace on a stencil. The current code/test route covers those exact cases.",
+      "limit": "This does not prove correctly sized Decode arrays have numeric members; that separate defect candidate remains in images_current. It also does not make every Table 87 writer SHALL an unconditional reader refusal."
+    },
+    {
+      "adr": "0832",
+      "decision": "retain the separation between DCT filter samples and image-level color-key semantics",
+      "evidence": "Table 87/§8.9.5.1 locates the DCTDecode eight-bit output rule; §8.9.6.4 compares color-key ranges on samples before Decode. Current DCT route and named pixel controls observe raw codec components, while the image dictionary supplies their color-space interpretation.",
+      "limit": "Only sampled DCT and other explicitly named codec routes are covered; no all-codec certification follows."
+    },
+    {
+      "adr": "0023",
+      "decision": "retain the distinct explicit-mask and color-key paths and their source precedence",
+      "evidence": "Table 87 gives Mask two types, and §8.9.6.3/.4 assign different meanings. Current mask_entry separates stream from range array and applies SMask/SMaskInData precedence before either. Existing image_masks tests assert literal visible pixels for both forms.",
+      "limit": "Malformed simultaneous mask combinations are not converted into a general parser-rejection requirement."
+    },
+    {
+      "adr": "1469",
+      "decision": "retain the eager mask optimization as an execution-order choice that preserves the Table 87/soft-mask visible result",
+      "evidence": "The optimization moves mask decoding beside parent decoding only when the mask grid and source route permit it. It does not change which dictionary supplies dimensions, colors, Decode, or masking precedence. Existing matte/alpha tests provide output checks; no sample grid equivalence is assumed where Table 143 maps grids to the unit square.",
+      "limit": "Performance is not image-dictionary conformance. The Table 143 matte and differing-grid branches are not recertified by this matrix."
+    },
+    {
+      "adr": "1383 / 2794 / 2863",
+      "decision": "retain the JPX source/color choices but record one current reader boundary as a confirmed failure",
+      "evidence": "The ordinary RGB SMaskInData tests use lossless 2x1 JP2 samples and explicit cdef opacity declarations: code 0 and code 1 render expected literal pixels; code 2 fails before color reconstruction because the pinned JPX decoder rejects cdef channel type 2 as an extra color component. The global 2038 finding B14 records this failure against §7.4.9 and Table 87.",
+      "limit": "The failure is specific to the valid premultiplied-opacity cdef fixture and current pinned decoder. It does not establish all JPX codestream combinations fail."
+    },
+    {
+      "adr": "2817",
+      "decision": "retain image soft-mask behavior only where its transparency interpretation applies",
+      "evidence": "Table 87 SMask identifies a mask source; §11.6.4.3 supplies priority and §11.6.5.2 supplies image-mask meaning. Existing soft-mask dictionary/group tests exercise selected alpha/luminosity outputs and normal controls; the current helper skips a separate SMask when embedded opacity was decoded.",
+      "limit": "No blanket assertion is made for every mask color space, blend mode, or invalid combination."
+    }
+  ]
+}

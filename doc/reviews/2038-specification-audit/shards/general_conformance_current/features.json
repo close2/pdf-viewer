@@ -1,0 +1,43 @@
+{
+  "scope": "Clause6 actor definitions, aggregate claims and selected cited evidence. This is not a certification of the rendering, writer, security or interactive subsets.",
+  "source": "Primary physical33\u201334 / printed18\u201319; parent inspected page annotations and found no substantive correction to these paragraphs.",
+  "features": [
+    {
+      "clauses": [
+        "6.1",
+        "6.3",
+        "6.3.1",
+        "6.3.2"
+      ],
+      "rule": "Introductory and definitional text classifies reader, writer and interactive processor; fragment support is a permission.",
+      "mapping": "All eight clause6 ledger rows exist. Actual viewer interaction, extraction and writing make all three actor classes relevant. AnnexO is separately reviewed.",
+      "evidence": "Definitions are not additional rendering algorithms. Their ledger test pointers are examples, not proof of every downstream obligation."
+    },
+    {
+      "clauses": [
+        "6.2",
+        "6.3.2.1"
+      ],
+      "rule": "Created output and newly added/amended elements must conform and be consistent with related existing elements; optional file features need not be present.",
+      "evidence": "Read foreign_corpus test and its verdict: independent qpdf/Poppler/MuPDF readback compares derived output with source, with nonempty pixel/structure populations required. It is explicitly ignored in ordinary runs and skips without corpus/tools. This round does not infer its execution from broad nextest success. AnnexL current-shape merge evidence separately establishes one writer-generated relationship.",
+      "limit": "Source preservation and another reader accepting output do not establish every file requirement. Existing malformed source need not be rejected by a reader, but a writer cannot infer validity of a newly generated relationship from source bytes being preserved."
+    },
+    {
+      "clauses": [
+        "6.3.2.1"
+      ],
+      "rule": "Normal files should use trailer/xref; linearized files should follow AnnexF/G. Standard security and applicable provisions of chosen subsets bind processing.",
+      "evidence": "Current AnnexF audit reviews full-file xref reading and deliberate fast-path choice. Restriction-level public test asserts actual copied text at Off, refusal at On, deferred decision at Ask, warning at Warn. Its first corpus acquisition can return early if absent; fixture availability remains part of execution evidence.",
+      "limit": "Policy-level behavior is demonstrated, not independently reclassified here as universally conforming. Preserve explicit policy qualifications and previously reviewed security scope. A checked-in test name alone cannot prove all standard-security operations."
+    },
+    {
+      "clauses": [
+        "6.3.2.2",
+        "6.3.2.3"
+      ],
+      "rule": "Rendering follows page-content rules, default/user optional content and appropriate annotation appearances/flags unless instructed otherwise. Interactive processors additionally support optional-content interactions.",
+      "evidence": "Selected current shards review actual pixel controls and public routes for optional content, annotation state/flags/AP and layer actions. Current rendering regressions such as B19/B20 show why the aggregate implemented label cannot be interpreted as universal correctness.",
+      "limit": "This links reviewed child evidence; unreviewed requirements remain pending. No blanket rendering or full UI certification follows from aggregate status."
+    }
+  ]
+}

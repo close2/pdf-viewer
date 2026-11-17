@@ -99,6 +99,7 @@ fn widget_with_down_appearance(mode: &str) -> Vec<u8> {
 fn raster(bytes: Vec<u8>, pointer: Option<Pointer>) -> Raster {
     let document = Document::open(bytes).expect("valid PDF syntax");
     assert!(!document.was_recovered(), "exact xref offsets");
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
     let mut state = ViewState::of(&document);
     state.set_pointer(pointer.map(|pointer| {
@@ -256,4 +257,41 @@ fn omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream
         omitted.data == stated.data,
         "omitted H must equal explicit default I"
     );
+}
+
+fn button_colours(border: &str, background: &str) -> Vec<u8> {
+    assembled_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /NeedAppearances true >> >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>".into(),
+        "<< /Length 0 >>\nstream\n\nendstream".into(),
+        format!("<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /P 3 0 R /FT /Btn /Ff 65536 /T (button) /H /N /BS << /W 4 /S /S >> /MK << /BC {border} /BG {background} >> >>"),
+    ])
+}
+
+// Table192 selects the device space by component count. Pure CMYK no-ink white is
+// deliberately different from interpreting its first three zeroes as RGB black.
+const COLOUR_CASES: [(&str, [u8; 4]); 4] = [
+    ("[]", [0, 0, 0, 0]),
+    ("[0]", [0, 0, 0, 255]),
+    ("[1 0 0]", [255, 0, 0, 255]),
+    ("[0 0 0 0]", [255, 255, 255, 255]),
+];
+
+#[test]
+fn widget_background_component_count_selects_transparency_and_device_colour() {
+    for (background, expected) in COLOUR_CASES {
+        let image = raster(button_colours("[0 0 1]", background), None);
+        assert_eq!(rgba(&image, 50, 50), expected, "BG {background}");
+        assert_eq!(rgba(&image, 12, 50), [0, 0, 255, 255], "border control");
+    }
+}
+
+#[test]
+fn widget_border_component_count_selects_transparency_and_device_colour() {
+    for (border, expected) in COLOUR_CASES {
+        let image = raster(button_colours(border, "[]"), None);
+        assert_eq!(rgba(&image, 12, 50), expected, "BC {border}");
+        assert_eq!(rgba(&image, 50, 50), [0, 0, 0, 0], "no background");
+    }
 }

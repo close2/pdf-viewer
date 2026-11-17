@@ -1,0 +1,35 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "1225 / successor 1622",
+      "question": "Does this PDF reader owe Annex F range-fetch behavior?",
+      "evidence": "F.1 says a reader without the optional feature can process a linearized file successfully but less efficiently. ADR 1225 deliberately keeps the runtime reader on ordinary xref/trailer loading because it reads local files and does not issue HTTP range requests. Current pdf-syntax opens linearized files through ordinary xref chains; separate transform writer supports `optimize --linearize`.",
+      "verdict": "Retain the decision. This shard audits writer validity and ordinary-reader fallback, not performance equivalence or remote-fetch behavior."
+    },
+    {
+      "adr": "1293",
+      "question": "Does current output follow Table F.1/F.2 and expose a specific residual?",
+      "evidence": "Writer computes parameter offsets by fixed point; tests read `/L`, `/H`, `/O`, `/E`, `/N`, `/T`, `/P` against raw bytes and xref. It emits Table F2 conditional tables and tests a feature-rich document. ADR explicitly writes /L where labels have an indirect object group; no current fixture omits PageLabels.",
+      "verdict": "Retain current generation approach. Add a focused assertion of the exact #153 current version marker because code emits numeric 1 and tests do not assert it. Keep /L requiredness without page-label objects as an interpretation question: table's precise wording is asymmetric, and no definitive defect follows."
+    },
+    {
+      "adr": "1328",
+      "question": "Should hint table item runs be byte-padded?",
+      "evidence": "§F.4.1 first states bit fields may ignore byte boundaries, then says each hint table begins at byte boundary. ADR1328 follows owner answer A131 that each item run is padded. Existing `every_item_run_of_a_hint_table_begins_on_a_byte` and bit writer test exercise the chosen serialization; qpdf disagreement is logged as evidence, not normative definition.",
+      "verdict": "Retain ratified reading and test; it is an accepted ambiguity decision, not broadened here into a reader mandate."
+    },
+    {
+      "adr": "1337 / 1309",
+      "question": "May the linearized writer use object streams and encryption?",
+      "evidence": "Current ledger and fixtures cover object-stream ordering/cross-reference streams and encrypted output. Annex F.3.1 prohibits certain object kinds in object streams, and F.3.5 places encryption dictionary and values in part 4; serializer and tests exercise both.",
+      "verdict": "Retain conditional writer path; do not infer all malicious combinations are tested."
+    },
+    {
+      "adr": "1293 Table F.2 /L interpretation",
+      "question": "Does the `/L` Table F.2 row imply unconditional required presence for PDF 1.3+?",
+      "evidence": "Unlike `/S` and conditional `/T /O /A /E /V /I /C /R /B`, the `/L` row states only '(PDF 1.3) Page label hint table'. F.4.5 says hints should be provided for document-wide categories, and the listed page-label table is used 'if needed'. Writer omits L when no nonempty label object group exists; current tests have indirect PageLabels in all fixtures.",
+      "verdict": "Leave unresolved; source wording does not support a clear must-presence test when labels are absent/direct, and no implementation failure is claimed."
+    }
+  ]
+}

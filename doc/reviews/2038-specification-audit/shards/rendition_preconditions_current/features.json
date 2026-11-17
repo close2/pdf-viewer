@@ -1,0 +1,37 @@
+{
+  "scope": "Reader precondition in ISO 32000-2:2020 + EC3 \u00a712.5.6.18 and \u00a712.6.4.14; current bounded script scope as it affects Table 218 /JS versus /OP. No multimedia playback engine is asserted.",
+  "source": {
+    "screen_annotation": "\u00a712.5.6.18, official EC3 PDF physical p.513 / printed p.498: a Screen /P used by a rendition action shall reference a valid page object, and the annotation must be in that page's /Annots for the action to be valid.",
+    "rendition_action": "\u00a712.6.4.14, physical p.540 / printed p.525: before execution, the interactive processor shall verify that /P references a valid page object and that /AN occurs in that page's /Annots. Table 218 allows /JS and /OP; if both occur, /OP is fallback when the processor cannot execute ECMAScript.",
+    "errata": "EC3 #42, physical p.513 (filed under Screen), strikes the paragraph requiring missing-AP Screen annotations to have no default appearance/not print. It does not strike the /P validity and Annots membership sentences. The source excerpt and annotation were checked directly.",
+    "valid_page_context": "WITHDRAWN: absence from the main Pages tree alone does not establish invalidity; page templates undermine that premise. No detached-Page defect or test is promoted."
+  },
+  "ledger": {
+    "12.5.6.18": "Stale exclusion rationale recorded as D40 only; no ledger edit.",
+    "12.6.4.14": "Implemented viability/handoff; current tests cover missing Annots membership. Parent adds independent wrong-Type control and enabled-script priority failure."
+  },
+  "implementation": {
+    "precondition": "Current Type=Page and Annots membership guards are supported; valid-page and wrong-Type public controls both PASS. No tree-reachability requirement inferred.",
+    "consumer": "`viewer-core/src/interact.rs::rendered` returns before media viability/handoff when `unplaced` returns a reason; otherwise operation Play is judged and viable media is emitted at the host's HandOverMedia restriction level.",
+    "script_path": "`pdf-model/src/action.rs::rendition` stores only operation, /AN, and /R; it drops Table 218 /JS. `script_sites.rs::chain` recognizes ECMAScript action dictionaries whose /S is /JavaScript, not a /JS member of /S /Rendition. The bounded scope ratified in `doc/scope-ratifications.md` includes scripts reaching this document/viewer; clause 13 excludes decoding/presentation, not the in-scope script boundary. Thus when a host supplies a script runner, the /JS path is not observed and /OP is always treated as the action, though Table 218 makes it fallback only when the processor is unable to execute ECMAScript. This remains a scope-dependent behavior gap, with a discriminating draft below.",
+    "test_quality": [
+      {
+        "existing": "Existing missing-membership test",
+        "strength": "Exercises membership refusal; retained.",
+        "new": "Public Link click, no-recovery/open/hit-test guards. Wrong-Type P has Annots but produces no media; valid P produces one handoff. Supplied recording runner executes ordinary JavaScript and applies Status field edit, but rendition JS is dropped. No interpreter semantics asserted."
+      }
+    ]
+  },
+  "test_quality": [
+    {
+      "existing": "Existing missing-membership test",
+      "strength": "Exercises membership refusal; retained.",
+      "new": "Public Link click, no-recovery/open/hit-test guards. Wrong-Type P has Annots but produces no media; valid P produces one handoff. Supplied recording runner executes ordinary JavaScript and applies Status field edit, but rendition JS is dropped. No interpreter semantics asserted."
+    }
+  ],
+  "boundaries": [
+    "Media handoff only; four-byte moov stub is not a playback/container oracle.",
+    "Controlled runner isolates dispatch and field-edit application, not ECMAScript evaluation.",
+    "Detached-page hypothesis withdrawn because templates can exist outside the main tree."
+  ]
+}

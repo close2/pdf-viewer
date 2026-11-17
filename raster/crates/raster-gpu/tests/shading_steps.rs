@@ -5,11 +5,11 @@
 //!
 //! §8.7.4.5.3 maps each point of an axial shading to a parameter by its projection onto the
 //! axis, and "[t]he variable t becomes the input argument to the colour function(s)" (Table
-//! 79's `Domain`). A device pixel's colour is therefore the function at the `t` of the
-//! pixel's centre — §10.7.4 names the centre as "the point whose coordinate values have
-//! fractional parts of one-half". Where the function is a §7.10.4 stitching of constant
-//! pieces, its value jumps at each bound, and a pixel whose centre lies below the bound
-//! takes the lower piece's colour whatever texel grid a renderer samples the function on.
+//! 79's `Domain`). This renderer samples that function at each pixel's centre, a local
+//! rasterization policy. §10.7.4's centre rule specifically governs sampled images. Where
+//! the function is a §7.10.4 stitching of constant pieces, its value jumps at each bound.
+//! With this sampling policy, a pixel whose centre lies below the bound takes the lower
+//! piece's colour regardless of the texel grid used to represent the function.
 //!
 //! # The fixture
 //!

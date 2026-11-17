@@ -1,0 +1,159 @@
+{
+  "baseline": "b901326c",
+  "scope": "Source-led dispositions of EC3 issue IDs #16, #24, #25, #81, #114, #135, #219, #325, and #424. This is not a certification of the surrounding security, page, language, object-stream, or signature clauses.",
+  "primary_source": {
+    "pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "physical_printed_pages": {
+      "77": "62",
+      "97": "82",
+      "101": "86",
+      "102": "87",
+      "105": "90",
+      "107": "92",
+      "109": "94",
+      "116": "101",
+      "120": "105",
+      "584": "569"
+    },
+    "annotation_method": "Read pikepdf annotation subtype, Rect, Contents, and IRT directly from the specified primary PDF pages. The strikeouts on #16 are paired with three Caret replacements; #219's version labels are individual Carets plus one StrikeOut. Physical page numbers above are the PDF page index; printed numbers were checked against the footer.",
+    "errata_index": "doc/errata-read.md was used only as a locator/summary and not as proof of the primary annotation effect."
+  },
+  "items": [
+    {
+      "issue": 16,
+      "primary_effect": "On physical 107, three StrikeOut/Caret pairs replace the Table 27 word 'string' with 'byte string' for recipient CMS data. This is about Table 27/crypt-filter recipients, not Table 23's recipient-array shape.",
+      "effective_rule": "Treat CMS recipient values as byte strings so the octets, including non-text values, remain the inputs to the specified hash/envelope processing.",
+      "owner": "Reader data representation and producer dictionary conformance; no inference that all malformed recipient forms must be rejected.",
+      "current_evidence": [
+        "crates/pdf-syntax/src/crypt/public_key.rs::filter_lists reads Table 27 recipient arrays as raw byte strings",
+        "crates/pdf-syntax/src/crypt/public_key.rs::own_key handles the Table 27 stream-own recipient as one CMS byte string",
+        "crates/pdf-syntax/tests/public_key_witnesses.rs::each_witness_opens_with_its_keystore_s_key_and_shows_its_text (includes AESV3 s5 PDFBox witnesses and plaintext assertions)",
+        "crates/pdf-syntax/tests/public_key_witnesses.rs::a_stream_s_own_crypt_filter_decrypts_under_its_own_recipients_key (actual stream-local CMS string and plaintext assertion)",
+        "scratchpad/r2038/spec-audit/public_key_encryption_current/features.json, Table 27 / §7.6.6 boundary"
+      ],
+      "verdict": "Effective correction and raw-byte consumer are represented. The existing CMS-backed tests make this more than a type-shape-only assertion; this shard did not inspect all CMS byte-encoding edge cases.",
+      "related_adrs": [
+        "2802",
+        "2810"
+      ]
+    },
+    {
+      "issue": 24,
+      "primary_effect": "StrikeOuts on physical 97 and 101 remove the erroneous 'initialization vector of zero' phrase from three AES-ECB contexts. The correction does not remove zero IVs from AES-CBC algorithms.",
+      "effective_rule": "AES-ECB is a block operation with no IV. AES-CBC unwrap operations in Algorithm 2.A continue to use the specified all-zero IV.",
+      "owner": "Reader algorithm behavior; this issue clarifies the algorithm text rather than changing the required ciphertext or key values.",
+      "current_evidence": [
+        "crates/pdf-syntax/src/crypt.rs::perms_block performs AES-256 ECB on one block",
+        "crates/pdf-syntax/src/crypt.rs::perms_entry produces the Algorithm 10 AES-256 ECB block",
+        "crates/pdf-syntax/src/crypt.rs::wrap_key uses AES-CBC with the specified zero IV for OE/UE",
+        "crates/pdf-syntax/src/crypt.rs unit test `a_perms_block_yields_the_permissions_algorithm_10_stored` compares the decrypted fields and rejects a modified block",
+        "scratchpad/r2038/spec-audit/standard_security_algorithms_current/features.json covers Algorithm 10 and Algorithm 2.A separately"
+      ],
+      "verdict": "Code and tests distinguish ECB Perms from CBC key wrapping; do not broaden the erratum to all AES operations or read it as deleting the CBC IV.",
+      "related_adrs": [
+        "0253"
+      ]
+    },
+    {
+      "issue": 25,
+      "primary_effect": "Text annotation on physical 105 inserts two notes at the end of the public-key algorithm subsection: metadata sentinel step c applies only to the default StmF crypt filter when EncryptMetadata is false; s3/s4 have no crypt-filter metadata opt-out, so step c is skipped for them.",
+      "effective_rule": "Apply the four 0xFF metadata input only in the specified s5 default-stream-filter, plaintext-metadata case; do not apply it to s3/s4 or unrelated filters.",
+      "owner": "Reader key derivation and producer configuration.",
+      "current_evidence": [
+        "crates/pdf-syntax/src/crypt/public_key.rs::file_key includes the metadata marker under the default-filter/EncryptMetadata condition",
+        "crates/pdf-syntax/tests/public_key_witnesses.rs::each_witness_opens_with_its_keystore_s_key_and_shows_its_text iterates OPENED, whose two ExposedMeta documents are explicitly described as the EncryptMetadata false cases",
+        "scratchpad/r2038/spec-audit/public_key_encryption_current/features.json records the two ExposedMeta witnesses and their scope"
+      ],
+      "verdict": "The key-derivation branch has discriminating external-PDF witnesses, including the metadata exception. Those fixtures do not exhaust every stream filter and SubFilter combination; no new gap is established here.",
+      "related_adrs": [
+        "2802",
+        "2810"
+      ]
+    },
+    {
+      "issue": 81,
+      "primary_effect": "Text annotation on physical 120 adds a note to Table 31: when a Page lacks Contents, it must still have Resources directly or by Pages-tree inheritance.",
+      "effective_rule": "The note constrains conforming page construction; it does not direct a reader to reject a page missing both entries.",
+      "owner": "Producer validity clarification with a reader-visible page-resource concern.",
+      "current_evidence": [
+        "crates/pdf-model/src/view.rs page resolution carries inherited page-tree attributes into page resources",
+        "crates/pdf-model/tests/contents_q_stack_cross_part_spec_audit.rs exercises page Contents as an array but not the absent-Contents note",
+        "page tree and inherited-resource assertions were not exhaustively sampled for the exact missing-Contents case in this shard"
+      ],
+      "verdict": "The annotation is effective, but its normative force is a producer-side 'must' note, not a new reader rejection obligation. Existing page inheritance behavior is adjacent evidence; exact case-specific assertion coverage remains unconfirmed and is not claimed as a conformance defect.",
+      "related_adrs": []
+    },
+    {
+      "issue": 114,
+      "primary_effect": "Text annotation on physical 77 inserts a paragraph before Note 3: an ObjStm dictionary entry's value shall be direct or an indirect uncompressed object.",
+      "effective_rule": "This is an object-stream dictionary validity restriction. It does not state that readers shall reject every violating file.",
+      "owner": "Producer constraint and reader interpretation boundary.",
+      "current_evidence": [
+        "crates/pdf-syntax/tests/cross_references.rs::object_stream_dictionary_values_may_reference_uncompressed_objects (parent-run PASS; indirect uncompressed /N, /First, /Length; exact xref; compressed Pages/Page/Info members; reachable catalog/page and no recovery)",
+        "The existing direct-value object-stream test is the complementary control.",
+        "doc/reviews/2038-specification-audit/shards/errata_early_residual_current/parent-review.json records the positive and direct-control PASS and its limits."
+      ],
+      "verdict": "The valid representation is now directly asserted and parent-run PASS. It covers only /N, /First, and /Length as indirect uncompressed values; it does not establish every ObjStm dictionary entry form and does not impose rejection of compressed-valued entries.",
+      "related_adrs": []
+    },
+    {
+      "issue": 135,
+      "primary_effect": "Text annotation on physical 116 adds a note to Table 29 / Catalog /Lang: 'text' includes both PDF text strings and textual content.",
+      "effective_rule": "The catalog language value applies to document text including PDF text strings; precedence/structure-language behavior remains governed by its own clauses.",
+      "owner": "Reader metadata and accessibility consumers.",
+      "current_evidence": [
+        "crates/viewer-core/tests/lang_hex_consumer_spec_audit.rs::hexadecimal_lang_strings_reach_accessibility_with_catalog_and_structure_precedence (public Viewer AccessibilityTree assertion; catalog UTF-16BE hex fr-FR, child hex es-MX over literal en-US ancestor, and catalog fallback)",
+        "scratchpad/r2038/spec-audit/language_pronunciation_current/features.json reviews catalog/structure/marked-content language routes and remaining gaps"
+      ],
+      "verdict": "The note clarifies the scope of the existing Catalog Lang feature. The public test asserts a hex Catalog Lang reaches the accessibility consumer and that structure Lang takes precedence. It does not certify every language precedence route.",
+      "related_adrs": []
+    },
+    {
+      "issue": 219,
+      "primary_effect": "Physical 102 Carets annotate the §7.6.5.2 prose list of public-key SubFilter names with PDF 1.3, 1.4, and 1.5 labels. Table 20 is referenced in that context, but the Carets do not annotate Table 20 rows. Physical 584 Carets assign PDF 1.3/1.4 to three Table 255 signature SubFilter values; a StrikeOut removes the blanket PDF 1.6 label.",
+      "effective_rule": "The annotations correct version-association metadata. Table 255 separately directs PDF readers to process the deprecated values for backward compatibility; the writer-side version label is not a reader rejection rule.",
+      "owner": "Producer/feature-version metadata plus reader backward compatibility.",
+      "current_evidence": [
+        "crates/pdf-signature/src/signature.rs::Signature::integrity and SubFilter-specific parsing recognize legacy signature forms",
+        "crates/pdf-signature/src/cms.rs has explicit `adbe.pkcs7.sha1` and `adbe.x509.rsa_sha1` parsing branches",
+        "crates/pdf-signature/src/dsa.rs and tests hold supported legacy public-key signature examples",
+        "scratchpad/r2038/spec-audit/signatures_current/features.json is explicit that it does not certify every signature dictionary key or legacy SubFilter branch"
+      ],
+      "verdict": "The correction labels the §7.6.5.2 prose list and Table 255 signature values. Signature source has branches for legacy encodings, and no version-gated rejection was observed in the sampled path. A version-matrix integration assertion is not shown here, but absent exact metadata testing alone is not a reader defect.",
+      "related_adrs": []
+    },
+    {
+      "issue": 325,
+      "primary_effect": "On physical page 97, a StrikeOut/Caret pair replaces Algorithm 2.B step (a) with a two-case K0 definition: owner-password check/creation repeats password || K || 48-byte /U; user-password check/creation repeats password || K; K1 is 64 repetitions of K0.",
+      "effective_rule": "The effective input differs between owner and user branches; include /U only in owner mode. This is a reader/writer algorithm rule.",
+      "owner": "Reader password authentication and writer generation.",
+      "current_evidence": [
+        "crates/pdf-syntax/src/crypt.rs::hash_2b builds 64 repetitions of password || K || extra; authenticate_aes256 passes /U only for owner hashing and an empty extra for user hashing",
+        "crates/pdf-syntax/tests/encryption_fixtures.rs::a_revision_6_document_opens_on_either_password_and_decrypts exercises user and owner paths on a fixture generated by an independent helper in that file, though the generator reimplements the algorithm and is not an independent hash oracle",
+        "crates/pdf-syntax/tests/encryption.rs has external R6 producer corpus coverage including issue7665.pdf and saslprep-r6.pdf; see standard_security_algorithms_current/features.json for the bounded assertion review"
+      ],
+      "verdict": "The implementation visibly follows the two-case replacement, and owner/user branches are separately exercised in the generated fixture. The strongest owner/user control shares an algorithm implementation lineage; this shard found no independent published known-answer vector that isolates the extra /U bytes, so no blanket hash certification is claimed.",
+      "related_adrs": [
+        "0255"
+      ]
+    },
+    {
+      "issue": 424,
+      "primary_effect": "Caret on physical 109 says the last §7.6.6 example was missing a SOLIDUS in the name /V2.",
+      "effective_rule": "Editorial correction to an example token; it does not alter crypt-filter semantics or impose a new reader behavior.",
+      "owner": "Example/editorial.",
+      "current_evidence": [
+        "scratchpad/r2038/spec-audit/unencrypted_wrapper_current/features.json correctly places #424 in the previous §7.6.6 example rather than §7.6.7 wrapper rules",
+        "crates/pdf-syntax/src/crypt.rs reads crypt-filter names as PDF names; no behavioral difference follows from correcting the example's missing slash"
+      ],
+      "verdict": "No implementation/test gap follows from this example-only repair.",
+      "related_adrs": []
+    }
+  ],
+  "unreviewed": [
+    "A full source and assertion review of all Table 20/21/23/27/255 combinations.",
+    "Exact current assertion coverage for Table 31's missing-Contents producer note.",
+    "Legacy signature version-by-version corpus coverage and cryptographic certification.",
+    "ObjStm dictionary entry representations beyond indirect-uncompressed /N, /First, and /Length."
+  ]
+}

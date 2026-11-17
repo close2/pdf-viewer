@@ -1294,6 +1294,10 @@ fn site_offsets(interpretation: &pdf_model::content::Interpretation) -> Vec<f32>
     collect_offsets(interpretation.display_list.commands(), &mut offsets);
     offsets.sort_by(|a, b| a.partial_cmp(b).expect("finite offsets"));
     offsets.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+    assert!(
+        offsets.len() >= 2,
+        "the patterned page must supply distinct columns before spacing is compared: {offsets:?}"
+    );
     offsets
 }
 
@@ -1660,5 +1664,67 @@ fn a_cell_takes_the_backdrop_its_enclosing_knockout_group_has() {
                  backdrop, so the channel is 128: {name} is {level} at ({across},{down})"
             );
         }
+    }
+}
+
+fn wide_bbox_barred_cell(tiling_type: i32) -> String {
+    let content = "1 0 0 rg 0 0 2 10.4 re f";
+    format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType {tiling_type} /BBox [0 0 100 10.4] \
+         /XStep 10.4 /YStep 10.4 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    )
+}
+
+fn wide_bbox_barred_page(tiling_type: i32) -> Vec<u8> {
+    pdf_with(
+        &wide_bbox_barred_cell(tiling_type),
+        "/Pattern cs /P0 scn 0 0 100 40 re f",
+    )
+}
+
+#[test]
+fn type_one_keeps_constant_pixel_spacing_when_matrix_distortion_would_exceed_one_pixel() {
+    // Positive control: code 2 preserves the stated 10.4-unit spacing exactly.
+    let code_two = wide_bbox_barred_page(2);
+    let document = Document::open(code_two.clone()).expect("valid fixture");
+    assert!(
+        !document.was_recovered(),
+        "control fixture has an exact xref"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
+    let control = site_offsets(&interpreted(&code_two, Some(1.0)));
+    let control_steps = control.windows(2).map(|pair| pair[1] - pair[0]);
+    for step in control_steps {
+        assert!(
+            (step - 10.4).abs() < 1e-3,
+            "Type 2 states {step}, expected 10.4"
+        );
+    }
+
+    // The ordinary small-cell Type 1 control actually snaps the fractional interval.
+    let small = site_offsets(&interpreted(&barred_page(1), Some(1.0)));
+    for pair in small.windows(2) {
+        assert!((pair[1] - pair[0] - 10.0).abs() < 1e-3);
+    }
+
+    // Target: Type 1 SHALL space cells by a multiple of a device pixel. Its adjustment
+    // latitude includes XStep/YStep; changing XStep from 10.4 to 10.0 changes each step by
+    // 0.4 px and does not distort the cell's matrix or marks. The large BBox makes the current
+    // matrix-scaling snap exceed the 1 px corner bound and therefore tests that fallback.
+    let type_one = wide_bbox_barred_page(1);
+    let document = Document::open(type_one.clone()).expect("valid fixture");
+    assert!(
+        !document.was_recovered(),
+        "target fixture has an exact xref"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
+    let target = site_offsets(&interpreted(&type_one, Some(1.0)));
+    for pair in target.windows(2) {
+        let step = pair[1] - pair[0];
+        assert!(
+            (step - step.round()).abs() < 1e-3,
+            "Type 1 must use a whole device-pixel spacing; got {step}"
+        );
     }
 }

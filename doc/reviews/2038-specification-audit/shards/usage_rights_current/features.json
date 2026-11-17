@@ -1,0 +1,28 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected UR transform reading, comparison and save withdrawal policy in12.8.2.3.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "pages": "589\u2013591 / printed574\u2013576",
+    "force": "Extended-rights validation rules use shall. Withdrawal after an excessive edit uses should. This product has no feature requiring an extra entitlement; its own selected withdrawal policy is the tested subject.",
+    "errata": "Parent inspected actual annotations589\u2013592. #152 on589 concerns preceding Table257 P integer; #33 on592 concerns FieldMDP names, not UR."
+  },
+  "features": [
+    {
+      "feature": "Rights grant and post-signature comparison",
+      "implementation": "signature::UsageRights reads table arrays, version and P; revision::Comparison classifies eight of23 operations, names fifteen unrecognised rights. No unknown operation is certified.",
+      "assertions": "revision.rs granted Create versus deleted annotation; added Delete changes only its result, deleted page stays Unclassified. Pfalse and unknownV/Ptrue controls distinguish parameter policy. These synthetic revision fixtures test comparison rather than complete cryptographic validity.",
+      "decision": "Retain separation of transform classification from cryptographic/path validity. Pfalse bypasses restrictions as a documented reading; not a newly enabled feature entitlement."
+    },
+    {
+      "feature": "Save withdrawal recommendation",
+      "implementation": "ViewState::save handles annotation additions, imports and other changes, but withdrawn_usage_rights checks only FillInForm and FullSave.",
+      "finding": "B40: a real signed fixture granting those two unrelated rights retains UR3 after adding a Highlight even when Annots/Create is withheld. Matched Create-granted control retains it as expected.",
+      "execution": "usage-rights-wave36.log:1FAIL after signed digest/authenticity and attached-annotation controls pass.",
+      "qualification": "Adopted-policy regression against a SHOULD, not a mandatory conformance violation. No trust/entitlement claim. Existing forms_data test covers only form fill and uses an unsigned signature dictionary carrier."
+    }
+  ],
+  "residuals": [
+    "All23 rights, all save operations, full public report/path validation and permission precedence combinations remain outside this sample."
+  ]
+}

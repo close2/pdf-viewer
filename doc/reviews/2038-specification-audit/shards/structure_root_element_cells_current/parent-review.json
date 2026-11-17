@@ -1,0 +1,7 @@
+{
+  "source": "Read actual Table354 physical738–739 and355 physical740–741, including Type optional, P indirect and single-dictionary K assumption. Checked Issue308 null insertions,396 namespace list wording,93 R deprecation against primary annotations. Null permission for ParentTree slots differs from child/attribute null prohibitions.",
+  "test": "T163: typed Document element has single indirect K paragraph dictionary with omitted Type, required indirect P/Pg, complete ParentTree MCID mapping, exact xref/no recovery/no chain cut. Explicit typed variant controls the same public AccessibilityTree literal anchor text, role P and standard Paragraph. Draft originally omitted Type on the root child rather than the Table355 K child; parent corrected it.",
+  "assertion_correction": "Both cited old model tests contain Type; no missing-Type coverage is credited to them. New test PASS. Existing B03/B04/B43 remain separate.",
+  "adr": "Read selected0134/0214 consumer boundary,0257 bounded traversal/reporting,0079 attribute owner and inheritance choice,2014 namespaces,2028 mapped-role handoff. Later2028 supersedes0134 original unmapped-name policy; keep current mapped role transport, not every historical statement. No new platform projection certification.",
+  "execution": "structure-type-wave1231PASS; quality-core-host-wave124PASS."
+}

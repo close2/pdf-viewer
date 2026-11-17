@@ -1,0 +1,58 @@
+{
+  "shard": "errata_weak_dispositions_batch2_current",
+  "decisions": [
+    {
+      "issue": 147,
+      "decision": "Retain permitted detached-free writer behavior; record D48 stale source rationale without editing production, ledger or historical ADR. T91 adds a valid reader regression.",
+      "normative_basis": "Effective \u00a77.5.4 after Issue #147 says the two subsection-header integers are non-negative and strikes NOTE 3's prior statement that update subsections can never start with zero. \u00a77.5.4 requires entry 0 always be free with generation 65 535; the linked-list head points to a free object and tail returns to object 0. The second mechanism permits a deleted entry pointing to 0 with generation 65 535 outside that list. \u00a77.5.6 requires a deletion to remain in file bytes and be marked by the updated cross-reference entries.",
+      "current_evidence": "read_classic_table parses subsection first as u32, so 0 is representable. incremental_update_freeing continues to emit detached free entries and does not rewrite entry 0; that remains a choice, but its doc comment quotes the struck NOTE 3 as the reason. Existing a_freed_object_is_gone_to_the_reader_and_still_in_the_file verifies the detached mechanism, not an object-zero subsection.",
+      "scope": "One test PASS, covering linked object0 update and detached control; all-targets syntax Clippy PASS. Does not require writers to choose the linked mechanism or certify every free list.",
+      "draft": "crates/pdf-syntax/tests/incremental_object_zero_spec_audit.rs builds a valid base PDF with page /Resources and object 5 in use, confirms its xref and object-zero entry without recovery, then hand-appends an exact-offset classic section deleting object 5. Target subsection 0 1 makes 0\u21925 and subsection 5 1 makes 5\u21920 at generation 1; the positive control uses the allowed detached mechanism with 5\u21920 at generation 65 535. /ID is omitted as an optional entry. It checks the old object is inaccessible, both stated sections are present, the /Prev chain is not cut, the catalog remains available, and no recovery occurred."
+    },
+    {
+      "issue": 149,
+      "decision": "Treat as terminology/definition and /Size clarification; the current section-oriented implementation and existing trailer/size assertions represent the changed model. No separate behavior test beyond #147 is justified.",
+      "basis": "Primary annotation groups at physical pp. 22\u201323, 70, 73 / printed pp. 7\u20138, 55, 58; source includes section and subsection definitions, operative section terminology, and /Size as one greater than the highest object number; the total-entry explanation is an informative equivalence, not a sum of repeated entries across revisions. Current XrefTable merges the /Prev chain and has tests for per-section trailer vs merged trailer and maximum stated object number."
+    },
+    {
+      "issue": 113,
+      "decision": "No behavior disposition beyond confirming the surviving duplicate sentence retains the contiguous-range rule.",
+      "basis": "Strike removes only the second of two adjacent identical sentences in \u00a77.5.4."
+    },
+    {
+      "issue": 127,
+      "decision": "Correct the specification cross-reference, but keep View dictionary parsing/playback outside this implementation's RichMedia/Clause 13 consumer scope.",
+      "basis": "Annotation changes Table 315 citation to \u00a713.7.2.3.5. Current code extracts RichMedia assets but refuses derivation/playback; ledger row \u00a713.7.2.3.5 remains out-of-scope."
+    },
+    {
+      "issue": 143,
+      "decision": "Editorial correction only; no behavior regression needed.",
+      "basis": "Caret changes the misspelling PARENHESIS to PARENTHESIS in a heading/example description without changing \u00a77.3.4.2's syntax rules."
+    },
+    {
+      "issue": 158,
+      "decision": "No open/read-time defect. Record the change in signing-time digest constraints and keep the current no-signing boundary explicit.",
+      "basis": "\u00a712.7.5.5 says seed-value constraints are used at the time a signature is applied; \u00a712.8.3.4 separately says seed values are not validation constraints. The erratum replaces a key-specific digest note with a general rule when a mechanism mandates its own digest."
+    },
+    {
+      "issue": 159,
+      "decision": "No reader gap from not implementing acceptable DigestMethod selection/order while there is no signing consumer. Do not imply that parsing seed values implements the changed signing policy.",
+      "basis": "The affected Table 237 rows express parser capability and allowed signing-time choices; current reader exposes no PDF signing operation."
+    },
+    {
+      "issue": 162,
+      "decision": "Use the parent's already-reviewed bounded destination resolver disposition; do not duplicate its draft or extend the result to all destinations.",
+      "basis": "Grouped primary annotation on physical p. 459 / printed p. 444 is already tied to the current crosswalk and a focused /D-/SD behavior review."
+    },
+    {
+      "issue": 164,
+      "decision": "Informative interoperability note; no requirement to support arbitrary developer-specific encryption handlers.",
+      "basis": "Table 49 note warns extension metadata may be meaningless when the reader does not support the developer's encryption algorithm. Generic encrypted string reading remains in \u00a77.6 scope."
+    },
+    {
+      "issue": 170,
+      "decision": "Current implementation and button state assertions recognize /Off as the optional off appearance state; no separate regression is needed for this erratum in the bounded review.",
+      "basis": "\u00a712.7.5.2.4 caret says the Off appearance may be present, and if present is stored under /Off. Existing radio and AP state code consumes /Off, while radio tests assert drawn state vs field state. This is not certification of all button behavior."
+    }
+  ]
+}

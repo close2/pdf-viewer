@@ -1,0 +1,26 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": [
+    {
+      "decision": "ADR 2014: namespace-specific standard structure vocabulary",
+      "review": "Retain, with the later Errata #151 constraint clearly separated from recovery. Annex M's 11 PDF 1.7-only / 9 PDF 2.0-only vocabulary is encoded in read_in/defined_in and covered by an exact list assertion. Explicit namespace stays authoritative; a foreign namespace homonym is not treated as a PDF standard type. The ADR's deliberate choice to read unqualified PDF 2.0-only types as PDF 2.0 is recovery for a nonconforming file, not a conformance obligation and not grounds to claim reader defect."
+    },
+    {
+      "decision": "ADR 2028: carry the resolved standard type to the consumer",
+      "review": "Retain. Namespace plus transitive role-map target determine the vocabulary; `mapped_role` carries both terminal name and StandardType/Nonstandard reason, viewer-core transports it, and viewer-accessibility maps the typed result. Existing tests cover own namespace map, namespace-to-namespace mapping, foreign Table homonym, and cycles. This is a meaningful consumer guarantee beyond a model-only type parser."
+    },
+    {
+      "decision": "ADR 0273: EC3 Link insertion and Ruby renumbering",
+      "review": "Retain numbering conclusion and producer/reader split. Link is §14.8.4.7.3, Ruby/warichu §14.8.4.7.4. The current Link positive test checks one valid OBJR and QuadPoints outcome; it does not establish validation of producer's one-object constraint, and neither standard nor implementation audit here requires such reader rejection. The test doc comments retain the pre-relaxation one-annotation wording; fixture remains valid under EC3."
+    },
+    {
+      "decision": "Hn numeric representation limit (new bounded finding)",
+      "review": "Table 366 does not cap Hn, but Annex C.1/C.2 says PDF formats generally do not restrict sizes and each processor has practical limits; integer values are often expressible within 32 bits. The u32 parser is therefore a practical range limit, not automatically a mandatory reader conformance failure. It does lose heading role for overflow today (accessibility falls back to Group); an optional improvement could preserve heading role while reporting level unavailable. Do not require arbitrary precision."
+    },
+    {
+      "decision": "Structure-element ActualText and accessible alternatives",
+      "review": "Nonempty structure-element ActualText is consumed through content/marked.rs → content/run/marked_ops.rs into the page interpretation, which regular selection, logical copy and accessibility names consume. Figure /Alt already reaches the public accessibility query; it remains description-only and does not alter selection/copy. The missing exact-xref public assertion is drafted. The current replacement helper discards an empty string, so raw content remains. §14.9.4 requires the ActualText value as replacement; PDF syntax allows empty strings, with no source qualifier found yet. Treat empty-ActualText suppression as a strong candidate, pending confirmation of any contextual rule that empty means absence."
+    }
+  ],
+  "parent_correction": "Direct structure ActualText is consumed; three valid ligature public tests pass. Empty-visible-content draft not promoted: equivalent-to-visible-content validity unresolved. Hn above u32 is an implementation-limit question, not a demonstrated conformance defect."
+}

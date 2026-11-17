@@ -1,0 +1,19 @@
+[
+  {
+    "feature": "7.5.6 × 12.8.1 signed-revision preservation through a real incremental writer",
+    "title": "A signature covers the original revision while a later incremental save appends a separately unsigned revision",
+    "source_location": "ISO 32000-2 §7.5.6 printed pp.60–61 (physical pp.75–76); §12.8.1 printed p.568 / physical p.583 for NOTE 1 after the heading on printed p.567 / physical p.582",
+    "errata": "No EC3 change found to §7.5.6's append/prefix rule or §12.8.1 NOTE 1's preservation meaning. EC3 #117 adjusts Table 255 optionality for /V, unrelated to whether a later update changes the prior signed range.",
+    "ledger": "7.5.6 is implemented, with `pdf-syntax::write::incremental_update` and `pdf-model::view::ViewState::save` listed. §12.8.1 is implemented; its tests cover signature coverage, integrity, and later revision comparisons. Existing assertion references include `signature.rs::a_signed_document_says_whether_its_signed_bytes_moved`, `pdf-syntax/tests/incremental_update.rs::a_string_written_into_an_encrypted_document_comes_back_out_of_it`, and viewer save tests.",
+    "code": "`pdf-syntax/src/write.rs::incremental_update_extending` appends replacements and a new xref section; `Document::encrypt_for_update` applies per-object encryption while exempting signature `/Contents`; `pdf-signature::Signature::{integrity,authenticity,coverage}` inspect the prior signed byte range. The viewer save route uses this incremental writer.",
+    "tests": "Existing signature test checks an unchanged signed fixture, flips a byte in the signed range and checks changed integrity, then adds only an arbitrary comment and checks the original digest remains unchanged with an unsigned tail. Existing incremental writer tests exercise exact append/xref/readback and encrypted plaintext-in/ciphertext-out, but not the composition of the actual update writer with a real signed PDF. Existing DocMDP/DTS integration fixtures and public signature API provide a usable signed control.",
+    "assertions": "No tested path currently demonstrates that a successful `incremental_update` of a genuinely signed input preserves the exact signed prefix, leaves prior signature integrity/authenticity unchanged, and reports the appended tail as unsigned. The raw-comment test and writer test each cover only one side of this boundary. A test draft composes the real public writer with the checked-in signed fixture.",
+    "verdict": "narrow integration-test gap; implementation and source rationale are otherwise aligned in sampled paths",
+    "residuals": "The proposed witness checks cryptographic integrity and key authenticity of a test signature, not external trust, revocation, DocMDP permission, or whether the edit is allowed by a certification signature. It is not a test of signing or encryption together. No production bug is established.",
+    "related_adrs": [
+      "ADR 1003 — the signed file/revision is defined at the signing point",
+      "ADR 1043 — prior revision reconstruction for comparison",
+      "ADR 0129 — encryption and signature Contents exemptions on update"
+    ]
+  }
+]

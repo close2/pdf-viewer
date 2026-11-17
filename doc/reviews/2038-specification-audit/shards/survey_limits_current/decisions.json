@@ -1,0 +1,24 @@
+{
+  "reviews": [
+    {
+      "adr": "1055",
+      "title": "Two machines held to each other, within what the survey walks",
+      "relation": "Directly relevant to the exact boundary of the survey: its corpus cross-check explicitly limits equality claims to places both machines ran and says deeper chains are not paired. That caveat is accurate for the cross-check; it does not establish that a PDF/A conformance predicate may treat an unvisited place as absent.",
+      "verdict": "Retain the bounded cross-check scope. Do not use its partial-coverage caveat as evidence that an archive requirement was checked."
+    },
+    {
+      "adr": "1978",
+      "title": "Overprint mode 1 is a statement under ICC marks and a press's loss under DeviceCMYK",
+      "relation": "Relevant precedent in another archive consumer: it explicitly refuses a transformation when Survey::stopped_short, because a state it did not reach could change the result. This demonstrates that the codebase already treats stopped_short as a meaningful incomplete-evidence signal. It does not resolve the archive graphics predicate gap.",
+      "verdict": "Keep the transform refusal. Apply the same evidence discipline to the report row that consumes the incomplete transparency set."
+    },
+    {
+      "adr": "2820",
+      "title": "A pattern is given the nothing it was read against, an associated file is dated, and Annex Q reads the painted state",
+      "relation": "Relevant to Annex Q source interpretation and current actual-state coverage. It corrected detection to mark transparency when an element is painted under the applicable state and added valid state-restoration controls. It neither claims unlimited traversal nor discusses whether a truncated walk can produce a validation Met result.",
+      "verdict": "No challenge to the painted-state correction. Add an independent incomplete-input/report regression; do not characterize ADR 2820's semantic tests as covering traversal caps."
+    }
+  ],
+  "decision": "The local bounds are implementation safeguards, not source-defined safe ceilings. Keep them. Correct the consumer/report path so a bound-triggered partial walk cannot yield a checked Met for a transparency requirement that depends on the missing content. An explicit unchecked/refusal outcome is a truthful option; no unlimited-support promise is implied.",
+  "remaining_scope": "Only the Annex Q page-transparency archive consumer is adjudicated. Audit other Survey-backed predicates separately to determine which observations they depend on and how each handles a stopped walk."
+}

@@ -1,0 +1,8 @@
+{
+  "verdict": "Correct the earlier19-key inventory to all23 Table87 key names, with selected evidence only.",
+  "corrections": "Earlier image_dictionary_cells_current artifacts stopped at physical275 and omitted OC,AF,Measure,PtData on276. Those historical artifacts remain; this supplement supersedes their table-span completeness. Table88 itself is278 only, not277–278. Parent rejected stale shorthand/algorithm claims and checked source captions and annotations directly.",
+  "source": "Parent read Table87 continuation276, Table88–92 pages278–284 and #215 annotations274–275. #306 is a correction to the explanatory uppercase-i wording, not to the abbreviation. The matrix remains partial despite enumerating all23 key names.",
+  "consumers": "Parent read literal Decode/alternate pixels and optional-content terminal skip assertions. AF assertion is attachment.rs generic associated helper, checking name and Source relationship. Its zero-page fixture omits associated stream Params; it is helper/carrier evidence, not valid whole-document or host extraction certification. Viewport measurement tests do not establish image-attached Measure/PtData consumption; a separate reviewer is investigating that residual.",
+  "execution": "No additional execution for unchanged assertions in this source review. B11/B14 revalidated in108; new two Decode controls in110 are separately recorded.",
+  "adr": "ADR2812 explicit image consistency error and ImageMask ignored-key split remain supported with B11 qualification. ADR1173 purpose/alternate decisions align with effective#79. ADR2863 remains limited to its sYCC route; no new broad codec verdict."
+}

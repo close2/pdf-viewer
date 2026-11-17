@@ -1,0 +1,46 @@
+{
+  "source_corrections": [
+    {
+      "decision": "Use EC3 Table 377, not the pre-errata matrix embedded in the base text, for attribute-to-element applicability.",
+      "evidence": "EC3 appended replacement is physical pages 1013–1014. It expressly includes Table 380 BaselineShift on BLSEs with content and Table 379 SpaceBefore/SpaceAfter/StartIndent/EndIndent on non-Inline placed ILSEs. The primary Table 380 lead-in on physical p.798 / printed p.783 permits specifying its attributes on a BLSE for immediate child content.",
+      "scope": "Applicability mapping only; those writer/layout obligations do not automatically mandate display-reader errors or a reflow engine."
+    },
+    {
+      "decision": "Record Issue #152 as an effective type correction, but do not call a rendering gap from it.",
+      "evidence": "Primary PDF p.802 / printed p.787 annotates Table 380 GlyphOrientationVertical: `number` is struck and `integer` inserted. Current code has no consumer for the attribute, so there is no changed parse/render assertion in this product.",
+      "scope": "The erratum applies to producer/table semantics and any future layout consumer."
+    },
+    {
+      "decision": "Treat the public Table 380 BaselineShift-to-VerticalOffset mapping as a deliberate, lossy accessibility policy, not a complete implementation of the source layout algorithm.",
+      "evidence": "A634 expressly says the sign-to-Sup/Sub relationship is a project mapping choice because the clause states a distance, not meaning. EC3 Table 377 allows BLSE use, while the code resets the choice at BLSE boundaries. This reader renders an already laid-out page and no current consumer reconstructs block layout geometry.",
+      "scope": "The Paragraph test asserting Normal is not evidence of a source invalidity, but ADR 2384 should not imply the source excludes BLSE baseline values. No failing conformance test is proposed without an owner decision about whether whole-block displacement should become a per-run position attribute."
+    },
+    {
+      "decision": "Do not reopen BBox or table-cell geometry here.",
+      "evidence": "Those are Table 379 entries with real consumers and separately assigned prior geometry/table audits; this pass maps them only to delimit overlap.",
+      "scope": "No blanket certification of geometry, bounds precedence or cell span behavior."
+    },
+    {
+      "decision": "No test draft added.",
+      "evidence": "Remaining unsupported values are parameters to a reflow/layout process with no destination here; a test that only proves parsing or rejects producer-invalid values would not establish an observable reader failure. The only candidate—BLSE BaselineShift to accessibility Sup/Sub—depends on an explicit output policy and may conflate whole-line displacement with a semantic text position.",
+      "scope": "Revisit if the product adds reflow/export or the owner chooses to expose block-level displacement on every text run."
+    }
+  ],
+  "selected_adr_review": [
+    {
+      "adr": "ADR 0301",
+      "finding": "Supports treating Table 379 BBox as a result-valued geometry statement, distinct from the omitted layout constraints. Its census and geometry route are not re-certified by this shard.",
+      "current_limit": "Does not establish that every other Table 379 producer rule is a reader obligation."
+    },
+    {
+      "adr": "ADR 2384",
+      "finding": "Supports actual Table 380 delivery on own text runs and makes the shift-to-Sup/Sub map an explicit policy. Its inline-chain/reset behavior is a representational choice; effective Table 377 permits BaselineShift on BLSEs.",
+      "current_limit": "Retain as the chosen accessibility policy; clarify that block reset is not a source applicability exclusion."
+    },
+    {
+      "adr": "ADR 2422",
+      "finding": "C API exposes decoration, position and optional color; it preserves unstated color separately rather than inheriting the AccessKit black fallback.",
+      "current_limit": "WinUI/UIA mapping described by the ADR is a product plan and not evidence that all host/platform APIs expose the fields today."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "selected_adr_reconsiderations": [
+    {
+      "adr": "0025",
+      "decision_slice": "The project deliberately averages source samples during reduction and records a departure from §10.7.4.",
+      "review": "Correctly kept separate from §8.9.5.3. §8.9.5.3 describes optional interpolation when source resolution is significantly below output resolution; it does not prescribe reduction. Do not use ADR 0025 to claim the Interpolate=true bilinear kernel is normative, or to expand this shard into §10.7.4.",
+      "status": "no reconsideration for this shard"
+    },
+    {
+      "adr": "0101",
+      "decision_slice": "Added a test that pins image smoothing behavior for the Interpolate flag and magnification/reduction regimes.",
+      "review": "The current unit and public-render tests usefully protect the implementation policy and the default/flag plumbing. Source language explicitly says true is only a hint and may be ignored; exact mixed pixels therefore remain implementation evidence, not a requirement test. The new image_interpolation_audit test labels that distinction accurately.",
+      "status": "uphold with assertion-scope qualification"
+    },
+    {
+      "adr": "1302",
+      "decision_slice": "At native resolution, color the device pixel from the source sample its center maps to; the shared sample-edge tie is a documented convention where §8.9.4 does not assign ownership.",
+      "review": "The ADR is mainly grounded in §10.7.4, not an interpolation filter rule. Its edge tie is not contradicted by this shard. Keep it distinct from any claim that filtered images must use that same point-sample oracle.",
+      "status": "no reconsideration for filtered samples"
+    },
+    {
+      "adr": "2100",
+      "decision_slice": "Make unfiltered image sample selection independent of page strip boundaries using page-space pixel centers.",
+      "review": "The ADR explicitly excludes filtered images and records the filtered path separately. That boundary is appropriate; this shard's exact-bilinear test remains a backend policy check only.",
+      "status": "uphold; no extension to filtered case"
+    },
+    {
+      "adr": "0253",
+      "decision_slice": "Earlier reading found EC3 Issue #79 changed alternate selection and recorded the pre-fix implementation as divergent.",
+      "review": "Current code and the present optional_content tests implement/assert the amended rules: hidden base is terminal, no-/OC alternates are skipped, selected image-stream /OC is not consulted, print selection is purpose-dependent, and unmatched c/d fall through to the base. The prior divergence is historical, not a current finding.",
+      "status": "resolved in current implementation and tests"
+    },
+    {
+      "adr": "1173",
+      "decision_slice": "The output purpose is an input; Print is distinct from View and Export for §8.9.5.4 step c.",
+      "review": "Consistent with the amended source wording ('if the PDF is being printed'). Existing tests compare same valid image/alternate fixture under all three purposes and assert black base versus white alternate. No scope expansion inferred for arbitrary exports.",
+      "status": "uphold for this clause path"
+    }
+  ]
+}

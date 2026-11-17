@@ -1,0 +1,17 @@
+{
+  "reviews": [
+    {
+      "decision": "Screen P precondition",
+      "verdict": "Retain Type and membership checks. Withdraw detached-page claim; templates invalidate the proposed proof."
+    },
+    {
+      "decision": "ADR1960 /JS alongside /OP fallback",
+      "verdict": "Reopen only the unconditional fallback reading: Table218 makes OP fallback conditional on inability to execute scripts. Current bounded document/viewer script scope and enabled runner admit the tested field edit."
+    },
+    {
+      "decision": "ADR1961/2382 media scope",
+      "verdict": "Retain viability and host handoff; no playback expansion."
+    }
+  ],
+  "execution": "Final focused run:5run4PASS1FAIL; both model/core all-targets Clippy PASS. No owner clarification required for this admitted document-field script."
+}

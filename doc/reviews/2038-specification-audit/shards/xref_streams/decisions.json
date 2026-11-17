@@ -1,0 +1,43 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "decisions": [
+      {
+        "adr": "2346",
+        "review": "reaffirmed as an explicit, owner-confirmed departure",
+        "basis": "Table 15's shall-ignore rule for entries whose object number is greater than /Size is not implemented; the ledger marks §7.5.5 departed. ADR 2346 compares obeying the rule with the current §C.4 repair path and records the project owner's 2026-10-28 choice of robustness. This shard did not reproduce the census/benchmarks and does not relabel the behavior conforming.",
+        "source": "ISO 32000-2 Table 15, printed p. 59; doc/adr/2346-table-15-s-size-sentence-is-re-read-against-the-rebuild-and-the-departure-stands.md"
+      },
+      {
+        "adr": "0100",
+        "review": "reaffirmed",
+        "basis": "§7.5.6's most-recent-copy rule and §7.5.8.3's unknown-type-to-null rule require free/unknown entries to remain explicit answers that block older entries. `Option<Location>` and the xref ordering implement that distinction. The existing exact-update and unknown-type fixtures target it. Its hybrid test fixture has a separate conformance flaw noted in findings.txt.",
+        "source": "ISO 32000-2 §7.5.6 printed p. 60; §7.5.8.3 printed p. 67; doc/adr/0100-a-deletion-is-a-copy-of-an-object.md"
+      },
+      {
+        "adr": "0180",
+        "review": "reaffirmed with semantic condition",
+        "basis": "Stable sort plus first duplicate retained preserves precedence only because the collected input order is newest section, then same-section XRefStm, then older section. Current `read_from_startxref` has that order, matching §7.5.8.4. The parent should replace/review the malformed hybrid witness before treating the hybrid assertion as source-backed validation.",
+        "source": "doc/adr/0180-a-rule-stated-once-for-a-file.md; ISO 32000-2 §7.5.6 and §7.5.8.4"
+      },
+      {
+        "adr": "1004",
+        "review": "reaffirmed for EC3 Issue #500",
+        "basis": "The erratum strikes the printed default byte offset 0 for Table 18 type 1; Table 17 says use a field default only if one exists. `entry_location` rejects type 1 records whose W has no second field, and the assertion calibrates rebuild/refusal. Separate from the technically questionable zero-first-width fixture noted as unreviewed below.",
+        "source": "doc/adr/1004-the-tail-a-salvage-drops-and-the-default-a-cross-reference-stream-never-had.md; doc/errata-read.md; ISO Table 18 printed p. 67, Table 17 printed p. 66"
+      },
+      {
+        "adr": "0789",
+        "review": "reaffirmed as recovery policy, not valid-file requirement",
+        "basis": "The reader distinguishes an explicit free/type-0 entry from a section header that declared an entry but whose malformed/truncated section failed to provide it. §C.4 permits a processor to attempt a table rebuild; this recovery does not certify behavior on a conforming section.",
+        "source": "doc/adr/0789-the-entry-that-was-not-read-still-has-a-header.md; ISO 32000-2 §C.4 and §7.5.4/§7.5.8.2"
+      },
+      {
+        "adr": "0842",
+        "review": "not contradicted; writer review bounded",
+        "basis": "The serializer writes type-2 entries and requires xref streams when object streams are generated, as Table 18 requires. Its output has readback plus foreign-reader assertions; this shard did not re-audit all optimization policy or measured size limits.",
+        "source": "doc/adr/0842-a-file-made-smaller-by-four-passes-each-derived-from-a-clause-and-none-of-them-touching-a-mark.md; ISO 32000-2 §7.5.7–.8"
+      }
+    ]
+  }
+}

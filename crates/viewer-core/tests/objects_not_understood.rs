@@ -199,3 +199,81 @@ fn every_object_not_understood_is_said_not_only_the_first() {
         );
     }
 }
+
+/// The reporting policy must reach the host during Open, before a raster completion.
+/// Persistent reports and event reports identify the same page and carry the same notes.
+#[test]
+fn opening_an_unhandled_object_reports_it_to_the_host_before_render_ready() {
+    for unknown in [true, false] {
+        let filter = if unknown {
+            "/Filter /FilterThisStandardDoesNotDefine"
+        } else {
+            ""
+        };
+        let bytes = document("", CONTENT, &image(filter));
+        let parsed = pdf_syntax::Document::open(bytes.clone()).expect("exact fixture opens");
+        assert!(
+            !parsed.was_recovered(),
+            "the fixture has exact xref offsets"
+        );
+        let mut viewer = Viewer::new(40, 20, 1.0);
+        let events: Vec<_> = viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            })
+            .collect();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::NeedsRender(_))),
+            "the page reached interpretation"
+        );
+        let event_notes: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Reported {
+                    document,
+                    page,
+                    notes,
+                } => Some((document, page, notes)),
+                _ => None,
+            })
+            .collect();
+        let Answer::Reports(stored) = viewer.query(Query::Reports) else {
+            panic!("reports answer expected");
+        };
+        if unknown {
+            let [(document, page, notes)] = event_notes.as_slice() else {
+                panic!("one page reports its unsupported object: {events:?}");
+            };
+            assert_eq!(**document, DocumentId(1));
+            assert_eq!(**page, Some(0));
+            assert!(
+                notes
+                    .iter()
+                    .any(|note| note.contains("Im0") && note.contains("not drawn")),
+                "the actual missing object is named: {notes:?}"
+            );
+            let [report] = stored.as_slice() else {
+                panic!("one stored page report: {stored:?}");
+            };
+            assert_eq!(report.page, 0);
+            assert_eq!(
+                &report.notes, *notes,
+                "the host can query the same notes later"
+            );
+        } else {
+            assert!(
+                event_notes.is_empty(),
+                "known data has no report event: {events:?}"
+            );
+            assert!(
+                stored.iter().all(|report| report.notes.is_empty()),
+                "known data has no stored notes: {stored:?}"
+            );
+        }
+    }
+}

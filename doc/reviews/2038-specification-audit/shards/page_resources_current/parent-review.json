@@ -1,0 +1,8 @@
+{
+  "execution": "page-inline-wave13.log40/40PASS including promoted resource drawing consumer and existing no-merge/empty-dictionary assertions.",
+  "new_test": "page_resource_render_spec_audit::inherited_resources_choose_the_nearest_ancestor_in_page_rendering",
+  "control": "Root red then intermediate blue same-name Form; exact xref/no-recovery/full interpretation; literal solid-fill RGBA. Test exercises interpreter display-list output, not final raster.",
+  "qualification": "Same-name shadowing does not prove whole-dictionary non-merging. Existing inherited_resources_spec_audit directly asserts parent Font key absent and nearest ExtGState present; separate empty dictionary control. Renamed new draft to avoid overclaim.",
+  "source_corrections": "Table30printed103/physical118; Table31startsprinted104/physical119; Table34printed113/physical128. Parent checked PDF layout footers, correcting agent page estimates.",
+  "remaining": "Whole page dictionary feature set and public CropBox inheritance still pending."
+}

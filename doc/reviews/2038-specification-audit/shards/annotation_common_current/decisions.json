@@ -1,0 +1,42 @@
+[
+  {
+    "adr":"0013 — Annotation appearances",
+    "review_scope":"Stored appearance rendering, no-AP construction and flag-sensitive painting",
+    "original_claim":"Use stored AP where present; construct only where a subtype clause supplies the appearance; do not invent a universal AP-absent fallback.",
+    "current_evidence":"Current effective Table 166 writer obligation is tightened by EC3 #22, but EC3 #34 makes absent-AP rendered appearance implementation-dependent. `appearance::construct` uses subtype-specific branches. `annotation::stored_appearance` selects stored stream separately.",
+    "decision":"Retain the consumer policy with a narrowed normative statement: dynamic rendering from supported annotation characteristics is a local implementation choice unless a subtype-specific clause (e.g. variable text) requires it. AP production constraints are not reader rejection rules.",
+    "residuals":"No complete review of all 28 annotation subtypes; out of scope here."
+  },
+  {
+    "adr":"0030 — Constructing an annotation's appearance, and the two roles of one key",
+    "review_scope":"Common AP, stored-vs-constructed appearance characteristics and effective EC3 ignore list",
+    "original_claim":"A stored appearance is used as the document's visual stream; the annotation characteristics do not overwrite its own transparency; constructed appearance uses supported characteristics.",
+    "current_evidence":"EC3 #23/#34 remove BM from the ignore list and #56 adds MK; Table 166 /BM plus §12.5.5 require BM at compositing. Code `blend_mode` reaches both stored and constructed appearance paths. CA/ca remain ignored when stored and are construction inputs.",
+    "decision":"The corrected code reading matches effective text. The old quoted ignore-list sentence remains in docs but is clearly identified as retired in current module comments. A dedicated stored-appearance BM pixel assertion was not found in this bounded review, so test coverage is weaker than the code evidence.",
+    "residuals":"No full pixel matrix for every entry on the ignore list; this is not enough to claim a behavior defect."
+  },
+  {
+    "adr":"0177 — The pointer is on an annotation, not on a link",
+    "review_scope":"ToggleNoView hover and annotation interaction path",
+    "original_claim":"Pointer state reaches all interactive annotations; ToggleNoView inverts NoView for hover/selection; NoView alone must not prevent noticing the annotation when ToggleNoView is set.",
+    "current_evidence":"`annotation::interacts` and viewer-core `annotation_at` feed pointer Over/Down states; `no_view` is the stated/inverted XOR; annotation_flags_audit checks actual hit testing. The view model exposes pointer states but no separate persistent selection input was found.",
+    "decision":"Confirmed for hover/pressed interaction. Do not say there is an independently asserted persistent-selection path; that remains a capability boundary/question.",
+    "residuals":"No explicit persistent annotation selection concept seen in the current viewer API. Whether hover/pressed is the supported interpretation of selection is a product-surface question, not proven ISO failure."
+  },
+  {
+    "adr":"0293 — A border that shall be drawn inside, and an entry that shall be ignored",
+    "review_scope":"Inside Rect and EC3 #287 whole-entry precedence",
+    "original_claim":"All border strokes stay within Rect; a present BS makes the whole Border entry irrelevant, including corner radii.",
+    "current_evidence":"`Border::geometry` sets radii to zero in its BS branch and does not use Border widths/dashes there. Existing regression test proves the historical corner-radius case. Drafted companion fixture makes width/style/dash/radii conflicts distinguishable against BS-only and Border-only controls.",
+    "decision":"Code supports whole-entry precedence. Existing assertion is appropriately focused on the recovered radius bug, but alone it does not establish every Border component is ignored; the new draft would strengthen that claim.",
+    "residuals":"Draft is unrun; no test execution claimed."
+  },
+  {
+    "adr":"0628 — The flag row whose second sentence had no reader",
+    "review_scope":"Table 167 Invisible bit and erratum-aware type scoping",
+    "original_claim":"Invisible suppresses an unknown/nonstandard subtype without a handler; recognized standard subtypes follow their own handlers; EC3 corrected its source reference.",
+    "current_evidence":"Current code checks STANDARD_SUBTYPES before applying Invisible. The test matrix samples standard and unknown types. EC3 #1 replaces the obsolete Table 167 cross-reference; current clause source and code comments name effective §12.5.5 plus bits 1 and 2.",
+    "decision":"Confirmed for sampled consumer behavior. No requirement to reject unknown reserved flag bits was found.",
+    "residuals":"No exhaustive pass through every Table 171 handler."
+  }
+]

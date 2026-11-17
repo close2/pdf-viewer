@@ -1,0 +1,28 @@
+{
+  "scope_note": "Selected source/ADR decisions only. No whole-ADR or whole-clause recertification.",
+  "reviews": [
+    {
+      "adr": "0312",
+      "topic": "Search for table headers where the cell does not state /Headers",
+      "evidence": "ADR 0312 quotes §14.8.4.8.3's algorithm and reasons for adopting it; its date is 2026-08-13. The EC3 #200 Text annotation was created 2026-05-22. ADR 0312 does not mention #200, and its quoted algorithm/filter discussion does not address a mismatched-Scope header that also carries /Headers. Current TableStack::search does not implement that exception, and the tracked headless test has no such case.",
+      "disposition": "Retain the decision to implement the optional implicit search, but reconsider its search-loop ordering against #200: a conflicting-Scope TH carrying /Headers must not terminate the search, and the conflicting TH itself must not be added. The correction does not clearly settle whether separately named IDs from that TH's /Headers still contribute. The PDF text says the algorithm may be used and the correction uses should, so do not reframe this as a universal must-use requirement or certify all of ADR 0312."
+    },
+    {
+      "adr": "0716; 1461; 1474",
+      "topic": "Annex L corrected producer matrix and derived PDF 2.0 structure output",
+      "evidence": "The primary #83 overlay on physical p.962 adds P parent → Table child 0..n. The existing annex_l_structure_relationships_current shard inspected the correction and matrix and distinguishes generated output from reading source trees.",
+      "disposition": "No new change recommended from this narrow pass. Retain the producer/reader boundary. The prior tests are a small generated-wrapper sample, not proof of all Annex L constraints or transform paths."
+    },
+    {
+      "adr": "1079",
+      "topic": "Relative URI resolution and document Base location",
+      "evidence": "The #256 editor annotation on physical p.534 says the existing Base/URI text applies to all relative URI references, not only URI actions. The issue index links to actions_chains_current, whose ADR review considers host-location ownership and the bounded URI event handoff.",
+      "disposition": "No new ADR objection is raised here. Keep this as a source-wide clarification when auditing a relative-URI consumer; do not infer that the prior URI-action case exercised every URI-bearing entry."
+    }
+  ],
+  "review_artifact_correction": {
+    "artifact": "doc/reviews/2038-specification-audit/shards/structure_types/features.json, issue #200 entry",
+    "observation": "It says the current relevant ledger note discloses the conflicting-Scope limitation. The actual current §14.8.4.8.3 ledger note does not: it says the four search conditions are implemented and lists Scope filtering, with no conflicting-Scope exception.",
+    "disposition": "Correct that sentence when the parent reconciles artifacts. This is a source/ledger traceability correction attached to the same bounded behavior finding, not an additional behavior issue."
+  }
+}

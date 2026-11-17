@@ -1,0 +1,110 @@
+[
+  {
+    "feature": "Common shading dictionary cells and conditions (Table 77)",
+    "clause": "§8.7.4.3 Table 77; §8.7.4.2; §11.6.7",
+    "source_location": "Directly inspected primary `doc/ISO_32000-2_sponsored_EC3.pdf`: Table 77 starts on physical p.245 / printed p.230 and continues on physical p.246 / printed p.231; both printed footers were checked. Page 245 has 5 annotations, all `/Link` cross-references; page 246 has 7, all `/Link` references. No issue/StrikeOut/Caret alters Table 77. NOTE 2 says zero-height/zero-width BBox still paints one pixel and cites §10.7.4. NOTE 1 describes opaque imaging; Background is restricted to shading-pattern use, not direct `sh`.",
+    "errata": "Direct primary annotation check: none of Table 77 page annotations on physical pp.245–246 is an issue correction; they are internal /Link references. The printed text in the held EC3 PDF is the effective source. No Table 77-specific issue was located in the errata index for this bounded pass.",
+    "ledger": "§8.7.4.3; operator condition in §8.7.4.2; transparent-pattern interaction §11.6.7.",
+    "cells": [
+      {
+        "key": "ShadingType",
+        "condition": "Required integer selecting shading types 1–7.",
+        "code": "crates/pdf-colour/src/shading.rs::kind_of",
+        "assertions": "Existing public fixtures exercise Type 1–7, but this shard did not re-audit all selector rejection/recovery paths.",
+        "verdict": "Not re-certified here."
+      },
+      {
+        "key": "ColorSpace",
+        "condition": "Required name or array; device, CIE-based, or special spaces are allowed except Pattern; interpolation behavior is further specified by §8.7.4.4.",
+        "code": "shading color-space resolution and conversion in pdf-colour; shading consumers in pdf-model",
+        "assertions": "Existing shading tests exercise device/CIE/Separation routes and function-based mesh cases. The Pattern prohibition is a producer constraint; no reader rejection is inferred.",
+        "verdict": "Selected routes covered elsewhere; not a whole-space certification."
+      },
+      {
+        "key": "Background",
+        "condition": "Optional array with component count appropriate to ColorSpace. Used to fill portions outside shading bounds only for shading-pattern use; direct `sh` ignores it. NOTE 1 describes an opaque-model equivalent two-paint construction.",
+        "code": "crates/pdf-colour/src/shading.rs::background_of; crates/pdf-model/src/content/pattern/shading.rs; pdf-render shading pattern path",
+        "assertions": "`shadings.rs` tests pattern Background with/without entry for axial/radial/mesh/function cases and a separate direct-sh ignored-entry case. These are independent source-colored pixel checks.",
+        "verdict": "Supported for sampled routing; malformed component-count reporting is asserted separately."
+      },
+      {
+        "key": "BBox",
+        "condition": "Optional four-number rectangle in shading target coordinates; additional temporary clip on top of current/other clips. NOTE 2 explicitly preserves one-pixel painting for a zero-height or zero-width box.",
+        "code": "crates/pdf-colour/src/shading.rs::bbox_of; crates/pdf-model/src/content/pattern/shading.rs; pdf-render shading clip path",
+        "assertions": "`shadings.rs::a_shadings_bbox_clips_what_it_paints` checks ordinary nondegenerate clip plus path intersection. No current public shading assertion was found for a zero-area BBox.",
+        "verdict": "Ordinary clip supported; zero-area Table 77 note is an assertion gap, not a confirmed implementation defect."
+      },
+      {
+        "key": "AntiAlias",
+        "condition": "Optional boolean, default false; flag indicates filtering to prevent aliasing. NOTE 3 says sampling/output resolution and function smoothness determine artifacts, and filtering can be costly and unnecessary for smooth functions.",
+        "code": "shading build/ramp and device rasterization",
+        "assertions": "No test was found that distinguishes AntiAlias false from true. The prose is qualified as a flag/indication and the note explains a performance tradeoff; this review does not treat absence of a pixel-difference test as a defect or prescribe an algorithm.",
+        "verdict": "Unresolved implementation/assertion scope; no failure claimed."
+      }
+    ],
+    "related_tests": [
+      "crates/pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints",
+      "crates/pdf-model/tests/shadings.rs::an_axial_shadings_background_washes_the_area_beyond_its_ends",
+      "crates/pdf-model/tests/shadings.rs::a_radial_shadings_background_washes_the_area_no_blend_circle_reaches",
+      "crates/pdf-model/tests/shadings.rs::a_mesh_shadings_background_washes_the_area_its_triangles_do_not_cover",
+      "crates/pdf-model/tests/shadings.rs::a_function_based_shadings_background_fills_its_bounding_box_outside_the_domain",
+      "crates/pdf-model/tests/shadings.rs::the_sh_operator_ignores_a_background_and_owes_no_report"
+    ],
+    "draft": "drafts/degenerate_bbox_one_pixel.rs",
+    "test_assertions": "`shadings.rs::a_shadings_bbox_clips_what_it_paints` covers ordinary direct-sh clipping and path intersection. The added direct-sh zero-width/height draft passed on CPU and all three real Vulkan modes (parent run); it asserts a bounded nonempty line and distant transparency with ordinary red-BBox control. Its normal control samples x=30 inside [29,31]. The separate B20 tiling-cell test is not the Table 77 shading-BBox route.",
+    "verdict": "SUPPORTED for sampled ordinary clipping and the direct-sh zero-width/height one-pixel BBox rule (parent reports CPU plus all three Vulkan modes PASS). This is not a whole-table/backend certification.",
+    "residuals": "Pattern shading BBox and every backend are not established by this direct-sh test. AntiAlias true/false behavior remains uncharacterized. The direct-sh zero-area BBox rule is now execution-tested."
+  },
+  {
+    "feature": "Type 2 axial dictionary cells (Table 79)",
+    "clause": "§8.7.4.5.3 Table 79",
+    "source_location": "Directly inspected primary `doc/ISO_32000-2_sponsored_EC3.pdf`: Table 79 header and rows on physical p.249 / printed p.234 (footer checked). The page has 2 annotations, both internal `/Link` cross-references to Tables 79 and 77; no EC3 issue annotation alters the rows. Coords is required [x0 y0 x1 y1]; coincident endpoints mean nothing is painted. Domain defaults [0,1]. Function is required, one-input/n-output or n one-input/one-output; each function domain must cover the shading Domain and output components are clamped. Extend defaults [false,false] with separate endpoint booleans.",
+    "errata": "Direct primary check: physical p.249 contains only internal Link annotations, no correction annotation. No Table 79 issue was found in the effective errata index in this bounded pass.",
+    "ledger": "§8.7.4.5.3, with common entries in §8.7.4.3; interpolation machinery also §7.10/§8.7.4.4.",
+    "code": [
+      "crates/pdf-colour/src/shading.rs::coords",
+      "::domain",
+      "::extend",
+      "::ramp",
+      "::axial",
+      "crates/pdf-render/src/shading.rs::axial"
+    ],
+    "tests": [
+      "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+      "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+      "crates/pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints",
+      "crates/pdf-model/tests/indirect_shading_values_spec_audit.rs::axial_indirect_coords_domain_extend_bbox_and_array_members_match_direct_control"
+    ],
+    "test_assertions": "Named public tests pin ordinary gradient endpoints/midpoint, perpendicular constancy, omitted default Domain/Extend, both asymmetric extension directions in `indirect_shading_values_spec_audit.rs`, nondefault Domain, BBox and direct/indirect array-member semantics. The coincident-endpoint no-paint clause is still a separate branch. `drafts/degenerate_type2_type3_geometry.rs` adds a public exact-xref no-paint case with a nondegenerate red-axis positive control; unrun.",
+    "verdict": "Sampled Type 2 ordinary ramps, default values, both asymmetric extension directions, clipping, and common zero-area BBox behavior are supported. The coincident-axis branch has a targeted public draft but remains unrun.",
+    "residuals": "Public coincident-endpoint case in `drafts/degenerate_type2_type3_geometry.rs` is not yet run. Function-domain superset/output-range behavior is not re-certified in this bounded pass.",
+    "checkpoint97": "B70 CPU coincident axis paints10000 pixels, expected0; three GPU coverage controls PASS."
+  },
+  {
+    "feature": "Type 3 radial dictionary cells and endpoint conditions (Table 80)",
+    "clause": "§8.7.4.5.4 Table 80 and following radial-family rules",
+    "source_location": "Actual Table80 is physical251/printed236 only. Physical250/printed235 holds Figure33 and a prose cross-reference to the table; it is not a table start. Parent reread both pages. Physical252 is following prose/figure.",
+    "errata": "No issue correction on actual Table80 page251; nearby250 has an internal Link, not a correction or table cell.",
+    "ledger": "§8.7.4.5.4 and common shading entries §8.7.4.3.",
+    "code": [
+      "crates/pdf-colour/src/shading.rs::coords",
+      "::domain",
+      "::extend",
+      "::radial",
+      "crates/pdf-render/src/shading.rs::blend_parameter",
+      "::RadialRaster"
+    ],
+    "tests": [
+      "crates/pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles",
+      "crates/pdf-model/tests/shadings.rs::a_radial_shadings_background_washes_the_area_no_blend_circle_reaches",
+      "crates/pdf-render/src/shading.rs::a_family_of_zero_radius_circles_paints_nothing",
+      "crates/pdf-model/tests/indirect_shading_values_spec_audit.rs::radial_indirect_coords_domain_extend_bbox_and_array_members_match_direct_control",
+      "crates/pdf-render/src/shading.rs::the_greatest_root_a_cone_admits_is_not_always_the_greater_root"
+    ],
+    "test_assertions": "Public tests cover ordinary radial ramps, default non-extension, nested/cone backgrounds and both asymmetric Extend directions with nondefault Domain. Private `a_family_of_zero_radius_circles_paints_nothing` checks the solver with both extensions true, but does not exercise the public paint consumer. The new draft `drafts/degenerate_type2_type3_geometry.rs` adds both-zero public transparency plus a zero-to-positive-radius blue pixel control; unrun.",
+    "verdict": "Ordinary radial family, extension, root selection and private both-zero solver evidence are present. The both-zero public paint rule has a discriminating exact-xref draft but remains unrun.",
+    "residuals": "Public both-zero and one-zero-radius geometry draft is unrun. It also pins direct-sh Background ignored behavior through the contrasting color control. Radial Domain, asymmetric extension and BBox are already covered by named current tests.",
+    "draft": "drafts/degenerate_type2_type3_geometry.rs",
+    "checkpoint97": "B71 CPU both-zero coincident centers return UnsupportedPaint; distinct centers return0painted. Three GPU coverage controls PASS for both cases."
+  }
+]

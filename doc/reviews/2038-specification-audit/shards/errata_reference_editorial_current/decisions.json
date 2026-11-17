@@ -1,0 +1,5 @@
+{
+  "reference_policy": "Retain pinned dated references. #57 is a source-version constraint; this batch does not reopen all referenced standards.",
+  "prefix_policy": "Retain namespace-URI semantics; the example-prefix convention does not restrict valid XMP prefixes.",
+  "linearization": "Retain the already qualified Annex F reader/writer decisions. Extra-resource notes refer to those requirements; no full Annex F recertification."
+}

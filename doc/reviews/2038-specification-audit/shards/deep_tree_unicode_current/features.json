@@ -1,0 +1,20 @@
+{
+  "shard": "deep_tree_unicode_current",
+  "baseline": "b901326c; explicit audit worktree",
+  "scope": "Add a public Destination consumer control for multibyte name-tree byte identity and prefix keys. Recheck date-consumer coverage for a distinct likely gap. No production changes or test execution.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "tree": "§7.9.6 printed pp.119–122 / physical pp.134–137; Table 36 itself physical 135 / printed 120. Producer rules: root chooses Kids or Names; child nodes use indirect Kids; leaf Names keys are ordered, unique/non-overlapping contiguous byte ranges with exact Limits. EC3 #214 removes lexical terminology but leaves explicit shorter-prefix, consistent-encoding, and byte-equality language.",
+    "destination": "§12.3.2.4 printed pp.443–444 / physical pp.458–459 says the Dests name tree maps name strings to destinations and points to Annex J.3.3/J.3.4 string/name matching algorithms; keys may be treated as text for display. The draft tests the string-key route with a self-consistent UTF-8 byte encoding and does not claim the full Annex J matching matrix.",
+    "date": "§7.9.4 physical pp.132–133 / printed pp.117–118; EC3 #251 physical133 changes absent-zone wording equivalently and removes the separate local-time sentence. Existing Date tests exercise minute offset precision, defaults, conversion to instants, and producer write validation."
+  },
+  "existing_evidence": {
+    "ascii_public": "crates/pdf-model/tests/deep_name_tree_spec_audit.rs::named_destination_lookup_descends_valid_indirect_nodes_and_uses_exact_byte_keys passed in trees-open-order-wave17c.log; valid indirect hierarchy, ASCII A/a/b/z, exact Limits, distinct page results, and absent B.",
+    "unicode_helper": "crates/pdf-syntax/tests/trees_rectangles_audit.rs::name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes stores the sorted sequence A, a, a-NUL, e+combining acute, composed é and tests raw-byte distinctions, but calls the tree helper on a flat root and has no document consumer.",
+    "date_consumers": "Date instant ordering and optional suffix tests pass in eleven-crate-wave99.log; T01 independent writer checks pass. I found no specific uncovered date-consumer behavior that would justify a second fixture here."
+  },
+  "draft": "drafts/deep_name_tree_unicode_destination.rs",
+  "draft_assertion": "Extends the public Destination fixture to an exact-xref PDF 1.7 file (the encoded bytes are ASCII hex, so no binary marker is needed), required page Resources, indirect Kids, exact per-node Limits, and indirect destination-array values. It includes the prior absent-B control. Encoded keys are byte-sorted A < a < a-NUL < b < UTF-8(e+combining acute) < z < UTF-8(composed é); ASCII targets remain as before, the two Unicode forms and prefix cases have distinct literal page targets, and absent-byte keys must return no destination. The draft also checks that the xref chain was not cut. The sorting sequence was independently checked by byte-vector ordering, not by the implementation under test.",
+  "verdict": "A valid, discriminating integration extension is warranted: current multibyte canonical-distinction coverage is helper-only, while the public consumer test is ASCII-only. Draft is not compiled or run.",
+  "residuals": "This covers two specific UTF-8 spellings and prefix cases, not every allowed consistent key encoding or all name-tree consumers. No reader rejection is inferred for malformed producer ordering, Kids, null keys or Limits. Date parser/calendar semantic questions remain outside this draft."
+}

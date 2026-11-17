@@ -1,0 +1,43 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected ADR reconsiderations for ISO 32000-2 §8.6.5.8, §10.5, and halftone TransferFunction entries only.",
+  "decisions": [
+    {
+      "adr": "1032",
+      "question": "Map the four PDF rendering intents to ICC profile transforms, including unknown names.",
+      "source": "§8.6.5.8 printed pp.196-197 / physical pp.211-212; Table 69; §10.3.1 is supporting ICC mapping outside full recertification. EC3 #63 strikes the note language that had excused support for the four standard intents.",
+      "assessment": "Retain the four standard intent mappings and RelativeColorimetric fallback. Current tests use distinct profile transforms and exercise ri, ExtGState, image-local, default and unknown-name routes through CPU raster output. Do not describe the struck phrase as effective text or infer support obligations for extra device-specific names.",
+      "status": "supported within sampled scope"
+    },
+    {
+      "adr": "0204",
+      "question": "Apply transfer maps at rendering while permitting a continuous-tone device to ignore halftone screens.",
+      "source": "§10.5 printed pp.364-365 / physical pp.379-380; §10.6.5.1 printed p.372 / physical p.387.",
+      "assessment": "Retain the distinction: §10.6.5.1 permits ignoring screen behavior, while §10.5 still defines transfer mapping. Existing /TR raster tests show CPU consumption; direct HT override tests currently inspect maps via a helper rather than raster output. The draft supplies public-raster Type 5 and Type 6 controls.",
+      "status": "interpretation supported; public HT assertion gap drafted"
+    },
+    {
+      "adr": "0505",
+      "question": "Treat halftone TransferFunction as a per-component override over the current graphics-state transfer.",
+      "source": "§10.5 and Tables128–131: Type6 Table129 physical390–391; Type5 §10.6.5.6/Table132 physical395–397. #311 deletes the entire contrast paragraph on396.",
+      "assessment": "Retain for sampled RGB primary components. Draft controls compare each override with the same valid screen lacking the override and exercise Type 6 stream dictionary extraction. EC3 #310 addresses Type 5 producer entries for nonprimary/nonstandard-primary components; it does not prove a reader rejection obligation. EC3 #311 removes the cited nonprimary fallback paragraph, so no such behavior is certified here.",
+      "status": "supported for sampled RGB paths; residuals explicit"
+    },
+    {
+      "adr": "1965",
+      "question": "Halftone name resolution and screen dispatch.",
+      "source": "§10.6 halftone screen tables and name-specific behavior, outside this TransferFunction audit except the continuous-tone ignore permission.",
+      "assessment": "Not reconsidered. This shard does not certify screen generation, spot-function behavior, device-specific names, or raster threshold algorithms.",
+      "status": "out of scope"
+    },
+    {
+      "adr": "2034",
+      "question": "Halftone fallback and screen semantics.",
+      "source": "§10.6 screen behavior; selected TransferFunction table entries are the only overlap reviewed.",
+      "assessment": "No broader conclusion drawn from the TransferFunction evidence. Review only confirms that sampled transfer overrides are routed separately from screen rendering.",
+      "status": "out of scope except noted overlap"
+    }
+  ],
+  "draft": "drafts/halftone_transfer_public.rs",
+  "execution": "Parent promoted four tests; all PASS, fonts-transfer-wave23c.log. See parent-review.json for qualified source/fixture assessment."
+}

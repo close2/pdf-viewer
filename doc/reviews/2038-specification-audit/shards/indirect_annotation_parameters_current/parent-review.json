@@ -1,0 +1,8 @@
+{
+  "source": "Parent read direct/indirectsentence49/34 and actual Table166Rect/Pphysical482, F/AP/AS483; actionS521 andGoToD526. Table176 link is physical498/printed483, not draft497/482. Existing sourceoverlay review retains provenance; this does not resolve storedopacity wording tension.",
+  "fixture": "Corrected draft16-object AP numbering before run:15objects,14state dict,15Formstream. Direct/indirectflags both varied. Parent added opaquealpha; all exactxref andcompleteinterpretation guards pass. Centerred andoutsidegreen literal,NoViewgreen; no fallbacksubstitutedappearance claimed.",
+  "actions": "DirectGoTo action vsindirectA/S/D/Fit gives literalpageindex1. Not a Dest-vs-A comparison as draftdecision initiallysaid. Modelpubliclinkconsumer only, no newUIclick/navigationgeometrycertificate.",
+  "decisions": "Parent read ADR0338: its twoanswers are objectplacement/controlrole for OBJR, not authority for all generic reference slots. It supports a limited identity distinction only. ADR0439 retains byte-exact lookup rationale; no new nonASCII name assertion here. Other action/identityexamples remain bounded agentinspection.",
+  "execution": "indirect-annotations-wave57.log2PASS;quality-model-wave57.logPASS.",
+  "limits": "No allannotation/actiontypes or arbitraryreferencechaincoverage. Storedopacity uncertainty not adjudicated."
+}

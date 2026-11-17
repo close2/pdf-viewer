@@ -1,0 +1,53 @@
+{
+  "scope": "\u00a77.3.10 direct/indirect equivalence as it reaches ordinary stream /Filter and /DecodeParms values under \u00a77.4.1 and Table 5. Specifically excludes treating cross-reference streams as a generic positive case. This is a focused read/consumer/assertion audit, not certification of every stream parameter type.",
+  "source": {
+    "primary": "Primary direct/indirect equivalence sentence physical49/printed34 (\u00a77.3.10); section starts48/33. \u00a77.4.1 physical49\u201350; Table5 physical47; Table8 physical55\u201356; xrefexceptionphysical81.",
+    "general_rule": "\u00a77.3.10 says, except where documented to the contrary, any object value may be direct or an indirect reference and the semantics are equivalent. This includes a dictionary value such as /Filter or /DecodeParms, an array value, and array members, unless a specific clause imposes directness.",
+    "null_distinction": "\u00a77.3.9 is Null and dictionary-null-equivalent-to-omission. The undefined-reference-as-null rule is in \u00a77.3.10, alongside direct/indirect equivalence. Draft attribution corrected.",
+    "filter_rule": "\u00a77.4.1 requires a reader to apply the named filter(s); optional parameters are specified with DecodeParms. Table 5 defines Filter as a name or array of names and DecodeParms as a dictionary or array aligned with the filter sequence. If any filter has nondefault parameters, the array has one corresponding slot per filter, with null where that stage has no parameters.",
+    "special_exception": "\u00a77.5.8.2 makes cross-reference stream dictionary values in Table 17 direct, including array members, and requires Filter/DecodeParms direct when that xref stream is encoded. Other xref stream entries may be indirect subject to other rules. This is a special bootstrap constraint and is not a valid counterexample to ordinary stream indirect values.",
+    "errata": "EC3 #246 expands the cross-reference stream directness rule to all Table 5 entries, arrays and dictionary key values, and prohibits /F; #720 updates the list of entries that may be indirect. These are xref-stream-specific exceptions, not a change to ordinary stream semantics. No amendment found to \u00a77.3.10's generic equivalence sentence or \u00a77.4.1's filter/parameter assignment in this selected review."
+  },
+  "features": [
+    {
+      "feature_id": "ordinary-stream-indirect-filter-value",
+      "requirement": "For a normal stream, a Filter name or array may be indirect under \u00a77.3.10. In a filter array, a name element may itself be an indirect object. The reader must still apply the resulting chain in order.",
+      "implementation": "crates/pdf-syntax/src/document/objects.rs::get_key resolves the stream dictionary's Filter value. crates/pdf-syntax/src/document/decoding.rs::filter_chain then resolves each array element before interpreting it as a name.",
+      "existing_assertions": "crates/pdf-syntax/tests/filters.rs::a_filter_array_is_a_pipeline_is direct-only. It proves ordering with ASCII85 around Flate and expected text bytes. Inspected stream-filter tests contain no direct-versus-indirect /Filter comparison; there is no asserted indirect Filter name or indirect filter-array/member consumer fixture.",
+      "draft": "drafts/indirect_filter_parameters_spec_audit.rs::indirect_filter_name_and_decodeparms_dictionary_match_direct_values compares a direct /FlateDecode control to /Filter 5 0 R where object 5 is the Name /FlateDecode. It asserts known decoded samples and exact xref/no recovery.",
+      "verdict": "Implementation follows the generic rule; the specific ordinary-stream indirect Filter shape lacks an inspected discriminating assertion. Draft is a positive coverage addition, not a confirmed behavior failure."
+    },
+    {
+      "feature_id": "ordinary-stream-indirect-decodeparms-and-array-members",
+      "requirement": "An ordinary stream's DecodeParms dictionary or array, and a dictionary occupying one filter's array slot, may be indirect. Each array slot still belongs to its corresponding filter; null denotes no parameter dictionary for that stage.",
+      "implementation": "crates/pdf-syntax/src/document/decoding.rs::decode_parms resolves the whole DecodeParms value through get_key and resolves an array member before requiring a dictionary. Filter dispatch passes that per-stage dictionary to filter::stage/decode_with_parms. The predictor consumer is part of FlateDecode/LZWDecode/CCITTFaxDecode implementation paths.",
+      "existing_assertions": "filters.rs::each_stage_takes_its_own_entry_of_a_decodeparms_array uses [null, direct predictor dict] for ASCII85+Flate and checks exact unpredicted row bytes; lzw_full_table_audit.rs tests direct EarlyChange dictionaries and absent/default behavior; CCITT tests use direct parameters and image assertions. jbig2_filter_chain_audit.rs has an indirect /JBIG2Globals object inside a direct DecodeParms dictionary, which does not test an indirect DecodeParms value or dictionary itself.",
+      "draft": "drafts/indirect_filter_parameters_spec_audit.rs::indirect_filter_and_decodeparms_arrays_resolve_each_stage_value compares a direct two-stage filter/parameter array with indirect /Filter and /DecodeParms arrays, indirect filter names, and an indirect predictor dictionary in the Flate slot. Its raw PNG predictor rows have literal expected sample bytes; no decoder is used to calculate the expected output.",
+      "verdict": "The inspected consumers resolve each reference at the appropriate level. Direct-form tests are strong for parameter semantics but do not demonstrate indirect representations. Draft adds valid indirect positive controls; no current failure is established."
+    },
+    {
+      "feature_id": "xref-directness-carveout",
+      "requirement": "Cross-reference streams are exceptional: \u00a77.5.8.2 Table 17 values are direct, including array entries; Filter and DecodeParms must be direct if encoded; #246 broadens the rule to all Table 5 entries and prohibits /F.",
+      "implementation": "crates/pdf-syntax/src/xref.rs::decode_direct intentionally inspects the xref stream dictionary without Document::get_key or reference resolution and only accepts directly stated Name/Array filter forms and directly stated parameter dictionaries.",
+      "assertions": "Existing xref stream tests use direct dictionary values. They are not reused as evidence for general ordinary-stream indirection. The directness condition is principally a producer rule; this audit does not infer a required reader rejection policy for invalid xref streams.",
+      "verdict": "The implementation has a deliberate bootstrap boundary consistent with the special source rule; kept out of the ordinary stream positive fixtures."
+    },
+    {
+      "feature_id": "ordinary-stream-indirect-numeric-parameters",
+      "requirement": "Generic \u00a77.3.10 equivalence applies to Table8 integer values; no ordinary-stream direct-only exception found.",
+      "implementation": "decode_parms resolves outerdictionary but leaves numeric values as references; filter.rs reads Predictor/Columns using raw Object::as_integer and substitutes defaults.",
+      "parent_execution": "Two new parent testsFAIL after literal directcontrolsPASS. IndirectPredictor15 returns still-predicted eightbytes; indirectColumns3 refuses decoding. Outerrepresentationtwo testsPASS.",
+      "verdict": "B54 confirmed; numericvalues are a distinct layer omitted from initial agent draft.",
+      "limits": "Only Predictor andColumns failure witnessed. No all-codec or all-key failure claim."
+    }
+  ],
+  "drafts": [
+    "drafts/indirect_filter_parameters_spec_audit.rs: indirect single Filter/DecodeParms dictionary pair; indirect filter and DecodeParms arrays with indirect members and an independent PNG predictor byte oracle. Drafts are unexecuted and parent-owned for integration/run."
+  ],
+  "limits": [
+    "The draft uses the ordinary Flate/ASCII85 content-stream path; no claim is made about every codec-specific DecodeParms key or every reference chain length.",
+    "No malformed-only rejection requirement is inferred from \u00a77.3.9's undefined-reference-as-null rule.",
+    "No Cargo command or production/ledger mutation was performed."
+  ],
+  "parent_execution": "Tracked derivative:4run2PASS2FAIL. Generic data stream has no pageContents link because decoded samplebytes are not a PDF content program. Exactxref retained; direct literal byteoracles pass."
+}

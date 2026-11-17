@@ -1,0 +1,8 @@
+{
+  "verdict": "T132 public attachment name and corresponding EF/UF stream selection PASS with conflicting F values and F-only control.",
+  "source": "Parent read actualTables43 physical149–152,44 at153,45 at153–154; direct primary annotations #155/#156/#481/#382/#598 checked. Table43 corresponding-file entries and UF preference support this test. No requirement found that F/UF payloads must be byte-identical.",
+  "fixture": "Changed draftPDF2.0 withoutID toPDF1.7 (UF introduced1.7), and UF to BOM-prefixed UTF16BE. Exact xref, no recovery, independent payloads, Type/Desc, matchingEFkeys, EmbeddedFile MIME/Size/ModDate and exactstream lengths. No associated-file array or network needed.",
+  "assertions": "Literal fallback.bin/fallback-payload and unicode.bin/unicode-payload through attachment::attachments and decoded_stream_data; competing legacy payload would distinguish wrong EF selector. Coderead confirmsUF-first selection; no bug claimed.",
+  "decisions": "Parent readADR0104 and currentFileSpec/attachment consumers; raw F preservation and separate display conversion retained. Deferred payload access/checksum/RF policies remain bounded by cited existing tests, not renewed extraction/UI certification.",
+  "execution": "file-pattern-wave98b:1PASS for this test; finalmodelClippyPASS."
+}

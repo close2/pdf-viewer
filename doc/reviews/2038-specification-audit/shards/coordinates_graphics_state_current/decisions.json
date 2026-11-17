@@ -1,0 +1,30 @@
+{
+  "reviews": [
+    {
+      "adr": "0038",
+      "decision_slice": "UserUnit scale and order relative to rotation; unsupported range",
+      "evidence": "Table 31 /UserUnit and §8.3.2.3; `page_geometry.rs` scale, inches and inheritance render assertions; content.rs::base_transform.",
+      "verdict": "No contradiction found for positive supported units: scale is included in dimensions and the content transform after the rotation translation, with raster controls. Keep 1000 upper support bound and malformed-value fallback classified as implementation policy. This is a narrow review, not a whole-ADR certification.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0482",
+      "decision_slice": "Singular transform affects only the mark and not the page",
+      "evidence": "§8.3.4 NOTE 3 calls use unpredictable; existing render-raster tests compare singular mark omission to preserved surrounding marks, with invertible control per ledger.",
+      "verdict": "No contrary source evidence found in assigned scope. Singular transforms are not exercised by the proposed new test; no extra decision needed.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "0849",
+      "decision_slice": "Classification of continued Table 51 rows versus Table 52 device-dependent defaults",
+      "evidence": "Primary Table 51 continuation pp.157-158 lists SA, blend, soft mask, alpha constants/source, black point; Table 52 begins p.159 with overprint, transfer and other device-dependent parameters.",
+      "verdict": "Source classification in the continued Table 51 is consistent with the primary layout. No issue found in current defaults relevant to this shard; no whole ADR review.",
+      "whole_adr_review": false
+    }
+  ],
+  "source_test_decision": {
+    "test": "crates/pdf-model/tests/graphics_stack_paths_audit.rs::q_and_q_operators_leave_the_current_path_outside_the_stack",
+    "finding": "The fixture places q/Q after m has begun a path object and before S ends it. Figure 9 (§8.2, printed p.148) says only path construction and W/W* are permitted in a path object and specifically excludes general graphics-state operators; q/Q are Table 50 graphics-state operators. It is therefore not a valid-input conformance test. Preserve it as a recovery/robustness witness, but label it as not evidencing the §8.4.2 obligation. Valid q/Q state behavior has separate assertions with operators at content-stream level.",
+    "suggested_comment": "This deliberately violates Figure 9: q/Q are graphics-state operators and cannot occur between path construction and the path-painting operator. Keep as a robustness regression for our behavior on malformed graphics-object sequences; do not treat as valid-input evidence for §8.4.2. Valid stack behavior is tested by the content-level q/Q cases below."
+  }
+}

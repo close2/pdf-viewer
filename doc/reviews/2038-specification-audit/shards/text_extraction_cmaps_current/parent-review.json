@@ -1,0 +1,7 @@
+{
+  "execution": "7 tests: 5 PASS, 2 expected FAIL in cmaps-colour-choice-wave20.log. B27 AAβ instead of AΩβ; B28 faAA instead of fafbfc. Strengthened B27 rerun cmap-length-wave20b.log confirms segmentation [(1,1),(1,2),(2,2)] and all GIDs36 before text failure. Isolated lengths, bfchar/array sequences and valid dictionary UseCMap inheritance pass.",
+  "source": "Parent verified length-specific lookup on physical357/342 and final-byte increment/bound on374/359. Effective Table125a is the #462 appended page1022, introduced by annotation on372; initial draft locators corrected.",
+  "fixture": "Initial nonembedded Type2/custom-encoding drafts rejected as Table119-invalid. Promoted fixtures embed existing LiberationSans-Regular.ttf, SHA256 f8ace1f892b2bd9dc1792ba7f097fa7588f84fed48321480e04de5390828221f. Independent fontTools measurement checks PostScript name, GID36, units2048, advance1366, bbox and descriptor metrics. Exact xref, matching metadata, no recovery and complete interpretation asserted. Extraction only, not shape correctness.",
+  "decisions": "Selected ADR0298 malformed issue5010 tolerance remains distinct from valid stream inheritance. ADR0971 limits are not challenged by tiny maps. ADR0426 revised table handling is retained. Parent inspected ToUnicode key reduction and multi-scalar low-only range insertion; production unchanged.",
+  "limits": "No whole CMap syntax, fallback collection, glyph raster or host search certification."
+}

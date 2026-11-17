@@ -1,0 +1,7 @@
+{
+  "source": "Read primary450–451 painting-time/Do-time intent and BG/UCR rules. The page-output bullet is conditional on a CMYK output device, not this RGB screen.",
+  "assertions": "Read literal52/62/79 solid/image/stroke/stencil and pattern controls, plus independent quantized PCS matrix/transfer expected() in ICC intent tests. Screen pixel mapping is implementation policy; ICC headers remain minimal.",
+  "adr_correction": "Read ADR1242 and2549 directly. The latter explicitly removes the historical profile departure and Unsupported::BlackGeneration. Agent evidence corrected before promotion; no current departure inferred from historical text.",
+  "execution": "No new executions claimed for these existing tests at this checkpoint; broad76 provenance is separate.",
+  "limits": "Only four exact file-only pointers partially reviewed. Fully valid ICC consumer fixture work remains pending."
+}

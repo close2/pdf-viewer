@@ -1,0 +1,95 @@
+{
+  "baseline": "b901326c",
+  "scope": "Table 166 AP/AS and §12.5.5/Table 170 normal, rollover, down appearance selection; stored stream versus state subdictionary; producer AP presence versus reader fallback. No full annotation-subtype or appearance-geometry certification.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": {
+      "table_166": "physical pp. 482–485 / printed pp. 467–470",
+      "appearance_algorithm_and_states": "§12.5.5 begins physical p. 489 / printed p. 474; Table 170 and first state example are physical p. 490 / printed p. 475; state-selection and processor behavior continue physical p. 491 / printed p. 476",
+      "footer_check": "Direct primary page text/footer inspection; offsets between physical and printed pages verified at each cited page."
+    },
+    "effective_rules": [
+      "Table 166 AP is optional in the dictionary, but a PDF 2.0 writer shall include AP when writing/updating except when Rect has zero width AND zero height, or Subtype is Popup, Projection, or Link. EC3 #22 makes this version-specific rule explicit: PDF 1.2–1.7 retains optionality.",
+      "If AP is present, §12.5.5/Table 170 requires N; optional R and D default to N. N is used when idle and for printing; R is used on cursor-over without button press; D is used when pressed/held inside the active area.",
+      "Each N/R/D value may be one appearance stream or a dictionary of named state streams. Table 166 requires annotation AS if AP has one or more subdictionaries; the state example and §12.5.5 select by AS. When a present AS names no state, the reader shall attempt reasonable behavior, with displaying nothing as the explicit example.",
+      "A processor lacking native support for an annotation subtype shall render its N appearance. Absence of AP has implementation-dependent rendered appearance under EC3 #34; the producer AP rule must not be turned into a required reader rejection or one universal synthesized image."
+    ],
+    "primary_annotation_review": {
+      "method": "Direct pikepdf inspection of annotation objects and QuadPoints/Rect on physical pp. 482–491, checked against the underlying page text/coordinates; source overlays were not inferred from processed text alone.",
+      "issue_1": "Physical p. 482: Caret inserts cross-references to §12.5.5 and Table 167 flag positions 1 and 2 for unknown annotations; this supports the effective N-appearance/unknown-annotation path, not a new N/R/D rule.",
+      "issue_22": "Physical p. 483 AP cell: Caret states PDF 2.0 AP required except listed conditions and optional in PDF 1.2–1.7; effective AP producer rule above.",
+      "issue_124": "Physical p. 483 AP zero-area Rect exception: four Carets replace struck indices with 0, 2, 1, 3. Effective test is zero-based Rect[0] == Rect[2] AND Rect[1] == Rect[3]; this is an AP writer exception condition, not appearance-state selection.",
+      "issue_23_34": "Physical p. 485: paired strike/caret plus #34 Text annotation revise the stored-appearance reader text and add the note that missing AP appearance is implementation-dependent. The accompanying current audit `annotation_common_current` records the exact ignore-list changes; this shard does not retest the full ignore list.",
+      "issue_56": "Physical p. 485 Caret adds MK to the stored-appearance ignore list; adjacent stored-appearance policy, not N/R/D selection.",
+      "issue_287_577": "Physical pp. 483–484 annotations concern Border/BS precedence and the CA-value sentence, respectively; these do not alter N/R/D mapping, though annotation_common_current covers their adjacent common-dictionary behavior.",
+      "issue_422": "Physical p. 491 Carets italicize `f` in the state example; typographic/example correction, no state-selection change."
+    }
+  },
+  "feature_matrix": [
+    {
+      "feature": "AP presence and no-AP behavior",
+      "rule_owner": "Table 166 AP row; EC3 #22 and #34",
+      "code": "crates/pdf-model/src/annotation.rs::stored_appearance returns Absent when AP is unavailable; decide/construct dispatches subtype-specific derived appearances or nothing/reporting according to local implementation.",
+      "assertions": [
+        "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance",
+        "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_nothing",
+        "annotation_common_current AP/no-AP tests distinguish derived subtypes and valid AP controls"
+      ],
+      "assessment": "Reader visuals without AP are implementation-dependent under #34, even where the PDF 2.0 producer is required to write AP. Existing subtype-specific behavior is documented as product policy and not promoted to a universal rule."
+    },
+    {
+      "feature": "N/R/D direct stream selection and defaults",
+      "rule_owner": "§12.5.5 and Table 170",
+      "code": "annotation.rs::stored_appearance maps the view appearance to N/R/D and falls back to N for absent optional R/D; print view selects N.",
+      "assertions": [
+        "crates/pdf-model/tests/annotation_appearance_audit.rs::explicit_rollover_is_selected_and_missing_down_defaults_to_normal",
+        "crates/pdf-model/tests/annotation_appearance_audit.rs::printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+        "crates/pdf-model/tests/annotations.rs::the_pointer_chooses_between_an_annotations_appearances"
+      ],
+      "assertion_quality": "Distinct literal colors make the chosen stream visible. Tests cover absent D→N, explicit R, pressed D, hover, idle N, and print N. Parent added absent R with differing explicit D; both optional fallbacks now have literal color controls."
+    },
+    {
+      "feature": "N/R/D state subdictionaries and AS selection",
+      "rule_owner": "Table 166 AS row; §12.5.5 state dictionary text/example and unmatched-state reasonable behavior",
+      "code": "annotation.rs::stored_appearance checks exact AS bytes for a subdictionary; a view's edited widget state can override the file state after user input. An absent state yields StateNotDefined/Nothing.",
+      "assertions": [
+        "annotation_appearance_audit.rs::rollover_and_down_state_subdictionaries_select_the_state_named_by_as",
+        "annotations.rs::an_appearance_state_is_selected_by_as",
+        "appearance_state_residual_current parent-review records a 1PASS pixel test for inherited button V versus differing widget AS"
+      ],
+      "assertion_quality": "The N/R/D matrix uses differently colored state streams; unmatched AS asserts empty output/no unsupported report, an expressly reasonable example. Non-UTF-8 exact name behavior has separate names_are_bytes.rs assertions."
+    },
+    {
+      "feature": "Unsupported annotation subtype with AP",
+      "rule_owner": "§12.5.5 processor sentence; EC3 #1 cross-reference",
+      "code": "stored_appearance selects N/R/D from view state before subtype construction. Unknown-subtype forced-N under a real pointer route is being investigated separately.",
+      "assertions": [
+        "annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"
+      ],
+      "assessment": "Existing unknown-subtype fixture supplies only N, so its passing pixels cannot distinguish forced N from generic N/R/D selection. This review does not certify unsupported-subtype pointer selection."
+    },
+    {
+      "feature": "View and host event route",
+      "rule_owner": "§12.5.5 cursor-over/pressed conditions; host pointer event dispatch",
+      "code": "viewer-core/src/viewer/pointer.rs maps Moved/Pressed/Dragged/Released to Over/Down and updates view state; GTK/Qt input translates native pointer events to viewer-core Command::Pointer; viewer-core interact::has_appearance gates invalidation.",
+      "assertions": [
+        "viewer-core/tests/headless.rs::a_move_while_the_button_is_held_keeps_the_down_appearance asserts render invalidation on press, no redundant repaint on held move, and repaint when leaving/reentering",
+        "pdf-model pixel tests above assert the actual selected stream color"
+      ],
+      "limit": "The model pixel matrix supplies the selected appearance oracle; the headless pointer test uses a corpus witness and checks render scheduling rather than raster color. No native window-driver pixel automation was run here."
+    }
+  ],
+  "current_other_audits": [
+    "doc/reviews/2038-specification-audit/shards/annotation_common_current",
+    "doc/reviews/2038-specification-audit/shards/appearance_state_residual_current",
+    "doc/reviews/2038-specification-audit/shards/annotation_visibility_print_current",
+    "doc/reviews/2038-specification-audit/shards/adr1235_named_page_appearance_current"
+  ],
+  "no_new_test_draft": "Parent added missing-R fallback control (T124). Unknown-subtype N under pointer-over/down remains an active separate hypothesis, not a confirmed finding here.",
+  "residuals": [
+    "No complete AP producer audit across all writer/export paths.",
+    "No universal reader visual behavior is required for missing AP by effective EC3 #34.",
+    "Malformed missing/null N or required AS recovery remains policy, not a mandatory ISO rejection claim.",
+    "Full AP coordinate transformation, annotation opacity/blend, flags, and all host backends are outside this matrix."
+  ]
+}

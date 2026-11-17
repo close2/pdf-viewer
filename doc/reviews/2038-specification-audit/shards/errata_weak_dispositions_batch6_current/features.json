@@ -1,0 +1,55 @@
+{
+  "shard": "errata_weak_dispositions_batch6_current",
+  "baseline": "b901326c",
+  "scope": "Source-led disposition of EC3 issues #632, #656, #680, #691, and #731. The actual primary annotation objects, locations and contents were inspected. No whole-clause certification is claimed.",
+  "source_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "issues": [
+    {
+      "id": 632,
+      "source_location": "Primary physical p.806 / printed p.791, Table 383. StrikeOut 7745 at [233.929993,540.378906,265.244232,552.052002], replied to by Caret 7746 whose Contents is 'List box'. It targets the underlying 'Listbox' wording in the /Role list, after the `lb` code.",
+      "effective_rule": "Table 383 defines `lb` as a list box field; the correction separates the descriptive words. It does not change the role code or add a new list-processing rule.",
+      "implementation": "`crates/pdf-model/src/structure.rs::FieldRole::read` maps byte name `lb` to `FieldRole::ListBox`; `Tree::print_field` reads the attribute. The spelling correction does not alter that mapping.",
+      "assertions": "Parent read tracked crates/viewer-core/tests/print_field_consumer_spec_audit.rs. Existing B29 has three semantic-difference failures for cb/rb role, checked state and description, plus passing title control. No lb-specific fixture. Model unit fixture checks cb/rb/tv only; title or parser coverage does not certify the missing consumer.",
+      "boundary": "This table entry is a reader-facing accessibility mechanism under \u00a714.8.5.6, so the broader PrintField handoff concern is real and separate. The editorial one-word correction itself does not cause that gap or specify a new representation.",
+      "disposition": "Effective wording correction, no distinct issue-632 behavior change. Carry the existing broader PrintField consumer gap without claiming this spelling correction independently proves it."
+    },
+    {
+      "id": 656,
+      "source_location": "A Text annotation (obj6096) at physical p.616 / printed p.601 says the third column title in Tables 269\u2013274 and 276 is inconsistent and should be 'Value', not 'Description'. Direct StrikeOut/Caret pairs visibly replace the heading at Table 269 (physical p.617 / printed p.602; objects 6105/6106), Table 273 (physical p.621 / printed p.606; 6182/6183), and Table 274 (physical p.622 / printed p.607; 6214/6215).",
+      "effective_rule": "This is an editorial table-heading normalization. The Text annotation explicitly names all Tables 269\u2013274 and 276; the effective editorial correction applies to those named headings even where the underlying page body still displays the old word. The table entries and their semantics are unchanged.",
+      "implementation": "The affected tables describe geospatial dictionaries and document requirements. Their header label is not a parsed PDF key or runtime value. No code behavior follows from this change.",
+      "assertions": "No runtime assertion is required. `doc/conformance/ledger.toml` has selected feature rows for the relevant geospatial and document-requirement behaviors, but their existence does not make this heading correction a runtime rule.",
+      "disposition": "Effective editorial correction; not an unimplemented behavior correction and no conformance defect."
+    },
+    {
+      "id": 680,
+      "source_location": "Physical p.561 / printed p.546, Table 237 `/V`. StrikeOut 5793 at [187.820007,262.408875,492.205017,285.84201] is paired with Caret 5794 at [335.122192,260.922333,344.198242,268.317627]. The Caret inserts: 'for PDF 1.7 and earlier. A value of 3 specifies that it shall be able to recognise all seed value dictionary entries specified for'. Together with the struck words, effective text assigns `/V 2` the PDF 1.7-and-earlier set and `/V 3` the PDF 2.0-and-earlier set.",
+      "effective_rule": "Table 237 `/V` describes minimum capability of the signature-field seed-value dictionary parser. \u00a712.7.5.5 states seed-value entries constrain the time a signature is applied; this is a signing-time facility.",
+      "implementation": "The current viewer verifies signatures but does not implement signature creation/application. The ledger \u00a712.7.5.5 explicitly places seed-value constraints on a processor that signs; the seed-value `/V` does not govern verification of an already signed file.",
+      "assertions": "No reader test for seed-value parser versions was identified. Existing requirement-version tests cover catalog `/Requirements` `/V`, a different feature, and are not evidence for Table 237.",
+      "disposition": "Effective correction to a signing-capability declaration. No current reader behavior defect established; don't treat the document-requirement `/V` test as coverage of this field."
+    },
+    {
+      "id": 691,
+      "source_location": "Physical p.734 / printed p.719, \u00a714.4. StrikeOut 6784 has no replacement and QuadPoints marking the wrapped phrase 'such as MD5 (described in Internet RFC 1321)' in the optional uniqueness recommendation. It does not overlap the separate two #328 strikes on 'contents of the' in the identifier definitions.",
+      "effective_rule": "Writers should attempt identifier uniqueness; after this strike, MD5 is not the named example. The recommendation remains nonmandatory, and no specific digest algorithm is prescribed.",
+      "implementation": "`crates/pdf-syntax/src/write.rs::identify` and `serialize.rs::identify` currently use MD5 as a local implementation choice. Their comments identify #691 and distinguish the standard's uniqueness recommendation from the implementation choice.",
+      "assertions": "`identifiers_procsets_current` added public classic-xref and xref-stream writer controls checking the two ID values, and the parent-run controls passed. Existing incremental-update assertions pin first-ID preservation/second-ID change. These test output shape and update behavior, not MD5 conformance or collision resistance.",
+      "disposition": "Effective deletion of an algorithm example; current MD5 implementation remains a product choice. Existing ADR 0712/0121/0129/0817 distinctions remain sound subject to their stated limits."
+    },
+    {
+      "id": 731,
+      "source_location": "Physical p.42 / printed p.27, \u00a77.3.4.3. Text annotation 1497 at [56.131119,312.494873,76.131119,330.494873] says whitespace is permitted in hexadecimal strings but comments are prohibited.",
+      "effective_rule": "Whitespace inside a hexadecimal string is ignored; comment syntax is not allowed inside the token. This clarifies the string's lexical body; it does not direct processors to reject malformed strings.",
+      "implementation": "`pdf-syntax/src/lexer.rs::read_hex_string` ignores PDF whitespace, ignores other nonhex bytes while incrementing `HexadecimalStrings::strayed`, and keeps the byte result. Archive validation consumes the `strayed` count and can report this malformed syntax. A `%` sequence inside angle brackets is thus tolerated during recovery and recorded as stray rather than treated as an in-token comment.",
+      "assertions": "Parent read lexer bodies. hex_strings_ignore_junk_and_pad_an_odd_digit actually tests valid even/odd/empty/whitespace cases, despite its name; a_hexadecimal_string_records_how_it_was_written checks ! as stray and its offset. Separate audit asserts all six valid whitespace bytes. No direct percent-comment-specific assertion; code handles percent as nonhex rather than invoking comment lexing.",
+      "boundary": "The source forbids comments in the producer syntax; it does not state a mandatory reader rejection. Treat permissive parsing as recovery, not as source-approved comment syntax.",
+      "disposition": "Effective lexical clarification, current parser's recover-and-record behavior is not a confirmed conformance defect. No separate test draft is needed for this bounded review."
+    }
+  ],
+  "limits": [
+    "Annotation pages, footers, marked rectangles and replacement contents were checked against the primary PDF. For #656, the editor note itself is the correction applying to all listed tables; unchanged underlying headings do not by themselves show the correction is ineffective.",
+    "The #632 PrintField source-to-accessibility gap is inherited from the separate whole-feature review; it is not caused by the spelling edit. Parent checkpoint results are attributed to the parent, not independently rerun here.",
+    "No Cargo or Git mutation, production/ledger edit, or test draft was made."
+  ]
+}

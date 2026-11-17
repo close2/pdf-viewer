@@ -56,9 +56,9 @@ fn source() -> Vec<u8> {
 
 fn fdf() -> Vec<u8> {
     let objects = [
-        "<< /Version /1.3 /FDF << /Pages [<< /Templates [<< /TRef << /Name (stamp) >> >>] >>] >> >>".to_owned(),
+        "<< /Version /1.4 /FDF << /Pages [<< /Templates [<< /TRef << /Name (stamp) >> >>] >>] >> >>".to_owned(),
     ];
-    file("%FDF-1.3\n", "1 0 R", &objects)
+    file("%FDF-1.2\n", "1 0 R", &objects)
 }
 
 fn render_request(events: &[Event], page: usize) -> viewer_core::RenderRequest {

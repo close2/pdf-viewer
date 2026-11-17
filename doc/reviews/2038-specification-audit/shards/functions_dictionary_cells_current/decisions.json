@@ -1,0 +1,37 @@
+{
+  "shard": "functions_dictionary_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "reviews": [
+    {
+      "identity": "root ADR 0098, amended by ADR 1623 and implemented by ADR 1636",
+      "question": "Is Table39 Order3 unresolved/linear fallback, or a deliberate spline choice?",
+      "evidence": "Current code selects not-a-knot tensor-product cubic spline, has exact cubic/bicubic/end-piece controls, and uses linear interpolation when any sample dimension is below four as Table39 directs. ADR 1636 gives rationale and ADR 1623 amends the older refusal.",
+      "verdict": "Reaffirm current choice; do not repeat ADR0098 historical partial assessment as current status. Residual cost/behavior is the named algorithm choice, not a table-cell omission."
+    },
+    {
+      "identity": "root ADR 0098 sample-width and Type0 fixture claims; ADR 0356 stream-extent rationale",
+      "question": "Do current table-cell assertions prove valid sampling rules without overgeneralizing?",
+      "evidence": "Width test explicitly covers all eight legal values and invalid width; valid integration tests independently pin Encode/default, Decode, output clip, multidimensional order and bit packing; extent is separately tested.",
+      "verdict": "Coverage is meaningful for sampled cells selected here; no new deficit found. Do not describe sample widths as five, nor make stream extent test a full interpolation oracle."
+    },
+    {
+      "identity": "root ADR 0261/hostile_functions.rs function tree budgeting",
+      "question": "Are Type3 k/depth limits normative?",
+      "evidence": "Table41 specifies k and does not state a maximum; code defines separate MAX_FUNCTIONS/recursion depth resource budgets. Source permits implementation limits for resource use in general; ADR 0261 records a real-file regression and hostile cycle protection.",
+      "verdict": "Keep the limit as explicit bounded parser policy, not ISO maximum; existing corpus/hostile tests justify it. This pass did not investigate boundary values or promote a new cap failure."
+    },
+    {
+      "identity": "root ADR 1636 selected cubic spline algorithm",
+      "question": "Does current cell coverage test the advertised choice, including the conditional Order3 ignore rule?",
+      "evidence": "Exact cubic reproduction, bicubic, endpoint pieces, and order3-vs-order1 controls on dimensions with Size<4; test rejects unlisted order 2.",
+      "verdict": "Reaffirm within reviewed cells. Not a claim that ISO prescribes not-a-knot."
+    },
+    {
+      "identity": "root ADRs 0369/0412 and calculator function reviews",
+      "question": "Does Table42 listing alone justify operator conformance claims?",
+      "evidence": "Current row-specific tests cover selected operators, but ISO delegates semantics to PLRM3; prior calculator_oracle_assertions_current review correctly keeps Table42, PLRM, production evaluator, and GPU/reference evidence separate. Errata #269/#669 are spelling/code corrections.",
+      "verdict": "No new test gap identified in Table42 dictionary framing; retain bounded operator claim and do not treat this pass as full delegated-PLRM audit."
+    }
+  ],
+  "decision": "No distinct new valid-input boundary gap was established after reading the current code and tests. No additional draft is warranted; existing functions_current regressions for narrow Type0 spans and signed-zero Type3 endpoint remain separate known candidates/findings."
+}

@@ -1,0 +1,6 @@
+{
+  "verdict": "Retain separate source, reader-policy and output-protection roles. Four new public verb cases and archive claim propagation pass. Archive+Protect API contract still needs a decision.",
+  "inspection": "Reviewed public dispatch and new exact-xref fixture. For Split/Merge/Pages/ordinary Optimize, empty/wrong/source-owner passwords refuse; new reader and owner open; copy permission is withheld; literal FIRST/SECOND text and page counts survive. Archive source claims are checked exactly in report fields, report text and decoded XMP, with clear-source absence control.",
+  "execution": "Two new test identities pass. Transform all-targets Clippy passes.",
+  "limits": "Ordinary four-verb matrix supplements existing redaction and linearization tests. Archive fixture intentionally needs structural recovery. Raw decoded XMP string checks do not independently parse RDF. No fresh ISO19005 source read; PDF/A rule is attributed to repository policy. API silent-ignore edge is source evidence, not an ISO violation."
+}

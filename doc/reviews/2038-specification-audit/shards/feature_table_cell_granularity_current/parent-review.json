@@ -1,0 +1,9 @@
+{
+  "verdict": "All8 Table224 and10 Table226 entries inventoried; two distinct TM behavior defects confirmed. Whole features remain partial.",
+  "source": "Parent read physical545–546/printed530–531 field inheritance and Table226; physical567–568/printed552–553 submission selection/HTML/coordinates; physical578 Table249 import identity. Checked #28/#313/#618 overlays on546 and #318 on544.",
+  "coordinate_finding": "B60: ancestor-only TM changes coordinates for merged and separate widget forms; local terminal TM, absent fallback and single-space controls all pass. Widget-to-own-terminal lookup is necessary and is not field inheritance.",
+  "export_finding": "B61: HTML action selects T=person and outputs person=Ada despite TM=exportkey. No-TM positive control passes. Exact-xref PDF1.7 with NeedAppearances and DA/DR font. FDF/XFDF are not inferred from HTML failure.",
+  "execution": "table-cells-wave85b.log:FontPASS,TMcoordinatesFAIL. tm-html-wave85b.log:HTMLTMFAIL. Model all-targets ClippyPASS quality-wave85c.log.",
+  "draft_corrections": "Initial coordinate draft overconstrained URL-encoded period spelling; corrected before failure accepted. Initial HTML fixture omitted ExportFormat and font object due to a failed text replacement; corrected before accepted run. Earlier SigFlags test citation referenced removed no-walk test; current walk-all-the-same and set/absent/zero public bodies read. No new signature execution.",
+  "limits": "Existing entry tests partly reviewed by subagent; parent did not rerun all. NeedAppearances/AA residual consumers remain under separate review. Existing inherited-value save failure is scoped to persisted output, not runtime read."
+}

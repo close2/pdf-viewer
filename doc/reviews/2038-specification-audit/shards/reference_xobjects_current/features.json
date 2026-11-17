@@ -1,0 +1,40 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 with Errata Collection 3",
+  "scope": "§8.10.4.1–.3, reference XObjects only",
+  "features": [
+    {
+      "clause": "8.10.4.1",
+      "title": "General",
+      "source_locations": [
+        {"physical_page": 290, "printed_page": 275, "text": "Reference XObject concept; containing/target document; proxy; two processor behaviors; embedded/external target possibility; Table 95 /F and /Page."},
+        {"physical_page": 291, "printed_page": 276, "text": "Table 95 /ID; imported-page transformation, clipping, proxy Group."}
+      ],
+      "features": [
+        {"feature": "Recognize Ref on Form XObject and proxy fallback", "norm": "Ref presence distinguishes reference XObjects. Processor not recognizing Ref displays/prints proxy as an ordinary Form XObject; implementing processor uses proxy when imported content is unavailable. Proxy should be processed when target unavailable.", "implementation": "Form XObject dispatch reads /Ref; `Supply::NONE` draws proxy without report; supplied target import replaces proxy; unavailable/identified mismatch/page-not-found paths draw proxy and report when supply existed.", "assertions": "`reference_xobjects.rs` has exact-color proxy vs no-Ref control, imported page color, unavailable target/changed ID/missing page/no ID outcomes. Direct model tests; no current public host print seam test."},
+        {"feature": "Target file /F and optional ID", "norm": "Table 95 /F is required and identifies the PDF file. /ID is optional; it is a two-byte-string array that improves locating intended file and permits warning on change. §14.4 explains matching both identifiers means very likely correct/unchanged; matching first only means a different version of the correct file.", "implementation": "`Reference::read` parses and retains FileSpec, Page, optional ID. `Supply::find` never consults FileSpec; it requires ID, scans candidates for the first permanent-ID match, then compares changing ID only on that first match. `Supply::read` rejects every target with no trailer ID, although a PDF 1.7 target may omit it.", "assertions": "Existing tests cover a single target exact ID, a changed second string, wrong first ID, missing reference ID, and target without ID; no collision/multiple-candidate precedence test or no-ID F-name resolution test."},
+        {"feature": "Page designation", "norm": "Required /Page is integer page index or text page label (§12.4.2); may become invalid if target page replaced.", "implementation": "Integer is zero-based index; text is decoded and compared against computed page labels, but search is capped at 4096 indices. A present label at index 4096 or later is reported as a nonexistent page rather than a resource-limit case.", "assertions": "`form_xobjects_audit.rs` tests a label selecting the blue second page, an integer-zero control selecting green first page, missing-label proxy fallback, exact xref for containing fixture. It is outside the reference_xobjects.rs suite but does test public model interpretation. Draft boundary test covers index4095/4096 label and numeric controls."},
+        {"feature": "Placement and clipping", "norm": "Imported page uses proxy Form Matrix and BBox. Proxy Group attributes apply to imported page.", "implementation": "Imported page receives transformed graphics state and BBox clip; proxy group enters around imported page.", "assertions": "`reference_xobjects.rs` asserts pixels inside/outside BBox, same-number resource separation, and proxy group behavior. ADR 1339 addresses nesting with target page group. Not re-audited in depth."},
+        {"feature": "External and embedded target source", "norm": "Target may reside in external file or be embedded file stream. Table95 /F is required. Target availability is conditional for proxy fallback.", "implementation": "Host reads a user-selected directory into `ReferenceFiles`; all offered PDFs are parsed as a supply. No path is opened by renderer. Embedded files in containing PDF are not automatically added to Supply; absent IDs are refused before matching.", "assertions": "No imported-target fixture covers embedded target or an ID-less PDF selected by an explicitly supplied /F name. These are unresolved source/policy boundaries, not automatically conformance failures."}
+      ]
+    },
+    {
+      "clause": "8.10.4.2",
+      "title": "Printing reference XObjects",
+      "source_locations": [{"physical_page": 291, "printed_page": 276, "text": "Printer may emit imported content or proxy depending on capabilities, preferences, and job."}],
+      "features": [
+        {"feature": "Print choice", "norm": "Permission: a processor may emit imported content or the proxy according to its capabilities/preferences/job; this is not a mandatory imported-over-proxy choice.", "implementation": "PrintPage calls same `open::interpret` with the open reference supply, so it chooses imported content when supplied and proxy otherwise.", "assertions": "Ledger cites generic `a_printed_page_is_targeted_at_the_jobs_resolution`, which does not contain a Ref. Core print shares the interpreter, but no public Viewer test checks ReferenceFiles→Print→printed pixels against supplied/unsupplied controls."}
+      ]
+    },
+    {
+      "clause": "8.10.4.3",
+      "title": "Special considerations",
+      "source_locations": [{"physical_page": 291, "printed_page": 276, "text": "Printable, unhidden, visible annotation APs included; snapshot producers include APs; logical structure may be ignored with rationale/one-page caveat."}],
+      "features": [
+        {"feature": "Imported annotation appearances", "norm": "All annotations with printable, unhidden, visible appearance stream shall be in rendering of imported page. Snapshot proxy writers shall include those APs in proxy stream (producer requirement).", "implementation": "Imported page runs target document annotation pass under target document state; imported-page clipping covers annotations. Snapshot-proxy synthesis is not this viewer's reader behavior.", "assertions": "Existing test asserts a printable, visible Square AP appears and is clipped with page; it does not provide negative-flag controls for hidden/nonprintable/NoView across screen vs print intent."},
+        {"feature": "Logical structure", "norm": "May be ignored when importing; in some one-page or independent-page documents it may be possible to incorporate it.", "implementation": "Imported page is interpreted with an empty parent tree; structure is ignored.", "assertions": "No dedicated structure inclusion/ignore comparison found; omission is an allowed choice, not a defect."}
+      ]
+    }
+  ],
+  "errata": "No EC3 annotation affecting §§8.10.4.1–.3 was found in doc/errata-read.md or the source-page annotation overlay. Effective text is as cited above."
+}

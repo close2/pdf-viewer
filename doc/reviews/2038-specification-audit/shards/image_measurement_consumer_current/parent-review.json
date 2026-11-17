@@ -1,0 +1,8 @@
+{
+  "verdict": "B73: a valid image-attached GEO measure does not reach the supported interactive measurement query. Matched page viewport control PASS; image case FAIL with Answer::None.",
+  "source": "Parent read Table87 continuation at physical276, Table269 at617–618 and Table272 at621. Direct annotation check confirms issue533 makes LPTS required; fixture includes it. Table272 itself is621, while620 introduces the clause. ADR0417 explicitly assigns image Measure to measurement rows; ADR0082/1191 document page consumers. ADR2170 does not address image measurement.",
+  "oracle": "Four-corner WGS84 WKT registration maps local (0.75,0.5) to literal latitude11/longitude21.5 under the adopted affine choice (ADR1593). No EPSG registry is consulted. PageGeometry supplies actual displayed origin/scale, so the fixture does not assume margin-free layout. The control and target have identical image placement and registration; only the dictionary owning Measure differs.",
+  "fixture": "PDF2.0, equal 16-byte initial IDs, exact xref, complete chain, explicit image resources, ASCIIHex one-sample image and exact stream lengths. Separate positive test passes. No external fixture or early return.",
+  "scope": "An existing measurement-feature omission, not a pixel-rendering defect or a claim that every PDF reader must offer measurement. No obligation to display arbitrary PtData columns established. Overlap precedence, nested forms, other projections and the full geospatial clause remain unverified.",
+  "execution": "image-measure-wave112b: 1 PASS, 1 FAIL. Viewer-core all-target Clippy PASS. Parent split the draft into separately visible control and target tests and added the chain guard."
+}

@@ -1,0 +1,6 @@
+{
+  "source": "Parent read current Table147/148 print entries and inspected GTK/Qt consumer code. Current12.2 ledger remains partial; no status change. The PrintScaling suppressed-dialog sentence is explicit and must not be dropped when describing dialog initialization.",
+  "decisions": "Retain ADR1180 with its native-dialog evidence limit. ADR2814 first-pair omission is already fixed; new Qt bridge assertion covers both pairs. Enforce/ADR2840 and placement/ADR1203/1204 remain separate.",
+  "follow_up": "native_print_defaults_tests_current now supplies two passing settings/bridge assertions; it does not prove native dialog or physical output.",
+  "c_api": "Read viewer-ffi/src/abi/host.rs quorra_print/quorra_print_placed, session/printing.rs and core grant_print. Ordinary API states page_scale1; placed API accepts caller placement and exposes preference queries. Actual final sheet placement is caller-owned. No suppressed-dialog conformance verdict inferred from library parameter acceptance alone. The host.rs comment saying no page accessor exists is stale relative to current quorra_print_page; no runtime failure follows."
+}

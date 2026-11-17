@@ -1,0 +1,46 @@
+{
+  "scope": "Selected review of aggregate and introductory rows in Clause 12; not whole-ADR or whole-clause certification.",
+  "decisions": [
+    {
+      "topic": "Empty headings versus aggregate claims",
+      "review": "12.1 and 12.10.1 are descriptive introductions; 12.3, 12.4, 12.5, 12.6, 12.7, 12.9, 12.10 and 12.11 are not interchangeable. Some aggregate headings summarize children, while 12.9.1 and 12.11.1 contain independent normative rules. A parent status does not discharge a specific child debt or departure.",
+      "assessment": "Keep the project’s introductory-row convention for clauses with no SHALL, but don't describe substantive rows as vacuous merely because their title says General."
+    },
+    {
+      "topic": "Collection and navigator numbering",
+      "source": "EC3 #477, primary PDF printed pp.447-457 / physical pp.462-472",
+      "review": "Use effective §12.3.5.3 for Collection navigators after #477. The collections sibling found Schema `S`, `D`, and `CompressedSize` are parsed/declared but absent in the actual host cell consumer; its aggregate `implemented` claim requires qualification pending parent review.",
+      "assessment": "Carried-forward public presentation gap, not re-run here."
+    },
+    {
+      "topic": "Keyboard order is a conditional interactive feature",
+      "source": "§12.5.1 plus Table 31; `/Tabs` is optional; processor may permit keyboard navigation",
+      "review": "Once a processor supports keyboard navigation and the producer states one of R/C/S/A/W, the order descriptions are concrete. The implementation uses those orders for focus/accessibility. Existing public assertions discriminate R, while one focus-walk test only proves forward/back movement and doesn't independently distinguish all modes.",
+      "assessment": "Assertion granularity remains limited; optional support means no universal reader failure is inferred. No duplicate test draft was written."
+    },
+    {
+      "topic": "Remote/embedded destination view versus page index",
+      "source": "§§12.3.2.1-.2 and 12.6.4.3-.4, as reviewed in destinations_current_followup",
+      "review": "The existing public GoToR/GoToE controls establish target page selection, but the sibling trace says the action destination's table-149 view is dropped when replacing the document. Its independent `/XYZ` consumer draft is not run in that sibling report.",
+      "assessment": "Preserve this concrete carried-forward gap; do not treat page selection as proof of full destination behavior."
+    },
+    {
+      "topic": "Measurement public assertion depth",
+      "source": "§12.9.1 reverse viewport and first-point rules",
+      "review": "The model asserts reverse-order and first-point logic, but the existing viewer case has identical measurement dictionaries across candidate viewports and therefore cannot catch the wrong scale. The shard's public numeric-selection draft has distinct literal scale controls and is pending parent execution.",
+      "assessment": "Evidence gap, not observed runtime failure."
+    },
+    {
+      "topic": "Document requirements version and processing policy",
+      "source": "§12.11.1 Table 273 `/V`, §12.11.4 and §12.11.6; EC3 #187",
+      "review": "The sibling trace shows a present `/V` is parsed but not considered in the supported-version verdict; a forward-version requirement is therefore treated as met. The strict-stop interpretation also conflicts with configured On/Ask/Warn/Off product levels unless carefully scoped. Evaluate-before-ECMAScript remains a concrete normative sequencing rule.",
+      "assessment": "Retain the `/V` disconnect as a concrete code-path defect candidate. Keep the Process-level stop question as a policy/ledger framing issue until the source interpretation is reconciled; do not demand warnings before first paint."
+    },
+    {
+      "topic": "FDF producer rules are not automatic reader refusal rules",
+      "source": "§12.7.8.1 and §12.7.8.3",
+      "review": "No incremental updates, generation-zero identifiers, and direct stream lengths constrain conforming FDF producers. They are not independent reader MUST-reject rules. The FDF import path's page/annotation behavior belongs to its dedicated shard.",
+      "assessment": "No new malformed-input rejection requirement inferred."
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "2818",
+      "title": "Annotation geometry and written appearances follow the tables' words",
+      "verdict": "retain for the bounded line and text-markup geometry decisions",
+      "basis": "Table 178 places line leader endpoints at /L when /LL exists, and Tables 178/179 define line end styles; Table 182 supplies four-vertex quadrilateral geometry and text-edge orientation. Current exact-xref tests use independent endpoint, orientation and trapezoid controls.",
+      "caveat": "The stale explanatory header in line_ending_endpoint_spec_audit.rs says ADR 0192 chooses displaced leader endpoints; the test body and implementation test the current table reading. Update prose if this test is promoted."
+    },
+    {
+      "adr": "2813",
+      "title": "A press defaults to invert and a printed sheet shows the normal appearance at its own scale",
+      "verdict": "retain for Table 191 highlighting and widget print appearance",
+      "basis": "Table 191 says /H defaults to I and non-P modes override a down appearance. Pixel assertions distinguish normal/down appearance and default-I edge behavior; print behavior is purpose-specific.",
+      "caveat": "This is a bounded Table 191 review; it does not certify unrelated widget/field behavior or all print scaling rules."
+    },
+    {
+      "adr": "2868",
+      "title": "A redaction's /RO is drawn strictly after the removal",
+      "verdict": "retain for valid /RO post-removal rendering and source-byte safety",
+      "basis": "Table 195 says /RO artwork is drawn after content removal and takes precedence over other overlay entries; implementation validates form resources and rejects source-content reachability. Integration tests check removal and post-removal rendering."
+    },
+    {
+      "adr": "2869",
+      "title": "The authoring line's redaction overlay is /OverlayText and /IC",
+      "verdict": "retain the current narrowly stated owner-scope departure",
+      "basis": "Owner ratifications A834/A842 exclude composed /OverlayText and /IC. This is a product scope decision, not a claim that the standard makes those entries optional when an interactive processor supports redaction. /RO is handled separately."
+    }
+  ],
+  "superseded_or_not_reaffirmed": [
+    {"adr":"2841","status":"superseded by 2868/2869","reason":"Do not carry the former /RO withdrawal into current status: valid /RO is now applied after removal; only /OverlayText and /IC remain named as excluded authoring composition."}
+  ]
+}

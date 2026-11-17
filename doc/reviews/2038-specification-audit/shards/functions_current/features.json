@@ -1,0 +1,183 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft execution statements. No whole-clause certification.",
+  "reviewer_record": {
+    "shard": "ISO 32000-2 §7.10 focused current-code audit",
+    "baseline": "4015a9ae -> b901326c; source and assertion review only",
+    "scope": "Changed Type 3 degenerate first-bound endpoint; Type 0 domain/Encode interpolation and Order assertions; new Type 4 fault tracking/reporting and selected Type 4 bitshift semantics against PLRM3. Not a full audit of all Type 4 operators.",
+    "source": [
+      "ISO 32000-2:2020(E), §7.10.1–§7.10.5.3, printed pp. 123–132 (doc/ISO_32000-2_sponsored_EC3.pdf)",
+      "EC3 errata #30, #269, #446, #669 as indexed in doc/errata-read.md"
+    ],
+    "features": [
+      {
+        "id": "stitching-degenerate-first-endpoint",
+        "clause": "7.10.4",
+        "source_location": "Printed pp. 128–130; Table 41 p. 129 and endpoint equation p. 130",
+        "requirements_reviewed": [
+          "Domain0 <= Bounds0; interval partition assigns the first interval both closed endpoints when Bounds0 = Domain0",
+          "for the degenerate case, x' is Encode0",
+          "input is clipped to Domain before interval selection"
+        ],
+        "code": [
+          "crates/pdf-colour/src/function.rs::Function::eval_stitching_into"
+        ],
+        "assertions": [
+          "crates/pdf-colour/tests/functions_spec_audit.rs::stitching_domain_start_bound_uses_its_explicit_degenerate_encode_value"
+        ],
+        "verdict": "defect in changed implementation: `f32::total_cmp` treats -0.0 and +0.0 as distinct although the specified numeric equality does not; valid signed-zero endpoint fixture misses Encode0",
+        "residuals": [
+          "Draft regression at drafts/stitching_signed_zero_endpoint.rs; not compiled or run.",
+          "Other malformed Bounds/domain relationships are outside this focused review."
+        ]
+      },
+      {
+        "id": "type4-runtime-errors-and-reporting",
+        "clause": "7.10.5.3",
+        "source_location": "Printed p. 131; Domain/Range general rules printed p. 124",
+        "requirements_reviewed": [
+          "Domain and Range required; inputs form initial operand stack",
+          "remaining value count must equal Range output count",
+          "every output must be a number",
+          "stack has room for at least 100 entries and overflow is an error"
+        ],
+        "code": [
+          "crates/pdf-colour/src/function.rs::provable_error",
+          "crates/pdf-colour/src/function.rs::evaluate_postscript",
+          "crates/pdf-colour/src/function.rs::Function::eval_into",
+          "crates/pdf-colour/src/function/watch.rs::watching",
+          "crates/pdf-model/src/content.rs::interpreted",
+          "crates/pdf-model/src/content.rs::report_function_faults",
+          "crates/pdf-model/src/content/report.rs::Interpretation::function_faults_after_drawing",
+          "crates/pdf-colour/src/shading.rs::ramp"
+        ],
+        "assertions": [
+          "crates/pdf-colour/src/function.rs unit tests: a_program_that_errs_on_every_run_is_refused; an_error_that_depends_on_the_input_is_recorded_as_a_fault; a_fault_a_clone_meets_is_the_functions; a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later",
+          "crates/pdf-colour/tests/calculator_functions_spec_audit.rs::type4_evaluator_can_use_one_hundred_stack_entries",
+          "crates/pdf-model/tests/function_faults.rs tests for tint, image, transfer, black generation, mesh, and post-draw Type 1 shading"
+        ],
+        "verdict": "implementation and assertion coverage is materially improved; exact 100-stack control and valid/error consumer controls are meaningful. Runtime stand-in values are reported, with some post-draw/GPU/reporting limits retained by ADR 2848/2849.",
+        "residuals": [
+          "No execution in this shard; parent test run pending.",
+          "GPU evaluator does not record faults (ADR 2849 deferred). `function_faults_after_drawing` is an API the host must ask; it does not retroactively make the rendering report complete.",
+          "A low-bit one-component image palette evaluates all representable levels, so it may report a fault at a level absent from the image (explicitly retained in ADR 2848).",
+          "No exhaustive independent PLRM3 numeric audit of every operator here.",
+          "PLRM3 requires zero-filled bits, but §3.3.1 and Appendix B.1 make machine integer width implementation-dependent/typical; exact width-32 results and shifts >=32=>0 are local i32 behavior, not universal source mandates.",
+          "PLRM3 §8.2 requires both bitshift operands be integers; current Value::integer truncates real values, and a unit test explicitly accepts real 1.5. Treat this as malformed-operand recovery/departure, not valid operator semantics.",
+          "No host calls Interpretation::function_faults_after_drawing; viewer-core formats initial Unsupported reports only, so a post-draw Type 1 shading fault has no visible host warning currently."
+        ]
+      },
+      {
+        "id": "sampled-interpolation-encode-order-and-boundaries",
+        "clause": "7.10.1–7.10.2",
+        "source_location": "ISO 32000-2 printed pp. 123–127; Table 39 p. 125; formula and sample-order rule pp. 125–126; EC3 #446 is a note cross-reference only.",
+        "requirements_reviewed": [
+          "inputs clip to Domain before Encode interpolation",
+          "encoded real positions clip to [0, Size−1] before interpolation",
+          "Decode maps sample integers and output clips to Range",
+          "first input dimension varies fastest; outputs are stored in Range order",
+          "Order 1 linear and Order 3 cubic spline; Order 3 ignored if any Size dimension <4"
+        ],
+        "code": [
+          "crates/pdf-colour/src/function.rs::parse_sampled",
+          "crates/pdf-colour/src/function.rs::Sampled::eval_into",
+          "crates/pdf-colour/src/function.rs::Sampled::eval_spline",
+          "crates/pdf-colour/src/function.rs::interpolate",
+          "crates/pdf-colour/src/function/cubic_spline.rs"
+        ],
+        "assertions": [
+          "crates/pdf-colour/tests/sampled_functions_spec_audit.rs::sampled_default_encode_interpolates_at_a_real_sample_position",
+          "sampled_input_is_clipped_to_domain_before_encode",
+          "sampled_encoded_position_is_clipped_to_sample_table",
+          "sampled_decode_defaults_to_the_declared_range",
+          "sampled_decoded_outputs_are_clipped_to_range",
+          "sampled_outputs_follow_the_order_of_range_components",
+          "sampled_first_input_dimension_varies_fastest_in_the_array",
+          "sampled_single_entry_dimension_returns_its_only_sample_for_every_input",
+          "sampled_twelve_bit_values_are_high_order_first_and_have_no_inter_sample_padding",
+          "crates/pdf-colour/src/function.rs unit tests for all BitsPerSample widths and Order 3"
+        ],
+        "verdict": "broad source-directed assertion coverage for valid default/explicit Encode, clipping, output ordering, sample bit order, and spline choice; defect in shared interpolation: nonzero spans smaller than f32::EPSILON are treated as zero, contrary to §7.10.1 formula.",
+        "residuals": [
+          "drafts/sampled_sub_epsilon_domain.rs uses exact valid fixture and sample expectations; not compiled/run.",
+          "Order 3 names a cubic spline but not a boundary condition; not-a-knot is an implementation choice in ADR 1636, not prescribed source behavior.",
+          "Fractional Size and absent /BitsPerSample use fallback/truncation paths; those are malformed dictionary cases and were not promoted as valid-function conformance claims.",
+          "No exhaustive high-dimensional tensor-product or every valid bit width by integration fixture."
+        ]
+      }
+    ],
+    "ledger_mapping": [
+      {
+        "clause": "7.10",
+        "ledger_location": "doc/conformance/ledger.toml:987",
+        "status": "implemented",
+        "review": "umbrella status overstates current bounded evidence while the sampled interpolation and signed-zero defects remain unresolved"
+      },
+      {
+        "clause": "7.10.1",
+        "ledger_location": "doc/conformance/ledger.toml:995",
+        "status": "implemented",
+        "review": "Domain/Range summary is mostly covered, but shared interpolation epsilon behavior violates the affine mapping for valid narrow spans"
+      },
+      {
+        "clause": "7.10.2",
+        "ledger_location": "doc/conformance/ledger.toml:1003",
+        "status": "implemented",
+        "review": "ledger note maps Order, order choice, sample ordering, widths and extent; add the narrow-span interpolation gap"
+      },
+      {
+        "clause": "7.10.3",
+        "ledger_location": "doc/conformance/ledger.toml:1011",
+        "status": "implemented",
+        "review": "not substantively audited in this bounded shard"
+      },
+      {
+        "clause": "7.10.4",
+        "ledger_location": "doc/conformance/ledger.toml:1019",
+        "status": "implemented",
+        "review": "ledger note discusses k and recursion but omits signed-zero equality at the degenerate first bound"
+      },
+      {
+        "clause": "7.10.5",
+        "ledger_location": "doc/conformance/ledger.toml:1027",
+        "status": "implemented",
+        "review": "bounded Type 4 error and bitshift review only; not whole-clause verification"
+      },
+      {
+        "clause": "7.10.5.1",
+        "ledger_location": "doc/conformance/ledger.toml:1035",
+        "status": "implemented",
+        "review": "tokenization assertions not comprehensively re-audited here"
+      },
+      {
+        "clause": "7.10.5.2",
+        "ledger_location": "doc/conformance/ledger.toml:1043",
+        "status": "implemented",
+        "review": "PLRM3 confirms zero fill and integer operand requirement; ledger's universal 32-bit statement is too strong; malformed real-operand truncation remains recovery"
+      },
+      {
+        "clause": "7.10.5.3",
+        "ledger_location": "doc/conformance/ledger.toml:1051",
+        "status": "implemented",
+        "review": "fault tests cover selected CPU consumers; ledger notes host post-draw caller and GPU gaps, and no current host warning path was found"
+      }
+    ],
+    "effective_errata_reviewed": [
+      {
+        "id": 30,
+        "impact": "Type 2 Domain wording; no effect on the features audited"
+      },
+      {
+        "id": 269,
+        "impact": "Type 4 Table 42 condition correction; no effect on bitshift source semantics"
+      },
+      {
+        "id": 446,
+        "impact": "Type 0 note cross-reference only; no effect on interpolation requirements"
+      },
+      {
+        "id": 669,
+        "impact": "Type 4 brace character code correction; no effect on operator numeric semantics"
+      }
+    ]
+  }
+}

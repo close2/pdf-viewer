@@ -1,0 +1,6 @@
+{
+  "source": "Parent crosschecked §10.7.3physical398/383, §11.4.6physical424/409 and existing source/errata reviews for filters. Exact inventory owner10.7, not10.7.3; artifact corrected.",
+  "assertions": "Read literalJPEG218/104/15 vs untransformed128/64/192; smoothness500 reciprocal and devicebound; knockout overlap127/127/255 vs ordinary128/0/128 and lower-onlyred control. CCITTcomplement is metamorphic, complemented by other parameter/literal controls. JPXdecoder comparison has exact population ratchets, but externalcodec agreement is not PDFparameter proof.",
+  "execution": "Broad76 contains default model/CPU assertions; source-only GPU pointer not freshly executed here. Corpus helper enumerates974 lowercase .pdf entries; audit doc/pdf.js symlinks owner doc/pdf.js. Other directory entries are not PDFs.",
+  "limits": "Five exact pointers reviewed:7.4.6corpus,7.4.8corpus,7.4.9corpus,10.7headless_gpu,11.4.6test-scenes. Whole rows and all references within them remain partial."
+}

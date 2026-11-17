@@ -1,0 +1,24 @@
+{
+  "scope": "Focused \u00a77.3.10 direct/indirect equivalence review for FileSpec and embedded-file fields consumed by attachments. This does not re-audit path precedence, checksum semantics, all file-spec fields, archive writing, or host file access.",
+  "source": [
+    {
+      "feature": "Default equivalence of direct and indirect object values",
+      "clause": "\u00a77.3.10",
+      "locator": "ISO 32000-2:2020 with EC3, physical p.49 / printed p.34; the sentence begins 'Except where documented to the contrary'. The nearby \u00a77.3.9 on physical p.48 / printed p.33 separately covers null dictionary entries and undefined references.",
+      "effective_rule": "Absent a documented contrary rule, an object value may be direct or indirect with equivalent semantics. The selected Table 43/44/45 values have no direct-only exception identified in those tables. Cross-reference-stream direct-value rules in \u00a77.5.8.2 are a separate exception and do not govern ordinary file-spec/embedded-file dictionaries.",
+      "ec3": "The sampled errata for \u00a77.11 changes producer MIME syntax (#155), CheckSum's declared representation (#382, to byte string), and a conditional host-filesystem date note (#598). None establishes a direct-only restriction for the selected names, dictionaries, strings, integer, or stream references. No amendment to the \u00a77.3.10 default was identified in this sampled use.",
+      "ledger": "doc/conformance/ledger.toml: \u00a77.3.10 implemented; \u00a77.11.3 implemented; \u00a77.11.4.1 is covered in the ledger as embedded-file stream and parameter handling. Existing ledger tests focus on object access generally and direct embedded-file values, rather than this representation pair.",
+      "implementation": "Document::get_key resolves the value of a named dictionary entry (crates/pdf-syntax/src/document/objects.rs:149-168). FileSpec::from_dictionary uses it for /F, platform keys, /FS, /UF, and /EF (crates/pdf-model/src/file_spec.rs:224-264). Relationship::read resolves /AFRelationship (attachment.rs:296-310). attachment::read resolves the /EF dictionary, stream selection, /Params, /Subtype, and Params /Size, dates, and /CheckSum (attachment.rs:656-695).",
+      "existing_assertions": "embedded_files_spec_audit.rs asserts the embedded-file writer's direct Params values and literal Size/MD5. attachments_filed.rs exercises listing, decoded bytes, Size, and checksum after a writer round trip, whose emitted representation is direct. associated_file_examples_audit.rs checks relationship and metadata through public consumers but its selected values are direct. These prove direct-value behavior; they do not explicitly compare indirect dictionary values and leaves. General Document::get_key tests are not a consumer-level FileSpec/Attachment assertion.",
+      "verdict": "No implementation failure found by source/code inspection. A narrow consumer-level assertion gap remains for direct/indirect equivalence across the selected FileSpec and embedded Params values.",
+      "draft": "Promoted crates/pdf-model/tests/indirect_file_parameters_spec_audit.rs: two PDF2.0 associated embedded-file controls with direct/indirect selected values. Parent corrected bare object bodies to literal PDF strings before execution. Removed legacy EF/Unix because current Table43 permits only F/UF there.",
+      "execution": "One test PASS; model/transform all-targets Clippy PASS. Literal decoded bytes, independent MD5 literals, raw dates and parsed Date components all checked."
+    }
+  ],
+  "limitations": [
+    "The draft tests the /EmbeddedFiles public listing and returned attachment object, not the UI's rendered row text or a host extraction write.",
+    "Legacy DOS/Mac/Unix filename and EF compatibility is not tested. A deprecated Unix filename is permitted by Table43, but its current EF dictionary permits only F/UF keys; the draft legacy case was excluded from this valid-PDF2 witness.",
+    "It tests an indirect /EF dictionary and indirect stream reference, but not /RF arrays, encrypted payload /EP, the URL file-system /FS branch, malformed/cyclic reference recovery, or writer preservation of these forms.",
+    "Source obligations and public assertion coverage are reported separately from execution; the parent owns running or promoting the draft."
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "scope": "Focused reconsideration of §12.11 ADRs and report/policy claims; not a proposed global policy or ledger edit.",
+  "decisions": [
+    {
+      "adr": "ADR 1923",
+      "topic": "Table 273 /RH and Table 276 alternative handler suppression",
+      "review": "The decision remains well-supported for the tested behavior: known Table 275 types are checkable; the `/RH` JS handler is disabled whether the requirement is met or unmet; NoOp has no Script; an unrecognized handler type is ignored; an unknown requirement type leaves its handler active. The model test covers dictionary/array and text-string matching; the engine test executes a known handler, a normal script, and an unknown-type handler and observes the expected effects. The decision does not prove all script open-order behavior through the public Viewer API, but opening.rs visibly evaluates Process before `process`, and script-site code applies disabled_handlers before invoking the library. Do not confuse script execution exclusion with handler interpretation: the latter is implemented for the scoped host/runner path."
+    },
+    {
+      "adr": "ADR 1220",
+      "topic": "§12.11.3 weighting and penalty computation",
+      "review": "The no-modal middle-weighting premise is correct. A penalty is applied when a requirement cannot be met; the implementation sums penalties of unmet requirements, defaults an absent penalty to 100, and the exact 100/115 boundary is asserted. However, V must affect whether a requirement can be met, and the code currently ignores it after parsing. The weighting decision does not support ignoring Table 273 /V."
+    },
+    {
+      "adr": "ADR 0460",
+      "topic": "Penalty total and the >100 stop threshold",
+      "review": "The threshold calculation is grounded in §12.11.3's final paragraph and its strict 'exceeds 100' wording; tests preserve 100 versus 115. Keep the source condition visible: base PDF presentation and no other alternates. The arithmetic is a supported feature; this audit does not find evidence that a viewer opening a single file has an alternate document to weigh it against. A decision to let a reader proceed is a separate policy override, not a defect in the arithmetic."
+    },
+    {
+      "adr": "ADR 1167",
+      "topic": "Reader-controlled Process policy for §12.11.6",
+      "review": "The four levels and their observable behavior are directly tested, but ADR's blanket claim that the 'shall not continue' is implemented at whichever level the reader sets is too broad if presented as unconditional standards conformance. The primary text has a mandatory stop clause once the §12.11.3 computation determines requirements cannot be met; it contains no explicit user override. On refuses; Off/Warn and Ask-then-proceed continue. This is a deliberate product policy that can be defended as giving control to the reader, but it should be described as an override/departure rather than a processor satisfying the shall at those levels. The exact relation between 'cannot be met' and the >100 threshold is coupled to §12.11.3 and should stay qualified. The feature is implemented; the policy may differ from the default normative outcome."
+    },
+    {
+      "adr": "ADR 0207 and ADR 2815",
+      "topic": "Annex I requirement warning and timing",
+      "review": "No §12.11 source requires warning before the first page. The source timing requirement is evaluation before ECMAScripts, which opening.rs performs before `process`; host `Report` is requested after a frame, as viewer-host/report.rs and UI call sites show. ADR 0207's 'before a page is drawn' and requirements.rs' 'before they trust what they are looking at' should be read as motivation, not as literal current chronology. The later host report remains within the timing that §12.11 states."
+    },
+    {
+      "adr": "EC3 #187 / #195 context, ledger §12.11.1/.2",
+      "topic": "Errata and requirement type table mapping",
+      "review": "Actual annotations confirm #187 corrects Table 273 /S to Table 275 and the Table 274 name/intro; code maps all Table 275 type names. #195 changes U3D and PRC 'shall apply' to 'applies'; it does not negate the project's clause-13 scope exclusion or add a new process requirement. The errata inventory's 'no errata in §12.11.1/.2' would be inaccurate; §12.11.6's no-annotation note remains accurate."
+    }
+  ],
+  "candidate_gap": "Present Table 273 /V minimum version is parsed but ignored during capability assessment, penalty computation, and user reporting. The draft uses /V /2.1 against a reader capped at PDF 2.0, with absent-/V and /V /2.0 controls; it is unexecuted and should be parent-run before final status.",
+  "partial_scope": "This review does not certify all 25 capability arms, all vendor extensions, extension-level support, encryption requirement parameters, or all JS engine/host configurations."
+}

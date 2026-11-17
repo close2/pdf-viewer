@@ -1,0 +1,38 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "0057",
+      "decision_slice": "Pattern space when the pattern is invoked inside a Form XObject",
+      "source_and_code": "§8.3.2.4 names pattern space and its matrix; §8.7.2 gives the invocation-specific rule: within a Form XObject the pattern matrix maps to the form's default user space at Do. The implementation carries the form's invocation space into pattern evaluation. `tiling.rs` has an assertion where the page-space and form-space readings move a literal cell to different pixels.",
+      "verdict": "ADR's conclusion is consistent with this coordinate-space foundation. No new gap identified. This is a bounded review of the form/pattern coordinate decision, not whole-ADR certification."
+    },
+    {
+      "adr": "0249",
+      "decision_slice": "Quotation correction for the §8.7.2 pattern-to-page mapping sentence that depends on §8.3.2.4's pattern space",
+      "source_and_code": "The held primary §8.7.2 wording includes the parenthetical `(initial)` in the page coordinate-space phrase. ADR 0249 records the dropped-word issue and the test/ledger quotation correction. Coordinate operation here is corroborated by ADR0057 and the invocation-space tests.",
+      "verdict": "No source or implementation conflict found in this slice. This review does not certify the ADR's unrelated quotation-checking findings."
+    },
+    {
+      "adr": "0189",
+      "decision_slice": "f32 geometric length determinism and documented coordinate bounds",
+      "source_and_code": "Renderer points and affine transforms use f32, while PDF numeric operands enter as f64 before narrowing. ADR0189 concerns cross-platform deterministic geometric thresholds and cites an Annex C page-size bound; it is not a source tolerance rule for arbitrary coordinates under §8.3.2.1.",
+      "verdict": "No direct defect shown. Keep representational precision as a residual: §8.3.2.1 says coordinates are real numbers but gives no numerical tolerance or required internal float width. This is not a basis to mandate f64 or claim f32 conformant for every extreme-coordinate rendering. Whole ADR not reviewed."
+    },
+    {
+      "adr": "0038",
+      "decision_slice": "UserUnit order/default and page-size support",
+      "source_and_code": "The immediately preceding coordinates_graphics_state_current artifact already reviewed this slice against §8.3.2.3 and Table31/page_geometry assertions. It is cross-referenced here only because page initial mapping supplies the origin/unit relationship for these foundational clauses.",
+      "verdict": "No repeat review; no new issue in assigned clauses. See prior shard for supported-range and malformed-value qualification."
+    }
+  ],
+  "test_decisions": [
+    {
+      "test": "coordinates_graphics_state_current/drafts/coordinate_graphics_state.rs::cm_matrices_compose_in_content_order_and_q_restores_the_page_initial_ctm",
+      "decision": "Retain as previous-shard evidence for the composed page/user/device relationship; do not duplicate it in this foundation shard. It uses exact xref and positive-pixel controls, and the test reports interpretation completeness."
+    },
+    {
+      "test": "image_coordinates_audit.rs::non_square_source_grid_maps_row_major_onto_the_transformed_unit_square",
+      "decision": "Strong §8.3.2.4 image-space assertion: six literal source colors distinguish 3×2 image samples from the required 1×1 image-space boundary mapped by the CTM. Keep its scope attributed primarily to §8.9.4 and cross-reference the general-space relationship, rather than claiming it certifies all image handling."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "source": "Read7.3.10 default and Table43physical149\u2013152/134\u2013137, Table45physical153\u2013154/138\u2013139. FileSpec indirect reference required with EF; fixture satisfies. EF is subsetF/UF; Unix filename alone is deprecated, but does not authorize EF/Unix in this current rule.",
+  "consumer": "Read attachment::read and FileSpec resolution. New test resolves filename strings, AFRelationship, EF dictionary, stream Subtype, Params and Size/date/checksum values; payloads remain distinct and literal.",
+  "oracle": "Python hashlib independently reproduces both committed MD5 literals. Literal payloads17/19bytes, raw dates and all parsed Date fields are checked; wrong payload rejects checksum. No recovery. Public attachment listing, not host extraction/UI.",
+  "rejected_draft": "Bare indirect filename object bodies were not valid PDF strings; fixed before run. Removed legacy EF/Unix control even though reader accepted it, because that did not establish permitted current representation. No production failure counted.",
+  "decisions": "Retain file metadata/host I/O separation and deferred payload decoding; reference resolution is not eager extraction. Relationship is metadata, not processing instruction.",
+  "execution": "Final selected testPASS; final model/transformClippyPASS."
+}

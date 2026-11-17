@@ -1,0 +1,29 @@
+{
+  "reviews": [
+    {
+      "adr": "1101",
+      "topic": "host-supplied targets, ID matching, and no path opening",
+      "source_evidence": "EC3 §8.10.4.1 physical 290-291 / printed 275-276: Table 95 requires /F and makes /ID optional; /ID improves chances of finding intended file. §14.4 says both IDs matching makes it very likely the correct unchanged file was found, while matching only first identifies a different version of the correct file. Table 95 does not say that /ID is required for locating the target.",
+      "current_code_evidence": "The host reads every file from a user-selected directory and passes bytes/names. `Supply::find` ignores FileSpec and requires an ID; `Supply::read` rejects PDFs with no ID. The document cannot cause arbitrary path opening, which is a sound host-trust boundary; however, an explicitly supplied /F-matching file with no ID cannot be imported, and candidate selection with duplicate permanent IDs is first-match order rather than exact-pair/FileSpec resolution.",
+      "verdict": "Keep the security policy that the renderer itself never opens a document-selected path. Reopen the narrower matching decision: distinguish the host-authorized supplied set from arbitrary filesystem access, and decide whether supplied-name /F matching is a supported fallback when ID is absent. For multiple permanent-ID matches, source gives identity evidence but no explicit search-priority algorithm; do not assert the exact-pair-first rule as unambiguous until owner/source interpretation resolves it.",
+      "limits": "A host's chosen directory may intentionally be a collection of candidates; /F may include device-specific paths or relative subpaths. The assignment has not established how those map safely to host names. Embedded target support is a separate branch: source permits embedding, but this reader has no current internal supply route."
+    },
+    {
+      "adr": "1339",
+      "topic": "imported page as its own group under proxy group",
+      "source_evidence": "§8.10.4.1 physical 291 / printed 276 requires proxy Group attrs apply to imported page; §11.4.7 addresses target page's own group.",
+      "verdict": "No reversal proposed. ADR distinguishes the two dictionary scopes, and the current reference_xobjects tests include source-derived group controls. This shard did not re-certify the group matrix." 
+    },
+    {
+      "adr": "1179/1180 and 1461 (§8.10.4.2)",
+      "topic": "Printing reference XObjects",
+      "source_evidence": "§8.10.4.2 physical 291 / printed 276 is explicitly permissive and names two allowed outputs dependent on capabilities, preferences, and job nature.",
+      "verdict": "The code's choice to print imported content when the host supplied a target, otherwise proxy, is permitted; no mandatory output-choice defect. Ledger test attribution is too broad: its cited print test verifies job resolution, not reference-object output. Add the public seam test in drafts to show the selected implementation behavior and its no-supply control, without treating one allowed choice as mandated conformance."
+    },
+    {
+      "adr": "1461",
+      "topic": "inapplicable-row review policy",
+      "verdict": "No separate contradiction found. The print clause is a permission exercised by the product, so it can be tracked as implemented if the selected choice is observable; the source's permission does not require both outputs." 
+    }
+  ]
+}

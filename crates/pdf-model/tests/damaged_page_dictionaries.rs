@@ -68,13 +68,15 @@ use pdf_syntax::{Document, ObjectId};
 /// caller changes the tree or the damage and nothing else. Object 1 states the `/MediaBox`,
 /// which is how a recovered page's §7.7.3.4 inheritance up its own `/Parent` becomes visible.
 fn document(kids: &str, body: &str) -> Vec<u8> {
+    let page_content = "0 0 1 rg 10 10 100 50 re f";
+    let content_length = page_content.len();
     // No cross-reference table: `Document::open` rebuilds by scanning for object headers, which
     // keeps the offsets out of a hand-written file where they would rot on the first edit.
     format!(
         "%PDF-1.7\n\
          1 0 obj\n<< /Type /Pages /Count 1 /Kids [{kids}] /MediaBox [0 0 200 100] >>\nendobj\n\
          2 0 obj\n<< {body} >>\nendobj\n\
-         3 0 obj\n<< /Length 30 >>\nstream\n0 0 1 rg 10 10 100 50 re f\nendstream\nendobj\n\
+         3 0 obj\n<< /Length {content_length} >>\nstream\n{page_content}\nendstream\nendobj\n\
          4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
          trailer\n<< /Root 4 0 R /Size 5 >>\n%%EOF\n"
     )
@@ -247,11 +249,13 @@ fn a_prefix_the_tree_names_that_calls_itself_a_node_is_not_a_page() {
 /// and the scan's ascending-object-number order never replaces the order the tree stated.
 #[test]
 fn a_tree_named_prefix_is_not_taken_where_the_tree_still_reaches_a_page() {
+    let page_content = "0 0 1 rg 10 10 100 50 re f";
+    let content_length = page_content.len();
     let bytes = format!(
         "%PDF-1.7\n\
          1 0 obj\n<< /Type /Pages /Count 2 /Kids [2 0 R 5 0 R] /MediaBox [0 0 200 100] >>\nendobj\n\
          2 0 obj\n<< {WHOLE} >>\nendobj\n\
-         3 0 obj\n<< /Length 30 >>\nstream\n0 0 1 rg 10 10 100 50 re f\nendstream\nendobj\n\
+         3 0 obj\n<< /Length {content_length} >>\nstream\n{page_content}\nendstream\nendobj\n\
          4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
          5 0 obj\n<< /Parent 1 0 R /Contents 3 0 R /MediaBox [0 0 999 >] >>\nendobj\n\
          trailer\n<< /Root 4 0 R /Size 6 >>\n%%EOF\n"

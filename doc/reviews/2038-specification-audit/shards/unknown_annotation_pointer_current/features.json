@@ -1,0 +1,61 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Whether an unsupported but valid developer-extension annotation can reach public pointer-driven R/D selection, against §12.5.5's unsupported-type normal-appearance rule.",
+  "effective_source": [
+    {
+      "locator": "§12.5.5 and Table 170",
+      "physical": "490-491",
+      "printed": "475-476",
+      "rules": [
+        "For an annotation type without native processor support, render its normal (N) appearance.",
+        "General appearance rules assign N outside interaction, R on pointer entry with button up, and D while pressed/held. Table 170 requires N and defaults absent R/D to N."
+      ]
+    },
+    {
+      "locator": "Table 167 Invisible bit 1",
+      "physical": "486",
+      "printed": "471",
+      "rule": "Applies only to nonstandard types with no handler; set suppresses rendering/printing, clear renders using AP stream if any."
+    },
+    {
+      "locator": "EC3 Issue #1 annotation to §12.5.1",
+      "physical": "482",
+      "printed": "467",
+      "effect": "Moves the expected behavior for unrecognized annotation types from §12.5.2 to §12.5.5 and Table 167 bits 1-2. Its appearance requirement is thus governed by §12.5.5."
+    },
+    {
+      "locator": "Annex E E.1-E.2 and §7.12.1/Table 49",
+      "physical": "892-893;157-158",
+      "printed": "877-878;142-143",
+      "rule": "Annex E permits new annotation types and defines second-class prefix rules. Table49 is actualphysical157; GLGR minimal example is physical158, not AnnexE. Synthetic subtype is not claimed to be a real GLGR extension."
+    }
+  ],
+  "existing_assertion": {
+    "test": "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance",
+    "input": "/Subtype /SomethingFromThePDF3Era, /F 4, AP contains only /N red stream",
+    "assertion": "Rendered extent equals the transformed rectangle.",
+    "limitation": "Only N exists, so the test cannot tell whether unknown subtypes are pinned to N or whether generic pointer state selection would choose available R/D. It uses an ad-hoc unregistered subtype, not an Annex-E-qualified extension fixture, and does not exercise the public Viewer pointer route."
+  },
+  "call_path": {
+    "public_input": "viewer-core::Command::Pointer (Moved, Pressed, Dragged, Released)",
+    "routing": "viewer-core/src/viewer/pointer.rs::Viewer::pointer -> pdf_model::view::annotation_at -> annotation::interacts. The common /Rect area is accepted for an unknown subtype with F=4 (Print only; no Hidden/NoView/ReadOnly). has_appearance then sees AP/R or AP/D and permits the pointer transition.",
+    "render": "pdf-model/src/annotation.rs::stored_appearance maps view Appearance::Normal/Rollover/Down to /N,/R,/D for every subtype. decide() only applies the subtype list to Invisible bit handling; no unsupported-subtype override forces N.",
+    "reachable": "Yes: generic Viewer Pointer path can select R and D for an unknown subtype; no manual ViewState mutation is needed."
+  },
+  "validity_strategy": "Use a second-class annotation name /GLGR_R2PointerProbe, declared in a direct catalog Extensions dictionary with /GLGR << /BaseVersion /1.7 /ExtensionLevel 1002 >> (the Annex E example's registered-prefix form). The fixture defines its extension annotation semantics as an unsupported future type whose fallback artwork is stored in AP. Common Table 166 fields /Subtype, /Rect, /AP are present, AP/N is present, and R/D are valid Form XObjects with BBox, Resources and exact Length. This tests the cross-version fallback obligation without inventing a standard subtype.",
+  "candidate_assertion": "New scratch integration draft compares true public viewer screen renders: extension subtype starts red N; on pointer move and press, §12.5.5's unknown-type rule expects red N to remain. Known /Square positive control with identical N/R/D must transition red->green->blue under Table 170. Exact xref, no syntax recovery, distinct literal colors.",
+  "verdict": "A public pointer path exists and current code does not force unknown subtypes to N. This is a strong, discriminating candidate for §12.5.5; final classification should note the interaction between its explicit unknown-type fallback and Table 170's generic R/D rules. Do not dismiss it as unreachable or infer a defect from the older N-only test.",
+  "related_current_records": [
+    "shards/appearance_state_residual_current (valid state dictionaries; distinct N/R/D assertion coverage, but known subtype)"
+  ],
+  "residuals": [
+    "Confirm primary printed-page footers for Annex E locator if recording exact page numbers; source body and Table 49 example establish prefix/extension form.",
+    "Extension fixture is synthetic under the GLGR example prefix and defines only enough extension metadata to make the unknown annotation subtype well-formed; no claim that GLGR's real-world extension defines this subtype.",
+    "No conclusion that every unknown subtype's trigger events are required; this candidate asserts only visual AP state fallback."
+  ],
+  "drafts": [
+    "drafts/unknown_annotation_pointer_spec_audit.rs"
+  ],
+  "parent_qualification": "Common annotation/appearance objects and extension declaration are well-formed. Synthetic example uses GLGR prefix form; this does not establish that real GLGR extension1002 defines this test subtype."
+}

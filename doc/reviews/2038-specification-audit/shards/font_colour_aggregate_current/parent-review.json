@@ -1,0 +1,9 @@
+{
+  "source": "Parent read primary192\u2013194 colour framing,231\u2013234 operators/restrictions,308 font framing,342 composite start,370 extraction start. #551 is Table73 physical232, not Table74 or physical247. Actual#324 physical356 corrects the ToUnicode cross-reference.",
+  "assertions": "Existing colour_paths::an_output_intent_reaches_a_device_colour_however_it_is_set asserts an independent green expected colour, then equality for operator/family/name-resource/alternate routes. Resource value /DeviceCMYK is a name, so this is real downstream evidence for the #551 form.",
+  "extension": "New exact-xref PDF2.0 Type3 CPU tests cover direct and nested Form image invocation. d0 ordinary RGB image paints red; d1 ignores it leaving explicit white page background. d1 one-bit image mask paints inherited blue and leaves outside white. All completeness/xref guards pass.",
+  "execution": "type3-image-wave44.log:2PASS. quality-wave44.log:model all-targets Clippy PASS.",
+  "limits": "No whole colour-pipeline, operator-table, font or backend certification. No GPU, inline-image or soft-mask-group exception test added here. Existing tiling_patterns_audit image-mask repeat/gap control is retained, not duplicated.",
+  "prior_findings": "Earlier ICC alternate Range concern is confirmed B25 in parent records; draft shard terminology does not supersede that. Aggregates cannot close earlier implementation failures.",
+  "decisions": "Retain separate source colour and downstream device rendering, Type3 colour-inheritance restrictions and image-mask exception. Runtime pixel controls substantiate selected branches; no extra producer-rejection requirement inferred."
+}

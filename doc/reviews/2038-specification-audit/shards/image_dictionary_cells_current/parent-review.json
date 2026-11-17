@@ -1,0 +1,6 @@
+{
+  "verdict": "19 image dictionary cells inventoried; no new runtime finding or execution.",
+  "source": "Parent reread physical274–275 Decode and SMaskInData. Primary overlay locators supplied by reviewer; existing owner-shard qualifications retained.",
+  "corrections": "Parent rejected stale Decode candidate wording: B11 was already confirmed in waves6/8. Rejected code2-reconstruction verdict conflicting with B14 pre-raster refusal. Corrected current artifacts tie these to global failures instead of duplicate pending drafts.",
+  "limits": "Selected source/status review only. Existing named pixel/codec consumers supplied by reviewer, not all rerun/revalidated by parent. Optional metadata/OPI/ID and separate14.13.7 AF producer conditions do not imply paint failures."
+}

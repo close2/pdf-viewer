@@ -1,0 +1,35 @@
+{
+  "shard": "fixture_claim_validity_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "decisions": [
+    {
+      "subject": "collection_schema_cells_audit fixture correction",
+      "review": "The CI/CompressedSize test assertions have literal values and independent filename, description, decoded-size and compressed-length controls, but exact xref alone did not make the source valid. The corrected scratch builder supplies a PDF2 trailer ID, binary marker, FileSpec F/EF F while retaining its original Desc, UTF-16BE UF/EF UF, and indirect CI. It preserves Author=Ada Lovelace, Received date, Rank=7, decoded abc (3), and Flate Length=11. This restores a valid input for parent execution without changing product code or asserting a malformed-input rejection."
+    },
+    {
+      "subject": "PDF2 header and trailer omissions",
+      "review": "For the sampled PDF2 `indirect_file_parameters` and `deep_page_tree_order` tests, missing /ID is a direct format defect independent of their target. Add two 16-byte IDs. Do not demand a binary marker in the ASCII-only instances."
+    },
+    {
+      "subject": "binary-data PDF1.7 headers",
+      "review": "The Flate-only filter fixture, checksum fixture, raw image Decode fixture, and embedded TTF/CID map fixture contain binary data but omit the required post-header comment. This is an unrelated producer-validity confounder. Correct fixture framing before using these as valid-source conformance evidence; their independently computed expected values need not change."
+    },
+    {
+      "subject": "Page Resources",
+      "review": "The filter-parameter fixture's Page and Pages ancestor both omit required/inheritable Resources, another unrelated fixture issue. Add an empty Resources dictionary to Page (or an ancestor) before claiming the outer PDF is structurally valid. Other sampled page fixtures supply or inherit Resources."
+    },
+    {
+      "subject": "PDF1.7 form/AP cases",
+      "review": "Retain the NeedAppearances and field-AA source fixtures as version-bounded valid witnesses: they use PDF1.7, linked widget/field/page dictionaries, DA/DR font references, and NeedAppearances=true when the widget has no AP. Do not apply a PDF2 all-widgets AP condition to these 1.7 inputs."
+    },
+    {
+      "subject": "source-invalid target versus invalid fixture shell",
+      "review": "The Decode-elements regression intentionally provides a null in the target Decode array. That target entry is intentionally invalid under the cited table; the separate PDF header flaw is not the oracle and should be removed. An invalid feature under test does not excuse unrelated invalid framing."
+    },
+    {
+      "subject": "PDF file ID consistency in PDF1.7 Reference target",
+      "review": "The Reference target includes an optional /ID pair with unequal first-write values. §14.4 requires equal values at initial write for all versions. The scratch repair changes both target values and the matching Reference values to one equal pair; this preserves the identity control and does not claim /ID itself is required for PDF1.7."
+    }
+  ],
+  "decision": "Eight fixture defects were found in the sample. Parent has corrected collection and Decode framing and applied six further source-framing repairs (filter, checksum, CID map, deep page-tree IDs, indirect-file IDs/Descriptions, Reference IDs). Those six were not executed by this shard; parent owns verification. Five other sampled fixtures have no identified validity flaw in the reviewed requirements. This is fixture-evidence review, not a product bug verdict; the intentionally invalid Decode element remains the target under test."
+}

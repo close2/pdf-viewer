@@ -1,0 +1,1093 @@
+{
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "source_sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
+  "annotation_count": 11462,
+  "subtype_counts": {
+    "/Caret": 522,
+    "/FileAttachment": 6,
+    "/Highlight": 1,
+    "/Link": 6031,
+    "/Popup": 2553,
+    "/StrikeOut": 435,
+    "/Text": 1876,
+    "/Widget": 38
+  },
+  "subject_marker_count": 360,
+  "all_field_marker_count": 365,
+  "extra_marker_candidates": [
+    2,
+    7,
+    5014,
+    5411,
+    5902
+  ],
+  "extra_marker_occurrences": [
+    {
+      "page": 18,
+      "object": [
+        1239,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [
+          519
+        ],
+        "/Contents": [
+          519,
+          5014
+        ],
+        "/T": [
+          519
+        ]
+      },
+      "contents_sha256": "272c1c887c54f21f66c92cdf53ea0977dcced528e8440e33d5245f2230386fa7",
+      "contents_length": 165,
+      "reply_to": null,
+      "associated_markers": [
+        519,
+        5014
+      ]
+    },
+    {
+      "page": 21,
+      "object": [
+        1266,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [
+          553
+        ],
+        "/Contents": [
+          5902
+        ],
+        "/T": [
+          553
+        ]
+      },
+      "contents_sha256": "df2e9a66647f559961be127964de4f22222bb998484dc5fc5329bef42b3e0621",
+      "contents_length": 278,
+      "reply_to": null,
+      "associated_markers": [
+        553,
+        5902
+      ]
+    },
+    {
+      "page": 332,
+      "object": [
+        4143,
+        0
+      ],
+      "subtype": "/Caret",
+      "markers": {
+        "/Subj": [
+          553
+        ],
+        "/Contents": [
+          5902
+        ],
+        "/T": [
+          553
+        ]
+      },
+      "contents_sha256": "b87a3e0f779a383c565b7a5a2deda1c3af66275554fec2cf095359ca1fa054fe",
+      "contents_length": 226,
+      "reply_to": null,
+      "associated_markers": [
+        553,
+        5902
+      ]
+    },
+    {
+      "page": 374,
+      "object": [
+        4374,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [
+          277
+        ],
+        "/Contents": [
+          5411
+        ],
+        "/T": [
+          277
+        ]
+      },
+      "contents_sha256": "1ffb39601d0923e43f093b331cf70a79624ec6e36d8e5ba33363b96e2098d7ce",
+      "contents_length": 134,
+      "reply_to": null,
+      "associated_markers": [
+        277,
+        5411
+      ]
+    },
+    {
+      "page": 562,
+      "object": [
+        13829,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 562,
+      "object": [
+        13830,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 563,
+      "object": [
+        13849,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 563,
+      "object": [
+        13850,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 586,
+      "object": [
+        14025,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 586,
+      "object": [
+        14026,
+        0
+      ],
+      "subtype": "/Link",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [
+          7
+        ],
+        "/T": []
+      },
+      "contents_sha256": "a09548ef0941a7378437ddad6ddce3f52b98ca6bacc1255d27730e88de8d6ebe",
+      "contents_length": 33,
+      "reply_to": null,
+      "associated_markers": [
+        7
+      ]
+    },
+    {
+      "page": 858,
+      "object": [
+        8222,
+        0
+      ],
+      "subtype": "/Caret",
+      "markers": {
+        "/Subj": [
+          637
+        ],
+        "/Contents": [
+          2
+        ],
+        "/T": [
+          637
+        ]
+      },
+      "contents_sha256": "9cdab90b6ff12d02faa2c348ccf6cb1451dcfae2572b871ce7708a0b1c715126",
+      "contents_length": 25,
+      "reply_to": null,
+      "associated_markers": [
+        2,
+        637
+      ]
+    },
+    {
+      "page": 1001,
+      "object": [
+        8819,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [
+          277
+        ],
+        "/Contents": [
+          5411
+        ],
+        "/T": [
+          277
+        ]
+      },
+      "contents_sha256": "5ac0e7385381290ea029981e9226da77b16264e105c6922124284779b6297211",
+      "contents_length": 157,
+      "reply_to": null,
+      "associated_markers": [
+        277,
+        5411
+      ]
+    }
+  ],
+  "unassigned_nonlink_nonpopup_counts": {
+    "/Text": 7,
+    "/Widget": 38
+  },
+  "unassigned_nonlink_nonpopup": [
+    {
+      "page": 17,
+      "object": [
+        1221,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "f548adf80889b5bb383a9432f4426409a9aa709c5b9e27c13a9b503cec2ade47",
+      "contents_length": 651,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 17,
+      "object": [
+        1223,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": [
+        1221,
+        0
+      ],
+      "associated_markers": []
+    },
+    {
+      "page": 22,
+      "object": [
+        1274,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "608d46fa15a7bccaad425469904f2b6c1db4946d0d57ffd6f6c5012842ce29a5",
+      "contents_length": 118,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 22,
+      "object": [
+        1276,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "cea22f877b78830bac4541785bef774c4f37ec9463211f055c1a60bf1ddac793",
+      "contents_length": 32,
+      "reply_to": [
+        1274,
+        0
+      ],
+      "associated_markers": []
+    },
+    {
+      "page": 39,
+      "object": [
+        22,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 48,
+      "object": [
+        42,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 103,
+      "object": [
+        101521,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 112,
+      "object": [
+        23,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 113,
+      "object": [
+        1076,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 317,
+      "object": [
+        1084,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 318,
+      "object": [
+        25,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 369,
+      "object": [
+        101517,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 369,
+      "object": [
+        101518,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 565,
+      "object": [
+        1085,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 593,
+      "object": [
+        5980,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "6e998d29ac26940f5309ce33b1bcb4a1dd95e18cdad028f65b3ca9ccad89ce93",
+      "contents_length": 131,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 593,
+      "object": [
+        5982,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "cea22f877b78830bac4541785bef774c4f37ec9463211f055c1a60bf1ddac793",
+      "contents_length": 32,
+      "reply_to": [
+        5980,
+        0
+      ],
+      "associated_markers": []
+    },
+    {
+      "page": 593,
+      "object": [
+        5988,
+        0
+      ],
+      "subtype": "/Text",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "cea22f877b78830bac4541785bef774c4f37ec9463211f055c1a60bf1ddac793",
+      "contents_length": 32,
+      "reply_to": [
+        5982,
+        0
+      ],
+      "associated_markers": []
+    },
+    {
+      "page": 689,
+      "object": [
+        34,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 690,
+      "object": [
+        1077,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 716,
+      "object": [
+        102651,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 736,
+      "object": [
+        26,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 779,
+      "object": [
+        36,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 788,
+      "object": [
+        35,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 855,
+      "object": [
+        37,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 940,
+      "object": [
+        38,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 941,
+      "object": [
+        39,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 942,
+      "object": [
+        40,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 946,
+      "object": [
+        41,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1004,
+      "object": [
+        8866,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1005,
+      "object": [
+        8888,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1006,
+      "object": [
+        8893,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1007,
+      "object": [
+        1101,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1008,
+      "object": [
+        33,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1009,
+      "object": [
+        30,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1012,
+      "object": [
+        16565,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1014,
+      "object": [
+        29,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1015,
+      "object": [
+        8923,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1016,
+      "object": [
+        1095,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1017,
+      "object": [
+        1094,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1018,
+      "object": [
+        1093,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1019,
+      "object": [
+        1092,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1020,
+      "object": [
+        8939,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1021,
+      "object": [
+        101511,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1022,
+      "object": [
+        101535,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    },
+    {
+      "page": 1023,
+      "object": [
+        102654,
+        0
+      ],
+      "subtype": "/Widget",
+      "markers": {
+        "/Subj": [],
+        "/Contents": [],
+        "/T": []
+      },
+      "contents_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contents_length": 0,
+      "reply_to": null,
+      "associated_markers": []
+    }
+  ],
+  "limits": "Marker counts are not semantic coverage. Links, widget navigation and review-state annotations are not automatically new specification features. Contents-only markers need contextual classification; raw annotation text is not copied."
+}

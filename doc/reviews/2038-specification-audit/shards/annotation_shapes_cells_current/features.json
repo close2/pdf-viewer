@@ -1,0 +1,153 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected annotation dictionary cells in Tables 180–187 (Square/Circle, Polygon/PolyLine, text markup, Caret, Stamp, Ink, Popup, FileAttachment). Table 188 Sound is outside this pass. This is a bounded assertion review, not a clause certification.",
+  "source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "physical_printed_pages": {
+      "table_180": "505/490 (intro and figure on 504/489)",
+      "table_181": "506/491 and continuation 507/492",
+      "table_182": "507/492 and continuation 508/493",
+      "table_183": "508/493 and continuation 509/494",
+      "table_184": "509/494",
+      "table_185": "510/495",
+      "table_186": "510–511 / 495–496; Open is on511",
+      "table_187": "511/496"
+    },
+    "locator_method": "Opened the primary PDF at the listed physical pages and checked its printed footer and the actual Table heading/Key-Type-Value rows. Pages that contain an introductory cross-reference are not treated as table locations."
+  },
+  "matrix": [
+    {
+      "table": 180,
+      "subtypes": [
+        "Square",
+        "Circle"
+      ],
+      "source_cells": {
+        "Subtype": "Required; corresponding subtype.",
+        "BS": "Optional; line width and dash pattern.",
+        "IC": "Optional; 0/1/3/4 components mean transparent/Gray/RGB/CMYK, components in [0,1].",
+        "BE": "Optional; border effect on BS border.",
+        "RD": "Optional PDF 1.5; [left, top, right, bottom] nonnegative differences from Rect to the actual shape; opposing sums must be less than Rect dimensions."
+      },
+      "assertions": "crates/pdf-model/tests/annotations.rs has constructed Square/Circle fill and geometry assertions, with explicit pixels for IC/interior and border. Tests with missing AP are local constructed-appearance policy coverage: Table166 imposes a PDF 2.0 writer AP rule for nondegenerate annotations. Common stored-AP mapping has separate tests in annotations.rs and annotation_appearance_audit.rs. #524 corrects RD's type to array for Table180; existing RD values are four-number arrays."
+    },
+    {
+      "table": 181,
+      "subtypes": [
+        "Polygon",
+        "PolyLine"
+      ],
+      "source_cells": {
+        "Vertices": "Required unless Path exists; if Path exists, Vertices shall be ignored.",
+        "LE": "Optional, meaningful only for PolyLine; two endpoints correspond to first and last path/vertex pair; default None/None.",
+        "BS": "Optional; line width and dash.",
+        "IC": "Optional; PolyLine fills applicable line endings; Polygon fills the entire shape.",
+        "BE": "Optional, meaningful only for Polygon.",
+        "IT/Measure": "Optional intent/measure entries; intent names and measurement are covered in the earlier line/polygon shard, not exhaustively here.",
+        "Path": "Optional PDF 2.0 sequence of m/l/c operands; if present Vertices shall not be present; PDF consumer currently accepts coexistence and uses Path."
+      },
+      "assertions": "crates/pdf-model/tests/polygon_polyline_spec_audit.rs::polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open, ::polyline_ic_fills_closed_endings_but_not_open_endings, and ::polyline_first_ending_is_at_first_vertex_not_second_vertex use literal raster controls. annotations.rs has Path curve, polygon fill and endpoint cases. EC3 #444 directly changes Table181 so Vertices is ignored with Path; no new issue is raised here."
+    },
+    {
+      "table": 182,
+      "subtypes": [
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut"
+      ],
+      "source_cells": {
+        "Subtype": "Required; one of four markup subtypes.",
+        "QuadPoints": "Required 8*n default-user-space coordinates; each quadrilateral encompasses contiguous underlying text and is ordered counterclockwise relative to text direction."
+      },
+      "assertions": "The prior annotations_markup_current shard reviewed QuadPoints and actual markup consumers. viewer-core public test text_markup_popup_spec_audit covers opening a markup's popup from the user interaction path. This pass does not repeat geometry/text-selection certification or claim all four mark styles and writing directions."
+    },
+    {
+      "table": 183,
+      "subtypes": [
+        "Caret"
+      ],
+      "source_cells": {
+        "RD": "Optional PDF 1.5 four nonnegative differences; opposing sums less than Rect dimensions. #524 changes the value type to array.",
+        "Sy": "Optional; P associates a paragraph mark with the caret, None associates no symbol; default None. #608 joins the sentence to require the symbol along with the caret."
+      },
+      "assertions": "annotations.rs::a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol checks P/None, four-element RD and reporting. markup_stored_appearance_spec_audit.rs checks distinct stored AP stream colors for Caret and Stamp. The no-AP refusal is owner/product policy; the source gives no exact Caret artwork, and the no-AP test is not a PDF 2.0 producer-valid fixture under Table166."
+    },
+    {
+      "table": 184,
+      "subtypes": [
+        "Stamp"
+      ],
+      "source_cells": {
+        "Name": "Optional icon name. Writers should include it; readers should provide at least listed standard names; default Draft. If IT is present and is not Stamp, Name shall not be present."
+      },
+      "assertions": "annotations.rs checks the no-AP Stamp/product choice and icon selection; file_attachment_icon_audit.rs independently checks its four listed attachment icons, not Stamp. markup_stored_appearance_spec_audit.rs checks supplied Stamp AP. Standard-name recommendation is not treated as a mandatory reader synthesis defect."
+    },
+    {
+      "table": 185,
+      "subtypes": [
+        "Ink"
+      ],
+      "source_cells": {
+        "InkList": "Required list of paths in default user space; stroke connects points, but exact joining/interpolation is implementation-dependent.",
+        "BS": "Optional border style.",
+        "Path": "Optional PDF 2.0 m/l/c path operands; EC3 #444 says InkList shall be ignored if Path is present."
+      },
+      "assertions": "crates/pdf-model/tests/ink_annotation_spec_audit.rs::an_ink_list_with_three_points_joins_each_consecutive_pair and ::ink_path_six_operands_produce_a_cubic_curve_not_an_endpoint_chord assert selected geometry with literal pixel controls. The latter has a conflicting InkList to discriminate Path priority. It lacks AP and so exercises chosen constructed-appearance behavior rather than a producer-conforming PDF 2.0 rendering obligation. #444 is already durable finding 2038-D12 and is not repeated as a new finding."
+    },
+    {
+      "table": 186,
+      "subtypes": [
+        "Popup"
+      ],
+      "source_cells": {
+        "Parent": "Optional, but indirect if present; parent Contents/M/C/T override Popup copies.",
+        "Open": "Optional initial-open boolean; default false."
+      },
+      "assertions": "Primary §12.5.6.14 says Popup has no appearance/actions and is linked through the markup Popup entry. pdf-model/src/popup.rs::the_parents_four_entries_override_the_popups_own checks all four overrides; viewer-core/tests/headless.rs::a_document_that_opens_a_popup_window_says_so_before_anybody_clicks checks public Query::Popups, linkage and visible metadata before interaction. Existing tests cover hidden/visible flags and placement elsewhere."
+    },
+    {
+      "table": 187,
+      "subtypes": [
+        "FileAttachment"
+      ],
+      "source_cells": {
+        "FS": "Required file specification.",
+        "Name": "Optional icon; writers should include; readers should provide Graph/PushPin/Paperclip/Tag; default PushPin.",
+        "Contents versus FS.Desc": "The preceding prose requires interactive processors to use annotation Contents rather than optional file-spec Desc."
+      },
+      "assertions": "crates/pdf-model/tests/file_attachment_icon_audit.rs::attachment_name_defaults_to_pushpin_and_the_chosen_four_icons_differ and ::attachment_stored_appearance_wins_over_every_icon_name have literal raster controls. viewer-core/tests/file_attachment_annotation_audit.rs exercises clicked FS identity and exact extracted bytes, catalog decoy isolation, plus Contents/Desc precedence and empty-Contents behavior. The reader should-provide icon list is not treated as a hard requirement."
+    }
+  ],
+  "errata": [
+    {
+      "issue": 444,
+      "targets": [
+        "Table181 Vertices/Path, physical506-507/printed491-492",
+        "Table185 InkList/Path, physical510/printed495"
+      ],
+      "effect": "When Path is present, Vertices (Table181) or InkList (Table185) shall be ignored.",
+      "status": "Table181 and Table185 behaviors are already covered by existing tests. The Table185 annotation was independently visually checked and is already recorded as 2038-D12; no duplicate finding."
+    },
+    {
+      "issue": 524,
+      "targets": [
+        "Tables177, 180, 183"
+      ],
+      "effect": "RD value type is array, not rectangle.",
+      "status": "Existing fixtures provide four-number arrays; no reader rejection of a malformed rectangle is inferred."
+    },
+    {
+      "issue": 608,
+      "target": "Table183 Sy note, physical509/printed494",
+      "effect": "Connects the sentence so P symbol is displayed along with caret.",
+      "status": "Existing model handling parses P and retains it with the caret; stored AP has separate coverage."
+    }
+  ],
+  "limits": [
+    "No new uncovered mandatory reader behavior was established in the selected cells.",
+    "No-AP geometry tests for Square/Circle, Polygon/PolyLine, Ink, Stamp, and Caret are policy tests where the PDF 2.0 writer rule requires AP for nondegenerate annotations; they do not certify required stored-AP behavior by themselves.",
+    "This pass does not audit all Border Effect variants, every line-ending type, all markup text directions, all popup host platforms, sound, or malformed dictionary recovery."
+  ],
+  "parent_qualification": "Missing AP is allowed in PDF1.7. Do not classify all constructed shape tests as invalid solely because AP is absent: only PDF2.0 cases subject to the writer requirement carry that qualification. Current PDF2 Path tests remain fallback evidence."
+}

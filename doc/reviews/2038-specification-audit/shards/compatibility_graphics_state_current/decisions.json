@@ -1,0 +1,6 @@
+[
+  {
+    "adr": "0041",
+    "review": "Reread selected compatibility section: nesting depth remains justified. New test distinguishes compatibility state from graphics-state restoration; it adds no new recovery policy."
+  }
+]

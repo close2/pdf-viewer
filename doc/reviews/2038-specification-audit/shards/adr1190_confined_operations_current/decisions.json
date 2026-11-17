@@ -1,0 +1,35 @@
+{
+  "reviewed_decisions": [
+    {
+      "adr": "1190",
+      "decision": "operation-level controls are owed where this host can perform the operation; no document-restriction setting was exposed because the then-current host did no restricted operations",
+      "reconsideration": "The rule itself remains coherent. The supporting operation inventory no longer matches the built host: ADR 1592 adds field editing/save and ADR 1987 adds checkbox interaction/media handoff. No later ADR located explicitly revisits the confined host's document-restriction policy. Treat as stale premise / explicit policy question, not automatic nonconformance."
+    },
+    {
+      "adr": "1592",
+      "decision": "add confined text field entry and Ctrl+S save",
+      "reconsideration": "Built and exercised by the shared four-window field_commit drive; does not discuss --restrictions or Command::Restrict. Its save is an explicit user gesture, so the generic future 'save question' sentence in ADR 1190 is insufficient to establish that Ctrl+S needs confirmation."
+    },
+    {
+      "adr": "1987",
+      "decision": "send pointer press and release; checkbox and rendition effects become reachable",
+      "reconsideration": "Built. The current events.rs comment, citing ADR1987, recognizes checkbox fill and rendition handoff can be restricted while the host sets no level. The ADR itself establishes the added pointer operations; it does not explicitly discuss document restriction controls. The historical no-operation premise is stale; policy reconciliation remains qualified."
+    },
+    {
+      "adr": "2040 / 2076 / 2171",
+      "decision": "add host-side questions and operations for links, named files, submissions/imports, and launched documents",
+      "reconsideration": "These are machine/host acts with their own carried settings and exercise an operation-level Ask policy. They should not be conflated with document /P permission levels. Existing drive steps test the host decisions and boundary."
+    },
+    {
+      "adr": "2361",
+      "decision": "correct stale 'no network' rationale after submissions/imports were added",
+      "reconsideration": "Evidence that the decision record updates confined-host premises when successors invalidate them. It does not revisit ADR 1190's restricted-operation inventory."
+    },
+    {
+      "adr": "1144; project CLAUDE.md restriction policy",
+      "decision": "default levels Off; reader must always be able to turn document restrictions off; final product has four levels and an interface in scope",
+      "reconsideration": "Supports Off as an intentional default. It leaves open whether every host that performs a restricted operation must expose non-Off choices; no stronger requirement was inferred."
+    }
+  ],
+  "test_recommendation": "A focused host unit assertion is absent for Event::Saved -> write_saved. The existing drive already proves a regular PDF input produces parsed edited bytes. If strengthening evidence, use unique temporary source paths and literal bytes, send Event::Saved through Host::event, then assert edited-path bytes and source bytes independently. A standalone rustc path-only check confirms `foo.edited.pdf`.with_extension(\"edited.pdf\") is `foo.edited.edited.pdf`; it does not alias the source. Do not make existing-target replacement normative without owner policy: current std::fs::write replaces it. A deterministic failed-write case can make the destination path a directory, invoke Event::Saved, and assert the source is unchanged and the directory remains. It will not assert the stderr diagnostic; capturing that would require a subprocess or a more observable reporting interface. A mere no-panic assertion is weak."
+}

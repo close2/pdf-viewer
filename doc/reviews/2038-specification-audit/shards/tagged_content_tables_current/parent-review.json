@@ -1,0 +1,7 @@
+{
+  "source": "Parent corrected page locators directly: progression768/753, WritingModeTable378continuation792/777, allocation802/787. Read #189 and source before/after direction; corrected reviewer\u2019s screen-y-down draft to PDFdefault-user-space y-up.",
+  "assertions": "One passing public-model test combines all8parsednames with literal allocation rectangles, asymmetric before2/after3 spacing and all4cardinaldirections. Avoids duplicating a bare enum mapping test. Existing source-derived layout/table shards remain separate evidence.",
+  "limits": "Only progression/allocated edges and selected artifact-consumer boundary reviewed here. No fullreflow, Placement, columns, nativeAT-SPItables or platform artifact visibility claim. Dropped broad not-reopened sections from index.",
+  "baseline": "b901326c",
+  "scope": "Partial feature/assertion review; parent qualifications supersede draft wording."
+}

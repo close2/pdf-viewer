@@ -1,0 +1,66 @@
+{
+  "baseline": "b901326c",
+  "scope": "Effective ISO 32000-2 §10.7.1-.5 scan conversion details. B20 degenerate pattern BBox and B19 page-boundary cases are excluded; sample-image placement has a separate shard. No tests were run.",
+  "source_locations": [
+    {"clause":"10.7.1", "title":"General", "location":"printed p.382 / physical p.397"},
+    {"clause":"10.7.2", "title":"Flatness tolerance", "location":"printed p.382 / physical p.397"},
+    {"clause":"10.7.3", "title":"Smoothness tolerance", "location":"printed p.383 / physical p.398"},
+    {"clause":"10.7.4", "title":"Scan conversion rules", "location":"printed pp.383-384 / physical pp.398-399"},
+    {"clause":"10.7.5", "title":"Automatic stroke adjustment", "location":"printed pp.384-385 / physical pp.399-400"}
+  ],
+  "errata": [
+    {"issue":"EC3 #371", "locator":"physical p.397, §10.7.2", "effect":"Replaces the positive-number sentence with a 0-to-100 inclusive flatness range, measured in output-device pixels, with 0 meaning the device default. The permission to ignore file-specified flatness remains. This is a writer constraint and does not require a processor that exercises the ignore permission to act on FL/i values."},
+    {"coverage":"No other EC3 annotation was listed for the reviewed §10.7.1-.5 text in doc/errata-read.md."}
+  ],
+  "features": [
+    {
+      "clause":"10.7.1",
+      "source":"The final rendering step shall be scan conversion. The NOTE says the specific algorithm is not defined and device-appropriate techniques differ; it does not expressly waive the shall-rules in §10.7.4.",
+      "ledger":"implemented; doc/conformance/ledger.toml §10.7.1",
+      "implementation":["crates/render-cpu/src/lib.rs CPU raster consumer", "crates/render-gpu/src/lib.rs GPU raster consumer", "raster/crates/raster-gpu/src/raster.rs and coverage lanes"],
+      "assertions":["crates/pdf-model/tests/scan_conversion_shapes_without_area.rs public PDF-to-CpuRasterizer fixtures", "crates/pdf-model/tests/scan_conversion_collapsed_by_transform.rs exact-xref PDF fixtures", "crates/render-raster/tests/stroke_adjustment.rs public rasterizer lanes"],
+      "assessment":"There are actual CPU/GPU/raster scan-conversion consumers. §10.7.1's algorithm NOTE describes implementation freedom, while explicitly mandatory §10.7.4 results remain separate obligations/departures.",
+      "residuals":["No clause-wide backend certification; selected shape cases and the separately inventoried departures only."]
+    },
+    {
+      "clause":"10.7.2",
+      "source":"Flatness measures maximum device-pixel distance between the mathematical path and line-segment approximation. The processor may ignore any file-specified flatness. NOTE 2 cautions against visible polygonal segments. Effective EC3 #371 range is 0..=100; 0 selects device default.",
+      "ledger":"implemented; permission exercised by ignoring i and /FL",
+      "implementation":["crates/pdf-model/src/content/ext_gstate.rs reads /FL without carrying it into raster state", "crates/pdf-model/src/content/operator.rs matches/discards i", "raster/crates/raster-gpu/src/raster/flatten.rs uses renderer-selected tolerances", "crates/render-cpu uses renderer-selected flattening tolerance"],
+      "assertions":["crates/pdf-model/tests/colour_paths.rs::flatness_changes_nothing_because_the_clause_permits_ignoring_it", "crates/pdf-model/tests/line_parameters.rs::flatness_is_read_and_reaches_nothing", "raster/crates/raster-gpu/src/raster/tests/flatten.rs"],
+      "assertion_quality":"PDF-level curve fixture compares complete rasters with and without both i and ExtGState /FL paths. Separate state tests ensure /FL does not leak to /LW, /LC, /LJ, /ML or prevent other dictionary values from applying. Raster unit tests cover the implementation-selected error bound.",
+      "assessment":"Ignoring file values is expressly permitted; #371's allowed range does not compel the reader to honor those values. No conformance defect shown by absent invalid-FL rejection.",
+      "residuals":["The integration fixture uses valid flatness values, so it does not test producer-side invalid-value handling; no reader obligation to honor them was found."]
+    },
+    {
+      "clause":"10.7.3",
+      "source":"Smoothness bounds per-component color error for piecewise-linear approximation of a shading function; tolerance is a component-range fraction in [0,1]. A device may have internal maximum and minimum tolerances. NOTE 1 acknowledges sampled conversion functions may defeat guarantees at too-low frequency.",
+      "ledger":"implemented; doc/conformance/ledger.toml §10.7.3",
+      "implementation":["crates/pdf-model/src/content/ext_gstate.rs carries /SM", "crates/pdf-render/src/shading.rs::Ramp::resolution_for", "crates/pdf-render/src/shading.rs::Patch::steps and mesh tessellation"],
+      "assertions":["crates/pdf-model/tests/extgstate_defaults_audit.rs::extgstate_smoothness_improves_sampling_accuracy", "crates/pdf-render/src/shading.rs unit tests a_smoothness_tolerance_only_ever_asks_for_more_samples and a_finer_tolerance_reaches_the_stops_only_where_there_is_detail_to_find", "crates/pdf-model/tests/shadings.rs::a_mesh_whose_tint_transform_steps_is_reported_when_the_subdivision_gives_up"],
+      "assertion_quality":"The ExtGState test uses a nonlinear t^80 shading with an absent-/SM control and checks actual ramp values against analytic red-channel values; channels are equal by fixture construction. Mesh tests check increased subdivision and typed reporting when a discontinuity exceeds attainable tolerance. A device-selected 1/256 baseline and 4096 cap are implementation limits, not spec-prescribed constants.",
+      "assessment":"Sampled behavior is aligned with the source latitude and tested with analytic controls. The prose claim that 1/t samples 'honour' tolerance is a heuristic in implementation documentation, not a general mathematical guarantee for arbitrary nonlinear functions; device limits and NOTE 1 constrain any stronger assertion.",
+      "residuals":["Not all shading families, conversion functions, or independent per-component extrema are certified; no contrary valid result was established."]
+    },
+    {
+      "clause":"10.7.4",
+      "source":"Defines device-space half-open pixel cells; nonzero-width fill/stroke paints every intersected pixel and total painted-pixel area is at least shape area; zero-width strokes may use implementation-defined fewer pixels. Sampled-image paint uses pixel centres and forbids area averaging. Clip is intersection with pixels included by fill. Glyphs may use another algorithm.",
+      "ledger":"departed; doc/conformance/ledger.toml §10.7.4 explicitly records three deliberate departures and their ADRs",
+      "implementation":["crates/render-cpu/src/area.rs and scan modules", "crates/pdf-render/src/collapsed.rs", "raster/crates/raster-gpu/src/raster/meet.rs and coverage implementation", "image and clipping consumers are separately audited"],
+      "assertions":["crates/pdf-model/tests/scan_conversion_shapes_without_area.rs exact CPU-raster pixel/ink assertions", "crates/pdf-model/tests/scan_conversion_collapsed_by_transform.rs exact-xref transformed-fill/stroke assertions", "crates/render-cpu/tests/edge_coverage.rs"],
+      "assertion_quality":"Point, half-open floor, degenerate clip, collapsed-transform and zero-area controls assert literal raster results. B20/B19 are excluded from this shard; image sample mapping is separately reviewed. The ledger expressly identifies area antialiasing/coverage, area-image reduction, and one class of retraced subpaths as departures rather than claiming source conformity.",
+      "assessment":"Explicit departures are visible in status and rationale. §10.7.1's informative algorithm NOTE does not itself erase §10.7.4's explicit shall statements; retaining departure classification is more source-faithful than treating the NOTE as a blanket exemption.",
+      "residuals":["This audit does not re-evaluate the numerical bounds or ratification of departures recorded by ADR 0025, 0738, 1082, 1560, 2330 and related ledger notes.", "B20 degenerate pattern BBox, B19 page-boundary clipping, and image-centre/interpolation requirements are out of this shard."]
+    },
+    {
+      "clause":"10.7.5",
+      "source":"When stroke adjustment is enabled, width and coordinates shall be adjusted as necessary for uniform thickness, within 0.5 pixel of requested width. If transformed width is below 0.5 pixel, render a one-pixel stroke. SA controls whether adjustment runs; Table 51 initial value is false.",
+      "ledger":"implemented after owner answer A714 and ADR 2553; parent §10.7 note is stale and still says the grid fit was decided against in ADR 0028",
+      "implementation":["crates/pdf-render/src/grid_fit.rs", "crates/render-cpu/src/stroke.rs", "raster/crates/raster-gpu/src/raster/grid_fit.rs", "raster/crates/raster-gpu/src/encode/stroke.rs and encode/line.rs"],
+      "assertions":["crates/render-raster/tests/stroke_adjustment.rs::the_oracle_draws_a_fitted_rule_as_one_whole_row_at_every_placement", "crates/render-raster/tests/stroke_adjustment.rs::every_lane_draws_the_oracles_fitted_strokes_at_every_placement", "crates/render-cpu/tests/stroke_width.rs", "crates/pdf-model/tests/oracle.rs SA-specific witnessed fixtures"],
+      "assertion_quality":"The public lane test independently checks CPU raster output for an SA thin horizontal rule at eight fractional placements, then compares CPU, GPU and compute raster lanes for rules and rectangle outlines. It includes a sub-half-pixel stroke under near-unequal stretches. Tests exercise placement and actual raster consumption, but not curves, diagonals, general anisotropic transforms, or the exact half-pixel boundary.",
+      "assessment":"Code implements the expressly selected Q714 construction: fitting thin, axis-aligned paths under near-uniform transforms, while leaving curves/diagonals and other widths to coverage-weighted rendering. The source clause is broader and does not limit adjustment to those cases; the selected narrow policy is an interpretation/owner choice, not a textual scope exception. No standalone source-determined curve/diagonal grid-fit oracle was established.",
+      "residuals":["Reconsider whether `implemented` communicates full clause conformance or only the owner-ratified construction; preserve the first sentence's broader source scope in any durable summary.", "Do not report the 1.5px eligibility threshold as a normative threshold: it is a policy bound chosen because a 1px replacement stays within the stated ±0.5px requirement."]
+    }
+  ]
+}

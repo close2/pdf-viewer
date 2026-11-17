@@ -1,0 +1,105 @@
+{
+  "shard": "file_only_consumer_assertions_batch3_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection_note": "Five exact file-only inventory pointers reviewed; each is supplemental to named feature tests. This pass evaluates the test content in each pointed file and closely related assertions, not the whole clause.",
+  "source": "Primary: doc/ISO_32000-2_sponsored_EC3.pdf. Source locations below give physical page and printed footer. Inspected relevant EC3 annotation objects directly where noted; no issue identifier is treated as proof of a gap.",
+  "features": [
+    {
+      "clause": "7.3.7 / 9.6.4(b)",
+      "title": "Type 3 CharProcs named recovery",
+      "file_only_reference": "crates/pdf-model/tests/damaged_char_procs.rs",
+      "source_location": "§7.3.7 dictionary syntax, physical p.45 / printed p.30; §9.6.4(b) CharProcs lookup, physical p.334 / printed p.319; Table 110 Type 3 font entries, physical p.332 / printed p.317.",
+      "source_effect": "The consumer clause expressly says that if a glyph name is not a CharProcs key, no glyph is painted. This permits a consumer to treat an absent description as no mark; it does not authorize a general parser to accept malformed dictionaries everywhere.",
+      "assertion_review": "The file has five self-contained tests. It compares an intact two-glyph fixture, an intentionally truncated CharProcs object, and an intact one-entry control. The raster/display-list comparison checks the remaining glyph mark and its position; diagnostics distinguish two readable keys from one readable stream description; Document::get remains Null while the explicit named damaged_dictionary API returns the prefix. The final control makes a readable non-dictionary object refuse the prefix path. The fixture intentionally has no xref and tests the documented damaged-object recovery policy, not producer validity.",
+      "decision": "Retain as a scoped recovery/consumer assertion. The missing-glyph outcome comes from §9.6.4(b), while accepting this particular damaged object is a reader recovery policy. No claim that arbitrary malformed dictionaries are conforming or that the parser's global recovery is normative.",
+      "related_adrs": [
+        "0018",
+        "0439",
+        "0784",
+        "0858",
+        "0866"
+      ],
+      "residuals": [
+        "This is not ordinary strict-xref parsing evidence; the fixture specifically exercises object-header recovery.",
+        "No test was run in this pass."
+      ]
+    },
+    {
+      "clause": "7.7.2 / 8.11",
+      "title": "Catalog optional-content state reaches rendering",
+      "file_only_reference": "crates/pdf-model/tests/optional_content.rs",
+      "source_location": "Table 29 is physical p.113 / printed p.98; the catalog /OCProperties entry is physical p.116 / printed p.101. §8.11 starts physical p.291 / printed p.276. The file's rendering tests use the default configuration and marked-content rules in §§8.11.3–8.11.4.",
+      "source_effect": "The catalog's optional-content properties define initial group state; the rendering processor applies that state to marked page content, forms, images and annotations. Visibility expressions, usage applications and event-specific configurations have distinct rules.",
+      "assertion_review": "The file constructs exact-xref one-page PDFs, checks known raster pixels and requires complete interpretation. Controls compare group-on/off, an OCMD that can show content despite an off member, a single indirect OCG reference, configuration precedence, inherited graphics state while hidden, Form XObject and annotation OC, undeclared groups, default state, intent, usage application, view/print events and category matching. Assertions use literal pixel alpha/control regions rather than only parser equality. This is broad direct consumer evidence; it does not establish every user-interface affordance for manipulating layers.",
+      "decision": "Retain the file pointer as executable consumer evidence for the selected rendering rules. Source mandates rendering behavior subject to its conditions; optional UI controls and unsupported event categories must remain separately scoped. No missing discriminating assertion found in the inspected file.",
+      "related_adrs": [
+        "0017",
+        "0044",
+        "0065",
+        "0143",
+        "0178"
+      ],
+      "residuals": [
+        "The file does not certify all §8.11 structures or every host/UI behavior.",
+        "No test was run in this pass."
+      ]
+    },
+    {
+      "clause": "7.7.3.3",
+      "title": "Page dictionary and geometry",
+      "file_only_reference": "crates/pdf-model/tests/page_geometry.rs",
+      "source_location": "Table31 and §7.7.3.3 begin on physical119/printed104.",
+      "source_effect": "Table 31 assigns defaults and inheritance to page entries; /UserUnit applies only on the leaf page. Page geometry must feed displayed extents and content transforms consistently.",
+      "assertion_review": "The file contains hand-built pages and asserts page width/height, transformed marks, crop margins, default boxes, inherited values and rotation behavior. In particular, `a_user_unit_scales_the_page_and_its_contents` checks both changed dimensions and literal mark positions; the inch-unit control fixes scale at 72 points per inch; inherited and leaf CropBox cases check visible pixels. These are independent numeric/visual expectations, not only round trips. Separate `pdf-transform/tests/pages.rs` assertions cover accepted multiples of 90 and refusal of other rotations.",
+      "decision": "Retain these as direct, source-shaped geometry controls. This reference does not prove every Table 31 entry, nor make reader refusal of every malformed page mandatory.",
+      "related_adrs": [
+        "0038",
+        "0097",
+        "0305",
+        "0389"
+      ],
+      "residuals": [
+        "Bounded review: no recertification of all page-tree semantics or all boxes.",
+        "No test was run in this pass."
+      ]
+    },
+    {
+      "clause": "9.4.3",
+      "title": "Text positioning and extraction",
+      "file_only_reference": "crates/pdf-model/tests/text_extraction.rs",
+      "source_location": "§9.4.3, physical pp.324–325 / printed pp.309–310. Directly inspected EC3 annotation objects on physical p.325: #165 inserts a cross-reference to literal-string syntax; #550 changes the quoted-string syntax exposition. Neither is a change to the numeric TJ adjustment rule sampled by the named sibling test.",
+      "source_effect": "A numeric TJ array element adjusts text position by the specified glyph-space amount, combined with text state and horizontal scaling. String representation and extraction text are separate from this numeric rule.",
+      "assertion_review": "The file-only text_extraction pointer supplies corpus/extractor corroboration, not a numeric TJ oracle. Before checkpoint77, text_state::horizontal_scaling_reaches_a_tj_adjustment only compared total glyph spacing at 100% and 50% scale, both WITH -1000 TJ. Parent added otherwise identical no-TJ controls and literal +10/+5 point deltas at10pt. Existing text_positioning_audit::tj_positive_number_moves_left_by_thousandths_of_text_space already independently asserts Type3 origins20 and15 for positive250 at20pt; the suite was not wholly blind to ignored TJ.",
+      "decision": "Strengthen the existing scaling assertion. New literal controls PASS and kill the zero-TJ mutation after the retained old ratio assertion passes. Whole-suite mutation escape is not claimed; the independent positive-TJ sibling already covers ordinary adjustment magnitude. #550 changes string handling exposition, not this numeric rule.",
+      "related_adrs": [
+        "0022",
+        "0111",
+        "0333"
+      ],
+      "residuals": [
+        "Corpus extractor agreement is not an ISO oracle and may normalize away some layout differences.",
+        "No corpus/test execution in this pass."
+      ]
+    },
+    {
+      "clause": "12.2",
+      "title": "Viewer preference window chrome",
+      "file_only_reference": "crates/viewer-ffi/tests/window_chrome.rs",
+      "source_location": "§12.2 and Table 147, physical pp.452–453 / printed pp.437–438. Table 147's window-hide booleans default to false; the file's three-object PDFs provide explicit values and an omitted-entry control.",
+      "source_effect": "Table 147 specifies document preferences for window presentation; a host must turn those effective values into observable chrome state. The preference does not require every platform to offer identical chrome or a specific geometry absent its own capability.",
+      "assertion_review": "The valid-xref minimal fixtures open three tabs (default, three hide flags, and FullScreen with NonFullScreenPageMode), query the public Window API, switch tabs repeatedly, leave and re-enter presentation, and assert host notification when chrome changes plus no duplicate notification for a no-op. This detects stale cross-document state as well as preference parsing. A separate Qt test covers DisplayDocTitle/FitWindow/CenterWindow; those values are not asserted by this FFI file.",
+      "decision": "The pointer is a concrete public-consumer integration assertion for hide flags and presentation transitions, but it is one FFI host's behavior rather than universal platform conformance. The source's values are tested against an omitted/default control; no gap found here.",
+      "related_adrs": [
+        "0071",
+        "0122",
+        "0146",
+        "1429"
+      ],
+      "residuals": [
+        "This test does not cover all Table 147 entries or every host's native chrome implementation.",
+        "No test was run in this pass."
+      ]
+    }
+  ],
+  "parent_execution": "Only the strengthened text_state test was freshly executed for this shard; broad76 remains separate execution evidence for other default model tests."
+}

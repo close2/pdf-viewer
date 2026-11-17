@@ -1,0 +1,506 @@
+[
+  {
+    "binary": "pdf-archive",
+    "test": "survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-archive",
+    "test": "survey::graphics_state::annex_q_audit_tests::q2_blend_mode_arrays_use_the_first_recognised_mode",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-colour::calculator_operators_spec_audit",
+    "test": "type4_right_bitshift_inserts_zero_bits_for_negative_values",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-colour::functions_spec_audit",
+    "test": "stitching_domain_start_bound_uses_its_explicit_degenerate_encode_value",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::file_specification_writer_audit",
+    "test": "document_home_file_spec_has_table43_desc",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::text_strings_spec_audit",
+    "test": "a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::text_strings_spec_audit",
+    "test": "a_text_string_language_escape_overrides_property_list_language",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::text_strings_spec_audit",
+    "test": "a_text_string_language_escape_overrides_the_catalog_language",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::type3_residual_audit",
+    "test": "d1_ignores_color_related_extgstate_changes_and_continues",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-syntax::ascii85_runlength_boundaries",
+    "test": "ascii85_tilde_followed_by_anything_but_greater_than_is_an_error",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-syntax::ascii85_runlength_boundaries",
+    "test": "ascii85_windowed_reader_reports_a_malformed_eod_marker",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-syntax::file_structure_audit",
+    "test": "an_incremental_update_repeats_a_second_class_trailer_entry",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-syntax::spec_basic_objects",
+    "test": "a_cold_wrong_generation_reference_is_undefined",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-syntax::spec_basic_objects",
+    "test": "a_warm_wrong_generation_reference_is_undefined",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::annex_i_insert_version",
+    "test": "inserting_a_newer_pdf_uses_the_newer_version",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::archive",
+    "test": "associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::date_spec_audit",
+    "test": "metadata_editing_does_not_publish_an_incomplete_numeric_field",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::date_spec_audit",
+    "test": "metadata_editing_does_not_publish_an_out_of_range_month",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::metadata_requirements_audit",
+    "test": "pieceinfo_keeps_required_moddate_when_update_requests_removal",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::content_resources_audit",
+    "test": "hidden_gs_lookup_that_changes_visible_state_is_reported",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::archive",
+    "test": "reader_resources::pattern_resource_audit::part2_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-transform::archive",
+    "test": "reader_resources::pattern_resource_audit::part4_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::destinations_residual_audit",
+    "test": "fitbh_fits_the_content_width_and_places_top_in_default_user_space",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::destinations_residual_audit",
+    "test": "fitbv_fits_the_content_height_and_transforms_left_from_user_space",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::destinations_residual_audit",
+    "test": "xyz_null_coordinates_and_zero_zoom_retain_the_current_window_values",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::destinations_residual_audit",
+    "test": "xyz_null_coordinates_retain_user_position_when_zoom_changes_on_the_same_page",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-host::page_labels_audit",
+    "test": "an_explicit_empty_page_label_is_not_replaced_by_the_unlabelled_fallback",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::image_dictionary_consistency_audit",
+    "test": "an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::image_dictionary_consistency_audit",
+    "test": "an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::action_next_occurrences_audit",
+    "test": "next_array_reads_each_occurrence_even_when_two_entries_share_an_object",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::link_highlighting_residual_audit",
+    "test": "an_unstated_link_mode_still_defaults_to_invert_when_a_down_appearance_exists",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::link_quadpoints_audit",
+    "test": "link_pressed_highlight_uses_quadpoints_active_region_not_the_larger_rect",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::action_triggers_spec_audit",
+    "test": "catalog_open_action_executes_a_supported_non_goto_action",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::page_visibility_triggers_audit",
+    "test": "newly_visible_neighbor_gets_pv_before_it_becomes_current",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::page_visibility_triggers_audit",
+    "test": "page_remaining_visible_does_not_get_pi_when_current_page_changes",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::mixed_action_order_audit",
+    "test": "a_next_script_observes_preceding_non_script_action_state",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::image_masking_audit",
+    "test": "ec3_image_mask_ignores_its_own_mask_and_colour_space_entries",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::image_masking_audit",
+    "test": "an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::annotation_appearance_audit",
+    "test": "printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::annotation_print_appearance_audit",
+    "test": "public_print_query_uses_normal_after_pointer_press_selected_down",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::annotation_print_geometry_audit",
+    "test": "a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::opentype_selection_audit",
+    "test": "opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::markup_annotation_audit",
+    "test": "writer_uses_cr_for_contents_paragraphs",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::line_ending_endpoint_spec_audit",
+    "test": "line_endings_use_the_l_coordinate_pairs_even_with_leader_lines",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::line_ending_endpoint_spec_audit",
+    "test": "positive_ll_places_the_proper_line_opposite_the_clockwise_leaders",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::polygon_polyline_spec_audit",
+    "test": "polyline_ic_fills_closed_endings_but_not_open_endings",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::polygon_polyline_spec_audit",
+    "test": "polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::polygon_polyline_spec_audit",
+    "test": "polyline_first_ending_is_at_first_vertex_not_second_vertex",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model",
+    "test": "variable_text::subset_collision_audit::appearance_writer_allocates_distinct_tags_for_sibling_subsets",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::text_markup_orientation_audit",
+    "test": "underline_tracks_the_counterclockwise_quad_text_edge_not_its_opposite",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::text_markup_orientation_audit",
+    "test": "highlight_preserves_all_four_corners_of_a_counterclockwise_trapezoid",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::stamp_popup_spec_audit",
+    "test": "opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::file_attachment_annotation_audit",
+    "test": "a_present_empty_attachment_contents_does_not_reveal_the_filespec_description",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::widget_annotation_spec_audit",
+    "test": "omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::sigflags_discovery_audit",
+    "test": "absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::sigflags_discovery_audit",
+    "test": "zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::sigflags_discovery_audit",
+    "test": "document_timestamp_existence_is_examined_when_sigflags_is_explicitly_zero",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::sigflags_discovery_audit",
+    "test": "document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::variable_text_resource_merge_audit",
+    "test": "a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-gtk",
+    "test": "controls::max_len_audit::multiline_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "gtk-baseline.log"
+  },
+  {
+    "binary": "viewer-gtk",
+    "test": "controls::max_len_audit::password_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "gtk-baseline.log"
+  },
+  {
+    "binary": "viewer-gtk",
+    "test": "controls::max_len_audit::zero_maxlen_rejects_insertion_instead_of_using_gtk_zero_as_unlimited",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "gtk-baseline.log"
+  },
+  {
+    "binary": "viewer-qt",
+    "test": "host::tests::choice_commit_audit::an_explicit_choice_commit_runs_the_acroform_validate_action",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-qt",
+    "test": "host::tests::choice_commit_audit::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::variable_text_resource_metric_audit",
+    "test": "saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::named_pages_spec_audit",
+    "test": "a_template_without_type_is_reported_as_not_a_template",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::named_pages_spec_audit",
+    "test": "a_template_with_non_name_type_is_reported_as_not_a_template",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::fdf_field_dictionary_audit",
+    "test": "imported_choice_options_replace_the_target_options",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::fdf_field_dictionary_audit",
+    "test": "imported_choice_options_reach_the_form_control_before_saving",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "viewer-core::fdf_script_order_audit",
+    "test": "fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::soft_mask_dictionary_audit",
+    "test": "a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  },
+  {
+    "binary": "pdf-model::fdf_template_count_audit",
+    "test": "template_array_members_do_not_multiply_the_fdf_page_count",
+    "prior_expected_failure": true,
+    "current_execution": "PASS",
+    "log": "baseline-nextest.log"
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "shard": "file_only_shading_render_assertions_current",
+  "decisions": [
+    {
+      "feature": "Axial shading raster sample location",
+      "verdict": "retain tests; qualify a shared normative-source rationale",
+      "basis": "The tests use independent arithmetic and meaningfully distinguish wrong gradient placement, nearest-texel ramp lookup, and misplaced hard transitions. But §10.7.4's fractional-one-half sentence appears in the sampled-image paragraph. §8.7.4.5.3 supplies t for a point; it does not prescribe that every output pixel's color be evaluated specifically at its center. The center convention is a sound local implementation choice consistent with the source, not itself a universal ISO requirement.",
+      "related_adrs": ["raster/doc/adr/0053", "2310", "2311", "2325", "2340"],
+      "adr_scope_note": "raster/doc/adr/0053 applies its center-point argument to Type 1 calculator-function shading; it does not establish a Type 2-specific source rule. ADRs 2310/2311 document the chosen ramp sampling/level behavior."
+    },
+    {
+      "feature": "Type 7 scene versus direct parser/consumer evidence",
+      "verdict": "do not count scene construction or cross-backend equality alone as normative proof; current direct Type 7 tests supply source-derived controls",
+      "basis": "The scene helper creates a useful discriminating 16-control tensor patch, and CPU/GPU/raster comparison catches backend differences. Current exact-xref model tests separately inspect Table 85 control order, literal tensor geometry/function output, and Type 7 function-after-parameter interpolation. This distinction addresses the shared-input/shared-oracle risk without duplicating existing tests.",
+      "related_adrs": ["1217", "2546"]
+    },
+    {
+      "feature": "10.7 paint/image averaging assertions",
+      "verdict": "retain as implementation regression and recorded departure, not normative pass evidence",
+      "basis": "The concrete arithmetic tests correctly verify block means. The effective §10.7.4 sampled-image text expressly says no averaging over pixel area, and the ledger separately marks §10.7.4 departed. The aggregate 10.7 pointer and §10.7.3 tolerance unit tests do not change that subclause disposition.",
+      "related_adrs": ["0025", "1560"]
+    },
+    {
+      "feature": "EC3 changes on selected defining pages",
+      "verdict": "no relevant source correction found on the target pages",
+      "basis": "The Type 2 defining pages 248–249 and Type 7 pages 265–266 have no Issue annotations. #371 alters §10.7.2 flatness on physical p.397, not the §10.7.3 tolerance or §10.7.4 image text. #682 on physical p.267 is figure cleanup outside the Type 7 text.",
+      "related_adrs": []
+    }
+  ],
+  "not_run": ["Cargo tests", "GPU/CPU/raster rendering tests"]
+}

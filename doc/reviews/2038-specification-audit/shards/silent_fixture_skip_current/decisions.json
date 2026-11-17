@@ -1,0 +1,12 @@
+[
+  {
+    "decision": "Retain optional-resource policy, enforce its distinction in evidence.",
+    "basis": "ADR0405 and current habits permit skipping an absent optional submodule; a present corpus lacking the required file is a failure under the documented policy.",
+    "result": "Record the two stale fixture assumptions. Do not equate runnerPASS with reached assertions or classify actually present optional fixtures as unavailable."
+  },
+  {
+    "decision": "Use a deterministic host-event control alongside existing producer witnesses.",
+    "basis": "The chosen reporting policy is exercised without depending on an absent file. AnnexI.1 itself leaves ignore/inform discretionary by feature.",
+    "result": "No production change. The new test closes the identified event-channel assertion gap; current core behavior passes."
+  }
+]

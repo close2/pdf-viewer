@@ -1,0 +1,6 @@
+{
+  "execution": "optional-content-wave12.log:46/46PASS, including both promoted tests in optional_content_nested_spec_audit.rs. Agent drafts were unrun at handoff; this supersedes those execution/residual statements only.",
+  "source": "Parent independently checked prose following Table96, Table97 OCGs, and \u00a78.11.3.3. Current fixture lengths computed; exact xref and no-recovery asserted.",
+  "controls": "Same Form/outerON paints before outerOFF challenge; outside-afterEMC square stays visible. Real OFF group AnyOn hides before all-null AnyOn shows.",
+  "limits": "Two specific coverage gaps closed; no claim about empty/config Intent, all policies, all hidden side effects or layer UI. Ignored-intent VE remains interpretation question."
+}

@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary429/414 for empty Alpha and transfer, plus11.6.5.1 outside-BBox rule. Reviewer read the primary equations; parent inspected actual group branches and ADR0237 algebra. Figures are not numeric oracles.",
+  "assertions": "Two new public PDF tests pass: empty Alpha group leaves white while unmasked control paints black; inverse type2 transfer of group alpha0.25 leaves byte64 (one-level tolerance), outside mask TR(0)=1 paints black. Exact xref/no recovery and complete interpretation checked. Whole soft_masks binary21PASS includes19 existing controls.",
+  "decision": "Retain separate group/initial/immediate backdrops and restricted Normal interpolation algebra. Parent confirms current code separates specialized knockout and non-Normal paths; no arbitrary-stack or all-backend certification. Generic alpha coverage does not establish shape without a knockout consumer.",
+  "execution": "alpha-mask-wave38.log:21PASS; quality-wave38.log:model all-targets Clippy PASS. Final edits after Clippy are source comments only.",
+  "baseline": "b901326c",
+  "scope": "Partial feature review only; no entire clause certified."
+}

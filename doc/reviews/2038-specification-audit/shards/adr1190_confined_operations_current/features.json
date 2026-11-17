@@ -1,0 +1,80 @@
+{
+  "shard": "adr1190_confined_operations_current",
+  "baseline_reviewed": "29ce189fad3b4c0b60d4495983ec104e41935cfa",
+  "scope": "ADR 1190 operation-level control rationale and its successors in quorra-confined; host policy, user operations, worker boundary, and evidence for saving/editing.",
+  "source_evidence": [
+    {
+      "claim": "ADR 1190 says the confined host owes a control exactly when it can perform an operation, but its inventory says it performs no form fill or save.",
+      "source": "doc/adr/1190-the-fourth-window-is-not-a-fourth-toolkit.md",
+      "locator": "sections 3-4",
+      "status": "current-rule with stale factual premise"
+    },
+    {
+      "claim": "ADR 1592 adds Tab field traversal, text entry, commit and Ctrl+S save to the confined host.",
+      "source": "doc/adr/1592-a-value-is-committed-from-every-window.md",
+      "locator": "section 4; accepted and built",
+      "status": "built successor; no reassessment of document restriction controls"
+    },
+    {
+      "claim": "ADR 1987 adds pointer press/release; checkbox clicks can fill a field, and media handoff is restrictable.",
+      "source": "doc/adr/1987-the-confined-windows-click-is-the-pointers-two-ends.md",
+      "locator": "section 2; accepted and built",
+      "status": "built successor; establishes further operations but retains no-level posture"
+    }
+  ],
+  "implementation": [
+    {
+      "claim": "The confined worker is opened without a Command::Restrict; its default RestrictionPolicy is Off for each operation (except OverridePreference, which defaults Warn).",
+      "locations": [
+        "crates/viewer-ui/src/bin/quorra-confined/worker.rs:68-86",
+        "crates/viewer-core/src/command.rs:1348-1356",
+        "crates/viewer-ui/src/bin/quorra-confined/events.rs:242-246"
+      ]
+    },
+    {
+      "claim": "The confined CLI carries link, remote-document, submission and launched-document settings; document restrictions are explicitly refused by name and remain Off.",
+      "locations": [
+        "crates/viewer-ui/src/bin/quorra-confined/arguments.rs:68-89",
+        "crates/viewer-ui/src/bin/quorra-confined/arguments.rs:100-115"
+      ]
+    },
+    {
+      "claim": "Unexpected Event::Asking is reported as unanswerable and answered proceed=false; current Off default is expected to prevent this event for document restrictions.",
+      "location": "crates/viewer-ui/src/bin/quorra-confined/events.rs:242-279",
+      "status": "fail-closed branch; no direct host regression assertion located"
+    },
+    {
+      "claim": "Ctrl+S dispatches Command::Save; Event::Saved bytes are written to input.with_extension(\"edited.pdf\") and write errors are printed.",
+      "locations": [
+        "crates/viewer-ui/src/bin/quorra-confined/typing.rs:56-59",
+        "crates/viewer-ui/src/bin/quorra-confined/events.rs:233",
+        "crates/viewer-ui/src/bin/quorra-confined/typing.rs:194-200"
+      ]
+    },
+    {
+      "claim": "A save is a policy-controlled core operation and is directly invoked by the user in this host.",
+      "locations": [
+        "crates/viewer-core/src/viewer/editing.rs:19-47",
+        "crates/viewer-ui/src/bin/quorra-confined/typing.rs:56-59"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "claim": "The non-gating UI drive's field_commit step runs in all four windows, types/commits values, presses Ctrl+S, parses the resulting .edited.pdf and checks literal field values and appearances.",
+      "location": "tools/drive-windows.sh:2265-2312",
+      "strength": "end-to-end UI plus worker-to-host disk output and parsed-document content; it removes a previous target before run"
+    },
+    {
+      "claim": "The confined worker test directly sends Command::Save and checks returned Event::Saved bytes retain the original document prefix.",
+      "location": "crates/viewer-confined/tests/confined.rs:1142-1155",
+      "strength": "worker boundary only; does not exercise host disk path"
+    },
+    {
+      "claim": "Host unit tests exercise link, remote-file and submission questions; no write_saved/path-collision/source-preservation host test was located.",
+      "location": "crates/viewer-ui/src/bin/quorra-confined/tests.rs",
+      "strength": "reviewed current tests file; absence is not itself a requirement defect"
+    }
+  ],
+  "verdict": "No confirmed document-restriction behavior defect under the stated project policy: Off is the explicit reader-favoring default and the reader can turn restrictions off. ADR 1190's operation-level rule remains a useful rule, but its assertion that no form-fill/save operations exist is stale after ADR 1592 (and some interaction premises are stale after ADR 1987). The successors implement those operations without revisiting document restriction-level configuration. Whether this confined host should expose non-Off document restriction levels is an explicit policy/ADR reconciliation question, not a standards finding. A Ctrl+S confirmation is not inferred: save is a direct user action. Current UI-drive evidence covers a typical source filename and fresh target, but not preservation of an existing target, source preservation, or surfaced disk-write failures. A standalone Rust Path::with_extension check confirms foo.edited.pdf maps to foo.edited.edited.pdf, so it does not alias the source."
+}

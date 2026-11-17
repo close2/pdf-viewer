@@ -1,0 +1,3329 @@
+{
+  "baseline": "b901326c",
+  "runs": [
+    {
+      "log": "build-sandbox-baseline.log",
+      "scope": "pdf-sandbox bins, RUSTFLAGS=-Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "baseline-nextest.log",
+      "scope": "11 crates",
+      "run": 6518,
+      "passed": 6508,
+      "failed": 10,
+      "skipped": 55,
+      "exit": 100,
+      "diagnosis": "All10 failures opened the same missing veraPDF corpus witness; no test reached product assertions."
+    },
+    {
+      "log": "baseline-corpus-rerun.log",
+      "scope": "Exact10 default_rgb_page_intent tests after linking existing corpus",
+      "run": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1218,
+      "exit": 0,
+      "changes": "Only local corpus symlink/gitlink guard; no production changes."
+    },
+    {
+      "log": "gtk-baseline.log",
+      "scope": "viewer-gtk --lib under Xvfb",
+      "run": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0
+    },
+    {
+      "log": "round2-targets-wave1.log",
+      "scope": "Changed date, insertion, FDF order and text-string audit targets",
+      "run": 13,
+      "passed": 11,
+      "failed": 2,
+      "exit": 100,
+      "expected_failures": 2,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "round2-targets-wave2.log",
+      "scope": "Structure stream/limits, JBIG2 filter chain, collection cells, refactored FDF order",
+      "run": 11,
+      "passed": 5,
+      "failed": 6,
+      "exit": 100,
+      "expected_failures": 6,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave2-quality-recheck4.log",
+      "scope": "Touched4crate Clippy -Dwarnings; fmt check; rustdoc -Dwarnings; full conformance package tests",
+      "exit": 0,
+      "notes": "Earlier test lint failures corrected; known dependency future-incompatibility notice remains."
+    },
+    {
+      "log": "round2-targets-wave3.log",
+      "exit": 101,
+      "scope": "No tests ran: cargo-nextest was outside PATH; rerun using existing local tool."
+    },
+    {
+      "log": "round2-targets-wave3-rerun.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 9,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave3-quality.log",
+      "scope": "5 touched crates Clippy -Dwarnings and fmt check",
+      "exit": 0
+    },
+    {
+      "log": "round2-targets-restored.log",
+      "scope": "All current audit targets after restoring shared date parser",
+      "run": 28,
+      "passed": 19,
+      "failed": 9,
+      "exit": 100,
+      "expected_failures": 9,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match expected-failures.json; mutation restored before this run."
+    },
+    {
+      "log": "round2-targets-wave4.log",
+      "scope": "cross_references, named_destination_tables_audit, page_label_second_block_audit",
+      "run": 40,
+      "passed": 39,
+      "failed": 1,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "round2-targets-wave5.log",
+      "scope": "signed-zero stitching and three structure ActualText public-consumer tests",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 154,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave45-quality.log",
+      "exit": 101,
+      "scope": "Two test-only lint errors: unused expectation and doc markdown; corrected in recheck"
+    },
+    {
+      "log": "wave45-quality-recheck.log",
+      "scope": "6 touched crates, all-targets Clippy -Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "wave45-final-control.log",
+      "scope": "Three structure ActualText public tests after fixture-label cleanup",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 144,
+      "exit": 0
+    },
+    {
+      "log": "round2-targets-wave6.log",
+      "scope": "sampled narrow domain, Decode numeric types, font fallback paired control",
+      "run": 3,
+      "passed": 1,
+      "failed": 2,
+      "skipped": 10,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave7.log",
+      "scope": "structure ActualText direct multi-item and three single-item controls",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 144,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave8.log",
+      "scope": "wave6 plus strengthened domain control and five structure ActualText tests",
+      "run": 8,
+      "passed": 4,
+      "failed": 4,
+      "skipped": 154,
+      "exit": 100,
+      "expected_failures": 4,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave67-quality-recheck2.log",
+      "scope": "6 touched crates all-targets Clippy -Dwarnings; earlier test lint failures corrected",
+      "exit": 0
+    },
+    {
+      "log": "round2-targets-wave9.log",
+      "scope": "runtime and saved form reset, JPX opacity0/1/2",
+      "run": 5,
+      "passed": 3,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "expected_failures": 2,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave9-quality.log",
+      "scope": "One doc-markdown lint in new JPX test; corrected in checkpoint9-quality",
+      "exit": 101
+    },
+    {
+      "log": "checkpoint9-quality.log",
+      "scope": "6 touched crates all-targets Clippy/fmt/rustdoc with warnings denied; full conformance package tests",
+      "exit": 0,
+      "notes": "Dependency future-incompatibility notice only; test/doc lints corrected."
+    },
+    {
+      "log": "checkpoint9-full-nextest.log",
+      "scope": "All tests in six touched crates, no-fail-fast, RUSTFLAGS=-Dwarnings",
+      "run": 5358,
+      "passed": 5341,
+      "failed": 17,
+      "skipped": 50,
+      "exit": 100,
+      "expected_failures": 17,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities equal the17-entry expected-failures manifest; no missing or additional failures."
+    },
+    {
+      "log": "round2-targets-wave10.log",
+      "scope": "initial AGL and mesh controls",
+      "run": 8,
+      "passed": 4,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "wave10-quality.log",
+      "scope": "new viewer test panic lint; corrected before checkpoint",
+      "exit": 101
+    },
+    {
+      "log": "round2-targets-wave10b.log",
+      "scope": "AGL5, mesh4, PAdES2; PAdES positive draft expected wrong RSA report substring, corrected; not a production finding",
+      "run": 11,
+      "passed": 5,
+      "failed": 6,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave10c.log",
+      "scope": "AGL5, mesh4, PAdES2",
+      "run": 11,
+      "passed": 6,
+      "failed": 5,
+      "exit": 100,
+      "expected_failures": 5,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave10b-quality.log",
+      "scope": "PAdES doc-markdown lint corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave10c-quality.log",
+      "scope": "pdf-font,pdf-model,viewer-core all-targets Clippy-Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "pdf-font-full-wave10.log",
+      "scope": "full pdf-font suite",
+      "run": 400,
+      "passed": 397,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "expected_failures": 3,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "named-actions-wave11.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "predictors-wave11.log",
+      "run": 16,
+      "passed": 16,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-extension-wave11.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "wave11-quality.log",
+      "scope": "unfulfilled panic lint expectation in draft; removed",
+      "exit": 101
+    },
+    {
+      "log": "wave11b-quality.log",
+      "scope": "pdf-syntax,pdf-model,viewer-core all-targetsClippy-Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "path-pixels-wave12.log",
+      "run": 38,
+      "passed": 38,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "optional-content-wave12.log",
+      "run": 46,
+      "passed": 46,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "media-selector-wave12b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "wave12-quality.log",
+      "scope": "pdf-model all-targetsClippy",
+      "exit": 0
+    },
+    {
+      "log": "wave12b-quality.log",
+      "scope": "new test lint errors; corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave12c-quality.log",
+      "scope": "pdf-model/viewer-core all-targetsClippy-Dwarnings",
+      "exit": 0
+    },
+    {
+      "scope": "AnnexD parent read-only full-table comparison",
+      "exit": 0,
+      "artifact": "shards/annex_d_encoding/parent-comparison.json"
+    },
+    {
+      "log": "page-inline-wave13.log",
+      "run": 40,
+      "passed": 40,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "inline-extra-wave13.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "transparency-repeated-wave13.log",
+      "run": 82,
+      "passed": 82,
+      "failed": 0,
+      "skipped": 1,
+      "exit": 0
+    },
+    {
+      "log": "pubkey-permissions-wave13.log",
+      "run": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 3070,
+      "exit": 0
+    },
+    {
+      "log": "docmdp-dts-wave13.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "exit": 100,
+      "qualification": "Preliminary fixture; superseded by wave13b after ID/widget/xref cleanup."
+    },
+    {
+      "log": "docmdp-dts-wave13b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "exit": 100
+    },
+    {
+      "log": "wave13-quality.log",
+      "scope": "pdf-model all-targets Clippy",
+      "exit": 0
+    },
+    {
+      "log": "wave13b-quality.log",
+      "scope": "Unfulfilled test lint expectation; corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave13c-quality.log",
+      "scope": "pdf-syntax/pdf-model/pdf-signature all-targets Clippy -Dwarnings",
+      "exit": 0
+    },
+    {
+      "scope": "Refreshed genuine DocMDP/DTS fixture verification",
+      "artifact": "shards/signatures_transforms/verify_fixture.py",
+      "exit": 0
+    },
+    {
+      "log": "six-crate-wave13.log",
+      "scope": "pdf-font, pdf-model, pdf-signature, pdf-syntax, pdf-transform, viewer-core; all tests; RUSTFLAGS=-Dwarnings",
+      "run": 5831,
+      "passed": 5814,
+      "failed": 17,
+      "skipped": 53,
+      "exit": 100,
+      "expected_failures": 17,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match the scoped expected-failures manifest."
+    },
+    {
+      "log": "host-colour-wave13.log",
+      "scope": "pdf-colour, viewer-host; all tests; RUSTFLAGS=-Dwarnings",
+      "run": 550,
+      "passed": 544,
+      "failed": 6,
+      "skipped": 2,
+      "exit": 100,
+      "expected_failures": 6,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match the scoped expected-failures manifest."
+    },
+    {
+      "log": "boundary-font-annotation-wave14.log",
+      "run": 17,
+      "passed": 16,
+      "failed": 1,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "scope": "page_geometry, Type3 restoration, text-markup popup, line endpoints"
+    },
+    {
+      "log": "fdf-boundary-wave14.log",
+      "exit": 101,
+      "scope": "Draft raster index type mismatch; no test execution"
+    },
+    {
+      "log": "fdf-boundary-wave14b.log",
+      "run": 26,
+      "passed": 24,
+      "failed": 2,
+      "exit": 100,
+      "scope": "One expected boundary failure; one FDF draft failed a representation assumption in single-template positive control, corrected before checkpoint"
+    },
+    {
+      "log": "fdf-pixels-wave14c.log",
+      "exit": 101,
+      "scope": "Unreachable draft fallback match; no test execution"
+    },
+    {
+      "log": "fdf-pixels-wave14d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected one-/two-template CPU controls"
+    },
+    {
+      "log": "metadata-wave14.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Query-to-properties panel title sources with no-packet control"
+    },
+    {
+      "log": "wave14-quality.log",
+      "exit": 101,
+      "scope": "New test doc-markdown lints; corrected"
+    },
+    {
+      "log": "wave14b-quality.log",
+      "exit": 101,
+      "scope": "Unfulfilled test lint expectations; corrected"
+    },
+    {
+      "log": "wave14c-quality.log",
+      "exit": 0,
+      "scope": "pdf-model/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "wave14-host-quality.log",
+      "exit": 101,
+      "scope": "New fixture expect_used lint; corrected"
+    },
+    {
+      "log": "wave14b-host-quality.log",
+      "exit": 0,
+      "scope": "viewer-host all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "cid-wave15.log",
+      "run": 13,
+      "passed": 13,
+      "failed": 0,
+      "exit": 0,
+      "scope": "CID map new test plus selected OpenType/composite/Type3 controls"
+    },
+    {
+      "log": "pattern-syntax-wave15.log",
+      "run": 5,
+      "passed": 4,
+      "failed": 1,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "scope": "New complete parser-bound controls and degenerate tiling BBox regression"
+    },
+    {
+      "log": "wave15-quality.log",
+      "exit": 101,
+      "scope": "New test doc-markdown and unfulfilled lint expectations; corrected"
+    },
+    {
+      "log": "wave15b-quality.log",
+      "exit": 0,
+      "scope": "pdf-syntax/pdf-model all-targets Clippy -Dwarnings before nested MCAF addition"
+    },
+    {
+      "log": "mcaf-wave15.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft Type3 extraction premise wrong; not a product failure"
+    },
+    {
+      "log": "mcaf-wave15b.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected Type3 MCAF empty-range expectation; Form and pattern controls"
+    },
+    {
+      "log": "mcaf-wave15c.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final nested associations plus decoded payload byte controls"
+    },
+    {
+      "log": "wave15c-quality.log",
+      "exit": 101,
+      "scope": "New helper assertion lints and needless value parameter; corrected"
+    },
+    {
+      "log": "wave15d-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-syntax/pdf-model all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "filters-wave16.log",
+      "exit": 94,
+      "scope": "Incorrect test binary name; no execution; corrected to spec_stream_extent_delimiter"
+    },
+    {
+      "log": "filters-wave16b.log",
+      "run": 40,
+      "passed": 40,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Stream extent and selected ASCII85/ASCIIHex/RunLength/LZW/Flate controls"
+    },
+    {
+      "log": "text-presentations-wave16.log",
+      "exit": 101,
+      "scope": "Draft used private command field; no execution"
+    },
+    {
+      "log": "text-presentations-wave16b.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Vertical Tw/TJ and omitted nonfinal page Dur public controls"
+    },
+    {
+      "log": "wave16-quality.log",
+      "exit": 101,
+      "scope": "New test filter_map(bool::then) lint; corrected"
+    },
+    {
+      "log": "wave16b-quality.log",
+      "exit": 0,
+      "scope": "Syntax/model/core all-targets Clippy before prefix test"
+    },
+    {
+      "log": "header-prefix-wave16.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "expected_failures": 1,
+      "exit": 100,
+      "scope": "B21 deleted-object semantics after long header prefix"
+    },
+    {
+      "log": "structure-text-wave16.log",
+      "run": 56,
+      "passed": 55,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "File structure, text state/position/clip/render and presentation controls"
+    },
+    {
+      "log": "wave16c-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "trees-open-order-wave17.log",
+      "exit": 101,
+      "scope": "Draft Destination root import incorrect; no execution"
+    },
+    {
+      "log": "trees-open-order-wave17b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "exit": 100,
+      "scope": "Two tree controls and initial B22 order fixture"
+    },
+    {
+      "log": "trees-open-order-wave17c.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Final B22 with catalog-only and one-shot controls; two tree controls"
+    },
+    {
+      "log": "wave17-quality.log",
+      "exit": 101,
+      "scope": "Unfulfilled lint expectations in two new tree tests; corrected"
+    },
+    {
+      "log": "wave17b-quality.log",
+      "exit": 0,
+      "scope": "Model/core all-targets Clippy before literal-default/border/blend additions"
+    },
+    {
+      "log": "preferences-wave17.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Literal source preference defaults"
+    },
+    {
+      "log": "annotation-border-wave17.log",
+      "run": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Constructed border defaults and whole-entry BS precedence"
+    },
+    {
+      "log": "annotation-blend-wave17.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Stored AP annotation BM literal CPU colors"
+    },
+    {
+      "log": "wave17c-quality.log",
+      "exit": 101,
+      "scope": "New fixture helper expect_used lints; corrected"
+    },
+    {
+      "log": "wave17d-quality.log",
+      "exit": 101,
+      "scope": "Literal-default helper lint edit missed compact attribute; corrected"
+    },
+    {
+      "log": "wave17e-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings, includes pending cross-document destination draft"
+    },
+    {
+      "log": "remote-destination-wave18.log",
+      "exit": 100,
+      "scope": "3run: local1PASS, GoToR/GoToE2FAIL. Direct target controls passed."
+    },
+    {
+      "log": "remote-destination-wave18b.log",
+      "exit": 100,
+      "scope": "Final context-labelled3run1PASS2expectedFAIL; failures after Supply."
+    },
+    {
+      "log": "destination-centering-wave18.log",
+      "exit": 100,
+      "scope": "3run3expectedFAIL: corrected existing FitR and new FitB vertical/horizontal. Matched-aspect controls pass."
+    },
+    {
+      "log": "fit-page-rgb-wave18.log",
+      "exit": 0,
+      "scope": "2PASS: whole-page Fit spare-height centering and DeviceRGB reset."
+    },
+    {
+      "log": "icc-alternate-wave18.log",
+      "exit": 100,
+      "scope": "1expectedFAIL ICC fallback clipping, distinct clamped/unclamped companions pass."
+    },
+    {
+      "log": "wave18-quality.log",
+      "exit": 101,
+      "scope": "Draft test doc-markdown lints; corrected backticks."
+    },
+    {
+      "log": "wave18b-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "eight-crate-wave18.log",
+      "scope": "Eight crates pdf-syntax/font/model/signature/transform/colour and viewer-core/host; no-fail-fast; warnings denied",
+      "exit": 100,
+      "run": 6415,
+      "passed": 6382,
+      "failed": 33,
+      "skipped": 55,
+      "expected_failures": 33,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test failure identities equal all33 current manifest entries; no missing or additional failures."
+    },
+    {
+      "log": "actions-wave19.log",
+      "exit": 0,
+      "scope": "Initial2public action/URI tests pass."
+    },
+    {
+      "log": "actions-wave19b.log",
+      "exit": 0,
+      "scope": "Final4PASS with fractional IsMap and catalog ignore controls."
+    },
+    {
+      "log": "wave19-quality.log",
+      "exit": 101,
+      "scope": "Draft doc-markdown lint corrected."
+    },
+    {
+      "log": "wave19b-quality.log",
+      "exit": 0,
+      "scope": "Current viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "choices-wave20.log",
+      "exit": 100,
+      "scope": "Initial2choice tests:1PASS1expectedFAIL."
+    },
+    {
+      "log": "cmaps-colour-choice-wave20.log",
+      "exit": 100,
+      "run": 13,
+      "passed": 10,
+      "failed": 3,
+      "expected_failures": 3,
+      "unexpected_failures": 0,
+      "skipped": 0,
+      "scope": "Final choice controls, embedded CMaps and special colours."
+    },
+    {
+      "log": "cmap-length-wave20b.log",
+      "exit": 100,
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "scope": "Added independent encoding-length/GID assertions before B27; those pass."
+    },
+    {
+      "log": "quality-wave20.log",
+      "exit": 101,
+      "scope": "Unfulfilled draft lint expectations; removed unused expectations."
+    },
+    {
+      "log": "quality-wave20b.log",
+      "exit": 0,
+      "scope": "Model/core all-targets Clippy -Dwarnings before final UseCMap complete guard."
+    },
+    {
+      "log": "usecmap-complete-wave20.log",
+      "exit": 0,
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "scope": "Valid stream inheritance with complete-interpretation guard."
+    },
+    {
+      "log": "quality-wave20c.log",
+      "exit": 0,
+      "scope": "Final model/core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "coordinates-wave21.log",
+      "run": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New composed page transform and existing path/stack assertions."
+    },
+    {
+      "log": "quality-wave21.log",
+      "exit": 101,
+      "scope": "Unused lint expectation in new draft; removed."
+    },
+    {
+      "log": "quality-wave21b.log",
+      "exit": 0,
+      "scope": "Current pdf-model all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "markup-ap-wave22.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Stamp and Caret red/blue stored appearances."
+    },
+    {
+      "log": "quality-wave22.log",
+      "exit": 101,
+      "scope": "New bounded pixel offset arithmetic lint; used saturating addition."
+    },
+    {
+      "log": "quality-wave22b.log",
+      "exit": 0,
+      "scope": "Current pdf-model all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "eight-crate-wave22.log",
+      "run": 6435,
+      "passed": 6399,
+      "failed": 36,
+      "skipped": 55,
+      "exit": 100,
+      "expected_failures": 36,
+      "unexpected_failures": 0,
+      "scope": "Eight crates syntax/font/model/signature/transform/colour/core/host, four test threads and bounded8GiB; exact binary/test failure identities equal all36manifest entries.",
+      "resource": "Bounded62s,peak5.88GiB; no limit termination."
+    },
+    {
+      "log": "fonts-transfer-wave23c.log",
+      "scope": "Four new public halftone/TR raster tests plus one embedded-font StandardEncoding discriminator",
+      "run": 5,
+      "passed": 5,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave23c.log",
+      "scope": "pdf-model all targets Clippy -Dwarnings after checkpoint23 tests",
+      "exit": 0
+    },
+    {
+      "log": "stroke-adjustment-wave24b.log",
+      "scope": "Strengthened entire-interior-row assertion and CPU/gpu/compute lane comparison on Radeon890M Vulkan, eight placements/three families",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "annex-o-wave24b.log",
+      "scope": "Final encoded structure-ID and qualified coordinate policy controls, with dimension/settlement/no-fragment guards",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave24c.log",
+      "scope": "viewer-core and render-raster all-targets Clippy -Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "font-shading-lock-wave25.log",
+      "scope": "All43shadings,17Type3,1genuine signed-lock model controls",
+      "run": 61,
+      "passed": 61,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "viewer-lock-wave25.log",
+      "scope": "Actual signed Include lock edit refusal plus unlisted, unsigned and Off controls",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave25.log",
+      "scope": "Draft test doc-markdown errors corrected",
+      "exit": 101
+    },
+    {
+      "log": "quality-wave25b.log",
+      "scope": "pdf-model/viewer-core all-targets Clippy -Dwarnings",
+      "exit": 0
+    },
+    {
+      "log": "password-prep-wave26.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "RFC4013 and PDF byte-limit unit controls"
+    },
+    {
+      "log": "print-field-wave26.log",
+      "run": 4,
+      "passed": 1,
+      "failed": 3,
+      "expected_failures": 3,
+      "unexpected_failures": 0,
+      "exit": 101,
+      "scope": "Flattened-field public accessibility information loss; title control passes"
+    },
+    {
+      "log": "quality-wave26.log",
+      "exit": 0,
+      "scope": "pdf-syntax/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "language-composite-wave27.log",
+      "exit": 137,
+      "scope": "Build hit8GiB process-tree bound; no test results. Reduced CARGO_BUILD_JOBS to2."
+    },
+    {
+      "log": "language-composite-wave27b.log",
+      "run": 30,
+      "passed": 25,
+      "failed": 5,
+      "exit": 100,
+      "scope": "Four language failures reproduced; fifth was invalid white-medium compositing setup, corrected before promotion."
+    },
+    {
+      "log": "composite-wave27d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final MediumNONE composite with Normal/Multiply/Color independent formulas"
+    },
+    {
+      "log": "language-final-wave27e.log",
+      "run": 27,
+      "passed": 25,
+      "failed": 2,
+      "expected_failures": 2,
+      "unexpected_failures": 0,
+      "exit": 101,
+      "scope": "Final model language fixtures and corrected empty-Lang oracle"
+    },
+    {
+      "log": "reference-wave27f.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "exit": 100,
+      "scope": "Public reference print controlPASS; late page label false absenceFAIL"
+    },
+    {
+      "log": "quality-wave27g.log",
+      "exit": 101,
+      "scope": "Draft reference-test lint errors corrected"
+    },
+    {
+      "log": "quality-wave27h.log",
+      "exit": 0,
+      "scope": "Final model/core/render-cpu all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "nine-crate-wave27.log",
+      "run": 6723,
+      "passed": 6679,
+      "failed": 44,
+      "expected_failures": 44,
+      "unexpected_failures": 0,
+      "skipped": 55,
+      "exit": 100,
+      "scope": "Nine crates: pdf-syntax/font/model/signature/transform/colour, viewer-core/host, render-cpu. Exact binary/test failure identities equal all44manifest entries; no missing or extra failures. CARGO_BUILD_JOBS2; bounded8GiB process tree, peak5.93GiB;4test threads."
+    },
+    {
+      "log": "navigation-wave28.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New public navigation and StateModel-default controls; parent repaired fixtures before execution."
+    },
+    {
+      "log": "quality-wave28.log",
+      "exit": 101,
+      "scope": "Draft test lint errors, corrected."
+    },
+    {
+      "log": "quality-wave28b.log",
+      "exit": 101,
+      "scope": "Remaining draft doc-markdown lint, corrected."
+    },
+    {
+      "log": "quality-wave28c.log",
+      "exit": 0,
+      "scope": "Final pdf-model/viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "output-intents-wave29.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 101,
+      "scope": "B33 page intent public pixels and in-force reporting, with catalog-only positive controls."
+    },
+    {
+      "log": "compatibility-wave29b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Balanced BX/EX unknown operator full-raster and literal pixel control."
+    },
+    {
+      "log": "empty-actualtext-wave29c.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 101,
+      "scope": "B34 present-empty replacement through Span, Artifact and structure; discretionary hyphen controls."
+    },
+    {
+      "log": "dpart-af-wave29d.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 151,
+      "exit": 0,
+      "scope": "Current DPart shape and repaired public annotation attachment click."
+    },
+    {
+      "log": "quality-wave29a.log",
+      "exit": 0,
+      "scope": "Output-intent test all-targets lint at that point."
+    },
+    {
+      "log": "quality-wave29e.log,quality-wave29f.log,quality-wave29g.log",
+      "exit": 101,
+      "scope": "Draft test documentation/arithmetic/clone lint corrections; no production changes."
+    },
+    {
+      "log": "quality-wave29h.log",
+      "exit": 0,
+      "scope": "Final model/core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "ruby-wave30.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Composed Ruby accessibility consumer roles, order and Japanese strings; not parser/layout/bus."
+    },
+    {
+      "log": "transparency-wave30.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "exit": 101,
+      "scope": "Initial detector run: confirmed CA regression and provisional state-only soft-mask probe fail; BM and nested-resource controls pass."
+    },
+    {
+      "log": "transparency-probe-wave30b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Unresolved mask oracle probe, after painted/opaque controls. Scratch only; not a manifest defect."
+    },
+    {
+      "log": "quality-wave30c.log",
+      "exit": 0,
+      "scope": "Final archive/accessibility all-targets Clippy -Dwarnings after removing unresolved-oracle probe."
+    },
+    {
+      "log": "transparency-final-wave30d.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Final committed detector tests: exactly B35 CA failure; BM and nested legacy-resource controls pass."
+    },
+    {
+      "log": "dpart-limits-wave31.log",
+      "exit": 101,
+      "scope": "Rejected draft: both cases shared an embedded stream and triggered legitimate attachment deduplication."
+    },
+    {
+      "log": "dpart-limits-wave31b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Distinct embedded streams: depth64 passes, depth65 silently omitted (B36)."
+    },
+    {
+      "log": "writing-mode-wave31c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Eight WritingMode names against literal allocation rectangles."
+    },
+    {
+      "log": "survey-limits-wave31d.log",
+      "run": 4,
+      "passed": 0,
+      "failed": 4,
+      "exit": 101,
+      "scope": "PDF/A2 and4 each falsely Met beyond depth/stream-count limits, after adjacent controls. Final test allows increased ceilings."
+    },
+    {
+      "log": "quality-wave31g.log",
+      "exit": 0,
+      "scope": "Final model/core/archive all-targets Clippy -Dwarnings; earlier e/f draft lint failures corrected."
+    },
+    {
+      "log": "eleven-crate-wave31.log",
+      "scope": "Eleven crates including archive/accessibility: exact binary/test identity equality with checkpoint31 manifest55; no missing or extra failures.589seconds,5.97GiB peak. Comparison parser initially omitted padded test indices; corrected whitespace pattern matched all55.",
+      "run": 7142,
+      "passed": 7087,
+      "failed": 55,
+      "skipped": 58,
+      "exit": 100
+    },
+    {
+      "log": "geometry-requirements-wave32.log",
+      "run": 6,
+      "passed": 3,
+      "failed": 3,
+      "exit": 101,
+      "scope": "Two geometry controls and public measurement pass; transparent stroke fails as predicted. Requirements policy fails; report draft also failed on an invalid guard demanding an event for an empty supported report."
+    },
+    {
+      "log": "serializer-id-wave32b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New file ID pair for classic and stream output."
+    },
+    {
+      "log": "requirements-wave32c.log",
+      "exit": 101,
+      "scope": "Rejected draft edit with mismatched delimiter; no behavior evidence."
+    },
+    {
+      "log": "requirements-wave32d.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 101,
+      "scope": "Final version semantics: report and enabled Process policy fail after absent/current/unknown controls. Empty supported reports correctly need no event."
+    },
+    {
+      "log": "quality-wave32g.log",
+      "exit": 0,
+      "scope": "Final syntax/render-cpu/viewer-core all-targets Clippy -Dwarnings. Earlier e/f draft lint failures corrected."
+    },
+    {
+      "log": "media-be-wave33.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Proposed diagnostic test passed, then was rejected as redundant with existing BE/MH/missing-PID controls. Removed from committed suite."
+    },
+    {
+      "log": "text-stream-wave33b.log",
+      "exit": 101,
+      "scope": "Draft compile failed on Vec/Arc comparison and unused import; corrected before behavior evaluation."
+    },
+    {
+      "log": "text-stream-wave33c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final filtered UTF8 Table32 script dispatch and equivalent-string controls."
+    },
+    {
+      "log": "quality-wave33e.log",
+      "exit": 0,
+      "scope": "Final model/viewer-core all-targets Clippy -Dwarnings. Prior d failed on two doc backticks; corrected. Dependency future-incompatibility notice is recorded, not a current warning failure."
+    },
+    {
+      "log": "colour-stroke-wave34.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "SampledCMYK OP exclusion passes; PDF same-stroke transparency fails."
+    },
+    {
+      "log": "gpu-stroke-wave34b.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100,
+      "scope": "DirectVello and rasterGPU/Compute fail B39 after controls pass; actual Radeon890M Vulkan device reported."
+    },
+    {
+      "log": "quality-wave34e.log",
+      "exit": 0,
+      "scope": "Final model/render-raster/render-gpu all-targets Clippy -Dwarnings; c/d rejected crate-specific lint expectations, corrected."
+    },
+    {
+      "log": "font-clip-wave35.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Rejectedinitialdraft samplex8 landedonantialiasededge; notexpectedfailuremanifest."
+    },
+    {
+      "log": "font-clip-wave35b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Correctedinsidepixel beforefontpinning."
+    },
+    {
+      "log": "font-clip-wave35c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Finalembeddedfont andindependentoutlinepixel oracle."
+    },
+    {
+      "log": "fdf-header-wave35d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "ExistingpublicFDFimportfixture aftercanonicalheader/catalogversioncorrection."
+    },
+    {
+      "log": "quality-wave35.log",
+      "exit": 0,
+      "scope": "ModelalltargetsClippy-DwarningsPASS."
+    },
+    {
+      "log": "quality-wave35e.log",
+      "exit": 0,
+      "scope": "Viewer-corealltargetsClippy-DwarningsPASS."
+    },
+    {
+      "log": "usage-rights-wave36.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Adopted UR withdrawal policy: denied annotation creation retains grant; genuine signed controls pass. Source SHOULD qualified."
+    },
+    {
+      "log": "quality-wave36b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy -Dwarnings PASS after doc/closure lint corrections. Transform changes are comments only; diff checked, no new execution claimed."
+    },
+    {
+      "log": "signature-time-field-wave37b.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100,
+      "scope": "TSA selector failure and qualified FieldMDP interpretation failure; all embedded controls passed. Initial build rejected unnecessary type qualification, corrected."
+    },
+    {
+      "log": "quality-wave37b.log",
+      "exit": 0,
+      "scope": "Signature/core all-targets Clippy -Dwarnings PASS. Initial quality run required a justified too-many-lines expectation around signed controls."
+    },
+    {
+      "log": "alpha-mask-wave38.log",
+      "run": 21,
+      "passed": 21,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Whole public soft_masks binary;2new Alpha tests and19existing controls."
+    },
+    {
+      "log": "quality-wave38.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy -Dwarnings PASS; final changes after run are comments only."
+    },
+    {
+      "log": "eleven-crate-wave38b.log",
+      "run": 7158,
+      "passed": 7096,
+      "failed": 62,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven packages. Exact binary/test equality with manifest excluding3GPU failures; no extra/missing. Initial38 launch used nonexistent pdf-accessibility package; corrected to viewer-accessibility before execution."
+    },
+    {
+      "log": "lexical-context-wave39.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Two new lexer-context integration assertions, after broad38 snapshot."
+    },
+    {
+      "log": "quality-wave39.log",
+      "exit": 0,
+      "scope": "Syntax all-targets Clippy -Dwarnings PASS."
+    },
+    {
+      "log": "accessibility-order-wave40b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final public mixed-content ordering regression. Initial wave40 also failed ACB vs ABC; final rerun follows helper lint cleanup."
+    },
+    {
+      "log": "quality-wave40b.log",
+      "exit": 0,
+      "scope": "Accessibility all-targets Clippy -Dwarnings PASS. Initial run rejected helper expect/arithmetic and closure/nested-if style; corrected."
+    },
+    {
+      "log": "current-crl-wave41b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final public current-time CRL pair. Initial wave41 also1PASS1FAIL; final adds explicit ByteRange integrity guard and combined verdict assertion."
+    },
+    {
+      "log": "quality-wave41b.log",
+      "exit": 0,
+      "scope": "Viewer-core all-targets Clippy PASS after CAdES doc markup correction."
+    },
+    {
+      "log": "calculator-lexical-wave42.log",
+      "run": 5,
+      "passed": 4,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Four existing calculator assertions plus new NUL regression. Five non-NUL separator controls pass inside failing test."
+    },
+    {
+      "log": "quality-wave42.log",
+      "exit": 0,
+      "scope": "pdf-colour all-targets Clippy PASS."
+    },
+    {
+      "log": "combined-wave43c.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final two q/Q CPU controls, filtered checksum and archive component regression. Earlier stream-checksum43 compile-only failures fixed;43b3PASS and external-components43 1FAIL reproduced here after lint cleanup."
+    },
+    {
+      "log": "quality-wave43b.log",
+      "exit": 0,
+      "scope": "pdf-model all-targets Clippy PASS after fixture formatting and redundant expect correction."
+    },
+    {
+      "log": "quality-transform-wave43b.log",
+      "exit": 0,
+      "scope": "pdf-transform all-targets Clippy PASS after XObject markup and justified test-helper panic expectation."
+    },
+    {
+      "log": "type3-image-wave44.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Direct/nested Type3 d1 image suppression and stencil exception CPU controls."
+    },
+    {
+      "log": "quality-wave44.log",
+      "exit": 0,
+      "scope": "pdf-model all-targets Clippy PASS."
+    },
+    {
+      "log": "historical-ocsp-wave46b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Public historical OCSP producedAt pair. Initial46 failed both on case-sensitive report guard; corrected46b passes crypto guards and isolates early-response failure."
+    },
+    {
+      "log": "quality-wave46.log",
+      "exit": 0,
+      "scope": "viewer-core all-targets Clippy PASS."
+    },
+    {
+      "log": "historical-ocsp-independent46.log",
+      "exit": 0,
+      "scope": "Parent actual ByteRange/CMS/path/token/OCSP/CRL verification with OpenSSL and qpdf syntax checks."
+    },
+    {
+      "log": "deep-page-tree-wave48b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Valid page-tree depth boundary: source order preserved64,reversed65. Initial48 shallow failure corrected expected content separator LF."
+    },
+    {
+      "log": "quality-wave48c.log",
+      "exit": 0,
+      "scope": "pdf-model all-targets Clippy PASS; initial48/48b only new fixture lint issues, corrected."
+    },
+    {
+      "log": "deep-page-tree-wave48c.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final lint-adjusted test pair retains expected depth64PASS/depth65FAIL."
+    },
+    {
+      "log": "script-engine-wave49.log",
+      "run": 247,
+      "passed": 247,
+      "failed": 0,
+      "skipped": 4,
+      "exit": 0,
+      "scope": "pdf-script and pdf-script-worker with both engine features; two new Table221 controls plus existing engine and confined-worker suites."
+    },
+    {
+      "log": "quality-wave49.log",
+      "exit": 0,
+      "scope": "Both script crates all-targets Clippy with engine features PASS."
+    },
+    {
+      "log": "rendition-wave50b.log",
+      "run": 5,
+      "passed": 4,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Public click, recording runner and field edit; final consequence tuple."
+    },
+    {
+      "log": "font-fill-wave51.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "No-Differences clean target and qualified Difference control."
+    },
+    {
+      "log": "quality-wave51c.log",
+      "exit": 0,
+      "scope": "Model/core all-targets Clippy PASS. Earlier51/51b rejected only fixture doc markup and needless value parameter; corrected."
+    },
+    {
+      "log": "script-corpus-wave49.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 249,
+      "exit": 0,
+      "scope": "Ignored engine corpus pair. 90,763 PDFs; counter assertions only, no field-value correctness oracle."
+    },
+    {
+      "log": "combined-wave50.log",
+      "run": 7,
+      "passed": 5,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Final B49/B50 fixtures after lint cleanup; exact same two expected failures."
+    },
+    {
+      "log": "optional-content-wave51b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "skipped": 3391,
+      "exit": 100,
+      "scope": "ListMode public query pair and Language raster test. Initial51 compile-only missing crate docs corrected."
+    },
+    {
+      "log": "signed-save-wave52.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Real incremental save of genuinely signed input."
+    },
+    {
+      "log": "combined-wave51.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final lint-adjusted optional-content and signed-save tests."
+    },
+    {
+      "log": "quality-wave51f.log",
+      "exit": 0,
+      "scope": "Model/core/signature all-targets Clippy PASS. Earlier51d/e rejected fixture string-building style and an unused lint expectation; corrected."
+    },
+    {
+      "log": "appearance-matrix-wave52.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Stored appearance pixel oracle and actual engine Matrix2D availability."
+    },
+    {
+      "log": "navigation-lzw-wave52.log",
+      "run": 4,
+      "passed": 1,
+      "failed": 3,
+      "exit": 100,
+      "scope": "LZW extensionPASS. Initial navigation fixture failures REJECTED: viewport exactly fits page, scroll clamp masks intended transform."
+    },
+    {
+      "log": "navigation-wave52d.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected50x50 viewport and Presented; literal independent geometry oracles."
+    },
+    {
+      "log": "outline-colour-wave52.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Public Sidebar raster, explicitred/defaultblack positive ink controls."
+    },
+    {
+      "log": "quality-wave52d.log",
+      "exit": 0,
+      "scope": "Syntax/model/script/core/UI all-targets Clippy with script engine PASS; initial52–52c rejected fixture-only unused expectation, literal-float comparison and similar-name issues; removed/justified/renamed."
+    },
+    {
+      "log": "eleven-crate-wave53.log",
+      "run": 7189,
+      "passed": 7118,
+      "failed": 71,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates; exact binary/test identity equality with current in-scope manifest. No extra or missing failures. Three GPU and one engine-only failure excluded. Full scope/exclusions in wave53-comparison.json."
+    },
+    {
+      "log": "objstm-indirect-wave54.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "One new indirectdictionary test plus existingdirectcontrol."
+    },
+    {
+      "log": "xref-size-wave54.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "One new currententrydeparturetest plus existingolderrecoveryboundcontrol."
+    },
+    {
+      "log": "stored-blend-wave54.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Existing T26 test enhanced outsideRect; no newtestcount."
+    },
+    {
+      "log": "quality-syntax-wave54b.log",
+      "exit": 0,
+      "scope": "Syntax alltargetsPASS after correcting testdocmarkup/redundantclosures from first54attempt."
+    },
+    {
+      "log": "quality-model-wave54.log",
+      "exit": 0,
+      "scope": "ModelalltargetsPASS."
+    },
+    {
+      "log": "table-scope-wave55c.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final qualifiedB53 fixture; earlier namewhitespace guard failures rejected."
+    },
+    {
+      "log": "quality-core-syntax-wave55b.log",
+      "exit": 0,
+      "scope": "Bothcrates alltargetsClippyPASS after justified testfixture arithmetic expect."
+    },
+    {
+      "log": "indirect-filters-wave56b.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Final4tests: twoouterformsPASS,two numericreferenceFAIL; first56run onlytwoouterPASS."
+    },
+    {
+      "log": "quality-syntax-wave56b.log",
+      "exit": 0,
+      "scope": "SyntaxalltargetsClippyPASS; initial56inclusive-range testlintfixed."
+    },
+    {
+      "log": "indirect-annotations-wave57.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "indirect-colour-wave57c.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Initialcompileandtightprecisiondraftfailure rejected; finalstrongerfunction/qualifiedcolour controls."
+    },
+    {
+      "log": "quality-model-wave57.log",
+      "exit": 0,
+      "scope": "ModelalltargetsClippyPASS"
+    },
+    {
+      "log": "quality-colour-wave57b.log",
+      "exit": 0,
+      "scope": "ColouralltargetsClippyPASS"
+    },
+    {
+      "log": "indirect-graphics-wave58.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave58b.log",
+      "exit": 0,
+      "scope": "ModelalltargetsClippyPASS"
+    },
+    {
+      "log": "indirect-fonts-wave59.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-font-wave59b.log",
+      "exit": 0,
+      "scope": "Font all-targets Clippy"
+    },
+    {
+      "log": "eleven-crate-wave59.log",
+      "run": 7207,
+      "passed": 7133,
+      "failed": 74,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates. Exact binary/test identities match; exclusions in wave59-comparison.json."
+    },
+    {
+      "log": "model-wave61b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave61b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
+    },
+    {
+      "log": "shading-wave62b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave62b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
+    },
+    {
+      "log": "media-wave63.log",
+      "run": 22,
+      "passed": 22,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "differences-wave63.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "linearization-floor-wave63b.log",
+      "run": 3,
+      "passed": 1,
+      "failed": 2,
+      "skipped": 16,
+      "exit": 100
+    },
+    {
+      "log": "quality-model-wave63b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
+    },
+    {
+      "log": "quality-transform-wave63.log",
+      "exit": 0,
+      "scope": "Transform all-targets Clippy"
+    },
+    {
+      "log": "open-report-wave64b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "fixture-skips-wave64.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 154,
+      "exit": 0,
+      "warning": "Both selectedPASS results are successful early returns with printed skip messages; no behavioral assertion reached."
+    },
+    {
+      "log": "present-corpus-controls-wave64.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Four actual present producer witnesses; no skip messages in success output."
+    },
+    {
+      "log": "quality-core-wave64.log",
+      "exit": 0,
+      "scope": "Core all-targets Clippy"
+    },
+    {
+      "log": "eleven-crate-wave64.log",
+      "run": 7218,
+      "passed": 7142,
+      "failed": 76,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven crates, exactmanifest identities. Passing count includes early returns; see D45."
+    },
+    {
+      "log": "literal-appearance-wave65b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "gamma-mutated65.log",
+      "run": 3,
+      "passed": 1,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Intentional temporary mutation, not baseline failures"
+    },
+    {
+      "log": "gamma-restored65.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Exact production source restoration verified"
+    },
+    {
+      "log": "quality-model-wave65c.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
+    },
+    {
+      "log": "annotation-outputs-wave67.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "indirect-files-wave67c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-transform-wave67d.log",
+      "exit": 0,
+      "scope": "Model/transform all-targets Clippy"
+    },
+    {
+      "log": "native-print-wave68b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-native-wave68b.log",
+      "exit": 0,
+      "scope": "GTK/Qt all-targets Clippy"
+    },
+    {
+      "log": "prev-stream-wave69b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "object-zero-wave69.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "native-print-wave69.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Existing GTK print-settings test rerun after adding required PDF2 ID"
+    },
+    {
+      "log": "quality-syntax-gtk-wave69d.log",
+      "exit": 0,
+      "scope": "syntax/GTK all-targets Clippy"
+    },
+    {
+      "log": "inline-chain-wave70.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave70.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy"
+    },
+    {
+      "log": "lang-bpc-wave71.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-core-model-wave71c.log",
+      "exit": 0,
+      "scope": "model/core all-targets Clippy"
+    },
+    {
+      "log": "native-build-wave72.log",
+      "exit": 0,
+      "scope": "Build current GTK/Qt/Quorra binaries; generated C++ compiler warnings remain"
+    },
+    {
+      "log": "transitions-wave72b.log",
+      "checks": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "X11 actual-window transition sequence, not Cargo tests; default-mode hardware provenance not retained"
+    },
+    {
+      "log": "bpc-warichu-wave73c.log",
+      "tests": 3,
+      "passed": 2,
+      "failed": 1,
+      "scope": "BPC state plus Warichu split controls; new B56 failure"
+    },
+    {
+      "log": "quality-model-transform-wave73b.log",
+      "exit": 0,
+      "scope": "model/transform all-targets Clippy"
+    },
+    {
+      "log": "mesh-crypto-wave74b.log",
+      "scope": "Type4 PASS; final crypto result superseded by74c after removing ToUnicode helper assumption"
+    },
+    {
+      "log": "crypto-wave74c.log",
+      "tests": 2,
+      "passed": 1,
+      "failed": 1,
+      "scope": "B57 distinct default array failure and shared-default control"
+    },
+    {
+      "log": "quality-model-syntax-wave74.log",
+      "exit": 0,
+      "scope": "model/syntax all-targets Clippy"
+    },
+    {
+      "command": "shards/dual_public_key_default_filters/verify_fixture.py on both retained test PDFs",
+      "exit": 0,
+      "scope": "Independent extracted CMS/AES plaintext and exact xref checks"
+    },
+    {
+      "log": "lattice-images-wave75.log",
+      "tests": 3,
+      "passed": 3,
+      "scope": "NewT97 and two existing image Decode consistency controls with valid binary header"
+    },
+    {
+      "log": "type5-function-wave75.log",
+      "tests": 1,
+      "passed": 1,
+      "scope": "T98 nonlinear Function pixels"
+    },
+    {
+      "log": "calculator-oracle-wave74b.log",
+      "tests": 11,
+      "passed": 11,
+      "skipped": 0,
+      "scope": "8reference/corpus+3RadeonGPU;case counts/limitations in calculator shard"
+    },
+    {
+      "log": "jbig-fixture-evidence-wave75.log",
+      "tests": 3,
+      "passed": 3,
+      "scope": "JBIG97comparison+extended-template actual execution; T88was early-return and superseded below"
+    },
+    {
+      "log": "t88-data-wave75.log",
+      "tests": 1,
+      "passed": 1,
+      "scope": "Official verified data present;16cases actually executed with bounded expectations"
+    },
+    {
+      "log": "fixed-documents-wave75b.log",
+      "tests": 1,
+      "passed": 0,
+      "failed": 1,
+      "scope": "Explicit ignored gate:77present0absent;D51stale expectation on onefile"
+    },
+    {
+      "log": "quality-model-wave75d.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy; earlier75c failed only unfulfilled lint expectation in newtest, removed"
+    },
+    {
+      "log": "eleven-crate-wave76.log",
+      "run": 7237,
+      "passed": 7159,
+      "failed": 78,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactmanifest identity match; noextra/missing.3GPU+1engine+1ignoredstalegateoutside."
+    },
+    {
+      "log": "ignored-consumers-wave76.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 2601,
+      "exit": 0,
+      "scope": "4explicitignoredtests executed;filteredothers notbehaviorcoverage. See source/oracle/counter limitations in shard."
+    },
+    {
+      "log": "font-control-wave76.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Existing pairedfontcontrol after addingrequiredLength1. Broad76precededthisfixturecorrection."
+    },
+    {
+      "log": "quality-model-wave76.log",
+      "exit": 0,
+      "scope": "Modelall-targetsClippy afterLength1 fixture correction."
+    },
+    {
+      "log": "fixture-oracles-wave77.log",
+      "run": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 737,
+      "exit": 0,
+      "scope": "Allon_disk includingignoredcorpus andarchive3presentwitnesses. Newnonzerogenerationtest plusstrongeragreement."
+    },
+    {
+      "log": "tj-oracle-wave77.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "tj-mutation-wave77.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "test_exit": 100,
+      "wrapper_exit": 0,
+      "scope": "DeliberatezeroTJmutant; expectednewdeltafailure afteroldratio passed; byteexactrestoreverified."
+    },
+    {
+      "log": "tj-restored-wave77.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave77.log",
+      "exit": 101,
+      "scope": "Existingpublic_key_witnesses PDFBoxdocmarkdownerror."
+    },
+    {
+      "log": "quality-wave77b.log",
+      "exit": 0,
+      "scope": "syntax/archive/model alltargetsClippy aftercommentbackticks."
+    },
+    {
+      "log": "indexed-oracle-wave78.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "press-oracle-wave78.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "fixture-lengths-wave78.log",
+      "run": 24,
+      "passed": 24,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "indexed-mutation-wave78.log",
+      "scope": "Old/new/restored targeted runs: PASS/expectedFAIL/PASS. Production and strengthened test restored byte for byte.",
+      "wrapper_exit": 0
+    },
+    {
+      "log": "quality-wave78.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy after all Rust model test edits. Later GPU test edits are comments only."
+    },
+    {
+      "log": "blend-gates-wave79.log",
+      "exit": 101,
+      "scope": "Preliminary audit logging edit required mutable rasterizer bindings; compile-only failure corrected before execution."
+    },
+    {
+      "log": "blend-gates-wave79b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "profile": "gates",
+      "adapter": "AMD Radeon 890M Graphics (RADV STRIX1), IntegratedGpu, Vulkan"
+    },
+    {
+      "log": "group-invocation-wave79.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave79.log",
+      "exit": 0,
+      "scope": "pdf-model/render-gpu/render-raster all-targets Clippy"
+    },
+    {
+      "log": "blend-debug-skip-wave79.log",
+      "exit": 4,
+      "run": 0,
+      "scope": "Both selected tests excluded by debug ignore; nextest no-tests policy exits4.64 total skipped includes filtered tests; not64 debug exclusions and not a test failure."
+    },
+    {
+      "log": "descriptor-wave80.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0,
+      "scope": "Pre-strengtheningbaseline"
+    },
+    {
+      "log": "descriptor-wave80b.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0,
+      "scope": "Strengtheneddescriptorunit/integrationandtwoactualkernelprobes"
+    },
+    {
+      "log": "valid-icc-wave80.log",
+      "run": 1,
+      "passed": 1,
+      "exit": 0
+    },
+    {
+      "log": "r6-vector-wave80.log",
+      "run": 12,
+      "passed": 12,
+      "exit": 0
+    },
+    {
+      "log": "quality-descriptor-wave80.log",
+      "exit": 0,
+      "scope": "viewer-confined all-targetsClippy"
+    },
+    {
+      "log": "quality-wave80.log",
+      "exit": 101,
+      "scope": "Docmarkdownlintinnewtestcomment; corrected"
+    },
+    {
+      "log": "quality-wave80b.log",
+      "exit": 0,
+      "scope": "syntax/modelall-targetsClippy"
+    },
+    {
+      "log": "protect-dispatch-wave81b.log",
+      "run": 2,
+      "passed": 2,
+      "exit": 0
+    },
+    {
+      "log": "stroke-width-wave81.log",
+      "run": 1,
+      "passed": 1,
+      "exit": 0,
+      "scope": "Initial single-lane straight-line control"
+    },
+    {
+      "log": "extended-controls-wave81.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0
+    },
+    {
+      "log": "final-controls-wave81.log",
+      "run": 6,
+      "passed": 6,
+      "exit": 0,
+      "scope": "Final5new identities plus1strengthened existing; successful adapter/count output retained"
+    },
+    {
+      "log": "quality-wave81d.log",
+      "exit": 0,
+      "scope": "transform/render-raster all-targets Clippy; earlier81/a-b-c failed only audit-test compile/lint issues, corrected"
+    },
+    {
+      "log": "appearance-archive-wave82.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "appearance-archive-wave82b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Added exact-xref guard and decoded partial-attachment/report diagnostic"
+    },
+    {
+      "log": "quality-wave82.log",
+      "exit": 101,
+      "scope": "New APRef test doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave82b.log",
+      "exit": 0,
+      "scope": "model/transform all-targets Clippy"
+    },
+    {
+      "log": "thick-stroke-wave83.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "thick-stroke-wave83b.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Direct/parsedPDF; actualRadeon890M Vulkan; independent literal-width controls"
+    },
+    {
+      "log": "quality-wave83.log",
+      "exit": 101,
+      "scope": "New doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave83b.log",
+      "exit": 0,
+      "scope": "render-raster all-targetsClippy"
+    },
+    {
+      "log": "confined-save-wave84.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave84.log",
+      "exit": 0,
+      "scope": "viewer-ui all-targets Clippy"
+    },
+    {
+      "log": "table-cells-wave85.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft coordinate encoding expectation failure; not accepted as behavior finding"
+    },
+    {
+      "log": "table-cells-wave85b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Expanded validFontPASS; merged/separate ancestorTMFAIL with6positivecontrols"
+    },
+    {
+      "log": "tm-html-wave85.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft omitted ExportFormat; rejected as behavior finding"
+    },
+    {
+      "log": "tm-html-wave85b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Corrected HTMLTM bodyFAIL; noTM controlPASS"
+    },
+    {
+      "log": "quality-wave85.log",
+      "exit": 101,
+      "scope": "New fixture arithmetic lint, corrected"
+    },
+    {
+      "log": "quality-wave85b.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy before HTML fixture"
+    },
+    {
+      "log": "quality-wave85c.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy final"
+    },
+    {
+      "log": "catalog-aa-wave86.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave86.log",
+      "exit": 101,
+      "scope": "Unused new fixture panic expectation; corrected"
+    },
+    {
+      "log": "quality-wave86b.log",
+      "exit": 0,
+      "scope": "viewer-core all-targetsClippy"
+    },
+    {
+      "log": "form-page-wave87.log",
+      "exit": 101,
+      "scope": "Initial fixture API compile errors, corrected"
+    },
+    {
+      "log": "form-page-wave87b.log",
+      "run": 6,
+      "passed": 5,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quality-wave87.log",
+      "exit": 101,
+      "scope": "Fixture needless_borrow corrected"
+    },
+    {
+      "log": "appearance-flags-wave87c.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Strengthened value/normal APstream assertions"
+    },
+    {
+      "log": "quality-wave87b.log",
+      "exit": 0,
+      "scope": "model/core all-targetsClippy"
+    },
+    {
+      "log": "font-descriptor-wave88.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 398,
+      "exit": 0,
+      "scope": "Selectedexisting tests, successoutput shows nohostearlyreturn; other398filtered/ignored"
+    },
+    {
+      "log": "linearization-wave88.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 18,
+      "exit": 0,
+      "scope": "Existingparameter teststrengthened across12fixture shapes"
+    },
+    {
+      "log": "quality-wave88.log",
+      "exit": 0,
+      "scope": "transformalltargetsClippy"
+    },
+    {
+      "log": "rich-text-wave89.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quadding-wave89b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave89.log",
+      "exit": 0,
+      "scope": "modelalltargetsDSonly"
+    },
+    {
+      "log": "quality-wave89b.log",
+      "exit": 101,
+      "scope": "NewQdocmarkdownlint,corrected"
+    },
+    {
+      "log": "quality-wave89c.log",
+      "exit": 0,
+      "scope": "modelalltargetsfinal"
+    },
+    {
+      "log": "eleven-crate-wave90.log",
+      "run": 7257,
+      "passed": 7174,
+      "failed": 83,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exact83defaultscope failures matchmanifest,noextra/missing. FiveGPU+oneengine+oneignoredstalegateoutside. PASS can include acknowledgedfixtureearlyreturns."
+    },
+    {
+      "log": "choice-locality-wave91.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100
+    },
+    {
+      "log": "choice-locality-wave91b.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100,
+      "scope": "Final descriptive helper names; same assertions"
+    },
+    {
+      "log": "quality-wave91.log",
+      "exit": 101,
+      "scope": "New test similar names and panic lints; corrected"
+    },
+    {
+      "log": "quality-wave91b.log",
+      "exit": 0,
+      "scope": "model all targets"
+    },
+    {
+      "log": "required-policy-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "required-policy-wave92b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Rejected draft omitted Presented; not a product failure"
+    },
+    {
+      "log": "required-policy-wave92c.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave92.log",
+      "exit": 101,
+      "scope": "Test-only let-and-return lint, corrected"
+    },
+    {
+      "log": "quality-wave92b.log",
+      "exit": 0,
+      "scope": "host all targets"
+    },
+    {
+      "log": "softmask-restore-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "oc-and-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "oc-and-mutation-wave92.log",
+      "exit": 0,
+      "scope": "OldPASS/newFAIL on last-writer-wins mutant; exact source restored"
+    },
+    {
+      "log": "oc-and-restored-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave92c.log",
+      "exit": 0,
+      "scope": "model and host all targets final"
+    },
+    {
+      "log": "page-label-missing-style-wave93.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "appearance-fallback-wave93.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave93.log",
+      "exit": 0,
+      "scope": "model all targets"
+    },
+    {
+      "log": "empty-fields-wave94.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100
+    },
+    {
+      "log": "maxlen-live-wave94.log",
+      "exit": 101,
+      "scope": "Rejected draft borrow lifetime; corrected"
+    },
+    {
+      "log": "maxlen-live-wave94b.log",
+      "run": 6,
+      "passed": 2,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "unknown-pointer-wave94.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quality-wave94.log",
+      "exit": 101,
+      "scope": "New test doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave94b.log",
+      "exit": 0,
+      "scope": "model/core alltargets"
+    },
+    {
+      "log": "eleven-crate-wave95.log",
+      "run": 7272,
+      "passed": 7179,
+      "failed": 93,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactbinary/test match, noextra/missing. Covers through94,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
+    },
+    {
+      "log": "live-flags-wave96.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100
+    },
+    {
+      "log": "maxlen-description-wave96.log",
+      "run": 6,
+      "passed": 2,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "shading-bbox-wave96.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-bbox-gpu-wave96.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-bbox-wave96b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "direct-cid-descriptor-wave96.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "direct-cid-descriptor-wave96b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave96.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96b.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96c.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96d.log",
+      "exit": 0,
+      "scope": "model/render-raster all-targets; final e includes strengthened spatial assertions."
+    },
+    {
+      "log": "quality-wave96e.log",
+      "exit": 0,
+      "scope": "model/render-raster all-targets; final e includes strengthened spatial assertions."
+    },
+    {
+      "log": "shading-geometry-wave97.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Initial CPU; radial stops at coincident error; superseded by97b collected outcomes."
+    },
+    {
+      "log": "shading-geometry-wave97b.log",
+      "run": 8,
+      "passed": 6,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Two CPU failures and six actual Vulkan GPU passes."
+    },
+    {
+      "log": "font-crypt-controls-wave97.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 10,
+      "exit": 0,
+      "scope": "One CMap, one crypt-filter assertion; ten other tests excluded by explicit filter."
+    },
+    {
+      "log": "quality-wave97.log",
+      "exit": 0,
+      "scope": "model/render-raster alltargets"
+    },
+    {
+      "log": "quality-wave97b.log",
+      "exit": 101,
+      "scope": "New syntax test similar-name lint; renamed."
+    },
+    {
+      "log": "quality-wave97c.log",
+      "exit": 0,
+      "scope": "model/syntax/render-raster alltargets"
+    },
+    {
+      "log": "type3-missing-key-wave98.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 16,
+      "exit": 0,
+      "scope": "Strengthened absentCharProcskey assertion."
+    },
+    {
+      "log": "file-pattern-wave98.log",
+      "exit": 64,
+      "scope": "Wrapper command missing separator; no tests executed."
+    },
+    {
+      "log": "file-pattern-wave98b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "UFstream and signedsteps."
+    },
+    {
+      "log": "tiling-assertions-wave98.log",
+      "run": 35,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing suite with nonvacuous spacing helper."
+    },
+    {
+      "log": "quality-wave98.log",
+      "exit": 101,
+      "scope": "Newtest docmarkdown fixed."
+    },
+    {
+      "log": "quality-wave98b.log",
+      "exit": 0,
+      "scope": "Before sharedhelperstrengthening."
+    },
+    {
+      "log": "quality-wave98c.log",
+      "exit": 0,
+      "scope": "Finalmodelalltargets."
+    },
+    {
+      "log": "eleven-crate-wave99.log",
+      "run": 7283,
+      "passed": 7185,
+      "failed": 98,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactbinary/test match, noextra/missing. Covers through98,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
+    },
+    {
+      "log": "outline-style-wave100.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Initial revised same-positionstylecontrol."
+    },
+    {
+      "log": "outline-style-mutation-wave100.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Intentionaltest-localmutation clearsstylesafterparse: rejectedoldPASS,newFAIL. Restored; notmanifestfailures."
+    },
+    {
+      "log": "outline-mask-wave100.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Restoredoutline andnewAlphaomittedCS."
+    },
+    {
+      "log": "quality-wave100.log",
+      "exit": 101,
+      "scope": "NewUItestexpect lint fixed."
+    },
+    {
+      "log": "quality-wave100b.log",
+      "exit": 0,
+      "scope": "Finalmodel/UIalltargets."
+    },
+    {
+      "log": "type1-spacing-wave101.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 35,
+      "exit": 100,
+      "scope": "WideBBoxType1placementfailureafterType2wide/Type1smallcontrols."
+    },
+    {
+      "log": "quality-wave101.log",
+      "exit": 0,
+      "scope": "model/corealltargets."
+    },
+    {
+      "log": "freetext-border-wave102.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Standalone FreeText cloud border controls."
+    },
+    {
+      "log": "mesh-border-wave102.log",
+      "run": 7,
+      "passed": 6,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Initial overlap draft samples the wrong raster row; rejected oracle failure, no product finding."
+    },
+    {
+      "log": "patch-order-wave102b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 4,
+      "exit": 0,
+      "scope": "Corrected overlap pixel and single-patch controls."
+    },
+    {
+      "log": "quality-wave102.log",
+      "exit": 101,
+      "scope": "New test unused lint expectation and overlong literal-color function; test-only cleanup."
+    },
+    {
+      "log": "quality-wave102b.log",
+      "exit": 0,
+      "scope": "Final model all-target Clippy."
+    },
+    {
+      "log": "final-wave102.log",
+      "run": 8,
+      "passed": 8,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Five new test identities and three existing patch assertions."
+    },
+    {
+      "log": "padding-nonzero-wave102.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Additional nonzero ignored padding variant in the new Type5 test."
+    },
+    {
+      "log": "mesh-widths-wave103.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New48-pair endpoint width matrix and prior fixed padding test."
+    },
+    {
+      "log": "standalone-callouts-wave103.log",
+      "run": 87,
+      "passed": 87,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Unchanged fixture baseline: preliminary edit script aborted before writing; not post-fix evidence."
+    },
+    {
+      "log": "standalone-callouts-wave103b.log",
+      "run": 87,
+      "passed": 87,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected standalone callout fixtures and no-recovery/cut guards."
+    },
+    {
+      "log": "decoded-length-wave103.log",
+      "run": 14,
+      "passed": 14,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New DL test and repaired shared binary header/resources fixture."
+    },
+    {
+      "log": "quality-wave103.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy."
+    },
+    {
+      "log": "quality-syntax-wave103.log",
+      "exit": 0,
+      "scope": "Syntax all-target Clippy."
+    },
+    {
+      "log": "popup-precedence-wave104.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 149,
+      "exit": 0,
+      "scope": "Strengthened four-field precedence, closed-click and host activation."
+    },
+    {
+      "log": "quality-core-wave104.log",
+      "exit": 0,
+      "scope": "Viewer-core all-target Clippy."
+    },
+    {
+      "log": "standalone-freetext-wave105.log",
+      "run": 140,
+      "passed": 140,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing variable_text/rich_text tests after standalone annotation fixture correction."
+    },
+    {
+      "log": "quality-model-wave105.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy."
+    },
+    {
+      "log": "direct-info-wave106.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0
+    },
+    {
+      "log": "xref-fixtures-wave106.log",
+      "run": 41,
+      "passed": 41,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0
+    },
+    {
+      "log": "type0-controls-wave106.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave106.log",
+      "exit": 101,
+      "scope": "New test unused expect_used lint; removed."
+    },
+    {
+      "log": "quality-model-wave106b.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after lint correction."
+    },
+    {
+      "log": "quality-syntax-model-wave106.log",
+      "exit": 0,
+      "scope": "Syntax/model all-target Clippy, includes pending text-operator tests."
+    },
+    {
+      "log": "text-operators-wave107.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two new state-persistence tests plus five existing text-positioning tests."
+    },
+    {
+      "log": "collection-fixture-wave108.log",
+      "run": 4,
+      "passed": 0,
+      "failed": 4,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Corrected fixture retains B05/B06 failures after controls."
+    },
+    {
+      "log": "image-fixtures-wave108.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Corrected binary fixtures retain B11/B14; two JPX controls pass."
+    },
+    {
+      "log": "quality-host-wave108.log",
+      "exit": 0,
+      "scope": "Host all-target Clippy."
+    },
+    {
+      "log": "quality-model-wave108.log",
+      "exit": 0,
+      "scope": "Model tests Clippy."
+    },
+    {
+      "log": "fixture-sample-wave109.log",
+      "run": 10,
+      "passed": 6,
+      "failed": 4,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Six fixture repairs, exact B32/B48/B54 failure identity match."
+    },
+    {
+      "log": "quality-fixtures-wave109.log",
+      "exit": 101,
+      "scope": "Added assertion moved test to101 lines; guard formatting shortened without lint suppression."
+    },
+    {
+      "log": "quality-fixtures-wave109b.log",
+      "exit": 0,
+      "scope": "Final model/syntax all-target Clippy."
+    },
+    {
+      "log": "tree-assertions-wave110.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two strengthened existing tree consumers."
+    },
+    {
+      "log": "image-decode-controls-wave110.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two new image Decode public controls."
+    },
+    {
+      "log": "quality-wave110.log",
+      "exit": 0,
+      "scope": "Final model all-target Clippy."
+    },
+    {
+      "log": "eleven-crate-wave111.log",
+      "scope": "Eleven default-feature crates through checkpoint110; exact binary/test manifest reconciliation.",
+      "run": 7298,
+      "passed": 7199,
+      "failed": 99,
+      "skipped": 58,
+      "exit": 100,
+      "expected_failures": 99,
+      "unexpected_failures": 0,
+      "comparison": "broad111-comparison.json"
+    },
+    {
+      "log": "image-measure-wave112b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Matched viewport and image-attached GEO query cases; B73."
+    },
+    {
+      "log": "quality-core-wave112.log",
+      "exit": 0,
+      "scope": "Viewer-core all-target Clippy."
+    },
+    {
+      "log": "font-fax-wave113b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New full Table113 helper mapping and valid EOFB public-reader tests."
+    },
+    {
+      "log": "quality-font-model-wave113b.log",
+      "exit": 0,
+      "scope": "Final font/model all-target Clippy after doc formatting repair."
+    },
+    {
+      "log": "measurement-format-wave114.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Exact public decimal formatting."
+    },
+    {
+      "log": "external-filter-wave114b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 705,
+      "exit": 0,
+      "scope": "Nondefault external filter parameter archive conversion;705filtered."
+    },
+    {
+      "log": "quality-core-transform-wave114.log",
+      "exit": 0,
+      "scope": "Core/transform all-target Clippy."
+    },
+    {
+      "log": "named-property-wave115.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Named indirect ActualText and inline control."
+    },
+    {
+      "log": "quality-model-wave115b.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after unused lint expectation repair."
+    },
+    {
+      "log": "broad116.log",
+      "scope": "Eleven default-feature crates through115; exact binary/test identity reconciliation.",
+      "run": 7305,
+      "passed": 7205,
+      "failed": 100,
+      "skipped": 58,
+      "exit": 100,
+      "expected_failures": 100,
+      "unexpected_failures": 0,
+      "comparison": "broad116-comparison.json"
+    },
+    {
+      "log": "dct-wave117.log",
+      "run": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing DCT tests with stronger fixture/oracle guards."
+    },
+    {
+      "log": "crypt-name-wave117.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 11,
+      "exit": 0,
+      "scope": "New explicit Crypt omittedName/default test;11filtered."
+    },
+    {
+      "log": "quality-model-syntax-core-wave119b.log",
+      "exit": 0,
+      "scope": "Model/syntax/core all-target Clippy, including pending navigation/FDF tests."
+    },
+    {
+      "log": "destinations-wave118b.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Remote target and attachment controls; two B74 parent-return failures."
+    },
+    {
+      "log": "quality-core-wave118b.log",
+      "exit": 0,
+      "scope": "Core all-target Clippy including both B74 witnesses."
+    },
+    {
+      "log": "fdf-wave119b.log",
+      "run": 7,
+      "passed": 4,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Table246 UTF8 T/V/Opt public consumers with ASCII/BOM controls"
+    },
+    {
+      "log": "quality-model-wave119d.log",
+      "exit": 0,
+      "scope": "All-target model Clippy including seven FDF encoding tests"
+    },
+    {
+      "log": "compatibility-wave121.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing path control plus new q/Q compatibility independence"
+    },
+    {
+      "log": "widget-colour-wave121b.log",
+      "run": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Four existing and two new component-count widget tests"
+    },
+    {
+      "log": "quality-model-core-wave122b.log",
+      "exit": 0,
+      "scope": "Model/core all-target Clippy including compatibility, widget and queued URI tests"
+    },
+    {
+      "log": "uri-outline-wave122.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Outline IsMap exception versus shared-action click control"
+    },
+    {
+      "log": "broad123.log",
+      "run": 7321,
+      "passed": 7216,
+      "failed": 105,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates through122; exact manifest match, comparison in broad123-comparison.json"
+    },
+    {
+      "log": "structure-type-wave123.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Public structure Type omission with typed control"
+    },
+    {
+      "log": "collection-date-wave124b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Public date sorting and short direction array"
+    },
+    {
+      "log": "pattern-mcr-wave126b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Final strengthened Matrix raster and MCR page identity"
+    },
+    {
+      "log": "objr-folder-wave126.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "OBJR page identity and valid nested public folder rows"
+    },
+    {
+      "log": "quality-wave126e.log",
+      "exit": 0,
+      "scope": "All-target Clippy pdf-model viewer-host pdf-transform viewer-core, warnings denied; new audit tests included"
+    },
+    {
+      "log": "archive-transfer-wave126f.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 706,
+      "exit": 100,
+      "scope": "Threshold transfer loss: Four preservation and Two separate authorization"
+    },
+    {
+      "log": "page-visible-wave128b.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Enabled runner visibility entry/exit/current-page distinction"
+    },
+    {
+      "log": "quality-core-wave128.log",
+      "exit": 0,
+      "scope": "viewer-core all-target Clippy after three independent timing tests"
+    },
+    {
+      "log": "pattern-stream-wave130b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Type5 stream through Type2 pattern and independent clipping controls"
+    },
+    {
+      "log": "quality-model-wave130.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy with final strengthened stream tests"
+    },
+    {
+      "log": "matte-overprint-wave131b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New public Matte Decode and explicit group overprint controls"
+    },
+    {
+      "log": "overprint-wave131c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Strengthened pixel-only negative control; same test identity"
+    },
+    {
+      "log": "quality-model-wave131b.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after draft compile/lint repairs"
+    },
+    {
+      "log": "structure-fixtures-wave132b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing MCR/OBJR tests after parent-page fixture corrections"
+    },
+    {
+      "log": "quality-model-wave132.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after final structure-fixture corrections"
+    },
+    {
+      "log": "broad133.log",
+      "run": 7339,
+      "passed": 7229,
+      "failed": 110,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Final eleven default-feature packages through132. Exact identity match with manifest; no extra or missing failures. See broad133-comparison.json."
+    }
+  ],
+  "prior_expected_failures": {
+    "count": 72,
+    "current_passed": 72
+  },
+  "limits": [
+    "Passing execution is separate from assertion-quality review.",
+    "Baseline runs do not cover later test edits.",
+    "Skipped tests are not claimed passing."
+  ]
+}

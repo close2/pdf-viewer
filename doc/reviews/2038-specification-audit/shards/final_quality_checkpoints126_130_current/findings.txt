@@ -1,0 +1,21 @@
+# Final peer review of checkpoints 126–130
+
+## Retain: archive transfer case B77
+
+The public archive test uses a valid PDF 2.0 source with a Type 6 threshold stream and `/TransferFunction` Type 2 function. Its literal map `.25 -> .75` predicts RGB byte 191, and the same fixture is rasterized before and after conversion. A no-transfer control stays at 64; the source with the active transfer function produces 191 before conversion. The separate PDF/A-2 control distinguishes screen-only authorization/refusal from transfer-loss authorization. The test permits the part-4 conversion either to preserve the 191 result or refuse the unsupported combination, so it only fails on silent loss. The findings correctly characterize this as a product transformation/loss-report issue and do not claim full PDF/A-4 certification.
+
+## Retain: enabled script visibility case B78
+
+The fixtures are exact-xref PDF 1.7 documents and the setup asserts no recovery and no cut cross-reference chain. They provide page-local JavaScript AA entries and a supplied recording runner. The initial page's separate PO and PV calls are a positive control; changing layout reveals a neighbor without making it current, changing current page while both pages remain visible, and leaving the two-page arrangement test distinct PV/PI timing conditions. Assertions compare exact ScriptSite and unique script content rather than only event counts. This is evidence about handing actions to an enabled runner; it does not claim to execute JavaScript. The three failed test identities match B78 in expected-failures and the recorded gate, and B78's scope limit is accurate.
+
+## Qualify checkpoint126 structure precedence tests (2038-T166; T167 is folders)
+
+Both T166 override fixtures state the containing Figure/Annot StructElem `/Pg` as page 1, while its only current `/K` content item is an MCR/OBJR expressly on page 2. T167 is the independent collection-folder test and is not implicated. Table 355, primary physical p.740 / printed p.725, says the structure-element `/Pg` identifies a page on which “some or all” K content is rendered. The parent page claim is therefore unsupported in the current fixture. This was a fixture-validity qualification, not a claim that the implementation's observed return was wrong; parent has now amended both fixtures as described below. The current findings.json wording calling both original fixtures source-valid was overstated. Parent has revised both test fixtures to add actual parent-page K content: an MCR with its own MCID/ParentTree association and an annotation/OBJR with its own StructParent. The page-2 target children and precedence assertions remain. Parent-revised tests passed in wave132b and model Clippy passed in wave132. The original wave126 passes do not validate the revised fixtures; the wave132b rerun does.
+
+## Other checkpoint checks
+
+The checkpoint126 folder test uses matching 16-byte PDF 2 IDs, valid reciprocal folder links, and public Collection/Attachments-to-row conversion with distinct literal keys/labels. The shading-matrix test has literal function-derived color values for default/identity/translation. The checkpoint130 Type 2-pattern/Type 5-stream tests use ASCII hex stream data under PDF 1.7, exact xref, no recovery/chain-cut assertions, literal corner/interior expectations, and independently varied BBox/caller clips. The four-test gate is recorded as passing. Checkpoint129 is an evidence/documentation reconciliation; the changed TrapNet and watermark text preserves the distinction between stored appearance display and producer-side construction/validation duties.
+
+No B77/B78 identifier or expected-failure count drift was found. This review did not run Cargo/tests or alter tracked files.
+
+Parent checkpoint132 follow-up: the two repaired structure tests now PASS, with model all-target Clippy PASS. The earlier source-valid wording for T166 is explicitly qualified and replaced by this stronger evidence. Parent corrected the peer draft interpretation of PDF/A4 erratum314 and rejected the version-inapplicable B78 AP concern.

@@ -1,0 +1,31 @@
+{
+  "shard": "image_filters_remaining_current",
+  "decisions": [
+    {
+      "adr": "ADR 1184 — who the JPX baseline restriction binds",
+      "selected_review": "ADR 1184's central producer-versus-reader distinction remains correct: producer restrictions do not imply mandatory malformed-input rejection. This pass separately checks EC3 #29, which changes the effective PDF 2.0 allowed-data statement by excluding enum19 from JPX image data. §7.4.9 also says processors shall support the JPX baseline enumerated spaces, and held T.801 includes enum19. Since the PDF data rule excludes enum19, this audit does not settle the apparent scope tension or claim a defect from enum19 fallback. No statement that ADR 1184 addressed #29 or its effect was found. Historical PDF versions require their own source review.",
+      "evidence": "§7.4.9 physical p.65 / printed p.50 annotation image errata-29-primary-page.png gives the producer restriction; the separate reader-support bullet is on physical p.67 / printed p.52; T.801 M.9.2.4 includes enum19. Current jpx_drawn does not render enum19 and fallback tests assert recovery. Those cases do not make a valid producer witness under effective PDF 2.0. The module header that calls CIEJab baseline is consistent with T.801 membership, but does not discuss the PDF-data exclusion.",
+      "reconsideration": "Do not attribute #29 commentary to ADR 1184. Preserve its producer/reader distinction, and separately distinguish JPX baseline membership from the narrower feature set permitted in PDF image data. Record the adjacency as an interpretation/scope question; do not call fallback a confirmed defect, and do not label legacy files invalid across prior PDF versions."
+    },
+    {
+      "adr": "ADR 1383 — JPX baseline from held T.801",
+      "selected_review": "The ranking implementation's order (precedence, approximation, file order), dictionary override, and fallback are directly reflected in code and selected valid-package tests. The tests do not certify the entire baseline support set, and #29 narrows the effective permitted PDF 2.0 set at enum19. ADR's bounded/residual characterization remains appropriate; its historic unheld-space premise must not be read as proof of current support obligations.",
+      "evidence": "jpx_colour_choice and jpx_drawn in image/jpx.rs; jpx_enumerated_spaces tests for stated-space precedence, high precedence, full JP2 controls, supported/unsupported selection. Enum19 is recovery-only for current PDF 2.0 scope."
+    },
+    {
+      "adr": "ADR 1183 and ADR 2468 — DCT ColorTransform ranking/default",
+      "selected_review": "Retain the current ranking: marker first, filter DecodeParms second, Table 13 defaults last; ADR2468 supersedes the old RGB-identifier default departure. The actual tests use pixel outputs and distinct controls, rather than comparing the implementation helper to itself.",
+      "evidence": "dct.rs::adobe_transform/colour_transform and colour_transform.rs cases for marker, DecodeParms, default, component-count handling, and foreign APP14. The broader Adobe TN marker contract remains outside this bounded pass."
+    },
+    {
+      "adr": "ADR 0203 and ADR 0266 — DCT frame/component interpretation",
+      "selected_review": "Retain the selected component-count and four-channel preservation premises. Current decode reads frame component metadata; APP14's transform is handled independently, and direct tests assert 3/4-channel results. A deliberately contradictory marker/frame fixture is robustness evidence, not a conforming input witness.",
+      "evidence": "dct.rs decode path; dct_components.rs direct component tests; colour_transform.rs YCCK/CMYK controls."
+    },
+    {
+      "adr": "§7.4.10 Crypt filter integration",
+      "selected_review": "No selected ADR in the prior inventory directly supplies evidence for this filter's ordering/name integration. Existing public-key witness is stronger than an Identity-only test because it decrypts a named filter under its own CMS recipients key and checks both authorized plaintext and unauthorized refusal. This does not certify all §7.6 semantics.",
+      "evidence": "public_key_witnesses.rs tests and crypt.rs::decrypt_stream; first-in-array is a producer condition and is not treated as a required reader error here."
+    }
+  ]
+}

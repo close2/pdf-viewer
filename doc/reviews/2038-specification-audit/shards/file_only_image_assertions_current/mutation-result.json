@@ -1,0 +1,9 @@
+{
+  "mutation": "Round the Indexed lookup index, then subtract one with saturation.",
+  "original_sha256": "f7786ecfd5026bfa8f26fd67cae65eeac6a6efd29d8f1c44cb41c0b361d93b42",
+  "old_test_exit": 0,
+  "new_test_exit": 100,
+  "restored_source_byte_exact": true,
+  "restored_test_byte_exact": true,
+  "restored_test_exit": 0
+}

@@ -548,8 +548,11 @@ fn a_document_on_disk_crosses_as_a_descriptor_and_its_length() {
         }
     );
 
-    // With one — the kernel's duplicate, here made by `try_clone` — the same file.
-    let duplicate: std::os::fd::OwnedFd = std::fs::File::open(&path).unwrap().into();
+    // Duplicate the exact descriptor selected by the sender, as SCM_RIGHTS does.
+    let duplicate = command_descriptor(&command)
+        .unwrap()
+        .try_clone_to_owned()
+        .unwrap();
     let mut descriptors = vec![duplicate];
     let decoded = decode_command_holding(&encoded, &mut descriptors).unwrap();
     assert!(descriptors.is_empty(), "the descriptor was claimed");

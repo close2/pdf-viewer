@@ -59,9 +59,25 @@ fn pdf_with_catalog(
     extra: &str,
     fonts: &str,
 ) -> Vec<u8> {
+    pdf_with_catalog_fields(catalog, annotation, form, extra, fonts, "5 0 R")
+}
+
+/// A standalone annotation retaining `/AcroForm /DR` resources without becoming a field.
+fn standalone_annotation_pdf(annotation: &str, form: &str) -> Vec<u8> {
+    pdf_with_catalog_fields("", annotation, form, "", "", "")
+}
+
+fn pdf_with_catalog_fields(
+    catalog: &str,
+    annotation: &str,
+    form: &str,
+    extra: &str,
+    fonts: &str,
+    fields: &str,
+) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog {catalog} /Pages 2 0 R /AcroForm \
-         << /Fields [5 0 R] /DR << /Font << /Helv 6 0 R /HeBo 7 0 R {fonts} >> >> {form} >> >>\n\
+         << /Fields [{fields}] /DR << /Font << /Helv 6 0 R /HeBo 7 0 R {fonts} >> >> {form} >> >>\n\
          endobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] \
@@ -120,6 +136,11 @@ fn rich(value: &str, markup: &str) -> Vec<u8> {
 /// Interprets a fixture's page, returning what it reported and the raster.
 fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    assert!(
+        !document.was_recovered(),
+        "fixture has exact cross references"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     let reports = interpretation
@@ -815,7 +836,7 @@ fn a_single_line_field_keeps_its_rich_text_on_one_line() {
 #[test]
 fn a_free_text_annotations_rich_text_is_drawn_formatted() {
     let note = |rc: &str, ds: &str| {
-        pdf(
+        standalone_annotation_pdf(
             &format!(
                 "<< /Type /Annot /Subtype /FreeText /Rect [10 10 290 190] /F 4 /Contents (Note) \
                  /RC ({rc}) {ds} /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>"
@@ -841,7 +862,7 @@ fn a_free_text_annotations_rich_text_is_drawn_formatted() {
 /// text" (ADR 1635).
 #[test]
 fn a_free_text_annotations_contents_wins_where_its_rich_text_disagrees() {
-    let (reports, raster) = draw(pdf(
+    let (reports, raster) = draw(standalone_annotation_pdf(
         "<< /Type /Annot /Subtype /FreeText /Rect [10 10 290 190] /F 4 /Contents (i) \
          /RC (<body><p>wwwwwwwwwwwwwwww</p></body>) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
         "",

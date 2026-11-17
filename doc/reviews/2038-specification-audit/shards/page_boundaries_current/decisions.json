@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "adr": "0410",
+      "verdict": "Retain distinct reported recovery for missing/unusable MediaBox; challenge extension of optional-box absence defaults to empty intersections.",
+      "basis": "Test supplies four-number nondegenerate boxes; failure occurs only after required intersection, not from absent or degenerate original values."
+    },
+    {
+      "adr": "0414",
+      "verdict": "Reconsider fallback conclusion for disjoint present boxes.",
+      "basis": "ADR explicitly considers corner-touching Crop/Media, then treats default as recovery from empty intersection. Table31 and §14.11.2.1 supply absence defaults, while an explicit processor shall requires intersection for supplied boxes. Nothing cited converts an empty result to absence. The new ViewAreaMedia control avoids the separate need for an empty output target. Reference-reader refusal is neither a pixel oracle nor justification for painting excluded content.",
+      "qualification": "This is a source-grounded challenge to an intentional documented behavior; production behavior and historical ADR remain unchanged for owner review."
+    },
+    {
+      "adr": "1227",
+      "verdict": "Retain separate displayed and clipped boundary choices in reviewed viewing cases.",
+      "basis": "§12.2 defines distinct choices; exact viewport/pixel controls discriminate them. Printing not newly certified."
+    },
+    {
+      "adr": "2440",
+      "verdict": "Retain optional requested display, literal Table397 style defaults and stated processor colour choices; preserve own-space restriction.",
+      "basis": "Source distinguishes absent dictionary from absent style member, and permits interactive guideline display. No proof of every host route or group backend follows."
+    }
+  ]
+}

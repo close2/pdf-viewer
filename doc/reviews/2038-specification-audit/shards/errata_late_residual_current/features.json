@@ -1,0 +1,43 @@
+{
+  "baseline": "b901326c",
+  "scope": {
+    "source": "doc/ISO_32000-2_sponsored_EC3.pdf physical pages 451–1023 (printed page = physical − 15); annotations were read as pikepdf objects from /home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/source/errata_annotations.json",
+    "population": "6,003 annotations on the assigned pages; 207 distinct issue numbers parsed across Subj/Title/Contents, 569 issue-to-annotation references. The issue_coverage.json index records per-annotation object identity, subtype, IRT, RT, State/StateModel and modification date, plus exact issue mentions in ledger/review/code files. It preserves multi-issue annotations (#162/#288) rather than relying only on the extraction index's first `issue` value.",
+    "interpretation": "EC3 corrections are applied to source obligations; an absent issue-number citation is a traceability observation, not a conformance finding. I selected four apparently under-cited annotations and read each annotation context."
+  },
+  "selected_annotations": [
+    {
+      "issue": 49,
+      "annotation": {"physical_page": 683, "printed_page": 668, "object": "14747 0 R", "subtype": "Text", "IRT": null, "RT": null, "State": null, "StateModel": null, "M": "D:20220615120000+10'00'"},
+      "effective_location": "§13.6.4.6, Table 322, physical p.683 / printed p.668; the note inserts an optional PV boolean with default true for the cutting-plane visibility.",
+      "ledger_review_code": "The ledger marks §13.6.4.6 out-of-scope under clause-13-multimedia. The 2038 three_d_scope_current shard includes the row among the excluded 3D rendering/modeling family. No direct implementation reference to #49 or a 3D cutting-plane visibility renderer was found.",
+      "assessment": "Real source insertion, but it controls rendering 3D artwork and is inside the explicit U3D/PRC rendering exclusion. Do not report a reader defect or claim that this viewer implements PV. The absence of an issue citation on the clause row is a useful index/traceability improvement only if the project elects to catalog excluded errata; it is not a debt under current scope."
+    },
+    {
+      "issue": 59,
+      "annotation": {"physical_page": 717, "printed_page": 702, "object": "14930 0 R", "subtype": "Text", "IRT": null, "RT": null, "State": null, "StateModel": null, "M": "D:20220615120000+10'00'"},
+      "effective_location": "§13.7.2.2.2, Table 335 and preceding activation prose, physical p.717 / printed p.702. The overlay adds an optional Scripts array of indirect file-spec references present in the RichMediaContent Assets name tree, defaults it to empty, and states that scripts run in array order in a common per-annotation RichMedia runtime.",
+      "ledger_review_code": "The ledger marks §13.7.2.2.2 out-of-scope under clause-13-multimedia. The current scope ratification excludes the RichMedia runtime; current reviewed clause-13 work treats still AP rendering and asset handoff separately. No RichMedia script executor or direct issue #59 code reference was found.",
+      "assessment": "This is an effective correction, not a parser bug in a supported consumer. The phrase `shall be executed` is specifically assigned to the RichMedia runtime, which current scope excludes. The separate in-document JS engine scope is not a RichMedia playback engine. No new test is warranted under current scope; record if that runtime is later admitted."
+    },
+    {
+      "issue": 8,
+      "annotation": {"physical_page": 809, "printed_page": 794, "object": "7793 0 R", "subtype": "Text", "IRT": null, "RT": null, "State": null, "StateModel": null, "M": "D:20240718113835+10'00'"},
+      "effective_location": "§14.8.6.1, added NOTE 3 at the close of the clause, physical p.809 / printed p.794. It explains that namespaces aid interchange and expressly says structure-element types in undefined namespaces remain permitted.",
+      "ledger_review_code": "The 14.8.6.1 ledger row is implemented and cites EC3 #151 for the normative order of role mapping/default-namespace interpretation, but not #8. Current `structure_types` and `logical_structure` reviews document unknown/custom namespace handling, namespace-aware RoleMapNS and reportable nonstandard types; no `Issue #8` attribution is present in those current artifacts or code comments.",
+      "assessment": "The insertion is a NOTE, not a new SHALL. The page's surrounding normative text already defines default standard namespaces and role-map resolution; the code's nonstandard/undefined namespace result and reviewed namespace tests cover the operative behavior. This is an absent source citation, not an identified implementation gap. A ledger citation could improve provenance but does not alter its verdict."
+    },
+    {
+      "issue": 277,
+      "annotation": {"physical_page": 1001, "printed_page": 986, "object": "8819 0 R", "subtype": "Text", "IRT": null, "RT": null, "State": null, "StateModel": null, "M": "D:20260416164241-05'00'"},
+      "effective_location": "Bibliography, physical p.1001 / printed p.986. The annotation adds an Adobe Technical Note #5411 ToUnicode tutorial reference.",
+      "ledger_review_code": "The ToUnicode mapping code and tests are present, but no issue #277 reference exists in the ledger, reviews or implementation. The added item is a bibliography entry, not a newly inserted normative instruction or a change to the ToUnicode mapping rules.",
+      "assessment": "No behavior gap follows from the omitted bibliographic citation. The existing ToUnicode parser's coverage should be assessed against §9.10 and its tables, not inferred from this added bibliography entry."
+    }
+  ],
+  "limitations": [
+    "This is an issue-index/citation pass, not a clause-by-clause certification of all 207 issue IDs or all source overlays.",
+    "Annotation review state is reported only from actual PDF `/State` and `/StateModel` fields; the four selected top-level Text annotations have neither state nor IRT. No inferred Accepted/Completed state is assigned from annotation date or text.",
+    "No full licensed page/table copies are stored in this shard. Page context was read from the primary PDF and checked against annotation geometry/text; concise source-location paraphrases are used here."
+  ]
+}

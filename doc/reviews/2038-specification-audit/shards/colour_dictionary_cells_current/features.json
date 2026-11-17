@@ -1,0 +1,380 @@
+{
+  "shard": "Colour-space dictionary cells for calibrated, ICCBased, Indexed, Separation, and DeviceN spaces",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Primary EC3 table captions, cells, footers and actual overlay annotations inspected; cross-checked current parser/consumers, named assertions, prior colour shards and selected ADRs. No tests executed.",
+  "scope_correction": "CalGray uses Table 62, not Table 63. Tables 63–68 cover CalRGB/Lab/ICCBased profile data; Table 69 is rendering intents, not a colour-space dictionary; Tables 70–72 are DeviceN attributes/process/mixing; Table 73 is colour operators. Tables 69 and 73 are not represented as dictionary tables in this review. Indexed and Separation have inline definitions, not a dedicated table.",
+  "source_locations": [
+    {
+      "table": "62",
+      "topic": "CalGray",
+      "physical_page": 201,
+      "printed_page": 186,
+      "footer_check": "Caption Table62 and footer 186 directly on page."
+    },
+    {
+      "table": "63",
+      "topic": "CalRGB",
+      "physical_page": 202,
+      "printed_page": 187,
+      "footer_check": "Caption Table63 and footer 187 directly on page."
+    },
+    {
+      "table": "64",
+      "topic": "Lab",
+      "physical_page": 204,
+      "printed_page": 189,
+      "footer_check": "Caption Table64 and footer 189 directly on page."
+    },
+    {
+      "table": "65",
+      "topic": "ICCBased stream entries",
+      "physical_page": 206,
+      "printed_page": 191,
+      "footer_check": "Table65 and footer191 directly on page."
+    },
+    {
+      "table": "66",
+      "topic": "ICC versions supported",
+      "physical_page": 207,
+      "printed_page": 192,
+      "footer_check": "Caption Table66 and footer192 directly on page; #181 modifies the version framing."
+    },
+    {
+      "table": "67",
+      "topic": "ICC profile types",
+      "physical_page": 207,
+      "printed_page": 192,
+      "footer_check": "Caption Table67 and footer192 directly on page."
+    },
+    {
+      "table": "68",
+      "topic": "typical ICC component ranges",
+      "physical_page": 208,
+      "printed_page": 193,
+      "footer_check": "Caption Table68 and footer193 directly on page."
+    },
+    {
+      "table": "70",
+      "topic": "DeviceN attributes dictionary",
+      "physical_page": 221,
+      "printed_page": 206,
+      "footer_check": "Caption Table70 and footer206 directly on page."
+    },
+    {
+      "table": "71",
+      "topic": "DeviceN process dictionary",
+      "physical_page": 223,
+      "printed_page": 208,
+      "footer_check": "Caption Table71 and footer208 directly on page."
+    },
+    {
+      "table": "72",
+      "topic": "DeviceN mixing hints",
+      "physical_page": 224,
+      "printed_page": 209,
+      "footer_check": "Caption Table72 and footer209 directly on page."
+    },
+    {
+      "table": null,
+      "topic": "Indexed definition and lookup semantics",
+      "physical_pages": [
+        214,
+        215
+      ],
+      "printed_pages": [
+        199,
+        200
+      ],
+      "footer_check": "Section 8.6.6.3 inline definition; no table number."
+    },
+    {
+      "table": null,
+      "topic": "Separation definition and routing",
+      "physical_pages": [
+        215,
+        216,
+        217
+      ],
+      "printed_pages": [
+        200,
+        201,
+        202
+      ],
+      "footer_check": "Section 8.6.6.4 inline definition; no dedicated table."
+    },
+    {
+      "table": null,
+      "topic": "DeviceN general/representation rules",
+      "physical_pages": [
+        218,
+        219,
+        220,
+        221
+      ],
+      "printed_pages": [
+        203,
+        204,
+        205,
+        206
+      ],
+      "footer_check": "Section 8.6.6.5 prose preceding Table70; no table number."
+    }
+  ],
+  "features": [
+    {
+      "id": "calibrated-space-parameters",
+      "clause": "8.6.5.2–.4",
+      "table_cells": [
+        {
+          "table": "62",
+          "key": "WhitePoint",
+          "source": "Required [XW,YW,ZW], X/Z positive and Y=1.0.",
+          "implementation_assertions": "Parser reads and computes; tests `a_lab_space_is_read_under_its_own_white_point`, `calgray_applies_its_gamma_before_the_white_point`, `calgray_is_a_luminance_and_must_be_encoded_for_the_display`; indirect-field equivalence is tested separately."
+        },
+        {
+          "table": "62",
+          "key": "BlackPoint",
+          "source": "Optional, all nonnegative, default [0,0,0].",
+          "implementation_assertions": "Defaults are explicit in parser; unit `a_cal_spaces_black_point_does_not_move_its_colours` confirms current conversion choice. Gamut mapping policy is chapter 10 and not inferred from this table alone."
+        },
+        {
+          "table": "62",
+          "key": "Gamma",
+          "source": "Optional positive number, generally >=1; default 1.",
+          "implementation_assertions": "Gamma applied before WhitePoint; direct tests use gamma1/gamma2.2, and CalGray table fixture uses gamma2.2. Invalid nonpositive values fallback is recovery, not source-mandated."
+        },
+        {
+          "table": "63",
+          "key": "WhitePoint",
+          "source": "Required [XW,YW,ZW], X/Z positive, Y=1.0.",
+          "implementation_assertions": "CalRGB parser and literal sample tests exercise D65 values; `calrgb_samples_match_independent_gamma_and_srgb_transfer_values` uses independently derived pixel expectations. Source constraints are producer obligations; no rejection duty asserted."
+        },
+        {
+          "table": "63",
+          "key": "BlackPoint",
+          "source": "Optional nonnegative triple; default zero triple.",
+          "implementation_assertions": "Shared parsing/default behavior and calibrated tests; no requirement that gamut-mapping behavior be inferred from 8.6.5 alone."
+        },
+        {
+          "table": "63",
+          "key": "Gamma",
+          "source": "Optional three-component gamma array, default [1,1,1].",
+          "implementation_assertions": "Identity and non-identity gamma tests; literal public render test separates CalRGB gamma from DeviceRGB control."
+        },
+        {
+          "table": "63",
+          "key": "Matrix",
+          "source": "Optional nine numbers arranged as three columns, default identity.",
+          "implementation_assertions": "`calrgb_reads_its_matrix_one_column_per_component`, asymmetric primaries, and public CalRGB pixels provide non-symmetric controls."
+        },
+        {
+          "table": "64",
+          "key": "WhitePoint/BlackPoint",
+          "source": "WhitePoint required and constrained as above; BlackPoint optional/nonnegative/default zero.",
+          "implementation_assertions": "Lab anchor colours and `a_lab_space_is_read_under_its_own_white_point`; public CIE-context tests use D50 calculations."
+        },
+        {
+          "table": "64",
+          "key": "Range",
+          "source": "Optional four numbers for a*/b*, default [-100,100,-100,100]; L* stays [0,100]. Input outside range adjusted without error indication.",
+          "implementation_assertions": "Parser default and clamp; `lab_maps_its_anchor_colours`, `components_outside_their_range_are_clamped`, DCT Lab and ICC profile range fixtures exercise independent literal anchors."
+        },
+        {
+          "table": "64",
+          "key": "explicit functions/matrix parameters",
+          "source": "Lab shall not specify explicit decoding functions or matrix coefficients; transformation is implicit by its equations.",
+          "implementation_assertions": "Current representation uses fixed Lab transform; invalid producer fields do not create a claim of reader rejection."
+        }
+      ]
+    },
+    {
+      "id": "icc-profile-cells",
+      "clause": "8.6.5.5",
+      "table_cells": [
+        {
+          "table": "65",
+          "key": "N",
+          "source": "Required integer 1,3,4 and matches actual ICC profile component count.",
+          "implementation_assertions": "ICC parser derives channel count from profile; current fixtures include gray/RGB/CMYK and Lab-channel profiles. Table writer constraint is not treated as a universal rejection algorithm."
+        },
+        {
+          "table": "65",
+          "key": "Alternate",
+          "source": "Optional; used if embedded profile not supported; matching component count, not Pattern; absent route falls back to DeviceGray/RGB/CMYK by N; no tint transformation; values first constrained to ICC Range then alternate range.",
+          "implementation_assertions": "`crates/pdf-model/tests/icc_alternate_range_spec_audit.rs::unsupported_icc2_profile_clamps_to_icc_range_before_wider_alternate` is the executed public model/render consumer assertion for this cell. It compares the unsupported-profile fallback against both a directly clamped Lab control and an unclamped control. Durable parent review records confirmed finding 2038-B25: observed RGB [255,0,128], expected clamped control [255,0,126]. The ICC2 v5 Lab profile was validated independently by ICC iccDEV2.3.2.5 (ValidationStatus.OK, empty report); this is an executed finding, not an outstanding draft."
+        },
+        {
+          "table": "65",
+          "key": "Range",
+          "source": "Optional 2*N bounds matching profile; default component defaults/ranges; constrain source values before alternate clamp.",
+          "implementation_assertions": "`an_icc_spaces_range_decides_what_its_operands_mean`, profile range handling and ICC Table68 defaults; alternate-fallback clamp remains the specifically recorded gap, distinct from supported profile path."
+        },
+        {
+          "table": "65",
+          "key": "Metadata",
+          "source": "Optional metadata stream.",
+          "implementation_assertions": "Not consumed for colour calculations; §14.3 metadata audit owns reading/preservation obligations."
+        },
+        {
+          "table": "66",
+          "key": "supported ICC version",
+          "source": "EC3 #181 revises framing from PDF-version→ICC-document-edition to ICC profile-header version classes, including 2.x and 4.x; readers support ICC.1:2010 required for PDF2 and should interpret by profile header.",
+          "implementation_assertions": "`icc.rs` reads header major version and selects v2/v4 profile decoding; v2/v4 profile tests. Version-sensitive reading is not keyed to PDF version."
+        },
+        {
+          "table": "67",
+          "key": "profile class and colorSpace signatures",
+          "source": "Writer profiles for calibrated graphics spaces shall have listed deviceClass/colorSpace fields, both listed values, and conform to profile-header version.",
+          "implementation_assertions": "Parser uses class/channel/PCS/tag validation to decide support; this is chiefly writer validity and accepted later-version fallback is conditional on capability, not proof every writer constraint is checked."
+        },
+        {
+          "table": "68",
+          "key": "component ranges",
+          "source": "Typical Gray/RGB/CMYK use [0,1]; ICC Lab L* [0,100], a*/b* [-128,127]. ICC components default to 0.",
+          "implementation_assertions": "Profile.component_range and ICC Lab direct/sample fixtures use non-unit range. Table65 explicit /Range overrides where appropriate. Differentiate profile’s ICC-defined actual range from Table68 typical ranges."
+        }
+      ]
+    },
+    {
+      "id": "indexed-inline-dictionary-cells",
+      "clause": "8.6.6.3",
+      "table_cells": [
+        {
+          "key": "array shape and base",
+          "source": "Four-element [/Indexed base hival lookup]; base any device/CIE or Separation/DeviceN, not Pattern or Indexed; stroking/nonstroking current color initializes to 0.",
+          "implementation_assertions": "Colour parser; public Indexed initial-zero/regression, lookup through device/Lab/ICC/Separation bases, group/image consumers. Prior `indexed_lab_lookup_spec_audit` and `indexed_rounding_initial_spec_audit` have exact public controls."
+        },
+        {
+          "key": "hival and lookup",
+          "source": "Integer 0–255; lookup bytes/stream m*(hival+1) with consecutive components, scaled [0,255] to base ranges.",
+          "implementation_assertions": "Parser and color tests; `indexed_out_of_range` checks source case but may early-return if corpus fixture absent; handbuilt exact-xref controls in indexed ICC and initial tints complement it."
+        },
+        {
+          "key": "index value",
+          "source": "Index should be integer and within range; real values rounded nearest with .5 up; out of range clamps nearest.",
+          "implementation_assertions": "Public `indexed_fractional_rounding_and_clamping_are_lookup_semantics` plus new exact fixture for half-up and initial index; tests contain lower/upper controls."
+        }
+      ]
+    },
+    {
+      "id": "separation-inline-dictionary-cells",
+      "clause": "8.6.6.4",
+      "table_cells": [
+        {
+          "key": "array and operands",
+          "source": "Four-element [/Separation name alternateSpace tintTransform], one tint [0,1], initial stroking/nonstroking tint=1; All/None required support.",
+          "implementation_assertions": "Public initial tints and explicit tint1/0 controls; `the_none_colourant_marks_nothing`, `the_all_colourant_is_a_complemented_tint`; valid alternate and function behavior."
+        },
+        {
+          "key": "colorant name and native route",
+          "source": "Name names requested colorant; subtractive device may directly apply available colorant and ignore alternate/function; additive device always uses alternate; unavailable subtractive colorant uses alternate/function. All/None ignore parameters (which still must have valid values).",
+          "implementation_assertions": "Default display uses alternate path; simulation API/native process route has separate controls. Local RGB display is not evidence for physical subtractive availability; native hardware mapping remains a host/device boundary."
+        },
+        {
+          "key": "alternate/tint function",
+          "source": "Alternate allowed any device/CIE space, not special spaces; tint transform maps one tint to its component count.",
+          "implementation_assertions": "Tint colors and one/multi-output function tests, NoColorant alternate; shading/function audits cover function numerics separately."
+        }
+      ]
+    },
+    {
+      "id": "devicen-and-attributes-cells",
+      "clause": "8.6.6.5",
+      "table_cells": [
+        {
+          "key": "DeviceN array and names",
+          "source": "Four/five element array; arbitrary component count subject to implementation limits; names are distinct except None may repeat; All forbidden; CMYK names reserved. Component values [0,1], initial each=1.",
+          "implementation_assertions": "Parser counts names/components; tests cover five colorants, None duplicate, All/None, initial tint and mapped order. Resource cap is local, not normative."
+        },
+        {
+          "key": "alternate/tintTransform",
+          "source": "Allowed device/CIE alternate, not special space. Function receives n tint values and returns m alternate values; fallback approximates unavailable components.",
+          "implementation_assertions": "Function tint and alternate path tests include literal pixels and component order. Additive display vs simulated/native routes are policy-specific and traced in prior special-space shard."
+        },
+        {
+          "table": "70",
+          "key": "Subtype",
+          "source": "Optional, DeviceN/NChannel; default DeviceN. NChannel activates richer attributes.",
+          "implementation_assertions": "`a_devicen_subtype_keeps_its_tint_transform`, process-only NChannel and NChannel spot tests; default DeviceN controls."
+        },
+        {
+          "table": "70",
+          "key": "Colorants",
+          "source": "Required for NChannel with spot components, otherwise optional; values are Separation spaces named by matching key; NChannel requires all spot colorants, may include extras.",
+          "implementation_assertions": "Colorants name matching positive/mismatch controls; `an_nchannel_spot_component_keeps_the_tint_transform`, simulation spot route. Extra entries and every structurally invalid map not exhaustively tested."
+        },
+        {
+          "table": "70",
+          "key": "Process",
+          "source": "Required for NChannel with process components, otherwise optional; one process space max; process space values and component-name mapping in Table71.",
+          "implementation_assertions": "Process order/mapping, CMYK subset, ICC process profile and process-only no-tint-transform tests. ADR1103 route has valid and independent mapping controls."
+        },
+        {
+          "table": "70",
+          "key": "MixingHints",
+          "source": "Optional. Provides optional blending attributes where processor uses custom mixing instead of tint-transform path.",
+          "implementation_assertions": "No generic mixing-hints application in current consumer; source explicitly says processor need not use hints. This absence alone is not a failure."
+        },
+        {
+          "table": "71",
+          "key": "ColorSpace",
+          "source": "Required device/CIE except Lab; ICCBased requires appropriate calibration.",
+          "implementation_assertions": "Process parser accepts valid device and ICC cases; Lab exclusion is validated in code. No producer-conformance checker claim."
+        },
+        {
+          "table": "71",
+          "key": "Components",
+          "source": "Required ordered component-name array; names correspond to process components and match DeviceN names, even when not all process components present.",
+          "implementation_assertions": "Tests distinguish nonidentity name mapping and omitted CMYK components; non-CMYK completeness/order is source-derived."
+        },
+        {
+          "table": "72",
+          "key": "Solidities",
+          "source": "Optional number 0–1 per name; Default applies to unspecified; absent Default defaults to zero, interactive processors may choose others. If Solidities appears, PrintingOrder required.",
+          "implementation_assertions": "Generic mixing hints need not be used; no assertion that current reader applies solidities. This is permitted omission."
+        },
+        {
+          "table": "72",
+          "key": "PrintingOrder",
+          "source": "Required when Solidities appears; includes every DeviceN component name, may include extras; order is independent of names-array order.",
+          "implementation_assertions": "Not consumed because no DeviceN mixing-hints algorithm is selected; no reader duty to expose/use it established here."
+        },
+        {
+          "table": "72",
+          "key": "DotGain",
+          "source": "Optional per-colorant function 0..1, optional Default; processors may ignore values with other dot-gain sources.",
+          "implementation_assertions": "No generic mixing-hints path; clause says optional information and processor may ignore it, so not a missing must-behavior."
+        }
+      ]
+    }
+  ],
+  "errata": [
+    {
+      "id": 181,
+      "source": "§8.6.5.5, physical206–207 / printed191–192; actual issue annotations inspected on both pages.",
+      "effect": "Reframes version support around ICC profile header version classes, “both 2.x and 4.x”; current ICC parsing is by header version."
+    },
+    {
+      "id": 228,
+      "source": "§8.6.5.5, physical207 / printed192.",
+      "effect": "Adds NOTE 2: private ICC tags are intentionally unspecified and may be ignored; implementation need not use private data."
+    },
+    {
+      "id": 63,
+      "source": "§8.6.5.8 Table69, physical212 / printed197, outside this dictionary family.",
+      "effect": "Withdraws NOTE permission to support fewer than four rendering intents; prior default_colour_bpc shard covers it, so not recertified here."
+    },
+    {
+      "id": 309,
+      "source": "§8.6.6.5 physical220–221 / printed205–206; Caret/StrikeOut read directly.",
+      "effect": "Caret says None shall not be used in NChannel; struck rule had allowed None only in non-NChannel. This constrains producers. Existing Separation/DeviceN None reader paths are not an assertion that invalid NChannel/None must be rejected."
+    }
+  ],
+  "coverage_conclusion": "Selected color dictionary cells map to prior literal assertions. Existing B25 ICC fallback Range failure remains current and is not duplicated. No additional valid-input draft warranted. MixingHints may be ignored; all reviews remain partial.",
+  "limits": [
+    "Does not certify all color conversions, every ICC profile class/version/tag, every default resource context, actual subtractive-device native colorant availability, all NChannel permutations, or the full separation simulation formula.",
+    "Producer validity cells and reader duties are kept separate; accepting invalid white points, malformed type-specific values, or forbidden names is not itself a demonstrated required reader failure.",
+    "Table 69 rendering-intent names and Table 73 color-setting operator cells were excluded; adjacent shards own those features."
+  ]
+}

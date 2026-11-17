@@ -1,0 +1,32 @@
+{
+  "baseline": "b901326c (audit worktree; current code at reviewed HEAD)",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf, checked directly with page text and printed footers",
+  "features": [
+    {
+      "clause": "12.5.6.22, Table 193",
+      "feature": "Watermark /Subtype is required; /FixedPrint is optional. Without it, target-media dimensions receive no special treatment. If target dimensions are unknown, use page MediaBox dimensions.",
+      "source_location": "Table 193: physical 517 / printed 502; surrounding clause begins physical 516 / printed 501",
+      "classification": "Subtype and FixedPrint are producer dictionary rules; reader draws ordinary placement if FixedPrint is absent. MediaBox fallback is explicit reader behavior when target size is unknown.",
+      "implementation": "crates/pdf-model/src/annotation.rs::fixed_print and ::target_media; viewer-core supplies Purpose::Print and the selected Sheet when available.",
+      "assertions": [
+        "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media checks explicit H/V and ordinary absent-FixedPrint control",
+        "crates/viewer-core/tests/printing.rs::a_sheet_chosen_after_the_grant_moves_a_fixed_print_watermark_and_asks_nothing checks target media can change after grant",
+        "crates/pdf-model/tests/watermark_defaults_audit.rs::omitted_fixed_print_matrix_h_and_v_match_their_explicit_defaults checks omitted Matrix/H/V against literal explicit defaults and a displaced control"
+      ]
+    },
+    {
+      "clause": "12.5.6.22, Table 194 and post-example algorithm",
+      "feature": "FixedPrint Type is required. Matrix defaults to identity; H and V default to zero and express target-media percentages. Negative H/V and a margin-aware Matrix offset are discouraged with 'should', not reader rejection conditions. The transformed Rect becomes the smallest upright rectangle for appearance steps 2 and 3. A matrix B mapping the scaled/rotated page is cancelled. For n-up, each mark keeps its stated size and is placed as if its target media were the page's cell; tiling has a separate conditional rule for each output tile.",
+      "source_location": "Table 194 and algorithm start: physical 517 / printed 502; B sentence, example, and n-up/tiling paragraphs: physical 518 / printed 503",
+      "implementation": "crates/pdf-model/src/annotation.rs::fixed_print transforms the annotation rectangle and applies H/V from TargetMedia; crates/viewer-host/src/printing.rs::placed and ::cell construct supported one/two/four-page sheet geometry; viewer-core PrintPage passes the selected sheet to the model.",
+      "assertions": [
+        "crates/pdf-model/tests/annotations.rs::a_fixed_prints_rotating_matrix_gives_an_upright_rectangle checks the FixedPrint Matrix's rotated quad is enclosed upright (this is Matrix rotation, not page /Rotate)",
+        "crates/viewer-host/tests/watermark_nup_consumer_audit.rs::public_print_query_places_fixed_watermarks_inside_each_two_up_and_four_up_cell exercises public print-query output and compares rasterized mark bounds against literal 2-up and 4-up cell coordinates",
+        "crates/viewer-host/src/printing.rs unit tests check n-up cell scale/geometry independently; these are host layout assertions, not physical printer output"
+      ],
+      "execution_evidence": "The named public consumer test is PASS in scratchpad/r2038/spec-audit/baseline-nextest.log and broad123.log. No test was run for this shard.",
+      "scope_boundary": "PagesPerSheet currently exposes One, Two, and Four; no tiling selection/consumer was found. The tiling clause is conditional on a processor selecting tiling, so no tiling assertion is warranted here. Native printer/spooling behavior is not established by core query/raster tests."
+    }
+  ],
+  "errata": "The directly inspected pages 517–518 contain no operative EC3 annotation changing Tables 193–194 or the algorithm; nearby cross-reference links are not corrections."
+}

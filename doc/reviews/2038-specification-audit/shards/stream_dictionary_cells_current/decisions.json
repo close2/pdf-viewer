@@ -1,0 +1,32 @@
+[
+  {
+    "id": "table5-effective-source",
+    "decision": "Use Table 5 as the cell inventory, with the errata overlays and exceptions read in their own source locations. The only Table 5 row amendment identified in the effective primary is #10 at F; #319 clarifies encoded extent in §7.3.8.2, #216 changes §7.4.1, and #246 is a cross-reference-stream-only directness exception.",
+    "evidence": "Primary Table 5 physical pp. 47-48 / printed pp. 32-33; annotations inspected at physical pp. 47-50 and exception #246 physical p. 81.",
+    "verdict": "No unowned top-level requirement found in this bounded cell review."
+  },
+  {
+    "id": "external-data-route",
+    "decision": "Retain refusal as the public answer for /F external streams. The source requires processors to ignore embedded bytes, but viewer APIs do not fetch host files. FFilter/FDecodeParms therefore have no decode consumer on the refused path; do not call this a missing filter implementation absent an external source/provider contract.",
+    "evidence": "Table 5 /F and external filter rows; effective #10 says embedded bytes shall be ignored. `spec_stream_objects_audit::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f` checks a no-F decode control, /F+FFilter refusal, no decoded bytes, and nested-content refusal.",
+    "verdict": "Current public behavior matches the supported boundary; no file read is attempted."
+  },
+  {
+    "id": "decodeparms-shape",
+    "decision": "Keep Table 5's single-filter/multiple-filter parameter conditions classified as producer constraints. Direct and outer indirect stage association have exact-byte controls. Inner indirect numeric parameter references are a separately confirmed B54 behavior failure; malformed parameter-array rejection remains unspecified.",
+    "evidence": "`filters::each_stage_takes_its_own_entry_of_a_decodeparms_array` uses a null first slot and literal PNG predictor bytes in the second. The two outer indirect-reference tests pass; `indirect_predictor_number_keeps_the_same_decoded_samples` and `indirect_columns_number_keeps_the_same_decoded_samples` fail with literal direct controls passing, as recorded in B54.",
+    "verdict": "No duplicate parameter test proposed."
+  },
+  {
+    "id": "decoded-length-hint",
+    "decision": "An accurate DL may be used as a decoded-size hint, but it cannot substitute for Length's encoded byte framing. A narrow positive assertion now covers this interpretation.",
+    "evidence": "Table 5 DL cell says non-negative decoded/defiltered byte count and 'only a hint'; parser reads Length before decoding. `filters.rs::dl_is_a_decoded_length_hint_and_does_not_replace_encoded_length` checks the literal output with and without accurate DL while encoded /Length differs; exact-xref/page-resource/binary-header fixture controls are present. Parent reports PASS in decoded-length-wave103.log.",
+    "verdict": "Coverage confirmed for this bounded valid Flate example; absence of DL handling is not an implementation failure."
+  },
+  {
+    "id": "repeated-filter-note",
+    "decision": "The note against repeating the same filter in a Filter array is a recommendation. It is not a basis for reader rejection or a missing conformance feature; no test was drafted merely to satisfy this note.",
+    "evidence": "Table 5 Filter NOTE; current chain loops over each listed stage.",
+    "verdict": "No issue inferred."
+  }
+]

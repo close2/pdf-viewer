@@ -1,0 +1,37 @@
+{
+  "shard": "EC3 #20 — inline-image white-space and final/only ASCII filter",
+  "baseline": "b901326c; explicit root /home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source": {
+    "primary": "ISO 32000-2:2020 EC3 primary PDF physical p. 283, footer printed p. 268; annotation group Issue #20 has a StrikeOut and a Caret whose /Contents is ‘its final or only filter’.",
+    "effective_text": "§8.9.7 NOTE 2 says that after the one white-space following ID, if its final or only filter is ASCIIHexDecode or ASCII85Decode, a processor skipping the image can skip further white-space, then skip the L-count and expect EI after optional white-space.",
+    "other_relevant_text": "§8.9.7's preceding operative sentence permits the single-white-space / ID exception when ASCIIHexDecode or ASCII85Decode is one of the filters. §7.4.1 says decoding filters in an array form a pipeline in written order and gives data Flate-compressed then ASCII85-encoded as [/ASCII85Decode /FlateDecode]. This distinguishes the final encoding stage from the first decode-array entry."
+  },
+  "feature_review": {
+    "reader_requirement": "The PDF reader shall apply the corresponding decoding filter(s) to restore stream data (§7.4.1). A valid inline ASCII85-coded filter stream includes its ~> EOD bytes (§7.4.3 and stream framing rules); where an inline image has no /L, the implementation may use the first filter's framing marker to locate EI. The EC3 sentence itself is in a NOTE and describes what a processor can do to skip an image, not a SHALL requiring that optimization.",
+    "code": [
+      "crates/pdf-model/src/inline_image.rs::scan",
+      "crates/pdf-model/src/inline_image.rs::data_extent",
+      "crates/pdf-model/src/inline_image.rs::read_dictionary",
+      "crates/pdf-syntax/src/document/sources.rs::filtered_extent",
+      "crates/pdf-syntax/src/document/decoding.rs::filter_chain",
+      "crates/pdf-syntax/src/filter.rs::Pumping"
+    ],
+    "actual_behavior": "After ID, scan consumes the required single white-space character; additional whitespace stays in the encoded bytes. For filtered data without /L, data_extent calls Document::filtered_extent, which asks the first decoder in the array for its own framing. The inline dictionary expands /F and /A85 /Fl abbreviations; ordinary decoding later executes the chain in array order. The reader does not implement an image-skip-only path that discards further leading whitespace before counting bytes.",
+    "existing_assertions": [
+      "crates/pdf-model/tests/inline_images.rs::a_base85_end_of_data_marker_ends_the_data — single /A85, marker beats an embedded EI token; source data is not checked through a second filter.",
+      "crates/pdf-model/tests/inline_images.rs::a_base85_marker_outside_the_window_is_truncated_rather_than_searched — single-stage framing in a window.",
+      "crates/pdf-model/tests/inline_images.rs::filtered_data_ends_at_the_filters_own_end_of_data — other filter framing branches.",
+      "crates/pdf-syntax/tests/filters.rs::a_filter_array_is_a_pipeline_decoded_in_the_order_written — multi-filter decoding, but ordinary stream rather than inline-image extent.",
+      "crates/pdf-syntax/tests/filters.rs::each_stage_takes_its_own_entry_of_a_decodeparms_array — multi-stage parameters, not inline-image marker location."
+    ],
+    "ledger": "§8.9.7 is implemented and names filtered-data marker assertions; §7.4.1 is implemented with a filter-array pipeline test. No current inline-image test couples the multi-filter decode path to an outer ASCII85 EOD that must win over an EI token in the encoded text.",
+    "adr_review": "ADR 0464 supports marker-based inline-image extent; ADR 0466 rejects first-EI searching as a general strategy; ADR 0467 supports framing for filters without a resumable decoder. These premises remain applicable. The inline-image module documents that array order chooses the first filter's framing; no reviewed ADR claims multi-filter inline-image EOD is fully tested.",
+    "verdict": "No confirmed implementation defect. There is a narrow meaningful assertion gap: inline-image extent under an ASCII85 outer encoding stage has only a one-filter witness, while chain decoding is asserted separately. A valid chained fixture can cover the integration. Do not turn the NOTE's optional skip recipe into a mandatory requirement to discard additional whitespace.",
+    "residuals": [
+      "The available test API returns scanned encoded bytes and decoded samples, not a skip-only operation; it cannot show whether an optional skip optimization was used.",
+      "This is not a claim that every admitted filter chain's inline-image boundary was audited.",
+      "The draft is not run in this shard."
+    ]
+  },
+  "draft": "drafts/inline_ascii85_outer_filter_chain.rs"
+}

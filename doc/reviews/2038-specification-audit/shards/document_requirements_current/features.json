@@ -1,0 +1,67 @@
+{
+  "scope": "Bounded audit of ISO 32000-2:2020 §12.11.1–§12.11.6 against the effective EC3 source, current ledger, requirements reader/evaluator, open-script consumer, report path, and selected ADRs. Focus on /RH handler alternatives, /V version semantics, penalty threshold/policy, and reporting timing. This is not an audit of signatures, encryption-dictionary conformance, or every underlying Table 275 capability.",
+  "source_and_effective_errata": {
+    "locators": "§12.11.1/Table 273: physical pp.621–622 / printed pp.606–607; §12.11.2/Table 275: physical pp.622–625 / printed pp.607–610; §12.11.3: physical p.626 / printed p.611; §12.11.4: physical p.626 / printed p.611; §12.11.5/Table 276: physical p.627 / printed p.612; §12.11.6: physical pp.627–628 / printed pp.612–613.",
+    "annotations": [
+      "EC3 #187, pikepdf-inspected on physical p.621: StrikeOut/Caret changes Table 273 /S cross-reference from Table 276 to Table 275. On physical p.622 it rewrites the Table 274 introduction and caption to identify the two type-specific entries; on p.625 it applies the revised caption at the continued table. This vindicates the parser's Table 275 name mapping. The physical p.621/622 Table-column #656 change from Description to Value is editorial to the reader mapping.",
+      "EC3 #195, pikepdf-inspected on physical pp.623–624: StrikeOut/Caret changes the U3D and PRC table wording from 'shall apply' to 'applies'. This is not an additional processing obligation and does not alter the project's clause-13 exclusion.",
+      "No errata annotations were found on physical pp.626–628 for §12.11.3–§12.11.6."
+    ]
+  },
+  "features": [
+    {
+      "id": "catalog-requirements-common-entries",
+      "source": "§12.11.1, Table 273. /Requirements is an array of requirement dictionaries; /S is required; /Penalty defaults to 100 and has a valid range of 0..100; absent /V means satisfaction is determined without regard to version; /RH is one handler dictionary or an array, default empty, and identifies handlers to disable if the interactive processor can check /S, whether or not it can satisfy the requirement.",
+      "ledger": "§12.11.1 implemented; linked rows include §12.11.4 versions and §12.11.5 handlers.",
+      "code": ["crates/pdf-model/src/requirements.rs::read", "crates/pdf-model/src/requirements.rs::penalty", "crates/pdf-model/src/requirements.rs::version", "crates/pdf-model/src/requirements.rs::disabled_handlers"],
+      "assertions": ["requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty", "requirements.rs::a_handler_is_disabled_where_its_requirement_is_one_this_processor_checks"],
+      "assessment": "Defaults, name retention, unknown type retention, one-handler and handler-array paths have assertion coverage. Present /V is retained but not consumed by satisfaction or report logic. Arrays are silently capped at MAX_REQUIREMENTS=256 in both requirement reading and handler traversal; no corresponding source maximum was located. This is a bounded resource policy, not a proven requirement to process unbounded arrays."
+    },
+    {
+      "id": "requirement-types-and-capability-verdicts",
+      "source": "§12.11.2, Table 275 lists 25 defined requirement types and allows additional registered types. The descriptions specify capabilities, including 'in addition to' increments for editing, collection editing, DigSig and DigSigMDP. §12.11.6 Note 1 says there is no formal connection between a type and operations of the associated feature.",
+      "ledger": "§12.11.2 implemented; report records eight capabilities met and seventeen not met, with a reason per unmet type.",
+      "code": ["crates/pdf-model/src/requirements.rs::Kind::read", "crates/pdf-model/src/requirements.rs::Kind::unmet", "crates/pdf-model/src/requirements.rs::unmet"],
+      "assertions": ["requirements.rs::the_requirements_this_program_cannot_meet_are_named", "requirements.rs::a_collection_is_met_and_editing_one_is_not", "requirements.rs::the_three_signature_requirements_name_three_different_increments", "requirements.rs::no_reason_claims_a_clause_is_unread"],
+      "assessment": "The visible mapping covers the Table 275 names and selected positive/negative capability pairs. This audit did not independently re-certify each of the 25 underlying capabilities. Importantly, Kind::unmet is a project capability statement, not a general result from the /S type alone; current code does not combine it with a present /V minimum version."
+    },
+    {
+      "id": "penalty-sum-and-process-policy",
+      "source": "§12.11.3 defines a per-requirement integer range and describes 0/100 endpoints; the final paragraph says that, when evaluating the base PDF and there are no other alternates, a penalty value greater than 100 should not be processed. §12.11.6 says requirements shall be evaluated before document ECMAScripts and says processing shall not continue if requirements cannot be met as determined by the §12.11.3 computation.",
+      "ledger": "§12.11.3 and §12.11.6 implemented; the latter maps to restriction::Operation::Process.",
+      "code": ["crates/pdf-model/src/requirements.rs::penalty_total", "crates/pdf-model/src/restriction.rs::asserted", "crates/viewer-core/src/viewer/opening.rs::open", "crates/viewer-core/src/viewer/opening.rs::process"],
+      "assertions": ["requirements.rs::the_penalty_total_sums_the_requirements_this_program_cannot_meet", "viewer-core/tests/restriction_levels.rs::a_document_over_the_penalty_threshold_is_processed_at_the_level_the_reader_set", "viewer-core/tests/restriction_levels.rs::answering_the_processing_question_opens_the_document_or_forgets_it", "viewer-core/tests/headless.rs::a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total"],
+      "assessment": "The model sums only unmet requirements and tests an exact total of 100 against 115; the per-item default is 100. Open evaluates the Process restriction before process/scripts. RestrictionPolicy then exposes Off/On/Ask/Warn, with Off as default; On refuses, Ask holds until answer, Warn continues with an event, and Off continues. This is an explicit user-policy override, not a missing parser/evaluator feature. The source contains a 'shall not continue' condition and no explicit override; whether project-level opt-out can be called conforming remains a decision/interpretation issue, separate from the calculator. Current public policy tests use short PDFs without xref tables, so they do not prove the same behavior on a no-recovery conforming fixture."
+    },
+    {
+      "id": "versioned-requirements",
+      "source": "§12.11.1/Table 273 says /V is the minimum version level of support needed to satisfy the requirement; if absent, version is disregarded. §12.11.4 allows a dotted version name (PDF/XFA two-part; other technologies can use three-part) or a registered developer extension dictionary, and explains that a PDF requirement's version can identify a minimum PDF version needed for successful interpretation.",
+      "ledger": "§12.11.4 implemented; evidence cited is the parse/retention assertion only.",
+      "code": ["crates/pdf-model/src/requirements.rs::Requirement::version", "crates/pdf-model/src/requirements.rs::version", "crates/pdf-model/src/requirements.rs::Kind::unmet", "crates/viewer-core/src/notes.rs::about"],
+      "assertions": ["requirements.rs::a_requirement_states_a_type_a_version_and_a_penalty"],
+      "assessment": "The reader retains a name version or extension prefix, but `version` has no consumer beyond that extraction assertion. `Kind::unmet`, penalty_total, restriction::asserted, and notes::about do not inspect or report it. A Navigation requirement with /V /2.1 is therefore treated as met by a processor whose supported PDF version is 2.0; the present minimum version can affect whether the requirement is met. This is a likely implementation gap. The exact-xref draft compares /V /2.1 with absent /V and /V /2.0 controls; /2.1 is a dotted PDF version name permitted by §12.11.4. Draft is unexecuted."
+    },
+    {
+      "id": "alternative-requirement-handlers",
+      "source": "§12.11.1/Table 273 and §12.11.5/Table 276. A known/checkable requirement disables its named JS handler whether or not satisfied. Handler types are JS and NoOp; unknown handler type is ignored. An unrecognised requirement type is not known/checkable and its handler remains active. Requirement evaluation precedes document ECMAScripts.",
+      "ledger": "§12.11.5 implemented; Annex K/script exclusion is separately scoped.",
+      "code": ["crates/pdf-model/src/requirements.rs::disabled_handlers", "crates/pdf-model/src/view/script_sites.rs::run_open_scripts", "crates/viewer-core/src/viewer/opening.rs::open"],
+      "assertions": ["requirements.rs::a_handler_is_disabled_where_its_requirement_is_one_this_processor_checks", "pdf-script/tests/hook.rs::a_requirement_handler_this_processor_checks_is_not_run_and_the_rest_of_the_library_is", "viewer-core/tests/initial_open_order_spec_audit.rs only checks ordinary open-action ordering, not requirement+script ordering"],
+      "assessment": "Model test covers a handler dictionary and array, JS/NoOp/unknown handler kinds, a UTF-16 script name, known and vendor requirement types. The engine test demonstrates that the known handler is skipped while ordinary and vendor handlers run, and names the skip. Static code evaluates Process in opening before `process`; requirement handlers are computed at the open-script phase and disabled. No full Viewer-level engine integration test was located, but the seam and ordering are directly visible. MAX_REQUIREMENTS silently caps /RH arrays."
+    },
+    {
+      "id": "unmet-requirement-reporting",
+      "source": "§12.11.1 requires evaluation before ECMAScripts; §12.11.6 does not prescribe when the user-facing report must be shown. Annex I's warning is a separate recommendation and does not add a §12.11 pre-first-frame reporting rule.",
+      "ledger": "§12.11.6 note says unmet requirements are reported and the host can warn after the user sets policy.",
+      "code": ["crates/viewer-core/src/notes.rs::about", "crates/viewer-core/src/viewer.rs::report_the_document", "crates/viewer-host/src/report.rs::owed", "crates/viewer-ui/src/bin/quorra/surface.rs"],
+      "assertions": ["headless.rs::a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total", "restriction_levels.rs public policy tests"],
+      "assessment": "`Viewer::opening::open` computes the Process restriction before further processing. The user-facing document report is separately requested by each host after a frame is presented; notes.rs omits Requirement.version and says the requirement type and feature operation have no formal connection. The source does not require that report to precede first-page display, so this timing is not classified as a §12.11 defect. ADR 0207's 'before a page is drawn' wording overstates current host chronology if read literally."
+    }
+  ],
+  "residuals": [
+    "No full assertion census or recertification of every Table 275 capability was attempted.",
+    "No valid requirement array exceeding the 256-item implementation cap was built; this remains a possible silent-prefix policy limitation.",
+    "No alternative-document selection case was constructed; §12.11.3's no-other-alternates condition is assessed as the currently opened single-document path, not as a universal document-selection model.",
+    "The draft treats /V /2.1 as a declared minimum PDF-version name, not as a claim that PDF 2.1 is defined by this edition; current PDF processor support is explicitly bounded by pdf_syntax::Version::SUPPORTED = 2.0. It is unexecuted."
+  ]
+}

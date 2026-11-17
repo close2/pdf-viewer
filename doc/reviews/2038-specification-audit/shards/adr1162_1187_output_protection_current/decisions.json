@@ -1,0 +1,38 @@
+{
+  "reviews": [
+    {
+      "adr": "root ADR 1162",
+      "verdict": "Agree with the direction and redaction product policy; qualify its normative framing and note test coverage is uneven across the five verbs.",
+      "grounds": [
+        "The API separation of Protect from Plan/Policy is understandable: output credentials are different from the input document's permissions and source password.",
+        "The implementation passes all Protect fields through the shared encrypted serializer for Split, Merge, Pages, Optimize, and Redact. CLI uses password file descriptors and explicitly refuses the flags for other verbs.",
+        "The redaction test has a discriminating encrypted source: raw SECRET must be absent and KEEP remains readable under the new protection; the no-Protect control refuses. This supports the deliberate product/privacy policy.",
+        "Linearized Optimize has a genuine new user/owner password test with rendered-page positive control and Annex F placement assertions."
+      ],
+      "qualifications": [
+        "§12.5.6.23's remove-all-traces outcome does not itself mandate encryption of surviving content; redaction refusal without output protection is the project's privacy policy, not a PDF shall.",
+        "The ADR's phrase 'verbs that write a whole file' is too broad for Archive: it writes a whole PDF but cannot validly write an encrypted PDF/A output. CLI's verb list is the accurate policy boundary.",
+        "Direct Protect-supplied coverage was found for Redact and linearized Optimize, not Split/Merge/Pages or ordinary Optimize. Shared writer routing reduces concern but does not replace path-level assertion."
+      ],
+      "recommendation": "Add a compact public apply_protected test over Split/Merge/Pages/ordinary Optimize with a nonempty new user password and literal content, or narrow the claimed test assurance. Assert open failure with empty/old credential, success with new user credential, and clear content after decrypt. Add one non-default Access bit if the supported API intends custom permissions to be proven."
+    },
+    {
+      "adr": "root ADR 1187",
+      "verdict": "Agree that a PDF/A archive output must not carry /Encrypt; qualify public claim propagation evidence and supplied-Protect handling.",
+      "grounds": [
+        "The archive source path captures SourceProtection before rewrite and ties it to Loss::Encryption authorization; the recovery test checks unencrypted conforming output and refusal when not authorized.",
+        "The implementation places the source statement in report.protection and its history string in output provenance; the report serializer exposes handler, revision, withheld flags, and sentence.",
+        "SourceProtection helper tests verify sentences but do not show an encrypted input's exact claim survives into the real report and emitted XMP."
+      ],
+      "qualifications": [
+        "ISO 19005 source text was not present locally; this review relies on the project's conversion-limits and mitigation summary for the cited no-encryption rules.",
+        "No standard rule requires a generic Rust API to reject Protect on Archive. However the CLI does reject the equivalent flags, while apply_protected silently ignores Some(Protect). That boundary should be documented or made explicit."
+      ],
+      "recommendation": "Promote one actual encrypted-source archive integration regression that asserts exact report protection values and the parsed xmpMM:History protection entry, with an unencrypted-source control. Separately decide whether apply_protected(Archive, Some(Protect)) returns an explicit refusal or intentionally ignores it, then test/document that API contract."
+    }
+  ],
+  "open_questions": [
+    "Does the public apply_protected API promise Protect for all Plan variants that produce PDFs, or only the five command-line-supported rewrite verbs? Current docs are broad; CLI behavior is explicit.",
+    "Should a redaction without output Protect remain refused as a project privacy policy? Existing test and ADR clearly choose yes; this review found no spec mandate to characterize it as normative."
+  ]
+}

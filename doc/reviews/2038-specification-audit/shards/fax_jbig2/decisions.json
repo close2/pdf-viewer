@@ -1,0 +1,50 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": {
+    "baseline": "b901326c; review-only, no execution or source edits",
+    "decisions": [
+      {
+        "adr": "0392",
+        "topic": "CCITT Rows versus EndOfBlock",
+        "current_reading": "Supported in part: Table 11 explicitly says EOB overrides Rows and only when false does Rows or exhaustion stop decoding. ccitt_rows correctly uses stated Rows only for EOB=false.",
+        "reconsideration": "The ADR/code equates PDF Height to a decoder row bound when EOB=true or Rows=0. That is defensible as the output image grid, but not shown by the cited table text: Rows=0 says filter height is not predetermined and data ends at EOB or input end. Need separate decoder bound/output grid semantics to demonstrate terminator treatment. Existing end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image does not contain RTC and therefore is not a valid EOB control.",
+        "status": "retain conditional Rows rule; leave Height/EOB mismatch as unresolved interpretation and strengthen test fixture"
+      },
+      {
+        "adr": "0454",
+        "topic": "CCITT Columns byte padding",
+        "current_reading": "The clause explicitly rounds a non-byte-aligned Columns value for the unencoded image. Code accepts Width or round_up(Width, 8), passes Columns to the decoder and reads Width samples per row on the common byte stride.",
+        "reconsideration": "The rejection of a larger mismatch relies on §7.3.8.2 consistency; the clause itself does not prescribe a reader error for inconsistent metadata. The accepted rounded-up case is directly grounded in Table 11 and has source-authored T.4 data asserting the distinct samples.",
+        "status": "retain implementation; describe out-of-padding refusal as policy for inconsistent input, not a direct §7.4.6 rejection requirement"
+      },
+      {
+        "adr": "1349",
+        "topic": "Custom CCITT decoder and damaged-row concealment",
+        "current_reading": "Table 11 specifically defines tolerance as finding row end at EOL and replacing the row with prior decoded row or white if prior row damaged. Code's custom decoder can search from row start and emit exactly that; the applicability guard matches EOL true and K nonnegative.",
+        "reconsideration": "The core fixture data is source-authored from named T.4 codewords and expected row colors. This audit did not reproduce the complete T.4/T.6 repertoire against the source, so do not infer whole-codec certification from the chosen fixtures or corpus census.",
+        "status": "decision remains supported; whole coding-table coverage is residual"
+      },
+      {
+        "adr": "0794",
+        "topic": "Partial CCITT decode after damage",
+        "current_reading": "§7.4.6 prohibits recovery beyond DamagedRowsBeforeError but does not say how an image consumer paints rows the filter never delivered. Current code draws delivered rows, leaves the later image area transparent/unpainted and reports it.",
+        "reconsideration": "The paint policy is a recorded reader choice, not a clause requirement. Existing mid-gray-background controls distinguish blank white from unpainted transparency and cover concealment and default-zero damage.",
+        "status": "retain as policy; no conformance claim for missing rows' appearance"
+      },
+      {
+        "adr": "0823",
+        "topic": "JBIG2 whole-segment recovery and stream trailing marker",
+        "current_reading": "Relevant primarily to §§7.3.8.1/7.3.8.2 plus Annex D.3 segment lengths: a segment stream is self-delimiting, and the existing code trims only after the codec refuses then reports discarded non-marker bytes.",
+        "reconsideration": "This is malformed/overlong-stream recovery, not a valid §7.4.7 decoder requirement. The audit did not revalidate all 14492 header variants; direct worker unit coverage and the exact ISO sample are evidence for bounded routes only.",
+        "status": "retain as explicitly scoped recovery policy; avoid claiming §7.4.7 mandates partial salvage"
+      },
+      {
+        "adr": "1459 and 2102",
+        "topic": "JBIG2 extended template included after fork update",
+        "current_reading": "§7.4.7 says ISO/IEC 14492:2019 excluding colour palette coding. Extended generic-region templates are not the excluded palette coding; ADR 2102 records owner-selected fork and the current repo pins it. The code has a nominal-location equivalence test and Annex K case evidence.",
+        "reconsideration": "The source clause delegates bitstream and decoder behavior to ISO/IEC 14492; this audit checked the clause wording and selected test but did not independently recertify every fork patch or all 14492 semantics. Annex K tests remain informative evidence, not the normative source.",
+        "status": "retain narrow claim that the cited extended-template gap was addressed; no whole-standard certification"
+      }
+    ]
+  }
+}

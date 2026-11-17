@@ -1,0 +1,23 @@
+[
+  {
+    "decision": "Treat Scripts level off-by-default as the ratified invocation policy, not as a failure to execute an action once invoked.",
+    "effective_source": "§12.6.4.17 says the processor shall execute upon invocation. Scope ratifications A100/A286 make the host-supplied level the control for whether a script is invoked; A193 keeps the default off and requires a supplied runner for on. CLAUDE.md and doc/scope-ratifications.md say exactly this.",
+    "current_evidence": "The engine path is present and tested when enabled. The worker path is real and tests are feature-gated. Off/no-runner tests assert no worker is started and refusals are reported. The scope exclusion is limited to effects that leave the process, mutate pdf_syntax::Document, 3D, and XFA.",
+    "related_adrs": ["ADR 1590", "ADR 1591", "ADR 1608", "ADR 1616", "ADR 1904"],
+    "residual": "This does not certify all effects of ECMAScript or all members of the Adobe script API; those are bounded by A193's selected API surface and the document/viewer scope."
+  },
+  {
+    "decision": "Do not carry the old generic 'JavaScript out of scope' disposition into this review.",
+    "effective_source": "Current CLAUDE.md scope and A286 ratification amend the boundary: document field values/appearances and viewer state are in scope, while process-external effects remain excluded. Current ledger row 12.6.4.17 is implemented.",
+    "current_evidence": "ADR 1904 records accepted and built status and added the bookmark activation route. Current ledger cites bookmark action, name tree, OpenAction, page, annotation, form, document, off/on and worker tests.",
+    "related_adrs": ["ADR 1904", "ADR 1752", "ADR 1614"],
+    "residual": "Older doc/errata-read passages that describe §12.6.4.17 as out-of-scope are historical ranking snapshots; use current ledger, scope ratifications and ADR successor evidence."
+  },
+  {
+    "decision": "Draft one integration test combining the already-covered Table 221 stream form with actual engine execution, without labeling its absence a confirmed behavior bug.",
+    "effective_source": "Table 221 requires /JS as a text string or text stream containing the script to be executed. §12.6.4.17 separately requires execution upon invocation.",
+    "current_evidence": "script_unread validates that a decoded stream is handed to the runner and that a direct string is recognized; engine hook tests execute real direct-string scripts and a persistent document realm. They do not combine these two paths.",
+    "related_adrs": ["ADR 1591", "ADR 1602", "ADR 1904"],
+    "residual": "The two code paths appear shared after script_text decoding. Parent should run the proposed test with --features engine before claiming end-to-end stream execution; this agent did not run Cargo."
+  }
+]

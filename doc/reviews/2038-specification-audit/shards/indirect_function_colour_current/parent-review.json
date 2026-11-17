@@ -1,0 +1,9 @@
+{
+  "source": "Parent read Tables38/39 physical139\u2013141 and Table62physical201; numericfielddefinitions andaffine/clipping formulas have no ordinaryvalue direct-only exception. Genericrule49/34. Nullparagraph checked directly48/33; attributioncorrected.",
+  "function": "Strengthened draft:Domain[2,4],Range[-.25,.75],Encode[1,0],Decode[-1,1];samples[0,255]. Seven literalinput/outputpairs include outsideDomain clamping, reversedinterpolation, nondefaultdecode andoutputclipping. OriginaldefaultEncode/singlemidpoint would not independently distinguish everyfield.",
+  "colour": "Exact parsedWhitePoint andGamma guards; exact direct/indirectRGB equality. ApproximateD50neutral gamma2 expected0.5370987 with tolerance1/1024 (<quarter8bitstep), retaining independence from actualoutput.",
+  "rejected": "FirstcompilewrongColourSpaceimportfixed. Initial1e-5colour tolerance rejected: roundedadaptationconstants yieldsmall unequalneutralchannels (~0.537136,.537104,.537022). This is not a reference-resolutionfinding. Literalparameter andexactequivalenceassertions remain strict.",
+  "decisions": "Parent read ADR1636 and1712. Not-a-knot remains a statedpolicy; this linearrepresentationtest neither proves its endpointchoiceunique norreopensit. ADR1712 concerns Labadaptation history; CalGray inheritsseparatepolicy, not a new claim sourced solelytoLabADR.",
+  "execution": "indirect-colour-wave57c.log2PASS;colouralltargetsClippyPASS after docmarkup,explicitexact-float-testjustification andf32literalprecision fixes.",
+  "limits": "Type0 andCalGray only. No spline,Type2/3,CalRGB/Lab orfullrastercertificate."
+}

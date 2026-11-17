@@ -1,0 +1,39 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "ADR 2814, sections 2 and 4",
+      "scope_reviewed": "Table 29 OpenAction action and §12.6.2 action-chain ordering / repeated references.",
+      "evidence": "Current interact::open_action reads and performs remaining OpenAction actions; action::read's path-local cycle handling preserves repeated siblings; action tests cover a two-node cycle and nested order. Current viewer mixed_action_order_audit exposes a script after an OCG change.",
+      "verdict": "The reviewed Next interpretation is consistent with Table 196 and NOTE 1: order is depth-first and an action repeated in separate array positions is a separate occurrence. The current source supports this. An observable duplicate-reference assertion is still missing from the tracked action test bodies inspected here; see draft. No broader ADR re-review claimed."
+    },
+    {
+      "adr": "ADR 1175",
+      "scope_reviewed": "Archive-transform treatment when a forbidden action appears within a /Next sequence.",
+      "evidence": "ADR says surviving descendants are promoted at a removed node while preserving depth-first sequence. No archive-transform test was re-audited in this bounded shard.",
+      "verdict": "No contrary evidence found; defer its transform assertion to the archive-conversion coverage. This is not a whole-ADR certification."
+    },
+    {
+      "adr": "ADR 1155",
+      "scope_reviewed": "Host policy for URI handoff after URI resolution.",
+      "evidence": "Table 210 defines the URI and IsMap behavior; Event::OpenUri is emitted at viewer-core boundary, while host::policy owns open/refuse/ask/warn levels. This is machine policy, not a requirement to launch a browser or any particular handler.",
+      "verdict": "Keep policy choice distinct from source conformance. No basis found to require one particular host setting or native browser behavior."
+    },
+    {
+      "adr": "ADR 1079",
+      "scope_reviewed": "Completing relative URI resolution using the opened document's location.",
+      "evidence": "EC3 #256 explicitly broadens the Base and URI-dictionary text to all relative URIs; the ADR and current host policy are consistent with location being a host fact. This does not change IsMap's click geometry.",
+      "verdict": "No change recommended for this point; the audit did not review every relative-URI caller."
+    },
+    {
+      "adr": "ADRs 1358 and 2171",
+      "scope_reviewed": "Launch target boundary between program execution, PDF opening, and non-PDF handoff.",
+      "evidence": "Table 207 permits an application or a document to open/print; its /F does not supply a universal program/document classifier. The program-launch departure is explicit; existing integration tests probe PDF opening and host outcomes for non-PDF bytes.",
+      "verdict": "The boundary is explicit and the integration coverage is relevant. Describe non-PDF classification/handoff as owner/host policy, not as an ISO mandate. No change recommended on evidence reviewed."
+    }
+  ],
+  "not_reopened": [
+    "ADR 0162 destination FitR/FitB centering is separately corrected in the destinations shard; this actions file does not certify it.",
+    "ADR 1602/2814 action-script ordering beyond the directly observed SetOCGState→script case.",
+    "ADR decisions for GoToDp, Thread and Transition already assigned to earlier shards."
+  ]
+}

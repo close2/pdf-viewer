@@ -1,0 +1,39 @@
+{
+  "baseline": "b901326c",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf, primary EC3 PDF",
+  "features": [
+    {
+      "clause": "12.5.3 Table 167, bits 1\u20133, 6, 9",
+      "feature": "Invisible, Hidden, Print, NoView and ToggleNoView device/interaction decisions",
+      "source_location": "Table167 physical486/printed471 bits1\u20138; continuation physical487/printed472 bit9 ToggleNoView and fixed-corner prose.",
+      "source_rule": "Invisible applies only to annotation types the processor does not recognize; clear Invisible permits their AP if any. Hidden suppresses display and interaction regardless of type/handler. Print set prints unless Hidden; Print clear never prints; if there are no appearance streams, Print is ignored. NoView suppresses on-screen display and interaction but may print according to Print. ToggleNoView inverts NoView for selection and mouse hovering, making the annotation visible under the pointer/selection.",
+      "errata": "No EC3 correction located that changes these Table 167 flag meanings. #1 changes \u00a712.5.2's fallback cross-reference to \u00a712.5.5/Table 167 bits 1\u20132, relevant to unknown-type handling but not the bit semantics above.",
+      "ledger": "12.5.3 implemented; see doc/conformance/ledger.toml row 12.5.3 and tests listed there",
+      "code": [
+        "pdf-model/src/annotation.rs::displayed applies Hidden first, then Print-specific or View/Export-specific behavior",
+        "pdf-model/src/annotation.rs::no_view composes NoView with ToggleNoView and current appearance/pointer state",
+        "pdf-model/src/annotation.rs::decided qualifies Invisible by STANDARD_SUBTYPES",
+        "pdf-model/src/content/annotations.rs supplies the public interpretation with ViewState purpose/pointer",
+        "pdf-transform/src/render.rs::exporting sets Purpose::Export for raster output"
+      ],
+      "assertion_review": [
+        "pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen asserts F=0/4/2/6/32/36/34 over View and Print with no unsupported reports",
+        "pdf-model/tests/print_intent.rs::a_print_flag_that_is_clear_is_ignored_where_the_annotation_has_no_appearance_stream distinguishes absent/empty AP from a state subdictionary containing streams",
+        "pdf-model/tests/annotations.rs::toggle_no_view_inverts_no_view_under_the_pointer asserts both NoView XOR directions, pointer states, and plain controls through raster pixels",
+        "pdf-model/tests/annotation_flags_audit.rs::invisible_suppresses_unknown_subtype_even_when_print_is_set tests Invisible on unknown vs known subtype for View and Print",
+        "pdf-model/tests/annotation_flags_audit.rs::annotation_hit_testing_respects_readonly_and_toggle_no_view tests pointer reach, including ToggleNoView combinations",
+        "viewer-core/tests/printing.rs::a_no_view_annotation_that_asks_to_be_printed_reaches_the_paper tests the actual print command F=36 versus F=32",
+        "pdf-model/tests/annotation_oc_flags_audit.rs cross-controls annotation flags against OCG visibility for View/Print",
+        "pdf-transform render docs/code use Purpose::Export, but current flag-specific tests do not assert the actual exported raster route"
+      ],
+      "verdict": "Core reader flag semantics are strongly covered at model pixels and public printing/viewer paths. Remaining worthwhile gaps are cross-product assertions: ToggleNoView's pointer inversion must not leak into print, and the actual raster export verb should preserve the ADR 1179 policy that Export uses screen flag semantics. These are policy/integration guards, not undiscovered ISO requirements.",
+      "drafts": [
+        "crates/pdf-model/tests/annotation_output_flags_spec_audit.rs",
+        "crates/pdf-transform/tests/export_annotation_flags_spec_audit.rs"
+      ],
+      "residuals": "No audit of every widget/form state interaction or archive rewrite flag policy. Export behavior for annotation flags is not specified by Table 167: it names screen and printed page only. The exporter follows an explicit product choice in ADR 1179, not a derived mandatory conformance rule.",
+      "execution": "Two new tests PASS: model screen/print/hover cross-product and actual transform RenderPlan PNG. Model/transform all-targets Clippy PASS.",
+      "parent_assertion_qualification": "Existing print_intent matrix and public Command::Print test check display-list marks, not printed pixels. Existing toggle screen test does check literal red/blank pixels. New cross-product checks red/transparent center and transparent exterior; new exporter checks decoded PNG dimensions, literal red/white pixels, exterior white and equality to no-annotation control."
+    }
+  ]
+}

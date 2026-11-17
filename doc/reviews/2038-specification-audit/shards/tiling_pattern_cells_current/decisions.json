@@ -1,0 +1,23 @@
+[
+  {
+    "feature": "Negative nonzero XStep/YStep signs",
+    "source_basis": "Table 74 physical236/printed221 and continuation physical237/printed222 explicitly permit positive or negative steps and prohibit zero. For each integer site index i, replacing step s by -s maps site i to prior site -i; the infinite translated cell set, including origin/key cell, is the same.",
+    "current_implementation": "pattern/lattice.rs::non_zero uses abs; pattern/lattice.rs::displacement maps integer offsets; pattern/reach.rs::columns_meeting handles either step sign by ordering computed bounds.",
+    "assertion_review": "Existing pattern tests use positive steps. No current named rendering assertion tests a negative step.",
+    "decision": "No defect indicated by sign normalization; mathematically the infinite lattice is sign-invariant. Keep a narrow public coverage draft to guard signed-step parsing/range enumeration, with Type 2 to avoid snapping variation. It compares full raster data only after a literal expected red pixel and transparent-gap control.",
+    "status": "Coverage opportunity only; draft unrun; not a mandatory reader rejection issue."
+  },
+  {
+    "feature": "Required Resources and malformed missing entry",
+    "source_basis": "Table74 requires resources dictionary; §7.8.3 supplies named-resource completeness. Producer shape and processor recovery behavior are distinct.",
+    "current_implementation": "Pattern interpreter defaults missing resource dictionary to empty; archive preservation repair gives pattern own dictionary and files unresolved used names there.",
+    "assertion_review": "missing_resources and archive resource_fallbacks tests; global core findings include pattern resource repair.",
+    "decision": "Do not label this a new reader-conformance failure. Existing policy/resolution and recovery work is owned by ADR1059/2820; current shard only maps the dictionary cell."
+  },
+  {
+    "feature": "Type/PaintType/TilingType/BBox/Matrix/phase cells",
+    "source_basis": "Table74 requiredness/defaults and table descriptions plus §8.7.3.1 phase/processor prose. #294 caption only clarifies pattern stream; #428 specifies tile fill order implementation-dependent.",
+    "assertion_review": "Named assertions listed in features.json use actual painted pixels, positions, and geometry controls; B20 degenerate-BBox failure is in global findings and parent review.",
+    "decision": "No new gap beyond direct negative-step assertion. Retain bounded claim; do not certify unmentioned combinations or demand rejection of producer-invalid values."
+  }
+]

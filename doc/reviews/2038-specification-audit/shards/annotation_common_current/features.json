@@ -1,0 +1,165 @@
+[
+  {
+    "clause": "12.5.2",
+    "feature_id": "table166_type_optional",
+    "title": "Common annotation dictionary, page association and Rect location",
+    "source_location": "ISO printed pp.467–470 / physical pp.482–485, §12.5.2 and Table 166; processed lines 11117 onward",
+    "errata": "No directly relevant Table166 Rect change identified. Issue #22 changes AP producer requirement; #34 clarifies absent-AP rendering is implementation-dependent; #287 strengthens Border precedence.",
+    "ledger": "table166_type_optional; table166_subtype_required; table166_rect_required_and_page_location; annotation_dictionary_single_page_membership; table166_p_association",
+    "code": "crates/pdf-model/src/annotation.rs::rectangle reads and normalizes Rect; callers use page annotation traversal. Page-associated coordinates feed the appearance transform and interpretation path.",
+    "tests": "crates/pdf-model/tests/annotations.rs includes geometry/placement cases; page structure tests assert annotation location through structure. This shard did not test single-page membership or malformed required entries.",
+    "assertions": "Existing geometry assertions use valid rectangles and painted output; producer statements that Subtype/Rect must exist do not require reader rejection here.",
+    "verdict": "sampled placement behavior supported; no reader rejection gap established",
+    "residuals": "No full membership/duplicate-Annots audit; malformed required fields are tolerant-read policy. Annotation editing/page placement beyond rendering not certified.",
+    "related_adrs": [
+      "ADR 0013",
+      "ADR 0114",
+      "ADR 0196"
+    ]
+  },
+  {
+    "clause": "12.5.2",
+    "feature_id": "table166_appearance_presence_writer_rule_and_no_ap_behavior",
+    "title": "AP production requirement and absent appearance behavior",
+    "source_location": "Table 166, §12.5.2, printed p.468 / physical p.483; EC3 #22 annotation on the AP cell; EC3 #34 note on rendered appearance (doc/errata-read.md lines 477–480, 764–768)",
+    "errata": "EC3 #22 makes AP required for PDF 2.0 writers except degenerate Rect and Popup/Projection/Link; PDF 1.2–1.7 keeps optionality. #34 explicitly says an annotation without AP has implementation-dependent rendered appearance.",
+    "ledger": "table166_appearance_presence_writer_rule_and_no_ap_behavior; absent-appearance-style-is-implementation-dependent",
+    "code": "crates/pdf-model/src/appearance.rs constructs selected appearance-less subtypes from their own characteristics; stored AP route is separate. `Normal::Absent` and subtype-specific construction/reporting are not a universal normative fallback.",
+    "tests": "crates/pdf-model/tests/annotations.rs covers Link absent AP, Screen absent AP, Square construction and widgets. `annotation_flags_audit.rs` checks Print behavior when no stream is present.",
+    "assertions": "Tests distinguish subtype-specific constructed output from no constructed mark and prove that Print flag is ignored when no appearance stream is contained. They do not define one required visual fallback for all absent-AP cases.",
+    "verdict": "no general reader defect: absent-AP painting is implementation-dependent, while AP requirement is principally producer-facing",
+    "residuals": "PDF 2.0 producer conformance for every writer path was not audited. Existing implementation chooses useful derived appearances only where subtype clauses support them; no blanket visual requirement inferred.",
+    "related_adrs": [
+      "ADR 0013",
+      "ADR 0030",
+      "ADR 0628"
+    ]
+  },
+  {
+    "clause": "12.5.5",
+    "feature_id": "appearance_entry_may_be_stream_or_state_subdictionary_and_as_selects",
+    "title": "N/R/D stream or state dictionary; AS selects the appearance state",
+    "source_location": "§12.5.5 Table 170, printed pp.474–475 / physical pp.489–490; Table 166 AS at printed p.469 / physical p.484",
+    "errata": "No direct change to Table 170 state selection found in EC3. EC3 #34 applies only when AP is absent.",
+    "ledger": "appearance_entry_may_be_stream_or_state_subdictionary_and_as_selects; undefined_as_state_has_reasonable_behavior_such_as_nothing; table170_normal_rollover_down_and_printing",
+    "code": "crates/pdf-model/src/annotation.rs::stored_appearance chooses N/R/D by view; missing R/D falls back to N; a subdictionary is queried by `/AS` bytes (or updated widget state); unknown state returns StateNotDefined. Print path selects N.",
+    "tests": "crates/pdf-model/tests/annotation_appearance_audit.rs::rollover_and_down_state_subdictionaries_select_the_state_named_by_as; `explicit_rollover_is_selected_and_missing_down_defaults_to_normal`; `printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer`; older annotations.rs state test.",
+    "assertions": "The current state test uses distinct red/green/yellow/blue/magenta streams and checks N, R/On, R/Off, D/On, D/Off pixels; print asserts N despite pressed pointer. The current unknown-state case returns no selected stream, which is within reasonable behavior because the source gives displaying nothing as an example.",
+    "verdict": "confirmed for sampled public model raster consumers",
+    "residuals": "AS-required producer constraint is not converted into reader rejection; all appearance dictionaries with arbitrary malformed nesting not audited.",
+    "related_adrs": [
+      "ADR 0013",
+      "ADR 0177",
+      "ADR 0235",
+      "ADR 0439"
+    ]
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "hidden-suppresses-screen-print-and-interaction",
+    "title": "Hidden, Print, NoView and ToggleNoView control screen, paper and interaction",
+    "source_location": "Table 167, printed pp.471–472 / physical pp.486–487; §12.5.3 prose following table on printed p.472 / physical p.487",
+    "errata": "No Table167 erratum identified in this sampled scope. Effective Table166 #22/#34 affect only stream presence behavior.",
+    "ledger": "hidden-suppresses-screen-print-and-interaction; print-flag-and-hidden-precedence; print-flag-ignored-without-contained-appearance-stream; noview-screen-suppression-and-print-allowed; toggle-no-view-inverts-hover-and-selection; annotation-oc-uses-screen-versus-print-flag-conditions",
+    "code": "crates/pdf-model/src/annotation.rs::displayed handles Hidden and purpose-specific Print/NoView; contains_appearance_streams checks direct and state-subdictionary streams; no_view XORs NoView and ToggleNoView for non-normal appearance; interacts gates pointer selection.",
+    "tests": "annotation_flags_audit.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen, no-appearance stream test, unselected rollover stream print test, and annotation_hit_testing_respects_readonly_and_toggle_no_view; print_intent.rs and optional-content flag tests.",
+    "assertions": "The matrix asserts screen and print independently for default, Print, Hidden, Hidden+Print, NoView, NoView+Print, and Hidden+NoView. Missing-AP test compares same subtype/flags with a valid appearance stream control. State-subdictionary containment test selects an undefined AS while an unselected state stream exists, proving Print still applies.",
+    "verdict": "confirmed for exercised screen/print/hover paths",
+    "residuals": "Table says ToggleNoView appears when hovered or selected; viewer model has pointer Over/Down state but no distinct persistent annotation-selection input was found in this bounded search. Hover/down is exercised; persistent selection semantics remain a consumer/capability question, not a proven defect. No print overlay/host printer side effects audited.",
+    "related_adrs": [
+      "ADR 0177",
+      "ADR 0245",
+      "ADR 0628"
+    ]
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "nozoom-screen-size-and-fixed-upper-left",
+    "title": "NoZoom and NoRotate adjust placement about Rect upper-left without mutating Rect",
+    "source_location": "Table 167 and following prose/Figure 78, printed p.472 / physical p.487; page-coordinate transform interaction at §7.7.3",
+    "errata": "EC3 Issue #577 strikes the old sentence that NoZoom/NoRotate were always set for every Text annotation; current code handles Text subtype behavior separately. No amendment to the flags' geometric rule found.",
+    "ledger": "nozoom-screen-size-and-fixed-upper-left; norotate-screen-orientation-and-fixed-upper-left; nozoom-norotate-adjustment-does-not-mutate-rect",
+    "code": "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment computes exact 0/90/180/270 counter-rotation and inverse magnification around normalized upper-left; applied to whole annotation before page transform. content/annotations.rs supplies purpose-specific target geometry.",
+    "tests": "crates/pdf-model/tests/annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner (asymmetric half-box at /Rotate 90); `a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified` checks unstated, 2x, 0.5x and no-flag controls. Viewer zoom test verifies re-interpretation path; print geometry audit says screen NoZoom doesn't shrink print.",
+    "assertions": "NoRotate asserts exact painted extent and distinguishes turn-following from upright mark, anchored to same corner. NoZoom exact extents compare sizes and anchor at zoom 2 and 0.5. The normative text explicitly scopes fixed-size/orientation statements to screen; implementation behavior in print is not required by those sentences.",
+    "verdict": "confirmed for 90-degree rotation and multiple screen magnifications; transform code covers remaining right-angle branches",
+    "residuals": "No independent pixel fixture for NoRotate at 180/270 was found. No evidence of defect; targeted 270 case could increase branch coverage. Stored Rect immutability is code-level (interpretation does not mutate dictionary), not asserted via post-render object reread.",
+    "related_adrs": [
+      "ADR 0013",
+      "ADR 0245",
+      "ADR 0628"
+    ]
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "bs-presence-overrides-border",
+    "title": "Border stays inside Rect; a present BS makes all of Border ignored",
+    "source_location": "§12.5.4 opening paragraph, printed p.472 / physical p.487; Table 166 Border at printed pp.468–469 / physical pp.483–484; EC3 #287 annotation on printed p.483 / physical p.498 (doc/errata-read.md line 231)",
+    "errata": "EC3 #287 strengthens `Border entry is ignored` to `shall be ignored`. This makes precedence mandatory for the writer/processor rule, not a reader rejection rule.",
+    "ledger": "border-inside-annotation-rect; bs-presence-overrides-border; border_style_optional_type",
+    "code": "crates/pdf-model/src/appearance.rs::Border::geometry branches on /BS and sets radii [0,0], never reading /Border dimensions in that branch; `border_width` likewise selects BS as a whole. Underline path is inset to keep stroke inside Rect.",
+    "tests": "annotations.rs::a_border_style_dictionary_ignores_the_border_arrays_corner_radii proves rounded Border-only vs square with BS; link border and underline tests assert in-Rect extents. Cloud style is separately tested.",
+    "assertions": "The legacy precedence regression isolates the known radius departure, but /Border and /BS width are both 4, so that assertion alone does not prove width/dash are all ignored. Code currently does read BS width/style/dash together and radii are discarded. Draft `bs_precedence_ignores_entire_border_entry.rs` compares conflicting Border width/radii/dash against BS-only and Border-only positive controls.",
+    "verdict": "current branch correct by code; existing assertion is narrowly meaningful for the historical corner-radius bug; drafted broader differential control",
+    "residuals": "Draft unrun. Array malformed shapes and mixed border effects not audited here.",
+    "related_adrs": [
+      "ADR 0293",
+      "ADR 0440",
+      "ADR 0294"
+    ]
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "bs-width-default",
+    "title": "BS width, dash, styles and BE defaults/ranges",
+    "source_location": "Table 168 printed pp.473–474 / physical pp.488–489; Table 169 printed p.474 / physical p.489",
+    "errata": "No relevant Table 168/169 EC3 change identified in this bounded review.",
+    "ledger": "bs-width-default; bs-width-zero; bs-style-solid; bs-style-dashed; bs-style-bevelled; bs-style-inset; bs-style-underline; bs-style-subtype-scope; dash-array-format-phase-and-default; be-effect-styles-and-default; be-intensity-default; be-intensity-range-and-scope; cloud-preserves-bs-width-and-dash; absent-border-and-bs-default; unknown_border_style_requires_solid_default",
+    "code": "appearance.rs::Border::from_style_dictionary and geometry read width/style/dash; border routines implement S/D/B/I/U; cloudy border uses /BS width/dash and BE effect/intensity; reader maps unknown style to solid.",
+    "tests": "annotation_border_audit.rs checks omitted /D defaults to [3] and phase 0 via exact raster comparisons and a changed-pattern control; unknown style solid control, width zero and cloudy width/dash tests; annotations.rs tests bevel/inset/underline placement.",
+    "assertions": "No source-derived defect found in defaults sampled. Bevel/inset relief colors and cloud curve are implementation choices acknowledged elsewhere, so their arbitrary visual choice is not ISO conformance failure.",
+    "verdict": "sampled defaults and consumer pixels supported; no broad certification of every subtype's border route",
+    "residuals": "Producer constraints on optional Type and BE intensity range are not reader rejection requirements. Other subtype-specific BS uses only line width/dash and are separate consumers.",
+    "related_adrs": [
+      "ADR 0293",
+      "ADR 0294",
+      "ADR 1061"
+    ]
+  },
+  {
+    "clause": "12.5.2 / 12.5.5",
+    "feature_id": "annotation_blend_mode_effective_ec3_and_opacity_text_conflict",
+    "title": "Stored AP is self-contained; amended ignore list keeps BM active and MK ignored",
+    "source_location": "Table 166 final paragraph, printed p.470 / physical p.485; §12.5.5 composition paragraph printed p.475 / physical p.490; EC3 #23/#34/#56 annotations on primary physical p.485",
+    "errata": "Issues #23 and #34 remove BM from the ignore list and remove blanket `without regard to any other keys`; #56 adds MK to the ignore list. C/IC/Border/BS/BE/CA/ca/H/DA/Q/DS/LE/LL/LLE/Sy remain ignored for stored appearance rendering.",
+    "ledger": "annotation_blend_mode_effective_ec3_and_opacity_text_conflict; table166_appearance_presence_writer_rule_and_no_ap_behavior",
+    "code": "annotation.rs passes annotation blend mode to the stored appearance path; appearance.rs separates stored stream from dynamic construction and does not read listed appearance-characteristic entries over stored AP. Opacity CA/ca remains only construction input.",
+    "tests": "annotation_appearance_audit.rs tests stored transparency group behavior; annotations.rs::a_stored_appearance_ignores_the_annotations_opacity and constructed counterpart assert the two-sided rule. EC3 historical regression for BM is in current appearance tests (inspect complete body before claiming pixel control).",
+    "assertions": "The module's old text quote is now explicitly described as retired; actual current code handles BM. Existing opacity test compares stored vs constructed streams. This shard does not claim every listed ignored key has independent pixel coverage.",
+    "verdict": "code follows effective EC3 interpretation; sampled tests support stored-vs-constructed opacity distinction",
+    "residuals": "No full per-entry stored AP ignore matrix or independent blend-mode-only pixel oracle reviewed; not treated as defect here.",
+    "related_adrs": [
+      "ADR 0030",
+      "ADR 0257",
+      "ADR 0440",
+      "ADR 0628"
+    ]
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "f-is-integer-low-bit-first-reserved-zero",
+    "title": "F integer bits are numbered low to high; Invisible applies only to unrecognized subtypes with no handler",
+    "source_location": "Table 167, printed pp.471–472 / physical pp.486–487; EC3 #1 refines the Invisible row (doc/errata-read.md and ADR 0628)",
+    "errata": "EC3 #1 replaces Table 167 Invisible row’s cross-reference with §§12.5.5 and 12.5.3 bit positions 1 and 2. No change to bit numbering identified.",
+    "ledger": "f-is-integer-low-bit-first-reserved-zero; invisible-unknown-types-only",
+    "code": "crates/pdf-model/src/annotation.rs constants map bits 1..10 to masks; `displayed` handles Hidden/Print/NoView and selected appearance; `decided` restricts Invisible to nonstandard subtype names.",
+    "tests": "crates/pdf-model/tests/annotation_flags_audit.rs has a flag matrix for standard and unknown subtypes, screen/print, and hit-testing; no exhaustive test of all reserved high bits.",
+    "assertions": "Flag matrix checks visible geometry and unsupported reports for the standard/unknown split, rather than merely reading a mask. Absence of reserved-bit test is not an ISO gap where no behavior is assigned.",
+    "verdict": "sampled consumer behavior supported; producer bit constraints do not imply rejection",
+    "residuals": "No exhaustive conformance matrix across every Table 171 subtype; delegated scope intentionally avoids subtype-family certification.",
+    "related_adrs": [
+      "ADR 0177",
+      "ADR 0628"
+    ]
+  }
+]

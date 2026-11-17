@@ -1,0 +1,93 @@
+{
+  "shard": "errata_weak_dispositions_batch4_current",
+  "baseline": "b901326c",
+  "scope": "Source-led disposition review of EC3 issues #310, #311, #328, #330, #365, #366, #367, #379, #398, and #403. Annotation object/rectangle and replacement text were inspected in the licensed primary PDF; issue-number mention alone is not treated as semantic coverage. This is not certification of the affected clauses.",
+  "source_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "issues": [
+    {
+      "id": 310,
+      "annotation": "Physical p.391 / printed p.376: StrikeOut object 4443 at [185.300003,689.808899,493.547913,713.242004] is replied to by Caret object 4444, whose Contents supplies the replacement. Physical p.395 / printed p.380 has Text object 4482 with a related note.",
+      "effective_rule": "Table 130 TransferFunction is required for a Type 5 component halftone representing a nonprimary or nonstandard primary colour component; Identity may specify identity. The p.395 note says corresponding halftone types have a TransferFunction in those cases.",
+      "owner_boundary": "Writer/table requirement; does not itself require a reader to reject an omitted or invalid entry.",
+      "current_evidence": "rendering_intent_transfer_current reviewed the source and selected Type 5 transfer path. Its public raster assertions were run by the parent and passed for four DeviceRGB primary-component controls. They do not test nonprimary or nonstandard primary components, CMYK-native output, or a halftone screen algorithm.",
+      "disposition": "Effective producer clarification; no distinct reader defect established."
+    },
+    {
+      "id": 311,
+      "annotation": "Physical p.396 / printed p.381: StrikeOut object 4489 at [72.024002,620.208984,543.294983,705.289001], no IRT/replacement. It visibly covers the full paragraph beginning 'When a halftone dictionary of some other Type appears...' and continuing through the graphics-state contrast and gray-screen/transfer-function fallback.",
+      "effective_rule": "That deleted paragraph no longer supplies a normative per-colourant rule or nonprimary-colourant fallback. The surviving \u00a710.6.5.6 introduction and Table 52 still describe Type 5 as component halftones and halftones generally; the deletion does not affirmatively state a replacement fallback.",
+      "owner_boundary": "Do not infer a mandatory reader fallback from struck text. Current tests are explicitly limited to DeviceRGB primary components.",
+      "current_evidence": "rendering_intent_transfer_current and ADR 0505 were reviewed; the retained implementation premise is based on the surviving Table 52 / Type 5 introduction, not the deleted paragraph.",
+      "disposition": "Effective deletion; no new behavior defect established. Nonprimary behavior remains unverified."
+    },
+    {
+      "id": 328,
+      "annotation": "Physical p.734 / printed p.719: two StrikeOut objects 6767 [234.583,679.849,306.799,692.788] and 6769 [170.749,650.209,220.627,663.148], no replacement. They remove 'contents of the' from the first-ID sentence and ''s contents' from the second-ID sentence in \u00a714.4.",
+      "effective_rule": "The permanent identifier is based on the PDF file at original creation time and the changing identifier on the file at last update; the clauses no longer narrow either to file contents alone. The separate suggested time/location/size inputs and 'should attempt' uniqueness remain recommendations.",
+      "owner_boundary": "Producer ID description; uniqueness/collision resistance is not a reader behavior guarantee.",
+      "current_evidence": "identifiers_procsets_current reviewed the exact strike rectangles and \u00a714.4. Current writer tests assert first-ID preservation and changing second ID on incremental update, and parent-run classic-xref and xref-stream serializer controls assert two nonempty equal identifiers on new files. ADR 0817 is retained as an ID policy decision, not an assertion that the standard mandates a content hash.",
+      "disposition": "Effective wording correction; selected writer behavior remains supported, no conformance defect found."
+    },
+    {
+      "id": 330,
+      "annotation": "Physical p.812 / printed p.797: Text object 7872 at [30.058975,610.877869,54.058975,634.877869]. Contents says Lang entries are text strings, may be Unicode-encoded, and may use literal or hexadecimal string syntax.",
+      "effective_rule": "The annotation clarifies the syntactic string forms for language entries; it does not define a new language precedence or grammar rule. \u00a77.3.4's string decoding still governs the value.",
+      "owner_boundary": "Applies to /Lang consumers, not only catalog language. Does not itself require a pronunciation feature or a particular UI.",
+      "current_evidence": "language_pronunciation_current inspected this annotation and the actual language consumers. Generic PDF text-string parsing feeds structure/catalog Lang. Existing consumer fixtures prominently use literal Lang strings; the related shard's text-string tests cover Unicode string decoding elsewhere, but no separate hex-form /Lang fixture was identified in the inspected tests.",
+      "disposition": "Effective clarification with implementation path present. A dedicated hexadecimal /Lang consumer assertion would improve regression specificity, but no distinct behavior failure is established."
+    },
+    {
+      "id": 365,
+      "annotation": "Physical p.38 / printed p.23: Caret objects 1444 and 1448 point at the '{' and '}' Table 2 rows; Text object 1452 states the new footnote: curly braces are additional delimiters only within Type 4 calculator functions.",
+      "effective_rule": "The eight general delimiter characters are unconditional; braces are additionally delimiters in Type 4 program tokenization. They remain regular bytes in ordinary names/objects.",
+      "owner_boundary": "Lexer-context rule; no requirement that ordinary names containing braces be rejected (name escaping is a writer choice).",
+      "current_evidence": "lexical_spec_audit.rs::table_2_general_delimiters_and_regular_bytes_have_their_pdf_classes, lexer unit test a_brace_is_a_regular_character_outside_a_type_4_program, name_escaping.rs::a_brace_in_a_name_is_written_as_its_hexadecimal_code_by_choice, and Type 4 calculator parsing keep the contexts separate. basic_syntax_current reviewed Table 2 and its source footnote.",
+      "disposition": "Effective clarification and directly asserted in lexer/name contexts; no gap identified."
+    },
+    {
+      "id": 366,
+      "annotation": "Physical p.55 / printed p.40: Text object 1635 adds 'there is no relationship between this parameter and the similarly named key in image dictionaries' beside the predictor DecodeParms BitsPerComponent entry in Table 8. Physical p.274 / printed p.259: StrikeOut 3632 at [310.928833,581.298889,315.789307,592.971985] with Caret 3633 Contents 'the', plus StrikeOut 3634 [376.983582,581.298889,501.692749,592.971985] with no replacement, modify the Table 87 image BitsPerComponent wording. The rendered page shows 'a specified size if a predictor function is used' changed to 'the specified size'; the predictor-only qualifier is struck.",
+      "effective_rule": "Table 87 requires image BitsPerComponent to agree with the sample size delivered by the image stream's filter; LZW/Flate output size is not restricted to predictor use. Table 8's DecodeParms BitsPerComponent is a decoder parameter, not the image dictionary value. These are producer-side consistency statements, not malformed-reader rejection rules.",
+      "owner_boundary": "Do not conflate predictor parameter BPC with image sample BPC. Do not call acceptance of a mismatched producer encoding a defect without a reader-side shall.",
+      "current_evidence": "indirect_filter_parameters_current reviewed the Table 8 note and notes that filter parameters are separately consumed. Image decoding reads image dictionary BPC separately from predictor DecodeParms. Existing filter and image tests cover their respective values and decoded sample oracles, but no one assertion was found that distinguishes both fields in one public image consumer fixture.",
+      "disposition": "Effective clarification; no valid-input behavior defect established. The cross-field assertion gap is optional regression coverage, not a required rejection test."
+    },
+    {
+      "id": 367,
+      "annotation": "Physical p.728 / printed p.713: StrikeOut object 6662 at [171.647,197.999,231.146,210.419] is paired with Caret 6664 'considered unnecessary'; Caret 6658 at [288.731,197.887,297.744,205.231] adds 'and was deprecated in PDF 2.0'.",
+      "effective_rule": "\u00a714.2 distinguishes 'considered unnecessary' from 'deprecated in PDF 2.0'; the surviving shall about procedure sets is for PostScript-compatible output.",
+      "owner_boundary": "Conditional producer/output route. It does not require a raster PDF viewer to parse or emit ProcSet as part of its page interpretation.",
+      "current_evidence": "identifiers_procsets_current reviewed the changed sentence and Table 346; the active print path hands raster pages to platform printing. No PostScript-compatible output route is claimed.",
+      "disposition": "Effective version/wording correction; existing conditional inapplicability remains justified."
+    },
+    {
+      "id": 379,
+      "annotation": "Physical p.48 / printed p.33: two StrikeOut+Caret pairs (objects 1538/1539 and 1542/1543) replace \u00a77.3.10 object- and generation-number prose. Carets state object numbers are positive decimal digits without '+' or leading zeroes; generation numbers are nonnegative with identical syntax except the single digit 0 is allowed. The primary page also includes two FileAttachment annotations at physical p.1020 for EBNF artifacts; those do not replace the primary prose.",
+      "effective_rule": "The lexical spelling rules constrain conforming producers and indirect-reference grammar. They do not create a reader obligation to reject tolerated noncanonical spellings.",
+      "owner_boundary": "Keep parser recovery/permissiveness separate from source syntax and from a requirement to reject.",
+      "current_evidence": "lexical_foundations_current and file_security_framing_current record integer/object syntax and recovery distinctions. The parser's number/token machinery is shared with other syntax; tests inspect basic indirect objects and malformed forms, but no new rejection requirement follows from this producer syntax correction.",
+      "disposition": "Effective syntax correction; no reader failure established."
+    },
+    {
+      "id": 398,
+      "annotation": "Physical p.732 / printed p.717: StrikeOut object 6734 at [180.62,117.507,198.884,124.75] is replied to by Caret 6736 Contents '\u2026 UTF-8 value of U+FEFF (efbbbf) \u2026'. It corrects the glyph rendering in the \u00a714.3.3 example.",
+      "effective_rule": "The example's BOM is U+FEFF encoded in UTF-8. This does not amend a reader encoding requirement; \u00a714.3.2's UTF-8 producer rule is a separate requirement.",
+      "owner_boundary": "Example correction / writer packet encoding; no reader rejection mandate.",
+      "current_evidence": "metadata_current parent-review.json and decisions.json already give physical732/printed717 correctly; only findings.txt retains incorrect747/732. Parent will reconcile that stale prose. Writer emits U+FEFF; no new behavior finding.",
+      "disposition": "Informative example correction; fix internally inconsistent locator in current audit evidence, not implementation."
+    },
+    {
+      "id": 403,
+      "annotation": "Five Text notes: physical p.81 / printed p.66 obj1936 (cross-reference stream dictionary); physical p.157 / printed p.142 obj3075 (extensions dictionary); physical p.583 / printed p.568 obj5938 (signature dictionary with byte-range digest); physical p.899 / printed p.884 obj8408 (linearization parameter dictionary); physical p.902 / printed p.887 obj8454 (hint-stream dictionaries). Each Contents explains that metadata streams and Associated Files are excluded by an applicable direct-object requirement.",
+      "effective_rule": "These are contextual consequences of the surrounding direct-object constraints in \u00a77.5.8.2, \u00a77.12.2, \u00a712.8.2 and Annex F.3.3/F.3.4. They are not one general prohibition on metadata or Associated Files throughout a PDF.",
+      "owner_boundary": "Several constraints bind conforming producers; no general reader-side refusal obligation is inferred. The xref bootstrap directness exception must not be generalized to ordinary streams.",
+      "current_evidence": "file_security_framing_current and compatibility_extensions_current separately examined xref and extension directness. No tested writer path emits these invalid placements. Signature and linearization dictionaries have their own producer paths. No single test covers the five contexts, and that is not itself a behavior defect.",
+      "disposition": "Effective explanatory notes; retained constraints are context-specific. No distinct valid-input defect established."
+    }
+  ],
+  "limits": [
+    "Primary source locations are physical PDF pages and printed footer pages, verified against the PDF. No full clause or feature family is certified by these entries.",
+    "Current evidence points to prior shard artifacts and specific assertion bodies; no Cargo command was run for this batch.",
+    "No test draft was justified from this source review. Possible additions (#330 hex-form Lang consumer and #366 paired image/filter BPC fixture) are coverage refinements only, not red requirements."
+  ]
+}

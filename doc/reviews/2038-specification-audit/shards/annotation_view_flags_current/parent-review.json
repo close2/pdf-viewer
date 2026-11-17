@@ -1,0 +1,7 @@
+{
+  "source": "Read primary Table167, following fixed-corner prose and appearance algorithm. Corrected algorithm location from488/473 to489/474; fixed-corner prose/Figure78 is487/472.",
+  "test": "Strengthened translation-only draft to a 90-degree AP Matrix [0 1 -1 0 60 0] with nonzero BBox. Translation alone cancels during box alignment and would not distinguish an ignored Matrix. Source left-half rectangle now maps to bottom half.",
+  "oracle": "Unflagged literal alpha extent (40,28)-(55,59); combined NoZoom/NoRotate at2x and pageRotate90 extent (72,44)-(87,51). Exact-xref, no recovery, complete interpretation, transparent medium.",
+  "decisions": "ADR0168 core geometry retained. ADR0777 replacement optimization is separate and not certified by fresh interpretation. ADR2813 print path outside this test.",
+  "execution": "Two new tests PASS; model Clippy PASS after doc formatting and checked index conversion fixes."
+}

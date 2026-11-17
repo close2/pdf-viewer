@@ -1,0 +1,28 @@
+{
+  "reviewed_decisions": [
+    {
+      "source": "ADR 0102 \u2014 The file-only evidence population reaches zero",
+      "premise_review": "Retain its direct-form filter-pipeline and DecodeParms-array tests as good evidence for ordering and per-stage parameter association. That accepted test work does not exercise \u00a77.3.10's direct/indirect equivalence, so indirect ordinary-stream forms are a separate coverage slice rather than a reason to reopen the cascade behavior.",
+      "result": "No contrary premise; one focused indirect-form draft supplied."
+    },
+    {
+      "source": "ADR 0036 \u2014 The last filter, and the family around it",
+      "premise_review": "Its LZW review and corpus pipeline examples establish codec decoding and chain order. The inspected LZW EarlyChange assertions use direct parameter dictionaries; they do not establish reference resolution for a whole DecodeParms value or array entry.",
+      "result": "Retain algorithm evidence; treat indirect parameter representation as an uncovered representation control."
+    },
+    {
+      "source": "EC3 #246 and #720; \u00a77.5.8.2 cross-reference-stream rules",
+      "premise_review": "These effective edits make a specific directness exception for cross-reference stream dictionary values and, for encoded xref streams, Filter/DecodeParms. Since these fields are consumed before general object resolution exists, xref streams must stay out of positive examples for ordinary streams.",
+      "result": "No exception leak: xref::decode_direct reads only directly stated values, while ordinary stream consumers use get_key/resolve. The directness rule also constrains writers; no invalid-reader refusal defect is claimed."
+    }
+  ],
+  "conclusion": "\u00a77.3.10, not \u00a77.3.9, is the generic direct/indirect equivalence source. \u00a77.3.9 remains the separate null and undefined-reference rule. Source semantics and implementation appear aligned in inspected ordinary stream paths; assertions currently prove direct forms, and the two scratch drafts add exact-xref indirect positives.",
+  "test_drafts": {
+    "status": "unexecuted",
+    "paths": [
+      "drafts/indirect_filter_parameters_spec_audit.rs"
+    ],
+    "count": 2
+  },
+  "parent_followup": "Retain ADR0102 ordering/per-stage evidence, but its direct parameters do not establish scalar indirect equivalence. NewB54 qualifies the initially clean outer-layer assessment; no historicalADRrewrite."
+}

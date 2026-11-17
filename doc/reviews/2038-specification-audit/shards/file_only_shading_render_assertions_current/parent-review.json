@@ -1,0 +1,6 @@
+{
+  "source": "Parent read sampled-image paragraph on physical399/printed384: its pixel-centre/no-averaging rules concern images. §10.7.4 begins physical398; the sampled-image paragraph itself is on399. Read raster/doc/adr/0053 (distinct from root ADR0053, which concerns trees).",
+  "assertions": "Read CPU shading placement math, GPU f64 row oracle and f32 0.7→178 control, hard-step scene and assertions, and image-mean tests. Scenes and backend agreement remain distinct from independent PDF Type7 consumer tests.",
+  "change": "Corrected two GPU test comments to identify centre sampling as renderer policy. Test behavior unchanged; no new GPU execution claimed.",
+  "limits": "Implementation-specific sample locations are not universal ISO mandates. The .4 area-averaging departure stays recorded; no ledger status or historical ADR changed."
+}

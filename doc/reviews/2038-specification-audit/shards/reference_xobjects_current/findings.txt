@@ -1,0 +1,51 @@
+Scope and source locators
+========================
+
+I read the EC3 PDF pages containing the actual clauses. §8.10.4.1 and Table 95 span physical 290–291 / printed 275–276. §8.10.4.2 and §8.10.4.3 are on physical 291 / printed 276. Table 93's /Ref row is physical 288 / printed 273. The source PDF/errata-read inventory has no erratum affecting §8.10.4.1–.3.
+
+1. Target selection has an unresolved matching boundary
+-------------------------------------------------------
+
+Table 95 at physical 290–291 says `/F` is required and is the PDF file containing the target; `/Page` is required and may be an index or page label; `/ID` is optional and “improves” the processor's chances of finding the intended file and allows a changed-file warning. §14.4's evidence is confidence-oriented: a match on both first and last identifiers makes it “very likely” the intended unchanged file was found; only the first matching denotes a different version of the correct file.
+
+At b901326c, `Reference::read` parses `/F`, `/Page`, and optional `/ID`; page indices and labels both resolve. `Supply::find` ignores the parsed `FileSpec`, requires `/ID`, selects the first supplied PDF whose first ID string matches, and only then compares the second string to report a changed version. `Supply::read` refuses supplied target PDFs without an ID. Host policy loads all files in a user-selected directory, in sorted filename order; the confined renderer does not open arbitrary document paths. This is a defensible host-safety boundary, but it conflates “the host offered a target” with “the target has an ID the reader can match.” Table 15 allows a PDF 1.7 trailer without `/ID`, and Table 95 makes the reference's ID optional. The source pages do not state that processors must use a filesystem path, nor do they state a candidate-search priority when multiple supplied files collide on the permanent ID.
+
+Do not make either of these conclusions without an owner decision: (a) the viewer must open `/F` from arbitrary filesystem locations; (b) exact two-ID pair must outrank first-ID-only candidates. The safe and reviewable question is whether a file explicitly offered by the host and matching the reference's `/F` name can be used as an authorized target when it has no ID, and how exact filename/ID evidence is prioritized among host-authorized candidates. The present tests cover one candidate at a time, so they cannot resolve either choice. A scratch selection regression is intentionally labeled an open product/source interpretation in the draft directory.
+
+The embedded-target sentence is also material: §8.10.4.1 says the target may be external or included in the containing PDF as an embedded file stream. The current path only imports documents placed in the host's `ReferenceFiles` supply; it does not resolve a target `/F` file specification through the containing document's embedded files. No test or selected ADR establishes whether an embedded target must be auto-imported or is “unavailable” absent host selection. It is a separate reader-capability decision because the bytes are already inside the untrusted containing file, not a reason to fetch an external path.
+
+2. Page designation is covered by real alternate controls
+-----------------------------------------------------------
+
+`crates/pdf-model/tests/form_xobjects_audit.rs` contains a two-page target whose first page is green and whose second page is blue. `/Page (target)` must select the blue second page; the paired `/Page 0` control selects green page one; a missing label falls back to the proxy. The containing fixture asserts `Document::was_recovered() == false`, and object/xref assembly is computed from actual offsets. This is stronger than ledger's cited list, which omits the later page-label audit. The label matching behavior found in `reference::page_index` corresponds to §12.4.2 labels.
+
+The `Supply::find` code cap is a distinct issue: `page_index` searches only `0..min(pages.len(), 4096)` for text labels. A valid, present label on target page 4097 (zero-based index 4096) is treated as `NoSuchPage`; `content/xobject` says the target file does not have it. Table 95 says Page labels identify target pages and sets no index limit. A bounded walk can be an intentional resource choice, but it must not turn a present page into a false “file does not have” result. A draft now places labels at indices 4095 and 4096, paints both differently, and also selects index 4096 numerically. At the cap, either import the blue page or retain the proxy with a truthful explicit limit report; reject the false missing-page report.
+
+3. §8.10.4.2 permits either output, but public print routing lacks a reference-specific check
+---------------------------------------------------------------------------------------------
+
+The source's only statement on printing at physical 291 / printed 276 is `may`: a processor can emit imported content or the proxy depending on capabilities, preferences, and job. Current behavior is a valid product choice: print uses the same interpreter and supply as screen, so it prints the target when supplied and the proxy when not supplied. There is no source requirement to expose a preference selector or to make both modes selectable.
+
+The ledger cites `viewer-core/tests/printing.rs::a_printed_page_is_targeted_at_the_jobs_resolution`, but that test contains no `/Ref` and proves only printer resolution. Model tests prove the lower-level imported/proxy raster choices; the public Viewer `Command::References` → Print → `Query::PrintPage` path has no reference-target fixture. I drafted a standalone exact-xref Viewer test with explicit supplied-target and no-supply pixel controls. It tests our chosen behavior without claiming §8.10.4.2 mandates that choice.
+
+4. §8.10.4.3 conditional and producer/readers distinctions
+-----------------------------------------------------------
+
+The annotation clause's first sentence is reader-facing: include imported-page annotation APs when printable, unhidden, and visible. The following snapshot-proxy sentence (“shall therefore be converted into part of the proxy's content stream”) is a producer constraint, not a requirement to synthesize a new proxy in this viewer. Current code runs the target page's annotation pass under target-page state and clips it with imported-page rendering; existing fixture demonstrates the positive `/F 4` AP case and straddles the proxy clip. Annotation flag filtering is shared with ordinary page annotations. I did not confirm each negative flag combination in an imported target, so `features.json` records that assertion residual without claiming a behavioral defect.
+
+The second special consideration explicitly says target logical structure may be ignored. Code provides an empty parent-tree context to the imported page, taking this permitted choice. The passage that it may be possible to incorporate structure for one-page/independent-page documents is not a shall. I found no needed test for opting into that possibility.
+
+Selected ADR findings
+---------------------
+
+- ADR 1101's no-arbitrary-path boundary remains sound. Its more specific “ID and never path” selection policy needs a narrower follow-up for required `/F`, optional `/ID`, host-authorized names, and embedded content. It should not be described as a requirement stated by §14.4: §14.4 gives identifier confidence and changed-version semantics, not an explicit ban on using `/F`.
+- ADR 1339's separation of proxy `/Group` and imported page `/Group` remains source-grounded; this shard did not duplicate its compositing audit.
+- ADRs 1179/1180 support adding a public print seam test, but do not turn §8.10.4.2's may into a must.
+- ADR 1461's interpretation of a exercised permission as an implemented product behavior is consistent, but the current test cited on the row does not itself witness reference printing.
+
+Residuals
+---------
+
+- No Cargo command or test execution was run. All outcomes above are static source/code/assertion review.
+- I did not independently re-audit the full page-group transparency matrix, imported document cache swap, archive rewrite policy, or all annotation visibility flags; those have separate existing shards/ADRs.
+- Exact-pair candidate ordering, `/F` name mapping, ID-less targets, and automatic embedded-file resolution remain owner questions. Draft tests separate the observable cases but do not settle normative priority.

@@ -1,0 +1,55 @@
+{
+  "baseline": "b901326c",
+  "scope": "14.1,14.3,14.9,14.9.1,14.9.2,14.11,14.11.1,14.11.2,14.11.6,14.13 and F,F.3,F.4. Source framing and selected actual assertion review only.",
+  "features": [
+    {
+      "clauses": [
+        "14.1",
+        "14.3"
+      ],
+      "source": "Primary physical728\u2013729 / printed713\u2013714.14.1 describes interchange categories;14.3 heading delegates metadata to children.14.3.1 preference/deprecation distinctions are substantive and already owned by metadata_current.",
+      "evidence": "Metadata is read and written; current leaf ledger14.3.1/.4 and metadata_current describe model, transform and VFS consumers. Parent14.1 note still says only two parts are implemented and frames everything else as interchange outside those rows. This is stale project-scope rationale, not a source requirement to omit metadata.",
+      "limit": "No new metadata run or full XMP/schema certification. Source statement about appearance is explanatory, not a conformance carve-out."
+    },
+    {
+      "clauses": [
+        "14.9",
+        "14.9.1",
+        "14.9.2"
+      ],
+      "source": "Primary811/796: general facility list; natural-language heading delegates to14.9.2.1. Hierarchical language explicitly applies to text strings outside the tree too. The Span property-list case and Unicode language escapes are distinct from structure namespace.",
+      "evidence": "language_pronunciation_current, empty_text_replacements_current and structure/accessibility shards separate copy, speech and AccessKit consumers. B01/B02,B12,B29\u2013B31,B34 and B43 remain confirmed bounded failures in current parent records; aggregate implemented status does not erase them.",
+      "limit": "Pronunciation optional support and project consumer policies remain qualified. No duplicate substitution or ordering test."
+    },
+    {
+      "clauses": [
+        "14.11",
+        "14.11.1",
+        "14.11.2",
+        "14.11.6"
+      ],
+      "source": "Primary829\u2013830/814\u2013815 lists prepress features and conditional simulation. Page-boundary heading precedes substantive .2.1; trapping heading physical840/825 precedes deprecated family general text.",
+      "evidence": "Parent14.11 note says boundary guidelines are declined, but leaf14.11.2.2 and ADR2440 implement them. Parent inspected guidelines.rs explicit rectangles/styles/defaults, viewer Command::Guidelines state propagation and host B key mapping. Existing tests include actual dashed guideline pixels and screen/print gating. Page-boundary B19 remains separate.",
+      "limit": "Record stale aggregate rationale. No claim every prepress function is supported; deprecated trap generation and ordinary annotation appearance remain separate."
+    },
+    {
+      "clauses": [
+        "14.13"
+      ],
+      "source": "Primary853/838: heading has no independent rule.14.13.1 enumerates eight association sites and14.13.2 permits embedded/external data, with embedded recommendation; effective MCAF marked-content rule belongs to leaf clause.",
+      "evidence": "dpart_associated_files_current and file-specification shards cover sites and actual consumers. B36 deep DPart loss remains current; an associated() helper accepting any dictionary is not itself proof every site has a caller.",
+      "limit": "AFRelationship is semantic information, not a blanket command to open/fetch/execute. No additional host action inferred."
+    },
+    {
+      "clauses": [
+        "F",
+        "F.3",
+        "F.4"
+      ],
+      "source": "Primary894/879 AnnexF title and optional-feature introduction; F.3 heading896/881; F.4 heading906/891. F.3.1 note allows alternative orderings; F.4.1 has explicit hint bit/byte/offset rules, owned by prior annex_f_linearization.",
+      "evidence": "Parent inspected linearize::every_statement_the_annex_lets_a_reader_check_holds_and_a_planted_fault_is_named: several shapes and stream modes pass faults(), and altering one first-page offset byte must name page0. This is a meaningful detector-sensitivity check, not proof of every named condition. qpdf check distinguishes exit2 from permitted warning3. Test support shares production Document/Parameters; only its hint decoding/check logic is separate.",
+      "limit": "Writer conformance and ordinary reader fallback are separate from optional fast/network reader performance. Do not call the shared-parser verifier entirely independent or infer malformed-input refusal from writer requirements."
+    }
+  ],
+  "execution": "No new tests run; previously recorded runs retain their scopes. No new production failure found in these headings."
+}

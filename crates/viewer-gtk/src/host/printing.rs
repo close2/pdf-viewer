@@ -839,3 +839,6 @@ mod tests {
         assert_eq!(setup.orientation(), gtk4::PageOrientation::Landscape);
     }
 }
+
+#[cfg(test)]
+mod print_defaults_settings_spec_audit;

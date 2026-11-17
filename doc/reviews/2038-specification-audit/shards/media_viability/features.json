@@ -1,0 +1,134 @@
+{
+  "shard": "ISO 32000-2 multimedia viability and rendition selection audit",
+  "baseline": "b901326c; source/code/assertion review; no Cargo execution",
+  "scope": "Focused review of §13.2.2, §13.2.3.1, §13.2.6.1 and §13.2.7.2.1–.2; Tables 277–281, 293–295 and 301–304; the selector's first-viable outcome and public rendition-action handoff. Playback/decoding remains excluded.",
+  "source": [
+    "ISO 32000-2:2020(E), primary source PDF doc/ISO_32000-2_sponsored_EC3.pdf, §13.2.2 printed p. 615 (physical p. 630); §13.2.3.1 and Tables 277–281 printed pp. 617–619 (physical pp. 632–634); §13.2.6.1 and Tables 293–295 printed pp. 628–630 (physical pp. 643–645); §13.2.7.2.1–.2 and Tables 301–304 printed pp. 633–636 (physical pp. 648–651)",
+    "doc/md/ISO_32000-2_sponsored_EC3.md lines 14125–14235, 14438–14510 and 14525–14635; source PDF text independently page-located with pdftotext -layout",
+    "Current scope: CLAUDE.md clause 13 entry; doc/scope-ratifications.md clause 13 entry ratified 2026-10-08; doc/questions/A254 and A632; ADRs 1946, 1960, 1961, 2376 and 2392",
+    "No correction to the reviewed viability/table wording was identified in doc/errata-read.md; the two listed clause-13 errata-index groupings include §13.2.7.2.2 as untouched, not a correction to these rules"
+  ],
+  "table_feature_coverage": {
+    "277-278": {
+      "source_entries": [
+        "Type",
+        "S",
+        "N",
+        "MH",
+        "BE",
+        "C"
+      ],
+      "behavior": "Walk::rendition handles recognized MR/SR and unknown S; criteria handles MH/BE /C precedence and Table 278's special criteria behavior. N is surfaced in Report. Indirect/name-tree producer rules are not reader duties."
+    },
+    "279-281": {
+      "source_entries": [
+        "Table 279: A,C,O,S,R,D,Z,V,P,L; Table 280: V,M; Table 281: V,M"
+      ],
+      "behavior": "criterion handles each semantic class; D/Z are unmet without host monitor facts; V/P empty arrays are absent and non-empty arrays cannot identify this hand-off; L uses host interface language. Table280/281 monitor values cannot be shown met by Processor's available facts. Wrong-typed nested criteria remain an interpretation residual."
+    },
+    "293-295": {
+      "source_entries": [
+        "Table 293: Type,MH,BE; Table 294: W,B,O,M,F; Table 295: D,RT,P,O,T,UC,R,TT"
+      ],
+      "behavior": "screen parameters read in media_rendition; unhonourable marks any MH option as not passable and does not reject BE; nested F and all window details are playback options. Existing assertion samples W but not every entry/default."
+    },
+    "301-304": {
+      "source_entries": [
+        "Table 301: Type,MU,A,NU; Table 302: Type,PID,MH,BE; Table 303: Type,U,L,LI,H,HI,OS; Table 304: monitor values 0–6"
+      ],
+      "behavior": "players reads MU/A/NU and emptiness after player_info_set_aside; PID and software identifier fields are partially screened; Table304 is only relevant to monitor criteria/window choice. MU-minus-NU handling remains an interpretation question, not a confirmed defect."
+    }
+  },
+  "features": [
+    {
+      "id": "mh_be_viability_common_rules_and_rendition_criteria",
+      "clauses": [
+        "13.2.2",
+        "13.2.3.1"
+      ],
+      "source_location": "Printed p. 615: MH versus BE, unknown keys/values, default and precedence rules; printed pp. 617–619: Tables 277–281 and the special media-criteria treatment",
+      "ledger": [
+        "doc/conformance/ledger.toml:4839",
+        "doc/conformance/ledger.toml:4855"
+      ],
+      "code": [
+        "crates/pdf-model/src/media.rs::Walk::criteria",
+        "Walk::criterion",
+        "Walk::language_criterion"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/media_viability.rs::a_media_criterion_binds_from_either_dictionary_and_an_unknown_one_only_from_mh tests unknown-key MH/BE, a host language against /L, and empty versus non-empty /V",
+        "crates/pdf-model/src/media.rs::a_language_criterion_is_met_by_the_stated_language_or_its_primary_code covers language primary-code/exact-match behavior",
+        "Current tests do not exercise a recognized Table 279 key with a value of the wrong PDF type"
+      ],
+      "verdict": "Unresolved typed-value interpretation, not counted as a confirmed conformance defect: Table 279 specifies /L,/V,/P as arrays and current code silently treats wrong-typed values as absent. §13.2.2 expressly makes an unrecognised value in MH non-viable, but the bad values are nested inside Table 278's special /C media-criteria dictionary, so this shard does not assume that the general MH wording necessarily applies at this nested level.",
+      "residuals": [
+        "Draft is not compiled or run; use it to resolve whether a malformed nested Table 279 value is an unrecognised MH value or merely an invalid producer object outside the reader's required recovery behavior. Do not promote as a normative failure without that interpretation.",
+        "Table 279 /A,/C,/O,/S,/R,/D,/Z are conservatively unmet because the hand-off host exposes no user-preference, bandwidth, or monitor facts. This shard confirms the source-to-code rationale but does not certify every malformed value or criterion interaction."
+      ]
+    },
+    {
+      "id": "screen_parameters_tables_293_to_295",
+      "clause": "13.2.6.1",
+      "source_location": "Printed pp. 628–630: Table 293 MH/BE; Table 294 W/B/O/M/F, including unknown W/M handling, conditional F and nested-entry rules; Table 295 floating-window entries; Table 304 monitor values printed p. 636",
+      "ledger": [
+        "doc/conformance/ledger.toml:4927"
+      ],
+      "code": [
+        "crates/pdf-model/src/media.rs::Walk::media_rendition",
+        "unhonourable"
+      ],
+      "assertions": [
+        "crates/pdf-model/tests/media_viability.rs::screen_parameters_must_honour_make_the_rendition_non_viable_and_best_effort_do_not checks one /BE example and one /MH example for W",
+        "No focused assertion covers W=0/F nesting, Table 295 entries, default or unrecognized W/M values, or BE fallback defaults"
+      ],
+      "verdict": "Bounded source/code result: for this hand-off, every Table 294 option in MH is reported unhonourable and makes the rendition non-viable; BE entries are ignored, consistent with Table 293's 'should' and §13.2.2. This broad outcome makes most per-entry defaults unobservable in this product profile. Existing assertions are too sparse to substantiate the ledger's per-table claims; no valid-input contradiction was established in the reviewed path.",
+      "residuals": [
+        "Table 294 F's conditional presence and Table 295 nested semantics remain assertion gaps; this audit does not promote missing F rejection because the relevant type/presence text may bind the producer rather than require reader rejection in this excluded-playback profile.",
+        "No full Table 304 tie/monitor selection is exercised; actual monitor selection belongs to excluded playback. The processor has no monitor fact in its Processor input."
+      ]
+    },
+    {
+      "id": "player_sets_and_first_viable_handoff",
+      "clauses": [
+        "13.2.3.1",
+        "13.2.7.2.1",
+        "13.2.7.2.2"
+      ],
+      "source_location": "Printed pp. 617–618: first viable rendition and Tables 277–279; printed pp. 633–636: Tables 301–304 and media-player algorithm",
+      "ledger": [
+        "doc/conformance/ledger.toml:4855",
+        "doc/conformance/ledger.toml:4975",
+        "doc/conformance/ledger.toml:4983"
+      ],
+      "code": [
+        "crates/pdf-model/src/media.rs::Walk::rendition",
+        "Walk::clip_data",
+        "players",
+        "player_info_set_aside",
+        "software_identifier_set_aside",
+        "crates/viewer-core/src/interact.rs rendition action handoff"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/media.rs::a_selector_plays_the_first_viable_rendition_and_says_why_the_others_were_passed proves first-viable model selection",
+        "crates/pdf-model/tests/media_viability.rs::the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_required tests empty /MU, accepted /A and /NU, and non-empty /MU refusal; it does not test Table 301's subtraction of /NU from /MU",
+        "crates/pdf-model/tests/media_viability.rs::a_non_viable_media_player_info_dictionary_is_not_present_in_its_array tests set-aside entry removal",
+        "crates/viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level proves a single viable media rendition reaches Event::Media; it does not combine selector fallback and Table 301 player-set semantics",
+        "scratchpad draft first_viable_selector_handoff.rs combines an MH-unknown non-viable first child, two later viable known-type children, exact xref offsets, and a public Event::Media handoff assertion for the second child; uncompiled/unrun"
+      ],
+      "verdict": "Interpretation unresolved, not a confirmed defect: Table 301 requires NU-listed players to be effectively removed from MU, but §13.2.7.2.2(c) gates on non-empty MU arrays and the standard does not explicitly state whether an array made empty by subtraction becomes absent. A physical non-empty MU may remain a whitelist whose effective set has no eligible player; alternatively, the Table 301 effective empty set could interact with the empty-array-as-absent rule. Current code's `must_use` tracks any viable MU element and does not represent PID/range subtraction. The source text alone reviewed here does not settle whether an unnamed hand-off is viable in the MU=NU case. Do not promote the prior expected-selection regression without stronger interpretation.",
+      "residuals": [
+        "The old MU/NU fixture was replaced with drafts/first_viable_selector_handoff.rs, an unambiguous §13.2.2/§13.2.3.1 selector-plus-public-handoff regression; it asserts the second viable child is handed off and a third viable sentinel is skipped. Parent should review/run it.",
+        "The implementation does not compute or store MU-minus-NU PID/version ranges; whether that matters for this unnamed hand-off profile remains unsettled.",
+        "Complex partially overlapping version intervals, multiple dictionaries across clip and play parameters, and Table 302/303 match algorithms remain outside this focused counterexample."
+      ]
+    }
+  ],
+  "scope_and_decision_notes": [
+    "CLAUDE.md and doc/scope-ratifications.md put viability computed/reported, rendition-action handoff at the reader's restriction level, and media-file delivery in scope; decoding/presenting media remains excluded. This audit does not treat the exclusion as a reason to skip viability or handoff.",
+    "ADR 1960's unnamed hand-off profile is coherent within sampled scope. MU-minus-NU ambiguity does not yet establish an incorrect result for this profile.",
+    "ADR 1961 governs temporary-file restrictions at public handoff; unchanged by these findings. ADR 1946 scope boundary and ADR 2376 ledger classification remain supported at the reviewed boundary."
+  ],
+  "execution": "No Cargo commands or tests run; parent owns execution and promotion.",
+  "parent_review": "First-viable obligation located in §13.2.3.3, not .1. New public host-handoff test passes; sentinel payload does not assert playable MP4. MU/NU and wrong-typed nested criteria are unresolved; no red tests promoted."
+}

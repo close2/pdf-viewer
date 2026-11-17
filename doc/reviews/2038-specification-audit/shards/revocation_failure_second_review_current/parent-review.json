@@ -1,0 +1,6 @@
+{
+  "source": "Read primary physical598/583 currentCRL interval and599/584 historicalOCSP producedAt and TSA reason rules. Re-read all three actual test bodies, fixed instants and recorded earlier independent fixture verification.",
+  "assessment": "Retain B41 private time-selector scope, B44 public current-time scope, B47 public historical producedAt scope. All three findings already carry these limits; this review reinforces them rather than inventing new failures.",
+  "controls": "B41Good/revoked/tamperedCRL assertions precede failing selector. B44both branches check ByteRange/RSA/signer binding; in-window control checks host instant. B47both branches check ByteRange/RSA/binding/imprint/trusted historical time.",
+  "limits": "B41 does not exercise a complete Report. B47producedAt does not authenticate capture time; signer expiry2036 bounds these2026fixed fixtures but does not establish arbitrary-input capture provenance. Historical CRL applicability must remain distinct from current-time interval. No new executions or external standard re-audit."
+}

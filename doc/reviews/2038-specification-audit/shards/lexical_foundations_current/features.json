@@ -1,0 +1,27 @@
+{
+  "baseline": "b901326c",
+  "scope": "Parent partial review of syntax framing and lexical context; not all child requirements.",
+  "source": [
+    "7.1 physical35/20: object/file/document/content-layer map; no new algorithm.",
+    "7.2 physical36\u201338/21\u201323: byte-oriented syntax, ASCII structural tokens, binary values, whitespace/delimiter/regular contexts. Actual #193 inserts article A; #365 limits braces to Type4 programs.",
+    "7.3 physical39/24: nine basic types and indirect labeling.",
+    "7.3.4.1 physical40/25: strings contain zero or more bytes.",
+    "7.3.8 heading physical46/31: stream details belong to child rows."
+  ],
+  "implementation": [
+    "Lexer consumes byte slices and preserves name/string bytes; explicit closed whitespace set.",
+    "skip_whitespace scans comments only to CR/LF, then resumes lexical parsing. Literal-string reader preserves percent bytes.",
+    "Object::String keeps bytes; limits and stream parsing have separate prior audit controls."
+  ],
+  "assertions": [
+    "every_byte_value_terminates proves progress, not token semantics.",
+    "New comment test distinguishes CR/LF/CRLF from VT/NUL inside comments, hides punctuation, and preserves percent in strings.",
+    "New regular-name test preserves VT/NBSP/high bytes and case, then checks exact names separated by all six whitespace bytes.",
+    "Existing brace test follows effective #365. Previous empty-string/limit/stream audits remain scoped evidence."
+  ],
+  "finding": "7.1 ledger note says file specifications/extensions are not read, contradicting current7.11/7.12 implementation and rows.",
+  "residuals": [
+    "No all-input parser certification.",
+    "No new stream/public I/O transport test; those remain prior dedicated scopes."
+  ]
+}

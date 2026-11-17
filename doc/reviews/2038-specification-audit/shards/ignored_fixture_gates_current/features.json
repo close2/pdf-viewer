@@ -1,0 +1,59 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Assertion and fixture-gate review of four high-value ignored/data-dependent test paths in syntax, transform, archive, and accessibility. Parent execution results from wave 76 are recorded separately from this reviewer’s static audit. This is not an ISO-source audit and an ignored test is not itself a conformance defect.",
+  "candidates": [
+    {
+      "test": "crates/pdf-syntax/tests/on_disk.rs::every_corpus_document_reads_the_same_on_disk_as_in_memory",
+      "ledger_link": "§7.5.4 cites sibling on_disk.rs::a_prev_loop_across_two_sections_reads_the_same_on_disk_as_in_memory; the corpus sweep itself is supplemental and not the listed test oracle.",
+      "gate": "#[ignore]; read_dir failure prints 'not checked out' then returns. When populated, requires >900 documents to open both ways; the >100000 object threshold belongs to the separate nonignored every_shipped_document_reads_the_same_on_disk_as_in_memory test. Documents refused identically are counted separately, not object-compared.",
+      "availability": "doc/pdf.js/test/pdfs is present with 974 top-level PDFs in this worktree. No gate-results entry records this exact test as run. Parent wave-76 run: 963 opened documents, 112562 objects compared, 11 identical refusals.",
+      "assertion_quality": "Per-opened-document equality includes trailer, recovery state, catalog, xref object-number population, every named object, misfiled objects, padded stream keywords, scan refusal, and read failure. Good metamorphic transport-equivalence evidence. It does not prove each corpus document opens, or independence from shared parser bugs.",
+      "disposition": "No unmet ledger claim established. Parent executed this supplemental corpus stress test. A present empty/small corpus still fails its >900 opened-document floor; exact run had 963 opens and accepted 11 identical refusals. It does not prove every corpus document opens."
+    },
+    {
+      "test": "crates/pdf-transform/tests/archive_corpus.rs::a_refiled_composite_font_draws_every_code_as_its_source_did",
+      "ledger_link": "Supplemental to transform/font rows; this corpus test is not itself named in the inspected ledger test lists. Do not count it as executed feature evidence while ignored.",
+      "gate": "#[ignore]; if pdf.js directory absent it prints and returns. If present, each of three named PDFs is required by read/open expect and each source must contain exactly one loadable Type0 font.",
+      "availability": "All bug1186827.pdf, issue13193.pdf, issue9262_reduced.pdf exist in doc/pdf.js/test/pdfs. No gate-results entry records this exact test as run. Parent wave-76 run passed 3 fixtures x 3 targets x 65536 codes.",
+      "assertion_quality": "For each of three transform targets and each source, checks every two-byte code 0..65535 has one decoded code and preserves glyph ID, stated advance bits, program advance, and outline commands. For TTC witnesses, compares output sfnt tables with the independently extracted selected face. Strong focused assertion; source/output use the same font-reading implementation, so it is not an independent decoder oracle.",
+      "disposition": "Parent executed this high-value ignored regression successfully for all three present witnesses, three targets, and all 65536 two-byte codes. It remains supplemental evidence and source/output use the same font reader; no product defect inferred."
+    },
+    {
+      "test": "crates/pdf-archive/tests/witnesses.rs::each_witness_fails_the_row_its_gap_belonged_to",
+      "ledger_link": "Named archive checker rows include file-structure/page-tree-root-states-no-parent, file-structure/page-tree-kids-name-dictionaries, file-structure/page-tree-holds-a-page-it-counts, and fonts/font-dictionary-states-type-font. Test is supplemental, not shown as a direct ledger citation in the current evidence checked here.",
+      "gate": "#[ignore]; missing files are deliberately named and skipped. Parent wave-76 execution passed all 3 currently present witnesses. Scratch-only robustness proposal distinguishes each optional root (doc/corpora/pdfbox, doc/corpora/format-corpus, doc/pdf.js) from a missing named witness beneath an existing root; no separate negative-control tests are proposed.",
+      "availability": "Both doc/corpora witnesses (PDFBOX-6040-nodeloop.pdf and T02-03_006_page-object-missing.pdf) and doc/pdf.js/test/pdfs/issue7544.pdf are present. No gate-results entry records this exact test as run. Parent wave-76 run evaluated and passed all 3 witnesses.",
+      "assertion_quality": "For each present witness and both targets, it explicitly requires all declared row IDs among failed judgements. Present-but-unopenable witnesses panic. The evidence-accounting limitation concerns a missing named file beneath a present repository root; no claim is made that this code alone establishes the source rule.",
+      "disposition": "The test explicitly documents missing files being named rather than failed, so this behavior is not an undocumented policy violation. Narrow hardening proposal: distinguish optional corpus-root absence from missing named files under a present root. Preserve the current optional behavior if a root is absent; make a declared witness unreadable/missing under an existing root fail with its path. See the scratch-only patch. All three inputs are currently available, so no current runtime failure is observed."
+    },
+    {
+      "test": "crates/viewer-core/tests/accessibility_census.rs::what_a_screen_reader_is_told_about_every_document; public adapter tests in crates/viewer-accessibility/tests/tree.rs",
+      "ledger_link": "Current ledger cites specific deterministic model/core/tree tests for structure and platform roles. The ignored census is broad supplemental evidence; the viewer-accessibility integration tests themselves are not ignored and use explicit synthetic PageView inputs.",
+      "gate": "#[ignore]; requires sandbox decoder, returns if neither pdf.js nor top-level doc PDFs exist. Population is nonempty when either source exists. Per-document read failure returns an empty Census without incrementing documents or naming a read failure; panic is captured and later asserted. A tracked population below 974 disables the tracked ratchets with a diagnostic return.",
+      "availability": "pdf.js corpus has 974 files; top-level licensed/specification PDFs are also present. The deterministic viewer-accessibility tree tests exist; no gate-results entry records this exact census test as run. Parent wave-76 run passed for 1020 documents; tracked-974 ratchet passed.",
+      "assertion_quality": "The census asserts multiple public/data invariants and ratchets tracked-population floors only when at least 974 paths are enumerated. However, files.len() is not compared to successfully read documents; unreadable files silently contribute zero, and extra untracked documents augment whole-population floors/reporting. The ratchet itself is explicitly designed around tracked files and avoids tying behavior to licensed files.",
+      "disposition": "Parent executed the supplemental census: 1020 documents, tracked-974 ratchet passed. No unreadable input was reported in that execution summary. The test body still does not explicitly compare listed files to successfully examined documents; this is a test-accounting limitation, not an observed product defect."
+    }
+  ],
+  "excluded_or_not_found": {
+    "viewer_accessibility_crate": "No #[ignore] or corpus-file gate was found in crates/viewer-accessibility/tests; tree.rs uses explicit constructed nodes/pages and is deterministic. Related external-data census lives in viewer-core/tests/accessibility_census.rs.",
+    "pdf_archive_corpus_surveys": "pdf-archive/tests/corpus.rs and cross_check.rs are documented as deliberately ignored population reports. Their non-gate/reporting design was not treated as absent normative assertions. Fixed-document and T88/JBIG2 work was excluded per parent instruction."
+  },
+  "execution": {
+    "source": "Parent-run scratchpad/r2038/spec-audit/ignored-consumers-wave76.log; this reviewer did not execute Cargo.",
+    "results": {
+      "pdf-archive/tests/witnesses.rs::each_witness_fails_the_row_its_gap_belonged_to": "PASS; all 3 witnesses evaluated (parent summary: archive 3/3).",
+      "pdf-syntax/tests/on_disk.rs::every_corpus_document_reads_the_same_on_disk_as_in_memory": "PASS; 963 documents opened, 112562 objects compared, 11 identical refusals.",
+      "pdf-transform/tests/archive_corpus.rs::a_refiled_composite_font_draws_every_code_as_its_source_did": "PASS; 3 fixtures x 3 targets x 65536 codes.",
+      "viewer-core/tests/accessibility_census.rs::what_a_screen_reader_is_told_about_every_document": "PASS; 1020 documents, tracked-974 ratchet passed."
+    },
+    "limits": "The witness robustness patch is only a scratch review draft; it was not applied or executed. No separate helper negative-control tests are proposed."
+  },
+  "unreviewed": [
+    "Not a complete inventory of all ignored test functions across the workspace.",
+    "No independent audit of every per-file read/open failure in all corpus helpers.",
+    "No behavior claims beyond the inspected assertions and present fixture paths."
+  ],
+  "parent_correction": "on_disk::agree constructs ObjectId(number,0), so nonzero-generation objects may compare Null==Null and are still counted in112562. The run is transport lookup equality, not proof every actual-generation object value was compared. Parent identified this after execution; stronger oracle and literal nonzero-generation witness are being drafted."
+}

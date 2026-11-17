@@ -1,0 +1,35 @@
+{
+  "scope": "Bounded follow-up on current Annex L matrix rules in actual producer/consumer paths, beyond the previously reviewed Document wrapper cells. This file does not certify every matrix entry or every possible input tree.",
+  "decisions": [
+    {
+      "topic": "Whether another PDF 2.0 matrix cell has an active synthetic producer path",
+      "evidence": "A search of pdf-transform/src found the merge wrapper as the only path creating a structure element with /NS in the PDF 2.0 standard namespace. Its C3/D3 relations are already covered by the narrow wrapper tests. The archive tagged producer creates Part/P without /NS, so \u00a714.8.6.1 places them in PDF 1.7's default namespace. Merge/split otherwise preserve/prune source relationships while rebuilding hierarchy references; no generic matrix check exists.",
+      "decision": "Synthetic-edge search remains bounded to wrapper. Withdraw no-new-test conclusion: B56 proves that pruning valid source children can violate delegated sequence/cardinality.",
+      "test_action": "Parent integrated warichu_split_spec_audit; empty boundaries fail and text-bearing boundaries pass."
+    },
+    {
+      "topic": "Read-side consumption of relationships",
+      "evidence": "Tree::walk, logical-range extraction and accessibility projection follow /K and map standard roles, but no implementation checks Table L.2 membership. The primary text locates the normative nesting rule in the standard-namespace producer condition and imposes no reader rejection in the reviewed passages.",
+      "decision": "Do not add a negative malformed-tree reader test or report acceptance as a conformance failure. Existing readers expose the supplied hierarchy/content; source evidence does not require rejection.",
+      "test_action": "None. Existing accessibility/logical-order tests test consumer projections, not matrix conformance."
+    },
+    {
+      "topic": "Annex L relation to archive Part/P synthesis",
+      "evidence": "archive/tagged.rs uses Table 365 Part and Table 366 P, and the emitted structure elements omit /NS. The archive integration test verifies the hierarchy and its content references. The Annex L applicability condition is specifically the PDF 2.0 standard namespace; absent /NS defaults to PDF 1.7 under \u00a714.8.6.1.",
+      "decision": "Retain the archive writer as evidence for \u00a714.7 hierarchy construction, but not as Annex L matrix evidence. Its valid duty is governed by PDF 1.7 structure types and archive scope.",
+      "test_action": "No new test; existing test already checks the actual Part\u2192P shape and content reachability."
+    },
+    {
+      "topic": "ADR 0716 and ADR 1474 current status",
+      "evidence": "ADR 0716's phrase that #83 admits P/Table 'both directions' conflicts with the effective directed table and erratum: P can parent Table at 0..n, while Table cannot parent P from that cell. Its statement that no code reads any Table L.2 cell is stale after ADR 1474/current wrapper logic. ADR 1474 remains accurate for the one wrapper case, role-mapped PDF 2.0 Documents, and the exact root/Document cardinalities.",
+      "decision": "Retain ADR 1474 as narrow precedent. Do not rely on ADR 0716 for the directionality of #83 or for current code inventory; prior current-matrix evidence remains authoritative. No new ADR edit proposed in this scratch review.",
+      "test_action": "No duplicate of existing corrected #83/#440 cell evidence."
+    },
+    {
+      "topic": "Current ledger clause L aggregate phrasing",
+      "evidence": "The current clause L note says every tree the writer emits keeps the matrix, then identifies the newly synthesized wrapper and says merge/split carry source elements unchanged. This audit located no other PDF 2.0 namespace element synthesis but also found no all-cell check over preserved PDF 2.0 source edges.",
+      "decision": "Ledger preservation claim cannot stand as broad verified evidence: B56 contradicts it for a documented valid source form. Do not infer malformed input normalization duty.",
+      "test_action": "Record B56; broader cardinalities remain residual."
+    }
+  ]
+}

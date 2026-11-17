@@ -302,6 +302,24 @@ fn explicit_rollover_is_selected_and_missing_down_defaults_to_normal() {
         (255, 0, 0),
         "Table 170 defaults absent /D to /N, not to nothing or /R"
     );
+
+    let missing_rollover = appearance_pdf(
+        "<< /N 6 0 R /D 7 0 R >>",
+        &[
+            ("", "1 0 0 rg 0 0 80 80 re f"),
+            ("", "0 0 1 rg 0 0 80 80 re f"),
+        ],
+    );
+    assert_eq!(
+        centre_rgb(missing_rollover.clone(), Purpose::View, Some(Pointer::Down)),
+        (0, 0, 255),
+        "explicit D control differs from normal"
+    );
+    assert_eq!(
+        centre_rgb(missing_rollover, Purpose::View, Some(Pointer::Over)),
+        (255, 0, 0),
+        "Table 170 defaults absent R to N despite a different D"
+    );
 }
 
 #[test]

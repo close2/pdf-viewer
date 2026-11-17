@@ -1,0 +1,6 @@
+{
+  "source": "Parent enumerated all twelve primary issue groups and inspected affected page text, rectangles and surrounding headings. Table 237 begins at physical 560 and continues at 563; Table 247 follows the FDF prose on 577. Table 262 is the VRI table at 602. #681 rectangle isolates the capital A.",
+  "current_scope": "Read ledger 12.7.8.3.1, 12.7.5.5, 12.8.3.4.4 and 12.6.4.6, plus ADRs 1185/1622/1358/2171. The profile row is partial; no whole-profile claim is made from empty-note issue #649.",
+  "assertions": "Read action-local Flags/CharSet assertions; current legacy signature integrity/authenticity controls; current encrypted embedded FDF refusal and literal report. Prior broad execution remains separate from this source review.",
+  "limits": "Twelve selected corrections only. No new failure, all-signature validation certificate, native launch test or FDF decryption claim."
+}

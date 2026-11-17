@@ -1,0 +1,10 @@
+{
+  "verdict": "B64: TI/I ancestor leakage confirmed by two public consumer failures. B65: choice Opt ancestor leakage violates the table recommendation; explicitly SHOULD-weighted.",
+  "source": "Parent read physical545-546 field inheritance,557-558 Table234 and actual #468 annotation. TI defaults0. Opt absence recommends no choices. Button Table230 Opt is separately inheritable. I condition uses different names sharing an export value; the test instead has equal display names and different export values, so absent terminal I does not violate that condition.",
+  "fixture": "Exact-xref PDF1.7, no recovery; own terminal Opt/V coherent, separate widget/terminal/group, reciprocal Parent/Kids, DA/DR Helvetica and NeedAppearances true. No rendered-pixel or native UI execution claimed.",
+  "controls": "TI baseline0 and parent0/local1 pass before ancestor1 gives1 instead0. I local1 and conflicting parent0/local1 pass before ancestor1 changes baseline[0] to[1]; no arbitrary fallback-index assertion. Opt absentbaseline[] and conflicting parent/local positive control pass before ancestor-only gives Parent first/Parent second.",
+  "rejected_drafts": "Before execution, rejected out-of-range ancestor TI2 and unsupported fixed I fallback assertion. Final TI override control uses differing ancestor/local values.",
+  "cause": "READ_UP_THE_CHAIN includes TI/I/Opt. Inherited::of merges all ancestors; Field::chain exposes widget plus flattened aggregate, not a full ancestor vector. Public form::fields returns affected top, selected and options.",
+  "execution": "choice-locality-wave91 and final91b:3FAIL. Model all-target Clippy final91bPASS after descriptive helper names and explicit test panic expectation.",
+  "limits": "TI/I grouped as B64; Opt B65 remains recommendation-qualified. No whole choice-field certification, save/AP regeneration or rejection mandate. ADR2448 unlimited inheritance design retained for designated inheritable entries."
+}

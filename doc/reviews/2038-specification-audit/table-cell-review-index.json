@@ -1,0 +1,2769 @@
+{
+  "scope": "Selected explicit per-entry matrices added from checkpoint85. Existing223 earlier shards may cover other tables/entries; absence here is not absence of review.",
+  "limits": "Enumerating every key does not establish every condition/combination or certify a ledger row. Follow parent-review execution and qualifications.",
+  "matrices": [
+    {
+      "table": "57",
+      "ledger_rows": [
+        "8.4.5"
+      ],
+      "keys": [
+        "Type",
+        "LW",
+        "LC",
+        "LJ",
+        "ML",
+        "D",
+        "RI",
+        "OP",
+        "op",
+        "OPM",
+        "Font",
+        "BG",
+        "BG2",
+        "UCR",
+        "UCR2",
+        "TR",
+        "TR2",
+        "HT",
+        "FL",
+        "SM",
+        "SA",
+        "BM",
+        "SMask",
+        "CA",
+        "ca",
+        "AIS",
+        "TK",
+        "UseBlackPtComp",
+        "HTO"
+      ],
+      "artifact": "shards/table57_graphics_state_matrix_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "224",
+      "ledger_rows": [
+        "12.7.3"
+      ],
+      "keys": [
+        "Fields",
+        "NeedAppearances",
+        "SigFlags",
+        "CO",
+        "DR",
+        "DA",
+        "Q",
+        "XFA"
+      ],
+      "artifact": "shards/feature_table_cell_granularity_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "226",
+      "ledger_rows": [
+        "12.7.4.1"
+      ],
+      "keys": [
+        "FT",
+        "Parent",
+        "Kids",
+        "T",
+        "TU",
+        "TM",
+        "Ff",
+        "V",
+        "DV",
+        "AA"
+      ],
+      "artifact": "shards/feature_table_cell_granularity_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "29",
+      "ledger_rows": [
+        "7.7.2"
+      ],
+      "keys": [
+        "Type",
+        "Version",
+        "Extensions",
+        "Pages",
+        "PageLabels",
+        "Names",
+        "Dests",
+        "ViewerPreferences",
+        "PageLayout",
+        "PageMode",
+        "Outlines",
+        "Threads",
+        "OpenAction",
+        "AA",
+        "URI",
+        "AcroForm",
+        "Metadata",
+        "StructTreeRoot",
+        "MarkInfo",
+        "Lang",
+        "SpiderInfo",
+        "OutputIntents",
+        "PieceInfo",
+        "OCProperties",
+        "Perms",
+        "Legal",
+        "Requirements",
+        "Collection",
+        "NeedsRendering",
+        "DSS",
+        "AF",
+        "DPartRoot"
+      ],
+      "artifact": "shards/catalog_table29_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "87",
+      "ledger_rows": [
+        "8.9.5.1"
+      ],
+      "keys": [
+        "Type",
+        "Subtype",
+        "Width",
+        "Height",
+        "ColorSpace",
+        "BitsPerComponent",
+        "Intent",
+        "ImageMask",
+        "Mask",
+        "Decode",
+        "Interpolate",
+        "Alternates",
+        "SMask",
+        "SMaskInData",
+        "Name",
+        "StructParent",
+        "ID",
+        "OPI",
+        "Metadata",
+        "OC",
+        "AF",
+        "Measure",
+        "PtData"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_dictionary_cells_current/features.json",
+        "shards/image_measurement_consumer_current/parent-review.json"
+      ]
+    },
+    {
+      "table": "31",
+      "ledger_rows": [
+        "7.7.3.3"
+      ],
+      "keys": [
+        "Type",
+        "Parent",
+        "LastModified",
+        "Resources",
+        "MediaBox",
+        "CropBox",
+        "BleedBox",
+        "TrimBox",
+        "ArtBox",
+        "BoxColorInfo",
+        "Contents",
+        "Rotate",
+        "Group",
+        "Thumb",
+        "B",
+        "Dur",
+        "Trans",
+        "Annots",
+        "AA",
+        "Metadata",
+        "PieceInfo",
+        "StructParents",
+        "ID",
+        "PZ",
+        "SeparationInfo",
+        "Tabs",
+        "TemplateInstantiated",
+        "PresSteps",
+        "UserUnit",
+        "VP",
+        "AF",
+        "OutputIntents",
+        "DPart"
+      ],
+      "artifact": "shards/page_dictionary_cells_current/features.json",
+      "status": "partial",
+      "additional_review": "shards/page_transition_cells_current/parent-review.json (Dur/Trans only)"
+    },
+    {
+      "table": "120",
+      "ledger_rows": [
+        "9.8.1"
+      ],
+      "keys": [
+        "Type",
+        "FontName",
+        "FontFamily",
+        "FontStretch",
+        "FontWeight",
+        "ItalicAngle",
+        "StemV",
+        "Flags",
+        "FontBBox",
+        "Ascent",
+        "Descent",
+        "Leading",
+        "CapHeight",
+        "XHeight",
+        "StemH",
+        "AvgWidth",
+        "MaxWidth",
+        "MissingWidth",
+        "FontFile",
+        "FontFile2",
+        "FontFile3",
+        "CharSet"
+      ],
+      "artifact": "shards/font_descriptor_cells_current/features.json",
+      "status": "partial",
+      "layout": "Grouped entry review; individual conditions remain qualified."
+    },
+    {
+      "table": "122",
+      "ledger_rows": [
+        "9.8.3.1"
+      ],
+      "keys": [
+        "Style",
+        "Lang",
+        "FD",
+        "CIDSet"
+      ],
+      "artifact": "shards/font_descriptor_cells_current/features.json",
+      "status": "partial",
+      "layout": "Grouped entry review; individual conditions remain qualified."
+    },
+    {
+      "table": "F.1",
+      "ledger_rows": [
+        "F.3.3"
+      ],
+      "keys": [
+        "Linearized",
+        "L",
+        "H",
+        "O",
+        "E",
+        "N",
+        "T",
+        "P"
+      ],
+      "artifact": "shards/linearization_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "F.2",
+      "ledger_rows": [
+        "F.3.6"
+      ],
+      "keys": [
+        "S",
+        "T",
+        "O",
+        "A",
+        "E",
+        "V",
+        "I",
+        "C",
+        "L",
+        "R",
+        "B"
+      ],
+      "artifact": "shards/linearization_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "227",
+      "ledger_rows": [
+        "12.7.4.1"
+      ],
+      "keys": [
+        "ReadOnly",
+        "Required",
+        "NoExport"
+      ],
+      "artifact": "shards/variable_text_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/dynamic_field_flags_current/features.json"
+      ]
+    },
+    {
+      "table": "228",
+      "ledger_rows": [
+        "12.7.4.3"
+      ],
+      "keys": [
+        "DA",
+        "Q",
+        "DS",
+        "RV"
+      ],
+      "artifact": "shards/variable_text_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "234",
+      "ledger_rows": [
+        "12.7.5.4"
+      ],
+      "keys": [
+        "Opt",
+        "TI",
+        "I"
+      ],
+      "artifact": "shards/choice_locality_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "93",
+      "keys": [
+        "Type",
+        "Subtype",
+        "FormType",
+        "BBox",
+        "Matrix",
+        "Resources",
+        "Group",
+        "Ref",
+        "Metadata",
+        "PieceInfo",
+        "LastModified",
+        "StructParent",
+        "StructParents",
+        "OPI",
+        "OC",
+        "Name",
+        "AF",
+        "Measure",
+        "PtData"
+      ],
+      "ledger_rows": [
+        "8.10.2"
+      ],
+      "artifact": "shards/form_xobject_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "94",
+      "keys": [
+        "Type",
+        "S"
+      ],
+      "ledger_rows": [
+        "8.10.3"
+      ],
+      "artifact": "shards/form_xobject_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "142",
+      "keys": [
+        "Type",
+        "S",
+        "G",
+        "BC",
+        "TR"
+      ],
+      "ledger_rows": [
+        "11.6.5.1"
+      ],
+      "artifact": "shards/soft_mask_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "96",
+      "keys": [
+        "Type",
+        "Name",
+        "Intent",
+        "Usage"
+      ],
+      "ledger_rows": [
+        "8.11.2.1"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "97",
+      "keys": [
+        "Type",
+        "OCGs",
+        "P",
+        "VE"
+      ],
+      "ledger_rows": [
+        "8.11.2.2"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/marked_content_dictionary_cells_current/parent-review.json"
+      ]
+    },
+    {
+      "table": "98",
+      "keys": [
+        "OCGs",
+        "D",
+        "Configs"
+      ],
+      "ledger_rows": [
+        "8.11.4.2"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "99",
+      "keys": [
+        "Name",
+        "Creator",
+        "BaseState",
+        "ON",
+        "OFF",
+        "Intent",
+        "AS",
+        "Order",
+        "ListMode",
+        "RBGroups",
+        "Locked"
+      ],
+      "ledger_rows": [
+        "8.11.4.3"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "100",
+      "keys": [
+        "CreatorInfo",
+        "Language",
+        "Export",
+        "Zoom",
+        "Print",
+        "View",
+        "User",
+        "PageElement"
+      ],
+      "ledger_rows": [
+        "8.11.4.4"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "101",
+      "keys": [
+        "Event",
+        "OCGs",
+        "Category"
+      ],
+      "ledger_rows": [
+        "8.11.4.4"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "166",
+      "keys": [
+        "AP",
+        "AS"
+      ],
+      "ledger_rows": [
+        "12.5.2"
+      ],
+      "artifact": "shards/annotation_appearance_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "170",
+      "keys": [
+        "N",
+        "R",
+        "D"
+      ],
+      "ledger_rows": [
+        "12.5.5"
+      ],
+      "artifact": "shards/annotation_appearance_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "36",
+      "keys": [
+        "Kids",
+        "Names",
+        "Limits"
+      ],
+      "ledger_rows": [
+        "7.9.6"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/tree_string_cells_current/features.json"
+      ]
+    },
+    {
+      "table": "37",
+      "keys": [
+        "Kids",
+        "Nums",
+        "Limits"
+      ],
+      "ledger_rows": [
+        "7.9.7"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/tree_string_cells_current/features.json"
+      ]
+    },
+    {
+      "table": "161",
+      "keys": [
+        "Type",
+        "S",
+        "P",
+        "St"
+      ],
+      "ledger_rows": [
+        "12.4.2"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "239",
+      "keys": [
+        "Fields",
+        "Flags"
+      ],
+      "ledger_rows": [
+        "12.7.6.2"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "240",
+      "keys": [
+        "Include/Exclude",
+        "IncludeNoValueFields"
+      ],
+      "ledger_rows": [
+        "12.7.6.2"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "241",
+      "keys": [
+        "Fields",
+        "Flags"
+      ],
+      "ledger_rows": [
+        "12.7.6.3"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "242",
+      "keys": [
+        "Include/Exclude"
+      ],
+      "ledger_rows": [
+        "12.7.6.3"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "232",
+      "keys": [
+        "MaxLen"
+      ],
+      "ledger_rows": [
+        "12.7.5.3"
+      ],
+      "artifact": "shards/maxlen_live_property_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "115",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "CIDSystemInfo",
+        "FontDescriptor",
+        "DW",
+        "W",
+        "DW2",
+        "W2",
+        "CIDToGIDMap"
+      ],
+      "ledger_rows": [
+        "9.7.4.1"
+      ],
+      "artifact": "shards/cid_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "77",
+      "keys": [
+        "ShadingType",
+        "ColorSpace",
+        "Background",
+        "BBox",
+        "AntiAlias"
+      ],
+      "ledger_rows": [
+        "8.7.4.3"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "79",
+      "keys": [
+        "Coords",
+        "Domain",
+        "Function",
+        "Extend"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.3"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "80",
+      "keys": [
+        "Coords",
+        "Domain",
+        "Function",
+        "Extend"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.4"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "119",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "Encoding",
+        "DescendantFonts",
+        "ToUnicode"
+      ],
+      "ledger_rows": [
+        "9.7.6.1"
+      ],
+      "artifact": "shards/type0_cmap_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "118",
+      "keys": [
+        "Type",
+        "CMapName",
+        "CIDSystemInfo",
+        "WMode",
+        "UseCMap"
+      ],
+      "ledger_rows": [
+        "9.7.5.3"
+      ],
+      "artifact": "shards/type0_cmap_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/cmap_dictionary_cells_current/parent-review.json"
+      ]
+    },
+    {
+      "table": "20",
+      "keys": [
+        "V",
+        "CF",
+        "StmF",
+        "StrF",
+        "EFF"
+      ],
+      "ledger_rows": [
+        "7.6.2"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "21",
+      "keys": [
+        "EncryptMetadata"
+      ],
+      "ledger_rows": [
+        "7.6.4.2"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "25",
+      "keys": [
+        "Type",
+        "CFM",
+        "AuthEvent",
+        "Length"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "26",
+      "keys": [
+        "Identity"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "27",
+      "keys": [
+        "Recipients",
+        "EncryptMetadata"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "110",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Name",
+        "FontBBox",
+        "FontMatrix",
+        "CharProcs",
+        "Encoding",
+        "FirstChar",
+        "LastChar",
+        "Widths",
+        "Resources",
+        "ToUnicode",
+        "FontDescriptor"
+      ],
+      "ledger_rows": [
+        "9.6.4"
+      ],
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "111",
+      "keys": [
+        "d0",
+        "d1"
+      ],
+      "ledger_rows": [
+        "9.6.4"
+      ],
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "43",
+      "keys": [
+        "F",
+        "UF",
+        "EF",
+        "RF",
+        "Desc",
+        "AFRelationship",
+        "CI",
+        "Thumb",
+        "EP"
+      ],
+      "ledger_rows": [
+        "7.11.3"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
+    },
+    {
+      "table": "44",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Params"
+      ],
+      "ledger_rows": [
+        "7.11.4.1"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
+    },
+    {
+      "table": "45",
+      "keys": [
+        "Size",
+        "CreationDate",
+        "ModDate",
+        "CheckSum",
+        "Mac"
+      ],
+      "ledger_rows": [
+        "7.11.4.1"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
+    },
+    {
+      "table": "74",
+      "keys": [
+        "Type",
+        "PatternType",
+        "PaintType",
+        "TilingType",
+        "BBox",
+        "XStep",
+        "YStep",
+        "Resources",
+        "Matrix"
+      ],
+      "ledger_rows": [
+        "8.7.3.1"
+      ],
+      "artifact": "shards/tiling_pattern_cells_current/features.json",
+      "status": "partial",
+      "additional_review": "shards/tiling_type1_distortion_bound_current/parent-review.json"
+    },
+    {
+      "table": "150",
+      "keys": [
+        "Type",
+        "First",
+        "Last",
+        "Count"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "151",
+      "keys": [
+        "Title",
+        "Parent",
+        "Prev",
+        "Next",
+        "First",
+        "Last",
+        "Count",
+        "Dest",
+        "A",
+        "SE",
+        "C",
+        "F"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "152",
+      "keys": [
+        "Italic",
+        "Bold"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "164",
+      "keys": [
+        "Type",
+        "S",
+        "D",
+        "Dm",
+        "M",
+        "Di",
+        "SS",
+        "B"
+      ],
+      "ledger_rows": [
+        "12.4.4.1"
+      ],
+      "artifact": "shards/page_transition_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "145",
+      "keys": [
+        "CS"
+      ],
+      "ledger_rows": [
+        "11.6.6"
+      ],
+      "artifact": "shards/soft_mask_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "149",
+      "keys": [
+        "page",
+        "XYZ",
+        "Fit",
+        "FitH",
+        "FitV",
+        "FitR",
+        "FitB",
+        "FitBH",
+        "FitBV"
+      ],
+      "ledger_rows": [
+        "12.3.2.2"
+      ],
+      "artifact": "shards/destination_array_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "168",
+      "keys": [
+        "Type",
+        "W",
+        "S",
+        "D"
+      ],
+      "ledger_rows": [
+        "12.5.4"
+      ],
+      "artifact": "shards/annotation_border_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "169",
+      "keys": [
+        "S",
+        "I"
+      ],
+      "ledger_rows": [
+        "12.5.4"
+      ],
+      "artifact": "shards/annotation_border_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "81",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "BitsPerFlag",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.5"
+      ],
+      "artifact": "shards/mesh_shading_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "82",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "VerticesPerRow",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.6"
+      ],
+      "artifact": "shards/mesh_shading_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "83",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "BitsPerFlag",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.7"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "84",
+      "keys": [
+        "flag0",
+        "flag1",
+        "flag2",
+        "flag3"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.7"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "85",
+      "keys": [
+        "flag0",
+        "flag1",
+        "flag2",
+        "flag3"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.8"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "176",
+      "keys": [
+        "Subtype",
+        "A",
+        "Dest",
+        "H",
+        "PA",
+        "QuadPoints",
+        "BS"
+      ],
+      "ledger_rows": [
+        "12.5.6.5"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "177",
+      "keys": [
+        "Subtype",
+        "DA",
+        "Q",
+        "RC",
+        "DS",
+        "CL",
+        "IT",
+        "BE",
+        "RD",
+        "BS",
+        "LE"
+      ],
+      "ledger_rows": [
+        "12.5.6.6"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "178",
+      "keys": [
+        "Subtype",
+        "L",
+        "BS",
+        "LE",
+        "IC",
+        "LL",
+        "LLE",
+        "Cap",
+        "IT",
+        "LLO",
+        "CP",
+        "Measure",
+        "CO"
+      ],
+      "ledger_rows": [
+        "12.5.6.7"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "38",
+      "keys": [
+        "FunctionType",
+        "Domain",
+        "Range"
+      ],
+      "ledger_rows": [
+        "7.10.1"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "39",
+      "keys": [
+        "Size",
+        "BitsPerSample",
+        "Order",
+        "Encode",
+        "Decode"
+      ],
+      "ledger_rows": [
+        "7.10.2"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "40",
+      "keys": [
+        "C0",
+        "C1",
+        "N"
+      ],
+      "ledger_rows": [
+        "7.10.3"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "41",
+      "keys": [
+        "Functions",
+        "Bounds",
+        "Encode"
+      ],
+      "ledger_rows": [
+        "7.10.4"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "42",
+      "keys": [
+        "operator categories",
+        "delegated semantics"
+      ],
+      "ledger_rows": [
+        "7.10.5"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "5",
+      "keys": [
+        "Length",
+        "Filter",
+        "DecodeParms",
+        "F",
+        "FFilter",
+        "FDecodeParms",
+        "DL"
+      ],
+      "ledger_rows": [
+        "7.3.8.2"
+      ],
+      "artifact": "shards/stream_dictionary_cells_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/stream_external_file_cells_current/parent-review.json",
+        "shards/errata_10_target_correction_current/features.json"
+      ]
+    },
+    {
+      "table": "180",
+      "keys": [
+        "Subtype",
+        "BS",
+        "IC",
+        "BE",
+        "RD"
+      ],
+      "ledger_rows": [
+        "12.5.6.8"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "181",
+      "keys": [
+        "Vertices",
+        "LE",
+        "BS",
+        "IC",
+        "BE",
+        "IT/Measure",
+        "Path"
+      ],
+      "ledger_rows": [
+        "12.5.6.9"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "182",
+      "keys": [
+        "Subtype",
+        "QuadPoints"
+      ],
+      "ledger_rows": [
+        "12.5.6.10"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "183",
+      "keys": [
+        "RD",
+        "Sy"
+      ],
+      "ledger_rows": [
+        "12.5.6.11"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "184",
+      "keys": [
+        "Name"
+      ],
+      "ledger_rows": [
+        "12.5.6.12"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "185",
+      "keys": [
+        "InkList",
+        "BS",
+        "Path"
+      ],
+      "ledger_rows": [
+        "12.5.6.13"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "186",
+      "keys": [
+        "Parent",
+        "Open"
+      ],
+      "ledger_rows": [
+        "12.5.6.14"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "187",
+      "keys": [
+        "FS",
+        "Name",
+        "Contents versus FS.Desc"
+      ],
+      "ledger_rows": [
+        "12.5.6.15"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "62",
+      "keys": [
+        "WhitePoint",
+        "BlackPoint",
+        "Gamma"
+      ],
+      "ledger_rows": [
+        "8.6.5.2"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "63",
+      "keys": [
+        "WhitePoint",
+        "BlackPoint",
+        "Gamma",
+        "Matrix"
+      ],
+      "ledger_rows": [
+        "8.6.5.3"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "64",
+      "keys": [
+        "WhitePoint/BlackPoint",
+        "Range",
+        "explicit functions/matrix parameters"
+      ],
+      "ledger_rows": [
+        "8.6.5.4"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "65",
+      "keys": [
+        "N",
+        "Alternate",
+        "Range",
+        "Metadata"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "66",
+      "keys": [
+        "supported ICC version"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "67",
+      "keys": [
+        "profile class and colorSpace signatures"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "68",
+      "keys": [
+        "component ranges"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "70",
+      "keys": [
+        "Subtype",
+        "Colorants",
+        "Process",
+        "MixingHints"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "71",
+      "keys": [
+        "ColorSpace",
+        "Components"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "72",
+      "keys": [
+        "Solidities",
+        "PrintingOrder",
+        "DotGain"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "147",
+      "keys": [
+        "HideToolbar",
+        "HideMenubar",
+        "HideWindowUI",
+        "FitWindow",
+        "CenterWindow",
+        "DisplayDocTitle",
+        "NonFullScreenPageMode",
+        "Direction",
+        "ViewArea",
+        "ViewClip",
+        "PrintArea",
+        "PrintClip",
+        "PrintScaling",
+        "Duplex",
+        "PickTrayByPDFSize",
+        "PrintPageRange",
+        "NumCopies",
+        "Enforce"
+      ],
+      "ledger_rows": [
+        "12.2"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "148",
+      "keys": [
+        "PrintScaling"
+      ],
+      "ledger_rows": [
+        "12.2"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "162",
+      "keys": [
+        "Type",
+        "F",
+        "I",
+        "Metadata"
+      ],
+      "ledger_rows": [
+        "12.4.3"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "163",
+      "keys": [
+        "Type",
+        "T",
+        "N",
+        "V",
+        "P",
+        "R"
+      ],
+      "ledger_rows": [
+        "12.4.3"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "15",
+      "keys": [
+        "Size",
+        "Prev",
+        "Root",
+        "Encrypt",
+        "Info",
+        "ID"
+      ],
+      "ledger_rows": [
+        "7.5.5"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "16",
+      "keys": [
+        "Type",
+        "N",
+        "First",
+        "Extends"
+      ],
+      "ledger_rows": [
+        "7.5.7"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "17",
+      "keys": [
+        "Type",
+        "Size",
+        "Index",
+        "Prev",
+        "W"
+      ],
+      "ledger_rows": [
+        "7.5.8.2"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "18",
+      "keys": [
+        "type0",
+        "type1",
+        "type2",
+        "unknown-type"
+      ],
+      "ledger_rows": [
+        "7.5.8.3"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "19",
+      "keys": [
+        "XRefStm"
+      ],
+      "ledger_rows": [
+        "7.5.8.4"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "103",
+      "keys": [
+        "Tc",
+        "Tw",
+        "Tz",
+        "TL",
+        "Tf",
+        "Tr",
+        "Ts"
+      ],
+      "ledger_rows": [
+        "9.3"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "104",
+      "keys": [
+        "Tr values 0 through 7"
+      ],
+      "ledger_rows": [
+        "9.3.6"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "106",
+      "keys": [
+        "Td",
+        "TD",
+        "Tm",
+        "T*"
+      ],
+      "ledger_rows": [
+        "9.4.2"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "107",
+      "keys": [
+        "Tj",
+        "single quote",
+        "double quote",
+        "TJ"
+      ],
+      "ledger_rows": [
+        "9.4.3"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "153",
+      "keys": [
+        "Schema",
+        "D",
+        "View",
+        "Navigator",
+        "Colors",
+        "Sort",
+        "Folders",
+        "Split"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "154",
+      "keys": [
+        "Type",
+        "writer-selected keys"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "155",
+      "keys": [
+        "Subtype",
+        "N",
+        "O",
+        "V",
+        "E"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "35",
+      "keys": [
+        "string",
+        "text string",
+        "PDFDocEncoded string",
+        "byte string",
+        "date",
+        "name tree",
+        "number tree"
+      ],
+      "ledger_rows": [
+        "7.9.1"
+      ],
+      "artifact": "shards/tree_string_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "88",
+      "keys": [
+        "DeviceGray",
+        "DeviceRGB",
+        "DeviceCMYK",
+        "CalGray",
+        "CalRGB",
+        "Lab",
+        "ICCBased",
+        "Indexed",
+        "Separation",
+        "DeviceN"
+      ],
+      "ledger_rows": [
+        "8.9.5.2"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "89",
+      "keys": [
+        "Image required stream",
+        "DefaultForPrinting optional boolean default false, at most one designated per base",
+        "OC optional OCG or OCMD"
+      ],
+      "ledger_rows": [
+        "8.9.5.4"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "91",
+      "keys": [
+        "BitsPerComponent/BPC",
+        "ColorSpace/CS",
+        "Decode/D",
+        "DecodeParms/DP",
+        "Filter/F",
+        "Height/H",
+        "ImageMask/IM",
+        "Intent/no abbreviation",
+        "Interpolate/I (capital I)",
+        "Length/L",
+        "Width/W"
+      ],
+      "ledger_rows": [
+        "8.9.7"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "92",
+      "keys": [
+        "DeviceGray/G",
+        "DeviceRGB/RGB",
+        "DeviceCMYK/CMYK",
+        "Indexed/I (uppercase I value)",
+        "ASCIIHexDecode/AHx",
+        "ASCII85Decode/A85",
+        "LZWDecode/LZW",
+        "FlateDecode/Fl (uppercase F, lowercase l)",
+        "RunLengthDecode/RL",
+        "CCITTFaxDecode/CCF",
+        "DCTDecode/DCT"
+      ],
+      "ledger_rows": [
+        "8.9.7"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "108",
+      "keys": [
+        "Type1",
+        "MMType1",
+        "Type3",
+        "TrueType"
+      ],
+      "ledger_rows": [
+        "9.6.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "109",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "FirstChar",
+        "LastChar",
+        "Widths",
+        "FontDescriptor",
+        "Encoding",
+        "ToUnicode"
+      ],
+      "ledger_rows": [
+        "9.6.2.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "112",
+      "keys": [
+        "Type",
+        "BaseEncoding",
+        "Differences"
+      ],
+      "ledger_rows": [
+        "9.6.5.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "113",
+      "keys": [
+        "notequal",
+        "infinity",
+        "lessequal",
+        "greaterequal",
+        "partialdiff",
+        "summation",
+        "product",
+        "pi",
+        "integral",
+        "Omega",
+        "radical",
+        "approxequal",
+        "Delta",
+        "lozenge",
+        "Euro",
+        "apple"
+      ],
+      "ledger_rows": [
+        "9.6.5.4"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "8",
+      "keys": [
+        "Predictor",
+        "Colors",
+        "BitsPerComponent",
+        "Columns",
+        "EarlyChange"
+      ],
+      "ledger_rows": [
+        "7.4.4.3"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "10",
+      "keys": [
+        "Predictor values 1, 2, 10–15"
+      ],
+      "ledger_rows": [
+        "7.4.4.4"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "11",
+      "keys": [
+        "K",
+        "EndOfLine",
+        "EncodedByteAlign",
+        "Columns",
+        "Rows",
+        "EndOfBlock",
+        "BlackIs1",
+        "DamagedRowsBeforeError"
+      ],
+      "ledger_rows": [
+        "7.4.6"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "12",
+      "keys": [
+        "JBIG2Globals"
+      ],
+      "ledger_rows": [
+        "7.4.7"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "265",
+      "keys": [
+        "Type",
+        "BBox",
+        "Name",
+        "Measure",
+        "PtData"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "266",
+      "keys": [
+        "Type",
+        "Subtype"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "267",
+      "keys": [
+        "R",
+        "X",
+        "Y",
+        "D",
+        "A",
+        "T",
+        "S",
+        "O",
+        "CYX"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "268",
+      "keys": [
+        "Type",
+        "U",
+        "C",
+        "F",
+        "D",
+        "FD",
+        "RT",
+        "RD",
+        "PS",
+        "SS",
+        "O"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "114",
+      "keys": [
+        "Registry",
+        "Ordering",
+        "Supplement"
+      ],
+      "ledger_rows": [
+        "9.7.3"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "116",
+      "keys": [
+        "selected predefined CMap support/data and inheritance"
+      ],
+      "ledger_rows": [
+        "9.7.5.2"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "117",
+      "keys": [
+        "intentionally empty; following version/supplement prose reviewed"
+      ],
+      "ledger_rows": [
+        "9.7.5.2"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "352",
+      "keys": [
+        "selected DP/BDC property operands and EMC"
+      ],
+      "ledger_rows": [
+        "14.6.1"
+      ],
+      "artifact": "shards/marked_content_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "256",
+      "keys": [
+        "Type",
+        "TransformMethod",
+        "TransformParams",
+        "Data",
+        "DigestMethod"
+      ],
+      "ledger_rows": [
+        "12.8.2.1"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "257",
+      "keys": [
+        "Type",
+        "P",
+        "V"
+      ],
+      "ledger_rows": [
+        "12.8.2.2"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "259",
+      "keys": [
+        "Type",
+        "Action",
+        "Fields",
+        "V"
+      ],
+      "ledger_rows": [
+        "12.8.2.4"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "381",
+      "keys": [
+        "ColumnCount",
+        "ColumnGap",
+        "ColumnWidths"
+      ],
+      "ledger_rows": [
+        "14.8.5.4.7"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "382",
+      "keys": [
+        "ListNumbering",
+        "ContinuedList",
+        "ContinuedFrom"
+      ],
+      "ledger_rows": [
+        "14.8.5.5"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "384",
+      "keys": [
+        "RowSpan",
+        "ColSpan",
+        "Headers",
+        "Scope",
+        "Summary",
+        "Short"
+      ],
+      "ledger_rows": [
+        "14.8.5.7"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "13",
+      "keys": [
+        "ColorTransform"
+      ],
+      "ledger_rows": [
+        "7.4.8"
+      ],
+      "artifact": "shards/dct_crypt_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "14",
+      "keys": [
+        "Type",
+        "Name"
+      ],
+      "ledger_rows": [
+        "7.4.10"
+      ],
+      "artifact": "shards/dct_crypt_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "203",
+      "keys": [
+        "S",
+        "F",
+        "D",
+        "SD",
+        "NewWindow"
+      ],
+      "ledger_rows": [
+        "12.6.4.3"
+      ],
+      "artifact": "shards/destination_action_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "204",
+      "keys": [
+        "S",
+        "F",
+        "D",
+        "NewWindow",
+        "T"
+      ],
+      "ledger_rows": [
+        "12.6.4.4"
+      ],
+      "artifact": "shards/destination_action_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "205",
+      "keys": [
+        "R",
+        "N",
+        "P",
+        "A",
+        "T"
+      ],
+      "ledger_rows": [
+        "12.6.4.4"
+      ],
+      "artifact": "shards/destination_action_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "245",
+      "keys": [
+        "Version",
+        "FDF"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.1"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "246",
+      "keys": [
+        "F",
+        "ID",
+        "Fields",
+        "Status",
+        "Pages",
+        "Encoding",
+        "Annots",
+        "Differences",
+        "Target",
+        "EmbeddedFDFs",
+        "JavaScript"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.1"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "249",
+      "keys": [
+        "Kids",
+        "T",
+        "V",
+        "Ff",
+        "SetFf",
+        "ClrFf",
+        "F",
+        "SetF",
+        "ClrF",
+        "AP",
+        "APRef",
+        "IF",
+        "Opt",
+        "A",
+        "AA",
+        "RV"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.2"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "121",
+      "keys": [
+        "FixedPitch",
+        "Serif",
+        "Symbolic",
+        "Script",
+        "Nonsymbolic",
+        "Italic",
+        "AllCap",
+        "SmallCap",
+        "ForceBold"
+      ],
+      "ledger_rows": [
+        "9.8.2"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "123",
+      "keys": [
+        "Adobe-GB1",
+        "Adobe-CNS1",
+        "Adobe-Japan1",
+        "Adobe-Japan2",
+        "Adobe-Korea1 / Adobe-KR"
+      ],
+      "ledger_rows": [
+        "9.8.3.3"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "124",
+      "keys": [
+        "FontFile",
+        "FontFile2",
+        "FontFile3 Type1C",
+        "FontFile3 CIDFontType0C",
+        "FontFile3 OpenType"
+      ],
+      "ledger_rows": [
+        "9.9.1"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "199",
+      "keys": [
+        "K",
+        "F",
+        "V",
+        "C"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/additional_action_event_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "200",
+      "keys": [
+        "WC",
+        "WS",
+        "DS",
+        "WP",
+        "DP"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/additional_action_event_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "191",
+      "keys": [
+        "Subtype",
+        "H",
+        "MK",
+        "A",
+        "AA",
+        "BS",
+        "Parent"
+      ],
+      "ledger_rows": [
+        "12.5.6.19"
+      ],
+      "artifact": "shards/widget_characteristics_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "192",
+      "keys": [
+        "R",
+        "BC",
+        "BG",
+        "CA",
+        "RC",
+        "AC",
+        "I",
+        "RI",
+        "IX",
+        "IF",
+        "TP"
+      ],
+      "ledger_rows": [
+        "12.5.6.19"
+      ],
+      "artifact": "shards/widget_characteristics_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "33",
+      "keys": [
+        "BX",
+        "EX"
+      ],
+      "ledger_rows": [
+        "7.8.2"
+      ],
+      "artifact": "shards/compatibility_graphics_state_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "196",
+      "keys": [
+        "Type",
+        "S",
+        "Next"
+      ],
+      "ledger_rows": [
+        "12.6.2"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "210",
+      "keys": [
+        "S",
+        "URI",
+        "IsMap"
+      ],
+      "ledger_rows": [
+        "12.6.4.8"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "211",
+      "keys": [
+        "Base"
+      ],
+      "ledger_rows": [
+        "12.6.4.8"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "125",
+      "keys": [
+        "Length1",
+        "Length2",
+        "Length3",
+        "Subtype"
+      ],
+      "ledger_rows": [
+        "9.9.1"
+      ],
+      "artifact": "shards/font_stream_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "354",
+      "keys": [
+        "Type",
+        "K",
+        "IDTree",
+        "ParentTree",
+        "ParentTreeNextKey",
+        "RoleMap",
+        "ClassMap",
+        "Namespaces",
+        "PronunciationLexicon",
+        "AF"
+      ],
+      "ledger_rows": [
+        "14.7.2"
+      ],
+      "artifact": "shards/structure_root_element_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "355",
+      "keys": [
+        "Type",
+        "S",
+        "P",
+        "ID",
+        "Pg",
+        "K",
+        "A",
+        "C",
+        "R",
+        "T",
+        "Lang",
+        "Alt",
+        "E",
+        "ActualText",
+        "Ref",
+        "NS",
+        "PhoneticAlphabet",
+        "Phoneme",
+        "AF"
+      ],
+      "ledger_rows": [
+        "14.7.2"
+      ],
+      "artifact": "shards/structure_root_element_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "156",
+      "keys": [
+        "Type",
+        "S",
+        "A"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "157",
+      "keys": [
+        "Type",
+        "Background",
+        "CardBackground",
+        "CardBorder",
+        "PrimaryText",
+        "SecondaryText"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "158",
+      "keys": [
+        "Type",
+        "Direction",
+        "Position"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "128",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Frequency",
+        "Angle",
+        "SpotFunction",
+        "AccurateScreens",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.2"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "129",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Width",
+        "Height",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.3"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "130",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Xsquare",
+        "Ysquare",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.4"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "75",
+      "keys": [
+        "Type",
+        "PatternType",
+        "Shading",
+        "Matrix",
+        "ExtGState"
+      ],
+      "ledger_rows": [
+        "8.7.4.1"
+      ],
+      "artifact": "shards/pattern_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "357",
+      "keys": [
+        "Type",
+        "Pg",
+        "Stm",
+        "StmOwn",
+        "MCID"
+      ],
+      "ledger_rows": [
+        "14.7.5"
+      ],
+      "artifact": "shards/structure_content_item_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "358",
+      "keys": [
+        "Type",
+        "Pg",
+        "Obj"
+      ],
+      "ledger_rows": [
+        "14.7.5"
+      ],
+      "artifact": "shards/structure_content_item_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "159",
+      "keys": [
+        "Type",
+        "ID",
+        "Name",
+        "Parent",
+        "Child",
+        "Next",
+        "CI",
+        "Desc",
+        "CreationDate",
+        "ModDate",
+        "Thumb",
+        "Free"
+      ],
+      "ledger_rows": [
+        "12.3.5.2"
+      ],
+      "artifact": "shards/collection_folder_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "197",
+      "keys": [
+        "E",
+        "X",
+        "D",
+        "U",
+        "Fo",
+        "Bl",
+        "PO",
+        "PC",
+        "PV",
+        "PI"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/annotation_page_event_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "198",
+      "keys": [
+        "O",
+        "C"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/annotation_page_event_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "193",
+      "keys": [
+        "Subtype",
+        "FixedPrint"
+      ],
+      "ledger_rows": [
+        "12.5.6.22"
+      ],
+      "artifact": "shards/watermark_fixed_print_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "194",
+      "keys": [
+        "Type",
+        "Matrix",
+        "H",
+        "V"
+      ],
+      "ledger_rows": [
+        "12.5.6.22"
+      ],
+      "artifact": "shards/watermark_fixed_print_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "403",
+      "keys": [
+        "Subtype",
+        "LastModified",
+        "Version",
+        "AnnotStates",
+        "FontFauxing"
+      ],
+      "ledger_rows": [
+        "14.11.6.2"
+      ],
+      "artifact": "shards/trapnet_table403_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "143",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Width",
+        "Height",
+        "ColorSpace",
+        "BitsPerComponent",
+        "Intent",
+        "ImageMask",
+        "Mask",
+        "SMask",
+        "Decode",
+        "Interpolate",
+        "Alternates",
+        "Name",
+        "StructParent",
+        "ID",
+        "OPI"
+      ],
+      "ledger_rows": [
+        "11.6.5.2"
+      ],
+      "artifact": "shards/soft_mask_image_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "144",
+      "keys": [
+        "Matte"
+      ],
+      "ledger_rows": [
+        "11.6.5.2"
+      ],
+      "artifact": "shards/soft_mask_image_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "146",
+      "keys": [
+        "source colour space",
+        "affected group component",
+        "OP false",
+        "OP true OPM0",
+        "OP true OPM1"
+      ],
+      "ledger_rows": [
+        "11.7.4.5"
+      ],
+      "artifact": "shards/overprinting_table146_cells_current/features.json",
+      "status": "partial"
+    }
+  ],
+  "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."
+}

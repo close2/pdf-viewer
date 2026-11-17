@@ -1,0 +1,30 @@
+{
+  "reviews": [
+    {
+      "adr": "0230",
+      "decision": "Retain the separation between pure frame shaping and host-owned timing. Its statements that Table 164 supplies no intermediate-frame curve and leaves some quantities unspecified match the primary table. Current visual consumer evidence is recorded separately and includes a parent-reported explicit-X11 rerun, not merely the ADR's historical screenshots.",
+      "evidence": "doc/adr/0230-a-frame-is-two-pages-and-a-fraction.md; scratchpad/r2038/spec-audit/transition_visual_consumer_current/{features.json,parent-review.json}."
+    },
+    {
+      "adr": "0316",
+      "decision": "Retain the explicit presentation-mode state and its conditional use for presentation behavior. \u00a712.4.4.1's optional presentation capability and Table 31 /Dur wording are not conflated with \u00a712.4.4.2's state navigation.",
+      "evidence": "doc/adr/0316-the-mode-a-clause-conditions-its-states-on.md; current Viewer PresentationMode and headless tests."
+    },
+    {
+      "adr": "0473",
+      "decision": "Retain the shared-clock architecture, but correct two source locators in the ADR when next editing: it repeatedly calls page-object /Dur 'Table 160's /Dur'. The effective source puts /Dur in page-dictionary Table 31 (physical 121 / printed 106); Table 160 is the navigator dictionary. Table 164 is the transition dictionary and defines transition /D, not page /Dur. The ADR's quoted prose and timing semantics remain accurate, so this is a bounded citation error rather than a rejection of its clock design.",
+      "evidence": "doc/adr/0473-the-clock-two-windows-did-not-have.md lines 12 and 23; primary EC3 integrated Table 31 at physical 121 / printed 106, Table 160 title in \u00a712.3.4, and Table 164 at physical 477\u2013478 / printed 462\u2013463."
+    },
+    {
+      "adr": "1299",
+      "decision": "Retain owner-selected quantities for Blinds, Dissolve, Glitter, and Fly as implementation policy. The table's qualitative language does not define counts, pattern, or band width; current notes and tests identify these as choices.",
+      "evidence": "doc/adr/1299*; Table 164; viewer-core transition implementation and tests."
+    },
+    {
+      "adr": "1702",
+      "decision": "Retain separation between ordinary tick delivery and presentation mode. No source-supported finding says a page /Dur should advance when the viewer is not presenting.",
+      "evidence": "Current headless tests and the relevant ledger note; no new counterexample found."
+    }
+  ],
+  "candidate_test_disposition": "Do not duplicate the omitted-page-Dur public Viewer regression. The draft was promoted as crates/viewer-core/tests/omitted_page_duration_spec_audit.rs; durable thumbnails_transitions_current/parent-review.json records its PASS in text-presentations-wave16b.log. Four pages keep the omitted-Dur page non-final, with stated-duration controls before and after. The previous scratch-only pending status is withdrawn."
+}

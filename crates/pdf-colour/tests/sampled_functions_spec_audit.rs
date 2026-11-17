@@ -216,3 +216,23 @@ fn sampled_twelve_bit_values_are_high_order_first_and_have_no_inter_sample_paddi
     assert_eq!(function.eval(&[0.5]), vec![f32::from(0xABC_u16)]);
     assert_eq!(function.eval(&[1.0]), vec![f32::from(0x456_u16)]);
 }
+
+#[test]
+fn sampled_interpolation_preserves_a_small_but_nonzero_domain_span() {
+    let normal = sampled_document(
+        "/Domain [0 1] /Range [0 255] /Decode [0 255] /Size [3] /BitsPerSample 8 /Encode [0 2]",
+        &[0, 100, 200],
+    );
+    let control = parse_sampled(&normal);
+    assert_eq!(
+        [0.0, 0.5, 1.0].map(|x| control.eval(&[x])),
+        [vec![0.0], vec![100.0], vec![200.0]],
+    );
+    let document = sampled_document(
+        "/Domain [0 0.00000001] /Range [0 255] /Decode [0 255] /Size [3] /BitsPerSample 8 /Encode [0 2]",
+        &[0, 100, 200],
+    );
+    let function = parse_sampled(&document);
+    let actual = [0.0, 0.000_000_005, 0.000_000_01].map(|x| function.eval(&[x]));
+    assert_eq!(actual, [vec![0.0], vec![100.0], vec![200.0]]);
+}

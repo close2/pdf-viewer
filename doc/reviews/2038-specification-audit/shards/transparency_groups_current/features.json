@@ -1,0 +1,90 @@
+[
+  {
+    "feature": "Transparency-group eligibility and subtype",
+    "clause": "§11.6.6; Table 145 /S",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10222,10230; verified ISO printed p.421 (PDF physical p.436)",
+    "source_rule": "Only a form XObject whose Group attributes dictionary has S=Transparency receives the grouping behavior; S is required for a transparency group.",
+    "ledger": "doc/conformance/ledger.toml clause 11.6.6 (implemented)",
+    "code": "crates/pdf-model/src/content/xobject.rs:236-240; crates/pdf-model/src/content/transparency.rs:50-64,110-124",
+    "tests": "crates/pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype",
+    "assertion_quality": "Positive transparency subtype and ordinary/non-transparency form controls inspect group commands; substantive public interpreter assertion.",
+    "verdict": "supported for the sampled eligibility behavior",
+    "residuals": "Does not audit malformed Group dictionaries or every Form XObject interaction.",
+    "errata": "No directly applicable EC3 erratum found. EC3 Issue #619 concerns Table 143, not Table 145."
+  },
+  {
+    "feature": "Group isolation and knockout attributes/defaults",
+    "clause": "§11.6.6 Table 145 /I and /K; §§11.4.5–11.4.6",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10232-10233,10237; verified ISO printed pp.421-423 (physical pp.436-438)",
+    "source_rule": "/I defaults false; isolated elements start against transparent backdrop. /K defaults false; when true each later element uses group initial backdrop and knocks out earlier overlap. Parent knockout special case applies to initial backdrop.",
+    "ledger": "doc/conformance/ledger.toml clause 11.6.6 (implemented)",
+    "code": "crates/pdf-model/src/content/transparency.rs:154-167 and group_runs.rs; crates/render-cpu/src/groups.rs",
+    "tests": "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_paints_only_its_topmost_element; ::a_non_isolated_group_blends_with_the_page_behind_it (line 1382); ::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it; ::a_group_that_introduces_a_press_composites_in_it (line 3687); render-cpu/tests/group_constructions.rs",
+    "assertion_quality": "Several public pixel and display-list assertions exercise isolated/non-isolated, own-space and nested knockout cases; these are concrete but do not establish every backdrop/parent combination. However, the file header at lines 20–22 incorrectly says non-isolated blended groups and non-device group spaces remain unimplemented; it conflicts with these current tests and the ledger.",
+    "verdict": "substantially represented and tested in sampled paths",
+    "residuals": "This bounded review did not enumerate all isolated × knockout × parent-group combinations or every Table 145 page-group exception.",
+    "errata": "No directly applicable EC3 erratum found."
+  },
+  {
+    "feature": "Group colour-space eligibility, defaults, remapping and inheritance",
+    "clause": "§11.6.6 Table 145 /CS; §§11.3.4, 11.4.7, 11.7.2",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10231,10244-10245; verified ISO printed pp.421-423 (physical pp.436-438)",
+    "source_rule": "/CS is optional except required for a group with no parent space (including a luminosity soft-mask group); ordinarily only isolated groups specify it. Otherwise inherit parent's/page's blending space. Supported spaces must meet §11.3.4 constraints; device spaces are remapped through DefaultGray/RGB/CMYK.",
+    "ledger": "doc/conformance/ledger.toml clause 11.6.6 (implemented)",
+    "code": "crates/pdf-model/src/content/transparency/blending_space.rs; crates/pdf-model/src/content/transparency.rs:168-179; crates/render-cpu/src/groups.rs; own-space renderer modules listed by ledger",
+    "tests": "crates/pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it; ::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb; ::an_isolated_cal_rgb_group_composites_in_its_components_and_leaves_by_the_cube; render-raster/tests/own_space_groups.rs",
+    "assertion_quality": "Nontrivial color/pixel and refusal-by-backend assertions cover own-space and inherited color behavior. GPU refusals are explicit backend limitations, not reader-wide refusal. Ledger profile-memory budget is reported/fallback behavior, not a spec-level max profile count.",
+    "verdict": "strong evidence for sampled common/own-space cases; not exhaustive for all allowed spaces",
+    "residuals": "Not a full audit of forbidden color-space inputs, all Default* remappings, annotation-appearance inherited page space, or luminosity-group required-CS boundary. Reader behavior on producer-invalid color-space combinations remains unclassified here.",
+    "errata": "No directly applicable EC3 erratum found."
+  },
+  {
+    "feature": "Initial backdrop and internal state reset",
+    "clause": "§11.6.6 Do actions and Note 1",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10237-10242; verified ISO printed pp.421-422 (physical pp.436-437)",
+    "source_rule": "A non-isolated group starts from accumulated parent/page color and alpha within BBox (or parent initial backdrop when immediate parent is knockout); isolated starts transparent. Before member execution reset BM=Normal, CA=ca=1, SMask=None so these values are applied once at group composition.",
+    "ledger": "doc/conformance/ledger.toml clause 11.6.6 (implemented)",
+    "code": "crates/pdf-model/src/content/transparency.rs:137-167; crates/render-cpu/src/groups.rs",
+    "tests": "crates/pdf-model/tests/transparency_groups.rs::a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements; ::a_non_isolated_group_blends_with_the_page_behind_it; ::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it",
+    "assertion_quality": "Display-list tests check inner defaults and outer group state; pixel tests distinguish isolated/non-isolated backdrop behavior. The reset test's visible assertions do not isolate soft-mask reset or every outer-state restoration interaction.",
+    "verdict": "supported for asserted BM/alpha and selected backdrop cases",
+    "residuals": "No test located that independently targets SMask reset for a group while also checking the invocation mask is applied once."
+  },
+  {
+    "feature": "Group compositing as an elementary object, BBox clipping and caller-state conversion",
+    "clause": "§11.6.6 final compositing; §11.6.2",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10235,10242,10246; verified ISO printed pp.421-423 (physical pp.436-438)",
+    "source_rule": "Group members composite internally under /K; final result is the union of member shapes clipped by BBox and painted once using accumulated group colour/opacity. Color conversion out uses invocation rendering intent and black point compensation; graphics state reverts after Do.",
+    "ledger": "doc/conformance/ledger.toml clauses 11.6.2 and 11.6.6 (implemented)",
+    "code": "crates/pdf-model/src/content/transparency.rs:212 onward; crates/pdf-render/src/display_list.rs; crates/render-cpu/src/groups.rs",
+    "tests": "crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object; ::a_forms_bounding_box_clips_what_it_draws; own-space group tests",
+    "assertion_quality": "The once-versus-per-object pixel case has an independent manual expected color, and BBox test checks pixels inside/outside. Conversion coverage is extensive for selected spaces. No directly located test asserts all caller graphics state restoration fields after Do.",
+    "verdict": "supported for sampled final-composite and BBox behavior",
+    "residuals": "Invocation-state restoration across all relevant fields and both rendering intent/black point compensation combinations not certified here."
+  },
+  {
+    "feature": "Repeated Do of one group is a distinct group instance",
+    "clause": "§11.6.6 prose following Table 145: repeated-invocation sentence and Note 2",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:10248-10250; verified ISO printed p.423 (physical p.438). This is prose following Table 145, not a table row.",
+    "source_rule": "Each invocation of the same transparency group XObject is independently composited with the current backdrop; rendered-form caches must honor this.",
+    "ledger": "doc/conformance/ledger.toml clause 11.6.6 (implemented; no test named or assertion located for repeated Do)",
+    "code": "crates/pdf-model/src/content/xobject.rs:236-240 invokes group interpreter per Do; cache behavior not fully traced through raster backend",
+    "tests": "No existing same-XObject repeated-Do assertion located in crates/pdf-model/tests/transparency_groups.rs",
+    "assertion_quality": "Draft `drafts/repeated_group_invocation.rs` has exact xref and asserts no recovery; one invocation control expects manual source-over [255,127,127,255], two calls expect [255,64,64,255] within rounding tolerance. This is a public interpretation and CPU raster assertion, with independent arithmetic rather than a second renderer.",
+    "verdict": "coverage gap; draft ready for parent promotion/run",
+    "residuals": "Execution result pending parent promotion; verify the drafted package imports match the integration-test crate's available dependencies."
+  },
+  {
+    "feature": "Annex Q page-wide transparency detection scope",
+    "clause": "Annex Q, Q.1-Q.5",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:22236-22275; verified ISO printed pp.982-983 (physical pp.997-998)",
+    "source_rule": "Q.1 requires the described method when applicable, but its NOTE explicitly says this method is not required by base ISO 32000-2; related subset standards may mandate it. Q.2-Q.5 enumerate states, forms/groups, images/masks, annotations and Type 3 procedures.",
+    "ledger": "doc/conformance/ledger.toml Q and Q.1-Q.5 implemented; note correctly scopes it to archive conversion for ISO 19005-2/-4 per ADR 1461; rendering itself evaluates per object rather than asking a page-wide question",
+    "code": "crates/pdf-archive/src/survey.rs and survey/{pages,graphics_state,xobjects,fonts}.rs; renderer path is separate",
+    "tests": "survey.rs::annex_q_finds_transparency_in_a_graphics_state_and_not_in_a_normal_blend; ::a_transparency_group_xobject_makes_its_page_transparent; ::annex_q_finds_transparency_inside_an_annotation_appearance; ::annex_q_processes_a_tiling_pattern_as_a_form; ::annex_q_finds_transparency_in_an_images_mask_and_its_codestream_alpha; ::annex_q_processes_a_type_3_glyph_procedure_as_a_form; graphics_state/annex_q_audit_tests.rs Q/Q.3 tests",
+    "assertion_quality": "Named tests examine positive and negative states/objects. This audit did not re-run them. EC3 Issue #51 adds annotation dictionary /BM!=Normal and current changed survey code/tests cover both non-Normal and absent/Normal controls.",
+    "verdict": "ledger claim is correctly scoped; sampled feature coverage is concrete",
+    "residuals": "Not a blanket verification of every Q.2 operator/state restoration or traversal branch. Annex Q implementation is a profile/archive consumer behavior, not a mandatory page-wide renderer API requirement.",
+    "errata": "EC3 Issue #51, errata-read.md:2742 adds annotation BM detection; no §11.6.6 rendering erratum found."
+  }
+]

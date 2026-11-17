@@ -1,0 +1,8 @@
+{
+  "log": "broad123.log",
+  "observed_failure_count": 105,
+  "expected_failure_count": 105,
+  "extra": [],
+  "missing": [],
+  "scope": "Eleven default-feature crates through checkpoint122; five GPU, one engine and one ignored gate outside this scope. PASS includes acknowledged fixture early returns."
+}

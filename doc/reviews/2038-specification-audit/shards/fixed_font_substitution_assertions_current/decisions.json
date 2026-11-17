@@ -1,0 +1,19 @@
+{
+  "review_scope": "Bounded ADR/source/assertion reconsideration; parent gate owns the stale fixed-document expectation edits.",
+  "decisions": [
+    {
+      "adr": "2870",
+      "decision": "Retain current substitution recovery as owner-ratified product policy; do not label it a mandatory ISO reader behavior.",
+      "source_basis": "§9.5 and §9.8.1 provide information useful for substitution when a program is unavailable, without mandating selection or specifying malformed-stream recovery. §9.9.1/Table 125 specifies embedded program formats/length metadata, not the fallback result.",
+      "current_code_check": "Malformed embedded-program refusals reach the copied-descriptor/no-program substitute route; the original refusal is retained and the page remains incomplete. A readable font program with no encoding-reachable glyph remains excluded.",
+      "assertion_check": "The promoted exact-xref test unreadable_program_fallback_control_audit::unreadable_program_falls_back_like_absent_program_and_keeps_its_report compares the rendered consumer result against an otherwise identical absent-program control and checks visible ink, literal advance placement, original refusal and incompleteness. Thus prior T11 gap is closed.",
+      "fixed_gate_resolution": "PDFIUM-407-0.pdf's two old expected values conflict with the accepted fallback: it now paints 14.633 ink rather than the old 7.791..8.791 band and no longer reports Text operations:197. Keep the implementation; parent should consciously update this one stale document row and preserve the three current FontFile2 refusal reports.",
+      "status": "policy remains soundly scoped; fixed-gate expectations stale, not a new conformance defect"
+    },
+    {
+      "adr": "2871",
+      "decision": "Out of scope here. This viewer audit does not establish the archive writer's parallel fallback behavior.",
+      "evidence": ["doc/adr/2871-a-cut-program-the-window-draws-from-a-substitute-is-written-as-that-substitute.md"]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "source": "Parent read850\u2013858 and actual#612/#290/#86/#568/#374/#637; found appended Table409a on physical1015. Its MCAF rule and named-resource NOTE4 are held; ADR0253 historic unavailable-table premise is stale. Corrected Params SHOULD versus conditional ModDate SHALL. Name values added to DPM by#86; AFRelationship required by#568.",
+  "assertions": "New DPartAFtest uses flat child refs, reciprocal Parent/pageDPart links, singleton ranges in page order, separate catalog payload and literal decoded bytes. Strengthened existing headless click test rather than adding duplicate: exactxref/no-recovery, correctAPLength/Resources, PDF2ID, Params/ModDate recommendation, payloadMIMEtext/plain, and neighboring annotation withoutAF. BothPASS in dpart-af-wave29d.log.",
+  "limits": "DPM remains opaque workflow metadata. Historical direct-array example is compatibility evidence; MCAF dictionary is effective route. No required rejection of old forms. DPart depth/size limit reporting was not tested in this slice.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification; parent qualifications govern draft assertions."
+}

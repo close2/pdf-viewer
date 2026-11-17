@@ -1,0 +1,14 @@
+{
+  "decisions": [
+    {
+      "adrs": [
+        "0202",
+        "0231",
+        "0711",
+        "1461"
+      ],
+      "conclusion": "Retain unsupported-custom-handler wrapper fallback and conditional writer-side boundary. Do not infer full collection initial-document support from wrapper exception; prior D02 owns that separate issue. Table28 metadata retention is useful but not decryption."
+    }
+  ],
+  "residual": "Full producer-conforming wrapper/payload public fixture remains beyond sampled dictionary evidence."
+}

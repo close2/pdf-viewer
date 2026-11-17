@@ -1,0 +1,8 @@
+{
+  "verdict": "T151: all16 Table113 literal reverse mappings and currency absence now PASS via exported encoding helper.",
+  "source_corrections": "Parent corrected draft table spans:109 body328–329, with worked example/prose330;112 body338 only, preceding prose337.108327 and113342 confirmed. Name appears on328; table inventory remains selected, not exhaustive.",
+  "assertions": "Parent compared all16 Table113 decimal codes/names directly against primary table342 and read current count/replacement and representative lookup tests. New standalone integration file uses public encoding helper; no production src edit. Existing direct/indirect descriptor test is retained as evidence rather than duplicated.",
+  "adr": "Parent reread0286 and0067. Retain distinct MacExpert data and ordered font-program fallback under permission. Corpus non-regression is supporting evidence, not proof of correctness or proof that a fallback is safe. B50 concerns final StandardEncoding fill on a MacExpert base, not incorrect MacExpert table transcription.",
+  "execution": "font-fax-wave113b: font test PASS. Final font/model all-target Clippy PASS.",
+  "limits": "Helper mapping and selected dictionary consumer assertions. No whole font, version-policy, program validity or raster certificate."
+}

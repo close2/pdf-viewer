@@ -1,0 +1,153 @@
+{
+  "scope": "Selected audit of effective ISO 32000-2:2020(E) §§8.6.5.6, 8.6.5.7, 8.6.5.9 and 8.6.7, including sampled EC3 changes. This does not certify all colour conversion, output-device separation, or transparency behavior.",
+  "source": {
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "primary_pdf": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/source/spec-layout.txt",
+    "locators": {
+      "8.6.5.6": "printed p. 194 / physical p. 209",
+      "8.6.5.7": "printed pp. 195-196 / physical pp. 210-211",
+      "8.6.5.9": "printed p. 198 / physical p. 213",
+      "8.6.7": "printed p. 214 / physical p. 229"
+    },
+    "locator_basis": "Primary-PDF footer pages, not markdown image/page numbering.",
+    "errata": [
+      {
+        "issue": "EC3 #19",
+        "location": "Inline-image NOTE 3, printed p.270 / physical p.285",
+        "effect": "Device colour operator names identify the device space directly or via default colour space. Confirms that the default lookup applies to these names; it does not change the default-space clauses themselves."
+      },
+      {
+        "issue": "EC3 #360",
+        "location": "Table 57, printed p. 167 / physical p. 182",
+        "effect": "Deletes the table's stated default sentence for UseBlackPtComp. Section 8.6.5.9 already leaves absent or Default behavior to the processor, so the implementation's chosen default remains a reader choice."
+      },
+      {
+        "issue": "EC3 #63",
+        "location": "Table 69, printed p. 197 / physical p. 212",
+        "effect": "Strikes text excusing support for every rendering intent. The four standard names remain AbsoluteColorimetric, RelativeColorimetric, Saturation, and Perceptual."
+      }
+    ]
+  },
+  "features": [
+    {
+      "clause": "8.6.5.6",
+      "title": "Default colour spaces",
+      "requirements_sampled": [
+        "Whenever a device Gray, RGB, or CMYK space is selected for a painting operation, resources in force are checked for its corresponding DefaultGray, DefaultRGB, or DefaultCMYK; if present the default is used.",
+        "Source component values pass unchanged, with equal component count, and are clamped to the destination range. The default must not be Lab, Indexed, or Pattern; compatibility is recommended rather than a general reader rejection requirement.",
+        "The lookup also applies to an underlying device space of Pattern, Indexed base, Separation alternate, or DeviceN alternate when that alternate is actually selected. No tint conversion is introduced."
+      ],
+      "ledger": "doc/conformance/ledger.toml §8.6.5.6 (implemented)",
+      "ledger_feature_coverage": "The note maps named and array/device paths, nested special-space routes, image/inline/shading routes, initial values and press-group use. It explicitly separates malformed default producer constraints from reader behavior.",
+      "implementation": [
+        "crates/pdf-colour/src/colour/parsing.rs::ColourSpace::by_name / default resolution",
+        "crates/pdf-colour/src/colour/queries.rs::initial_colour_of",
+        "crates/pdf-model/src/image/space.rs",
+        "crates/pdf-colour/src/shading.rs",
+        "crates/pdf-model/src/content/transparency/blending_space.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/default_colour_spaces_audit.rs::a_form_uses_its_own_default_rgb_for_its_content_stream (page no-default control)",
+        "crates/pdf-model/tests/default_colour_spaces_audit.rs::default_rgb_remaps_the_device_base_of_an_indexed_space",
+        "crates/pdf-model/tests/default_colour_spaces_audit.rs::default_rgb_remaps_the_underlying_space_of_an_uncoloured_tiling_pattern",
+        "crates/pdf-model/tests/default_colour_spaces_audit.rs::a_selected_devicen_alternate_uses_the_current_default_rgb",
+        "crates/pdf-model/tests/default_colour_spaces_audit.rs::selecting_a_defaulted_device_cmyk_keeps_the_device_initial_components",
+        "crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_an_images_device_space",
+        "crates/pdf-model/tests/colour_paths.rs::a_default_space_reaches_the_array_form_of_a_device_space",
+        "crates/pdf-model/tests/inline_images_residual_audit.rs::inline_device_gray_uses_default_gray_and_matches_named_resource_control",
+        "crates/pdf-model/tests/shadings.rs::a_device_space_inside_a_shadings_colour_space_is_remapped_by_the_resources_that_paint_it"
+      ],
+      "verdict": "Sampled valid-route behavior has discriminating consumer evidence, including nested-resource positive controls, images, inline images, shading, array/name forms, and selected special-space paths. No additional defect identified in this shard.",
+      "residuals": [
+        "Not every alternate family and paint operator was independently exercised here; that is not evidence of a default-space defect.",
+        "The clause's invalid-default type restrictions are writer constraints; no malformed-input reader rejection is demanded by this review."
+      ]
+    },
+    {
+      "clause": "8.6.5.7",
+      "title": "Implicit conversion of CIE-Based colour spaces",
+      "requirements_sampled": [
+        "A processor should avoid conversion when a CIE-based source accurately represents the particular output device; PDF does not encode the calibration conditions that would let a reader decide this generally.",
+        "If implicit conversion is performed, device-space semantics also apply, including nonzero overprint mode and device-colour conversions into a group space. The source may be direct ICCBased or reached through a default colour space."
+      ],
+      "ledger": "doc/conformance/ledger.toml §8.6.5.7 (implemented)",
+      "implementation": [
+        "crates/pdf-colour/src/colour.rs::device-family resolution",
+        "crates/pdf-colour/src/colour/device_cmyk.rs",
+        "crates/pdf-model/src/content/overprint.rs",
+        "crates/pdf-model/src/content/transparency/press.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/transparency_groups.rs::a_colour_in_the_presss_own_space_is_not_converted_into_it",
+        "crates/pdf-model/tests/overprint.rs::a_colour_in_the_presss_own_profile_keeps_the_backdrop_under_mode_one",
+        "crates/pdf-model/tests/overprint.rs::a_colour_converted_into_another_profiles_press_is_the_source_colour",
+        "crates/pdf-model/tests/overprint.rs::device_cmyk_drawn_through_the_output_intent_keeps_its_mode",
+        "crates/pdf-model/tests/overprint.rs::a_separation_reverting_to_the_presss_own_profile_takes_the_mode"
+      ],
+      "verdict": "The implementation preserves same-profile press values in press-group contexts and carries device overprint semantics into those paths. Outside such a group, the general matching-device recommendation is a SHOULD with conditions the source says cannot be specified in PDF; declining a universal shortcut is an implementation policy rather than a demonstrated conformance failure.",
+      "residuals": [
+        "This sampled set does not independently exercise every CIE-based family through every route, nor establish a general output-device calibration policy."
+      ]
+    },
+    {
+      "clause": "8.6.5.9",
+      "title": "Use of black point compensation",
+      "requirements_sampled": [
+        "UseBlackPtComp ON uses ISO 18619; OFF disables compensation; absent or Default is left to the processor.",
+        "For an object whose current intent is AbsoluteColorimetric, UseBlackPtComp is treated as OFF. Intent and BPC are separate state inputs combined per painted object."
+      ],
+      "ledger": "doc/conformance/ledger.toml §8.6.5.9 (implemented)",
+      "implementation": [
+        "crates/pdf-model/src/content/ext_gstate.rs::UseBlackPtComp parsing",
+        "crates/pdf-model/src/content.rs::GraphicsState::black_point_under / conversion state",
+        "crates/pdf-colour/src/icc.rs::ISO 18619 black-point compensation",
+        "crates/pdf-model/src/content/image.rs and shading.rs conversion handoff"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-colour/src/icc.rs::black_point_compensation_aligns_the_darkest_colour_the_profile_reaches",
+        "crates/pdf-colour/src/icc.rs::the_compensation_is_one_scale_and_an_offset_towards_the_connection_spaces_white",
+        "crates/pdf-model/tests/rendering_intent.rs::an_absolute_intent_overrides_a_black_point_entry_set_after_it",
+        "crates/pdf-model/tests/rendering_intent.rs::a_later_intent_does_not_restore_a_black_point_the_state_turned_off",
+        "crates/pdf-model/tests/rendering_intent.rs::an_ext_gstate_intent_replaces_the_one_in_force",
+        "crates/pdf-model/tests/rendering_intent.rs::a_shading_patterns_colours_are_resolved_where_its_content_stream_began",
+        "crates/pdf-model/tests/image_reuse.rs::a_raster_is_not_shared_across_black_points"
+      ],
+      "verdict": "The source-defined standard spelling AbsoluteColorimetric is used in distinct ON/OFF/Default and intent-ordering tests. Controlled synthetic ICC routes and per-object absolute-intent precedence are covered. No BPC behavior defect identified.",
+      "residuals": [
+        "§8.6.5.9 prose spells the intent AbsColorimetric while Table 69 and the tested PDF name use AbsoluteColorimetric. Keep this as a source terminology/citation discrepancy; do not demand an unregistered alias absent evidence EC3 resolves it.",
+        "The Default choice is the processor's discretion and is documented as this implementation's policy, not a normative universal default."
+      ]
+    },
+    {
+      "clause": "8.6.7",
+      "title": "Overprint control (opaque imaging model only in this feature entry)",
+      "requirements_sampled": [
+        "OP/op control whether unspecified output colourants are erased; OPM affects only a current-colour DeviceCMYK operation (including implicit DeviceCMYK conversion), and only when overprint is true.",
+        "OPM 1 preserves prior values for zero CMYK components; the zero decision is made on PDF values before quantization.",
+        "The clause explicitly excludes images and shadings from OPM and excludes OPM when the native output space lacks CMYK colourants. Transparent-model compatible overprint is separately addressed in §11.7.4."
+      ],
+      "ledger": "doc/conformance/ledger.toml §8.6.7 (implemented)",
+      "implementation": [
+        "crates/pdf-model/src/content/overprint.rs",
+        "crates/pdf-model/src/content/ext_gstate.rs",
+        "crates/pdf-model/src/content/colour.rs",
+        "crates/pdf-model/src/content/image.rs",
+        "crates/pdf-model/src/content/pattern/shading.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/overprint.rs::a_zero_component_under_overprint_mode_one_keeps_the_backdrops",
+        "crates/pdf-model/tests/overprint.rs::overprint_mode_zero_erases_the_components_the_source_does_not_name",
+        "crates/pdf-model/tests/overprint.rs::the_non_stroking_parameter_is_its_own",
+        "crates/pdf-model/tests/overprint.rs::a_page_on_the_devices_own_components_is_unchanged",
+        "crates/pdf-model/tests/overprint.rs::a_colour_in_the_presss_own_profile_keeps_the_backdrop_under_mode_one",
+        "crates/pdf-model/tests/spot_planes.rs::an_image_overprints_by_its_own_colour_space",
+        "crates/pdf-model/tests/spot_planes.rs::a_shading_overprints_by_its_own_colour_space"
+      ],
+      "verdict": "Current direct-fill, mode, device-capability, and spot-image paths have meaningful controls. The sampled public tests do not isolate the explicit sampled-DeviceCMYK-image exclusion from the direct current-colour OPM1 rule.",
+      "residuals": [
+        "A new draft compares a DeviceCMYK sampled image under OPM1 with the same image under ordinary state and with a direct DeviceCMYK OPM1 fill. It is unexecuted; see drafts/cmyk_sampled_image_ignores_opm.rs.",
+        "This does not re-audit §11.7.4 transparent-group behavior, covered by a separate shard."
+      ]
+    }
+  ]
+}

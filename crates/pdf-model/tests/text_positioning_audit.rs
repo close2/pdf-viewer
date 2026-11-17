@@ -172,6 +172,65 @@ fn double_quote_sets_spacing_then_moves_line_and_shows() {
     );
 }
 
+/// Table 106: `TD` sets leading to the negative of its `ty`, then performs `Td`.
+///
+/// The second glyph verifies the line move; the third verifies the side effect reached `T*`.
+/// In the explicit control, setting `TL` to `-ty` before `Td` must produce the same placements.
+#[test]
+fn td_sets_leading_from_its_vertical_operand_before_t_star() {
+    let td = placements("BT /F1 10 Tf 20 50 Td (A) Tj 10 -12 TD (A) Tj T* (A) Tj ET");
+    let explicit = placements("BT /F1 10 Tf 20 50 Td (A) Tj 12 TL 10 -12 Td (A) Tj T* (A) Tj ET");
+    let no_leading = placements("BT /F1 10 Tf 20 50 Td (A) Tj 10 -12 Td (A) Tj T* (A) Tj ET");
+
+    assert_eq!(
+        td, explicit,
+        "TD has the same effect as -ty TL followed by Td"
+    );
+    assert_eq!(td.len(), 3);
+    assert_eq!(no_leading.len(), 3);
+    let expected = [(20.0, 50.0), (30.0, 38.0), (30.0, 26.0)];
+    for (placement, (x, y)) in td.iter().zip(expected) {
+        assert!(
+            (placement.e - x).abs() < 0.001 && (placement.f - y).abs() < 0.001,
+            "expected glyph at ({x},{y}), got ({},{})",
+            placement.e,
+            placement.f
+        );
+    }
+    assert!(
+        (no_leading[2].e - 30.0).abs() < 0.001 && (no_leading[2].f - 38.0).abs() < 0.001,
+        "Td alone does not set leading, so the next line stays at y=38: {:?}",
+        no_leading[2]
+    );
+}
+
+/// Table 107: the spacing operands of `"` update text state beyond its own string.
+///
+/// The quoted `A` is followed by a separate `Tj` whose leading space can reveal both retained
+/// `/Tw` and `/Tc`. At 10 pt the space width is 2.5; the following `A` therefore begins 19.5
+/// points after the second string's start: 2.5 + 12 + 5.
+#[test]
+fn double_quote_spacing_persists_into_a_later_text_show() {
+    let quoted = placements("BT /F1 10 Tf 15 TL 20 50 Td 12 5 (A) \" ( A) Tj ET");
+    let explicit = placements("BT /F1 10 Tf 15 TL 20 50 Td 12 Tw 5 Tc T* (A) Tj ( A) Tj ET");
+
+    assert_eq!(
+        quoted, explicit,
+        "the Table 107 expansion preserves the spacing state"
+    );
+    assert_eq!(quoted.len(), 2, "each string contains one painted A");
+    assert!(
+        (quoted[0].e - 20.0).abs() < 0.001 && (quoted[0].f - 35.0).abs() < 0.001,
+        "the quote first moves to the next line: {:?}",
+        quoted[0]
+    );
+    assert!(
+        (quoted[1].e - 54.5).abs() < 0.001 && (quoted[1].f - 35.0).abs() < 0.001,
+        "later Tj retains Tw=12 and Tc=5: {:?}",
+        quoted[1]
+    );
+}
+
 /// EC3 #368 is in §9.4.1. A show after Q observes Tm; T* is needed to observe Tlm.
 #[test]
 fn q_restore_recovers_the_line_matrix_used_by_the_next_line_operator() {

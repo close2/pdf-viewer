@@ -1080,3 +1080,37 @@ fn empty_and_invalid_icc_operands_keep_the_previous_source_and_report() {
         );
     }
 }
+
+/// Table 57 as corrected by EC3 issue 360 specifies no dictionary-entry default for
+/// `UseBlackPtComp`. Section 8.4.5 sets the supplied parameters; an omitted parameter
+/// retains its current value. Explicit ON and OFF controls distinguish that state path
+/// using this suite's synthetic ICC profile, rather than asserting complete ICC conformance.
+#[test]
+fn an_ext_gstate_omitting_black_point_compensation_preserves_the_current_value() {
+    let resources = "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+        /ExtGState << /Off << /UseBlackPtComp /OFF >> /Width << /LW 2 >> \
+        /On << /UseBlackPtComp /ON >> >>";
+    let profile = profile_object(5);
+
+    let draw = |content: &str| {
+        let bytes = pdf_with(&profile, resources, content);
+        let document = Document::open(bytes.clone()).expect("exact-xref fixture");
+        assert!(!document.was_recovered());
+        assert!(!document.cross_reference_chain_was_cut());
+        centre_colour(bytes)
+    };
+    let after_omission = draw("/Off gs /Width gs /CS0 cs 1 scn 0 0 20 20 re f");
+    let explicitly_off = draw("/Off gs /CS0 cs 1 scn 0 0 20 20 re f");
+    let explicitly_on = draw("/Off gs /On gs /CS0 cs 1 scn 0 0 20 20 re f");
+
+    assert_eq!(
+        after_omission, explicitly_off,
+        "an omitted key preserves the current state"
+    );
+    assert_uncompensated(
+        after_omission,
+        "OFF followed by an ExtGState that only sets LW",
+    );
+    assert_uncompensated(explicitly_off, "the explicit OFF control");
+    assert_compensated(explicitly_on, "the explicit ON discriminating control");
+}

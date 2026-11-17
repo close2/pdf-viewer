@@ -1,0 +1,19 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "Whether /CS is mandatory for all soft-mask group XObjects",
+      "disposition": "Conditional, not universal. Table 142 makes a group /CS mandatory for /S /Luminosity. Table 145 states an otherwise-optional /CS inherits from the parent group/page and is mandatory where no such parent exists; it specifically names a Luminosity soft-mask group. Thus an Alpha group may omit /CS when its parent page/group supplies the inherited space.",
+      "basis": "Primary EC3 §11.6.5.1 Table 142, physical p. 434 / printed p. 419; §11.6.6 Table 145 /CS row, physical p. 437 / printed p. 422. Issue #134 on p. 437 changes which resource dictionary is meant for Default color-space remapping, not the inheritance condition. Both a page group with explicit /CS and a mask group without /CS are used in the proposed fixture, avoiding reliance on implicit device defaults.",
+      "current_code": "soft_mask::read takes the /CS object but only resolves it through luminosity() for /S /Luminosity; the Alpha arm uses group alpha. The group executor supports the parent-page/group context. No code defect observed by inspection.",
+      "current_tests": "Existing Alpha mask pixel tests cover alpha-over-color semantics, but their helper always writes /CS into the mask group. No current test directly distinguishes inherited page-group /CS from a mask group's own /CS.",
+      "decision": "Record a bounded assertion gap, not a runtime failure or a blanket Table 145 claim. Provide a direct-CS positive control before the omitted-child-CS case. Do not demand rejection of omitted /CS for Alpha with a parent group."
+    },
+    {
+      "topic": "Whether this follow-up reopens the prior Table 142 matrix",
+      "disposition": "No. Existing Table 142 defaults, /BC, /TR, /Type, subtype, group source, and /None assertions remain covered as previously recorded. This adds only the conditional inheritance boundary where Table 142 points to Table 145.",
+      "basis": "Existing scratchpad/r2038/spec-audit/soft_mask_cells_current/features.json and findings.txt were re-read; exact named tests and ledger 11.6.5.1 entry were checked in the current worktree.",
+      "decision": "Keep this new shard narrow and leave GPU, malformed dictionaries, image soft masks, and CIE luminosity scope to their existing owners/shards."
+    }
+  ]
+}

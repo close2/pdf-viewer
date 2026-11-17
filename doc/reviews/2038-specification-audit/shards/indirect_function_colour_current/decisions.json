@@ -1,0 +1,26 @@
+{
+  "scope": "Reconsider only decisions relevant to ordinary numeric values in function and CalGray dictionaries. These are additive assertion-quality findings; no decision is reopened for numeric algorithm policy.",
+  "reviewed_decisions": [
+    {
+      "source": "ADR 1636 — The cubic spline is not-a-knot",
+      "premise_review": "Retain the selected not-a-knot endpoint condition as an implementation policy because §7.10.2/Table39 does not prescribe spline endpoint conditions. This indirect-representation audit does not change that choice. It finds only that existing interpolation evidence uses direct values and does not independently witness §7.3.10 representation equivalence.",
+      "result": "No algorithm premise is challenged; the Type0 draft's two-point linear sample avoids depending on spline policy."
+    },
+    {
+      "source": "ADR 1712 — Lab uses the white it states; CalGray/CalRGB parameter evidence in colour.rs",
+      "premise_review": "The CalGray conversion and gamma arithmetic are separately tested, but direct construction does not establish that PDF indirect references to WhitePoint components and Gamma reach those same values. The new public parse-and-convert draft isolates the serialization/reference representation while retaining D50, where the expected neutral is simple.",
+      "result": "Keep conversion behavior; add the representation witness. No new calibration or reader-rejection requirement is inferred."
+    },
+    {
+      "source": "§7.3.10 generic equivalence and §7.5.8.2 xref-stream carve-out",
+      "premise_review": "The direct-only xref stream constraints are local bootstrap exceptions. They do not restrict ordinary function or CalGray dictionaries. This shard uses ordinary object references in exact-xref files and treats the xref constraint as inapplicable to its positive cases.",
+      "result": "No code or policy change proposed; no xref-stream fixture is used."
+    }
+  ],
+  "draft_status": {
+    "status": "unexecuted",
+    "paths": ["drafts/indirect_function_colour_spec_audit.rs"],
+    "test_count": 2,
+    "execution": "No Cargo command was run; parent owns execution."
+  }
+}

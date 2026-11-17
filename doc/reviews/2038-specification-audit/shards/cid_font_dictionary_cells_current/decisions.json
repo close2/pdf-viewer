@@ -1,0 +1,27 @@
+{
+  "decisions": [
+    {
+      "topic": "Table 115 /FontDescriptor direct dictionary after EC3 #106",
+      "source_and_erratum": "Table 115 at physical pp.345–346 / printed pp.330–331 marks FontDescriptor required as a dictionary. Issue #106's StrikeOut is on physical p.346 / printed p.331 and crosses the words 'shall be an indirect reference'; the effective table no longer restricts it to an indirect object. The entry's dictionary contents still need to serve the applicable descriptor requirements.",
+      "current_code": "pdf-font/src/loading/opening.rs::load_composite obtains the descendant's FontDescriptor with Document::get_key and accepts a dictionary; embedded_program follows FontFile2 to the font stream. This path should accept direct and indirect spellings under the generic object resolver.",
+      "assertion_review": "The promoted CIDToGIDMap integration test is a useful valid embedded descendant-font witness, but uses /FontDescriptor 7 0 R. Simple-font and parser tests with inline descriptor dictionaries are not a consumer-level witness for the composite embedded-program route. A focused direct-vs-indirect Type0/CIDFontType2 public fixture would test the correction without asserting a malformed-input policy.",
+      "verdict": "Coverage gap, not a known behavior failure. Supply exact-xref test draft with same embedded bytes, glyph map, and literal expected glyph/advance in both forms.",
+      "adrs": ["ADR 0029: separate CMap code-to-CID and descendant CID-to-GID maps; relevant to test fixture and not a different descriptor rule.", "ADR 0965: W2/DW2 dictionary metrics, not descriptor indirectness; no basis to extend or limit #106.", "ADR 2722 / ADR 2162: inline font dictionaries are handled in transform/materialization paths; not evidence that the embedded CIDFont display consumer was tested."]
+    },
+    {
+      "topic": "CIDFont W/DW and W2/DW2 as actual dictionary metrics",
+      "source_and_errata": "§9.7.4.3 (physical pp.348–349 / printed pp.333–334 in this edition) defines the two W forms, default DW=1000, two-number DW2 default, and W2 triplets. Producer metric consistency is distinct from a general read-side rejection requirement.",
+      "assertion_review": "Named tests in composite_font_fixtures.rs assert example-derived width vectors, W2 triplets, and DW2 defaults. The tracked CID mapping test also reads actual outlines and uses hmtx-consistent metrics. Parent prior shard found indirect outer/nested numeric equivalence separately.",
+      "verdict": "Selected API and public mapping evidence exists; no duplicate test draft. Do not cite optional corpus tests as unconditional evidence, and do not infer missing W2 rejection duty for horizontal CMaps.",
+      "adrs": ["ADR 0965 is aligned with Table 115/§9.7.4.3 in treating the dictionary's W2/DW2 as the PDF metric inputs for vertical writing; it does not answer the direct-descriptor cell."]
+    },
+    {
+      "topic": "CIDToGIDMap and CIDSystemInfo boundaries",
+      "source_and_erratum": "Table 115 defines the CIDFont-side CIDSystemInfo dictionary and CIDToGIDMap forms. #518 is attached to CMap-side §9.7.3 CIDSystemInfo and must not be reported as changing Table 115's descendant dictionary. §9.7.4.2 excludes CIDToGIDMap from glyph selection when the program is substituted.",
+      "assertion_review": "The tracked `cid_map_stream_spec_audit.rs` gives a fixed byte-order/fallback oracle. composite.rs has collection and substituted-vs-embedded branch coverage; no complete pairing matrix is claimed.",
+      "verdict": "No new draft. Keep syntax/producer requirements and actual substituted-reader route separate.",
+      "adrs": ["ADR 0029 fits the two-stage mapping model; no reviewed ADR justifies merging CMap-side and CIDFont-side CIDSystemInfo. ADR 1222's archive writing path is not reader conformance evidence."]
+    }
+  ],
+  "scope_limit": "These decisions reconsider three relevant architectural premises only; this is not an exhaustive ADR review of all font decisions."
+}

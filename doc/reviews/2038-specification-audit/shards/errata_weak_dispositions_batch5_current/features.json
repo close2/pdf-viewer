@@ -1,0 +1,105 @@
+{
+  "title": "EC3 weak-disposition batch 5: source effects and current evidence",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection": "IDs #432, #438, #468, #482, #494, #513, #518, #522, #549, #593 from the literal-mention-only discovery crosswalk. The crosswalk is a locator aid, not a coverage verdict.",
+  "source_method": "Inspected EC3 annotation objects, including /Subj, /Contents, /IRT and page placement, against the printed text and nearby table/paragraph. Physical PDF page and printed footer are both given. Assertions below refer to test bodies and their actual consumer route.",
+  "features": [
+    {
+      "issue": 432,
+      "source_location": "EC3 physical p.474 / printed p.459, Table 161 /S; StrikeOut obj 4800 with Caret obj 4801, and StrikeOut 4804 with Caret 4805. Strike rectangles cover the printed 'ZZ'/'zz'; replacement contents are 'AZ'/'az'.",
+      "effective_effect": "The EC3 annotation layer preserves both the #432 AA-to-AZ replacement and #593 higher repeated-letter insertions, but subsequent official issue history resolves their conflict: #432 was reopened, lost its ISO-approved label, was marked duplicate and closed completed; #593 received PDF TWG agreement and was closed completed. These events occurred in 2025, before ADR0601.",
+      "ledger_code_assertions": "Current committed finding 2038-D03 records the official status history and a passing public QueryPageLabel\u2192host PageEntry AA/BB assertion (wave4). `crates/viewer-host/tests/page_label_second_block_audit.rs::repeated_page_label_reaches_the_public_page_list` asserts AA at page 27 and BB at page 28. `page_label.rs::letters_repeat_rather_than_carrying` tests the same arithmetic; the source comment and ADR0601 still claim an unresolved conflict.",
+      "verdict": "No current behavior defect: retain D03 and the repeated-letter behavior. The historic EC3 annotations are stale relative to official issue history. ADR0601 postdates that resolution and its unresolved-conflict premise should be corrected; no duplicate finding or test is needed.",
+      "related_adrs": [
+        "ADR 0601"
+      ]
+    },
+    {
+      "issue": 438,
+      "source_location": "EC3 physical p.45 / printed p.30, \u00a77.3.5 NOTE 2; Text annotation obj 1505, no strike/replacement.",
+      "effective_effect": "Informative note explains that #xx escaping permits different textual spellings for the same decoded PDF Name bytes.",
+      "ledger_code_assertions": "The lexer expands #xx escapes before name identity is used. `crates/pdf-syntax/tests/literal_strings_names_audit.rs::name_escapes_are_expanded_before_binary_identity_is_compared` compares escaped and literal spellings at the byte level; adjacent name tests cover escaping boundaries.",
+      "verdict": "The note states an existing syntax rule; direct byte-identity assertions exercise it. No additional behavioral gap found.",
+      "related_adrs": [
+        "ADR 0453"
+      ]
+    },
+    {
+      "issue": 468,
+      "source_location": "EC3 physical p.558 / printed p.543, Table 234 /I; StrikeOut obj 5755 threaded to Caret obj 5756. The replacement inserts the selected-index-array description and the case where Opt entries have different labels but the same export value.",
+      "effective_effect": "The corrected /I prose is no longer restricted to MultiSelect fields and the old array-/V trigger is deleted. It describes sorted zero-based selected Opt indices and requires /I for options with different display names but the same export value. The following text preserves /V precedence only when V and I identify different items.",
+      "ledger_code_assertions": "Committed finding 2038-B26 tracks `viewer-core/tests/duplicate_choice_labels_spec_audit.rs::duplicate_labels_keep_both_array_selected_indices`. The exact-xref public Query::Fields test uses distinct exports x/y with repeated display name Twin, V [(Twin)(Twin)] and agreeing I [0 1]; it fails [0] vs [0,1]. The distinct-label and single-index controls pass in choices-wave20.log. This is a V-array multiplicity issue, not the specific #468 mandatory same-export/different-name case.",
+      "verdict": "Retain B26 with source qualification: V arrays contain selected item names (second Opt-pair member), and the file has two selected names plus indices that describe the same two items. Do not claim #468 mandates I for this fixture or that this is the erratum-specific trigger. Do not create another draft.",
+      "related_adrs": [
+        "ADR 0248",
+        "ADR 0253",
+        "ADR 0596"
+      ]
+    },
+    {
+      "issue": 482,
+      "source_location": "EC3 physical p.839 / printed p.824, Table 402 /URLs row; StrikeOut obj 7996 threaded to Caret obj 7997. The row describes URL entries as URL file-specification dictionaries whose /F is an RFC 3986 URL string. Parent checked Strike7996 QuadPoints: old embedded-file or URL specification phrase is wholly replaced.",
+      "effective_effect": "The replacement removes the embedded-file-specification alternative from URLs: every element is a URL file-spec dictionary, FS /URL and PDFDocEncoded F limited to RFC3986. This narrows the permitted producer form; it is not just an added alternative. Output-intent processing remains optional, and conditional consumer behavior must be evaluated separately.",
+      "ledger_code_assertions": "Ledger \u00a714.11.5 and `crates/pdf-model/src/file_spec.rs` retain FS /URL and its /F string; URL specifications are not resolved against a local base. `output_intents_current` identifies the separate conditional consumer rule: if an output intent is respected, a page-level one takes priority even when its referenced profile is unavailable; its page/catalog test currently fails by borrowing the catalog profile. That failure is about scope precedence and does not prove remote URL fetching is mandatory.",
+      "verdict": "URL syntax is represented; no unconditional network-fetch requirement follows from this correction. Preserve the conditional profile-reference/output-intent boundary and do not call Table 402 producer-facing only: consumers that choose to honor the referenced intent may need this data. Existing page-versus-catalog defect is separately evidenced in output_intents_current.",
+      "related_adrs": [
+        "ADR 1932"
+      ]
+    },
+    {
+      "issue": 494,
+      "source_location": "EC3 physical p.41 / printed p.26, Table 3 octal row; StrikeOut obj 1489 threaded to Caret obj 1490, replacing the row text with 'Byte with value ddd in octal.'",
+      "effective_effect": "Clarifies that a three-digit octal escape denotes a byte value, not an abstract character code.",
+      "ledger_code_assertions": "The literal-string lexer emits bytes. `crates/pdf-syntax/tests/literal_strings_names_audit.rs::literal_octal_escapes_take_three_digits_and_keep_only_the_low_byte` asserts exact values for one-, two-, and three-digit forms, overflow, and the following non-octal byte. It uses a valid PDF literal string and directly observes decoded bytes.",
+      "verdict": "Direct source-derived byte assertions cover the corrected meaning; no gap found.",
+      "related_adrs": []
+    },
+    {
+      "issue": 513,
+      "source_location": "EC3 physical p.504 / printed p.489, Table 179 OpenArrow row; Text annotation obj 5251, no strike/replacement. It explains a clipped table line and repeats the extant description that two short lines meet at an acute angle.",
+      "effective_effect": "Editorial note about table layout; it does not amend the OpenArrow description or line-ending geometry.",
+      "ledger_code_assertions": "`pdf-model/tests/annotations.rs::each_of_table_179_s_line_endings_draws_its_own_shape` checks line-ending shapes, including OpenArrow, through annotation appearance construction.",
+      "verdict": "No normative change is made by this Text note. Existing shape assertions are relevant to the unchanged row; no new behavioral obligation is created.",
+      "related_adrs": []
+    },
+    {
+      "issue": 518,
+      "source_location": "EC3 physical344/printed329,9.7.3: Strike4225 removes only either; Strike4226 removes or an array of dictionaries and the single-versus-multiple collection qualification. Parent verified each QuadPoint against word boxes.",
+      "effective_effect": "The surviving CMap CIDSystemInfo sentence requires a single dictionary. The former array alternative is removed, not the single-dictionary requirement. Both CMap and CIDFont requirements and Registry/Ordering compatibility survive; Identity CMaps remain compatible with all CIDFonts.",
+      "ledger_code_assertions": "`pdf-font/src/composite.rs::collection_names` reads the descendant font's required CIDSystemInfo. CMap loading primarily consumes code-to-CID mappings; current parser does not expose CMap-stream CIDSystemInfo as a semantic collection field. The archive translator has a separate dictionary-level check. Existing composite-font tests exercise descendant collections and mapping, not the deleted single-vs-array CMap producer encoding.",
+      "verdict": "Producer format is narrowed to one dictionary. No mandatory reader rejection or new semantic representation follows. Current cid_opentype_current already records the array removal correctly. The initial batch5 relaxation wording was an agent misreading, corrected before promotion.",
+      "related_adrs": []
+    },
+    {
+      "issue": 522,
+      "source_location": "EC3 physical p.73 / printed p.58, Table 15 note; Text obj 1839 says /Size does not decrease in incremental updates. Related Text obj 1958 is physical p.81 / printed p.66 after a Caret obj 1956 updating Table 17's /Prev cross-reference; it repeats the same note.",
+      "effective_effect": "Informative NOTE about writer output across incremental updates, not an amended /Size table requirement or new reader rejection rule.",
+      "ledger_code_assertions": "Xref parsing uses /Size for allocation/section bounds and already tolerates incremental sections; current `/Size` policy/departure is explicitly discussed in ADR 0724 and the xref-stream audit. The note does not independently prescribe how a reader repairs or rejects a decreasing value.",
+      "verdict": "Do not elevate this NOTE to a reader SHALL. Preserve the separately recorded /Size policy/departure; no new behavioral test follows from the note alone.",
+      "related_adrs": [
+        "ADR 0724"
+      ]
+    },
+    {
+      "issue": 549,
+      "source_location": "EC3 physical p.187 / printed p.172, \u00a78.5.3.1; StrikeOut obj 3297 threaded to Caret obj 3298 replaces 'generate an error' with 'be ignored' for a painting operator when no current path exists.",
+      "effective_effect": "Effective reader behavior is explicit: ignore that painting operator when there is no current path; this is distinct from \u00a78.5.2.1 current-point behavior.",
+      "ledger_code_assertions": "`crates/pdf-model/tests/undefined_painting_ignored.rs::undefined_painting_operators_are_ignored_and_do_not_consume_the_next_path` opens an exact-xref file, compares with a clean control, checks that the later valid Fill is observed, Stroke is absent, and the unsupported-operator list stays empty.",
+      "verdict": "Strong direct consumer assertion for the corrected rule. Retain ADR 0548's distinction between the amended no-path painting case and the unchanged current-point case; no gap found.",
+      "related_adrs": [
+        "ADR 0548"
+      ]
+    },
+    {
+      "issue": 593,
+      "source_location": "EC3 physical p.474 / printed p.459, Table 161 /S; Caret obj 4813 inserts uppercase 'AAA to ZZZ for the next 26, AAAA to ZZZZ for the next 26,' with lowercase counterpart Caret obj 4815. No strike annotation accompanies these insertions.",
+      "effective_effect": "The EC3 annotation layer preserves both the #432 AA-to-AZ replacement and #593 higher repeated-letter insertions, but subsequent official issue history resolves their conflict: #432 was reopened, lost its ISO-approved label, was marked duplicate and closed completed; #593 received PDF TWG agreement and was closed completed. These events occurred in 2025, before ADR0601.",
+      "ledger_code_assertions": "Current committed finding 2038-D03 records the official status history and a passing public QueryPageLabel\u2192host PageEntry AA/BB assertion (wave4). `crates/viewer-host/tests/page_label_second_block_audit.rs::repeated_page_label_reaches_the_public_page_list` asserts AA at page 27 and BB at page 28. `page_label.rs::letters_repeat_rather_than_carrying` tests the same arithmetic; the source comment and ADR0601 still claim an unresolved conflict.",
+      "verdict": "No current behavior defect: retain D03 and the repeated-letter behavior. The historic EC3 annotations are stale relative to official issue history. ADR0601 postdates that resolution and its unresolved-conflict premise should be corrected; no duplicate finding or test is needed.",
+      "related_adrs": [
+        "ADR 0601"
+      ]
+    }
+  ]
+}

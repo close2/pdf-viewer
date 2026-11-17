@@ -1,0 +1,28 @@
+{
+  "selected_decisions": [
+    {
+      "topic": "Can minimal synthetic ICC headers support complete-profile conformance claims?",
+      "decision": "No. They remain useful for focused parser and arithmetic tests, but their PDF consumer results do not establish handling of a conforming profile."
+    },
+    {
+      "topic": "Should the existing ICC intent test family be replaced?",
+      "decision": "No. Keep that suite's targeted intent, state, restore, stencil, and text coverage. Add a separate public valid-profile control so at least one end-to-end intent test crosses an independently validated ICC profile boundary."
+    },
+    {
+      "topic": "Are literal RGB values normative?",
+      "decision": "No. ICC defines the profile transform intent mapping, but the screen-output RGB depends on this viewer's PCS-to-display conversion. Use independently derived literals as a regression oracle only, and require that all three differ as controls."
+    },
+    {
+      "topic": "Does ICCDEV acceptance settle profile and PDF validity?",
+      "decision": "It is independent evidence for ICC profile structure/conformance. It does not certify the PDF fixture or this viewer, and it is not corroboration from a second ICC implementation. The generated PDF must still be reviewed as an exact-xref fixture and the Rust consumer draft must run in the parent validation pass."
+    },
+    {
+      "topic": "Does the profile's colorimetric midpoint preserve gray neutrality?",
+      "decision": "The A2B1 midpoint is explicitly on the D50 PCS neutral axis (XYZ 0.25×D50), following the Gray profile model; A2B0 and A2B2 are distinct perceptual/saturation mapping controls. ICCDEV accepts the profile. This bounded audit does not independently certify all artistic profile characterization judgments."
+    }
+  ],
+  "prior_profile_reconciliation": {
+    "B25": "The previously validated B25 profile is ICC.2:2023 v5 Lab with mpet transforms, intended to exercise unsupported-profile alternate fallback. This new profile is ICC.1:2022 v4.4 with lut16Type transforms and targets implemented intent dispatch. They cover complementary paths.",
+    "tool_provenance": "Both use the pinned ICC iccDEV Python validator 2.3.2.5. Its acceptance should be reported as a result, not generalized into complete standards certification of the PDF reader."
+  }
+}

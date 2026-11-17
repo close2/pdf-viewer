@@ -1,0 +1,7 @@
+{
+  "verdict": "T122: strengthened existing none_removes_the_mask now genuinely checks q/Q restoration.",
+  "source": "Parent primary432 None,433 derivation prose,434 actual Table142; cross-reference mention on433 is not the table. Reviewer locators corrected. Type/S/G/BC/TR cells mapped; image SMask excluded.",
+  "assertions": "Parent read literal Alpha191/64/outside255, CMYK absentBCwhite, transfer Identity and clamped-output controls. Old None assertion compared two fixtures and painted nothing afterQ despite claiming restoration. New fixture paints unmasked stripe25..30 insideq/Q then fullpage afterQ; x5black,27black,35white distinguishes restored mask.",
+  "execution": "softmask-restore-wave92 PASS; model all-target ClippyPASS. Existing mask identities also broad90PASS, which predates stronger restoration control.",
+  "limits": "No all-space/function/backend certification. Historical softmask findings describe original assertion; this parent review records added restoration evidence."
+}

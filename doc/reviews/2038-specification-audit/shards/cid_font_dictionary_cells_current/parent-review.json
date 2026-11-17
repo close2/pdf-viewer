@@ -1,0 +1,8 @@
+{
+  "verdict": "T127: direct and indirect descendant FontDescriptor both load the same embedded glyph program and reach a page display list. One assertion PASS.",
+  "source": "Parent read actual Table115 physical345–346/printed330–331 and glyph-selection prose347. Direct pikepdf annotation12213 is #106 StrikeOut at346 removing indirect-reference restriction. Table114 CIDSystemInfo is at345; #518 is CMap-side and is not applied to CIDFont entry.",
+  "fixture": "Exact-xref PDF1.7, bundled LiberationSans TrueType program, CID5 -> GID37 via big-endian map, literal 1366/2048 width. FontTools independently checked PS name, head bounding box and glyph B hmtx. Parent retains object7 in both variants (unused descriptor copy in direct case), avoiding an unrelated free-list difference. Embedded FontFile2 remains an indirect stream.",
+  "assertions": "Both variants parse without recovery, interpret completely, report one glyph and one display-list Fill, map CID5 to37, provide an outline and report literal advance. No optional font/corpus early return.",
+  "decisions": "ADR0029 separation of code/CID/GID maps retained for this path; ADR0965 vertical dictionary metrics rationale retained, not recast as a descriptor requirement. No certification of all CMap pairs, all font descriptors, or transformed/archival direct fonts.",
+  "execution": "direct-cid-descriptor-wave96 and final96b each 1 PASS. Parent fixed draft Write trait and doc/unused lint expectations. Final model/render-raster Clippy PASS."
+}

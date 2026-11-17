@@ -1,0 +1,121 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft/run status. Neither whole-clause nor all-feature certification.",
+  "reviewer_record": {
+    "baseline": "b901326c",
+    "comparison": "4015a9ae..b901326c",
+    "features": [
+      {
+        "id": "field-attribute-inheritance-through-the-parent-chain",
+        "clause": [
+          "ISO 32000-2:2020 §12.7.4.1 Table 226",
+          "Table 227",
+          "§12.7.4.2"
+        ],
+        "source_location": "Effective ISO printed pp. 530–532 (physical pp. 545–547): §12.7.4.1 states that inheritance range shall not be limited; Table 226 marks /FT, /Ff, /V and /DV inheritable. EC3 Issue #28 amends /T requiredness; #313 narrows AA's annotation cross-reference; neither changes these inherited entries. Issue #683 removes 'inheritable' from ResetForm action /Flags, not field attributes.",
+        "normative_effect": "A field gets an inheritable entry from the nearest ancestor that states it; readers cannot impose a fixed chain-depth limit. A terminal field may therefore obtain type, flags, current value and reset default from different ancestors. /V and /DV belong to the field and may differ among terminal descendants where a descendant overrides an inherited entry.",
+        "implementation": [
+          "crates/pdf-model/src/inheritance.rs::Inherited and Ancestors",
+          "crates/pdf-model/src/appearance.rs::Field::read",
+          "crates/pdf-model/src/form.rs::fields",
+          "crates/pdf-model/src/view/fields.rs::held_to_max_len"
+        ],
+        "assertions": [
+          "crates/pdf-model/src/form.rs::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them asserts public FormField FT/Ff/V two field links above a widget",
+          "crates/pdf-model/src/inheritance.rs::every_widget_of_a_chain_past_any_bound_reads_what_its_top_states asserts a deep synthetic chain",
+          "crates/pdf-model/tests/variable_text.rs::a_parent_chain_deeper_than_any_bound_is_read_to_its_end checks a public dynamic-appearance read",
+          "crates/pdf-model/tests/variable_text.rs::a_parent_chain_that_returns_to_a_field_it_passed_is_named_rather_than_followed is the cycle control"
+        ],
+        "test_changes_since_prior": "The above inheritance tests are not changed in 4015a9ae..b901326c. New max_len_model.rs tests exercise inherited /MaxLen in import and calculation paths, but inspect field_value and saved /V rather than the generated public appearance.",
+        "verdict": "The general parent-chain implementation has direct unit and public appearance evidence. I found no standalone current execution evidence in this shard. The new exact-xref fixture uses two terminal fields under one nonterminal parent (not two widgets belonging to one field): both inherit the same ancestor /V, while the second terminal field overrides /DV. Full reset has distinct expected results per terminal field. Current write_resets delegates storage to holder, which chooses the ancestor that held the original /V; the second child's different default can then overwrite the shared ancestor value. Separate runtime and saved/reopened tests isolate the persistence claim. This is a concrete likely serialization defect, not a claim that inheritance itself is incomplete.",
+        "residuals": [
+          "The drafts have not been compiled or executed by this agent; parent owns execution.",
+          "The draft tests full-form reset, not Table 242 inclusion/exclusion descendant targeting; EC3 #174 specifically amends the exclusion branch and remains outside this result.",
+          "The two-child reset behavior should also be checked for a later user edit and import; this shard does not assert those variants."
+        ],
+        "related_adrs": [
+          "0736",
+          "1198",
+          "1796",
+          "2448"
+        ]
+      },
+      {
+        "id": "reset-default-value-and-appearance-remain-consistent",
+        "clause": [
+          "ISO 32000-2:2020 §12.7.2",
+          "§12.7.4.3",
+          "§12.7.6.3"
+        ],
+        "source_location": "Effective ISO §12.7.2 printed p. 528 / physical p. 543 says a merged field/widget appearance shall agree with its current value and notes variable text may need dynamic appearances. §12.7.6.3 printed p. 555 / physical p. 570 says selected fields shall have /V set to /DV or /V removed when no default exists.",
+        "normative_effect": "A reset changes the field value to its effective default, and any appearance provided for the widget must agree with the value. Saving must not leave a shared ancestor /V that makes sibling fields disagree with their distinct effective /DV values.",
+        "implementation": [
+          "crates/pdf-model/src/view/actions.rs::reset_form",
+          "crates/pdf-model/src/appearance.rs::Field::read",
+          "crates/pdf-model/src/view/writing.rs::write_resets and holder",
+          "crates/pdf-model/src/view/writing.rs::Update::write_appearance"
+        ],
+        "assertions": [
+          "crates/pdf-model/tests/value_statements.rs::a_reset_after_typing_draws_the_default_value",
+          "::a_saved_reset_opens_again_showing_the_default_value",
+          "::a_reset_that_changes_no_value_writes_nothing",
+          "crates/pdf-model/tests/variable_text.rs::a_reset_form_action_draws_the_default_value_instead_of_the_value",
+          "crates/pdf-model/tests/forms_data.rs::a_reset_after_an_import_takes_the_documents_own_default"
+        ],
+        "test_changes_since_prior": "These reset assertions are unchanged since 4015a9ae. They use a merged single-widget field with local /V and /DV, so they do not distinguish a shared inherited /V from per-terminal inherited defaults. Draft inherited_reset_value_appearance.rs uses a valid explicit xref, asserts no recovery, independent first/second effective defaults, public field values, visible generated text, and saved/reopened values and drawing.",
+        "verdict": "Existing tests demonstrate ordinary reset ordering and save behavior, but not the multi-terminal ancestor-storage interaction. Code inspection identifies a likely defect in write_resets/holder for siblings that inherit the same old /V and have different effective defaults. The runtime draft and separate save/reopen draft give a precise counterexample to the ledger's broad saved-file sentence. No execution claim is made.",
+        "residuals": [
+          "After parent execution, inspect serialized dictionaries to ensure the fix writes a terminal override for only the child whose /DV differs; a runtime-only pass would not establish persisted consistency."
+        ],
+        "related_adrs": [
+          "1198",
+          "1796",
+          "2448"
+        ]
+      },
+      {
+        "id": "imported-value-appearance-replacement-and-maxlen",
+        "clause": [
+          "ISO 32000-2:2020 §12.7.8.3.2 Table 249",
+          "§12.7.5.3 Table 232",
+          "§12.7.2"
+        ],
+        "source_location": "§12.7.8.3.2 printed pp. 577–579 / physical pp. 592–594 states that imported FDF entries replace corresponding field entries of the same fully qualified name; Table 232 defines /MaxLen as the maximum length of field text. Scope is corroborated by doc/questions/A834 item 1 and ADR 2840; scripts that mutate document values/appearance properties are within the 2026-10-08 ratification in doc/scope-ratifications.md, while external effects remain excluded.",
+        "normative_effect": "Import replacement and truncation are required in the owner-ratified product behavior; Table 232 alone does not prescribe the exact replacement policy for overlong programmatic input. A value displayed after a replacement should not continue to show stale field artwork.",
+        "implementation": [
+          "crates/pdf-model/src/view/fields.rs::import_fields",
+          "::held_to_max_len",
+          "crates/pdf-model/src/appearance.rs::FieldValue::Imported",
+          "crates/pdf-model/src/view/writing.rs::write_imported_values"
+        ],
+        "assertions": [
+          "crates/pdf-model/tests/forms_data.rs::an_imported_value_is_the_one_that_is_drawn",
+          "::a_replaced_value_is_drawn_even_where_the_file_stores_an_appearance",
+          "::an_imported_appearance_is_written_into_the_saved_file",
+          "crates/pdf-model/tests/max_len_model.rs::a_value_set_through_the_model_is_cut_to_max_len",
+          "::an_imported_value_is_cut_to_the_inherited_max_len",
+          "::a_calculated_value_is_cut_to_max_len"
+        ],
+        "test_changes_since_prior": "forms_data.rs and value_statements.rs assertions are unchanged in 4015a9ae..b901326c. max_len_model.rs is new and asserts field_value and/or saved /V for user-set, imported, and calculated overlength values; it does not assert that the generated page appearance contains the same truncated value. The only change in variable_text.rs is a nested BMC/EMC assertion unrelated to form values.",
+        "verdict": "Import replacement has public drawing and stored-appearance assertions. `/MaxLen` entry paths are new and value/save assertions are meaningful; no direct source-derived failure was found. A small residual is that new truncation tests do not assert page output after the cut. Scope ratification does not excuse values/appearance inconsistency; no excluded side effect is implicated.",
+        "residuals": [
+          "No exact-xref, no-recovery assertion appears inside max_len_model.rs; its hand-built PDF uses an explicit xref but that condition is not independently asserted.",
+          "No test in the new module asserts generated page text after truncation for set/import/calculation."
+        ],
+        "related_adrs": [
+          "1661",
+          "1796",
+          "2816",
+          "2840"
+        ]
+      }
+    ],
+    "current_execution": "Not executed by this audit agent. Parent owns compilation and test execution; existence of the draft is not execution evidence.",
+    "unreviewed": [
+      "No complete Table 231/232 audit of text controls, comb/password/file-select, script and XFA field values.",
+      "No complete Table 249 audit of FDF entries, flags, options, appearances, actions, templates, and annotation import.",
+      "No GTK/Qt/native host interaction, GTK display, or Xvfb gate review in this shard.",
+      "No certification of the whole §12.7.2, §12.7.4, §12.7.6.3, §12.7.8.3.2, or any ADR.",
+      "No combined public assertion was added for inherited ReadOnly behavior; existing inheritance test asserts inherited Ff and a separate forms_data test asserts local ReadOnly edit refusal/import behavior."
+    ]
+  }
+}

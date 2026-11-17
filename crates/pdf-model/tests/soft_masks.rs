@@ -273,8 +273,9 @@ fn an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour() {
 ///
 /// §11.6.4.3: "The name None may be specified in place of a soft-mask dictionary, denoting
 /// the absence of a soft mask. It shall also mean that any existing mask shall be removed
-/// from the current graphics state." The fixture sets the mask, paints, sets `/None`, paints
-/// again over the same place — and the second rectangle must be solid.
+/// from the current graphics state." Paired fixtures compare a masked rectangle with one
+/// painted after `/None`. A nested save/restore fixture then distinguishes the unmasked
+/// inner mark from the masked paint after `Q`.
 #[test]
 fn none_removes_the_mask() {
     // Written out with its own cross-reference table, so that the second `/ExtGState` has an
@@ -328,6 +329,27 @@ fn none_removes_the_mask() {
         "with the mask removed the black rectangle is solid",
     );
     near(level(&raster, 30, 20), 0, "everywhere, not only in the box");
+
+    // /None is local to q/Q: the inner mark survives where the mask would hide it,
+    // while the full-page paint after Q is again masked on the right half.
+    let restored = opened(with_off(
+        "/GS gs q /Off gs 0 g 25 0 5 40 re f Q 0 g 0 0 40 40 re f",
+    ));
+    near(
+        level(&restored, 5, 20),
+        0,
+        "restored mask permits the left half",
+    );
+    near(
+        level(&restored, 27, 20),
+        0,
+        "None permits the inner mark outside the mask",
+    );
+    near(
+        level(&restored, 35, 20),
+        255,
+        "Q restores the mask for the later full-page paint",
+    );
 }
 
 /// A mask is fixed where the `gs` established it, not where the object is painted.
@@ -1083,4 +1105,121 @@ fn a_mask_group_stating_no_resources_is_read_against_the_pages_dictionary() {
         255,
         "outside the box the mask is /BC's luminosity, 0",
     );
+}
+
+/// ISO 32000-2 §11.5.2 NOTE 2 fixes an empty group’s shape and alpha at zero.
+#[test]
+fn an_empty_alpha_mask_group_has_zero_alpha() {
+    let masked_bytes = page(
+        "/SMask << /Type /Mask /S /Alpha /G 6 0 R >>",
+        "/GS gs 0 g 0 0 40 40 re f",
+        "",
+    );
+    let parsed = Document::open(masked_bytes.clone()).expect("the exact-xref fixture opens");
+    assert!(!parsed.was_recovered(), "the fixture has an exact xref");
+    let masked = render(masked_bytes);
+
+    // The form helper's empty content stream creates a real empty Transparency group. Its
+    // /BBox is the left half of the page; the alpha derivation is zero inside and outside.
+    // Drawing black through zero alpha leaves the white page unchanged.
+    for (x, y) in [(5, 20), (15, 20), (25, 20), (35, 20)] {
+        assert_eq!(
+            pixel(&masked, x, y),
+            [255, 255, 255, 255],
+            "an empty alpha group contributes zero at ({x}, {y})",
+        );
+    }
+
+    // Control: identical page and black fill without an active mask must paint black. This
+    // ensures that the empty target group did not cause the test to observe a blank page.
+    let control_bytes = page("", "/GS gs 0 g 0 0 40 40 re f", "");
+    let control_doc = Document::open(control_bytes.clone()).expect("the exact-xref control opens");
+    assert!(
+        !control_doc.was_recovered(),
+        "the control has an exact xref"
+    );
+    let control = render(control_bytes);
+    assert_eq!(pixel(&control, 5, 20), [0, 0, 0, 255]);
+    assert_eq!(pixel(&control, 35, 20), [0, 0, 0, 255]);
+}
+
+#[test]
+fn an_alpha_mask_transfer_function_is_applied_to_group_alpha_in_the_pdf_path() {
+    let bytes = page_with_group_resources(
+        "/DeviceGray",
+        "/SMask << /Type /Mask /S /Alpha /G 6 0 R \
+         /TR << /FunctionType 2 /Domain [0 1] /Range [0 1] /N 1 /C0 [1] /C1 [0] >> >>",
+        "/GS gs 0 g 0 0 40 40 re f",
+        "<< /ExtGState << /GA 7 0 R >> >>",
+        "/GA gs 0 g 0 0 20 40 re f",
+        &[b"7 0 obj\n<< /Type /ExtGState /ca 0.25 >>\nendobj\n".to_vec()],
+    );
+    let document = Document::open(bytes.clone()).expect("the exact-xref PDF opens");
+    assert!(
+        !document.was_recovered(),
+        "the fixture has exact xref offsets"
+    );
+    let raster = render(bytes);
+
+    // §11.5.2 supplies alpha 0.25 from the group. The valid type-2 function C0=1, C1=0,
+    // N=1 maps it to 0.75. Black at mask opacity 0.75 over white leaves 0.25, rounded to
+    // level 64. Section 11.6.5.1 requires the outside-BBox mask to be TR(0), here 1.
+    let inside = pixel(&raster, 5, 20);
+    for channel in &inside[..3] {
+        near(i32::from(*channel), 64, "inverse alpha mask");
+    }
+    assert_eq!(inside[3], 255);
+    assert_eq!(pixel(&raster, 25, 20), [0, 0, 0, 255]);
+}
+
+fn alpha_mask_with_inherited_group_space(mask_group_cs: Option<&str>) -> Vec<u8> {
+    let mask_group_cs = mask_group_cs.map_or(String::new(), |cs| format!("/CS {cs}"));
+    let objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Group << /Type /Group /S /Transparency /CS /DeviceRGB >> \
+          /Resources << /ExtGState << /GS 5 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"q /GS gs 0 0 1 rg 0 0 40 40 re f Q"),
+        b"5 0 obj\n<< /Type /ExtGState /SMask << /S /Alpha /G 6 0 R >> >>\nendobj\n".to_vec(),
+        stream_object(
+            6,
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] /Resources << >> \
+                 /Group << /Type /Group /S /Transparency /I true {mask_group_cs} >>"
+            ),
+            b"1 0 0 rg 0 0 20 40 re f",
+        ),
+    ];
+    assemble(&objects)
+}
+
+#[test]
+fn an_alpha_mask_group_may_inherit_its_colour_space_from_the_page_group() {
+    // Control first: explicit /CS and inherited /CS must produce the same mask.
+    let explicit = alpha_mask_with_inherited_group_space(Some("/DeviceRGB"));
+    let inherited = alpha_mask_with_inherited_group_space(None);
+    for (label, bytes) in [("explicit", explicit), ("inherited", inherited)] {
+        let document = Document::open(bytes.clone()).expect("valid exact-xref fixture");
+        assert!(
+            !document.was_recovered(),
+            "{label} fixture has an exact xref"
+        );
+        assert!(
+            !document.cross_reference_chain_was_cut(),
+            "{label} fixture has no repaired cross-reference chain"
+        );
+        let raster = render(bytes);
+        assert_eq!(
+            pixel(&raster, 10, 20),
+            [0, 0, 255, 255],
+            "{label}: opaque mask paints blue"
+        );
+        assert_eq!(
+            pixel(&raster, 30, 20),
+            [255, 255, 255, 255],
+            "{label}: outside group BBox is transparent"
+        );
+    }
 }

@@ -1,0 +1,25 @@
+{
+  "baseline": "b901326c",
+  "reviews": [
+    {
+      "adr": "0162 — A destination is three things and two of them were owed",
+      "review_scope": "Table 149 form parsing and local page-view consumers, excluding the already-reviewed FitR/FitB centering disagreement.",
+      "decision": "Retain the destination page/location/zoom model and tested local geometry for XYZ, Fit, FitH/FitV, and FitB-family coordinates. Reopen only the ADR's FitR/FitB corner-placement inference under existing B24. FitR centering is recommended (SHOULD) under #536 because the insertion precedes the entire sentence; FitB centering remains an unamended imperative. Do not broaden B24 to the eight-form parser or all local destination geometry.",
+      "evidence": "Primary §12.3.2.2/Table 149, printed pp.441–443 / physical pp.456–458; pdf-model/src/destination.rs model tests; viewer-core/tests/headless.rs; viewer-core/tests/destinations_residual_audit.rs; durable destinations_current_followup/parent-review.json."
+    },
+    {
+      "adr": "2814 — The viewer does what the tables say of views",
+      "review_scope": "Default user-space coordinates, null retention, and FitBH/FitBV operands.",
+      "decision": "Retain these narrow conclusions. Public tests calculate crop-relative coordinates and distinguish content-box fits from page-box fits. Rotation-composition assertions are separately tracked in navigation_geometry_residual_current. Do not use these local proofs to certify cross-document action-view propagation; B23 is a separate finding.",
+      "evidence": "Primary Table 149 and the listed public test assertions; navigation_geometry_residual_current/parent-review.json; destinations_current_followup/parent-review.json."
+    },
+    {
+      "adr": "1227 / 0094 — Remote document handoff and embedded Go-To traversal",
+      "review_scope": "Avoid re-adjudicating target acquisition policy or embedded target selection while recording the destination-array coverage boundary.",
+      "decision": "Retain the request/target traversal conclusions to the extent independently tested, but the existing B23 finding records that a valid remote/embedded destination's view is discarded after the target page is selected. This shard adds no duplicate test or broader ADR verdict.",
+      "evidence": "viewer-core/tests/cross_document_destination_view_spec_audit.rs has direct-target/local controls and exact-xref remote/embedded integer-index fixtures; B23 in doc/reviews/2038-specification-audit/findings.json and expected-failures.json."
+    }
+  ],
+  "errata_disposition": "EC3 Issue #536 qualifies the FitR smaller-factor instruction as SHOULD for interactive processors. Its insertion precedes the full FitR sentence, including “centring the rectangle,” so B24's FitR portion is a SHOULD-level recommendation. The independent FitB row retains its unamended imperative. The effective note also records the earlier correction that integer page targets apply to embedded Go-To.",
+  "new_test_disposition": "No distinct test is drafted: parser coverage is not conflated with geometry coverage, and prior public tests already exercise the remaining in-scope array cells. B23 and B24 have existing tests and durable source reviews."
+}

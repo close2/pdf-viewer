@@ -5,10 +5,11 @@
 //!
 //! §8.7.4.5.3 maps each point of an axial shading to a parameter by its projection onto the
 //! axis, and "[t]he variable t becomes the input argument to the colour function(s)" (Table
-//! 79's `Domain`). A device pixel's colour is the function at the `t` of its centre — §10.7.4's
-//! "point whose coordinate values have fractional parts of one-half". Between two stops a ramp
-//! is §7.10.3's type 2 with `N` of 1, `C0 + x × (C1 − C0)`: so the colour at a centre is exact
-//! arithmetic, and the byte a pixel holds is the level nearest it.
+//! 79's `Domain`). This renderer samples the shading at each pixel's centre. That sampling
+//! location is its rasterization policy; §10.7.4's centre rule specifically governs sampled
+//! images. Between two stops a ramp is §7.10.3's type 2 with `N` of 1,
+//! `C0 + x × (C1 − C0)`: the colour at the chosen point follows that arithmetic, and the byte
+//! a pixel holds is the level nearest it.
 //!
 //! # The fixture
 //!
@@ -50,7 +51,7 @@ const HEIGHT: u32 = 256;
 /// Intervals of the ramp: stop `k` at `k / 32`, black where `k` is even and white where odd.
 const INTERVALS: u32 = 32;
 
-/// The level §8.7.4.5.3 and §7.10.3 give device row `row`, in exact arithmetic: the centre's
+/// The level §8.7.4.5.3 and §7.10.3 give at row `row`'s chosen centre sample:
 /// `t = (row + ½) / 256`, the interval `k` holding it, and the type 2 interpolation across it.
 fn clause_level(row: u32) -> u8 {
     let t = (f64::from(row) + 0.5) / f64::from(HEIGHT);

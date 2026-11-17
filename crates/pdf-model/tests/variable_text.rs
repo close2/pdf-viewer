@@ -35,8 +35,8 @@ const PAGE: (u32, u32) = (200, 100);
 /// Assembles a one-page PDF with an interactive form, one widget, and a `/DR` naming `/Helv`.
 ///
 /// `form` and `annotation` are written verbatim into the interactive form dictionary and the
-/// annotation, which is what lets one builder serve a text field, a comb field, a check box
-/// and a free text annotation.
+/// widget annotation, which is what lets one builder serve a text field, a comb field or a
+/// check box. Standalone `/FreeText` annotations use `standalone_annotation_pdf` below.
 fn pdf_with(form: &str, annotation: &str) -> Vec<u8> {
     pdf_with_appearance(form, annotation, "0 0 1 rg 0 0 10 10 re f")
 }
@@ -44,6 +44,20 @@ fn pdf_with(form: &str, annotation: &str) -> Vec<u8> {
 /// The same, with the stored appearance stream's contents given.
 fn pdf_with_appearance(form: &str, annotation: &str, appearance: &str) -> Vec<u8> {
     pdf_with_font(form, annotation, appearance, "", "")
+}
+
+/// A standalone annotation with the same default resources, but no field entry.
+fn standalone_annotation_pdf(form: &str, annotation: &str) -> Vec<u8> {
+    standalone_annotation_pdf_with_appearance(form, annotation, "0 0 1 rg 0 0 10 10 re f")
+}
+
+/// The standalone annotation variant with a supplied stored appearance.
+fn standalone_annotation_pdf_with_appearance(
+    form: &str,
+    annotation: &str,
+    appearance: &str,
+) -> Vec<u8> {
+    pdf_with_field_list(form, annotation, appearance, "", "", "")
 }
 
 /// The same, with further objects written after the seven every fixture has.
@@ -81,10 +95,22 @@ fn pdf_with_font(
     font: &str,
     extra: &str,
 ) -> Vec<u8> {
+    pdf_with_field_list(form, annotation, appearance, font, extra, "5 0 R")
+}
+
+/// Give standalone annotations an empty field list while retaining their font resources.
+fn pdf_with_field_list(
+    form: &str,
+    annotation: &str,
+    appearance: &str,
+    font: &str,
+    extra: &str,
+    fields: &str,
+) -> Vec<u8> {
     let (width, height) = PAGE;
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
-         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> {form} >> >>\nendobj\n\
+         << /Fields [{fields}] /DR << /Font << /Helv 7 0 R >> >> {form} >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
          /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
@@ -120,6 +146,11 @@ fn pdf_with_font(
 /// Interprets a fixture, returning what it reported and the marks it made.
 fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    assert!(
+        !document.was_recovered(),
+        "fixture has exact cross references"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     let reports = interpretation
@@ -795,7 +826,7 @@ fn shown_bytes(content: &[u8]) -> Vec<Vec<u8>> {
 /// face the indices are read against is the one the machine offers for `displayed` in the weight
 /// the fixtures' `/HeBo` names.
 fn shown_glyphs(annotation: &str, displayed: &str) -> (Vec<Vec<u16>>, std::sync::Arc<[u8]>) {
-    let bytes = pdf_with("", annotation);
+    let bytes = standalone_annotation_pdf("", annotation);
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let annotation = document.get(pdf_syntax::ObjectId {
         number: 5,
@@ -1024,7 +1055,7 @@ fn a_right_to_left_value_is_quadded_to_the_side_q_names() {
         return;
     }
     let span = |quadding: u8| {
-        let (reports, raster) = draw(pdf_with(
+        let (reports, raster) = draw(standalone_annotation_pdf(
             "",
             &format!(
                 "<< /Type /Annot /Subtype /FreeText /Rect [10 10 190 90] /F 4 /Q {quadding} \
@@ -1154,7 +1185,7 @@ fn a_check_box_with_nothing_to_draw_says_so() {
 /// §12.5.6.6: a free text annotation's `/Contents` is its appearance.
 #[test]
 fn a_free_text_annotation_draws_its_contents() {
-    let (reports, raster) = draw(pdf_with(
+    let (reports, raster) = draw(standalone_annotation_pdf(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
          /Contents (visible) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
@@ -1181,7 +1212,7 @@ fn a_free_text_annotation_draws_its_contents() {
 /// defence. ADR 0224.
 #[test]
 fn a_free_text_annotations_rich_text_draws_where_it_states_no_contents() {
-    let (reports, raster) = draw(pdf_with(
+    let (reports, raster) = draw(standalone_annotation_pdf(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
          /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>visible</p></body>) \
@@ -1207,7 +1238,7 @@ fn a_free_text_annotations_rich_text_draws_where_it_states_no_contents() {
 /// long `/RC` must ink like the short one.
 #[test]
 fn a_free_text_annotations_contents_outranks_its_rich_text() {
-    let (reports, raster) = draw(pdf_with(
+    let (reports, raster) = draw(standalone_annotation_pdf(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (i) \
          /RC (<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>wwwwwwwwwwwwwwww</p></body>) \
@@ -2278,7 +2309,7 @@ fn a_selection_across_a_wrap_is_one_shape_per_line() {
 /// annotation this program added, by construction.
 #[test]
 fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
-    let bytes = pdf_with("", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>");
+    let bytes = standalone_annotation_pdf("", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>");
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let id = page
@@ -2373,7 +2404,7 @@ fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
 ///   the block behind.
 #[test]
 fn a_free_text_annotation_the_file_states_is_retyped_redrawn_and_written_back() {
-    let bytes = pdf_with_appearance(
+    let bytes = standalone_annotation_pdf_with_appearance(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (the producer's) \
          /DA (/Helv 12 Tf 0 g) /Border [0 0 0] /AP << /N 6 0 R >> >>",
@@ -2558,7 +2589,7 @@ fn table_167s_locked_flag_is_not_its_locked_contents_flag() {
         (4 | (1 << 9), vec![Restriction::AnnotationLocked]),
         (4 | (1 << 7), Vec::new()),
     ] {
-        let document = Document::open(pdf_with(
+        let document = Document::open(standalone_annotation_pdf(
             "",
             &format!(
                 "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F {flags} \
@@ -2590,7 +2621,7 @@ fn table_167s_locked_flag_is_not_its_locked_contents_flag() {
 /// is not an untouched one.
 #[test]
 fn clearing_a_free_text_annotation_does_not_uncover_its_rich_text() {
-    let document = Document::open(pdf_with(
+    let document = Document::open(standalone_annotation_pdf(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (mmmmmmmmmm) \
          /RC (wwwwwwwwww) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
@@ -2636,12 +2667,16 @@ fn clearing_a_free_text_annotation_does_not_uncover_its_rich_text() {
 /// counts. The `/Rect` is `[20 40 180 70]` and every callout below runs in the empty half of the
 /// page under it, so the marks the callout makes and the marks the text makes never meet.
 fn callout_annotation(entries: &str) -> Vec<u8> {
-    pdf_with(
+    pdf_with_field_list(
         "",
         &format!(
             "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
              /DA (/Helv 12 Tf 0 g) /Border [0 0 0] {entries} >>"
         ),
+        "",
+        "",
+        "",
+        "",
     )
 }
 
@@ -3212,7 +3247,7 @@ fn a_vertical_composite_da_font_is_refused_and_says_which() {
 /// free text annotations with no appearance stream, every one of them stating `/Border` and four
 /// of them stating a width of zero, so no corpus page can distinguish these cases.
 fn bordered_annotation(entries: &str) -> Vec<u8> {
-    pdf_with(
+    standalone_annotation_pdf(
         "",
         &format!(
             "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
@@ -3318,7 +3353,7 @@ fn a_free_texts_cloudy_border_is_scalloped_rather_than_refused() {
         "and the scallops are on the page"
     );
 
-    let (told, drawn) = draw(pdf_with(
+    let (told, drawn) = draw(standalone_annotation_pdf(
         "",
         "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
          /DA (/Helv 12 Tf 0 g) /Border [0 0 6] /BE << /S /C >> >>",

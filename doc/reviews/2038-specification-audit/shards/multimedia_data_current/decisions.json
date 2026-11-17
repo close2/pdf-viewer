@@ -1,0 +1,21 @@
+{
+  "reviews": [
+    {"adr":"1946","verdict":"Retain. The current CLAUDE.md exclusion admits viability reporting and handoff, while excluding decoding and presenting audio/video. This establishes the boundary for every reviewed row."},
+    {"adr":"1960","verdict":"Retain with precise scope. Viability is judged for this product's no-name external handoff, not a local media player. Reported inability to honor MH entries and unsupported player identity is a documented product boundary, not an assertion of playback conformance."},
+    {"adr":"1961","verdict":"Retain. Hand-off of embedded bytes is subject to the reader's media permission level; it does not imply playback or an external application being successfully started."},
+    {"adr":"2392","verdict":"Retain. It corrects the earlier media-model decisions for player-info array filtering and offsets on still images, with positive/negative controls. Its choice to check only negative versions for viability is correct for current no-name player matching, but must not be represented as implementing version-array comparison."},
+    {"adr":"2431","verdict":"Retain. A must-honour B at time zero/frame zero is honored only where the next-level section chain itself begins at the data start; tests include nested control."},
+    {"adr":"2447","verdict":"Retain. Tables 296/300 explicitly make an unknown subtype rendition-nonviable regardless of the surrounding BE. It separates missing S from an unrecognized value; tests exercise both."},
+    {"adr":"2452","verdict":"Retain with its finite-container scope. Container headers, supported durations/frame counts and markers make viability checks possible without decoding samples. Avoid claiming arbitrary container/timeline support."},
+    {"adr":"2472","verdict":"Retain. Table 300's rendition-level unknown subtype rule applies to a Table 292 explicit duration under BE; other invalid best-effort duration content can be ignored. Existing tests distinguish those cases."},
+    {"adr":"2473","verdict":"Retain as interpretation for unsupported media types: without a format reader, the implementation cannot establish support for requested offsets. This does not certify media type behavior across all standards."},
+    {"adr":"2376","verdict":"Retain for status history, but do not rely on its earlier partial status for offsets/player-info; later ADRs 2392, 2431, 2452, 2447 and 2472 changed that evidence."}
+  ],
+  "triage": [
+    {"claim":"13.2.7.4.4 is implemented","verdict":"Only its invalid-negative-version viability condition is observed. Version array ordering/range matching is not implemented because no current player name/version/OS is supplied. Qualify the ledger wording as scoped to current processor viability; do not certify the comparison algorithm."},
+    {"claim":"13.2.4.2 validates CT against RFC 2045","verdict":"No validator found. EC3 #257 makes conformance a shall on the media clip data's CT string, but it is a value/authoring constraint and no reader action on malformed syntax is stated. No confirmed interactive-reader defect."},
+    {"claim":"13.2.5 timing behavior is implemented","verdict":"No. Current code judges viability and reports/hands off data. It does not perform playback fit, duration freezing, repetition, autoplay, volume or controller behavior; those remain excluded player behavior."},
+    {"claim":"offsets/timespans fully supported","verdict":"Only the viability questions over the supported embedded-container subset. No actual seek/timing occurs, and no claim for unparsed media formats, URL/file I/O or arbitrary external player timeline."},
+    {"test assertion gap":"MediaPlayerInfo BE entries","verdict":"The code ignores them, but existing tests do not isolate this against the no-name external player path. Draft `drafts/player_info_best_effort.rs` adds a discriminating assertion: viable recognized PID with unknown BE remains in MU/set-aside stays empty; as the handoff cannot match it, the rendition is still nonviable. It distinguishes ignoring BE from deleting the record."}
+  ]
+}

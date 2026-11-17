@@ -1,0 +1,16 @@
+{
+  "decisions": [
+    {
+      "adr": "0749",
+      "verdict": "Retain eight general delimiters and optional writer brace escaping. Parent read source #365 and full ADR. Type4 tokenizer is separate; general-name tests distinguish raw/escaped equivalents."
+    },
+    {
+      "adr": "0453",
+      "verdict": "Retain byte-preserving names and shared escaped writer for inspected basic object path. Literal input/output tests support it; caller audit is not completed here. Historical nine-delimiter wording explicitly corrected by0749; do not report as a new stale decision."
+    },
+    {
+      "topic": "Resource bounds",
+      "verdict": "Reader policy, not ISO fixed maxima. Closed at-limit and one-over objects must return named LimitExceeded. New tests assert this contract, not allocation-time safety."
+    }
+  ]
+}

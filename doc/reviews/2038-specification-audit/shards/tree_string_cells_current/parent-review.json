@@ -1,0 +1,7 @@
+{
+  "verdict": "Selected Tables35–37 and string/date rules reviewed; D65 records a crosswalk citation error.",
+  "source": "Parent read captions/continuations:Table35 physical129–130,Table36 only135 with example through137,Table37 physical137–138. Direct#322 annotations on130 amend Table35; doc/errata-read.md:209 instead says39. #307 is a producer null-key constraint, not a new mandatory rejection obligation.",
+  "corrections": "Parent rejected the claim that the current deep PageLabels test already asserted number_pairs order. Before110 it checked only labels; PageLabels sorts internally. The new explicit order assertion now exists and PASS. Final label is A/St26→Z, not solely Roman/decimal. The inaccurate claim was not promoted as prior evidence.",
+  "adr": "Parent reread0053 shared tree/lookup-enumeration split,0439 byte-preserving decisions and0660 quotation/instrument limits. Retain these arguments with the producer-shape and consumer limitations disclosed. Source-review observations on date/calendar interpretation and page-label conflicting errata remain qualified, not new runtime findings.",
+  "limits": "Selected string and tree consumers; no all-field encoding qualification sweep or whole-clause certificate."
+}

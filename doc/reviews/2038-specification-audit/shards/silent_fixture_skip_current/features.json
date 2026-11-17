@@ -1,0 +1,23 @@
+[
+  {
+    "feature": "Fixture-dependent assertion execution",
+    "clauses": [
+      "I.1",
+      "9.3.6"
+    ],
+    "source": "Current ledger citations and doc/habits/tests-gates-and-reports.md135\u2013136; ADR0405 optional-corpus distinction.",
+    "assertions": "Two tests return before behavioral assertions when issue1155.pdf cannot be read; text_layer helper additionally turns parse errors into None. In this worktree the file is actually absent. Headless test is cited by I.1; text_layer test is related to9.3.6 but not cited there.",
+    "execution": "fixture-skips-wave64.log:2runnerPASS,2printed skips. Broad64 includes both asPASS. Four separately inspected optional corpus controls genuinely execute and pass.",
+    "verdict": "D45: test-result transparency and repository-policy mismatch. Not a demonstrated failure of invisible text or error reporting."
+  },
+  {
+    "feature": "Open event reaches the host before RenderReady",
+    "clauses": [
+      "I.1"
+    ],
+    "source": "Primary AnnexI.1 physical951/printed936 allows per-feature ignore/inform choice. The host Event::Reported contract and ledger choose reporting for unsupported image filters; the exact event timing is a product contract, not a new ISO SHALL.",
+    "assertions": "New objects_not_understood::opening_an_unhandled_object_reports_it_to_the_host_before_render_ready uses exact-xref fixtures, a named unknown image filter and same-image known-data control. It checks NeedsRender, document1/page0, Im0 not-drawn note, identical stored notes, and no report event/notes for known data.",
+    "execution": "One new testPASS; all4 binary testsPASS; coreClippyPASS.",
+    "limits": "Public command/event seam only. Existing sibling tests supply actual pixels. This does not restore the missing producer OCR witness or certify all unsupported features."
+  }
+]

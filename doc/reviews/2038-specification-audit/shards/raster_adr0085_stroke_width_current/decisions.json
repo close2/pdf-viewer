@@ -1,0 +1,23 @@
+{
+  "shard": "raster_adr0085_stroke_width_current",
+  "correction": "The prior finding that the current public path applies scalar max-stretch width to anisotropic strokes was based on an incomplete call trace and is withdrawn.",
+  "decisions": [
+    {
+      "adr": "raster:0085-the-stroke-width-crosses-the-boundary-unresolved",
+      "decision": "agree with the material-anisotropy path-space route; confirmed failure for the fixed 1.01 scalar-route cutoff at width1000",
+      "basis": "crates/render-raster/src/stroke.rs routes anisotropy > 1.01 to path-space kurbo::stroke and passes the diag(4,1) public control. But at scale(1.009,1), raster/crates/raster-gpu/src/raster/stroke.rs::resolve_width multiplies width by max_stretch in both transverse directions; width1000 predicts a 9-pixel excess for a horizontal stroke, above §8.4.3.2's two-pixel placement allowance.",
+      "evidence": "Parent's corrected diag(4,1) regression passed. The public large-width test fails on Radeon 890M Vulkan: identity width=1000, near-similarity horizontal=1008, expected1000±2, near-similarity vertical=1009, expected1009±2. The identity and vertical controls pass before the target assertion. Parent is adding PDF-input and CPU-oracle controls.",
+      "residuals": "Confirmed only for this public fixture/backend. The best replacement dispatch criterion and coverage across other backends/transforms remain unsettled."
+    },
+    {
+      "adr": "root:0701-the-stroke-width-is-quorras-to-resolve",
+      "decision": "retain transform-aware resolution and material-anisotropy path-space route; reassess near-similarity width bound",
+      "basis": "The public caller handles material anisotropy, but the 1% ratio threshold alone does not bound absolute width error in device pixels as stroke width increases."
+    },
+    {
+      "adr": "root:0945-one-device-pixel-is-a-family-of-widths",
+      "decision": "historical path-space statement is corroborated by current render-raster branch",
+      "basis": "The expanded() caller consumes anisotropic geometry through path-space kurbo::stroke; the previous suggestion that the record was stale is withdrawn."
+    }
+  ]
+}

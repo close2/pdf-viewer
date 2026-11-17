@@ -1,0 +1,25 @@
+{
+  "decisions": [
+    {
+      "adr": "0013",
+      "decision": "Render stored annotation appearance streams as the annotation's described appearance, including state-dictionary selection, rather than synthesizing an unrelated mark over them.",
+      "review": "Retain. §12.5.5 requires a normal appearance and maps N/R/D appearance streams. Its explicit state subdictionary example uses /AS to choose the stream; the tested unknown state may reasonably draw nothing. Existing distinct-color raster tests are substantive and do not share an implementation evaluator."
+    },
+    {
+      "adr": "0235",
+      "decision": "A viewer that changes a toggling field's inherited /V must use the replacement to present its button state; stored /AS remains the file's selector until the viewer changes the value.",
+      "review": "Retain for the reviewed scope. §12.7.5.2.3 explicitly gives /AS precedence on a stored mismatch, and the V/AS equality sentence binds producer/update state. Current code separates stored AS selection from a replaced in-view value. Existing form-model mismatch and post-edit pixel tests support each side. New draft combines inherited parent V, explicit widget AS and visible stored-state result."
+    },
+    {
+      "adr": "0346",
+      "decision": "Radio state is per widget at load; a field's /V does not repair contradictory saved AS values; the mutually-exclusive bit-clear rule applies when the viewer changes a value.",
+      "review": "Retain. §12.7.5.2.3 expressly makes AS control selection when AS differs from V. The existing test uses parent /V /Off and widget /AS /Yes, asserting per-widget state; its fixture is a reader-mismatch case, not a conforming producer example. A raster counterpart is a useful assertion seam, not a change in clause reading."
+    },
+    {
+      "adr": "0439",
+      "decision": "Appearance-state names are looked up by their exact PDF name bytes, including non-UTF-8 names.",
+      "review": "Retain. Table 170's names are name objects; exact-byte matching is directly exercised by names_are_bytes.rs, with positive and differing-byte controls. No lossy string comparison defect found."
+    }
+  ],
+  "policy_boundary": "Absent/null /AS with AP/N as a state dictionary violates Table 166's required-if condition. §12.5.5 explicitly asks reasonable behavior only for a present AS that selects no defined appearance; it does not specify recovery for absent/null AS. Preserve current local behavior as policy unless a distinct product contract is adopted."
+}

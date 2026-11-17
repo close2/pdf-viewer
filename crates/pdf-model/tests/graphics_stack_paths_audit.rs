@@ -55,6 +55,9 @@ fn list(content: &str) -> pdf_render::DisplayList {
     interpretation.display_list
 }
 
+// Figure 9 (§8.2) excludes q/Q inside a path object. This intentionally malformed
+// sequence checks robustness policy, not valid-input conformance. The content-level
+// q/Q cases below separately check permitted stack and clipping behavior.
 #[test]
 fn q_and_q_operators_leave_the_current_path_outside_the_stack() {
     let display_list = list("10 10 m q 20 20 l Q 30 30 l S");
@@ -285,5 +288,71 @@ fn the_initial_page_clip_stops_marks_past_the_media_box() {
     assert!(
         red(105, 50) > 127,
         "the target exposes space outside MediaBox, where the mark is clipped"
+    );
+}
+
+fn rendered(content: &str) -> pdf_render::Raster {
+    let display_list = list(content);
+    let target = TargetSpec::for_page(&display_list, 1.0, 1 << 20).expect("small page");
+    CpuRasterizer::new()
+        .rasterize(&display_list, target)
+        .expect("supported paths")
+}
+
+fn rgba(raster: &pdf_render::Raster, x: u32, y: u32) -> [u8; 4] {
+    let at = usize::try_from((y * raster.width + x) * 4).expect("bounded sample");
+    raster
+        .data
+        .get(at..at + 4)
+        .expect("in-bounds sample")
+        .try_into()
+        .expect("four channels")
+}
+
+#[test]
+fn clipping_rules_produce_distinct_pixels_for_same_orientation_nested_paths() {
+    // Table 60: same-direction contours have nonzero winding two in the centre,
+    // but even parity there. Ring and outside controls distinguish clipping from no paint.
+    for (operator, centre) in [("W", [0, 0, 0, 255]), ("W*", [255, 255, 255, 255])] {
+        let raster = rendered(&format!(
+            "10 10 80 80 re 30 30 40 40 re {operator} n 0 g 0 0 100 100 re f"
+        ));
+        assert_eq!(rgba(&raster, 20, 50), [0, 0, 0, 255], "{operator}: ring");
+        assert_eq!(
+            rgba(&raster, 5, 50),
+            [255, 255, 255, 255],
+            "{operator}: outside"
+        );
+        assert_eq!(rgba(&raster, 50, 50), centre, "{operator}: centre");
+    }
+}
+
+#[test]
+fn a_pending_clip_preserves_the_outside_half_of_its_stroke_and_q_restores_it() {
+    // §8.5.4 commits W only after S paints: the outer half of the eight-unit stroke
+    // survives. The following blue fill is clipped, and Q restores the full-page clip.
+    let raster = rendered(
+        "q 0 G 8 w 20 20 40 40 re W S 0 0 1 rg 0 0 100 100 re f Q \
+         1 0 0 rg 70 20 10 10 re f",
+    );
+    assert_eq!(
+        rgba(&raster, 17, 60),
+        [0, 0, 0, 255],
+        "outer half of original stroke"
+    );
+    assert_eq!(
+        rgba(&raster, 30, 60),
+        [0, 0, 255, 255],
+        "later fill inside clip"
+    );
+    assert_eq!(
+        rgba(&raster, 10, 60),
+        [255, 255, 255, 255],
+        "later fill outside clip"
+    );
+    assert_eq!(
+        rgba(&raster, 75, 75),
+        [255, 0, 0, 255],
+        "Q restores the original clip"
     );
 }

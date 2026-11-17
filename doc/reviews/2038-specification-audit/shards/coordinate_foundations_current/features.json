@@ -1,0 +1,81 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded review of effective ISO 32000-2:2020 EC3 §§8.3.1, 8.3.2.1, .2, .4, and .5. Excludes detailed re-review of §8.3.2.3 user space, §8.3.3/.4 matrix arithmetic, page geometry, and graphics-state stack already treated in coordinates_graphics_state_current; cross-references those findings where needed. This is feature-level evidence, not whole-§8.3 certification.",
+  "source_method": "Held primary PDF doc/ISO_32000-2_sponsored_EC3.pdf, text and footer checked with pdftotext -layout. Physical pages 164–167 correspond to printed 149–152. The annotations on these pages are /Link navigation targets; no coordinate-specific errata annotation was found. EC3 does not change the listed coordinate-foundation text in the checked inventory.",
+  "features": [
+    {
+      "clause": "8.3.1",
+      "title": "General",
+      "source_location": {"physical_page": 164, "printed_page": 149},
+      "source_features": [
+        "Introduces coordinate systems as defining position, orientation, and size of two-dimensional text, graphics, and images on the page.",
+        "NOTE points 3D artwork to §13.6.5; it is explanatory scope, not a separate 2D mapping algorithm."
+      ],
+      "ledger": "Clause inventory says implemented; this row is too general to prove the constituent mapping rules by itself.",
+      "implementation": "The content interpreter turns page content into display-list marks with explicit transforms; pdf-render maps those to a requested raster target. Unsupported drawing is reported through Interpretation rather than silently claimed complete.",
+      "assertions": "No isolated assertion for the general description. The public page/raster tests cited under §§8.3.2.1/.2 and the previous coordinates_graphics_state_current shard exercise the constituent behavior. 3D annotation/artwork behavior was not tested in this shard.",
+      "verdict": "No distinct defect indicated by the general paragraph. Do not treat a general row's implemented label as proof of all coordinate-space relationships.",
+      "residuals": ["3D coordinate projection in §13.6.5 is outside this bounded review; no support or non-support claim is made here."]
+    },
+    {
+      "clause": "8.3.2.1",
+      "title": "General",
+      "source_location": {"physical_page": 164, "printed_page": 149},
+      "source_features": [
+        "Paths and positions shall use Cartesian x/y coordinate pairs of real numbers.",
+        "A coordinate space is characterized relative to the current page by origin, x/y orientation, and unit lengths.",
+        "Transformations between spaces are represented by transformation matrices; examples named include translation, scale, rotation, reflection, and skew."
+      ],
+      "ledger": "Implemented at aggregate level; no ledger-specific numerical precision/tolerance promise is recorded for these general statements.",
+      "implementation": "PDF numeric operands are read as f64 and narrowed to the renderer's f32 Point/Transform representation; affine maps and raster target transforms carry the origin, axes, and scale. The renderer's internal precision is an implementation representation, not a source-defined coordinate grid.",
+      "assertions": "Existing exact-transform/content tests use integer values and noncommuting matrices; page geometry has a fractional MediaBox example, and text-positioning tests assert fractional advances. Those are positive evidence for real-valued inputs but do not characterize precision at very large or near-pixel-boundary coordinates.",
+      "verdict": "No demonstrated error. The standard says real numbers but supplies no error tolerance for raster realization or mandate for f64 internal storage; f32 rounding is a precision-policy residual, not by itself a conformance failure.",
+      "residuals": ["No independent end-to-end fractional content-coordinate oracle was added; extreme-coordinate precision and tiny-scale representation remain outside this review."]
+    },
+    {
+      "clause": "8.3.2.2",
+      "title": "Device space",
+      "source_location": {"physical_page": 165, "printed_page": 150},
+      "source_features": [
+        "Device coordinates, origin, axis orientation, and resolution vary by output device; the text uses raster display and printer examples.",
+        "NOTE explains that specifying page objects directly in device space would make the document device-dependent."
+      ],
+      "ledger": "Implemented at aggregate level; the clause describes device variation rather than requiring one device transform.",
+      "implementation": "pdf-render::TargetSpec supplies the output scale and pixel bounds; the CPU backend rasterizes display-list coordinates into that target. The PDF page transform remains device-independent and device scaling is applied at output.",
+      "assertions": "page_geometry.rs checks that default user-space units map at requested raster scale and that UserUnit changes physical dimensions; image/page tests sample the resulting output. No test attempts to standardize a device origin or pixel resolution, which the source explicitly leaves device-dependent.",
+      "verdict": "No gap identified in the reader obligation at this layer. Do not infer that the PDF file itself must choose a fixed device-space origin/resolution.",
+      "residuals": ["Specific printer/display coordinate origins and anisotropic device resolutions are not modeled as distinct physical devices; that is a renderer-target/host concern and no ISO default is stated here."]
+    },
+    {
+      "clause": "8.3.2.4",
+      "title": "Other coordinate spaces",
+      "source_location": {"physical_page": 167, "printed_page": 152},
+      "source_features": [
+        "Text space maps to user space through text matrix and text-state parameters.",
+        "Glyph space maps to text space through a font matrix; most font types use their predefined 1000-unit mapping, while Type 3 supplies FontMatrix.",
+        "Image space is a fixed one-by-one unit square independent of sample dimensions, mapped to user space by temporarily changing CTM.",
+        "Form and pattern spaces map through their own matrices.",
+        "3D artwork has 3D coordinates projected into an annotation target coordinate system."
+      ],
+      "ledger": "Aggregate implemented row overlaps many narrowly assigned children; it is not an independent proof that each special-space mapping is correct.",
+      "implementation": "Specialized consumers compose text matrices/font matrices, Type 3 FontMatrix, image unit-square transforms, Form XObject Matrix, and tiling-pattern Matrix into the active transform. Relevant paths include content/text, content/text/type3.rs, content/image, content/xobject.rs, and content/pattern.rs.",
+      "assertions": "Independent checks exist in text_positioning_audit.rs, type3_spec_audit.rs, image_coordinates_audit.rs (3x2 image mapped to 60x60 unit-space area, with literal source-color cells and skew/reflection), form_xobjects_audit.rs, and tiling.rs. These tests exercise different coordinate-space consumers rather than a single general mapping oracle. 3D projection remains unreviewed here.",
+      "verdict": "The listed 2D space mappings have direct consumer-level evidence in their specialized shards. No new test is justified here; avoid treating those samples as full coverage of every font, image, form, or pattern transformation.",
+      "residuals": ["No claim on §13.6.5's 3D projection or support policy.", "Some linked evidence belongs to specialized audits and is not re-certified by this bounded foundation review."]
+    },
+    {
+      "clause": "8.3.2.5",
+      "title": "Relationships among coordinate spaces",
+      "source_location": {"physical_page": 167, "printed_page": 152},
+      "source_features": [
+        "Figure 12 is a relationship diagram: arrows denote transformations between named coordinate spaces.",
+        "The prose says coordinate spaces are defined relative to one another and changing a transformation can affect objects in several spaces; example: user-to-device CTM affects forms, text, images, and patterns upstream of user space."
+      ],
+      "ledger": "Implemented at aggregate level. The figure and example synthesize child-space transforms; they do not add a separate matrix operator or independent required rendering algorithm.",
+      "implementation": "Display-list commands carry composed transforms; page CTM enters interpreter state and nested text/image/form/pattern calls concatenate their respective transforms before producing marks.",
+      "assertions": "The composed noncommuting cm + page CropBox/Rotate/UserUnit test in coordinate_graphics_state_current checks full page mapping and q/Q restoration. Image, form, text, and pattern tests listed above assert their specialized mapping effects. The previous coordinate shard records the matrix-order control; this artifact does not duplicate it.",
+      "verdict": "No independent defect found in the relationships prose/diagram. Evidence is distributed across consumers, and the broad clause-level implemented status remains a coarse ledger label.",
+      "residuals": ["No single regression composes every listed special coordinate space; this is not required to restate their separate transformation rules and would add little beyond specialized controls."]
+    }
+  ]
+}

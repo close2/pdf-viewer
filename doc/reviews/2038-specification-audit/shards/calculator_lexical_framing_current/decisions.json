@@ -1,0 +1,20 @@
+{
+  "reviews": [
+    {
+      "adr": "0361",
+      "decision": "Retain comment cutting before token splitting and LF insertion. Comment text is not executable and no strings exist in the subset. The new issue is classification of NUL outside comments, not comment removal."
+    },
+    {
+      "adr": "0749",
+      "decision": "Retain braces as Type4-only delimiters. Its separate tokenizer remains appropriate, but whitespace classification must also follow the PDF/PLRM byte set; str::split_whitespace is not equivalent."
+    },
+    {
+      "adr": "0733",
+      "decision": "Retain PDF operand grammar and refusal of nonnumeric tokens. NUL must delimit valid numeric/operator tokens before those checks; admitting it is not malformed-input recovery."
+    },
+    {
+      "adr": "1599",
+      "decision": "Retain derived aggregate status and individual leaf reasoning. Empty headings need mappings, not duplicated requirements; implemented aggregate status remains an assertion that behavioral findings can contradict."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "No directly governing ADR identified for #122",
+      "decision": "The parser's action-local lookup is directly supported by corrected Table 239. The existing action parsing test covers values present on the action; there is no separate inheritance model to supersede.",
+      "verdict": "No ADR change indicated."
+    },
+    {
+      "adr": "1358 (native Launch handoff boundary), related to #677 only",
+      "decision": "The issue corrects a type typo in a deprecated Windows-specific Launch parameter table. It does not change the established product policy about handing native program execution to the host.",
+      "verdict": "Retain the host-policy boundary; do not infer an external-launch requirement from this table erratum."
+    },
+    {
+      "adr": "Signature SubFilter legacy support decisions; no new ADR identified from #4",
+      "decision": "The source marks legacy signing formats deprecated for PDF 2.0 creation and constrains AddRevInfo use. It does not prohibit readers from parsing older documents. Current signature code retains explicit parsing and verification branches with tests.",
+      "verdict": "No new rejection policy. Any ADR that chose backward reading remains compatible with this annotation."
+    },
+    {
+      "adr": "No directly affected ADR for #173/#264/#393/#649/#655/#661/#673/#676/#681",
+      "decision": "These selected changes are clarification of legacy text, punctuation, example syntax/reference, placeholder-note numbering, typography, or minor type-cell wording. No implementation decision was found to rest on the superseded phrase itself.",
+      "verdict": "No ADR reconsideration warranted from these corrections."
+    },
+    {
+      "adr": "1185 and 1622; 2171 and 2185 supersede portions of 1358",
+      "decision": "Retain named refusal of encrypted embedded FDF while importing ordinary embedded files. Current launch policy distinguishes external documents from programs; do not infer current policy solely from ADR 1358.",
+      "verdict": "Current ledger/code and amendments control. Selected corrections do not justify reverting current behavior."
+    }
+  ],
+  "scope_note": "This records only decisions materially touched by the selected corrections. It is not a complete ADR review for the referenced clauses."
+}

@@ -1,0 +1,29 @@
+{
+  "scope": "EC3 \u00a712.7.4.1 Table 227 bit 2 Required; \u00a712.7.6.2, Table 240 bit 2 IncludeNoValueFields and submit-form invocation; current compose\u2192core event/report\u2192viewer-host policy path.",
+  "source_locators": {
+    "table_227": "EC3 Table 227, printed p.532 / physical p.547: Required says a set field shall have a value at the time it is exported by a submit-form action.",
+    "table_240": "EC3 Table 240, printed p.553 / physical p.568: when IncludeNoValueFields is set, selected fields shall be submitted regardless of value; a field without V transmits only its name; when clear, a field without a value is not submitted.",
+    "submit_prose": "EC3 \u00a712.7.6.2, printed p.554 / physical p.569: the action's selected field names/values are transmitted upon invocation; the clause does not prescribe a hard refusal for a Required field without V."
+  },
+  "current_path": {
+    "composition": "pdf-model/src/submission.rs::chosen emits an owed sentence for selected Required+no-V, and independently includes the name-only entry when IncludeNoValueFields is set. If the flag is clear, it omits the no-value field.",
+    "report": "viewer-core/src/interact.rs appends Submission::owed to the outcome notes before it emits Event::Submit; the person is told the condition even when a submission is still composed.",
+    "host_policy": "viewer-host/src/policy.rs::may_submit checks URL reachability and the owner's Submissions level (Refuse/Ask/Warn/Send); it does not reject because Submission::owed is nonempty. The test seam selects a policy outcome only; it performs no network I/O."
+  },
+  "existing_assertions": [
+    {
+      "test": "crates/pdf-model/tests/submission.rs::a_required_field_with_no_value_is_named_when_the_form_is_exported",
+      "evidence": "A minimal fixture compares Required+empty, nonrequired+empty, and Required+filled, then checks the single Submission::owed sentence names the first. It does not exercise IncludeNoValueFields body output or viewer-host policy; it has no complete AcroForm DA/DR/AP setup."
+    },
+    {
+      "test": "crates/pdf-model/tests/submission.rs::include_no_value_fields_sends_the_name_alone",
+      "evidence": "Directly asserts clear excludes blank and set transmits blank with value None, but the blank field is not Required and the test does not inspect host policy."
+    },
+    {
+      "test": "crates/viewer-host/tests/submit.rs::may_submit_*",
+      "evidence": "Tests the four policy levels with composed submissions, but the fixtures have no Required-empty field; no existing assertion ties a nonempty owed report to those policy outcomes."
+    }
+  ],
+  "draft": "drafts/required_empty_field_report_and_policy.rs exercises a valid PDF 1.7 widget/AcroForm with DA, DR Helvetica, NeedAppearances true, exact xref, required bit set, and no V/AP. It composes the attached SubmitForm action twice: IncludeNoValueFields set and clear. It checks the required-field report, parses the generated FDF to distinguish name-only from omission, and checks Ask/Refuse/Send at the host policy seam without opening a socket.",
+  "bounded_conclusion": "This is not a confirmed ISO defect. The test input is a structurally valid PDF 1.7 form, but the Required-empty condition itself is deliberately unmet; do not describe this as fully conforming field content. Table 227 creates that condition, while Table 240 separately defines name-only transmission when the action includes valueless fields. The latter does not erase the former. Neither clause supplies a hard-refusal algorithm. Accepted ADR 1198 intentionally reports the unmet Required condition and leaves the host send decision/presentation to policy. The current coverage gap is the composition-diagnostic+body+host-policy combination, not evidence that the host must block transmission."
+}

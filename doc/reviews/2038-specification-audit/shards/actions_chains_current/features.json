@@ -1,0 +1,70 @@
+{
+  "scope": "ISO 32000-2 §12.6.1–.2; selected action semantics §12.6.4.5–.8, .10–.11, .13, .15–.16. Read alongside prior article-thread, document-part, and page-transition shards; this file does not recertify those clauses.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf, §12.6.2/Table 196 and NOTE 1, printed p. 506; §12.6.4.8/Table 210 and IsMap text, printed p. 518; §12.6.4.11/Table 214, printed p. 521; §12.6.4.13/Table 217 and examples, printed p. 523.",
+    "errata": "doc/errata-read.md #256 applies the /Base/URI-dictionary scope to all relative URI references; it does not alter Table 210 /IsMap. No applicable EC3 action-table correction was found for the audited Next, URI, Hide, or SetOCGState rows.",
+    "next_quote": "Table 196: Next is the next action or sequence that shall be performed after this action. NOTE 1: each Next array is executed in order, each action followed recursively by its own Next; self-referential actions ought not be executed more than once.",
+    "ismap_quote": "Table 210 defaults IsMap to false and limits it to user-clicked annotation actions; the following paragraph transforms device coordinates to user space, offsets from Rect's upper-left, rounds fractional results, and appends '?x,y'.",
+    "hide_quote": "Table 214 T accepts an annotation reference, a fully qualified field name, or an array of either; H defaults true and false shows.",
+    "ocg_quote": "Table 217 State is processed left-to-right; each ON/OFF/Toggle name applies to subsequent groups. PreserveRB defaults true. The following examples expressly permit a group to appear more than once."
+  },
+  "features": [
+    {
+      "id": "actions-entry-points",
+      "clause": "12.6.1–.3",
+      "normative_scope": "Action dictionaries are reached at supported link, outline, page, annotation, and document trigger locations; Table 196 sequence order is shared by supported action kinds. The source does not require implementing every action kind merely by listing it.",
+      "implementation": "pdf-model::action::for_annotation/for_page/read; viewer-core::interact; ViewState::perform_all and perform_annotation_chain.",
+      "assertions": ["pdf-model action parser tests exercise nested depth-first flattening and a self-cycle", "viewer-core mixed_action_order_audit observes a script after SetOCGState through its public ScriptEvent snapshot", "viewer-core tests exercise OpenUri and other outcomes at individual trigger sites"],
+      "quality": "Nested array flattening is asserted at parser boundary. The current mixed-action audit provides an observable cross-kind order check, but does not cover repeated-reference occurrences or a multi-sibling sequence of distinct observable outcomes. A separate ambiguity remains for sequences with several remote/embedded replacements: interact::resolve retains only the last request of each family. Table 196 requires ordered actions, while NOTE 1 recommends termination if an earlier action makes later ones impossible; this audit does not decide the multi-document consequence."
+    },
+    {
+      "id": "next-repeat-and-cycle",
+      "clause": "12.6.2/Table 196 NOTE 1",
+      "normative_scope": "Arrays execute occurrences in order. The note recommends that a self-referential action not execute more than once and recommends interruption; it does not say to globally deduplicate every repeated sibling reference. The product's bounded traversal is a policy for hostile/very large chains beyond the stated cycle advice.",
+      "implementation": "pdf-model/src/action.rs::Walk uses a recursion-path ObjectId set, permitting the same indirect action in sibling branches, with MAX_ACTIONS and MAX_VISITS caps. viewer-core executes non-script actions while script sites observe the flattened sequence.",
+      "assertions": ["action::a_next_chain_is_flattened_in_execution_order covers a root with two children and one nested child", "action::a_cycle_of_next_entries_terminates only asserts two parser results for a two-node cycle", "repeated_occurrences_nested_deep_are_bounded_by_visits asserts termination for a malformed/non-action exponential shape", "mixed_action_order_audit checks a script's observed OCG state"],
+      "quality": "No current assertion directly distinguishes the same indirect object referenced twice in one valid Next array from a global-visited deduplication implementation. The code and comments assert two performances, but a direct observable test is warranted. The two-node cycle test pins finite behavior and avoids replay; it does not verify side effects, which the draft adds."
+    },
+    {
+      "id": "uri-ismap",
+      "clause": "12.6.4.8/Table 210",
+      "normative_scope": "For a click-triggered link, true appends rounded cursor offsets relative to the annotation rectangle's upper-left after device-to-user transform. False/absent adds nothing. Outline and OpenAction URI actions ignore IsMap. URI resolution/handoff policy is a host decision and remains separate.",
+      "implementation": "pdf-model/src/action.rs::Uri::at_position; viewer-core/src/interact.rs::activate supplies click position and link Rect; other action callers pass no position; viewer-core emits Event::OpenUri for the host.",
+      "assertions": ["action.rs unit test covers the formula, rounding, and false behavior", "no public viewer assertion was found for pointer transform through geometry into the emitted URI", "interact comments/code show outline and open-action paths pass no position"],
+      "quality": "The unit test checks the arithmetic but not device→user conversion nor the public click outcome. A test draft exercises /LinkAt and Event::OpenUri with independent absent/false controls."
+    },
+    {
+      "id": "launch-external-handoff",
+      "clause": "12.6.4.6/Table 207",
+      "normative_scope": "Table 207 allows /F to name an application or a document to open/print; it does not establish a filesystem classification rule. Current owner policy departs from launching programs; a PDF target is opened, while a non-PDF handoff/classification is a host policy and should not be described as normative behavior.",
+      "implementation": "pdf-model parses /F into Action::Launch; viewer-core requests Purpose::LaunchDocument; host policy/command flow checks the PDF header and reports or hands off non-PDF targets. ADR 1358 records program-launch departure; ADR 2171 and the owner confirmation record non-PDF document handoff policy.",
+      "assertions": ["remote_go_to integration assertions distinguish host file request purpose, opened-PDF case, non-PDF refusal/reporting, and unavailable file", "pdf-model action tests cover /F and absent-target parsing"],
+      "quality": "Strong policy-route assertions exist; source and implementation boundaries must remain explicit. This audit does not classify individual non-PDF file names as a source requirement."
+    },
+    {
+      "id": "hide-state",
+      "clause": "12.6.4.11/Table 214",
+      "normative_scope": "H defaults true; false shows. Targets may be annotation indirect references, fully qualified field names, or arrays, and affect associated widget annotation(s). This mutates viewer state analogous to the Hidden flag used during drawing; it does not rewrite the file.",
+      "implementation": "pdf-model/src/action.rs parses targets/H; pdf-model/src/view/actions.rs::hide updates ViewState; content::interpret_with filters annotations using that state.",
+      "assertions": ["pdf-model action test checks Hide true and false parsing", "view test checks a named field resolves and sets the Hidden overlay", "pdf-model/tests/actions.rs compares page drawing commands before and after direct annotation hide and after show of a file-hidden annotation"],
+      "quality": "The main visible effect and inverse are calibrated with a page-content control. The full target array is parser-tested; no need identified to duplicate it here. Current tests use constructed appearances, so the result is a render-list assertion rather than native-pixel verification."
+    },
+    {
+      "id": "set-ocg-state",
+      "clause": "12.6.4.13/Table 217",
+      "normative_scope": "State sequences are left-to-right and can name a group repeatedly; default PreserveRB=true enforces radio-button groups when setting ON; false ignores those relationships. Subsequent rendering reflects the action's view-state change.",
+      "implementation": "pdf-model::SetOcgState stores ordered changes; ViewState applies them and reapplies usage state; Query::Layers exposes current state and content interpretation filters marked content.",
+      "assertions": ["parser test mirrors Example 2 OFF then Toggle", "ViewState tests cover OFF, Toggle, PreserveRB default and false, and radio-group behavior", "model integration test compares marked-content command counts before/after SetOCGState and fresh-state control", "viewer-core mixed-action audit observes layer state across a mixed action/script Next chain"],
+      "quality": "The action's render effect and setting order are independently asserted. Evidence is content/display-list state, not a screenshot or native-host frame; this is enough for the model's current public render consumer but does not certify host paint output."
+    },
+    {
+      "id": "other-selected-types",
+      "clause": "12.6.4.5, .7, .10, .15, .16",
+      "normative_scope": "GoToDp and Thread were covered in earlier shards. Movie is deprecated in PDF 2.0 and its multimedia playback is excluded under the declared clause-13 boundary; document handoff remains separate. Transition action behavior was covered in the prior page-transition shard. GoTo3DView identifies a clause-13 view/rendering feature and is explicitly out of scope.",
+      "implementation": "Action parsing/read paths exist for these types; action::Refused is named for unsupported types; Movie/transition pass through viewer requests where supported; GoTo3DView is refused/out-of-scope.",
+      "assertions": ["prior destinations/article threads and thumbnail/transition shards cover GoToDp, Thread, and transition"],
+      "quality": "No renewed test audit in this shard; these clauses are tracked only to mark the assignment boundary."
+    }
+  ],
+  "unreviewed": ["Full §12.6.3 event matrix and its other precedence/timing rules", "JavaScript execution itself and broad multimedia behavior", "host UI rendering and external-handler launching details beyond the specific routing checks above", "full corpus behavior for all action types"]
+}

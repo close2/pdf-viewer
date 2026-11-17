@@ -1629,3 +1629,27 @@ fn a_viewport_placed_in_its_window_is_the_document_nodes_transform() {
         .unwrap_or_else(|| panic!("the update holds the document node"));
     assert!(at_the_origin.transform().is_none());
 }
+
+// Table369 valid Ruby order. Pins the consumer role/text boundary only;
+// this synthesized AccessibilityNode input does not certify PDF parsing or layout.
+#[test]
+fn a_ruby_assembly_keeps_its_base_and_annotation_roles_and_order() {
+    let nodes = [
+        element(None, "Ruby", ""),
+        element(Some(0), "RB", "漢"),
+        element(Some(0), "RT", "かん"),
+    ];
+    let update = built(view(&nodes, &[]));
+
+    let ruby = node(&update, NodeId(16));
+    assert_eq!(ruby.role(), Role::Ruby);
+    assert_eq!(ruby.children(), [NodeId(17), NodeId(18)]);
+
+    let base = node(&update, NodeId(17));
+    assert_eq!(base.role(), Role::Label);
+    assert_eq!(base.value(), Some("漢"));
+
+    let annotation = node(&update, NodeId(18));
+    assert_eq!(annotation.role(), Role::RubyAnnotation);
+    assert_eq!(annotation.label(), Some("かん"));
+}

@@ -1,0 +1,40 @@
+{
+  "decisions": [
+    {
+      "adr": "2346",
+      "decision": "reaffirm explicit /Size departure, not conformance",
+      "basis": "Table15 explicitly says an entry number greater than /Size shall be ignored. Current T73 pins product retention for explicit current entry above Size; normal and older recovery controls are distinct. ADR2346 remains a choice; no retest of its corpus cost here."
+    },
+    {
+      "adr": "0100",
+      "decision": "reaffirm explicit free/type0/unknown entry blocks older copy",
+      "basis": "An explicit deletion is not an absent record. The classic incremental deletion test and corrected hybrid precedence witness cover the main rule. The short type-0 /W tolerance test does not establish valid producer conformance because it uses forbidden zero width for field 2; a valid explicit type-0 stream deletion control is drafted."
+    },
+    {
+      "adr": "0180",
+      "decision": "reaffirm with actual stream collection order condition",
+      "basis": "read_from_startxref collects newest section, same-section XRefStm, then Prev; first-wins stable dedup consequently implements precedence. Corrected T09 hybrid fixture has xref-stream self-entry."
+    },
+    {
+      "adr": "1004",
+      "decision": "reaffirm #500 offset-default handling, with separate Type2-index policy",
+      "basis": "#500 strikes the printed type1 offset default. entry_location refuses a missing offset field. Current test exercises absent offset; a valid incremental [0 4 2] control exercises missing type byte. The type2 zero-index fallback is an implementation choice backed by corpus interoperability and should not be described as an explicit Table18 default."
+    },
+    {
+      "adr": "0789",
+      "decision": "reaffirm as damaged-section recovery policy only",
+      "basis": "Entries declared but unread differ from explicit type0/free entries; recovery of a damaged section is not a valid-file conformance witness."
+    },
+    {
+      "adr": "0842",
+      "decision": "not contradicted; writer-side review is partial",
+      "basis": "Serializer writes type-2 entries and its xref stream includes a self-entry; targeted writer/readback/foreign-reader claims elsewhere remain outside this bounded cell check."
+    },
+    {
+      "adr": "0366/2438",
+      "decision": "reaffirm object-stream member extent handling as separately evidenced",
+      "basis": "Table16/Note7 extent derives from next sorted offset or decoded stream end; T72 separately covers an indirect /Length with an embedded endstream marker. No test here certifies every damaged decode policy."
+    }
+  ],
+  "no_new_behavior_defect": "All cell gaps found were either assertion granularity or invalid producer-form coverage, without a source-imposed reader refusal obligation. No new runtime failure is claimed."
+}
