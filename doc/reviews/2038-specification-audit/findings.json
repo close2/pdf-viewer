@@ -3696,7 +3696,7 @@
       "14.7.5"
     ],
     "summary": "MCR and OBJR child Pg precedence is distinguished from containing-element Pg through public logical_order, with inheritance and no-parent-page controls.",
-    "execution": "Two PASS across pattern-mcr-wave126b.log and objr-folder-wave126.log; source-valid fixtures and real content/object association."
+    "execution": "Checkpoint126 tests passed, but their override fixtures overstated parent Pg validity: all K content was on the child page. Checkpoint132 adds actual parent-page siblings and correct ParentTree associations; both repaired tests PASS in structure-fixtures-wave132b, with model Clippy PASS. Inheritance/no-parent controls remain passing."
   },
   {
     "id": "2038-T167",
@@ -3785,5 +3785,16 @@
     "summary": "Explicit transparency-group invocation under OP/OPM1 has a discriminating public pixel test.",
     "execution": "Group equals ordinary source paint, differs in pixels from elementary OPM1 and untouched backdrop; alpha and four-component path guards PASS. Model Clippy PASS.",
     "limits": "Relative color-managed CMYK oracle. Spot-plane command assertions are not promoted to raster or unrelated-row coverage."
+  },
+  {
+    "id": "2038-T172",
+    "kind": "assertion-quality",
+    "clauses": [
+      "14.7.2",
+      "14.7.5"
+    ],
+    "summary": "Repair the producer validity of MCR/OBJR page-precedence fixtures and qualify earlier T166 evidence.",
+    "execution": "Both existing tests PASS with real content on the parent page and distinct target content on the overriding child page; model Clippy PASS.",
+    "limits": "Selected public logical-order and actual MCR-span evidence, not whole-document accessibility certification."
   }
 ]

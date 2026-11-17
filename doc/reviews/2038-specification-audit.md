@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (131)
+## Current checkpoint (132)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **117 failing test identities**: 116 behavior assertions/probes
@@ -564,6 +564,11 @@ inversion and explicit group painting under OP/OPM1. The group negative control
 compares pixels separately from metadata. Three selected matrices bring the partial
 count to172. Model Clippy passes. New dispatch stops at81% weekly usage while
 peer-review corrections and broad reconciliation finish.
+
+Checkpoint 132 repairs the two structure-page precedence fixtures: the parent
+page now contains a real sibling content item, as Table355 requires. Both tests
+and model Clippy pass. Earlier T166 validity wording is qualified explicitly.
+The peer review retains B77/B78 with their existing product/callback limits.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

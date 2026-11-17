@@ -142,5 +142,6 @@
     "doc/reviews/2038-specification-audit/shards/logical_structure_framing_current/decisions.json: explicitly keeps whole-family certification out of scope.",
     "doc/reviews/2038-specification-audit/shards/structure_layout_remaining_current/parent-review.json: public interleaved structure-order consumer finding, unrelated to Pg precedence."
   ],
-  "parent_execution": "T166: both public MCR and OBJR page-precedence tests PASS, with inherited-page and no-parent-Pg controls. Parent fixture review supersedes unexecuted scratch wording."
+  "parent_execution": "T166: both public MCR and OBJR page-precedence tests PASS, with inherited-page and no-parent-Pg controls. Parent fixture review supersedes unexecuted scratch wording.",
+  "parent_followup_132": "Earlier override-fixture validity claim was overstated: Table355 requires some K content on parent Pg. Added real parent-page MCR/OBJR siblings, correct ParentTree mappings and actual MCR interpretation checks. Both repaired tests PASS132b, model Clippy PASS132. Child precedence/inheritance/no-parent controls remain distinct."
 }

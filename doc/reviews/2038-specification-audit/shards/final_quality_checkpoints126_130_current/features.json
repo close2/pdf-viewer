@@ -1,0 +1,48 @@
+{
+  "review_scope": "Independent final quality check of the five audit commits at HEAD 67658621, 2bc1f984, 24877dda, 333cb6a7, and 66f74f69 (checkpoints 126–130). Deep review: B77 archive transfer preservation and B78 enabled annotation visibility scripts. Also checked the added MCR/OBJR, collection folder, shading matrix, and stream-pattern tests plus their gate/finding identities.",
+  "b77": {
+    "test": "crates/pdf-transform/tests/archive.rs::threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four",
+    "result": "Retain with current qualification.",
+    "independent_expectations": [
+      "Type2 C0=1,C1=0,N=1 maps literal source .25 RGB to .75; expected byte 191 is independently derived.",
+      "TF-free control is 64 before/after; active-TF source is 191 before conversion.",
+      "Type2 part-2 screen-only refusal and separately authorized transfer-removal output are controls."
+    ],
+    "fixture_review": "Source builder is PDF 2.0 for the part-4 source target and uses a valid Type 6 threshold stream with a 4-byte ASCII stream payload, exact generated xref, and transfer function entry allowed by Table129. Source deliberately is not claimed PDF/A-4 conforming. Test rasterizes source/output through public model and CPU raster path and samples the interior of the painted rectangle.",
+    "limits": "ISO19005-4 erratum314 removes the halftone TransferFunction prohibition. It does not permit Type6 halftones in PDF/A4: that separate restriction triggers the authorized screen rewrite. Loss::Halftone does not authorize disconnecting the independently active transfer. The finding concerns product conversion/output loss, not external PDF/A certification; refusal is permitted, but present output must preserve191."
+  },
+  "b78": {
+    "test_file": "crates/viewer-core/tests/page_visible_script_runner_spec_audit.rs",
+    "result": "Retain with current qualified scope.",
+    "independent_expectations": "The recording runner observes exact ScriptSite and distinct script source. Initial page has separate PO/PV positive controls. TwoPageLeft gives a non-current neighboring page placement; both pages remain in the arrangement when GoTo changes the current page; returning to SinglePage removes the neighbor. PageGeometry answers are present/absent accordingly. The test observes dispatch to a supplied runner, not JavaScript engine evaluation.",
+    "fixture_review": "PDF 1.7 exact-xref fixtures, valid page Resources, page-local /AA actions on Square annotations, in-page Rect, visible annotation flags F=0; helper asserts no recovery and no cut chain. Missing /AP does not invalidate these PDF 1.7 fixtures under the version applicable to their header. This test concerns event dispatch and does not use annotation drawing as its oracle.",
+    "limits": "B78 is specifically enabled-runner callback timing within accepted document/viewer scripting scope. It makes no ECMAScript runtime claim and does not challenge Off/default behavior. Three distinct expected-failure identities match the committed finding and gate row. A scratch AP-enhanced variant was discarded as unnecessary."
+  },
+  "checkpoint126_fixture_qualification": {
+    "files": [
+      "crates/pdf-model/tests/structure_mcr_page_spec_audit.rs",
+      "crates/pdf-model/tests/structure_objr_page_spec_audit.rs"
+    ],
+    "issue": "The override fixtures put the containing StructElem /Pg on page 1 but all of that element's current /K content items on page 2. Table355 physical740/printed725 defines /Pg as a page on which some or all K content items shall be rendered. The fixtures therefore do not establish the stated precedence behavior with a source-valid parent Pg claim.",
+    "scope": "The inherited controls and no-parent/Pg-required controls do not have this contradiction. The tests do pass, but the override cases should be qualified until rerun with an actual sibling K content item on the containing element's page.",
+    "repair_drafts": [
+      "drafts/structure_mcr_page_spec_audit.rs (synced from the parent-revised source test; pending wave132)",
+      "drafts/structure_objr_page_spec_audit.rs (synced from the parent-revised source test; pending wave132)"
+    ],
+    "draft_repair": "Parent revision adds parent-page sibling K content and corresponding ParentTree/annotation associations while retaining target-child page override. It also checks the actual interpreted page-1 MCID, advances ParentTreeNextKey, and gives the sibling annotation a painted Form appearance. Both repaired MCR/OBJR tests passed in wave132b; model Clippy passed.",
+    "finding_id": "2038-T166 (both MCR and OBJR cases; T167 is the collection-folder test)",
+    "durable_overstatement": "Current findings.json describes these as source-valid fixtures. That description is overstated for the two parent-Pg override cases; the inherited and no-parent controls remain distinct. The recorded 2-pass run establishes current implementation behavior on the committed fixture only."
+  },
+  "other_checks": {
+    "collection": "Folder tree test has PDF2.0 header, same 16-byte IDs, no-recovery/chain guard, valid Resources, required Parent backlinks and literal labels/extraction keys. EmbeddedFile lengths cover the payload bytes (delimiter EOL is outside Length). Parent's gate says 2-pass in objr-folder-wave126.",
+    "pattern_matrix": "Literal gradient values follow the Type2 function and inverse pattern translation; omitted and explicit identity controls are independent; no recovery/chain guards. Its assertion is not only a comparison against the direct route.",
+    "pattern_stream": "ASCIIHexDecode stream payload and byte length are ASCII; PDF1.7 header does not need the binary marker. Exact xref/no-recovery/chain guards and literal lattice corner/interior expectations exist. Each BBox/caller clip test has corners inside/outside the specific independently varied boundary and retains an interior oracle. Gate has four passes.",
+    "checkpoint129": "The newly committed changes are evidence/document reconciliation, not new runtime tests. Existing watermark/trap conclusions in the changed text are qualified as stored-appearance behavior, writer requirements, and unresolved passive trap-regeneration actor; no false reader runtime claim found in the changed excerpts."
+  },
+  "identity_and_execution": {
+    "B77": "One failure identity is present in expected-failures.json and one failed test in archive-transfer-wave126f.log; the separate part-2 control passed. Finding 2038-B77 exists.",
+    "B78": "Three failure identities in expected-failures.json match the three tests in page-visible-wave128b.log; Finding 2038-B78 exists. Initial PO/PV positive control runs inside each case before the visibility assertions.",
+    "other_gates": "pattern-mcr-wave126b: 2 pass; objr-folder-wave126: 2 pass; pattern-stream-wave130b: 4 pass; recorded Clippy gates pass. No fresh execution performed in this review.",
+    "T166": "Original wave126 passes ran on the conflicting-parent-Pg inputs. Parent-revised source-valid MCR and OBJR tests both PASS132b, and model Clippy PASS132. T167 is the separate folder test."
+  }
+}

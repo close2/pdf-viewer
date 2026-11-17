@@ -21,23 +21,33 @@ const PAGE_1: ObjectId = ObjectId::new(3, 0);
 const PAGE_2: ObjectId = ObjectId::new(4, 0);
 const ANNOTATION: ObjectId = ObjectId::new(8, 0);
 
-/// Make a two-page tagged PDF with one annotation and a single OBJR.
+/// Make a two-page tagged PDF with a target OBJR and a parent-page sibling when needed.
 ///
 /// `annotation_page` states the page's `/Annots` and the annotation's `/P`.
 /// `element_page` supplies the containing structure element's `/Pg` when present.
 /// `objr_page` supplies the OBJR's own `/Pg` when present.
 fn fixture(annotation_page: u8, element_page: Option<u8>, objr_page: Option<u8>) -> Vec<u8> {
     assert!(annotation_page == 3 || annotation_page == 4);
-    let page1_annots = if annotation_page == 3 {
-        "[8 0 R]"
+    // Table 355 says the element /Pg identifies a page where some or all K content is
+    // rendered. If the principal OBJR overrides that page, add a second genuine annotation
+    // and OBJR on the element page instead of contradicting the containing element's /Pg.
+    let parent_sibling = element_page.is_some_and(|page| page != annotation_page);
+    let mut page1_items = Vec::new();
+    let mut page2_items = Vec::new();
+    if annotation_page == 3 {
+        page1_items.push("8 0 R");
     } else {
-        "[]"
-    };
-    let page2_annots = if annotation_page == 4 {
-        "[8 0 R]"
-    } else {
-        "[]"
-    };
+        page2_items.push("8 0 R");
+    }
+    if parent_sibling {
+        if element_page == Some(3) {
+            page1_items.push("11 0 R");
+        } else {
+            page2_items.push("11 0 R");
+        }
+    }
+    let page1_annots = format!("[{}]", page1_items.join(" "));
+    let page2_annots = format!("[{}]", page2_items.join(" "));
     let element_pg = element_page
         .map(|page| format!("/Pg {page} 0 R "))
         .unwrap_or_default();
@@ -49,6 +59,35 @@ fn fixture(annotation_page: u8, element_page: Option<u8>, objr_page: Option<u8>)
          /Rect [10 10 20 20] /Contents (tagged note) /StructParent 0 \
          /AP << /N 9 0 R >> >>"
     );
+    let sibling_objr = if parent_sibling {
+        format!(
+            " << /Type /OBJR /Obj 11 0 R /Pg {} 0 R >>",
+            element_page.expect("sibling needs parent page")
+        )
+    } else {
+        String::new()
+    };
+    let element_k = if parent_sibling {
+        format!("/K [<< /Type /OBJR /Obj 8 0 R {objr_pg} >>{sibling_objr}]")
+    } else {
+        format!("/K << /Type /OBJR /Obj 8 0 R {objr_pg} >>")
+    };
+    let parent_tree = if parent_sibling {
+        "/Nums [0 6 0 R 1 6 0 R]"
+    } else {
+        "/Nums [0 6 0 R]"
+    };
+    let parent_tree_next_key = if parent_sibling { 2 } else { 1 };
+    let sibling_annotation = if parent_sibling {
+        format!(
+            "11 0 obj\n<< /Type /Annot /Subtype /Text /P {} 0 R /F 4 /Rect [30 10 40 20] /Contents (parent-page note) /StructParent 1 /AP << /N 9 0 R >> >>\nendobj\n",
+            element_page.expect("sibling needs parent page")
+        )
+    } else {
+        String::new()
+    };
+    let appearance = "1 0 0 rg 0 0 10 10 re f\n";
+    let appearance_length = appearance.len();
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> \
          /StructTreeRoot 5 0 R >>\nendobj\n\
@@ -58,14 +97,14 @@ fn fixture(annotation_page: u8, element_page: Option<u8>, objr_page: Option<u8>)
          4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << >> /Annots {page2_annots} >>\nendobj\n\
          5 0 obj\n<< /Type /StructTreeRoot /K [10 0 R] /ParentTree 7 0 R \
-         /ParentTreeNextKey 1 >>\nendobj\n\
+         /ParentTreeNextKey {parent_tree_next_key} >>\nendobj\n\
          6 0 obj\n<< /Type /StructElem /S /Annot /P 10 0 R {element_pg} \
-         /K << /Type /OBJR /Obj 8 0 R {objr_pg} >> >>\nendobj\n\
-         7 0 obj\n<< /Nums [0 6 0 R] >>\nendobj\n\
+         {element_k} >>\nendobj\n\
+         7 0 obj\n<< {parent_tree} >>\nendobj\n\
          8 0 obj\n{annotation}\nendobj\n\
          9 0 obj\n<< /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 10 10] \
-         /Resources << >> /Length 0 >>\nstream\nendstream\nendobj\n\
-         10 0 obj\n<< /Type /StructElem /S /Document /P 5 0 R /K [6 0 R] >>\nendobj\n"
+         /Resources << >> /Length {appearance_length} >>\nstream\n{appearance}endstream\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /Document /P 5 0 R /K [6 0 R] >>\nendobj\n{sibling_annotation}"
     );
 
     let mut bytes = String::from("%PDF-1.7\n");
@@ -100,7 +139,7 @@ fn object_item(document: &Document, page: ObjectId) -> Vec<Child> {
 
 #[test]
 fn objr_page_overrides_element_page_with_inheritance_and_requiredness_controls() {
-    // The element says page 1, but the annotation and explicit OBJR `/Pg` say page 2.
+    // The element owns annotations on both pages; the target OBJR overrides its `/Pg`.
     let override_doc =
         Document::open(fixture(4, Some(3), Some(4))).expect("exact-xref override fixture opens");
     assert!(!override_doc.was_recovered(), "the xref is exact");
@@ -108,7 +147,14 @@ fn objr_page_overrides_element_page_with_inheritance_and_requiredness_controls()
         !override_doc.cross_reference_chain_was_cut(),
         "complete xref chain"
     );
-    assert!(object_item(&override_doc, PAGE_1).is_empty());
+    assert_eq!(
+        object_item(&override_doc, PAGE_1),
+        vec![Child::Object {
+            object: ObjectId::new(11, 0),
+            page: Some(PAGE_1),
+        }],
+        "the containing element /Pg has its own page-local object reference"
+    );
     assert_eq!(
         object_item(&override_doc, PAGE_2),
         vec![Child::Object {

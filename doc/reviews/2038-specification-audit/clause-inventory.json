@@ -5526,7 +5526,8 @@
       "shards/rendering_intent_transfer_current/features.json",
       "shards/table57_graphics_state_matrix_current/features.json",
       "shards/halftone_dictionary_cells_current/features.json",
-      "shards/halftone_transfer_archive_loss_current/features.json"
+      "shards/halftone_transfer_archive_loss_current/features.json",
+      "shards/final_quality_checkpoints126_130_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5656,7 +5657,8 @@
     "current_artifacts": [
       "shards/rendering_intent_transfer_current/features.json",
       "shards/halftone_dictionary_cells_current/features.json",
-      "shards/halftone_transfer_archive_loss_current/features.json"
+      "shards/halftone_transfer_archive_loss_current/features.json",
+      "shards/final_quality_checkpoints126_130_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7690,7 +7692,8 @@
       "shards/page_dictionary_cells_current/features.json",
       "shards/form_dictionary_residual_consumers_current/features.json",
       "shards/additional_action_event_cells_current/features.json",
-      "shards/annotation_page_event_cells_current/features.json"
+      "shards/annotation_page_event_cells_current/features.json",
+      "shards/final_quality_checkpoints126_130_current/features.json"
     ],
     "prior_artifacts": [
       "action_triggers_audit",
@@ -10639,7 +10642,8 @@
       "shards/annex_l_split_cardinality_current/features.json",
       "shards/annex_l_consumer_rules_remaining_current/features.json",
       "shards/ignored_fixture_gates_current/features.json",
-      "shards/structure_root_element_cells_current/features.json"
+      "shards/structure_root_element_cells_current/features.json",
+      "shards/final_quality_checkpoints126_130_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -10708,7 +10712,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/logical_structure_framing_current/features.json",
-      "shards/structure_content_item_cells_current/features.json"
+      "shards/structure_content_item_cells_current/features.json",
+      "shards/final_quality_checkpoints126_130_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

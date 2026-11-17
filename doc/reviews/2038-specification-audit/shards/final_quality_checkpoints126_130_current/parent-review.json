@@ -1,0 +1,9 @@
+{
+  "source": "Confirmed Table355 Pg on physical740: some or all K content must render on that page. Earlier override fixtures had only a page2 item despite parent Pg page1. Inheritance and no-parent controls were unaffected.",
+  "repair": "Added a real parent-page sibling under the same structure element. MCR: page1 MCID1, its own StructParents key, ParentTree [null, Figure] and actual interpreted span assertion. OBJR: page1 annotation and object reference, separate StructParent key, shared nonempty red Form appearance. Target page2 identity remains literal and distinct; ParentTreeNextKey advances to2.",
+  "draft_review": "Fixed malformed / Figure token, unused ParentTree slot0 to null, format placeholder syntax, and helper MCID integer type before final validation. Added interpretation of both actual MCR page streams; exact-xref and chain guards remain.",
+  "execution": "Both strengthened tests PASS in structure-fixtures-wave132b; model all-target Clippy PASS in quality-model-wave132. These are existing test identities, not two new passes added to the broad denominator.",
+  "b77_correction": "The peer draft incorrectly said erratum314 permits threshold halftoning in PDF/A4. Corrected to withdrawal of the TransferFunction prohibition only, consistent with the original B77 evidence. The separate Type6 restriction remains and motivates conversion.",
+  "b78_rejected_concern": "Peer initially applied the PDF2 Table166 appearance writer condition to a PDF1.7 fixture. Parent checked local ISO32000-1 Table164: AP is optional. That invalidity concern was withdrawn; no B78 test edit was needed.",
+  "limits": "Selected independent review of checkpoints126–130, not certification of every test or all findings. B77 remains a product loss-contract finding; B78 remains callback dispatch to an explicitly enabled runner, not engine evaluation."
+}

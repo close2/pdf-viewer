@@ -6,7 +6,7 @@
     "broad": "Wave123: 7,321 run, 7,216 PASS, 105 FAIL, 58 skipped. Exact default-scope manifest match through122; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "After broad123: thirteen new PASS and five new FAIL. Manifest117=110default+5GPU+1engine+1ignored. New model controls and all-target Clippy131b PASS. Structure Pg fixture correction and final broad reconciliation pending.",
+    "later_targets": "After broad123: thirteen new PASS and five new FAIL. Checkpoint132 strengthens two existing structure tests; both PASS and model Clippy PASS. Manifest117 unchanged; broad133 is running on the final tests.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -17,10 +17,9 @@
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
-    "active_shards": [
-      "checkpoint126_130_peer_review"
-    ],
+    "active_shards": [],
     "recorded_shards": [
+      "final_quality_checkpoints126_130_current",
       "overprinting_table146_cells_current",
       "soft_mask_image_dictionary_cells_current",
       "shading_pattern_type5_stream_current",
@@ -337,7 +336,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "172 unique table matrices and all883 rows remain partial. Finish the active peer-review corrections and fresh broad reconciliation; no new review families after81% usage.",
+    "172 unique table matrices and all883 rows remain partial. Current workers finished; final broad reconciliation and artifact integrity check remain. No new review families after81% usage.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {

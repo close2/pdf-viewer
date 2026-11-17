@@ -3292,6 +3292,20 @@
       "log": "quality-model-wave131b.log",
       "exit": 0,
       "scope": "Model all-target Clippy after draft compile/lint repairs"
+    },
+    {
+      "log": "structure-fixtures-wave132b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing MCR/OBJR tests after parent-page fixture corrections"
+    },
+    {
+      "log": "quality-model-wave132.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after final structure-fixture corrections"
     }
   ],
   "prior_expected_failures": {
