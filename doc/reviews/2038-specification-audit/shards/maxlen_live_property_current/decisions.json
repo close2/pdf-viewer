@@ -1,0 +1,24 @@
+{
+  "adr_reconsiderations": [
+    {
+      "adr": "2840",
+      "assessment": "The source code implements its stated policy for a stored /MaxLen, but the policy says a script value is bounded by the field's MaxLen while the scripted charLimit override is also retained as the current field property and serialized as the new MaxLen. Applying a value against the old document dictionary can therefore leave the live/saved value longer than the /MaxLen written by the same edit sequence."
+    },
+    {
+      "adr": "1617",
+      "assessment": "Its mapping of charLimit to Table 232 /MaxLen and its save behavior make the live-property path relevant. Existing assertion only checks serialization, not an ensuing value write."
+    },
+    {
+      "adr": "1603",
+      "assessment": "Script writes are edits applied to the view model. The proposed sequence tests the model's ordered CharLimit then Value edits; it does not claim a script engine ran JavaScript."
+    }
+  ],
+  "candidate": {
+    "classification": "Bounded implementation-consistency concern; confirm with parent before promoting as a source-level defect.",
+    "reason": "Table 232 describes the maximum length of the field's text, A834 expressly includes scripts, and the accepted property API changes the field's charLimit. The source does not separately spell out ordering between a JavaScript property assignment and a value assignment inside one script, so draft results should be reported as a conflict between the effective live property and stored-limit enforcement, with that interpretation boundary explicit.",
+    "positive_controls": [
+      "With stored /MaxLen 3 and no changed property, a script-assigned value ABCDEF is cut to ABC.",
+      "A value within the stored limit stays whole."
+    ]
+  }
+}

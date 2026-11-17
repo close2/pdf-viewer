@@ -2256,7 +2256,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/compatibility_extensions_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -2270,7 +2271,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/compatibility_extensions_current/features.json",
-      "shards/annex_e_writer_names_current/features.json"
+      "shards/annex_e_writer_names_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6897,7 +6899,8 @@
     "current_artifacts": [
       "shards/annotation_remaining_current/features.json",
       "shards/interactive_framing_current/features.json",
-      "shards/structured_errata_interactive_current/features.json"
+      "shards/structured_errata_interactive_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [
       "popup_annotation_audit"
@@ -6941,7 +6944,8 @@
       "shards/annotation_common_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
       "shards/annotation_view_flags_current/features.json",
-      "shards/annotation_visibility_print_current/features.json"
+      "shards/annotation_visibility_print_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_flags_audit",
@@ -6985,7 +6989,8 @@
       "shards/indirect_annotation_parameters_current/features.json",
       "shards/annotation_view_flags_current/features.json",
       "shards/adr1235_named_page_appearance_current/features.json",
-      "shards/annotation_appearance_cells_current/features.json"
+      "shards/annotation_appearance_cells_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit"
@@ -7727,7 +7732,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/three_d_scope_current/features.json",
-      "shards/errata_weak_dispositions_batch3_current/features.json"
+      "shards/errata_weak_dispositions_batch3_current/features.json",
+      "shards/maxlen_live_property_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8025,7 +8031,8 @@
       "shards/forms_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
       "shards/adr1240_file_select_timing_current/features.json",
-      "shards/variable_text_cells_current/features.json"
+      "shards/variable_text_cells_current/features.json",
+      "shards/maxlen_live_property_current/features.json"
     ],
     "prior_artifacts": [
       "text_choice_fields_audit"
@@ -8121,7 +8128,8 @@
       "shards/errata_font_annotation_reference_batch_current/features.json",
       "shards/structured_errata_interactive_current/features.json",
       "shards/feature_table_cell_granularity_current/features.json",
-      "shards/required_submission_policy_current/features.json"
+      "shards/required_submission_policy_current/features.json",
+      "shards/submission_selection_cells_current/features.json"
     ],
     "prior_artifacts": [
       "form_actions_audit"
@@ -8137,7 +8145,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/forms_current/features.json",
-      "shards/errata_weak_dispositions_batch3_current/features.json"
+      "shards/errata_weak_dispositions_batch3_current/features.json",
+      "shards/submission_selection_cells_current/features.json"
     ],
     "prior_artifacts": [
       "form_actions_audit"
@@ -12441,7 +12450,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/compatibility_extensions_current/features.json"
+      "shards/compatibility_extensions_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [
       "annex_e_audit"
@@ -12459,7 +12469,8 @@
       "shards/compatibility_extensions_current/features.json",
       "shards/partial_writer_decisions_current/features.json",
       "shards/structured_errata_metadata_media_current/features.json",
-      "shards/annex_e_writer_names_current/features.json"
+      "shards/annex_e_writer_names_current/features.json",
+      "shards/unknown_annotation_pointer_current/features.json"
     ],
     "prior_artifacts": [
       "annex_e_audit"

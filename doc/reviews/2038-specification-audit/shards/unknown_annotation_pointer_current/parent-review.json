@@ -1,0 +1,10 @@
+{
+  "verdict": "B68: unsupported synthetic annotation selects R/D through real Viewer pointer events; source-specific fallback says N. One regression FAIL after known Square controlPASS.",
+  "source": "Parent read primary490 actualTable170 and491 explicit unsupported-type N sentence. This specific fallback qualifies generic interaction behavior. #1 connects unknown handling to12.5.5/Table167; Invisibleclear/Printset fixture. Parent verified AnnexE actual892-893 and Table49 actual157; GLGR example actual158, corrected reviewer locator.",
+  "fixture": "ExactxrefPDF1.7, no recovery; synthetic second-class GLGR_R2PointerProbe and declared direct extension dictionary, distinctredN/greenR/blueD valid Forms. No claim this is a published real GLGR extension. Parent removed draft nonexistent syntax Document::is_complete API before execution, bounded render settling and required more than100 pixels of the selected pigment.",
+  "consumer": "Viewer Open/RenderReady then actual Pointer Moved/Pressed at PageGeometry-derived interior. KnownSquare gives red/green/blue before failure; unsupported gives same insteadred/red/red. No manual ViewState.set_pointer injection and no native toolkit driver claim.",
+  "cause": "annotation_at/interacts accepts commonRect; has_appearance allows R/D changes; stored_appearance selects by view state without unknown-subtype override. Existing unknown-N-only assertion cannot distinguish this.",
+  "decision": "ADR0628 source reading retained but its N-only assertion did not prove interactive fallback. ADR0177 general annotation hit testing remains appropriate; visual selection requires subtype fallback separately. ADR0123 old widgetdefault premise is superseded by2813 and not implicated by Square fixture.",
+  "execution": "unknown-pointer-wave94 1FAIL; model/core alltargetsClippy94bPASS.",
+  "limits": "No claim all unsupported known-type features are covered or that unknown annotations must/mustnot emit trigger events."
+}

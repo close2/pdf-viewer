@@ -2508,6 +2508,42 @@
       "log": "quality-wave93.log",
       "exit": 0,
       "scope": "model all targets"
+    },
+    {
+      "log": "empty-fields-wave94.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100
+    },
+    {
+      "log": "maxlen-live-wave94.log",
+      "exit": 101,
+      "scope": "Rejected draft borrow lifetime; corrected"
+    },
+    {
+      "log": "maxlen-live-wave94b.log",
+      "run": 6,
+      "passed": 2,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "unknown-pointer-wave94.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quality-wave94.log",
+      "exit": 101,
+      "scope": "New test doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave94b.log",
+      "exit": 0,
+      "scope": "model/core alltargets"
     }
   ],
   "prior_expected_failures": {

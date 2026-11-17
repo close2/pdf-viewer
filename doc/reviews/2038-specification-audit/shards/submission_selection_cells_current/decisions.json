@@ -1,0 +1,26 @@
+{
+  "reviews": [
+    {
+      "decision": "Root ADR 1062 \u2014 compose Table239/240 data in pdf-model, submit at host seam",
+      "verdict": "Reaffirm the boundary; source-derived selection gaps are upstream of host policy.",
+      "reason": "The field selector is fully document-derived. The host's Send/Ask/Warn/Refuse choice does not change whether the action omitted Fields or named an empty array; the model must preserve that distinction before transmission."
+    },
+    {
+      "decision": "Root ADR 1198 \u2014 Table227 Required is reported at export",
+      "verdict": "No change. Required-value reporting is separate from selected-field membership.",
+      "reason": "The current Required review handles a selected empty field and host policy. This finding instead concerns whether a field belongs to the selected set at all; an empty Fields array means no selection in the clear branch."
+    },
+    {
+      "decision": "Root ADR 0753 / reset descendant selection and Errata Collection 3 #174",
+      "verdict": "Reaffirm the current descendant behavior; #174 explicitly confirms excluded descendants are spared. Do not attribute the new presence gap to this decision.",
+      "reason": "The primary Caret is positioned in Table242\u2019s set branch and explicitly adds the descendants exemption; current tests assert reset descendants and excluded descendants. The separate omission distinction is stated in Table241 and is not changed by #174."
+    },
+    {
+      "decision": "Table239/241 field_targets representation of an absent or empty Fields entry",
+      "verdict": "Current behavior is inconsistent with the source distinction; preserve entry presence before composition/reset.",
+      "reason": "Tables 239 and 241 explicitly state the special behavior only when the entry is omitted. An explicit empty array remains present and, with Include/Exclude clear, names no fields. The implementation loses presence when it maps both cases to Vec::new(), so this is a concrete, source-derived selection defect if the scratch regression reproduces the public path."
+    }
+  ],
+  "direct_source_checks": "Read the primary EC3 PDF by pikepdf for issues #122 and #174, and read Table239/240/241/242 defining text in the primary-layout extraction. The Table241 #174 insertion is also available in the PDF annotation object itself.",
+  "execution": "Two exact-xref public API test drafts created; not run by this shard. Parent executes/promotes."
+}

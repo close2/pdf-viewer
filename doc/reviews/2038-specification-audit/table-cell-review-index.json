@@ -533,6 +533,64 @@
       ],
       "artifact": "shards/trees_labels_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "239",
+      "keys": [
+        "Fields",
+        "Flags"
+      ],
+      "ledger_rows": [
+        "12.7.6.2"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "240",
+      "keys": [
+        "Include/Exclude",
+        "IncludeNoValueFields"
+      ],
+      "ledger_rows": [
+        "12.7.6.2"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "241",
+      "keys": [
+        "Fields",
+        "Flags"
+      ],
+      "ledger_rows": [
+        "12.7.6.3"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "242",
+      "keys": [
+        "Include/Exclude"
+      ],
+      "ledger_rows": [
+        "12.7.6.3"
+      ],
+      "artifact": "shards/submission_selection_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "232",
+      "keys": [
+        "MaxLen"
+      ],
+      "ledger_rows": [
+        "12.7.5.3"
+      ],
+      "artifact": "shards/maxlen_live_property_current/features.json",
+      "status": "partial"
     }
   ]
 }

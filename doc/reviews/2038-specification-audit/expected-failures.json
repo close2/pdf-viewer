@@ -563,6 +563,48 @@
       "test": "choice_opt_stays_with_the_dictionary_that_states_it",
       "finding": "2038-B65",
       "log": "choice-locality-wave91b.log"
+    },
+    {
+      "binary": "pdf-model::empty_fields_array_presence_spec_audit",
+      "test": "submit_fields_presence_survives_selection_and_other_flag_rules",
+      "finding": "2038-B66",
+      "log": "empty-fields-wave94.log"
+    },
+    {
+      "binary": "pdf-model::empty_fields_array_presence_spec_audit",
+      "test": "reset_fields_presence_distinguishes_no_selection_from_reset_all",
+      "finding": "2038-B66",
+      "log": "empty-fields-wave94.log"
+    },
+    {
+      "binary": "pdf-model::max_len_live_property_spec_audit",
+      "test": "a_reduced_live_char_limit_applies_to_a_later_value_edit",
+      "finding": "2038-B67",
+      "log": "maxlen-live-wave94b.log"
+    },
+    {
+      "binary": "pdf-model::max_len_live_property_spec_audit",
+      "test": "a_raised_live_char_limit_applies_to_a_later_value_edit",
+      "finding": "2038-B67",
+      "log": "maxlen-live-wave94b.log"
+    },
+    {
+      "binary": "pdf-model::max_len_live_property_spec_audit",
+      "test": "an_open_script_lowering_char_limit_applies_to_later_public_input",
+      "finding": "2038-B67",
+      "log": "maxlen-live-wave94b.log"
+    },
+    {
+      "binary": "pdf-model::max_len_live_property_spec_audit",
+      "test": "an_open_script_raising_char_limit_applies_to_later_public_input",
+      "finding": "2038-B67",
+      "log": "maxlen-live-wave94b.log"
+    },
+    {
+      "binary": "viewer-core::unknown_annotation_pointer_spec_audit",
+      "test": "unsupported_extension_annotation_uses_n_while_supported_square_uses_r_and_d",
+      "finding": "2038-B68",
+      "log": "unknown-pointer-wave94.log"
     }
   ]
 }

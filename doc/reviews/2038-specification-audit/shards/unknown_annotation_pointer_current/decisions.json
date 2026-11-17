@@ -1,0 +1,23 @@
+{
+ "baseline":"b901326c",
+ "decisions":[
+  {
+   "id":"generic-pointer-is-reachable",
+   "decision":"Do not reject a public-reader regression as unreachable. Viewer Pointer hit testing accepts the common annotation rectangle, and has_appearance receives R/D for unknown subtypes with ordinary flags; rendering then maps the state generically.",
+   "evidence":"viewer-core/src/viewer/pointer.rs::Viewer::pointer; pdf-model/src/view/annotations.rs::annotation_at; pdf-model/src/annotation.rs::interacts, hover_changes, press_changes, stored_appearance.",
+   "classification":"Concrete real-host input path, no manual state injection."
+  },
+  {
+   "id":"unknown-subtype-must-use-normal",
+   "decision":"Treat §12.5.5's explicit N fallback as the expected behavior for an annotation type this processor does not natively implement, while retain a known Square R/D control to prove generic pointer routing. Record the apparent tension with Table 170 and avoid claiming every unknown annotation has the same interaction semantics absent a valid AP.",
+   "source":"§12.5.5 physical 490-491 / printed 475-476; Table 170. EC3 #1 points the unknown-type expected-behavior sentence to these rules.",
+   "classification":"Candidate conformance behavior gap; parent should adjudicate the scope of 'does not have native support' against the valid extension fixture."
+  },
+  {
+   "id":"fixture-validity",
+   "decision":"Replace the older ad-hoc /SomethingFromThePDF3Era N-only witness with a syntactically and semantically qualified developer-extension subtype using a second-class prefix, declared extension dictionary, required shared annotation entries, and distinct valid N/R/D forms.",
+   "source":"Annex E allows developer-defined annotation types and requires second-class names for extension references; §7.12.1/ Table 49 requires extension metadata direct; Table 166/170 supply common fields and AP states.",
+   "classification":"Valid premise improvement; not a production change."
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+{
+  "verdict": "B67: later values use immutable stored MaxLen despite a changed live CharLimit, yielding inconsistent live/saved field properties. Four FAIL and two stored-limit controls PASS.",
+  "source": "Parent read primary556 Table232 and direct #191 caret5736 nonnegative integer qualification; positive limits only. Read ADR1617 property mapping/save and ADR2840/A834 requirement to bound programmatic values in model. This is accepted-product integration consistency, without claiming ISO specifies JavaScript assignment ordering.",
+  "assertions": "Storedlimit3 truncates abcdef toabc and retains withinlimitabc; savedV/MaxLen checked. Ordered CharLimit+Value result and separately completed property-only OpenAction followed by public set_field both fail in both directions. Lower5to3 leaves live/savedabcde with savedMaxLen3; raise3to5 leavesabc with MaxLen5. Full observations compare live property/value, savedV and MaxLen together.",
+  "fixture": "Exactxref PDF1.7 AcroForm DA/DR/NeedAppearances and OpenAction; originalold length3 conforms to both stored limits. ScriptRunner supplies successful edit results; no JavaScript engine or native controls executed. Saved PDF reopens without recovery.",
+  "cause": "held_to_max_len resolves original Document only; does not see live property. Both script write_text and public set_field call it. Save correctly serializes property override, exposing mismatch.",
+  "decision": "Retain ADR1617 charLimit mapping and ADR2840 all-programmatic enforcement; complete their integration against effective live state. No historical ADR rewrite.",
+  "execution": "First draft build94 failed temporary borrow E0716, corrected; maxlen-live-wave94b 6run2PASS4FAIL; quality94 doc lint corrected; final94b model/core alltargetsPASS."
+}

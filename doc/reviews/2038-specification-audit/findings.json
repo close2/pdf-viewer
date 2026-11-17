@@ -2995,5 +2995,45 @@
     "evidence": "Exactxref four-page PDF; explicit decimal style positive control then two absent-style variants through public PageLabels.",
     "execution": "page-label-missing-style-wave93 1PASS; model all-target ClippyPASS.",
     "qualification": "No resolution of contradictory alphabetic errata, generic tree ordering or native UI claim."
+  },
+  {
+    "id": "2038-B66",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.6.2",
+      "12.7.6.3"
+    ],
+    "summary": "Explicit empty Fields include list submits and resets all fields because entry presence is lost.",
+    "evidence": "Two regressions fail after omitted/nonempty/exclude controls pass; both IncludeNoValueFields states computed. Reset checks original/default text and each reset bit.",
+    "cause": "field_targets collapses absent and [] to empty Vec; consumers treat empty as all.",
+    "execution": "empty-fields-wave94 2FAIL; model/coreClippyPASS.",
+    "qualification": "SubmitPDF whole-document path excluded; no network transmission performed."
+  },
+  {
+    "id": "2038-B67",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.5.3",
+      "12.6.4.16"
+    ],
+    "summary": "Changed live charLimit is saved as MaxLen, but subsequent script and public edits still truncate to the old limit.",
+    "evidence": "Four failures across reduce/raise and same-result script/later public set_field; two stored-limit controlsPASS. Lower5to3 savesabcde withMaxLen3; raise3to5 savesabc withMaxLen5.",
+    "cause": "held_to_max_len reads immutable originalDocument, unlike saved scripted entries.",
+    "execution": "maxlen-live-wave94b 6run2PASS4FAIL; model/coreClippyPASS.",
+    "qualification": "Accepted ADR1617/2840 and A834 integration consistency; ScriptRunner edits injected, not a JavaScript engine test or claim that ISO defines script ordering."
+  },
+  {
+    "id": "2038-B68",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.5.1",
+      "12.5.3",
+      "12.5.5"
+    ],
+    "summary": "Unsupported annotation switches to rollover/down appearance through actual viewer pointer input instead of the normal fallback.",
+    "evidence": "KnownSquare red/green/blue controlPASS; syntheticunsupported subtype also givesred/green/blue, expectedred/red/red under explicit12.5.5 rule.",
+    "cause": "Generic pointer selection reaches unknown subtype without forced N.",
+    "execution": "unknown-pointer-wave94 1FAIL; model/coreClippyPASS.",
+    "qualification": "Synthetic GLGR example-prefix extension, not a published real extension; no native toolkit driver claim. Specific unsupported-type rule qualifies generic Table170 interaction."
   }
 ]
