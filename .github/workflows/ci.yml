@@ -1057,3 +1057,69 @@ jobs:
             cjk-pack-release/quorra-cjk-pack-*.sha256
             cjk-pack-release/SHA256SUMS
           if-no-files-found: error
+
+  # The Latin-Greek-Cyrillic pack, the download beside the CJK pack (ADR 2934): Noto Serif and Noto
+  # Sans Mono's variable fonts fetched from the google/fonts commit `tools/lgc-pack.py` names, by
+  # their digests, six static bare CFF faces built from them, and the built pack held to the digests
+  # `pdf-transform` compiles in before anything is uploaded -- on every run, as the CJK pack's job
+  # does, so a builder and a `lgc_pack.rs` that disagree fail before the merge. The pack's own
+  # `SHA256SUMS` is published as `lgc-pack-SHA256SUMS`, beside the CJK pack's.
+  lgc-pack:
+    runs-on: ubuntu-24.04
+    # Priced locally: the download is 6 MB and the build about 35 s on one core; the rest is the
+    # test build of `pdf-transform`.
+    timeout-minutes: 30
+    env:
+      FONTTOOLS_WHEEL: fonttools-4.66.1-py3-none-any.whl
+      FONTTOOLS_URL: https://files.pythonhosted.org/packages/f6/10/d45b74135d5d642cb3a4fb0a957c1613ef93de4c8548671dfc3a5bf38299/fonttools-4.66.1-py3-none-any.whl
+      FONTTOOLS_SHA256: 7234ae9e28db64273fbbfa72caebd0a97e3bdba6b05064114741b9539ef339d0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fontTools, fetched by digest
+        run: |
+          set -eu
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$FONTTOOLS_WHEEL" "$FONTTOOLS_URL"
+          echo "$FONTTOOLS_SHA256  $RUNNER_TEMP/$FONTTOOLS_WHEEL" | sha256sum -c
+          python3 -m venv "$RUNNER_TEMP/fonttools"
+          "$RUNNER_TEMP/fonttools/bin/pip" install --no-deps --no-index "$RUNNER_TEMP/$FONTTOOLS_WHEEL"
+
+      - name: Build the pack from Noto, fetched by digest
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/source" "$RUNNER_TEMP/lgc-pack" lgc-pack-release
+          python="$RUNNER_TEMP/fonttools/bin/python"
+          "$python" -I -B tools/lgc-pack.py --fetch "$RUNNER_TEMP/source"
+          "$python" -I -B tools/lgc-pack.py --source "$RUNNER_TEMP/source" \
+            --out "$RUNNER_TEMP/lgc-pack" --zip lgc-pack-release
+
+      - name: The built pack against the digests the converter carries
+        env:
+          QUORRA_LGC_PACK: ${{ runner.temp }}/lgc-pack
+        run: |
+          cargo test -p pdf-transform --lib -- --ignored --exact \
+            archive::fonts::lgc_pack::tests::a_built_pack_holds_the_programs_whose_digests_this_file_carries
+          cargo test -p pdf-transform --test archive -- --ignored lgc_pack
+
+      - name: Package
+        working-directory: lgc-pack-release
+        run: |
+          set -eu
+          cp "$RUNNER_TEMP/lgc-pack/SHA256SUMS" lgc-pack-SHA256SUMS
+          for zip in quorra-lgc-pack-*.zip; do sha256sum "$zip" > "$zip.sha256"; done
+          ls -l
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: snapshot-lgc-pack
+          path: |
+            lgc-pack-release/quorra-lgc-pack-*.zip
+            lgc-pack-release/quorra-lgc-pack-*.sha256
+            lgc-pack-release/lgc-pack-SHA256SUMS
+          if-no-files-found: error

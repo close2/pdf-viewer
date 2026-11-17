@@ -137,6 +137,7 @@ pub(super) fn prepare_fonts(
             &fonts::Routes {
                 supplied: &plan.supplied_fonts,
                 pack: plan.cjk_pack.as_ref(),
+                lgc: plan.lgc_pack.as_ref(),
                 target: plan.target,
                 gate: fonts::Gate::new(
                     plan.target,

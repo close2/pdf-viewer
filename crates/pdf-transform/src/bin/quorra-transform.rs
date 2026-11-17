@@ -53,8 +53,8 @@ use std::sync::{Arc, Mutex};
 
 use pdf_model::icc::Identification;
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, CjkPack, Collection, Configuration, ExternalData, Loss, PackFiles,
-    sites,
+    ArchivePlan, Authorisations, CjkPack, Collection, Configuration, ExternalData, LgcFace,
+    LgcPack, Loss, PackFiles, sites,
 };
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
@@ -268,6 +268,7 @@ const VALUED: &[&str] = &[
     "--profile",
     "--font",
     "--cjk-pack",
+    "--lgc-pack",
     "--image-samples",
 ];
 
@@ -308,6 +309,7 @@ const KNOWN: &[&str] = &[
     "--no-substitute",
     "--font",
     "--cjk-pack",
+    "--lgc-pack",
     "--image-samples",
     "--delete",
     "--rotate",
@@ -1038,6 +1040,7 @@ fn archive_plan(
     }
     let supplied_fonts = supplied_fonts(io, arguments)?;
     let cjk_pack = cjk_pack(io, arguments);
+    let lgc_pack = lgc_pack(io, arguments);
     // `doc/rfc/0007`: the configuration is read by the *caller* and handed in as data, so `apply`
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
@@ -1053,6 +1056,7 @@ fn archive_plan(
         substitute_fonts: !arguments.switch("--no-substitute"),
         supplied_fonts,
         cjk_pack,
+        lgc_pack,
         departures: read.departures,
         claim_conformance: read.claim_conformance,
         forms: read.forms,
@@ -1232,16 +1236,23 @@ fn with_the_pack_beside(mut given: Vec<String>) -> Vec<String> {
     let Ok(arguments) = Arguments::parse(given.clone()) else {
         return given;
     };
-    if arguments.verb != "archive" || arguments.value(&["--cjk-pack"]).is_some() {
+    if arguments.verb != "archive" {
         return given;
     }
-    let beside = std::env::current_exe()
-        .ok()
-        .and_then(|executable| executable.parent().map(|parent| parent.join("cjk-pack")))
-        .filter(|directory| directory.is_dir());
-    if let Some(directory) = beside.as_deref().and_then(Path::to_str) {
-        given.push("--cjk-pack".to_owned());
-        given.push(directory.to_owned());
+    // The two packs, each by its own flag and its own directory (`doc/cjk-pack.md`,
+    // `doc/lgc-pack.md`).
+    for (flag, name) in [("--cjk-pack", "cjk-pack"), ("--lgc-pack", "lgc-pack")] {
+        if arguments.value(&[flag]).is_some() {
+            continue;
+        }
+        let beside = std::env::current_exe()
+            .ok()
+            .and_then(|executable| executable.parent().map(|parent| parent.join(name)))
+            .filter(|directory| directory.is_dir());
+        if let Some(directory) = beside.as_deref().and_then(Path::to_str) {
+            given.push(flag.to_owned());
+            given.push(directory.to_owned());
+        }
     }
     given
 }
@@ -1262,6 +1273,26 @@ fn cjk_pack(io: &mut dyn World, arguments: &Arguments) -> Option<CjkPack> {
         }
     }
     Some(CjkPack::new(Arc::new(ReadPack(files))))
+}
+
+/// Where the Latin-Greek-Cyrillic pack is looked for: the directory `--lgc-pack` names, which
+/// [`with_the_pack_beside`] has already made the one beside this executable where the person named
+/// none (`doc/lgc-pack.md`, `doc/adr/2934`). Looked for, never fetched, as the CJK pack is.
+fn lgc_pack_directory(arguments: &Arguments) -> Option<PathBuf> {
+    arguments.value(&["--lgc-pack"]).map(PathBuf::from)
+}
+
+/// The Latin-Greek-Cyrillic pack's files the directory holds, read through `io` as [`cjk_pack`]
+/// reads the CJK pack's, their digests checked where a font first asks for one.
+fn lgc_pack(io: &mut dyn World, arguments: &Arguments) -> Option<LgcPack> {
+    let directory = lgc_pack_directory(arguments)?;
+    let mut files = BTreeMap::new();
+    for face in LgcFace::ALL {
+        if let Ok(bytes) = io.read(&directory.join(face.file()), Reading::Bytes) {
+            files.insert(face.file(), Arc::<[u8]>::from(bytes));
+        }
+    }
+    Some(LgcPack::new(Arc::new(ReadPack(files))))
 }
 
 /// The pack files this run read, handed to the conversion as data.
@@ -2768,6 +2799,11 @@ archive:
                            not embed whose descendant names Adobe-Japan1, -GB1, -CNS1, -Korea1 or
                            -KR is given a subset of that collection's program, named as the
                            machine-face loss; nothing is ever downloaded by this program
+  --lgc-pack <dir>         where the Latin-Greek-Cyrillic pack is, the download holding Noto Serif
+                           and Noto Sans Mono (doc/lgc-pack.md); without it, the directory
+                           lgc-pack beside this program. A serif or upright fixed-pitch font the
+                           file does not embed that shows a character the shipped face lacks is
+                           given that pack's face, named as the machine-face loss
   --font <base>=<path>     embed the font program in <path> for the /BaseFont <base>, instead of
                            one of the shipped faces. Repeatable, one per font; §9.9.2's six-letter
                            subset tag is passed over, so /ABCDEF+Garamond is named as Garamond.

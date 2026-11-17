@@ -350,3 +350,19 @@ acknowledgement, given because the work is theirs.
     rxing — Copyright the rxing authors. ZXing — Copyright the ZXing authors.
     Data Matrix encoder — Copyright 2006-2007 Jeremias Maerki.
     Licensed under the Apache License, Version 2.0; see LICENSE.
+
+-------------------------------------------------------------------------------
+8. The Latin-Greek-Cyrillic pack: Noto Serif and Noto Sans Mono
+-------------------------------------------------------------------------------
+
+The PDF/A conversion may embed a face of the Latin-Greek-Cyrillic pack, a second download beside
+this program (doc/lgc-pack.md, ADR 2934), where a document shows a character the compiled-in serif
+or fixed face has no glyph for. The pack is built by tools/lgc-pack.py from Noto Serif and Noto
+Sans Mono as published at google/fonts, and carries the licence as its LICENSE.txt. This binary
+compiles in that licence's text, data/lgc-pack/LICENSE.txt, verbatim, and writes it into the
+metadata of every font program it embeds from the pack, as the licence's condition 2 asks of each
+copy. No Reserved Font Name is declared, so the faces keep the family's name.
+
+    Copyright 2022 The Noto Project Authors
+    (https://github.com/notofonts/latin-greek-cyrillic)
+    Licensed under the SIL Open Font License, Version 1.1; data/lgc-pack/LICENSE.txt.

@@ -66,7 +66,7 @@ fn unnamed(
     document: &Document,
     used: &SelectedFont,
     descendant: &Dictionary,
-    (pack, embed_machine_face): (Option<&super::CjkPack>, bool),
+    (pack, lgc, embed_machine_face): (Option<&super::CjkPack>, Option<&super::LgcPack>, bool),
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
@@ -87,7 +87,7 @@ fn unnamed(
         );
     }
     let refusal = if super::rekeyed::applies(document, &used.dict, descendant) {
-        match super::rekeyed::embed(document, used, descendant, pack, spare, substitutes) {
+        match super::rekeyed::embed(document, used, descendant, (pack, lgc), spare, substitutes) {
             Ok(()) => return Ok(()),
             Err(refusal) => refusal,
         }
@@ -112,7 +112,7 @@ pub(super) fn embed(
     used: &SelectedFont,
     spare: &mut Spare,
     supplied: &BTreeMap<String, Arc<[u8]>>,
-    (pack, embed_machine_face): (Option<&super::CjkPack>, bool),
+    (pack, lgc, embed_machine_face): (Option<&super::CjkPack>, Option<&super::LgcPack>, bool),
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
@@ -134,7 +134,7 @@ pub(super) fn embed(
             document,
             used,
             &descendant_dict,
-            (pack, embed_machine_face),
+            (pack, lgc, embed_machine_face),
             spare,
             substitutes,
         );

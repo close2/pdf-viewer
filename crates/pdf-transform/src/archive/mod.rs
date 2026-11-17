@@ -225,8 +225,9 @@ pub use decision::{
 pub use fallback::Fallback;
 pub use fonts::{
     CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, Fitting, FixedGroup, FixedGroups,
-    MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, MetricRoute,
-    PackFiles, PackGap, PhotographedPage, RestatedFont, SubstitutedFont,
+    LgcFace, LgcPack, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED, MAX_PHOTOGRAPHED_PAGES,
+    MAX_TEXT_CHARS, MetricRoute, PackFiles, PackGap, PhotographedPage, RestatedFont,
+    SubstitutedFont,
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
@@ -420,6 +421,12 @@ pub struct ArchivePlan {
     /// and a pack is read only when a font of its collection is met. `None` where the caller has
     /// none to offer, which every such font then reports as the pack's absence.
     pub cjk_pack: Option<CjkPack>,
+    /// The Latin-Greek-Cyrillic pack the caller found, for a simple serif or fixed-pitch font
+    /// showing a code the face this program ships has no glyph for (`doc/adr/2934`).
+    ///
+    /// Found and read by the caller, as [`Self::cjk_pack`] is; `None` where the caller has none,
+    /// and such a font keeps the shipped face's refusal.
+    pub lgc_pack: Option<LgcPack>,
     /// The bytes of each stream whose data the source keeps outside its own file.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a

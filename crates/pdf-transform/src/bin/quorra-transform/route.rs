@@ -143,6 +143,13 @@ fn fences(here: &mut Here, arguments: &Arguments) -> Fences {
                 .map(|collection| directory.join(collection.file())),
         );
     }
+    if let Some(directory) = super::lgc_pack_directory(arguments) {
+        named.extend(
+            pdf_transform::archive::LgcFace::ALL
+                .into_iter()
+                .map(|face| directory.join(face.file())),
+        );
+    }
     let descriptors = ["--password-fd", "--encrypt-owner-fd", "--encrypt-user-fd"]
         .into_iter()
         .flat_map(|flag| arguments.every(flag))

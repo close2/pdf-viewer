@@ -358,6 +358,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
+            lgc_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -2305,6 +2306,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
+            lgc_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -2790,6 +2792,7 @@ fn convert_with_profile(
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
+            lgc_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -3298,6 +3301,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             substitute_fonts: false,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
+            lgc_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -6883,6 +6887,7 @@ fn convert_with_departure(
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
+            lgc_pack: None,
             departures,
             claim_conformance: claim,
             forms: FormAnswers::default(),
@@ -7533,6 +7538,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         substitute_fonts: true,
         supplied_fonts: std::collections::BTreeMap::new(),
         cjk_pack: None,
+        lgc_pack: None,
         departures: Vec::new(),
         claim_conformance: false,
         forms: FormAnswers::default(),
@@ -10701,6 +10707,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         substitute_fonts: true,
         supplied_fonts: supplied,
         cjk_pack: None,
+        lgc_pack: None,
         departures: Vec::new(),
         claim_conformance: false,
         forms: FormAnswers::default(),
@@ -16463,6 +16470,8 @@ mod image_smoothing;
 mod kept_codestream;
 #[path = "archive/layout_from_this_viewer.rs"]
 mod layout_from_this_viewer;
+#[path = "archive/lgc_pack.rs"]
+mod lgc_pack;
 #[path = "archive/media_clips.rs"]
 mod media_clips;
 #[path = "archive/or_else_to.rs"]

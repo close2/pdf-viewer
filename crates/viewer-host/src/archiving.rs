@@ -549,6 +549,7 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, S
         substitute_fonts: true,
         supplied_fonts: BTreeMap::new(),
         cjk_pack: None,
+        lgc_pack: None,
         departures: Vec::new(),
         claim_conformance: false,
         forms: contribution.forms,

@@ -293,6 +293,43 @@ pub(super) fn machine_face_proved(
     )
 }
 
+/// Holds a face of the Latin-Greek-Cyrillic pack, embedded under a dictionary that already admits
+/// it, to that face (`doc/adr/2934`): read back through this reader over the file's own
+/// descriptor, every code the page shows selects the glyph the pack face's own code table gives it
+/// -- the same program on both sides, so the same glyph is the same outline -- and every one of the
+/// 256 advances is the source's, with no stretch.
+///
+/// The window did not draw this face, so nothing here compares outlines with the window; what
+/// changes is the shapes, which the loss `machine-face` names.
+pub(super) fn pack_face_proved(
+    document: &Document,
+    used: &SelectedFont,
+    source: &LoadedFont,
+    glyph: &dyn Fn(u8) -> Option<u16>,
+    row: Table124,
+    program: &[u8],
+) -> Result<(), Because> {
+    let descriptor = held_descriptor(document, used, &Dictionary::new())?;
+    let converted = loaded_as_written(
+        document,
+        used,
+        &Dictionary::new(),
+        &descriptor,
+        row,
+        program,
+    )?;
+    same_metrics(source, &converted)?;
+    for text in used.shown.keys() {
+        for code in source.decode(text) {
+            let expected = u8::try_from(code.value()).ok().and_then(glyph);
+            if expected.is_none() || converted.glyph_index(code) != expected {
+                return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The file's own descriptor of `used` as the rewriter leaves it once a program is embedded into
 /// it: every value resolved, the program keys and the two glyph lists taken out, and `gains`
 /// written in.

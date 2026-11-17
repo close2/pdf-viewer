@@ -71,6 +71,7 @@ jobs:
           fi
           window=$(ls quorra-winui-x64-*.zip)
           pack=$(ls quorra-cjk-pack-*.zip)
+          lgc_pack=$(ls quorra-lgc-pack-*.zip)
           gh release delete snapshot --cleanup-tag --yes || true
           gh release create snapshot \
             --prerelease \
@@ -84,9 +85,11 @@ jobs:
 
           **\`${pack}\` is the CJK pack**, the second download the PDF/A conversion embeds from where a document shows a font of one of the Adobe character collections (Japanese, Simplified and Traditional Chinese, Korean) without embedding it: unpack it beside \`quorra-transform\`, so that its \`cjk-pack\` directory sits next to the executable, or name that directory with \`--cjk-pack <dir>\`. Its five programs are derived from Source Han Sans 2.005R under the SIL Open Font License 1.1, whose text is inside. \`SHA256SUMS\` beside it lists their digests, which are compiled into this build: a pack from another build is refused as not this one, so take the pack and the program from the same release.
 
+          **\`${lgc_pack}\` is the Latin-Greek-Cyrillic pack**, the download the PDF/A conversion embeds from where a document shows a serif or fixed-pitch font it does not embed with a Greek, Cyrillic or Latin Extended character the compiled-in face lacks: unpack it beside \`quorra-transform\`, so that its \`lgc-pack\` directory sits next to the executable, or name that directory with \`--lgc-pack <dir>\`. Its six programs are derived from Noto Serif and Noto Sans Mono under the SIL Open Font License 1.1, whose text is inside. \`lgc-pack-SHA256SUMS\` beside it lists their digests, which are compiled into this build, so take the pack and the program from the same release.
+
           Every program this tree builds for a person to run, for x86_64 Linux, aarch64 macOS and x86_64 Windows — the viewer \`quorra\` and its confined form \`quorra-confined\`, the transform suite \`quorra-transform\` (whose \`archive\` verb is the PDF/A conversion), \`quorra-retrieve\` (whose \`archive-check\` is the PDF/A validation), and on Linux the GTK 4 and Qt 6 hosts and the FUSE mount \`quorrafs\`. **Unpack an archive into one directory and keep it that way**: the four workers — \`pdf-sandbox-worker\`, \`pdf-view-worker\`, \`pdf-vfs-worker\` and, off Windows, \`quorra-transform-worker\` — are separate executables their programs spawn, looked for beside the running binary, and a program that cannot find its worker refuses the work rather than doing it unconfined.
 
           **Not every program is on every platform**, and each archive's \`MANIFEST\` is the answer for that archive: \`quorrafs\` is Linux's alone, \`pdf-vfs-worker\` passes a descriptor over a Unix socket and so is absent on Windows, and the two native hosts are built where their toolkits are. The Linux archive also carries \`kio/\` — RFC 0003's C ABI library and header, with the KIO plugin itself only where the runner's KDE could build it, because a KF6 plugin is bound to the ABI of the KDE it was compiled against.
 
           **The confinement is Linux's.** seccomp-BPF and Landlock restrict the image decoder's system calls and filesystem there; macOS and Windows have neither, so on those two the decoder runs in a separate process with no kernel confinement and no address-space ceiling — which the viewer prints in its first line rather than leaving to a release note. What a real confinement for each would take is in \`doc/todo/35\`." \
-            ./*.tar.gz ./*.zip ./*.sha256 ./SHA256SUMS
+            ./*.tar.gz ./*.zip ./*.sha256 ./SHA256SUMS ./lgc-pack-SHA256SUMS

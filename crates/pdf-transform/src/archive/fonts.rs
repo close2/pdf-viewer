@@ -74,6 +74,7 @@ mod described;
 pub(in crate::archive) mod embedded_cmap;
 mod empty;
 mod fresh_cid;
+mod lgc_pack;
 mod machine_cid;
 mod names;
 mod notdef_format;
@@ -86,6 +87,7 @@ mod truetype_cmap;
 mod twin_codes;
 mod untagged;
 
+pub use lgc_pack::{LgcFace, LgcPack};
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
@@ -379,6 +381,9 @@ enum Face {
     /// the face's own name and its licence for the report, and the shipped face it stands in
     /// for, which the restatement's proof is given (`doc/adr/2773`).
     Machine(SuppliedFace, String, Box<ShippedFace>),
+    /// The same answer over the bytes of a face of the Latin-Greek-Cyrillic pack, where the
+    /// shipped face lacks a code the page shows (`doc/adr/2934`).
+    Pack(SuppliedFace, LgcFace),
 }
 
 impl Face {
@@ -386,7 +391,9 @@ impl Face {
     fn program(&self) -> &[u8] {
         match self {
             Self::Shipped(face) => face.program,
-            Self::Supplied(face, _) | Self::Machine(face, ..) => &face.program,
+            Self::Supplied(face, _) | Self::Machine(face, ..) | Self::Pack(face, _) => {
+                &face.program
+            }
         }
     }
 
@@ -394,7 +401,7 @@ impl Face {
     const fn format(&self) -> Format {
         match self {
             Self::Shipped(face) => face.format,
-            Self::Supplied(face, _) | Self::Machine(face, ..) => face.format,
+            Self::Supplied(face, _) | Self::Machine(face, ..) | Self::Pack(face, _) => face.format,
         }
     }
 
@@ -402,7 +409,9 @@ impl Face {
     fn glyph(&self, code: u8) -> Option<u16> {
         match self {
             Self::Shipped(face) => face.glyph(code),
-            Self::Supplied(face, _) | Self::Machine(face, ..) => face.glyph(code),
+            Self::Supplied(face, _) | Self::Machine(face, ..) | Self::Pack(face, _) => {
+                face.glyph(code)
+            }
         }
     }
 
@@ -411,13 +420,15 @@ impl Face {
         match self {
             Self::Shipped(face) => face.describe().to_owned(),
             Self::Supplied(_, named) | Self::Machine(_, named, _) => named.clone(),
+            Self::Pack(_, face) => face.describe().to_owned(),
         }
     }
 
     /// Whose face it was.
     const fn authority(&self) -> FaceAuthority {
         match self {
-            Self::Shipped(_) => FaceAuthority::Shipped,
+            // The pack is this program's second download, its licence read once (ADR 2630).
+            Self::Shipped(_) | Self::Pack(..) => FaceAuthority::Shipped,
             Self::Supplied(..) => FaceAuthority::Operator,
             Self::Machine(..) => FaceAuthority::Machine,
         }
@@ -1091,6 +1102,8 @@ pub(super) struct Routes<'a> {
     pub(super) supplied: &'a BTreeMap<String, std::sync::Arc<[u8]>>,
     /// The CJK pack, where one was found.
     pub(super) pack: Option<&'a CjkPack>,
+    /// The Latin-Greek-Cyrillic pack, where one was found (`doc/adr/2934`).
+    pub(super) lgc: Option<&'a LgcPack>,
     /// The target the conversion is for.
     pub(super) target: pdf_archive::Target,
     /// What decides whether pages are photographed.
@@ -1138,6 +1151,7 @@ fn embed_pass(
     let Routes {
         supplied,
         pack,
+        lgc,
         target,
         gate,
         defined,
@@ -1214,7 +1228,7 @@ fn embed_pass(
                 used,
                 spare,
                 supplied,
-                (pack, embed_machine_face),
+                (pack, lgc, embed_machine_face),
                 &mut substitutes,
             )?;
             for entry in substitutes.done.iter_mut().skip(before) {
@@ -1266,7 +1280,13 @@ fn embed_pass(
         // naming no program states, and may carry the face it was drawn from (`doc/adr/2870`).
         let emptied = cut.is_some_and(|cut| cut.drawn_as_nothing);
         let machine = (embed_machine_face && !emptied).then_some(&font);
-        let face = face_for(document, supplied, &requested, reading, machine)?;
+        let face = face_for(
+            document,
+            supplied,
+            &requested,
+            reading,
+            (machine, &font, lgc),
+        )?;
         let (row, restated) = row_for(document, reading, &subtype, &face)?;
         // **A code Annex D encodes twice, at a width of its own**: named for the character ISO
         // 32000-1 says it means, it reaches the face's glyph for that character, and the face
@@ -1290,7 +1310,13 @@ fn embed_pass(
                 let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
                     .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
                 let machine = (embed_machine_face && !emptied).then_some(&font);
-                let face = face_for(document, supplied, &requested, &renamed, machine)?;
+                let face = face_for(
+                    document,
+                    supplied,
+                    &requested,
+                    &renamed,
+                    (machine, &font, lgc),
+                )?;
                 let found =
                     face_widths(&font, &face, &renamed, &twins.codes).map_err(|_| refusal)?;
                 (face, font, found, Some(twins))
@@ -1320,6 +1346,8 @@ fn embed_pass(
         // neither.
         let drawn = match (&face, &restated) {
             (Face::Supplied(..), _) => None,
+            // Neither the producer's face nor the one the window drew: `machine-face`.
+            (Face::Pack(..), _) => Some(described::Drawn::FromAMachineFace),
             (Face::Shipped(_) | Face::Machine(..), Some(restatement)) => Some(restatement.drawn),
             (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped),
             // The face embedded is the one the viewer drew: `machine_face` took its bytes from
@@ -1369,6 +1397,18 @@ fn embed_pass(
         });
         // A machine's face the dictionary already admits is held to the viewer's drawing by the
         // same proof a restatement is, over the file's own descriptor (`doc/adr/2773`).
+        // A pack's face is held to its own code table: the same program on both sides
+        // (`doc/adr/2934`).
+        if let Face::Pack(pack_face, _) = &face {
+            described::pack_face_proved(
+                document,
+                reading,
+                &font,
+                &|code| pack_face.glyph(code),
+                row,
+                &program,
+            )?;
+        }
         if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
             described::machine_face_proved(
                 document,
@@ -1434,13 +1474,23 @@ fn embed_pass(
             row.key == "FontFile2",
         )
         .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
-        notices::attach(
-            document,
-            face.program(),
-            &mut stream,
-            spare,
-            &mut substitutes.written,
-        )?;
+        if let Face::Pack(..) = face {
+            notices::attach_notice(
+                document,
+                lgc_pack::LICENCE,
+                &mut stream,
+                spare,
+                &mut substitutes.written,
+            )?;
+        } else {
+            notices::attach(
+                document,
+                face.program(),
+                &mut stream,
+                spare,
+                &mut substitutes.written,
+            )?;
+        }
         substitutes.written.insert(at, stream);
         let own = embed_at_descriptor(
             document,
@@ -1624,7 +1674,7 @@ fn row_for(
         Face::Machine(machine, _, shipped) => {
             described::restated_kind(document, used, subtype, shipped, Some(&machine.program))?
         }
-        Face::Supplied(..) => return Err(unadmitted()),
+        Face::Supplied(..) | Face::Pack(..) => return Err(unadmitted()),
     }
     .ok_or_else(unadmitted)?;
     Ok((restatement.row, Some(restatement)))
@@ -1632,26 +1682,29 @@ fn row_for(
 
 /// The face a substitution embeds for `reading`: the operator's where they named one for
 /// `requested`; where `drawn` is given, the machine's face the viewer drew it from, where it drew
-/// it from one and that face's licence permits embedding it; this program's otherwise.
+/// it from one and that face's licence permits embedding it; this program's otherwise, and where
+/// this program's lacks a code the page shows, the Latin-Greek-Cyrillic pack's face for the same
+/// request where the pack is installed and that face draws every one (`doc/adr/2934`).
 fn face_for(
     document: &Document,
     supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
     requested: &str,
     reading: &SelectedFont,
-    drawn: Option<&LoadedFont>,
+    (drawn, font, lgc): (Option<&LoadedFont>, &LoadedFont, Option<&LgcPack>),
 ) -> Result<Face, Because> {
     let named = named_program(supplied, requested);
+    // The machine's face is held to the shipped face it stands in for, so where there is no
+    // shipped face for the font the pack's is asked instead, below.
     if named.is_none()
         && let Some(font) = drawn
+        && let Ok(shipped) =
+            pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
+        && let Some(face) = machine_face(document, reading, font, &shipped)?
     {
-        let shipped = pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
-            .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?;
-        if let Some(face) = machine_face(document, reading, font, &shipped)? {
-            return Ok(face);
-        }
+        return Ok(face);
     }
-    Ok(match named {
-        Some((named, program)) => Face::Supplied(
+    if let Some((named, program)) = named {
+        return Ok(Face::Supplied(
             pdf_font::standard::supplied_face(
                 document,
                 &reading.dict,
@@ -1660,12 +1713,60 @@ fn face_for(
             )
             .map_err(|_| Because::NotBuiltYet(SUPPLIED_FACE_NOT_READ))?,
             named,
-        ),
-        None => Face::Shipped(
-            pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
-                .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
-        ),
-    })
+        ));
+    }
+    // The shipped face answers where it draws every code the page shows; where it draws
+    // none of the codes the font declares it is no face at all, and either way the pack's
+    // face is asked next.
+    let shipped = pdf_font::standard::shipped_face(document, &reading.dict, &reading.name);
+    let lacking = |glyph: &dyn Fn(u8) -> Option<u16>| {
+        shown_bytes(font, reading).into_iter().any(|byte| {
+            !empty::reaches_notdef(font, Code::single_byte(byte))
+                && glyph(byte).is_none_or(|glyph| glyph == pdf_font::NOTDEF_GLYPH)
+        })
+    };
+    let shipped_lacks = shipped
+        .as_ref()
+        .map_or(true, |shipped| lacking(&|byte| shipped.glyph(byte)));
+    if shipped_lacks
+        && let Some((face, wanted)) = pack_face(document, reading, lgc)?
+        && !lacking(&|byte| face.glyph(byte))
+    {
+        return Ok(Face::Pack(face, wanted));
+    }
+    Ok(Face::Shipped(shipped.map_err(|_| {
+        Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT)
+    })?))
+}
+
+/// The Latin-Greek-Cyrillic pack's face for the style `reading` asks, where the pack is installed
+/// and holds one (`doc/adr/2934`); a file of the pack that is not the builder's program is refused
+/// by name rather than passed over.
+fn pack_face(
+    document: &Document,
+    reading: &SelectedFont,
+    lgc: Option<&LgcPack>,
+) -> Result<Option<(SuppliedFace, LgcFace)>, Because> {
+    let Some(pack) = lgc else {
+        return Ok(None);
+    };
+    let descriptor = document
+        .get_key(&reading.dict, "FontDescriptor")
+        .as_dict()
+        .cloned();
+    let request =
+        pdf_font::substitute::Request::derive(document, &reading.dict, descriptor.as_ref());
+    let Some(wanted) = LgcFace::for_request(request) else {
+        return Ok(None);
+    };
+    let program = match pack.program(wanted) {
+        Ok(program) => program,
+        Err(PackGap::Absent) => return Ok(None),
+        Err(PackGap::NotThisPack) => return Err(Because::NotBuiltYet(LGC_PACK_NOT_THIS_PACK)),
+    };
+    let face = pdf_font::standard::supplied_face(document, &reading.dict, &reading.name, program)
+        .map_err(|_| Because::NotBuiltYet(LGC_PACK_FACE_NOT_READ))?;
+    Ok(Some((face, wanted)))
 }
 
 /// The machine's face the viewer drew `font` from, as a face to embed, where it drew it from one
@@ -2356,13 +2457,27 @@ const NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM: &str = "--font names a program for a
 
 /// Why no face covers a document's characters.
 const NO_SHIPPED_FACE_COVERS_IT: &str = "this document renders a font it does not embed, and no \
-     face this program ships has a glyph for every code it shows. doc/questions/A47 is explicit \
+     face this program ships has a glyph for every code it shows - neither the face compiled in \
+     nor, where the font is a serif or an upright fixed-pitch one and the Latin-Greek-Cyrillic \
+     pack is installed (doc/lgc-pack.md), that pack's face. doc/questions/A47 is explicit \
      that where no shipped face covers a document's characters the answer is to refuse rather \
      than guess: embedding a face that draws nothing for those codes would reference the .notdef \
      glyph, which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid outright. \
      Naming the face with --font <base-font>=<path> resolves it: ISO 19005-2 section 6.2.11.4.1 \
      admits only a program that may lawfully be embedded for unlimited, universal rendering, \
-     which ISO 32000-2 §9.9.1 makes a fact about a licence that only you can state";
+     which ISO 32000-2 \u{a7}9.9.1 makes a fact about a licence that only you can state";
+
+/// Why a pack face whose bytes are not the builder's is not embedded.
+const LGC_PACK_NOT_THIS_PACK: &str = "this document renders a font it does not embed and shows a \
+     code the face this program ships has no glyph for, and the Latin-Greek-Cyrillic pack's file \
+     for the face it asks is not the program tools/lgc-pack.py writes: its SHA-256 is not the one \
+     this program carries, so it is refused as not this pack rather than embedded (doc/lgc-pack.md)";
+
+/// Why a pack face that does not read is not embedded.
+const LGC_PACK_FACE_NOT_READ: &str = "this document renders a font it does not embed and shows a \
+     code the face this program ships has no glyph for, and the Latin-Greek-Cyrillic pack's face \
+     for it could not be read as the bare Compact Font Format program ISO 32000-2 \u{a7}9.9's \
+     Table 124 admits under a Type1 font dictionary";
 
 /// Why a program the operator named is not embedded.
 const SUPPLIED_FACE_NOT_READ: &str = "the font program named with --font for this document's \

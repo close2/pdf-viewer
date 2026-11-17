@@ -162,9 +162,15 @@ pub enum PackGap {
 
 /// The CJK pack a conversion may embed from, each program read and verified on first use.
 #[derive(Debug, Clone)]
-pub struct CjkPack {
+pub struct CjkPack(Arc<Shared>);
+
+/// What every clone of one pack shares: the caller's reader and each program once read. One
+/// pointer, so that a plan carrying the pack stays the size it was (`clippy::large_enum_variant`
+/// on `pdf_transform::Plan`).
+#[derive(Debug)]
+struct Shared {
     files: Arc<dyn PackFiles>,
-    loaded: Arc<[Loaded; 5]>,
+    loaded: [Loaded; 5],
 }
 
 /// One collection's program once it was asked for: its verified bytes, or why there are none.
@@ -174,7 +180,7 @@ type Loaded = OnceLock<Result<Arc<[u8]>, PackGap>>;
 /// about what its caller handed in, and comparing bytes would read a pack nobody asked for yet.
 impl PartialEq for CjkPack {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.files, &other.files)
+        Arc::ptr_eq(&self.0.files, &other.0.files)
     }
 }
 
@@ -182,10 +188,10 @@ impl CjkPack {
     /// A pack read through `files`, nothing of it read yet.
     #[must_use]
     pub fn new(files: Arc<dyn PackFiles>) -> Self {
-        Self {
+        Self(Arc::new(Shared {
             files,
-            loaded: Arc::new(std::array::from_fn(|_| OnceLock::new())),
-        }
+            loaded: std::array::from_fn(|_| OnceLock::new()),
+        }))
     }
 
     /// The collection's program, read once and held to its digest.
@@ -195,9 +201,13 @@ impl CjkPack {
     /// [`PackGap::Absent`] where the caller's reader has no such file, and
     /// [`PackGap::NotThisPack`] where its bytes are not the ones `tools/cjk-pack.py` writes.
     pub fn program(&self, collection: Collection) -> Result<Arc<[u8]>, PackGap> {
-        self.loaded[collection.index()]
+        self.0.loaded[collection.index()]
             .get_or_init(|| {
-                let bytes = self.files.read(collection.file()).ok_or(PackGap::Absent)?;
+                let bytes = self
+                    .0
+                    .files
+                    .read(collection.file())
+                    .ok_or(PackGap::Absent)?;
                 if hex(&Sha256::digest(&bytes)) == collection.digest() {
                     Ok(Arc::from(bytes))
                 } else {
@@ -209,7 +219,7 @@ impl CjkPack {
 }
 
 /// Lower-case hexadecimal, the form `SHA256SUMS` and [`Collection::digest`] write.
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::new(), |mut out, byte| {
         // Writing into a `String` cannot fail.

@@ -29,6 +29,9 @@
 //! collection is tried first is a documented choice, because nothing in an `Identity` font names a
 //! script: Table 122's `/Lang` where the descriptor states one, then the script the characters
 //! themselves are in (kana Japanese, Hangul Korean), then §9.7.5.2's own order of the four.
+//! **The Latin-Greek-Cyrillic pack's face for the same request last** (ADR 2934): Noto Serif or
+//! Noto Sans Mono, a bare CFF whose glyphs the Adobe Glyph List names, for a serif or upright
+//! fixed-pitch font showing Greek, Cyrillic or Latin Extended characters neither of the others has.
 //!
 //! # How the glyphs are numbered by the document's CIDs
 //!
@@ -73,6 +76,7 @@ use super::super::COMPRESSION_LEVEL;
 use super::super::decision::{Because, Loss, Losses};
 use super::super::prepare::Spare;
 use super::super::to_unicode::UNUSABLE;
+use super::lgc_pack::{self, LgcFace, LgcPack};
 use super::pack::{CjkPack, Collection, LICENCE};
 use super::{
     Embedding, FaceAuthority, MetricRoute, PROGRAM_NOT_ENCODED, SubstitutedFont, Substitutes,
@@ -124,6 +128,8 @@ enum Face {
     Shipped(&'static [u8], Format),
     /// The CJK pack's program for a collection.
     Pack(std::sync::Arc<[u8]>, Collection),
+    /// A face of the Latin-Greek-Cyrillic pack, a bare CFF program (`doc/adr/2934`).
+    Lgc(std::sync::Arc<[u8]>, LgcFace),
 }
 
 impl Face {
@@ -132,6 +138,7 @@ impl Face {
         match self {
             Self::Shipped(program, format) => face_name(program, *format),
             Self::Pack(_, collection) => format!("QuorraCJK-{}", collection.ordering()),
+            Self::Lgc(_, face) => face.describe().to_owned(),
         }
     }
 }
@@ -156,6 +163,13 @@ fn noticed(
             spare,
             &mut substitutes.written,
         ),
+        Face::Lgc(..) => super::notices::attach_notice(
+            document,
+            lgc_pack::LICENCE,
+            stream,
+            spare,
+            &mut substitutes.written,
+        ),
     }
 }
 
@@ -165,11 +179,15 @@ fn noticed(
 ///
 /// [`Because::NotBuiltYet`] naming the condition met, and [`Because::TheFence`] where one glyph of
 /// a `glyf` face would have to state two advances.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered embedding: choose the face, write its program, place its map and report it"
+)]
 pub(super) fn embed(
     document: &Document,
     used: &SelectedFont,
     descendant: &Dictionary,
-    pack: Option<&CjkPack>,
+    (pack, lgc): (Option<&CjkPack>, Option<&LgcPack>),
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
@@ -202,7 +220,7 @@ pub(super) fn embed(
         request,
         descriptor_dict.as_ref(),
         &characters,
-        pack,
+        (pack, lgc),
     )?;
     let at = match &earlier {
         Some(earlier) => earlier.at,
@@ -225,6 +243,7 @@ pub(super) fn embed(
             (TRUE_TYPE, stream, gains, Some(map), route)
         }
         Face::Shipped(program, format) => compact(document, descendant, program, *format, &shown)?,
+        Face::Lgc(program, _) => compact(document, descendant, program, Format::BareCff, &shown)?,
         Face::Pack(program, collection) => {
             let glyphs = pack_glyphs(program, *collection, &shown)?;
             compact_from(document, descendant, program, Format::Sfnt, &glyphs, &shown)?
@@ -443,7 +462,7 @@ fn chosen_face(
     request: Request,
     descriptor: Option<&Dictionary>,
     characters: &BTreeSet<char>,
-    pack: Option<&CjkPack>,
+    (pack, lgc): (Option<&CjkPack>, Option<&LgcPack>),
 ) -> Result<Face, Because> {
     let (program, format) = pdf_font::standard::face(request);
     if characters
@@ -452,9 +471,11 @@ fn chosen_face(
     {
         return Ok(Face::Shipped(program, format));
     }
-    let pack = pack.ok_or(Because::NotBuiltYet(NO_FACE_DRAWS))?;
-    for collection in collections(document, descriptor, characters) {
-        let Ok(program) = pack.program(collection) else {
+    for collection in pack
+        .map(|_| collections(document, descriptor, characters))
+        .unwrap_or_default()
+    {
+        let Some(Ok(program)) = pack.map(|pack| pack.program(collection)) else {
             continue;
         };
         if characters
@@ -463,6 +484,16 @@ fn chosen_face(
         {
             return Ok(Face::Pack(program, collection));
         }
+    }
+    // Last, the Latin-Greek-Cyrillic pack's face for the same request (`doc/adr/2934`): after
+    // the CJK pack, so that a font a collection already answered is answered as before.
+    if let Some(face) = LgcFace::for_request(request)
+        && let Some(Ok(program)) = lgc.map(|lgc| lgc.program(face))
+        && characters
+            .iter()
+            .all(|character| shipped_glyph(&program, Format::BareCff, *character).is_some())
+    {
+        return Ok(Face::Lgc(program, face));
     }
     Err(Because::NotBuiltYet(NO_FACE_DRAWS))
 }
@@ -808,8 +839,8 @@ const CID_ZERO: &str = "this document shows CID 0 of an Adobe-Identity composite
 /// Why a character no face reaches keeps the refusal.
 const NO_FACE_DRAWS: &str = "this document renders an Adobe-Identity composite font it does not \
      embed, and a character its ToUnicode CMap states for a shown code is drawn by neither the face \
-     this program ships for the font's name nor any installed CJK pack program (doc/cjk-pack.md), \
-     or is drawn by an empty glyph that is no space. Embedding it would show nothing where the \
+     this program ships for the font's name nor any installed CJK pack program (doc/cjk-pack.md) \
+     nor the installed Latin-Greek-Cyrillic pack's face for it (doc/lgc-pack.md), or is drawn by an empty glyph that is no space. Embedding it would show nothing where the \
      page shows a mark, so it is not written";
 
 /// Why the font did not load.
