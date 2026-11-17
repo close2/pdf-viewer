@@ -1,0 +1,7 @@
+{
+  "source": "Parent read every selected issue annotation directly using pikepdf; for193/278/306, compared Rect/QuadPoints with pdftotext bbox positions. Confirmed193 two independent strikes and article replacement; note locator is7.2.2, physical36/printed21.",
+  "assertion_bodies": "Read both ResetForm descendant tests, actual header-byte writer test, inline-image key/value conflict test, PDF/A4 HTO rewrite test and emitted metadata test. Header test counts leading high bytes; metadata checks UTF8 decoder plus literal non-ASCII title for both merge/update. HTO output removal and report are separate from screen initialization.",
+  "qualifications": "ResetForm tests exercise ViewState bookkeeping, not saved values or a native control. GoTo3DView refusal assertion is an action-name mapping, not a valid scene execution. UTF16/32 tolerance does not prove producer conformance. HTO is not merely a producer constraint: annotation explicitly says reader initialization, scoped by output-device reasoning. Transport rule can apply to application transport and is not established by lexer tests.",
+  "corrections": "Fixed nonexistent header test name and overbroad description of inline-image full-name control. Corrected producer-only wording for HTO/transport. No new test execution in this source/assertion review.",
+  "finding": "D47 historical source synopsis for193 is wrong; record effective representation/transport wording without inventing a parser failure."
+}

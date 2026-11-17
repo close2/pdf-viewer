@@ -1,0 +1,113 @@
+{
+  "baseline": "b901326c",
+  "scope": "Source/evidence dispositions for the third ten numeric issues selected from the promoted semantic-disposition crosswalk's literal_mentions_only class. This is not a full-clause review. Physical pages are PDF page indices; printed pages are read from the primary PDF footer. Source annotations were inspected in the EC3 PDF with pikepdf and positioned against rendered/text-extracted pages.",
+  "selection": "Run select_ids.py from the explicit audit worktree. Filter literal_mentions_only, sort numeric issue ID, exclude #288 and the 20 assigned IDs from batch1/batch2; first ten are #174,#193,#195,#260,#272,#278,#282,#292,#296,#306. The crosswalk class describes a structured-record search result, not absence of issue mentions or semantic coverage.",
+  "features": [
+    {
+      "issue": 174,
+      "source": "\u00a712.7.6.3, Table 242 Include/Exclude row, physical 571 / printed 556. Primary Caret object 5828, Rect [312.170,338.032,320.123,344.512], inserts that descendants of selected fields are also exempt in the set-flag branch. This makes the descendants rule symmetric with the clear-flag branch.",
+      "owner_and_code": "Ledger \u00a712.7.6.3 (form/action behavior); crates/pdf-model/src/view/actions.rs::reset_form",
+      "assertions": [
+        "crates/pdf-model/src/view.rs::a_reset_form_action_named_by_reference_reaches_the_fields_descendants asserts both resetting the referenced nonterminal's descendants and excluding those same descendants under /Flags 1",
+        "crates/pdf-model/src/view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare covers name, reference, both flag senses and unrelated field controls"
+      ],
+      "assessment": "The amendment is behaviorally material and current tests directly discriminate the amended set-flag descendant rule. No uncovered failure was found in this specific behavior. ADR 0753's symmetric descendant premise is supported by the amended text and the paired assertions."
+    },
+    {
+      "issue": 193,
+      "source": "\u00a77.2.2 Representation, physical 36 / printed 21. Primary annotations: StrikeOut object 9587 Rect [144.270,191.249,252.473,202.289] removes 'containing binary data' from the transport sentence; StrikeOut object 9589 Rect [68.732,319.949,542.014,362.129] removes 'A non-encrypted PDF file can be entirely represented ... However, a'; Caret object 9591 Rect [174.542,320.032,183.484,327.318] inserts 'A'. Effective claims no longer promise an all-ASCII representation for non-encrypted files and require a PDF file to be transported as binary irrespective of whether it contains binary data. The latter is a whole-file/producer transport rule, not a lexer token rule.",
+      "owner_and_code": "Ledger7.2.2; parser consumes bytes. This bounded review has not certified all application file/network transport paths.",
+      "assertions": [
+        "lexical_foundations_current's regular-name/comment tests exercise byte classes and lexical context, but do not test transport modality",
+        "broad parser termination is not evidence for the binary-transport SHALL"
+      ],
+      "assessment": "Historical source-description discrepancy: errata-read.md:199 calls #193 an untouched7.2.3 note, but the primary changes7.2.2 representation and binary transport. Transport is an obligation on software carrying files, not merely a PDF-author constraint. Byte lexer tests do not verify it; no required parser rejection follows. No whole network/file-transport audit or concrete transport failure is established here."
+    },
+    {
+      "issue": 195,
+      "source": "\u00a712.11.2, Table 275 U3D and PRC cells, physical 623\u2013624 / printed 608\u2013609. Two StrikeOut/Caret pairs change 'shall apply' to 'applies' for use of U3D/PRC in the listed annotation contexts.",
+      "owner_and_code": "Ledger \u00a712.11.2 maps requirement types. crates/pdf-model/src/requirements.rs::Kind::read/unmet reports declared capabilities; it does not render excluded 3D artwork.",
+      "assertions": [
+        "document_requirements_current checks type recognition/reason mapping and explicitly treats the amended Table 275 grammar as not creating a new 3D processor",
+        "three_d_scope_current/action.rs identifies GoTo3DView as excluded runtime behavior"
+      ],
+      "assessment": "This is a scope/applicability wording correction, not a new requirement to process U3D/PRC. Existing clause-13 runtime exclusion is separately ratified; no new test or change in capability mapping is justified. ADR 1946 remains consistent with the bounded still-appearance/runtime split."
+    },
+    {
+      "issue": 260,
+      "source": "\u00a78.4.5 Table 52, physical 174 / printed 159. Primary Text annotation object 3167 asks to add the PDF 2.0 'halftone origin' array entry (HTO), with X/Y coordinates and device-dependent initialization. This is a graphics-state parameter whose annotation explicitly requires a reader to initialize a suitable device-dependent value. Applicability to the shipped continuous-tone output must be argued from the device boundary, not dismissed as producer-only.",
+      "owner_and_code": "Ledger \u00a78.4.5 graphics-state parameters and \u00a710.6 halftone applicability. Active screen path emits continuous-tone RGB and delegates printer screening; PDF/A-4 archive path explicitly recognizes/removes prohibited HTO and reports that loss.",
+      "assertions": [
+        "pdf-transform/tests/archive.rs::a_halftone_origin_is_a_loss_at_part_four asserts its removal in a target where ISO 19005-4 prohibits it",
+        "archive::statement tests check multiple HTO objects and report removal",
+        "halftones_separations_current records the output-device premise and does not claim general device-screen support"
+      ],
+      "assessment": "No missing screen-generation behavior is implied by the Table 52 addition under the documented continuous-tone output boundary. The archival removal tests are a distinct producer-target transformation, not proof of screen rendering. ADR 1535's boundary remains conditioned on active outputs; reopen if the application itself drives a discrete/halftone output device."
+    },
+    {
+      "issue": 272,
+      "source": "\u00a77.5.2 File header, physical 70 / printed 55. Primary StrikeOut object 1703 and Caret object 1705 replace 'a comment line containing' with 'a line containing only a comment that starts with' before the at-least-four high-byte condition. The condition is on the first line after the PDF header.",
+      "owner_and_code": "Ledger \u00a77.5.2 writer/file-structure rule; pdf-syntax serialization writes the binary marker after the header.",
+      "assertions": [
+        "crates/pdf-syntax/tests/file_structure_audit.rs::a_whole_file_writer_places_a_binary_comment_after_the_header reads the first line after the serialized header and counts consecutive bytes>=128 immediately after %. It reopens the writer result independently of that raw-byte condition.",
+        "reader header cases separately assert no recovery; they do not convert the writer rule into rejection of nonconforming files"
+      ],
+      "assessment": "The writer assertion checks the amended 'starts with' wording rather than merely four high bytes somewhere later. The correction is producer-side; current permissive header reading does not establish a defect. ADR 0724 distinguishes this \u00a77.5.2 annotation from nearby \u00a77.5.4 material and remains consistent."
+    },
+    {
+      "issue": 278,
+      "source": "\u00a79.7.5.3 Embedded CMap files, physical 353 / printed 338. Primary StrikeOut object 4246 at Rect [141.860,635.569,150.891,646.609] removes stray punctuation (quote/period) from surrounding CMap prose; no entry, mapping or CMap syntax rule changes.",
+      "owner_and_code": "Ledger \u00a79.7.5.3 CMap stream reader; pdf-font/src/cmap.rs and associated composite-font paths.",
+      "assertions": [
+        "cid_opentype_current reviews mapping and stream-reading assertions; none depends on the deleted punctuation"
+      ],
+      "assessment": "Editorial correction only. No reader behavior, producer acceptance, or conformance assertion follows from this mark; no additional ADR premise is needed."
+    },
+    {
+      "issue": 282,
+      "source": "\u00a712.6.4.16 Go-To-3D-View action and Table 220, physical 541 / printed 526. Four Caret annotations (objects 5469,5477,5481,5485) extend the target annotation/view alternatives to RichMedia and its RichMediaContent /Views array.",
+      "owner_and_code": "Ledger \u00a712.6.4.16 and action parser; crates/pdf-model/src/action.rs maps GoTo3DView to a clause-13 refusal.",
+      "assertions": [
+        "crates/pdf-model/tests/actions.rs contains an explicit GoTo3DView refusal control at the action-name mapping",
+        "no view-changing consumer test; this is within ratified 3D/RichMedia runtime exclusion"
+      ],
+      "assessment": "The annotation widens an excluded runtime action and does not create page appearance, poster, or handoff behavior. The general refusal is consistent with ADR 1946; adding a detailed runtime assertion would test explicitly excluded behavior, not a missing required path."
+    },
+    {
+      "issue": 292,
+      "source": "\u00a78.10.2 Form dictionaries, Table 93 Resources row, physical 287\u2013288 / printed 272\u2013273. Primary annotations on physical 287 strike the resource text and insert 'Sometimes required' plus PDF 2.0 independence/resource ownership language. This strengthens/clarifies the producer-side resource dictionary requirement for independent forms from PDF 2.0; it is not a new mandatory reader refusal rule.",
+      "owner_and_code": "Ledger \u00a78.10.2 and resource resolution. Form resource fallback behavior is tracked in ADR 1059/2820; code continues to provide the explicit compatibility fallback policy as described in pattern_forms_current.",
+      "assertions": [
+        "pattern_forms_current checks Form placement/BBox and states that missing-resource fallback was not re-audited; sibling resource-fallback tests exercise fallback behavior",
+        "tests do not certify producer-conforming independent-form resource ownership"
+      ],
+      "assessment": "Existing reader tolerance/fallback must not be represented as proving PDF 2.0 producer conformance. No claim that a reader must reject a missing Resources entry is made. The specific producer correction is already reflected in the form audit; this batch found no independent behavioral failure. ADR 1059's reader recovery policy is distinct from the Table 93 producer condition."
+    },
+    {
+      "issue": 296,
+      "source": "\u00a714.3.2 metadata stream contents, physical 730 / printed 715. Primary Caret object 6715 inserts 'All XMP metadata in PDF shall be encoded as UTF-8.' This binds producers; the annotation does not prescribe reader rejection of alternate encodings.",
+      "owner_and_code": "Ledger \u00a714.3.2; pdf-transform emits UTF-8; pdf-model/src/xmp.rs reads UTF-8 and additionally BOM-marked UTF-16/UTF-32 permissively.",
+      "assertions": [
+        "pdf-transform/tests/metadata_requirements_audit.rs::emitted_metadata_streams_have_table347_names_and_utf8_packets checks writer output bytes and dictionary names",
+        "pdf-model/tests/xmp.rs checks BOM-marked legacy Unicode paths as permissive reading behavior"
+      ],
+      "assessment": "The writer requirement is positively asserted; reader tolerance is not a conformance defect. Current xmp.rs documentation accurately describes alternate decoding as compatibility tolerance and cites #296 as a producer requirement. ADR 1004's source premise is confirmed."
+    },
+    {
+      "issue": 306,
+      "source": "\u00a78.9.7, Table 91 Interpolate row, physical 284 / printed 269. Primary StrikeOut object 3749 removes the uppercase I from 'I)' and Caret object 3751 writes lowercase i, clarifying that the table name is the letter I while the inline-image key abbreviation is capital I.",
+      "owner_and_code": "Ledger8.9.7; inline_image::read_dictionary expands key /I to Interpolate; expand_colour_space_name separately expands value /I to Indexed.",
+      "assertions": [
+        "crates/pdf-model/tests/inline_images_dictionary_audit.rs::abbreviated_table91_keys_win_in_either_order_and_unlisted_keys_are_ignored checks uppercase /I=true against conflicting long /Interpolate=false in both orders, and separately /CS [/I /G ...] expands to Indexed. The full-only control tests Width/data, not a full-only Interpolate value.",
+        "inline_image_abbreviations tests also cover key mappings"
+      ],
+      "assessment": "The correction resolves notation, while the collision has a discriminating parser assertion with distinct key and value contexts. No gap found. ADR 0019's abbreviation interpretation remains supported by the corrected table."
+    }
+  ],
+  "unreviewed": [
+    "No complete audit of the cited clauses/tables or every changed word beyond the listed annotation targets.",
+    "No complete producer-conformance audit for PDF headers, form resources, all metadata producers or halftone parameters.",
+    "No claim that accepted malformed-input recovery proves source conformance.",
+    "No Cargo/test execution in this batch; assertion bodies were read from the b901 baseline tree."
+  ]
+}

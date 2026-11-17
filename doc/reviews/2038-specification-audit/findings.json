@@ -2297,5 +2297,48 @@
     "summary": "Print preference values now have actual GTK settings and Qt bridge assertions, including all range pairs and independent duplex mappings.",
     "execution": "Two tests PASS under Xvfb; GTK/Qt all-targets Clippy PASS.",
     "limits": "No native dialog or printer driven; tray capability and suppressed-dialog scaling remain separately qualified."
+  },
+  {
+    "id": "2038-D47",
+    "kind": "source-description-error",
+    "clauses": [
+      "7.2.2"
+    ],
+    "summary": "Historical #193 synopsis mislocates the correction and misses the unconditional binary-transport obligation.",
+    "evidence": "Primary physical36/printed21, Strike9587/9589 and Caret9591; errata-read.md:199 describes an untouched7.2.3 note.",
+    "limits": "Application transport can be bound; no lexer refusal or concrete transport failure inferred. Historical document is preserved."
+  },
+  {
+    "id": "2038-D48",
+    "kind": "superseded-design-rationale",
+    "clauses": [
+      "7.5.4",
+      "7.5.6"
+    ],
+    "summary": "Incremental free-entry rationale still cites the object-zero prohibition deleted by EC3 #147.",
+    "evidence": "write.rs incremental_update_freeing, ledger7.5.4 and ADR0803 rely on the struck NOTE3. Primary physical71 permits nonnegative subsection start.",
+    "disposition": "The selected detached-free mechanism remains valid; reconsider rationale, not required writer behavior. Linked object0 and detached reader controls PASS."
+  },
+  {
+    "id": "2038-T90",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.5.5",
+      "7.5.8"
+    ],
+    "summary": "Valid stream-to-stream Prev traversal now has exact-offset assertions requiring old catalog resolution and newest-page precedence.",
+    "execution": "Two tests PASS; syntax all-targets Clippy PASS.",
+    "limits": "Not exhaustive mixed-chain or malformed recovery coverage."
+  },
+  {
+    "id": "2038-T91",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.5.4",
+      "7.5.6"
+    ],
+    "summary": "Incremental object-zero free-list update now has a valid linked deletion assertion and detached control.",
+    "execution": "One test PASS; syntax all-targets Clippy PASS.",
+    "limits": "No requirement that writers choose this valid mechanism; not exhaustive free-list validation."
   }
 ]

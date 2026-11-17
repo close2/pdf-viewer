@@ -1,0 +1,113 @@
+{
+  "title": "EC3 weak-disposition batch 1: source effects and current behavioral evidence",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection": "First ten numeric IDs classified literal_mentions_only in errata_disposition_crosswalk_current/crosswalk.json, excluding #288: #3, #12, #20, #29, #30, #75, #86, #101, #109, #110. The classifier is discovery metadata, not a semantic conclusion.",
+  "source_method": "Primary EC3 PDF annotations were inspected directly by /Subj and /Contents, with page context and visible annotation placement checked where an overlay changes nearby text. Printed-footer and physical PDF page numbers are both recorded. Current assertions were read in their actual test bodies; test names alone were not treated as proof.",
+  "features": [
+    {
+      "issue": 3,
+      "source_location": "Primary EC3 physical p.283 / printed p.268, \u00a78.9.7; Caret annotation obj 11685 (no IRT).",
+      "effect": "When an abbreviated key and its Table 91 full key both occur, the abbreviated key takes precedence. This is a normative inline-image dictionary interpretation rule.",
+      "ledger_and_code": "Ledger \u00a78.9.7 implemented. crates/pdf-model/src/inline_image.rs::read_dictionary expands abbreviations and resolves conflicts.",
+      "actual_assertions": "crates/pdf-model/tests/inline_images_dictionary_audit.rs::abbreviated_table91_keys_win_in_either_order_and_unlisted_keys_are_ignored supplies both orderings of conflicting /W and /Width and asserts Width=1; it also checks the paired /I and /Interpolate values and an unlisted key. Fixture opens with a complete xref and asserts no recovery.",
+      "verdict": "Effective correction covered by direct, source-derived assertions. The crosswalk's literal-only label is underinclusive; no new test is needed.",
+      "related_adrs": []
+    },
+    {
+      "issue": 12,
+      "source_location": "Primary EC3 physical p.395 / printed p.380, \u00a710.6.5.6 Table 132; StrikeOut obj 4470 is threaded to Caret obj 4472, replacement: 'The halftone shall not be a Type 5 halftone.'",
+      "effect": "The Default Type 5 child halftone is constrained not to be Type 5. The neighboring clause already states the restriction for component halftones; the correction makes the same restriction explicit for Default. Halftone-screen rendering remains device-conditional/optional in this application's continuous-tone output route.",
+      "ledger_and_code": "Ledger \u00a710.6.5.6 implemented for transfer-function interpretation. `halftone_transfer` consumes Type 5 component/Default entries; screen generation is outside the adopted output route.",
+      "actual_assertions": "crates/pdf-model/tests/transfer_functions.rs directly asserts component and Default transfer-function selection. The separate rendering_intent_transfer_current shard notes that the then-existing tests did not independently exercise all dictionary override cases through raster output; its public-raster draft is the relevant consumer evidence. No reader refusal obligation follows from the producer wording alone.",
+      "verdict": "Correction clarifies a producer constraint; no reader-conformance defect is established. Keep transfer-map interpretation separate from optional device screening.",
+      "related_adrs": [
+        "ADR 1535",
+        "ADR 0204",
+        "ADR 0505"
+      ]
+    },
+    {
+      "issue": 20,
+      "source_location": "Primary EC3 physical283/printed268,8.9.7 NOTE2; Strike11677 and Caret11679 change the optional skip recipe to its final or only filter. This is separate from the earlier operative ID separator exception.",
+      "effect": "The correction qualifies an optional L-based skipping recipe in NOTE2. It does not amend the preceding operative separator exception, which says one of the filters, or require the implementation to skip extra whitespace.",
+      "ledger_and_code": "Ledger \u00a78.9.7 implemented. Inline image scanning in crates/pdf-model/src/inline_image.rs handles ID framing and decodes declared filters.",
+      "actual_assertions": "crates/pdf-model/tests/inline_images_residual_audit.rs::ascii85_final_filter_can_start_at_id_with_a_delimiter tests the one-filter ASCII85 ('only filter') case with and without a separator, literal decoded bytes [0x0d,0,0,0], and exact resume at ' q Q'; each fixture has a complete xref and asserts no recovery. It does not cover ASCII85 as the final member of a multi-filter chain.",
+      "verdict": "The existing single-filter separator assertion is meaningful but not proof of a changed mandatory rule under #20. A separate review considers multi-filter extent/decode integration, not mandatory execution of the optional skip recipe.",
+      "related_adrs": [
+        "ADR 0019"
+      ]
+    },
+    {
+      "issue": 29,
+      "source_location": "Primary EC3 physical p.65 / printed p.50, \u00a77.4.9; StrikeOut obj 9748 is threaded to Caret obj 9750, replacement 'excluding'.",
+      "effect": "The effective PDF-image JPX producer restriction excludes enum19 (CIEJab) from the otherwise baseline feature set. This is a substantive restriction of conforming producer input. A separate following sentence requires processors to support baseline enum color spaces, and T.801's baseline set includes enum19; preserve that source tension rather than turning the producer ban into an inferred reader non-support rule.",
+      "ledger_and_code": "Ledger \u00a77.4.9 records a departure specifically for enum19; image decoding handles the supported JPX/JPEG 2000 paths. The issue is cross-referenced in image-filter residual review. Owner answer doc/questions/A348-may-the-tree-buy-pima-7667-and-cie-131-for-the-jpx-baseline-spaces.md buys PIMA7667 and declines CIE131; the retained departure is CIEJab19 alone. ADR0348 concerns Arabic glyph shaping and is unrelated.",
+      "actual_assertions": "The prior image-filter shard reports no valid producer fixture for enum19 because EC3 excludes it, and does not infer that permissive reading violates a rejection mandate. The processor-support sentence remains separately visible in the primary source. No new valid-input test is justified by this correction alone.",
+      "verdict": "Substantive producer correction accounted for, with an explicit reader-support tension and owner-departure boundary. No new conformance failure established from literal-only inventory status.",
+      "related_adrs": [
+        "ADR 1184",
+        "Owner answer A348 (not ADR 0348)"
+      ]
+    },
+    {
+      "issue": 30,
+      "source_location": "Primary EC3 physical p.143 / printed p.128, \u00a77.10.3 Type 2 function; StrikeOut obj 10646 is threaded to Caret obj 10648.",
+      "effect": "The struck paragraph is replaced by Caret obj 10648, whose /Contents reasserts the same constraints: if N is non-integer, all x values are non-negative; if N is negative, no x value is zero. The adjacent 'Typically, Domain...' and Range sentence is ordinary neighboring text, not the erratum replacement. Effective producer constraints remain in force.",
+      "ledger_and_code": "Ledger \u00a77.10.3 implemented for Type 2 functions; evaluation is in crates/pdf-colour/src/function.rs. Existing numerical tests cover valid fractional and negative exponents.",
+      "actual_assertions": "crates/pdf-colour/tests/functions_spec_audit.rs::valid_fractional_and_negative_exponents_preserve_their_meaning asserts sqrt 0.25\u21920.5 and 4\u21922 with Domain [0,4], N=0.5, and reciprocal 0.5\u21922 and 4\u21920.25 with Domain [0.25,4], N=\u22121. These are valid-domain controls consistent with the retained constraints; they do not test malformed producer input or reader rejection.",
+      "verdict": "The effective constraint is retained and the ordinary valid-domain evaluator has meaningful numeric coverage. No new reader-behavior gap is established; producer-input validation remains outside this assertion.",
+      "related_adrs": []
+    },
+    {
+      "issue": 75,
+      "source_location": "Primary EC3 physical pp.30, 478, 859, 940, 945 / printed pp.15, 463, 844, 925, 930. Direct annotation scan: editorial spelling/wording replacements on pp.15, 463, 925, 930; p.844 corrects an Annex A operator-table cross-reference from Table 60 to Table 58.",
+      "effect": "Most marks standardize 'upper case' to 'uppercase'. On physical p.30 (printed15), a separate Caret inserts 'or five' after 'four' in the explanatory Unicode notation, recognizing that a code point may require five hexadecimal digits; this corrects notation prose, not string decoding semantics. The Annex A correction points operator `c` to the path-construction operators table, an informative index/cross-reference correction; it adds no operator behavior.",
+      "ledger_and_code": "No ledger behavior is attributable to the spelling changes. The operator semantics remain owned by \u00a78.5 and are independently reviewed there.",
+      "actual_assertions": "No runtime behavior follows from spelling, notation prose, or the informative pointer. The `four or five` correction does not alter the PDF string parser's decoding algorithm; the corrected Table 58 pointer can improve navigation but does not alter the `c` operator's construction semantics.",
+      "verdict": "Editorial and cross-reference corrections; no missing runtime assertion identified.",
+      "related_adrs": []
+    },
+    {
+      "issue": 86,
+      "source_location": "Primary EC3 physical p.853 / printed p.838, \u00a714.12.4.2 DPM; two Caret annotations (objs 8067, 8071) insert `name` and the UTF-8 requirement for PDF Name values after # escapes.",
+      "effect": "DPM producer dictionaries are constrained to permitted key/value forms and valid UTF-8 Name values. The clause conditions DPM use on downstream production workflow metadata; it does not create a general reader obligation to reject or interpret DPM.",
+      "ledger_and_code": "Ledger \u00a714.12.4.2 is inapplicable on its stated workflow condition. Part retains raw DPM dictionary without a semantic consumer; PDF Name remains byte-oriented in syntax.",
+      "actual_assertions": "dpart_associated_files_current independently records the current behavior and status: DPM is opaque, and no JDF/job-ticket consumer exists. No conformance assertion is owed for producer validation or reader rejection.",
+      "verdict": "Producer/workflow constraint already accurately scoped. No reader defect or test gap established.",
+      "related_adrs": [
+        "ADR 1461"
+      ]
+    },
+    {
+      "issue": 101,
+      "source_location": "Primary EC3 physical71\u201373/printed56\u201358. startxref locations are PDF-file-relative; Table15 Prev retains the previous-section location and adds the previous-stream alternative.",
+      "effect": "Absolute file byte offsets apply. Prev can identify a prior cross-reference section or stream; neither mixed chains nor stream-to-stream chains are excluded.",
+      "ledger_and_code": "Ledger \u00a77.5.5/.8 and `crates/pdf-syntax/src/xref.rs::read_from_startxref` use absolute file byte positions and follow /Prev sections of table or stream form. Existing `cross_references.rs::a_zero_width_type_field_defaults_a_valid_incremental_entry_to_type_one` tests an xref stream whose /Prev leads to a classic table; hybrid and stream starts are also tested.",
+      "actual_assertions": "crates/pdf-syntax/tests/prev_xref_stream_spec_audit.rs has two passing assertions: standalone stream revision and incremental stream-to-stream chain. Catalog/page tree exist only in the older stream; replacement page marker comes from the newest entry. Both no recovery and no cut chain are asserted. Exact raw W[1 4 2] rows and valid PDF2 IDs are constructed independently of the writer.",
+      "verdict": "T90 closes the bounded valid stream-to-stream assertion gap. Two PASS; no new implementation failure.",
+      "related_adrs": [
+        "ADR 0252",
+        "ADR 2526"
+      ]
+    },
+    {
+      "issue": 109,
+      "source_location": "Primary EC3 physical pp.72\u201373 / printed pp.57\u201358, xref examples and layout; physical p.157 / printed p.142, Table 48/49; physical p.629 / printed p.614, \u00a713.1 bullets.",
+      "effect": "Most marks adjust example spacing/typeface or editorial bullet layout. The Table 48/49 replacement clarifies wording around an `object if` case, while the immediately preceding \u00a77.12 text already states that extension and developer dictionaries/entries shall be direct objects. No distinct reader rule is added by the sampled row correction.",
+      "ledger_and_code": "The examples are illustrative; direct-object producer constraints are covered in the applicable extension-dictionary model. Reader parsing remains permissive where no reject obligation is stated.",
+      "actual_assertions": "No behavioral assertion follows from monospaced spacing or bullet layout. Existing extension parsing tests are not being credited as a test of typography; no new reader gap is established by this issue.",
+      "verdict": "Predominantly editorial/example layout and a clarification of a neighboring producer rule; no new runtime assertion warranted.",
+      "related_adrs": []
+    },
+    {
+      "issue": 110,
+      "source_location": "Primary EC3 physical p.77 / printed p.62, \u00a77.5.7 Note 4; Text annotation obj 1896 proposes adding the note.",
+      "effect": "Informational note: putting the catalog in an object stream has interoperability implications because a reader must read that stream before using version/extensions/XMP metadata. It is not a prohibition. Separate EC3 #439 has its own encryption-specific exclusion and is not conflated here.",
+      "ledger_and_code": "Object-stream reading and Catalog resolution are implemented; compressed catalog objects are intentionally supported. Current object-stream audit explicitly treats catalog/page-tree/page compression as allowed, while encrypted catalog exclusion is separately tracked.",
+      "actual_assertions": "crates/pdf-syntax/tests/serialize.rs::an_object_stream_carries_what_the_clause_permits_and_nothing_it_forbids and `a_generated_object_stream_reads_back_through_this_trees_own_reader` directly exercise compressed catalog objects and readback. These are not a test of note prose but are consistent with its warning and the separate #439 condition.",
+      "verdict": "Informational note correctly distinguished from #439's operative producer restriction. No missing reader test identified.",
+      "related_adrs": []
+    }
+  ]
+}

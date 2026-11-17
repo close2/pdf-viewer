@@ -172,7 +172,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/basic_syntax_current/features.json"
+      "shards/basic_syntax_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "lexical_conventions"
@@ -310,7 +311,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/basic_syntax_current/features.json"
+      "shards/basic_syntax_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "literal_strings_names"
@@ -682,7 +684,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/image_filters_remaining_current/features.json",
-      "shards/departure_decisions_residual_current/features.json"
+      "shards/departure_decisions_residual_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [
       "jpx_mask_input_audit"
@@ -740,7 +743,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/file_structure_current/features.json"
+      "shards/file_structure_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -770,7 +774,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/file_structure_current/features.json"
+      "shards/file_structure_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -786,7 +791,9 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/xref_streams/features.json",
-      "shards/departure_decisions_residual_current/features.json"
+      "shards/departure_decisions_residual_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -805,7 +812,8 @@
       "shards/xref_streams/features.json",
       "shards/file_structure_current/features.json",
       "shards/transform_preservation_residual_current/features.json",
-      "shards/errata_numeric_syntax_batch_current/features.json"
+      "shards/errata_numeric_syntax_batch_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -826,7 +834,8 @@
       "shards/xref_streams/features.json",
       "shards/errata_early_residual_current/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
-      "shards/errata_reference_editorial_current/features.json"
+      "shards/errata_reference_editorial_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -842,7 +851,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/file_security_framing_current/features.json",
-      "shards/errata_numeric_syntax_batch_current/features.json"
+      "shards/errata_numeric_syntax_batch_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -1862,7 +1872,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/functions_current/features.json"
+      "shards/functions_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [
       "functions_general_audit"
@@ -2138,7 +2149,9 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/compatibility_extensions_current/features.json"
+      "shards/compatibility_extensions_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -2560,7 +2573,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/indirect_graphics_state_current/features.json"
+      "shards/indirect_graphics_state_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "extgstate_defaults",
@@ -3706,7 +3720,9 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/inline_images_current/features.json"
+      "shards/inline_images_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "inline_images_audit",
@@ -3751,7 +3767,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/pattern_forms_current/features.json",
-      "shards/errata_reference_editorial_current/features.json"
+      "shards/errata_reference_editorial_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "form_xobjects_audit"
@@ -4731,7 +4748,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/cid_opentype_current/features.json",
-      "shards/errata_reference_editorial_current/features.json"
+      "shards/errata_reference_editorial_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5367,7 +5385,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/rendering_intent_transfer_current/features.json"
+      "shards/rendering_intent_transfer_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6461,7 +6480,8 @@
       "shards/navigation/features.json",
       "shards/navigation_geometry_residual_current/features.json",
       "shards/qualified_failure_second_review_current/features.json",
-      "shards/errata_disposition_crosswalk_current/features.json"
+      "shards/errata_disposition_crosswalk_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -7497,7 +7517,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7698,7 +7719,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/interactive_framing_current/features.json"
+      "shards/interactive_framing_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7759,7 +7781,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/forms_buttons_choices_current/features.json",
-      "shards/appearance_state_residual_current/features.json"
+      "shards/appearance_state_residual_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "field_names_buttons_audit"
@@ -7818,7 +7841,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/forms_remaining_current/features.json",
-      "shards/errata_font_annotation_reference_batch_current/features.json"
+      "shards/errata_font_annotation_reference_batch_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [
       "signature_fields_audit"
@@ -8763,7 +8787,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/document_requirements_current/features.json"
+      "shards/document_requirements_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9830,7 +9855,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/errata_weak_dispositions_batch2_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9956,7 +9982,8 @@
     "current_artifacts": [
       "shards/metadata_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
-      "shards/errata_media_annex_batch_current/features.json"
+      "shards/errata_media_annex_batch_current/features.json",
+      "shards/errata_weak_dispositions_batch3_current/features.json"
     ],
     "prior_artifacts": [
       "metadata_audit"
@@ -11825,7 +11852,8 @@
     "prior_ledger_status": "inapplicable",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/dpart_associated_files_current/features.json"
+      "shards/dpart_associated_files_current/features.json",
+      "shards/errata_weak_dispositions_batch1_current/features.json"
     ],
     "prior_artifacts": [
       "inapplicable_conditions_audit"

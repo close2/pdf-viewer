@@ -32,7 +32,7 @@ fn document(duplex: &str) -> Document {
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        "trailer\n<< /Size 6 /Root 1 0 R /ID [<0123456789abcdef0123456789abcdef> <0123456789abcdef0123456789abcdef>] >>\nstartxref\n{xref}\n%%EOF\n"
     );
     let document = Document::open(out.into_bytes()).expect("exact-xref print-preference PDF");
     assert!(!document.was_recovered());

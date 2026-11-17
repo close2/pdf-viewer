@@ -1836,6 +1836,33 @@
       "log": "quality-native-wave68b.log",
       "exit": 0,
       "scope": "GTK/Qt all-targets Clippy"
+    },
+    {
+      "log": "prev-stream-wave69b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "object-zero-wave69.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "native-print-wave69.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Existing GTK print-settings test rerun after adding required PDF2 ID"
+    },
+    {
+      "log": "quality-syntax-gtk-wave69d.log",
+      "exit": 0,
+      "scope": "syntax/GTK all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

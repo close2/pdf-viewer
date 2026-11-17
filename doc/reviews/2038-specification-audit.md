@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (68)
+## Current checkpoint (69)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -152,6 +152,12 @@ native-dialog/printer evidence limit. Native all-targets Clippy passes.
 The source inventory now records unnumbered editorial notes as well as numbered
 issues. A deeper AnnexL review verifies six current matrix cells and the actual
 merge-wrapper assertions; it does not claim a complete hierarchy validator.
+
+Checkpoint69 adds three passing syntax tests for incremental stream-to-stream
+cross references and object-zero free-list updates. Thirty weakly classified
+errata receive deeper source/assertion review. Two stale source/design explanations
+are recorded without changing valid writer choices or inferring parser failures.
+Syntax/GTK all-targets Clippy passes; the GTK fixture now includes required PDF2 IDs.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

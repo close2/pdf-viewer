@@ -1,0 +1,6 @@
+{
+  "source": "Read selected primary annotation Contents and affected body. #30 Caret10648 restates both Domain restrictions; adjacent typical-domain prose is not replacement. #101 adds a previous-stream alternative without deleting previous-table support. #75 notation mark is physical30, not15.",
+  "assertions": "Read actual inline-image abbreviation and single-filter tests, Type2 fractional/negative numeric controls, and xref tests. Two new stream-chain tests PASS; syntax all-targets Clippy PASS.",
+  "corrections": "Replaced false ADR0348 citation with ADR1184 and current owner answer A348. Retained producer/processor support tension for JPX19 and device boundary for halftones. Full page283/annotation placement shows #20 qualifies NOTE2 optional skip recipe, not the separate operative separator exception; corrected initial agent conflation.",
+  "limits": "The final-filter chain interpretation in #20 has a separate ongoing review. No full-clause or universal producer-validation claim."
+}
