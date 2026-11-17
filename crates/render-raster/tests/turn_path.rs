@@ -641,13 +641,14 @@ fn load_average() -> f64 {
         .unwrap_or(f64::INFINITY)
 }
 
-/// The cargo profile this binary was built under: the directory above `deps`.
+/// The cargo profile this binary was built under, by `pdf_sandbox::beside`'s reading of both of
+/// Cargo's layouts for a test executable (ADR 2914).
 fn profile_of_this_binary() -> String {
     std::env::current_exe()
         .ok()
         .and_then(|exe| {
-            exe.parent()?
-                .parent()?
+            pdf_sandbox::beside::cargo_profile_directory(&exe)
+                .ok()?
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
         })

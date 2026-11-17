@@ -213,12 +213,12 @@ impl Reference {
 
     /// Where the executable is, which for our own renderer is not `PATH`.
     ///
-    /// `pdfref-hayro` is built by this workspace, so it sits beside whatever is running:
-    /// next to the executable, or one directory up, because Cargo puts test binaries in
-    /// `target/<profile>/deps/` and programs in `target/<profile>/`. `PDFREF_HAYRO`
-    /// overrides both. This is the same search `pdf-sandbox` does for its worker and it
-    /// carries the same caveat — see trap 10 in the handover — that Cargo will not rebuild
-    /// another package's binaries for you.
+    /// `pdfref-hayro` is built by this workspace, so it sits beside whatever is running, and
+    /// `pdf_sandbox::beside::program` finds it there: beside the executable, one directory up,
+    /// and the Cargo profile directory a test executable sits under in either of Cargo's layouts
+    /// (ADR 2914). `PDFREF_HAYRO` overrides the search. This is the same search `pdf-sandbox`
+    /// does for its worker and it carries the same caveat — see trap 10 in the handover — that
+    /// Cargo will not rebuild another package's binaries for you.
     #[must_use]
     pub fn program_path(self) -> PathBuf {
         if self != Self::Hayro {
@@ -227,15 +227,11 @@ impl Reference {
         if let Some(named) = std::env::var_os("PDFREF_HAYRO") {
             return PathBuf::from(named);
         }
-        let executable = std::env::current_exe().unwrap_or_default();
-        let directory = executable.parent().unwrap_or(Path::new("."));
-        for candidate in [
-            directory.join(self.program()),
-            directory.parent().unwrap_or(directory).join(self.program()),
-        ] {
-            if candidate.is_file() {
-                return candidate;
-            }
+        if let Some(found) = std::env::current_exe()
+            .ok()
+            .and_then(|executable| pdf_sandbox::beside::program(&executable, self.program()))
+        {
+            return found;
         }
         // Falls back to the bare name so that an installed copy on `PATH` still works, and
         // so that `is_available` reports absence rather than this function failing.

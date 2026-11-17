@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# For `beside::program`, the one rule by which a program this workspace builds is found from the
+# running executable's path (ADR 2914).
+pdf-sandbox.workspace = true
 pdf-render.workspace = true
 png.workspace = true
 raster-compare.workspace = true

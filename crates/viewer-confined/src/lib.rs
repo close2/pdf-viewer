@@ -250,8 +250,8 @@ pub const WORKER_PROGRAM: &str = "pdf-view-worker";
 
 /// Environment variable naming the worker program explicitly.
 ///
-/// Set it when the executable is not installed alongside its worker — in particular, when
-/// running a test binary that Cargo has put in `target/<profile>/deps/`.
+/// Set it when the executable is not installed alongside its worker and is not in a Cargo build
+/// directory that `pdf_sandbox::beside::program` recognises.
 pub const WORKER_PATH_VARIABLE: &str = "PDF_VIEW_WORKER";
 
 /// Why a confined viewer could not do what was asked.
@@ -974,10 +974,9 @@ fn refusal(payload: &[u8]) -> ConfinedError {
 
 /// Finds the worker program.
 ///
-/// Searched next to the running executable, then one directory up, because Cargo puts test
-/// binaries in `target/<profile>/deps/` while it puts programs in `target/<profile>/`. The
-/// environment variable overrides both. The search is `confined_transport`'s; the *sentence* a
-/// missing worker produces is this crate's, because it names this crate's build command.
+/// The environment variable first, then `pdf_sandbox::beside::program`'s places (ADR 2914). The
+/// search is `confined_transport`'s; the *sentence* a missing worker produces is this crate's,
+/// because it names this crate's build command.
 fn worker_program() -> Result<PathBuf, ConfinedError> {
     confined_transport::program_beside_executable(WORKER_PROGRAM, WORKER_PATH_VARIABLE).map_err(
         |missing| match missing {

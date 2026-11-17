@@ -3978,6 +3978,7 @@ dependencies = [
  "pdf-ccitt",
  "rustix 1.1.6",
  "seccompiler",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -4106,6 +4107,7 @@ name = "pdf-vfs-ffi"
 version = "0.1.0"
 dependencies = [
  "pdf-model",
+ "pdf-sandbox",
  "pdf-vfs",
  "serde_json",
  "tempfile",
@@ -4116,6 +4118,7 @@ name = "pdfref"
 version = "0.1.0"
 dependencies = [
  "pdf-render",
+ "pdf-sandbox",
  "png",
  "raster-compare",
  "render-cpu",
@@ -6112,6 +6115,7 @@ dependencies = [
  "pdf-archive",
  "pdf-model",
  "pdf-render",
+ "pdf-sandbox",
  "pdf-signature",
  "pdf-syntax",
  "pdf-transform",

@@ -1126,7 +1126,11 @@ export_round() {
 # examples and test binaries, the files cargo writes with no extension and the executable bit —
 # into the export's record in place of the last summing, so the record says which binaries the
 # figures taken in it came from (trap 50). Run after the round's build, beside it in the lock or
-# after it; it reads and hashes and builds nothing.
+# after it; it reads and hashes and builds nothing. A test binary is `<profile>/deps/<test>-<hash>`
+# up to Cargo 1.99 and `<profile>/build/<package>/<hash>/out/<test>-<hash>` from 1.100, and both
+# are summed; that directory's other executables are a build script (`build_script_build`) and
+# each program's copy before Cargo puts it in `<profile>/`, neither of which carries the hash
+# (ADR 2914).
 export_sums() {
     local session=${1:-} name=export
     [[ "$session" =~ ^[0-9]+$ ]] || { echo "export-sums: give the session number first, then [--as <name>]"; return 1; }
@@ -1135,8 +1139,9 @@ export_sums() {
     [ -s "$record" ] || { echo "export-sums: no export record at $record — run tools/batch.sh export $session first"; return 1; }
     target=$(sed -n 's/^target-dir: \([^,]*\),.*/\1/p' "$record" | head -1)
     [ -d "$target" ] || { echo "export-sums: $target holds no build yet"; return 1; }
-    sums=$(cd "$target" && find . -mindepth 2 -maxdepth 3 -type f -perm -u+x ! -name '*.*' \
-            \( -path './*/deps/*' -o -path './*/examples/*' -o -regex '\./[^/]*/[^/]*' \) -printf '%P\0' |
+    sums=$(cd "$target" && find . -mindepth 2 -maxdepth 6 -type f -perm -u+x ! -name '*.*' -regextype posix-extended \
+            \( -regex '\./[^/]+/(deps|examples)/[^/]+' -o -regex '\./[^/]+/[^/]+' \
+            -o -regex '\./[^/]+/build/[^/]+/[0-9a-f]{16}/out/[^/]+-[0-9a-f]{16}' \) -printf '%P\0' |
         sort -z | xargs -0 -r sha256sum)
     sed -i '/^built: /d; /^summed /d' "$record"
     {

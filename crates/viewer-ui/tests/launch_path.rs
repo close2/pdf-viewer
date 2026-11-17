@@ -2088,12 +2088,10 @@ fn script_worker_is_here() -> bool {
             pdf_script_worker::WORKER_PROGRAM,
             std::env::consts::EXE_SUFFIX
         );
-        std::env::current_exe().ok().is_some_and(|exe| {
-            exe.ancestors()
-                .skip(1)
-                .take(2)
-                .any(|directory| directory.join(&name).is_file())
-        })
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| pdf_sandbox::beside::program(&exe, &name))
+            .is_some()
     })
 }
 
@@ -2693,8 +2691,9 @@ fn left_in_the_cache_kib(path: &Path) -> Option<f64> {
 /// `/tmp`, which on this machine is a `tmpfs` whose pages cannot be dropped at all.
 fn cache_directory() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    // `<target>/<profile>/deps/<binary>` — two levels up is the profile directory.
-    let directory = exe.parent()?.parent()?.join("launch-path");
+    let directory = pdf_sandbox::beside::cargo_profile_directory(&exe)
+        .ok()?
+        .join("launch-path");
     std::fs::create_dir_all(&directory).ok()?;
     Some(directory)
 }
@@ -2704,13 +2703,14 @@ fn cache_directory() -> Option<PathBuf> {
 /// Derived rather than assumed, and it decides whether anything is judged: `[profile.gates]`
 /// costs `Document::open` between 4.06% and 12.30% against `[profile.release]` (`Cargo.toml`),
 /// which is wider than these bands, so a figure taken under the wrong profile is a figure about
-/// a program nobody runs.
+/// a program nobody runs. The directory is `pdf_sandbox::beside`'s, which reads both of Cargo's
+/// layouts for a test executable (ADR 2914).
 fn profile_of_this_binary() -> String {
     std::env::current_exe()
         .ok()
         .and_then(|exe| {
-            exe.parent()?
-                .parent()?
+            pdf_sandbox::beside::cargo_profile_directory(&exe)
+                .ok()?
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
         })

@@ -35,16 +35,22 @@ fn native_profiles_are_names_not_optimization_guesses() {
         ("gates", "gates"),
         ("custom", "custom"),
     ] {
-        let executable = root.join(directory).join("deps/client-hash");
-        assert_eq!(
-            profile(&executable, root).expect("native layout").0,
-            expected
-        );
+        for test in [
+            "deps/client-hash",
+            "build/viewer-ffi/0123abcd/out/client-0123abcd",
+        ] {
+            let executable = root.join(directory).join(test);
+            assert_eq!(
+                profile(&executable, root).expect("native layout").0,
+                expected
+            );
+        }
     }
     for executable in [
         root.join("debug/client"),
         root.join("x86_64-unknown-linux-gnu/debug/deps/client"),
         PathBuf::from("/copied/deps/client"),
+        root.join("x86_64-unknown-linux-gnu/debug/build/viewer-ffi/0123abcd/out/client"),
     ] {
         assert!(profile(&executable, root).is_err());
     }

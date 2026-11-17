@@ -61,15 +61,14 @@ fn successful(output: &Output, request: &str) -> Result<(), String> {
     }
 }
 
+/// The profile this test was built under, and its directory, from the test's own path.
+///
+/// The directory is `pdf_sandbox::beside::cargo_profile_directory`'s, which reads both of Cargo's
+/// layouts for a test executable (`<profile>/deps/` and `<profile>/build/<package>/<hash>/out/`,
+/// ADR 2914); a path in neither is refused by that function's sentence.
 fn profile(executable: &Path, target_directory: &Path) -> Result<(String, PathBuf), String> {
-    let deps = executable.parent().ok_or("test executable has no parent")?;
-    if deps.file_name().is_none_or(|name| name != "deps") {
-        return Err(format!(
-            "test is not in a Cargo deps directory: {}",
-            executable.display()
-        ));
-    }
-    let directory = deps.parent().ok_or("test has no profile directory")?;
+    let directory = pdf_sandbox::beside::cargo_profile_directory(executable)
+        .map_err(|refusal| refusal.to_string())?;
     if directory.parent() != Some(target_directory) {
         return Err(format!(
             "native test {} is not directly under Cargo target directory {}; cross-target/copied tests need an explicit runner contract",

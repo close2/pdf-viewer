@@ -313,31 +313,23 @@ pub fn describe_exit(status: std::process::ExitStatus) -> String {
 
 /// Finds a worker program by name.
 ///
-/// Searched next to the running executable, then one directory up, because Cargo puts test
-/// binaries in `target/<profile>/deps/` while it puts programs in `target/<profile>/`. The
-/// environment variable named by `variable` overrides both.
+/// The environment variable named by `variable` first; then `pdf_sandbox::beside::program`'s
+/// search — beside the running executable, one directory up, and the Cargo profile directory a
+/// test executable sits under in either of Cargo's layouts (ADR 2914).
 ///
 /// # Errors
 ///
-/// The executable whose directory was searched, where the program is beside neither it nor its
-/// parent — so that a caller can name its own build command in the sentence it prints.
+/// The executable whose directory was searched, where the program is in none of those places —
+/// so that a caller can name its own build command in the sentence it prints.
 pub fn program_beside_executable(program: &str, variable: &str) -> Result<PathBuf, ProgramMissing> {
     if let Some(named) = std::env::var_os(variable) {
         return Ok(PathBuf::from(named));
     }
 
     let executable = std::env::current_exe().map_err(ProgramMissing::Unlocatable)?;
-    let directory = executable.parent().unwrap_or(&executable);
     let name = format!("{program}{}", std::env::consts::EXE_SUFFIX);
-    let beside = directory.join(&name);
-    if beside.is_file() {
-        return Ok(beside);
-    }
-    if let Some(parent) = directory.parent() {
-        let above = parent.join(&name);
-        if above.is_file() {
-            return Ok(above);
-        }
+    if let Some(found) = pdf_sandbox::beside::program(&executable, &name) {
+        return Ok(found);
     }
     Err(ProgramMissing::NotBeside { executable })
 }
@@ -345,7 +337,7 @@ pub fn program_beside_executable(program: &str, variable: &str) -> Result<PathBu
 /// Why a worker program could not be located.
 #[derive(Debug, thiserror::Error)]
 pub enum ProgramMissing {
-    /// It is not beside the running executable nor one directory above it.
+    /// It is in none of the places `pdf_sandbox::beside::search_places` lists.
     #[error("not found next to {}", executable.display())]
     NotBeside {
         /// The executable whose directory was searched.

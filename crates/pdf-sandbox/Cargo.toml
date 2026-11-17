@@ -35,6 +35,10 @@ rustix.workspace = true
 # The confinement tests need signal numbers to tell "killed by the seccomp filter" apart
 # from every other way a process can end — which is a question only the platform with a
 # filter can be asked.
+[dev-dependencies]
+# A private directory for the program-location plant (`src/beside.rs`).
+tempfile.workspace = true
+
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 libc.workspace = true
 # The script worker's probe asks for executable memory through a safe call, which is what a test

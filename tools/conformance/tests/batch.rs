@@ -1989,6 +1989,17 @@ fn export_sums_hashes_every_executable_the_exports_build_directory_holds_and_not
         ("release/deps/libraster-0123abcd.rlib", false),
         ("release/deps/launch_path-0123abcd.d", false),
         ("release/build/x-0123abcd/build-script-build", true),
+        // Cargo 1.100's layout (ADR 2914): a test binary, and beside it a build script and a
+        // program's copy before Cargo puts it in `release/`, neither of which is summed.
+        (
+            "release/build/viewer-ui/0123456789abcdef/out/turn_path-0123456789abcdef",
+            true,
+        ),
+        (
+            "release/build/viewer-ui/fedcba9876543210/out/build_script_build",
+            true,
+        ),
+        ("release/build/viewer-ui/aaaaaaaaaaaaaaaa/out/quorra", true),
     ] {
         let artefact = target.join(relative);
         std::fs::create_dir_all(artefact.parent().expect("a parent")).expect("a target directory");
@@ -2004,7 +2015,7 @@ fn export_sums_hashes_every_executable_the_exports_build_directory_holds_and_not
     }
     let summed = batch(&["export-sums", "9002"]);
     assert!(
-        summed.status.success() && text(&summed).contains("3 executable(s)"),
+        summed.status.success() && text(&summed).contains("4 executable(s)"),
         "export-sums: {}",
         text(&summed)
     );
@@ -2014,11 +2025,12 @@ fn export_sums_hashes_every_executable_the_exports_build_directory_holds_and_not
         .lines()
         .filter_map(|line| line.strip_prefix("built: "))
         .collect();
-    assert_eq!(built.len(), 3, "{record}");
+    assert_eq!(built.len(), 4, "{record}");
     for name in [
         "release/quorra",
         "release/examples/zoom_frame",
         "release/deps/launch_path-0123abcd",
+        "release/build/viewer-ui/0123456789abcdef/out/turn_path-0123456789abcdef",
     ] {
         assert!(
             built

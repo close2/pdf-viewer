@@ -54,8 +54,8 @@ pub const WORKER_PROGRAM: &str = "pdf-vfs-worker";
 
 /// Environment variable naming the worker program explicitly.
 ///
-/// Set it when the executable is not installed alongside its worker — in particular, when running
-/// a test binary that Cargo has put in `target/<profile>/deps/`.
+/// Set it when the executable is not installed alongside its worker and is not in a Cargo build
+/// directory that `pdf_sandbox::beside::program` recognises.
 pub const WORKER_PATH_VARIABLE: &str = "PDF_VFS_WORKER";
 
 /// The variable whose being set is what makes a pool wider than one thread safe to build here.

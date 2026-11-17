@@ -87,6 +87,7 @@
 // constraint a Windows or macOS confinement would have to meet too**, which is why the
 // platform without one gets no confinement rather than an `unsafe` block (ADR 0194).
 
+pub mod beside;
 mod decode;
 mod encode;
 pub mod in_process;
@@ -220,8 +221,8 @@ pub fn worker_file_name() -> String {
 
 /// Environment variable naming the worker program explicitly.
 ///
-/// Set it when the executable is not installed alongside its worker — in particular, when
-/// running a test binary that Cargo has put in `target/<profile>/deps/`.
+/// Set it when the executable is not installed alongside its worker and is not in a Cargo
+/// build directory that [`beside::program`] recognises.
 pub const WORKER_PATH_VARIABLE: &str = "PDF_SANDBOX_WORKER";
 
 /// The most samples the ordinary worker decodes a JPEG 2000 image to at full resolution: the
@@ -923,27 +924,18 @@ fn describe_exit(status: std::process::ExitStatus) -> String {
 
 /// Finds the worker program.
 ///
-/// Searched next to the running executable, then one directory up, because Cargo puts test
-/// binaries in `target/<profile>/deps/` while it puts programs in `target/<profile>/`. The
-/// environment variable overrides both and is what a deployment with a different layout
-/// should set.
+/// The environment variable first, which is what a deployment with a different layout sets; then
+/// [`beside::program`]'s search, which is beside the running executable, one directory up, and
+/// the Cargo profile directory a test executable sits under in either of Cargo's layouts (ADR
+/// 2914).
 fn worker_program() -> Result<PathBuf, SandboxError> {
     if let Some(named) = std::env::var_os(WORKER_PATH_VARIABLE) {
         return Ok(PathBuf::from(named));
     }
 
     let executable = std::env::current_exe().map_err(SandboxError::Spawn)?;
-    let directory = executable.parent().unwrap_or(&executable);
-    let name = worker_file_name();
-    let beside = directory.join(&name);
-    if beside.is_file() {
-        return Ok(beside);
-    }
-    if let Some(parent) = directory.parent() {
-        let above = parent.join(&name);
-        if above.is_file() {
-            return Ok(above);
-        }
+    if let Some(found) = beside::program(&executable, &worker_file_name()) {
+        return Ok(found);
     }
     Err(SandboxError::WorkerMissing { executable })
 }
