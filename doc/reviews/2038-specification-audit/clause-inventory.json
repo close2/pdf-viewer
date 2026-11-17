@@ -4343,7 +4343,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_colour_optional_framing_current/features.json"
+      "shards/text_colour_optional_framing_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4357,7 +4358,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/text_state_current/features.json",
-      "shards/table57_graphics_state_matrix_current/features.json"
+      "shards/table57_graphics_state_matrix_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4374,7 +4376,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/text_state_current/features.json",
-      "shards/table57_graphics_state_matrix_current/features.json"
+      "shards/table57_graphics_state_matrix_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4390,7 +4393,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4407,7 +4411,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/text_state_current/features.json",
-      "shards/fixture_and_tj_oracles_current/features.json"
+      "shards/fixture_and_tj_oracles_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4423,7 +4428,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4442,7 +4448,8 @@
       "shards/text_state_current/features.json",
       "shards/errata_font_text_batch_current/features.json",
       "shards/silent_fixture_skip_current/features.json",
-      "shards/file_only_reference_assertions_current/features.json"
+      "shards/file_only_reference_assertions_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4458,7 +4465,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4503,7 +4511,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/text_state_current/features.json",
-      "shards/errata_reference_editorial_current/features.json"
+      "shards/errata_reference_editorial_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_positioning_audit"
@@ -4518,7 +4527,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_positioning_audit"
@@ -4536,7 +4546,8 @@
       "shards/text_state_current/features.json",
       "shards/errata_font_text_batch_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
-      "shards/fixture_and_tj_oracles_current/features.json"
+      "shards/fixture_and_tj_oracles_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_positioning_audit"
@@ -4551,7 +4562,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/text_state_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_positioning_audit"

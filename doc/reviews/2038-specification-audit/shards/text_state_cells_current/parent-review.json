@@ -1,0 +1,9 @@
+{
+  "verdict": "T146: two new operator-state assertions PASS, plus five existing positioning tests.",
+  "source": "Parent read actual Table103 at316,104 at319,106 at323,107 at324. Page325 is subsequent prose, not continuation rows. #368 is at322/307 in9.4.1; #373 changes T* expansion to Td; #376 clarifies normalized horizontal scale. These correct initial shard locators.",
+  "independent_oracles": "Embedded Type3 A advance1000 and space250 under .001 FontMatrix yield literal origins. TD:20,50→30,38→30,26; explicit TL+Td control matches, Td-only third glyph stays30,38. Double quote:20,35 then later Tj A54.5,35, distinguishing persistent Tw12/Tc5 from immediate-string-only state. Exact xref/no recovery and command-count guards.",
+  "selected_existing_assertions": "Parent read Table104 actual command/color/order assertions and nonempty font probe. Modes5/6 assert both shows paint before ET clip, with nonclip controls; this is display-list behavior, not all raster backends. Single quote already has literal50/38/26 baseline assertion in text_state.rs. Earlier T100 horizontal-TJ strengthening is retained; wave16b vertical controls are prior execution.",
+  "adr_review": "Parent reread0421 q/Q implementation rationale,0548 corpus-overwrite blind spot,0746 normalized Tz/Trm correction. Their behavior conclusions remain supported. Initial0548 label incorrectly described the new Type3 fixture rather than its actual corpus-effect argument; corrected. Extraction ADR1490 is not re-certified here.",
+  "execution": "text-operators-wave107:7 PASS,0skip. Final syntax/model Clippy wave106 includes additions. Two new default-scope PASS identities; no production changes or new failure.",
+  "limits": "Selected operator interactions and commands only. Tf selection, every font type, backend rasterization and extraction semantics remain partial."
+}

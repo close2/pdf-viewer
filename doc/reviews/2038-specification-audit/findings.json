@@ -3377,5 +3377,18 @@
     "evidence": "New W[1 4 2] hybrid deletion with coherent free-list and old-value control. Existing W[1 0 0] remains explicitly malformed tolerance. Shared binary headers and classic deletion repaired; Prev changing ID now16 bytes.",
     "execution": "41 affected existing xref/Prev tests and2 type0 tests PASS; syntax all-target Clippy PASS.",
     "qualification": "No production behavior change; passing malformed-input regression is not valid-input conformance evidence. Existing intentional recovery inputs remain."
+  },
+  {
+    "id": "2038-T146",
+    "kind": "coverage-gap",
+    "clauses": [
+      "9.3.5",
+      "9.4.2",
+      "9.4.3"
+    ],
+    "summary": "TD-derived leading and double-quote spacing persistence have independent later-glyph oracles.",
+    "evidence": "Embedded Type3 metrics yield literal positions; explicit expansion and omitted-leading controls distinguish state transitions.",
+    "execution": "Both new tests and five existing positioning tests PASS; syntax/model Clippy PASS.",
+    "qualification": "Public model display-list placements, not exhaustive font/backend/extraction certification."
   }
 ]

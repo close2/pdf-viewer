@@ -1,0 +1,216 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected text-state and text-positioning/showing cells; not a whole-clause certification.",
+  "source": {
+    "standard": "ISO 32000-2:2020 with EC3",
+    "tables": [
+      {
+        "id": 103,
+        "caption": "Text state operators",
+        "physical_page": 316,
+        "printed_page": 301,
+        "selected_rows": [
+          "Tc",
+          "Tw",
+          "Tz",
+          "TL",
+          "Tf",
+          "Tr",
+          "Ts"
+        ]
+      },
+      {
+        "id": 104,
+        "caption": "Text rendering modes",
+        "physical_page": 319,
+        "printed_page": 304,
+        "selected_rows": [
+          "Tr values 0 through 7"
+        ]
+      },
+      {
+        "id": 106,
+        "caption": "Text-positioning operators",
+        "physical_page": 323,
+        "printed_page": 308,
+        "selected_rows": [
+          "Td",
+          "TD",
+          "Tm",
+          "T*"
+        ]
+      },
+      {
+        "id": 107,
+        "caption": "Text-showing operators",
+        "physical_page": 324,
+        "printed_page": 309,
+        "selected_rows": [
+          "Tj",
+          "single quote",
+          "double quote",
+          "TJ"
+        ],
+        "rows_note": "Table 107 itself is on physical 324 / printed 309; physical 325 is following prose, not a table continuation."
+      }
+    ],
+    "errata": [
+      {
+        "id": 368,
+        "physical_page": 322,
+        "printed_page": 307,
+        "effect": "EC3 #368 inserts the q/Q text-matrix restoration sentence in §9.4.1."
+      },
+      {
+        "id": 373,
+        "effect": "Corrects the explanatory T* sequence from TD to Td; this does not alter the stated arithmetic when the preceding TD has set leading."
+      },
+      {
+        "id": 376,
+        "effect": "Clarifies normalized Tz and makes the Trm NOTE 2 instruction normative."
+      }
+    ]
+  },
+  "implementation": [
+    {
+      "path": "crates/pdf-model/src/content/run/text_ops.rs",
+      "behavior": "TD assigns leading to -ty and then translates; double-quote updates word and character spacing before next-line/show."
+    }
+  ],
+  "existing_assertions": [
+    {
+      "table": 103,
+      "path": "crates/pdf-model/tests/text_state.rs",
+      "cells": [
+        {
+          "key": "Tc",
+          "assertion": "horizontal_scaling_reaches_the_character_spacing_too compares A origin with Tc=0 versus Tc=50 at Tz=50; expected displacement is independently 25 points."
+        },
+        {
+          "key": "Tw",
+          "assertion": "word_spacing_moves_the_glyph_after_a_simple_fonts_space expects 50-point movement for one single-byte code 32; word_spacing_does_not_reach_a_two_byte_code_32 asserts equality for the Identity-H two-byte control, conditional on a machine face."
+        },
+        {
+          "key": "Tz",
+          "assertion": "horizontal_scaling_reaches_the_character_spacing_too checks scale applies to character spacing; horizontal_scaling_reaches_a_tj_adjustment compares TJ displacement at horizontal scales."
+        },
+        {
+          "key": "TL",
+          "assertion": "leading_moves_the_next_line_downwards checks T* baseline after explicit TL. It does not exercise TD's implicit TL assignment; scratch patch adds that."
+        },
+        {
+          "key": "Tf",
+          "assertion": "Tests use Tf in each text stream, but these selected tests do not independently test font-selection semantics."
+        },
+        {
+          "key": "Tr",
+          "assertion": "Table 103's Tr row routes to Table 104; rendering-mode behavior is asserted individually below."
+        },
+        {
+          "key": "Ts",
+          "assertion": "text_rise_is_not_scaled_by_the_font_size checks that Ts translates the glyph vertically without multiplying by font size."
+        }
+      ]
+    },
+    {
+      "table": 104,
+      "path": "crates/pdf-model/tests/text_render_modes.rs",
+      "cells": [
+        {
+          "value": 0,
+          "assertion": "mode_0_fills_only asserts fill command only."
+        },
+        {
+          "value": 1,
+          "assertion": "mode_1_strokes_only_and_in_the_stroking_colour asserts stroke command and stroke color."
+        },
+        {
+          "value": 2,
+          "assertion": "mode_2_fills_then_strokes_each_glyph_in_turn asserts fill/stroke order; separate tests cover knockout grouping."
+        },
+        {
+          "value": 3,
+          "assertion": "mode_3_paints_nothing_and_still_extracts_its_text asserts no paint with text retained."
+        },
+        {
+          "value": 4,
+          "assertion": "mode_4_fills_and_clips asserts fill plus clipping; the_clip_begins_at_et distinguishes delayed clip activation."
+        },
+        {
+          "value": 5,
+          "assertion": "modes_five_and_six_paint_both_shows_before_the_text_clip_takes_effect asserts mode-5 timing; it is shared with mode 6."
+        },
+        {
+          "value": 6,
+          "assertion": "modes_five_and_six_paint_both_shows_before_the_text_clip_takes_effect asserts mode-6 timing; separate raster/path detail is not claimed."
+        },
+        {
+          "value": 7,
+          "assertion": "mode_7_clips_what_follows_and_paints_nothing asserts no glyph paint and downstream clipping."
+        },
+        {
+          "scope_limit": "Table 104's rendering mode semantics have selected model/display-list assertions; not all backend raster outcomes or stroke details are certified."
+        }
+      ]
+    },
+    {
+      "table": 106,
+      "path": "crates/pdf-model/tests/text_positioning_audit.rs",
+      "cells": [
+        {
+          "key": "Td",
+          "assertion": "tstar_returns_to_line_matrix_after_text_advance distinguishes Tlm from advanced Tm; new explicit control compares TD against TL then Td."
+        },
+        {
+          "key": "TD",
+          "assertion": "Existing tests did not invoke TD. New td_sets_leading_from_its_vertical_operand_before_t_star expects origins (20,50), (30,38), (30,26), with explicit TL+Td equality and Td-only control."
+        },
+        {
+          "key": "Tm",
+          "assertion": "tm_replaces_current_matrix_and_applies_rotation checks replacement translation and literal rotated transform basis."
+        },
+        {
+          "key": "T*",
+          "assertion": "tstar_returns_to_line_matrix_after_text_advance checks line-matrix reset after glyph advance; TD draft adds interaction with TL."
+        }
+      ]
+    },
+    {
+      "table": 107,
+      "path": "crates/pdf-model/tests/text_positioning_audit.rs",
+      "source_page": "physical 324 / printed 309 only",
+      "cells": [
+        {
+          "key": "Tj",
+          "assertion": "Used as control in positioning/spacing tests; no separate comprehensive Tj feature matrix claimed."
+        },
+        {
+          "key": "single quote",
+          "assertion": "Parent read text_state::leading_moves_the_next_line_downwards: literal baselines50,38,26 cover T* then single quote; no missing single-quote assertion is inferred merely from this other file."
+        },
+        {
+          "key": "double quote",
+          "assertion": "double_quote_sets_spacing_then_moves_line_and_shows compares operator with explicit Tw/Tc/T* sequence and expected A origin (39.5,35); new test checks those spacing values persist into later Tj at (54.5,35)."
+        },
+        {
+          "key": "TJ",
+          "assertion": "tj_positive_number_moves_left_by_thousandths_of_text_space expects 20→15 for a positive 250 adjustment at 20pt. Prior vertical composite-code-length and vertical-TJ controls passed in parent wave16b; not rerun here."
+        }
+      ]
+    }
+  ],
+  "drafts": [
+    {
+      "path": "drafts/table106_107_operator_state.patch",
+      "coverage": "TD-derived leading and persistence of double-quote spacing into a later Tj.",
+      "status": "Unexecuted in this shard; parent reviewed expected arithmetic, then integrated and reported 7 tests PASS including both additions."
+    }
+  ],
+  "limits": [
+    "Selected cells only. Tf selection is outside the focused oracle; single quote has a literal baseline assertion in text_state.rs. No whole-table certification.",
+    "Table 104 assertions primarily inspect the model display list/clipping metadata; not every renderer backend or raster outcome is covered.",
+    "The vertical Tw/TJ results are inherited from the parent wave16b evidence, not rerun for this shard.",
+    "This identifies assertion coverage and gaps, not an observed implementation defect."
+  ],
+  "parent_execution": "Both additions integrated and PASS with all7 text_positioning tests; final syntax/model Clippy in wave106 includes these additions."
+}

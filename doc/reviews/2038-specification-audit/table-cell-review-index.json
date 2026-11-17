@@ -1569,6 +1569,62 @@
       ],
       "artifact": "shards/xref_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "103",
+      "keys": [
+        "Tc",
+        "Tw",
+        "Tz",
+        "TL",
+        "Tf",
+        "Tr",
+        "Ts"
+      ],
+      "ledger_rows": [
+        "9.3"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "104",
+      "keys": [
+        "Tr values 0 through 7"
+      ],
+      "ledger_rows": [
+        "9.3.6"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "106",
+      "keys": [
+        "Td",
+        "TD",
+        "Tm",
+        "T*"
+      ],
+      "ledger_rows": [
+        "9.4.2"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "107",
+      "keys": [
+        "Tj",
+        "single quote",
+        "double quote",
+        "TJ"
+      ],
+      "ledger_rows": [
+        "9.4.3"
+      ],
+      "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

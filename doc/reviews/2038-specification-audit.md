@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (106)
+## Current checkpoint (107)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -421,16 +421,21 @@ B25 and D12 findings; older draft status is corrected. Ninety table matrices rem
 partial reviews, with no new failure or test identity in this checkpoint.
 
 Checkpoint105 corrects remaining standalone FreeText fixture roles while retaining
-font resources and the original assertions. All140 variable-text/rich-text tests and
+font resources and the original assertions. All 140 variable-text/rich-text tests and
 model Clippy pass. Viewer preference and article cells add four partial matrices,
-for94 total; the existing OpenAction ordering failure remains open. No new failing
+for 94 total; the existing OpenAction ordering failure remains open. No new failing
 identity or production change is introduced.
 
 Checkpoint106 adds passing direct-Info and valid hybrid-deletion controls. A prior
 zero-width fixture is now explicitly classified as malformed-input tolerance. Binary
-headers, deletion generations/free links and a15-byte PDF2 identifier are corrected;
-all41 affected xref/Prev tests pass, as does syntax/model Clippy. The99 table
+headers, deletion generations/free links and a 15-byte PDF2 identifier are corrected;
+all 41 affected xref/Prev tests pass, as does syntax/model Clippy. The 99 table
 matrices remain partial; no production behavior or failure count changes.
+
+Checkpoint107 adds independent later-glyph assertions for TD leading and double-quote
+spacing persistence. All seven positioning tests pass, including the two additions.
+The source review corrects table boundaries and an ADR attribution; 103 selected
+table matrices remain partial. The failure manifest remains unchanged.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

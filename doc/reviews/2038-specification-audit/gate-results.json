@@ -2931,6 +2931,15 @@
       "log": "quality-syntax-model-wave106.log",
       "exit": 0,
       "scope": "Syntax/model all-target Clippy, includes pending text-operator tests."
+    },
+    {
+      "log": "text-operators-wave107.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two new state-persistence tests plus five existing text-positioning tests."
     }
   ],
   "prior_expected_failures": {
