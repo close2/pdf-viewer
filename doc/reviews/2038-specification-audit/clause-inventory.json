@@ -173,7 +173,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/basic_syntax_current/features.json",
-      "shards/errata_weak_dispositions_batch3_current/features.json"
+      "shards/errata_weak_dispositions_batch3_current/features.json",
+      "shards/binary_transport_consumers_current/features.json"
     ],
     "prior_artifacts": [
       "lexical_conventions"
@@ -282,7 +283,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/lexical_foundations_current/features.json"
+      "shards/lexical_foundations_current/features.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [
       "literal_strings_names"
@@ -617,7 +619,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/predictors_current/features.json",
-      "shards/indirect_filter_parameters_current/features.json"
+      "shards/indirect_filter_parameters_current/features.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -821,7 +824,8 @@
       "shards/file_structure_current/features.json",
       "shards/transform_preservation_residual_current/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
-      "shards/errata_weak_dispositions_batch2_current/features.json"
+      "shards/errata_weak_dispositions_batch2_current/features.json",
+      "shards/binary_transport_consumers_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -1699,9 +1703,10 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "partial-current-assertion-review",
+    "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "prior-assertion-reviews.json"
+      "prior-assertion-reviews.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [
       "text_strings"
@@ -1709,7 +1714,8 @@
     "reviewed_assertions": [
       "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_property_list_language",
       "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_the_catalog_language"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.9.2.3",
@@ -3588,7 +3594,8 @@
       "shards/images_current/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [
       "image_dictionary_consistency_audit",
@@ -11223,7 +11230,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/document_interchange_framing_current/features.json"
+      "shards/document_interchange_framing_current/features.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -11255,7 +11263,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/language_pronunciation_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/lang_hex_and_predictor_bpc_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

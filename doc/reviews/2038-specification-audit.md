@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (70)
+## Current checkpoint (71)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -165,6 +165,13 @@ checked sample oracle. Parent source review corrects draft readings of CMap and
 output-profile URL restrictions. Existing choice-selection failure B26 is qualified
 against the general array-value rule; it is not the specific erratum468 trigger.
 Model all-targets Clippy passes; the failure manifest remains80.
+
+Checkpoint71 adds two passing tests: hexadecimal language values at the public
+accessibility consumer, and distinct predictor/image bit depths with independent
+exact-pixel controls. Model/core Clippy passes. Binary transport review confirms
+an existing full binary-prefix save assertion and qualifies the narrower C API
+evidence. No new runtime failure is added; structure-split cardinalities remain
+under review because preserving edges alone does not prove required sequences.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

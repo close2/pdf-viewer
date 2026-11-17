@@ -2351,5 +2351,27 @@
     "summary": "Inline ASCII85-then-Flate extent and decoding now share one valid chained fixture with literal samples and a false EI token.",
     "execution": "One test PASS; model all-targets ClippyPASS.",
     "limits": "Scanner/decoder consumer only. EC3#20 changes an optional NOTE2 skip recipe; no requirement to execute it inferred."
+  },
+  {
+    "id": "2038-T93",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.9.2.2.2",
+      "14.9.2.2"
+    ],
+    "summary": "Hexadecimal UTF16BE Lang values now reach public accessibility language assertions for catalog fallback and child override.",
+    "execution": "One testPASS; model/core ClippyPASS.",
+    "limits": "Public accessibility answer, not external assistive-technology behavior or empty-language interpretation."
+  },
+  {
+    "id": "2038-T94",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.4.4.4",
+      "8.9.5.1"
+    ],
+    "summary": "Different predictor and image bit depths now have a valid multi-filter image fixture with independent exact pixel oracles.",
+    "execution": "One testPASS with filtered/raw controls; model/core ClippyPASS.",
+    "limits": "Predictor8 describes intermediate ASCIIHex text; final image1 describes packed grayscale samples. No malformed producer-rejection rule inferred."
   }
 ]

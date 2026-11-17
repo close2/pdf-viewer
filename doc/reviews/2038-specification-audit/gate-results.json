@@ -1875,6 +1875,18 @@
       "log": "quality-model-wave70.log",
       "exit": 0,
       "scope": "model all-targets Clippy"
+    },
+    {
+      "log": "lang-bpc-wave71.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-core-model-wave71c.log",
+      "exit": 0,
+      "scope": "model/core all-targets Clippy"
     }
   ],
   "prior_expected_failures": {
