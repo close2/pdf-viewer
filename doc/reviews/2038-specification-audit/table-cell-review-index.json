@@ -145,10 +145,17 @@
         "StructParent",
         "ID",
         "OPI",
-        "Metadata"
+        "Metadata",
+        "OC",
+        "AF",
+        "Measure",
+        "PtData"
       ],
-      "artifact": "shards/image_dictionary_cells_current/features.json",
-      "status": "partial"
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_dictionary_cells_current/features.json"
+      ]
     },
     {
       "table": "31",
@@ -292,7 +299,10 @@
         "NoExport"
       ],
       "artifact": "shards/variable_text_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/dynamic_field_flags_current/features.json"
+      ]
     },
     {
       "table": "228",
@@ -506,7 +516,10 @@
         "7.9.6"
       ],
       "artifact": "shards/trees_labels_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/tree_string_cells_current/features.json"
+      ]
     },
     {
       "table": "37",
@@ -519,7 +532,10 @@
         "7.9.7"
       ],
       "artifact": "shards/trees_labels_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/tree_string_cells_current/features.json"
+      ]
     },
     {
       "table": "161",
@@ -611,19 +627,6 @@
         "9.7.4.1"
       ],
       "artifact": "shards/cid_font_dictionary_cells_current/features.json",
-      "status": "partial"
-    },
-    {
-      "table": "227",
-      "keys": [
-        "ReadOnly",
-        "Required",
-        "NoExport"
-      ],
-      "ledger_rows": [
-        "12.7.4.1"
-      ],
-      "artifact": "shards/dynamic_field_flags_current/features.json",
       "status": "partial"
     },
     {
@@ -1683,6 +1686,111 @@
       ],
       "artifact": "shards/embedded_file_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "35",
+      "keys": [
+        "string",
+        "text string",
+        "PDFDocEncoded string",
+        "byte string",
+        "date",
+        "name tree",
+        "number tree"
+      ],
+      "ledger_rows": [
+        "7.9.1"
+      ],
+      "artifact": "shards/tree_string_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "88",
+      "keys": [
+        "DeviceGray",
+        "DeviceRGB",
+        "DeviceCMYK",
+        "CalGray",
+        "CalRGB",
+        "Lab",
+        "ICCBased",
+        "Indexed",
+        "Separation",
+        "DeviceN"
+      ],
+      "ledger_rows": [
+        "8.9.5.2"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "89",
+      "keys": [
+        "Image required stream",
+        "DefaultForPrinting optional boolean default false, at most one designated per base",
+        "OC optional OCG or OCMD"
+      ],
+      "ledger_rows": [
+        "8.9.5.4"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "91",
+      "keys": [
+        "BitsPerComponent/BPC",
+        "ColorSpace/CS",
+        "Decode/D",
+        "DecodeParms/DP",
+        "Filter/F",
+        "Height/H",
+        "ImageMask/IM",
+        "Intent/no abbreviation",
+        "Interpolate/I (capital I)",
+        "Length/L",
+        "Width/W"
+      ],
+      "ledger_rows": [
+        "8.9.7"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
+    },
+    {
+      "table": "92",
+      "keys": [
+        "DeviceGray/G",
+        "DeviceRGB/RGB",
+        "DeviceCMYK/CMYK",
+        "Indexed/I (uppercase I value)",
+        "ASCIIHexDecode/AHx",
+        "ASCII85Decode/A85",
+        "LZWDecode/LZW",
+        "FlateDecode/Fl (uppercase F, lowercase l)",
+        "RunLengthDecode/RL",
+        "CCITTFaxDecode/CCF",
+        "DCTDecode/DCT"
+      ],
+      "ledger_rows": [
+        "8.9.7"
+      ],
+      "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/image_alternatives_inline_current/features.json"
+      ]
     }
-  ]
+  ],
+  "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."
 }

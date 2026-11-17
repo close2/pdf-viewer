@@ -2987,6 +2987,29 @@
       "log": "quality-fixtures-wave109b.log",
       "exit": 0,
       "scope": "Final model/syntax all-target Clippy."
+    },
+    {
+      "log": "tree-assertions-wave110.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two strengthened existing tree consumers."
+    },
+    {
+      "log": "image-decode-controls-wave110.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Two new image Decode public controls."
+    },
+    {
+      "log": "quality-wave110.log",
+      "exit": 0,
+      "scope": "Final model all-target Clippy."
     }
   ],
   "prior_expected_failures": {

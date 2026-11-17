@@ -1,0 +1,8 @@
+{
+  "verdict": "T150: two new independent image-sample controls PASS.",
+  "primary": "Parent read actual Table88 caption and all rows at278, Table89 at279, Table91 at283–284 and Table92 at284. Read #79 replacements279–280: hidden base is terminal, print selection and first-visible OC alternate are separate branches; fallback is base. Parent rejected a draft that repeated the struck hidden-base algorithm.",
+  "erratum_306": "Parent matched linked strike QuadPoints x372.629–375.856/y593.179–603.139 to bbox word I) at x372.6287/y237.068 on physical284. Only the I in explanatory (uppercase I) becomes i. The actual Interpolate abbreviation at x316.85 stays uppercase I; Indexed row is untouched.",
+  "tests": "DeviceN two-component samples128/64 and Type4 arithmetic mean yield literal96 per RGB channel. Explicit two default pairs agree; reversed second pair gives159..160, with equal channels and opaque alpha. Inline sample64 defaults64; full Decode[1 0] yields191; abbreviated D must yield the same. Exact object offsets, stream lengths, binary markers, complete xref chains and nonempty raster outputs.",
+  "execution": "image-decode-controls-wave110:2PASS; quality-wave110: model all-target Clippy PASS.",
+  "limits": "One DeviceN tint function and inline gray Decode path, not every alternate, codec, colour-space default or interpolation policy."
+}

@@ -1,4 +1,4 @@
-//! Valid multi-level §7.9.7 number tree through the public page-label consumer.
+//! Existing valid multilevel §7.9.7 fixture, with generic pair order exposed separately.
 #![expect(
     clippy::arithmetic_side_effects,
     reason = "bounded exact-xref fixture and explicit public-reader expectations"
@@ -7,7 +7,7 @@
 use std::io::Write as _;
 
 use pdf_model::{Pages, page_label::PageLabels};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, tree::number_pairs};
 
 fn pdf() -> Vec<u8> {
     let mut objects: Vec<Vec<u8>> = vec![
@@ -20,8 +20,6 @@ fn pdf() -> Vec<u8> {
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> >>".to_vec(),
         );
     }
-    // Indirect range dictionaries are reached through both branches. These assertions cover
-    // consumer enumeration; PageLabels sorts ranges, so they do not prove tree lookup ordering.
     objects.extend([
         b"<< /Limits [0 2] /Kids [16 0 R] >>".to_vec(),
         b"<< /Limits [0 2] /Nums [0 17 0 R 2 18 0 R] >>".to_vec(),
@@ -55,8 +53,30 @@ fn pdf() -> Vec<u8> {
 #[test]
 fn page_labels_enumerate_numeric_ranges_from_valid_indirect_leaves() {
     let document = Document::open(pdf()).expect("generated PDF parses");
-    assert!(!document.was_recovered(), "all xref offsets are exact");
+    assert!(
+        !document.was_recovered(),
+        "all classic-xref offsets are exact"
+    );
+    assert!(
+        !document.cross_reference_chain_was_cut(),
+        "the intact classic xref is not being accepted through chain truncation"
+    );
     assert_eq!(Pages::new(&document).len(), 11);
+
+    let catalog = document.catalog().expect("catalog resolves");
+    let tree_object = document.get_key(&catalog, "PageLabels");
+    let tree = tree_object
+        .as_dict()
+        .expect("PageLabels is a number-tree dictionary");
+    let pairs = number_pairs(tree, &|object| document.resolve(object));
+    assert_eq!(
+        pairs.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+        [0, 2, 10],
+        "generic number-tree traversal preserves the source's ascending numeric order"
+    );
+
+    // This consumer sorts range starts itself, so labels verify range semantics, not generic
+    // number_pairs order. The assertion above is the independent traversal-order observation.
     let labels = PageLabels::read(&document);
     assert_eq!(labels.label(0).as_deref(), Some("4"));
     assert_eq!(labels.label(1).as_deref(), Some("5"));

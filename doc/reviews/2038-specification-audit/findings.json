@@ -3426,5 +3426,40 @@
     "evidence": "Resources, binary markers, PDF2 initial IDs and EmbeddedFiles Desc supplied; reference IDs synchronized. Literal description checks prevent a dangling indirect correction from passing.",
     "execution": "10 affected tests:6PASS,4 existing failures; final model/syntax all-target Clippy PASS.",
     "qualification": "No new test identity or behavior finding. Producer-validity repair strengthens existing evidence without imposing reader rejection."
+  },
+  {
+    "id": "2038-D65",
+    "kind": "source-crosswalk-citation",
+    "clauses": [
+      "7.9.1",
+      "7.9.2.1"
+    ],
+    "summary": "The errata crosswalk calls Table35 Table39 for issue322.",
+    "evidence": "doc/errata-read.md:209 says Table39. Primary caption129 and continuation130 are Table35; issue322 annotations are on130.",
+    "qualification": "Citation/documentation mismatch only; no runtime defect or historical ADR rewrite."
+  },
+  {
+    "id": "2038-T149",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.9.6",
+      "7.9.7",
+      "12.3.2.4",
+      "12.4.2"
+    ],
+    "summary": "Public named destinations distinguish Unicode byte sequences and prefixes; number-tree traversal order is asserted before PageLabels sorting.",
+    "execution": "Two strengthened existing integration tests PASS; model all-target Clippy PASS.",
+    "qualification": "Preserves original test identities and label outputs; no whole-tree/encoding certification."
+  },
+  {
+    "id": "2038-T150",
+    "kind": "coverage-gap",
+    "clauses": [
+      "8.9.5.2",
+      "8.9.7"
+    ],
+    "summary": "DeviceN per-component Decode defaults and inline D spelling now have literal raster oracles.",
+    "execution": "Two new tests PASS with explicit default/reversed-component and full-key controls; model all-target Clippy PASS.",
+    "qualification": "One two-colourant tint function and one inline gray sample; no exhaustive image-table certification."
   }
 ]

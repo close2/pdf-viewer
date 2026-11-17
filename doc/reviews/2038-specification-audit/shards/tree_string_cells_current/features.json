@@ -1,0 +1,128 @@
+{
+  "shard": "tree_string_cells_current",
+  "baseline": "b901326c; explicit audit worktree",
+  "scope": "Cell-focused review of Table 35 and the effective §7.9.4, §7.9.6/Table 36, and §7.9.7/Table 37 rules, including linked destination and page-label consumers. This is not whole-clause certification.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": [
+      {
+        "feature": "Table 35 / §7.9.1–7.9.2",
+        "physical": "129–130",
+        "printed": "114–115"
+      },
+      {
+        "feature": "§7.9.4 Dates",
+        "physical": "132–133",
+        "printed": "117–118"
+      },
+      {
+        "feature": "§7.9.6 / Table 36",
+        "physical": "134–137 for prose/example; Table 36 itself physical 135",
+        "printed": "119–122; Table 36 printed 120"
+      },
+      {
+        "feature": "§7.9.7 / Table 37",
+        "physical": "137–138",
+        "printed": "122–123"
+      }
+    ],
+    "effective_errata": [
+      {
+        "id": "#322",
+        "physical": "130",
+        "printed": "115",
+        "effect": "Revises Table 35's string qualification/type descriptions and the data-structure/numeric type names. The §7.9.2.1 body statement that a single string object is contextually qualified remains. doc/errata-read.md currently calls the affected table Table 39; the primary page is Table 35, so the crosswalk number is stale."
+      },
+      {
+        "id": "#251",
+        "physical": "133",
+        "printed": "118",
+        "effect": "Replaces the absent-timezone GMT sentence with an equivalent +0'00 formulation and strikes the standalone local-time sentence. The date grammar still states the offset after the date fields; the parser stores stated fields and computes instants with the offset."
+      },
+      {
+        "id": "#214",
+        "physical": "135",
+        "printed": "120",
+        "effect": "Strikes lexical terminology from §7.9.6 sorting prose and the Table 36 Names cell. The shorter-prefix rule, self-consistent encoding, byte-by-byte equality, and general ascending-order wording remain."
+      },
+      {
+        "id": "#307",
+        "physical": "135 and 137",
+        "printed": "120 and 122",
+        "effect": "Adds a no-null-key producer requirement to Table 36 Names and Table 37 Nums. No reader rejection behavior is specified by this writer constraint."
+      }
+    ]
+  },
+  "features": [
+    {
+      "id": "table35-contextual-string-types",
+      "clause": "§7.9.1–§7.9.2.4",
+      "source": "Table 35 spans physical 129–130 / printed 114–115; §7.9.2.1 body physical 130 / printed 115. The table distinguishes text strings, ASCII strings, PDFDocEncoded strings, and byte strings; §7.9.2.1 says PDF has one underlying string object whose meaning/encoding is qualified by the entry context. §7.9.1 says these higher-level data structures apply in the document hierarchy, while content-stream strings instead select font character codes.",
+      "effective_errata": "#322 affects Table 35 terminology/descriptions; source annotation says string objects may be further qualified. The ledger's citation of the table is conceptually right, but doc/errata-read.md's Table 39 reference is wrong. #96's strike of a UTF-16/UCS-2 note does not remove the §7.9.2.2.1 normative requirement to handle supplementary characters.",
+      "ledger": "7.9.1 implemented; 7.9.2 and descendants implemented. Consumers have context-specific text/PDFDocEncoded/ASCII/byte reads.",
+      "code": "pdf-syntax::Object::String retains bytes; pdf-syntax::text_string performs text decoding; date, FDF, metadata, destination and file-id consumers select context-specific routines. Content text operands are handled by font encoding paths, not this data-structure decoder.",
+      "assertions": [
+        "pdf-syntax::text_string::tests::a_string_with_no_prefix_is_pdfdocencoded",
+        "pdf-syntax::text_string::tests::a_surrogate_pair_is_one_character",
+        "pdf-model::text_strings_spec_audit::a_filtered_utf8_text_stream_uses_the_text_string_encoding_after_decoding (field stream/string output has visible ink and literal controls)",
+        "pdf-model::text_strings_spec_audit::a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker"
+      ],
+      "execution": "Named parser tests passed in eleven-crate-wave99.log; text stream public consumer passed in round2-targets-wave1.log. The FDF Status fix is present at baseline and is not a new finding.",
+      "verdict": "The shared byte representation matches the effective source, and sampled consumers distinguish text-string decoding from byte-preserving/string-specific routes. No defect established.",
+      "residuals": "No full field-by-field consumer qualification sweep. Language escapes have separate B01/B02/current language evidence; they are not recertified here. Table 35 is a summary table, not by itself a complete dispatch map for all dictionary fields."
+    },
+    {
+      "id": "date-defaults-offset-and-ordering",
+      "clause": "§7.9.4",
+      "source": "Physical 132–133 / printed 117–118. Date is a decoded text-string value (Note 1), has required D: and year, prefix-ordered optional fields, defaults MM/DD to 01 and remaining fields to zero, and defines offsets at minute precision. Note 2 recommends accepting the older trailing apostrophe; Note 3 permits Z with zero-valued offset fields.",
+      "effective_errata": "#251 physical 133 replaces the missing-zone GMT sentence with an equivalent zero-offset sentence; it strikes the independent statement that remaining fields are local. No parsing-field or sign rule is removed. `Date::instant` uses the local date/time fields adjusted by the stated offset; absent zone contributes zero while `offset: None` preserves that the source omitted it.",
+      "ledger": "7.9.4 implemented with parser, writer validation and corpus survey; selected in-scope producer/consumer paths include info dates, metadata, attachments, popup dates, collections and update/archive writing.",
+      "code": "crates/pdf-syntax/src/date.rs::Date::parse/instant/cmp; text-string consumers decode bytes before passing the date spelling. Collection sorting compares instants, not date text.",
+      "assertions": [
+        "pdf-syntax::date::tests::the_clauses_own_example_parses_to_what_it_says_it_means",
+        "pdf-syntax::date::tests::every_field_but_the_year_may_be_absent_and_the_clause_states_its_default",
+        "pdf-syntax::date::tests::the_notes_two_older_spellings_are_accepted",
+        "pdf-syntax::date::tests::dates_order_by_the_instant_rather_than_by_the_string",
+        "pdf-syntax::date_spec_audit::timezone_suffixes_preserve_stated_minutes_and_default_omitted_fields",
+        "pdf-transform::date_spec_audit::metadata_editing_does_not_publish_an_out_of_range_month and metadata_editing_does_not_publish_an_incomplete_numeric_field (T01 independent parser-oracle guards)"
+      ],
+      "execution": "Date syntax and timezone assertions pass in eleven-crate-wave99.log; T01's producer-oracle guards pass per global findings.json. The archive UTF-16 encoded date route is separately asserted.",
+      "verdict": "Defaults, offset sign/minute precision, legacy recommendation, Z qualification and instant-based ordering have source-derived tests. No timezone/date behavior defect identified in this review.",
+      "residuals": "`Date::parse` also enforces month-specific calendar day counts beyond printed DD 01–31. Current ADR/source review treats that as an interpretation question because §7.9.4 says the format closely follows ASN.1 but does not expressly incorporate all Gregorian/ISO 8601 constraints; no new conformance claim is made."
+    },
+    {
+      "id": "name-tree-table36-and-destination-names",
+      "clause": "§7.9.6",
+      "source": "General text physical 134–135 / printed 119–120; Table 36 itself physical 135 / printed 120; worked example extends through physical 137 / printed 122. Root contains exactly Kids or Names; non-root intermediate nodes use Kids+Limits and leaves Names+Limits. Kids are indirect references. Names stores alternating string/value pairs; exact Limits and non-overlapping contiguous ranges support branch lookup. Keys use a self-consistent encoding, shorter common-prefix keys sort first, equality is byte-by-byte. Values may be any object; indirectness for stream values is SHALL, while several complex-value indirectness cells are SHOULD.",
+      "effective_errata": "#214 removes the word lexical, not the remaining prefix and byte-identity rules. #307 adds a producer no-null-key sentence. Neither erratum requires reader-side rejection of malformed trees.",
+      "ledger": "7.9.6 implemented; shared generic tree API used by catalog named destinations, attachment EmbeddedFiles/collection entries, named pages, merge/split/archive and other consumers.",
+      "code": "crates/pdf-syntax/src/tree.rs::TreeKey::Name compares byte slices; lookup uses Limits to choose branches; name_pairs enumerates. pdf-model::Destination::named probes name-tree destinations by string bytes.",
+      "assertions": [
+        "pdf-syntax::trees_rectangles_audit::name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes (valid flat Names root sorted A, a, a-NUL, decomposed e+acute, composed é; query order differs; checks byte/canonical distinction)",
+        "pdf-model::deep_name_tree_spec_audit::named_destination_lookup_descends_valid_indirect_nodes_and_uses_exact_byte_keys (root/intermediate/leaf, exact Limits, indirect Kids, different page targets, absent-key control; PASS trees-open-order-wave17c)",
+        "pdf-syntax::tree::tests::a_key_is_found_through_intermediate_nodes (direct child dictionaries are nonconforming producer form; mechanics evidence only)",
+        "pdf-syntax::tree::tests::a_null_key_yields_nothing_and_leaves_its_neighbours_paired (producer-invalid null key; reader-tolerance policy only)",
+        "Scratch-only revised version of the existing public Destination test adds composed/decomposed UTF-8, NUL-prefix keys, exact distinct page targets, and an absent-key control through indirect leaves; unrun."
+      ],
+      "execution": "Deep valid public destination test passed trees-open-order-wave17c.log. Exact-byte helper test passed the broad syntax suites. The previous unsorted-array concern was withdrawn after reading its actual stored order.",
+      "verdict": "Valid nested lookup and byte-distinct key identity are exercised at both helper and public-consumer levels. No reader behavior failure found.",
+      "residuals": "No complete value-category or all-consumer enumeration test. Direct Kids, bad Limits, overlapping ranges and null keys are producer-shape violations; no mandatory reader rejection is inferred. Present false Limits can hide branches as a recovery policy. Destination integration tests use ASCII keys; the composed/decomposed multi-byte comparison remains helper-level."
+    },
+    {
+      "id": "number-tree-table37-and-page-labels",
+      "clause": "§7.9.7 (with §12.4.2 consumer)",
+      "source": "Table 37 starts physical 137 / printed 122 and Limits continues physical 138 / printed 123. Integer keys replace string keys and sort ascending numerically; Nums is alternating integer/value pairs, Kids are indirect references, and intermediate/leaf Limits are exact integer extrema. #307 adds the producer null-key prohibition.",
+      "effective_errata": "#307 adds Keys shall not be the null object to Table 37 /Nums. Page-label alphabetic rollover has separate mutually conflicting accepted #432/#593 edits to Table 161; this review does not choose between them or restate them as a §7.9.7 issue.",
+      "ledger": "7.9.7 implemented; number trees support PageLabels, structural ParentTree and archive preservation.",
+      "code": "TreeKey::Number compares signed integer values; number_pairs walks key/value pairs. PageLabels::read consumes all ranges and sorts them by start key for range computation.",
+      "assertions": [
+        "pdf-model::deep_number_tree_spec_audit::page_labels_enumerate_numeric_ranges_from_valid_indirect_leaves (valid exact-xref root/intermediate/leaf, indirect Kids and value dictionaries, literal label outputs at 0,1,2,9,10; PASS trees-open-order-wave17c; no number_pairs assertion in the current tracked test)",
+        "pdf-syntax::tree::tests::a_number_trees_pairs_come_back_in_order (unit mechanics; direct Kids fixture is not valid producer form)",
+        "pdf-model::page_labels::letters_repeat_rather_than_carrying (separate Table 161 policy with #432/#593 conflict explicitly recorded)"
+      ],
+      "execution": "The tracked deep PageLabels test passed trees-open-order-wave17c.log, but it does not call number_pairs. PageLabels internally sorts ranges, so its output does not isolate generic traversal order. A scratch revision adds a direct number_pairs key-order assertion to the same valid fixture; it is unrun.",
+      "verdict": "Valid multilevel PageLabels range enumeration and output are exercised. Generic number_pairs numeric order is not yet asserted by this public fixture; a scratch revision proposes that independent seam assertion.",
+      "residuals": "No exhaustive traversal/cardinality test over archive ParentTree and every number-tree consumer. Current PageLabels outputs do not prove generic traversal order because PageLabels sorts ranges. Direct Kids, malformed Limits, unsorted pairs and null keys do not establish mandatory reader rejection behavior."
+    }
+  ]
+}

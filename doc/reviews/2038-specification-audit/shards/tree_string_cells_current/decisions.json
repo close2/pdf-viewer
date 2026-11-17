@@ -1,0 +1,36 @@
+{
+  "decisions": [
+    {
+      "adr": "0053 — The component the ledger found",
+      "decision": "Retain shared name/number tree code for the sampled shape and operations; update the evidence basis to include valid indirect-child public fixtures.",
+      "evidence": "The syntax helper handles byte and integer keys through separate TreeKey variants. Current exact-xref root/intermediate/leaf tests traverse indirect Kids through Destination and PageLabels. The old direct-dictionary Kids unit tests are mechanics-only, not valid producer fixtures.",
+      "residuals": "No exhaustive test of every consumer, depth boundary, malformed Limits recovery, or large-fanout cost. Producer shape constraints do not imply reader rejection."
+    },
+    {
+      "adr": "0439 — The shape a lossy name makes and where else it lived",
+      "decision": "Confirm byte-preserving key identity for sampled name-tree lookup.",
+      "evidence": "The helper test compares case, NUL-prefix, composed/decomposed Unicode byte sequences; the deep public destination test uses A/a keys with distinct page values. TreeKey::Name compares &[u8] directly.",
+      "residuals": "The composed/decomposed multibyte controls are currently helper-level, not the deep Destination integration fixture. No broad consumer sweep is claimed."
+    },
+    {
+      "adr": "0660 — The quotation that hid by being wrong",
+      "decision": "The effective-source reading is consistent with the reviewed cells, with a stale crosswalk table number recorded.",
+      "evidence": "Primary Table 35 is visibly on physical 129–130; EC3 #322 annotations on physical 130 alter its type descriptions. Primary Table 36/37 and #214/#307 were read directly, not inferred from the errata index. doc/errata-read.md labels the Table 35 affected table as Table 39, which conflicts with the held primary.",
+      "residuals": "This audit does not review the errata tool or correct the crosswalk."
+    },
+    {
+      "adr": "0601 — Two accepted errata that cannot both be applied",
+      "decision": "Retain its disclosed Table 161 alphabetic page-label conflict; it is outside the §7.9.7 comparator question and is not re-adjudicated here.",
+      "evidence": "The current deep PageLabels test asserts labels 4, 5, i, viii, and Z at selected pages; its final number-tree range is /S /A /St 26 and yields Z. It does not currently assert generic number_pairs order. A scratch revision adds the independent [0, 2, 10] traversal assertion; it remains unrun. The #432/#593 conflict concerns Table 161 and is not re-adjudicated here.",
+      "residuals": "#432/#593 remain contradictory accepted errata over A/a page-label progression."
+    },
+    {
+      "adr": "0252 — The errata were in the file all along, and the conversion dropped them",
+      "decision": "Use the primary annotation layer for effective wording and cite physical as well as printed pages.",
+      "evidence": "#251 at physical 133 changes §7.9.4; #322 at physical 130 changes Table 35; #214/#307 at physical 135/137 change the tree clauses. The processed body alone does not show these amendments.",
+      "residuals": "No broader quotation-gate audit in this shard."
+    }
+  ],
+  "new_runtime_defect": false,
+  "test_draft": "None. The previously missing valid deep exact-xref public controls now exist and pass; the remaining observations are source citation, coverage scope, or explicitly unresolved interpretation questions."
+}

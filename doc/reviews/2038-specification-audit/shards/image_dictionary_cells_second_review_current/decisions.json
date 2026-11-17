@@ -1,0 +1,59 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "B11, Table87 Decode numeric member",
+      "decision": "Keep as current confirmed failure. Table87 requires numeric pair members and §8.9.5.1 says inconsistent image dictionary entries being used shall cause an error. Correct pair count alone does not establish a valid array. This shard adds no duplicate test."
+    },
+    {
+      "topic": "B14, Table87 SMaskInData=2",
+      "decision": "Keep as current confirmed failure for the valid sampled JPX cdef opacity route. Code 0 and 1 controls pass; expected code-2 unpremultiplication fails before rasterization. Do not generalize to every JPX profile or decoder route."
+    },
+    {
+      "topic": "ImageMask EC3 #215",
+      "decision": "The correction says ignore its forbidden Mask and ColorSpace entries; it does not waive the mask BPC=1 or Decode pair restriction. Existing painted-pixel and diagnostic controls match that division."
+    },
+    {
+      "topic": "Table88 defaults",
+      "decision": "Literal tests cover common device defaults, the non-unit Lab range, Indexed pass-through, and ICC Range in sibling tests. This is partial row coverage, not a full independent census."
+    },
+    {
+      "topic": "Table91/92 inline shorthand",
+      "decision": "Existing scanner/render tests cover abbreviation precedence, uppercase I in key position versus uppercase I in Indexed value position, device names, Indexed palette, LZW, A85 and ID separator. Intent has no abbreviation. No further test draft is justified by this selected review."
+    },
+    {
+      "topic": "Table89 alternates",
+      "decision": "Retain amended #79 selection and black/white pixel controls. Duplicate DefaultForPrinting designation is a producer constraint; no mandatory reader failure is inferred."
+    },
+    {
+      "topic": "Interpolate",
+      "decision": "Keep as optional hint behavior. Existing tests protect implementation choices, not a required interpolation kernel."
+    },
+    {
+      "topic": "Other Table87 entries",
+      "decision": "Type, Subtype, Name, ID, OPI and Metadata are markers/specialized metadata; StructParent is conditional on structural content. OC has a direct visibility/skip consumer. AF has a helper/carrier unit witness for resolving name and Source, but no host extraction witness from this fixture. Measure and PtData are listed at the table end; this pass found measurement consumers on viewports, not image XObjects. Record that as limited consumer coverage, not an automatic paint failure."
+    },
+    {
+      "topic": "Table87 trailing keys",
+      "decision": "OC and AF have selected consumer tests. Measure/PtData image-XObject-specific use was not located; no whole-key no-gap claim is made. Do not treat their producer-side optionality or absence from a drawing API as a confirmed reader defect without a source-directed use case."
+    }
+  ],
+  "adr_reconsiderations": [
+    {
+      "adr": "2812",
+      "result": "Retained with B11 qualification; ImageMask ignore behavior and explicit image-consistency error are separate source rules. Table87 has 23 keys, with its OC/AF/Measure/PtData continuation on physical276."
+    },
+    {
+      "adr": "2863",
+      "result": "Retained as bounded JPX/sYCC behavior; no extension to untested enumerated/ICC cases."
+    },
+    {
+      "adr": "0253 and 1173",
+      "result": "Retained for effective alternate selection and distinct print purpose; current tests exercise selected branches."
+    },
+    {
+      "adr": "0019, 0464, 0466, 0467",
+      "result": "Retained as inline scanner extent decisions; CRLF interaction remains unresolved source interpretation and is not asserted as defect."
+    }
+  ]
+}

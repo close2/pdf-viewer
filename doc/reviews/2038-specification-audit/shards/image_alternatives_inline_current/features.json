@@ -1,0 +1,145 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected Table 88 DeviceN image Decode default; Table 89 alternate-image dictionary and amended selection; Tables 91-92 inline dictionary abbreviations and their consumers. Not whole-clause/image-codec certification.",
+  "source": {
+    "standard": "ISO 32000-2:2020 effective text with EC3; source locations are physical PDF pages and printed footer pages.",
+    "tables": [
+      {
+        "id": 88,
+        "caption_rows": "physical 278 / printed 263",
+        "selected_cell": {
+          "key": "DeviceN default Decode",
+          "source": "Table says [0.0 1.0] once for each colour component. §8.9.5.2 immediately preceding table explains linear mapping from source sample range into each component's Dmin/Dmax; decreasing endpoints are permitted by Note 3.",
+          "existing_evidence": [
+            "decode_arrays.rs covers DeviceGray default/reversal, Lab range, Indexed table bounds, and JPEG application, but I found no literal public image test whose DeviceN default Decode vector length is distinguished across multiple components.",
+            "special_colour_spaces_current covers DeviceN colour-space interpretation and independent tint controls, not this image Decode default.",
+            "The new scratch device_n_default_decode.rs uses two 8-bit samples [128,64] and a Type 4 calculator that returns their arithmetic mean to all RGB channels. Missing Decode and explicit [0 1 0 1] should give 96; reversing only the second pair should give 159 or 160, well separated from 96."
+          ],
+          "consumer": "Image dictionary Decode parsing -> per-component sample mapping -> DeviceN tint function -> raster pixels.",
+          "status": "Integrated by parent as crates/pdf-model/tests/devicen_decode_defaults_spec_audit.rs::table88_devicen_default_supplies_a_pair_for_each_image_component; parent reports PASS in wave 110. The integrated test asserts no recovery, no xref-chain truncation and complete interpretation."
+        }
+      },
+      {
+        "id": 89,
+        "caption_rows": "physical 279 / printed 264",
+        "cells": [
+          {
+            "key": "Image",
+            "condition": "Required image XObject stream for the alternate. §8.9.5.4 makes alternate selection image-purpose dependent and examines candidate array order."
+          },
+          {
+            "key": "DefaultForPrinting",
+            "condition": "Optional boolean default false; at most one designated per base image. It applies only in the source algorithm's print branch when the base has no OC key; if no designation is selected, base prints."
+          },
+          {
+            "key": "OC",
+            "condition": "Optional OCG/OCMD. Base OC is terminal: visible draws base; hidden draws nothing. With no base OC, a print designation selects its alternate regardless of alternate OC. Otherwise the first alternate whose OC says visible is selected, without examining the selected image stream OC; alternatives lacking OC are excluded only in this latter branch. If no alternate is selected, draw base."
+          }
+        ],
+        "ec3_change": {
+          "issue": 79,
+          "locations": "Primary annotations on physical 279-280; physical 279 includes the effective replacement text and physical 280 the fallback step.",
+          "effect": "The corrected algorithm clarifies OC precedence and the cases where no image is rendered; the inserted fallback step renders the base when the base has no OC entry and no applicable alternate is selected. Do not read the struck algorithm as effective text."
+        },
+        "assertions": [
+          "alternate_images_audit.rs::print_without_designated_or_visible_alternate_falls_back_to_base asserts white alternate for explicit true and black base when the optional flag is absent (default false).",
+          "alternate_images_audit.rs::the_first_of_two_visible_alternates_wins_in_array_order reverses two visible alternatives and checks their distinct literal pixels for View/Print/Export.",
+          "optional_content.rs::a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates, a_base_image_with_no_group_shows_the_first_visible_alternate, an_alternate_with_no_group_is_not_shown_and_the_base_image_is, a_base_image_whose_alternates_are_all_hidden_is_drawn_itself, a_visible_base_image_is_drawn_whatever_its_alternates_say, the_selected_alternates_own_image_group_is_not_examined, a_base_image_stating_a_group_never_reaches_default_for_printing, and a_designated_alternate_is_printed_whatever_its_own_group_says cover distinct algorithm routes with pixel or visibility assertions."
+        ],
+        "consumer": "Viewer-purpose optional-content decision -> image XObject selection -> raster output.",
+        "quality_and_limit": "Strong witnesses cover selected branches and amended fallback/priority. Duplicate DefaultForPrinting designation is a producer constraint; no refusal duty is inferred. No new alternate-image test is proposed."
+      },
+      {
+        "id": 91,
+        "caption_rows": "physical 283-284 / printed 268-269",
+        "selected_cells": [
+          {
+            "full_name": "Decode",
+            "abbreviation": "D",
+            "evidence": "The current inline scanner tests exercise Decode pairs and abbreviation expansion helper behavior, but this review found no public inline-image drawing test that uses /D to reverse a literal sample. Scratch draft inline_decode_abbreviation.rs compares a 64 DeviceGray sample with default output 64, full /Decode [1 0] output 191, and /D [1 0] expected to match 191.",
+            "status": "Integrated by parent as crates/pdf-model/tests/inline_decode_public_spec_audit.rs::inline_decode_abbreviation_reaches_the_image_sample_mapper; parent reports PASS in wave 110. The integrated test asserts exact-xref/no-recovery/no-chain-cut and complete rendering."
+          },
+          {
+            "full_name": "Intent",
+            "abbreviation": null,
+            "source_rule": "The table explicitly says no abbreviation. This is not evidence of a missing inline abbreviation."
+          },
+          {
+            "full_name": "Interpolate",
+            "abbreviation": "I (uppercase I)",
+            "source_rule": "Key-position abbreviation; distinct from the value abbreviation in Table 92."
+          },
+          {
+            "full_name": "DecodeParms",
+            "abbreviation": "DP",
+            "evidence": "CCITT inline filter fixture uses /DP; other filter assertions cover exact decode bytes."
+          }
+        ],
+        "source_rule": "Inline dictionary pairs are analogous to image/stream dictionary keys; listed abbreviations are permitted and unlisted keys are ignored. EC3 #3 makes abbreviation take precedence over the full key regardless of order."
+      },
+      {
+        "id": 92,
+        "caption_rows": "physical 284 / printed 269",
+        "selected_cells": [
+          {
+            "value": "I (uppercase I)",
+            "meaning": "Indexed colour-space value abbreviation; distinguish from Table 91 /I key meaning Interpolate."
+          },
+          {
+            "values": [
+              "G",
+              "RGB",
+              "CMYK",
+              "AHx",
+              "A85",
+              "LZW",
+              "Fl",
+              "RL",
+              "CCF",
+              "DCT"
+            ],
+            "meaning": "DeviceGray, DeviceRGB, DeviceCMYK and listed filter names are inline-only; JBIG2Decode, Crypt and JPXDecode are expressly not listed for inline images."
+          }
+        ],
+        "assertions": [
+          "inline_images_dictionary_audit.rs::abbreviated_table91_keys_win_in_either_order_and_unlisted_keys_are_ignored exercises abbreviation precedence in either order, full spelling, ignored unlisted SMask, and the key/value-position distinction for I.",
+          "inline_images_residual_audit.rs exercises /G direct/default-space mapping, literal Indexed palette entries, /LZW decoded sample bytes and continuation, /A85 delimiter bytes, and unlisted stream entries.",
+          "inline_images.rs includes public raster controls and CCITT /DP examples."
+        ],
+        "annotation_note": "EC3 #306's strike quad on physical 284 overlays the I in the Table 91 explanatory phrase '(uppercase I)' and the caret inserts `i`, correcting that phrase to '(uppercase i)'. The Table 91 abbreviation glyph itself remains uppercase I, and the separate Table 92 Indexed row is not changed. This is an explanation correction, not a parser requirement to lowercase either abbreviation."
+      }
+    ],
+    "errata": [
+      {
+        "issue": 3,
+        "physical_page": 283,
+        "effect": "Abbreviation spelling wins over its full-name counterpart even if the latter occurs later in the inline dictionary. Existing test covers both orders."
+      },
+      {
+        "issue": 20,
+        "physical_page": 283,
+        "effect": "The separator exception covers final or only ASCIIHex/ASCII85 filter; existing byte-level assertions cover data delimiter and exact decoded bytes."
+      },
+      {
+        "issue": 79,
+        "physical_pages": [
+          279,
+          280
+        ],
+        "effect": "Amended alternate-image selection order and fallback; existing public pixel tests cover important branches."
+      },
+      {
+        "issue": 306,
+        "physical_page": 284,
+        "effect": "Strike/caret corrects the parenthetical explanation beside Table 91's Interpolate abbreviation from uppercase i to lowercase i. The actual Table 91 I abbreviation remains uppercase; Table 92's Indexed value row is unchanged."
+      }
+    ]
+  },
+  "limits": [
+    "This review is limited to the selected Table 88 row, Table 89 branch family, and selected Table 91/92 cells; it is not a certificate for all image keys or inline filters.",
+    "The two drafts were parent-integrated and passed in wave 110; this reviewer did not run Cargo. Parent's integrated copies add explicit no-chain-cut assertions.",
+    "No exact interpolation kernel is asserted; Interpolate is a hint and may be ignored.",
+    "Malformed producer constraints are not converted into mandatory reader-rejection claims."
+  ],
+  "parent_execution": "Both new public pixel controls integrated and PASS: devicen_decode_defaults_spec_audit and inline_decode_public_spec_audit. Model all-target Clippy PASS. Parent added chain guards and corrected doc formatting. No new failure."
+}

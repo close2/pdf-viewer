@@ -1697,7 +1697,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/trees_strings_current/features.json"
+      "shards/trees_strings_current/features.json",
+      "shards/tree_string_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_strings"
@@ -1727,7 +1728,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/trees_strings_current/features.json"
+      "shards/trees_strings_current/features.json",
+      "shards/tree_string_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_strings"
@@ -1845,7 +1847,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/errata_numeric_syntax_batch_current/features.json"
+      "shards/errata_numeric_syntax_batch_current/features.json",
+      "shards/tree_string_cells_current/features.json"
     ],
     "prior_artifacts": [
       "dates"
@@ -1882,7 +1885,9 @@
     "current_artifacts": [
       "shards/trees_strings_current/features.json",
       "shards/tree_consumer_limits_current/features.json",
-      "shards/trees_labels_cells_current/features.json"
+      "shards/trees_labels_cells_current/features.json",
+      "shards/deep_tree_unicode_current/features.json",
+      "shards/tree_string_cells_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -1899,7 +1904,9 @@
     "current_artifacts": [
       "shards/trees_strings_current/features.json",
       "shards/tree_consumer_limits_current/features.json",
-      "shards/trees_labels_cells_current/features.json"
+      "shards/trees_labels_cells_current/features.json",
+      "shards/deep_tree_unicode_current/features.json",
+      "shards/tree_string_cells_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -3745,7 +3752,8 @@
       "shards/errata_weak_dispositions_batch4_current/features.json",
       "shards/lang_hex_and_predictor_bpc_current/features.json",
       "shards/security_file_only_assertions_current/features.json",
-      "shards/image_dictionary_cells_current/features.json"
+      "shards/image_dictionary_cells_current/features.json",
+      "shards/image_dictionary_cells_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "image_dictionary_consistency_audit",
@@ -3769,7 +3777,9 @@
     "current_artifacts": [
       "shards/images_current/features.json",
       "shards/file_only_image_assertions_current/features.json",
-      "shards/image_dictionary_cells_current/features.json"
+      "shards/image_dictionary_cells_current/features.json",
+      "shards/image_alternatives_inline_current/features.json",
+      "shards/image_dictionary_cells_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "image_samples_decode_audit"
@@ -3800,7 +3810,9 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/images_samples_interpolation_current/features.json"
+      "shards/images_samples_interpolation_current/features.json",
+      "shards/image_alternatives_inline_current/features.json",
+      "shards/image_dictionary_cells_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "alternate_images_audit"
@@ -3898,7 +3910,9 @@
       "shards/inline_images_current/features.json",
       "shards/errata_weak_dispositions_batch1_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
-      "shards/inline_filter_chain_separator_current/features.json"
+      "shards/inline_filter_chain_separator_current/features.json",
+      "shards/image_alternatives_inline_current/features.json",
+      "shards/image_dictionary_cells_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "inline_images_audit",
@@ -6764,7 +6778,8 @@
       "shards/navigation_geometry_residual_current/features.json",
       "shards/qualified_failure_second_review_current/features.json",
       "shards/errata_disposition_crosswalk_current/features.json",
-      "shards/errata_weak_dispositions_batch2_current/features.json"
+      "shards/errata_weak_dispositions_batch2_current/features.json",
+      "shards/deep_tree_unicode_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -6899,7 +6914,8 @@
       "shards/errata_interactive_batch_current/features.json",
       "shards/errata_weak_dispositions_batch5_current/features.json",
       "shards/errata_conflict_and_choice_second_review_current/features.json",
-      "shards/trees_labels_cells_current/features.json"
+      "shards/trees_labels_cells_current/features.json",
+      "shards/deep_tree_unicode_current/features.json"
     ],
     "prior_artifacts": [
       "outlines_labels_audit"
@@ -12401,7 +12417,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/file_specs_current/features.json",
-      "shards/image_dictionary_cells_current/features.json"
+      "shards/image_dictionary_cells_current/features.json",
+      "shards/image_dictionary_cells_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit"

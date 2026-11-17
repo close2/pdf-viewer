@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (109)
+## Current checkpoint (110)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -447,6 +447,12 @@ initial identifiers and embedded-file descriptions. Six tests pass and four reta
 the existing B32/B48/B54 failures, exactly matching their manifest identities.
 Literal description assertions also catch a dangling-reference error rejected
 during draft review. Final model/syntax Clippy passes.
+
+Checkpoint 110 strengthens two tree consumers and adds two independent image Decode
+tests; all four pass, with model Clippy clean. The source review corrects a stale
+errata table number and the earlier image-table continuation omission. After merging
+a duplicate Table 227 entry while retaining both reviews, the index has 110 unique
+partial table matrices. No new failing identity is added.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
