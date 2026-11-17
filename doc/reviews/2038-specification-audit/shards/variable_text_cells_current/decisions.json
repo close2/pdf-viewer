@@ -21,5 +21,5 @@
       "reason": "Table 228's SHALLs addressed to the processor remain distinct from support for the full XFA 3.3 format. Existing code documents and implements a subset; this audit claims only the source-of-DS inheritance boundary."
     }
   ],
-  "draft_status": "One unexecuted valid-rendering draft is supplied for ancestor-only DS. It includes terminal-local and no-style controls, a separate widget/terminal/nonterminal hierarchy, true NeedAppearances for the absent-AP PDF 1.7 fixture, DR/DA Helvetica, exact object references, and generated xref offsets. Parent should validate fixture interpretation and run it before promotion."
+  "draft_status": "The valid-rendering DS draft was integrated by the parent and run at wave89: parent reports the ancestor-only case failed, while local-style and terminal-over-ancestor controls passed. The Q precedence draft was integrated for wave89b with parent-added center-origin/equal-width/default checks; no result was relayed to this shard. Both fixtures use a separate widget/terminal/nonterminal tree, exact xref, DA/DR Helvetica and true NeedAppearances for absent AP in PDF 1.7."
 }

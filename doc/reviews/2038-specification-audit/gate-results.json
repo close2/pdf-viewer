@@ -2392,6 +2392,15 @@
       "log": "quality-wave89c.log",
       "exit": 0,
       "scope": "modelalltargetsfinal"
+    },
+    {
+      "log": "eleven-crate-wave90.log",
+      "run": 7257,
+      "passed": 7174,
+      "failed": 83,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exact83defaultscope failures matchmanifest,noextra/missing. FiveGPU+oneengine+oneignoredstalegateoutside. PASS can include acknowledgedfixtureearlyreturns."
     }
   ],
   "prior_expected_failures": {

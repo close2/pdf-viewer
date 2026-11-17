@@ -19,7 +19,7 @@ Date, colour, TJ and Indexed mutations were restored; independent tests catch th
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave76, eleven packages:7,237run,7,159pass, exactly78expected
+**Gates.** Wave90, eleven packages:7,257run,7,174pass, exactly83expected
 failures by binary/test identity,58skipped. Five GPU, one engine-only and one ignored stale expectation are outside that scope.
 Wave49 adds247passing engine-enabled script/worker tests; both crate Clippy checks pass.
 

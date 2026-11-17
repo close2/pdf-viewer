@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (89)
+## Current checkpoint (90)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **90 failing test identities**: 89 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 90 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave76, covered eleven crates: **7,237 tests ran, 7,159 passed,
-and exactly the 78 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave90, covered eleven crates: **7,257 tests ran, 7,174 passed,
+and exactly the 83 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave76 predates B58–B63; the current default broad-scope manifest has83 failures.
+Wave90 includes all default-scope additions through checkpoint89, including B58–B63.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -322,6 +322,11 @@ field (B63): 27 ink rows instead of9, with local/override controls passing. Sepa
 widget quadding precedence passes with literal edge/centre assertions (T120).
 The cached inherited map is the cause; the rich-text consumer sees two dictionaries.
 Model Clippy passes; manifest90. No invalid absent-required-RV failure is claimed.
+
+Checkpoint90 refreshes the broad run:7,257run,7,174pass,83expectedfailures,58skipped.
+Exact identities match the manifest with no extra or missing failures. Seven
+manifest identities remain outside this scope. The original11ADR shortlist entries
+now link to their current partial reviews; this does not certify the ADR catalog.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

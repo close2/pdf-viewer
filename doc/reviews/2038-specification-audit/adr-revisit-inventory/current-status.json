@@ -1,0 +1,108 @@
+{
+  "checkpoint": 90,
+  "scope": "Current reconciliation of the original eleven-candidate shortlist. Original candidates/findings remain historical prioritization, not the current unreviewed backlog.",
+  "limits": "Every entry is partial. A source review, passing selected tests, or retained ADR does not certify all premises, consumers, platforms, or the complete ADR catalog.",
+  "entries": [
+    {
+      "identity": "root:doc/adr/0812-the-document-crosses-the-confinement-as-a-descriptor-and-a-signature-is-digested-a-window-at-a-time.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr0812_descriptor_boundary_current/parent-review.json",
+      "findings": [
+        "2038-T106"
+      ],
+      "disposition": "Retain descriptor boundary; strengthened transport controls pass. Partial EOF/signature scope remains."
+    },
+    {
+      "identity": "root:doc/adr/1161-encryption-on-the-way-out-is-asked-for-never-inherited.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1161_encrypted_writer_current/parent-review.json",
+      "findings": [
+        "2038-T108"
+      ],
+      "disposition": "Retain explicit output protection; independent fixed R6 writer fields pass. Entropy/statistical and all-exception coverage not certified."
+    },
+    {
+      "identity": "root:doc/adr/1162-a-derived-file-is-protected-where-the-caller-supplies-the-means.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1162_1187_output_protection_current/parent-review.json",
+      "findings": [
+        "2038-T109",
+        "2038-D56"
+      ],
+      "disposition": "Four public verbs honor protection; archive-plus-Protect API policy remains unresolved."
+    },
+    {
+      "identity": "root:doc/adr/1187-an-encryption-cannot-be-carried-and-its-claim-can.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1162_1187_output_protection_current/parent-review.json",
+      "findings": [
+        "2038-T110"
+      ],
+      "disposition": "Exact source permission claim survives report/history; PDF/A source rules attributed to repository policy."
+    },
+    {
+      "identity": "root:doc/adr/1190-the-fourth-window-is-not-a-fourth-toolkit.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1190_confined_operations_current/parent-review.json",
+      "findings": [
+        "2038-T114",
+        "2038-D59"
+      ],
+      "disposition": "Historical no-save/form premise is stale; three filesystem controls pass. Restriction UI policy remains unresolved."
+    },
+    {
+      "identity": "root:doc/adr/1235-a-named-page-becomes-a-buttons-appearance-and-a-second-file-is-a-hop.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1235_named_page_appearance_current/parent-review.json",
+      "findings": [
+        "2038-T113"
+      ],
+      "disposition": "Named-page appearance geometry passes live/save/reopen; external hop not freshly executed."
+    },
+    {
+      "identity": "root:doc/adr/1240-a-file-select-field-gets-a-chooser-and-the-gate-is-asked-twice.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1240_file_select_timing_current/parent-review.json",
+      "findings": [
+        "2038-D55"
+      ],
+      "disposition": "Chooser boundary retained; historical acquisition timing claim needs reconciliation. No native timing probe yet."
+    },
+    {
+      "identity": "root:doc/adr/1257-a-flag-is-a-claim-and-a-form-says-whether-its-pages-are-its-own.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1257_1270_archive_claims_current/parent-review.json",
+      "findings": [
+        "2038-D57"
+      ],
+      "disposition": "Grammar-dynamic archive default needs explicit policy decision; accepted layout scope alone does not amend it."
+    },
+    {
+      "identity": "root:doc/adr/1270-the-second-mechanism-a-preserve-has-and-the-type-a-clause-names-for-bytes-nobody-read.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/adr1257_1270_archive_claims_current/parent-review.json",
+      "findings": [
+        "2038-B58",
+        "2038-T112"
+      ],
+      "disposition": "Valid XFA preservation controls pass; malformed array silently loses packet under preserve promise. Repository integrity failure, not valid-PDF reader duty."
+    },
+    {
+      "identity": "raster:raster/doc/adr/0085-the-stroke-width-crosses-the-boundary-unresolved.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/raster_adr0085_stroke_width_current/parent-review.json",
+      "findings": [
+        "2038-B59",
+        "2038-T111"
+      ],
+      "disposition": "Material anisotropy controls pass; near-similarity fixed cutoff fails thick strokes on recorded GPU."
+    },
+    {
+      "identity": "raster:raster/doc/adr/0082-the-determinism-contract-relaxes-to-a-close-best-effort.md",
+      "status": "partially-revisited",
+      "parent_review": "shards/raster_adr0082_determinism_current/parent-review.json",
+      "findings": [],
+      "disposition": "Retain bounded determinism contract; source/assertion review only, no fresh multi-adapter certification."
+    }
+  ]
+}
