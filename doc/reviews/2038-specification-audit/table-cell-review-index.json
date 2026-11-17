@@ -591,6 +591,82 @@
       ],
       "artifact": "shards/maxlen_live_property_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "115",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "CIDSystemInfo",
+        "FontDescriptor",
+        "DW",
+        "W",
+        "DW2",
+        "W2",
+        "CIDToGIDMap"
+      ],
+      "ledger_rows": [
+        "9.7.4.1"
+      ],
+      "artifact": "shards/cid_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "227",
+      "keys": [
+        "ReadOnly",
+        "Required",
+        "NoExport"
+      ],
+      "ledger_rows": [
+        "12.7.4.1"
+      ],
+      "artifact": "shards/dynamic_field_flags_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "77",
+      "keys": [
+        "ShadingType",
+        "ColorSpace",
+        "Background",
+        "BBox",
+        "AntiAlias"
+      ],
+      "ledger_rows": [
+        "8.7.4.3"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "79",
+      "keys": [
+        "Coords",
+        "Domain",
+        "Function",
+        "Extend"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.3"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "80",
+      "keys": [
+        "Coords",
+        "Domain",
+        "Function",
+        "Extend"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.4"
+      ],
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

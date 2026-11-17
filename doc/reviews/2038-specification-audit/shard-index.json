@@ -3,6 +3,41 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "shading_dictionary_cells_current",
+      "artifact": "shards/shading_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.4.2",
+        "8.7.4.3",
+        "8.7.4.5.3",
+        "8.7.4.5.4",
+        "10.7.4",
+        "11.6.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "cid_font_dictionary_cells_current",
+      "artifact": "shards/cid_font_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.7.3",
+        "9.7.4.1",
+        "9.7.4.2",
+        "9.7.4.3",
+        "9.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dynamic_field_flags_current",
+      "artifact": "shards/dynamic_field_flags_current/features.json",
+      "ledger_owners": [
+        "12.7.4.1",
+        "12.7.6.2",
+        "12.6.4.16"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "unknown_annotation_pointer_current",
       "artifact": "shards/unknown_annotation_pointer_current/features.json",
       "ledger_owners": [

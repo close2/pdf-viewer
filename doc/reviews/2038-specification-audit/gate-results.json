@@ -2553,6 +2553,80 @@
       "skipped": 58,
       "exit": 100,
       "scope": "Exactbinary/test match, noextra/missing. Covers through94,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
+    },
+    {
+      "log": "live-flags-wave96.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100
+    },
+    {
+      "log": "maxlen-description-wave96.log",
+      "run": 6,
+      "passed": 2,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "shading-bbox-wave96.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-bbox-gpu-wave96.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-bbox-wave96b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "direct-cid-descriptor-wave96.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "direct-cid-descriptor-wave96b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave96.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96b.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96c.log",
+      "exit": 101,
+      "scope": "Draft test documentation/unused lint expectations; corrected."
+    },
+    {
+      "log": "quality-wave96d.log",
+      "exit": 0,
+      "scope": "model/render-raster all-targets; final e includes strengthened spatial assertions."
+    },
+    {
+      "log": "quality-wave96e.log",
+      "exit": 0,
+      "scope": "model/render-raster all-targets; final e includes strengthened spatial assertions."
     }
   ],
   "prior_expected_failures": {

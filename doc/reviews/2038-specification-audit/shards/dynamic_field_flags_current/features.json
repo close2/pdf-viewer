@@ -1,0 +1,56 @@
+{
+  "scope": "Live field-property edits from accepted ScriptRunner results, and whether public form controls and submit-form diagnostics see the current view's effective flag state. MaxLen is excluded (owner review B67); no JavaScript engine or native UI execution is claimed.",
+  "source": [
+    {
+      "locator": "EC3 Table 227, printed p.532 / physical p.547",
+      "rule": "ReadOnly: if set, processor shall not allow user value changes; associated widgets should not interact with clicks or mouse-move appearance changes. Required: if set, field shall have a value at submit-form export. NoExport: if set, field shall not be exported."
+    },
+    {
+      "locator": "EC3 \u00a712.7.5.3 Table 231, printed p.539 / physical p.554",
+      "rule": "The interactive processor shall obey text-field flag usage guidelines. `multiline`, `password`, `doNotScroll`, and `comb` are exposed as script-writable field properties; comb has the table's MaxLen and other-flag preconditions."
+    }
+  ],
+  "supported_property_inventory": {
+    "read_only": "Public JS `Field.readonly` setter maps to Property::ReadOnly; ViewState::set_field consults the override.",
+    "required": "Public JS `Field.required` setter maps to Property::Required; ADR1617 maps it to Table227 bit2 on save and `FieldState` applies it for later script events.",
+    "text_flags": [
+      "multiline",
+      "password",
+      "doNotScroll",
+      "comb"
+    ],
+    "no_export": "No JS `Field.noExport` property or Property variant exists; the field flag remains read from the document and is honored by submit composition. No setter gap is claimed."
+  },
+  "consumer_matrix": [
+    {
+      "consumer": "pdf_model::form::fields -> viewer_core::FormField -> host form controls/accessibility",
+      "current_read": "form::read constructs Field directly from document plus the annotation value; `read_only`, `required`, and TextControl flags are taken from Field::read(document). The result does not apply ViewState::script_properties.",
+      "coverage": "script_properties.rs asserts saved/reopened Required and drawn appearance behavior; realm.rs asserts setter edit and same-run readback. No assertion found for the public form description after an unsaved live Required/ReadOnly/TextFlag edit."
+    },
+    {
+      "consumer": "ViewState::set_field",
+      "current_read": "ReadOnly is special-cased through script_read_only and blocks edits after a live true override.",
+      "coverage": "No independent control test found that compares the resulting FormField.read_only metadata with the enforced edit result."
+    },
+    {
+      "consumer": "submission::chosen / Required diagnostic",
+      "current_read": "Submission reconstructs Field from the stored document and view annotation value; it does not overlay Property::Required. Static Required-empty reporting is covered by 2038-T121.",
+      "coverage": "T121 tests stored Required flags and host policy. No live true/false Required override is compared against the diagnostic."
+    },
+    {
+      "consumer": "TextFlag edits",
+      "current_read": "The bridge emits Property::TextFlag and records it in the realm overrides. ADR1615 explicitly keeps and reports these edits as not drawn; form::fields reads the stored field flags, while FieldState for subsequent script events reapplies overrides.",
+      "coverage": "Engine members tests prove setter-to-edit and same-run getter behavior, but no public form-consumer assertion says unsaved TextFlag overrides alter native control shape. Treat that as the recorded project boundary unless an owner contract says otherwise."
+    }
+  ],
+  "residuals": [
+    "The source clauses prescribe what the flag means when effective, but the precise live-script-to-native-control synchronization boundary is a project API/ADR question. Draft assertions test consistency with ADR1617/current FormField contract; they are not a claim that ISO itself mandates JavaScript execution.",
+    "ReadOnly click/hover behavior is a SHOULD in Table227 and not exercised by model set_field tests; this shard does not claim native toolkit conformance.",
+    "NoExport cannot be changed by the exposed Field API; its static serialization assertion is already in submission tests."
+  ],
+  "ledger_crosswalk": {
+    "12.7.4.1": "Current status implemented. The row note expressly says Table 227 ReadOnly/Required/NoExport cross to pdf_model::form::FormField and describes host control/read-only and required marking; its cited tests cover stored field flags and static Required export. This bounded audit asks whether later unsaved ScriptRunner property edits also cross the same consumer.",
+    "12.7.5.3": "Current status implemented. Text-field Table231 flag behavior is read by `form::control`; dynamic setter propagation to native form controls is explicitly left within ADR1615\u2019s documented \u201ckept and reported as not drawn\u201d boundary here.",
+    "12.7.6.2": "Current status implemented. The note and T121 cover stored Required/NoExport at SubmitForm; T121 does not cover a live Required override."
+  }
+}

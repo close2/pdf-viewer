@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "decision": "Root ADR 1617 — scripted property edits are drawn and saved as standard entries",
+      "verdict": "Reaffirm the entry mapping/save decision; identify a live-consumer consistency gap for Required/ReadOnly metadata rather than reopening appearance generation.",
+      "reason": "ADR1617 explicitly maps Required to Table227/Ff and its tests check saving; FieldState applies live overrides for later scripts. However the public form description and submit composer currently read only the stored Field. That leaves downstream consumers with a stale view while the accepted edit is unsaved."
+    },
+    {
+      "decision": "Root ADR 1615 — writable text flags are retained and reported as not drawn",
+      "verdict": "Respect this documented text-flag boundary; do not turn it into an ISO rendering defect in this audit.",
+      "reason": "The bridge accepts the four Table231 setters, and current code preserves them for the script realm but does not put them on the saved drawing path. Whether native controls should update from them is a separate owner-scope question; no defect is asserted here."
+    },
+    {
+      "decision": "Root ADR 1198 — Required is reported at export and host policy decides whether to proceed",
+      "verdict": "No change to the no-mandatory-network-refusal boundary; the report should use the current live Required state if the accepted Property edit is effective for this view.",
+      "reason": "T121 covers static Required. A dynamic true/false override is an upstream field-state issue and can be tested without asserting any network send or refusal."
+    },
+    {
+      "decision": "NoExport property coverage",
+      "verdict": "No defect: this is not an exposed dynamic property.",
+      "reason": "The bridge's FieldProperty list and model Property enum contain ReadOnly, Required, and four text flags, but no NoExport setter. Existing Table227 NoExport serialization tests cover the stored bit."
+    }
+  ],
+  "execution": "Scratch-only exact-xref test drafts were created and not run. No JavaScript engine or GTK/Qt runtime is claimed."
+}

@@ -1,0 +1,9 @@
+{
+  "verdict": "B69: live Required/ReadOnly overrides are recorded, but form metadata and Required submission diagnostics read stored flags. Three consumer assertions FAIL after stored and edit controls pass.",
+  "source": "Parent read primary physical547/printed532 actual Table227; no non-link correction annotations there. Read ADR1617 mapping/save, ADR1615 text-flag boundary and ADR1198 Required-report decision. These support accepted live-state consistency; ISO does not itself define this JavaScript setter ordering.",
+  "fixture": "Exact-xref PDF1.7 with valid DA/DR and NeedAppearances; injected ScriptRunner OpenAction edits. Required-without-value deliberately violates the export condition to exercise the accepted diagnostic policy; not claimed to be fully conforming export data. No real JavaScript engine, network request or native UI execution.",
+  "assertions": "Stored false/true controls and live overrides in both directions. script_properties confirms overrides. All observations collected before tuple assertions. Required form metadata stays false/true and submit owed stays false/true instead of true/false. ReadOnly metadata stays false/true while set_field correctly refuses/allows and retains/changes the value.",
+  "cause": "form::fields reads Field::read flags from immutable Document; submission::chosen also reads original flags. apply_property records live overrides; set_field explicitly honors script_read_only.",
+  "decisions": "Retain ADR1617 effective property mapping, ADR1198 report/host boundary and ADR1615 documented TextFlag limitation. NoExport is not an exposed dynamic setter; no invented omission. Native control refresh remains a distinct unexecuted consumer.",
+  "execution": "live-flags-wave96: 3 FAIL; final model/render-raster all-targets Clippy PASS."
+}

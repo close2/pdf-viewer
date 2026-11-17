@@ -1,0 +1,27 @@
+[
+  {
+    "topic": "Table 77 zero-area shading BBox assertion",
+    "prior_decision": "Existing B20 test checks a degenerate tiling-cell BBox; existing shading BBox test checks only an ordinary-area clip.",
+    "current_evidence": "Table 77 NOTE 2 expressly requires one-pixel painting for zero-width/height shading BBox and points to §10.7.4. Direct `sh` uses the shading BBox through the page clip path. B20's `degenerate_tiling_bbox_clip_spec_audit.rs` uses a PatternType 1 cell BBox and the repeating-cell consumer; it checks that the degenerate clip still allows a nearby mark and excludes a distant mark. That related evidence does not exercise the Table 77 shading BBox. CPU mask-cache scan conversion has generic degenerate-rectangle support but is not itself an assertion about the shading consumer. ADR 0037 supports applying the shading BBox as an additional target-space clip, based on nondegenerate tests; it does not settle this degenerate scan-conversion case.",
+    "decision": "Retain a narrow public-pixel assertion gap. Draft an exact-xref test for direct `sh` with positive-area control and both zero-width/height fractional BBoxes; assert nonempty but bounded pixels and distant transparency, without pinning boundary ownership or AA coverage. Do not claim a bug until parent execution.",
+    "scope_limit": "The draft covers CPU direct-sh shading only; it does not establish pattern shading or GPU/backend behavior."
+  },
+  {
+    "topic": "Axial/radial endpoint extension and defaults",
+    "prior_decision": "Earlier shading scratch described asymmetric endpoint branches as residual gaps.",
+    "current_evidence": "Current `indirect_shading_values_spec_audit.rs` body tests both Extend directions for both Type 2 and Type 3, each with direct and indirect forms; it checks positive and transparent endpoint samples and literal nondefault Domain outputs. Existing primary tests exercise default omitted Domain/Extend.",
+    "decision": "Withdraw the stale asymmetric-Extend residual for current baseline. Do not redraft those tests. Keep only narrower degenerate geometry and AntiAlias questions in this shard."
+  },
+  {
+    "topic": "Type 2 coincident axis and Type 3 zero-radius producer data",
+    "prior_decision": "Prior evidence combines source prose and private radial blend-parameter tests; no whole-reader error behavior was claimed.",
+    "current_evidence": "Table 79 says coincident axial endpoints paint nothing; Table 80 says a zero circle is a point and both-zero circles paint nothing. The current private radial helper unit test demonstrates both-zero returns no parameter, but no dedicated public render assertion was located in this pass.",
+    "decision": "Record bounded assertion residual only. A producer-valid-input rendering duty is established for these specific source cases, but no new test is drafted in this shard because the common Table 77 one-pixel rule is the clearer priority. Do not require reader errors for negative radii or other invalid producer data absent a separate normative reader rule."
+  },
+  {
+    "topic": "AntiAlias interpretation",
+    "prior_decision": "No previous runtime failure claimed.",
+    "current_evidence": "Table 77 calls AntiAlias a flag indicating whether to filter the shading function; default false. Its Note 3 explains that output resolution/function frequency affect aliasing and filtering is costly and often unnecessary. No strong independent expected-pixel test was identified.",
+    "decision": "Leave as an unresolved feature/assertion detail rather than a failure or a demanded specific filter."
+  }
+]

@@ -5,5 +5,6 @@
   "fixture": "Exactxref PDF1.7 AcroForm DA/DR/NeedAppearances and OpenAction; originalold length3 conforms to both stored limits. ScriptRunner supplies successful edit results; no JavaScript engine or native controls executed. Saved PDF reopens without recovery.",
   "cause": "held_to_max_len resolves original Document only; does not see live property. Both script write_text and public set_field call it. Save correctly serializes property override, exposing mismatch.",
   "decision": "Retain ADR1617 charLimit mapping and ADR2840 all-programmatic enforcement; complete their integration against effective live state. No historical ADR rewrite.",
-  "execution": "First draft build94 failed temporary borrow E0716, corrected; maxlen-live-wave94b 6run2PASS4FAIL; quality94 doc lint corrected; final94b model/core alltargetsPASS."
+  "execution": "First draft build94 failed temporary borrow E0716, corrected; maxlen-live-wave94b 6run2PASS4FAIL; quality94 doc lint corrected; final94b model/core alltargetsPASS.",
+  "checkpoint96_followup": "Added public form::fields TextControl.max_len to every observation. Existing two stored controls PASS and same four live-change assertions FAIL: metadata also retains stored3/5 while script property and savedMaxLen report5/3. No new failure identities; same B67 consumer consistency gap. maxlen-description-wave96 6 run, 2 PASS, 4 FAIL."
 }

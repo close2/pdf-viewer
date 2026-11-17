@@ -92,6 +92,7 @@ fn run(stored: u32, edits: Vec<ScriptEdit>) -> (ViewState, Document) {
 struct Observation {
     live_value: String,
     live_char_limit: Option<u32>,
+    described_max_len: Option<u32>,
     saved_value: String,
     saved_max_len: i64,
 }
@@ -108,6 +109,14 @@ fn observe(document: &Document, view: &ViewState) -> Observation {
             None
         }
     });
+    let page = pdf_model::Pages::new(document).get(0).expect("one page");
+    let described_max_len = pdf_model::form::fields(document, &page, view)
+        .into_iter()
+        .find_map(|field| match field.control {
+            pdf_model::form::Control::Text(text) => Some(text.max_len),
+            _ => None,
+        })
+        .expect("the field is described as a text control");
     let saved =
         Document::open(view.save(document).expect("save").bytes).expect("saved PDF reopens");
     assert!(!saved.was_recovered(), "the saved xref is authoritative");
@@ -123,6 +132,7 @@ fn observe(document: &Document, view: &ViewState) -> Observation {
     Observation {
         live_value,
         live_char_limit,
+        described_max_len,
         saved_value: value,
         saved_max_len: max_len,
     }
@@ -136,6 +146,7 @@ fn stored_max_len_control_limits_a_script_value_without_a_property_edit() {
         Observation {
             live_value: "abc".to_owned(),
             live_char_limit: None,
+            described_max_len: Some(3),
             saved_value: "abc".to_owned(),
             saved_max_len: 3,
         }
@@ -150,6 +161,7 @@ fn a_value_within_the_stored_limit_stays_whole() {
         Observation {
             live_value: "abc".to_owned(),
             live_char_limit: None,
+            described_max_len: Some(3),
             saved_value: "abc".to_owned(),
             saved_max_len: 3,
         }
@@ -164,6 +176,7 @@ fn a_reduced_live_char_limit_applies_to_a_later_value_edit() {
         Observation {
             live_value: "abc".to_owned(),
             live_char_limit: Some(3),
+            described_max_len: Some(3),
             saved_value: "abc".to_owned(),
             saved_max_len: 3,
         }
@@ -178,6 +191,7 @@ fn a_raised_live_char_limit_applies_to_a_later_value_edit() {
         Observation {
             live_value: "abcde".to_owned(),
             live_char_limit: Some(5),
+            described_max_len: Some(5),
             saved_value: "abcde".to_owned(),
             saved_max_len: 5,
         }
@@ -196,6 +210,7 @@ fn an_open_script_lowering_char_limit_applies_to_later_public_input() {
             Observation {
                 live_value: "abc".to_owned(),
                 live_char_limit: Some(3),
+                described_max_len: Some(3),
                 saved_value: "abc".to_owned(),
                 saved_max_len: 3,
             }
@@ -215,6 +230,7 @@ fn an_open_script_raising_char_limit_applies_to_later_public_input() {
             Observation {
                 live_value: "abcde".to_owned(),
                 live_char_limit: Some(5),
+                described_max_len: Some(5),
                 saved_value: "abcde".to_owned(),
                 saved_max_len: 5,
             }

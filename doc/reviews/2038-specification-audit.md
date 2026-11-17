@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (95)
+## Current checkpoint (96)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **100 failing test identities**: 99 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 100 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **103 failing test identities**: 102 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 103 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave95, covered eleven crates: **7,272 tests ran, 7,179 passed,
 and exactly the 93 recorded in-scope assertions failed; 58 were skipped**.
@@ -359,6 +359,13 @@ Checkpoint95 refreshes the eleven-crate run:7,272 tests,7,179passes, exactly93
 expected failures and58skips. No extra or missing failure identities. The100-entry
 manifest includes seven separately scoped GPU/engine/ignored identities. This run
 verifies execution of the new tests and strengthened assertions through94.
+
+Checkpoint96 adds three assertions for stale live Required/ReadOnly consumers (B69).
+Stored flags and edit-permission controls pass; only metadata and Required reporting
+remain stale. Strengthened B67 assertions also expose stale MaxLen descriptions.
+Five new passing tests cover direct CID descriptors after EC3 #106 and narrow
+shading BBoxes on CPU and three actual Vulkan coverage modes. Model/render-raster
+Clippy passes. Broad95 predates these additions; current default-scope failures total96.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

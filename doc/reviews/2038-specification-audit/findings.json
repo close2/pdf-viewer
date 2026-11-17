@@ -3020,7 +3020,8 @@
     "evidence": "Four failures across reduce/raise and same-result script/later public set_field; two stored-limit controlsPASS. Lower5to3 savesabcde withMaxLen3; raise3to5 savesabc withMaxLen5.",
     "cause": "held_to_max_len reads immutable originalDocument, unlike saved scripted entries.",
     "execution": "maxlen-live-wave94b 6run2PASS4FAIL; model/coreClippyPASS.",
-    "qualification": "Accepted ADR1617/2840 and A834 integration consistency; ScriptRunner edits injected, not a JavaScript engine test or claim that ISO defines script ordering."
+    "qualification": "Accepted ADR1617/2840 and A834 integration consistency; ScriptRunner edits injected, not a JavaScript engine test or claim that ISO defines script ordering.",
+    "followup96": "Public TextControl.max_len also remains at stored value; strengthened same six tests retain 2 PASS/4 FAIL."
   },
   {
     "id": "2038-B68",
@@ -3035,5 +3036,43 @@
     "cause": "Generic pointer selection reaches unknown subtype without forced N.",
     "execution": "unknown-pointer-wave94 1FAIL; model/coreClippyPASS.",
     "qualification": "Synthetic GLGR example-prefix extension, not a published real extension; no native toolkit driver claim. Specific unsupported-type rule qualifies generic Table170 interaction."
+  },
+  {
+    "id": "2038-B69",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.6.2",
+      "12.6.4.16"
+    ],
+    "summary": "Live Required and ReadOnly setters leave public form metadata stale; Required submit diagnostics also use the old flag.",
+    "evidence": "Three failing public-consumer assertions; static true/false and actual edit-permission controls pass. script_properties confirms accepted overrides in both directions.",
+    "cause": "Metadata/submit paths read immutable field flags; user editing correctly consults live ReadOnly.",
+    "execution": "live-flags-wave96 3 FAIL; model/render-raster Clippy PASS.",
+    "qualification": "Accepted product live-property consistency. Injected ScriptRunner, not engine/native UI. Missing required value intentionally tests diagnostic policy, not mandatory network refusal."
+  },
+  {
+    "id": "2038-T126",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.4.3",
+      "10.7.4"
+    ],
+    "summary": "Zero-width and zero-height shading BBoxes retain a narrow red segment on CPU and three GPU coverage modes.",
+    "evidence": "Positive-area control; expected transformed band, all interior coordinates, red color, bounded pixel count and distant transparency. Exact-xref direct sh consumer.",
+    "execution": "Strengthened combined96b 4 PASS, Radeon890M Vulkan for GPU modes; model/render-raster Clippy PASS.",
+    "qualification": "Allows two-pixel boundary/AA ownership tolerance; direct shading consumer, not B20 tiling pattern."
+  },
+  {
+    "id": "2038-T127",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "9.7.4.1",
+      "9.7.4.2"
+    ],
+    "summary": "EC3 #106 direct CIDFont FontDescriptor works through embedded program loading and public page interpretation.",
+    "evidence": "Identical direct/indirect fixtures with fixed glyph37, outline, hmtx-consistent width and one glyph Fill; no recovery or fixture skip.",
+    "execution": "direct-cid-descriptor-wave96b 1 PASS; model/render-raster Clippy PASS.",
+    "qualification": "Tests the corrected Table115 cell, not every descriptor or substitute-font route."
   }
 ]

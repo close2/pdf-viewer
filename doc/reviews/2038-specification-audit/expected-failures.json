@@ -605,6 +605,24 @@
       "test": "unsupported_extension_annotation_uses_n_while_supported_square_uses_r_and_d",
       "finding": "2038-B68",
       "log": "unknown-pointer-wave94.log"
+    },
+    {
+      "binary": "pdf-model::live_field_flags_spec_audit",
+      "test": "live_required_override_reaches_the_form_description",
+      "finding": "2038-B69",
+      "log": "live-flags-wave96.log"
+    },
+    {
+      "binary": "pdf-model::live_field_flags_spec_audit",
+      "test": "submit_required_diagnostic_uses_the_live_flag_value",
+      "finding": "2038-B69",
+      "log": "live-flags-wave96.log"
+    },
+    {
+      "binary": "pdf-model::live_field_flags_spec_audit",
+      "test": "live_readonly_override_is_described_and_blocks_user_editing",
+      "finding": "2038-B69",
+      "log": "live-flags-wave96.log"
     }
   ]
 }

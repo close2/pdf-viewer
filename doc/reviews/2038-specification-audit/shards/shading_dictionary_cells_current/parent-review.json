@@ -1,0 +1,10 @@
+{
+  "verdict": "T126: zero-width and zero-height shading BBox retain the expected narrow red segment through direct sh. CPU plus three actual Vulkan coverage modes PASS.",
+  "source": "Parent read primary actual Table77 physical245–246/printed230–231, Table79 physical249/printed234 and Table80 physical251/printed236; physical252 is following prose/figure, not Table80. Agent fresh pikepdf extraction finds no issue corrections on these table pages. BBox NOTE2 cross-refers to10.7.4; Background only applies to shading patterns, opaque NOTE1 is not a universal transparency algorithm.",
+  "fixture": "Exact-xref PDF1.7; constant-red Type2 shading, ordinary 2-unit BBox control, zero-width and zero-height fractional boxes. Parent corrected initial ordinary control sample outside its box before execution.",
+  "assertions": "Ordinary red pixel and distant transparency controls. Both degenerate rasters collected first; nonempty count capped at256, all painted pixels red and inside the expected transformed narrow band/segment, every interior coordinate25..74 painted within a two-pixel boundary tolerance. This catches empty output, dropped clip, wrong-location spot and missing interior length without pinning AA ownership.",
+  "backend": "CPU render-cpu plus render-raster Cpu/Gpu/Compute coverage. All three GPU tests actually render using AMD Radeon890M RADV STRIX1 IntegratedGpu Vulkan; no skip/early return. Device-lock hook holds only GPU lifetime.",
+  "decisions": "Retain ADR0037 target-space additional-clip interpretation. Existing indirect_shading_values tests already cover both asymmetric Extend directions; withdraw stale gap. AntiAlias specific filtering oracle unresolved. B20 tiling-cell BBox is a separate consumer and still fails.",
+  "residual": "Coincident axial axis and both-zero radial geometry draft remains under review for next checkpoint. Parent rejected draft blue-at-center gradient oracle before execution. No behavior verdict from that draft yet.",
+  "execution": "Initial CPU1 and GPU3 PASS; strengthened shading-bbox-wave96b combined4 PASS. Final model/render-raster all-targets Clippy PASS."
+}
