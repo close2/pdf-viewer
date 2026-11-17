@@ -378,7 +378,8 @@ the decline.
 bound on what may be lost if a company printed the document and scanned the print. It never tells the
 converter to imitate printing, and its one assumed press (`press-assumed`) is a loss the report
 and the file's history name (ADR 2518 section 2), not a simulation. `as-shown`'s route to the same row, this reader's
-assumed inks written as an ICC table, is owed to a writer that does not exist (ADR 2519).
+assumed inks written as an ICC table, is built: `pdf_colour`'s `assumed_inks_profile` writes it and every
+profile but `as-if-printed` states it (ADR 2700, which met ADR 2519's deferral).
 
 **The output check cannot see a `DeviceCMYK` mark a `/DefaultCMYK` makes `ICCBased`** (ADR 2518
 section 5). ISO 32000-2 §8.6.5.6 reads such a mark in the default's space, and ISO 19005-4 section
