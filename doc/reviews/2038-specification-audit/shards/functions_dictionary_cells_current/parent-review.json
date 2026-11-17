@@ -1,0 +1,7 @@
+{
+  "verdict": "No new behavior identity; selected function cell evidence reconciled to existing tests and failures.",
+  "source": "Parent independently read actual Tables38(139),39(140–141),40(143),41(144),42(146) and interval/default/width prose. Pages142–143 and145 are additional prose, not table continuations. Direct annotation Contents verified: #30 at143 preserves explicit noninteger/nonnegative and negative/nonzero Domain constraints; #446 at145 corrects Type0 note, #269/#669 at146 correct operator spelling/brace byte.",
+  "assertions": "Parent read literal Type2 nonlinear/multioutput/clipping/default checks, Type3 right-bound/reversed Encode/endpoint checks, and Type0 first-input-fastest unequal bilinear weights (21.25), Size1, and fixed 12-bit byte encoding. Existing Type0 narrow-span and Type3 signed-zero failures remain recorded, not certified passing.",
+  "decisions": "Reaffirm selected not-a-knot spline choice as policy under cubic-spline requirement, and mandatory Order3 ignore when a dimension has Size<4. Type3 resource limits are implementation policy, not ISO numeric maxima. PLRM delegation and calculator execution remain separate.",
+  "limits": "Source/assertion review only; prior broad execution remains evidence for unchanged tests. No full function/operator/caller certification or new malformed-input rejection obligation."
+}

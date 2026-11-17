@@ -1,0 +1,212 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected dictionary cells and conditions in EC3 Table 176 Link, Table 177 FreeText, and Table 178 Line; no whole-clause certification.",
+  "primary_source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "physical_printed_pages": {
+      "table_176": "498 / 483; clause context497 / 482",
+      "table_177": "499–500 / 484–485",
+      "table_178": "501-502 / 486-487",
+      "table_179_line_endings_context": "502-504 / 487-489"
+    },
+    "locator_method": "Table headings and printed footer were checked in the primary PDF; printed-page numbers are not inferred from extracted cross-reference hits."
+  },
+  "ledger": [
+    {
+      "clause": "12.5.6.5",
+      "ledger_line": 3755,
+      "status": "implemented"
+    },
+    {
+      "clause": "12.5.6.6",
+      "ledger_line": 3763,
+      "status": "implemented"
+    },
+    {
+      "clause": "12.5.6.7",
+      "ledger_line": 3771,
+      "status": "implemented"
+    }
+  ],
+  "cells": [
+    {
+      "table": 176,
+      "subtype": "Link",
+      "source": "table physical 498 / printed 483; clause introduction physical 497 / printed 482",
+      "entries": [
+        {
+          "key": "Subtype",
+          "requirement": "Required; Link",
+          "assertion": "Current link fixtures use /Subtype /Link; public Query::LinkAt and activation fixtures exercise the Link consumer."
+        },
+        {
+          "key": "A and Dest",
+          "requirement": "Optional; Dest is not permitted when A is present",
+          "assertion": "Current action/destination tests cover direct Dest, actions, named destinations, and action-chain GoTo; malformed simultaneous A+Dest is not treated as a valid-input rejection requirement in this audit."
+        },
+        {
+          "key": "H",
+          "requirement": "Optional; default I; N/I/O/P behavior on pointer press",
+          "assertion": "link_highlighting_audit.rs checks I and N plus absent-H default I; link_highlighting_residual_audit.rs checks O border-only, P/down appearance, and absent-H with /D against explicit I."
+        },
+        {
+          "key": "PA",
+          "requirement": "Optional former URI action retained when changing a URI link to GoTo, for possible restoration if the target page is later deleted.",
+          "assertion": "This is optional authoring bookkeeping, not an additional-action event. Generic AA trigger tests do not establish PA support; no mandatory reader dispatch duty inferred."
+        },
+        {
+          "key": "QuadPoints",
+          "requirement": "Optional PDF 1.6; eight numbers per quadrilateral in default user space; if absent/unrecognized or any coordinate lies outside Rect, activation region is Rect",
+          "assertion": "link_quadpoints_audit.rs tests valid smaller region, pointer/highlight outside it, and an escaping coordinate falling back to Rect with inside/outside controls; pdf-model/tests/links.rs corpus census observes two links with multiple quads. Exact tests assert no parser recovery."
+        },
+        {
+          "key": "BS",
+          "requirement": "Optional; EC3 #299 changes producer version marker to PDF 1.3; link border dictionary specifies width/dash",
+          "assertion": "annotation_border_audit and link_default_border_spec_audit cover construction/defaults and border precedence. Border is visually independent of QuadPoints per EC3 #17."
+        }
+      ]
+    },
+    {
+      "table": 177,
+      "subtype": "FreeText",
+      "source": "Actual Table177 physical499–500 / printed484–485.",
+      "entries": [
+        {
+          "key": "Subtype",
+          "requirement": "Required; FreeText",
+          "assertion": "free_text_annotation_spec_audit.rs uses standalone page /Annots fixture; not a widget in AcroForm Fields."
+        },
+        {
+          "key": "DA",
+          "requirement": "Required formatting string",
+          "assertion": "Current standalone and variable-text fixtures use DA; variable_text.rs covers DA text layout, font resources, size, color and malformed/unavailable cases. A required producer cell does not imply a malformed-reader refusal duty."
+        },
+        {
+          "key": "Q",
+          "requirement": "Optional; default 0, left/center/right values 0/1/2",
+          "assertion": "free_text_annotation_spec_audit.rs compares absent with 0 and distinct centered/right controls."
+        },
+        {
+          "key": "RC and DS",
+          "requirement": "Optional rich text/default style; RC used for appearance generation under supported XFA subset; DS applies its supported style",
+          "assertion": "variable_text.rs and rich_text.rs cover Contents/RC precedence, rich text rendering, and default style. This shard does not certify all XFA 3.3."
+        },
+        {
+          "key": "CL",
+          "requirement": "Optional; meaningful only when IT=FreeTextCallout; exactly four or six default-user-space coordinates",
+          "assertion": "variable_text.rs compares straight/bent geometries, outside-Rect placement, endpoint LE, IT gating for FreeText/FreeTextCallout/FreeTextTypeWriter, and invalid 5-coordinate report with readable note preserved. Its current helper puts FreeText in AcroForm Fields, a widget-shaped/nonconforming fixture for a standalone FreeText subtype; parent is correcting callout helper fixtures to use /Fields []. Do not count existing calls as fully valid-input evidence until rerun."
+        },
+        {
+          "key": "IT",
+          "requirement": "Optional; default FreeText; valid FreeText, FreeTextCallout, FreeTextTypeWriter",
+          "assertion": "annotations.rs checks subtype-conditioned intent values; variable_text.rs verifies callout line exists only for FreeTextCallout."
+        },
+        {
+          "key": "BE",
+          "requirement": "Optional PDF 1.6; used with BS",
+          "assertion": "freetext_cloud_border_spec_audit.rs now asserts cloud border width/dash on a standalone FreeText annotation; parent reports PASS at freetext-border-wave102.log. Cloud pixel form remains selected implementation artwork."
+        },
+        {
+          "key": "RD",
+          "requirement": "Optional; [left top right bottom], defines inner text rectangle; border/effect apply to inner rectangle",
+          "assertion": "free_text_annotation_spec_audit.rs independently insets each edge and separates text inset from default-user-space callout geometry."
+        },
+        {
+          "key": "BS",
+          "requirement": "Optional; EC3 #299 changes producer version marker to PDF 1.3; width/dash border settings",
+          "assertion": "Standalone cloud border test and border precedence controls exercise BS. AP-present path precedence is covered separately in variable_text.rs."
+        },
+        {
+          "key": "LE",
+          "requirement": "Optional; meaningful only with CL; line-ending name at (x1,y1)",
+          "assertion": "variable_text.rs compares no ending with ClosedArrow and verifies added marks are only at the first callout endpoint."
+        }
+      ]
+    },
+    {
+      "table": 178,
+      "subtype": "Line",
+      "source": "physical 501-502 / printed 486-487",
+      "entries": [
+        {
+          "key": "Subtype and L",
+          "requirement": "Subtype required as Line; L required as two endpoint pairs",
+          "assertion": "Line geometry tests render line; line measurement test uses independent 3-4-5 geometry and units."
+        },
+        {
+          "key": "LL",
+          "requirement": "Optional; L points are leader endpoints when LL is present; signed length chooses direction",
+          "assertion": "annotations.rs and line_ending_endpoint_spec_audit.rs distinguish positive/negative sign, translated line, leaders, and offset/extension boundaries."
+        },
+        {
+          "key": "LLE/LLO",
+          "requirement": "Optional nonnegative extension and gap lengths",
+          "assertion": "line-annotation raster tests assert empty start gap and exact source-derived interior/extension controls."
+        },
+        {
+          "key": "LE/IC",
+          "requirement": "Optional two endpoint names; IC fills applicable closed line-ending shapes",
+          "assertion": "line_ending_endpoint_spec_audit.rs checks first/second endpoint; annotations.rs checks each Table 179 shape, fill/no-fill set, reversed arrows, and Issue #515's RClosedArrow fill."
+        },
+        {
+          "key": "Cap",
+          "requirement": "Optional; when true Contents or RC shall be replicated as caption",
+          "assertion": "annotations.rs has positive caption and absent-Cap controls; absent Contents/RC owes no caption."
+        },
+        {
+          "key": "IT",
+          "requirement": "Optional; values LineArrow and LineDimension",
+          "assertion": "annotations.rs compares subtype-specific intent values and absent intent."
+        },
+        {
+          "key": "CP",
+          "requirement": "Optional; meaningful only when Cap true; default Inline, valid Inline/Top",
+          "assertion": "annotations.rs contrasts omitted CP (Inline) with explicit Top and checks caption ink relative to the line."
+        },
+        {
+          "key": "Measure",
+          "requirement": "Optional; specifies scale and units",
+          "assertion": "annotations.rs uses independent 3-4-5 line length and scale factor 2; leadered equivalent has same measured length."
+        },
+        {
+          "key": "CO",
+          "requirement": "Optional; meaningful only when Cap true; default [0,0]",
+          "assertion": "annotations.rs uses positive perpendicular offset control and asserts original rows become empty/new rows are inked; default inline placement is separately asserted."
+        }
+      ]
+    }
+  ],
+  "errata": [
+    {
+      "issue": 17,
+      "target": "Table 176 note, physical 498 / printed 483",
+      "effect": "Adds note that Link activation area and visual appearance including border need not coincide; supports separate QuadPoints activation and Rect border."
+    },
+    {
+      "issue": 299,
+      "target": "Table 176 BS row physical 498 / printed 483; Table 177 BS row physical 500 / printed 485",
+      "effect": "Changes producer version marker from PDF 1.6 to PDF 1.3; no reader behavior change."
+    },
+    {
+      "issue": 479,
+      "target": "§12.5.6.5 adjacent prose, physical 498 / printed 483",
+      "effect": "Corrects two unrelated IRT cross-references from Table 176 to Table 172; no Link cell change."
+    },
+    {
+      "issue": 513,
+      "target": "Table 179 row layout note, physical 503 / printed 488",
+      "effect": "Editor note about obscured row text; no normative change."
+    },
+    {
+      "issue": 515,
+      "target": "Table 179 RClosedArrow fill description, physical 504 / printed 489",
+      "effect": "Completes the RClosedArrow fill rule; current tests exercise IC-sensitive RClosedArrow."
+    }
+  ],
+  "assertion_limits": [
+    "Tests that render constructed appearance do not certify all stored AP behavior; those routes have separate appearance-stream tests.",
+    "Producer validity conditions (required fields, permitted names, version markers) are not converted into reader refusal requirements without a separate reader shall.",
+    "This selected cell audit does not certify all PA triggers, all XFA chapter 27 syntax, exact cloud artwork, every host interaction, or every malformed-input policy.",
+    "The existing variable_text.rs callout helper puts its FreeText annotation in AcroForm /Fields; those cases are not valid standalone subtype fixtures until the parent's helper correction is rerun. Older RC tests also need their own fixture-shape audit before being promoted as valid-input evidence."
+  ]
+}

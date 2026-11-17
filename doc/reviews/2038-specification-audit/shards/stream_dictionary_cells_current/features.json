@@ -1,0 +1,53 @@
+{
+  "baseline": "b901326c",
+  "scope": "Table 5 common stream-dictionary entries and their ordinary-stream decoding/external-data consumers, including effective EC3 annotation overlays. Focused cell audit; does not re-certify individual codec algorithms, image-specific stream rules, encryption, or xref streams.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locations": {
+      "table5": "Table 5 starts on physical p. 47 / printed p. 32 and continues on physical p. 48 / printed p. 33.",
+      "stream_extent": "§7.3.8.2 physical p. 47 / printed p. 32 and continuation physical p. 48 / printed p. 33.",
+      "filter_general": "§7.4.1 physical pp. 49-50 / printed pp. 34-35.",
+      "direct_indirect_equivalence": "§7.3.10 physical p. 49 / printed p. 34; special xref-stream directness at §7.5.8.2 physical p. 81 / printed p. 66."
+    },
+    "table_cells": [
+      {"key":"Length", "type":"integer", "condition":"Required for every stream; counts encoded stream data bytes when a filter is present, excluding the optional pre-endstream EOL. The general direct/indirect equivalence permits an indirect value absent a documented exception.", "reader_boundary":"Parser uses the stated length when it agrees with endstream and has a scan/recovery route for unresolvable or inconsistent lengths. Producer SHALL does not by itself impose rejection of malformed length inputs."},
+      {"key":"Filter", "type":"name or array", "condition":"Optional; array may have zero, one, or several names. Filters apply to embedded bytes in array order. A repeated filter is discouraged by NOTE, not prohibited.", "reader_boundary":"Empty filter chain returns stored bytes; ordered chain decodes through filter_chain/chain_over. Unsupported stages are refused/reported. Malformed non-name members are invalid producer data; no rejection requirement is inferred here."},
+      {"key":"DecodeParms", "type":"dictionary or array", "condition":"Optional. For one filter with nondefault parameters, its dictionary is required; for multiple filters with any nondefault parameter, use one array slot per Filter, with null for stages having no nondefault parameters. May be omitted when none are needed or all parameters are default.", "reader_boundary":"Per-stage dictionary or null is resolved and supplied to its filter. Producer-side shape constraints do not imply rejection of malformed combinations."},
+      {"key":"F", "type":"file specification", "condition":"Optional from PDF 1.2. If present, embedded bytes between stream/endstream SHALL be ignored by a processor. Length should still count those embedded bytes, usually zero. External file data is described separately by FFilter/FDecodeParms.", "reader_boundary":"Document::is_external uses F-key presence; decoded and nested-content APIs refuse external bytes rather than claiming the embedded sequence is the data. No host filesystem/network access is performed."},
+      {"key":"FFilter", "type":"name or array", "condition":"Optional from PDF 1.2; applies to external-file data; same name/array and filter-order rules as Filter.", "reader_boundary":"External sources are refused before filter execution because this viewer does not fetch the external file. Retained dictionary values are not claimed as decoded output."},
+      {"key":"FDecodeParms", "type":"dictionary or array", "condition":"Optional from PDF 1.2; parameters for the external-file FFilter chain, under the DecodeParms rules.", "reader_boundary":"Same external-source refusal boundary; no assertion that a local reader executes these filters without a supplied external source."},
+      {"key":"DL", "type":"non-negative integer", "condition":"Optional from PDF 1.5; hint for decoded (defiltered) byte count, not the encoded stream extent or a required output cap.", "reader_boundary":"Ignored by the current decoder. The added valid Flate assertion checks the accurate decoded DL does not replace the distinct encoded Length."}
+    ],
+    "effective_annotations": [
+      {"id":10,"location":"physical p. 47 / printed p. 32, Table 5 F row","effect":"StrikeOut/Caret inserts 'shall' in the rule that embedded bytes are ignored if F is present. This is a reader-facing obligation, covered by the refusal test below."},
+      {"id":319,"location":"physical p. 47 / printed p. 32, §7.3.8.2 before Table 5","effect":"NOTE clarifies that encoded data includes envelope markers such as filter EOD markers. It supports encoded Length extent, not a separate Table 5 cell override."},
+      {"id":216,"location":"physical pp. 49-50 / printed pp. 34-35, §7.4.1","effect":"Edits producer wording for filter selection and adds the processor SHALL support standard filters statement; current Table 6 name/support test and codec assertions belong to that scope, not an additional Table 5 type change."},
+      {"id":246,"location":"physical p. 81 / printed p. 66, §7.5.8.2","effect":"Xref-stream-only directness rule includes Table 5 values/array members/dictionary values and forbids F. This explicit special case does not narrow direct/indirect equivalence for ordinary streams."}
+    ]
+  },
+  "ledger_mapping": [
+    {"clause":"7.3.8","owner":"doc/conformance/ledger.toml §7.3.8 aggregate","status":"implemented","note":"Table 5 rows are represented principally in child §7.3.8.1/.2 plus §7.4.1; ledger explicitly says DL is a hint and unused."},
+    {"clause":"7.3.8.1","owner":"doc/conformance/ledger.toml §7.3.8.1","status":"implemented","note":"Stream syntax, external F semantics, and external refusal."},
+    {"clause":"7.3.8.2","owner":"doc/conformance/ledger.toml §7.3.8.2","status":"implemented","note":"Length/stream extent and resource-limit behavior."},
+    {"clause":"7.4.1","owner":"doc/conformance/ledger.toml §7.4.1","status":"implemented","note":"Filter chain ordering and per-filter parameter correspondence."}
+  ],
+  "consumer_assertions": [
+    {"cell":"Length","tests":["crates/pdf-syntax/tests/stream_length_bound.rs::an_indirect_length_is_the_files_own_statement_of_where_a_stream_ends", "crates/pdf-syntax/tests/stream_length_bound.rs::flate_exactly_at_the_bound_still_decodes", "crates/pdf-syntax/tests/spec_stream_extent_delimiter.rs"],"quality":"Fixture/body inspection shows direct-vs-indirect stated extent and encoded/decoded bound paths; those are owned by prior stream-extent and resource-limit shards. No new length defect asserted."},
+    {"cell":"Filter","tests":["crates/pdf-syntax/tests/filters.rs::a_filter_array_is_a_pipeline_decoded_in_the_order_written", "crates/pdf-syntax/tests/filters.rs::every_filter_table_6_names_is_supported_under_both_of_its_spellings", "crates/pdf-model/tests/inline_filter_chain_spec_audit.rs (chain extent and literal payload controls)"],"quality":"Pipeline test uses independently compressed/ASCII85-encoded data and literal output. Table6 test enumerates names/abbreviations. Inline multi-stage boundary is separately covered; no duplicate test proposed."},
+    {"cell":"DecodeParms","tests":["crates/pdf-syntax/tests/filters.rs::each_stage_takes_its_own_entry_of_a_decodeparms_array", "crates/pdf-syntax/tests/indirect_filter_parameters_spec_audit.rs::indirect_filter_and_decodeparms_arrays_resolve_each_stage_value", "crates/pdf-syntax/tests/indirect_filter_parameters_spec_audit.rs::indirect_predictor_number_keeps_the_same_decoded_samples", "crates/pdf-syntax/tests/indirect_filter_parameters_spec_audit.rs::indirect_columns_number_keeps_the_same_decoded_samples"],"quality":"Direct null-slot and indirect outer container/member controls pass. The inner numeric-reference tests are separate: `indirect_predictor_number_keeps_the_same_decoded_samples` and `indirect_columns_number_keeps_the_same_decoded_samples` fail on valid ordinary streams and are already recorded as B54; this audit does not duplicate their diagnosis."},
+    {"cell":"F / FFilter / FDecodeParms","tests":["crates/pdf-syntax/tests/spec_stream_objects_audit.rs::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f", "crates/pdf-syntax/src/document.rs::a_stream_whose_data_is_in_a_file_has_no_data_here"],"quality":"Public API pair uses same encoded embedded payload: no-F control returns literal content; F+FFilter target reports External, returns no decoded payload, and nested source also refuses. Unit test confirms key-presence predicate. There is intentionally no actual file read or FFilter/FDecodeParms decode claim."},
+    {"cell":"DL","tests":["crates/pdf-syntax/tests/filters.rs::dl_is_a_decoded_length_hint_and_does_not_replace_encoded_length"],"quality":"Literal decoded output is asserted with and without the accurate hint; encoded /Length differs from decoded /DL. The no-hint control and hinted stream both have exact xrefs and no cut chain. Parent reports all 14 filters tests PASS in decoded-length-wave103.log."}
+  ],
+  "decisions": [
+    "Keep the valid standard stream path distinct from xref stream bootstrapping; #246 is an exception, not a general directness rule.",
+    "Do not demand reader rejection when producer conditions require a DecodeParms dictionary/array; invalid shape recovery is not specified by these entries.",
+    "Do not treat absent DL usage as a conformance failure. A bounded passing control now confirms correct DL names decoded length and does not replace encoded Length.",
+    "Do not call FDecodeParms unimplemented: no external source is read, and the public contract refuses F streams. The values are not consumed on that refused route."
+  ],
+  "drafts": ["drafts/dl_is_decoded_length_hint.rs (promoted as filters.rs::dl_is_a_decoded_length_hint_and_does_not_replace_encoded_length; PASS decoded-length-wave103.log)"],
+  "limits": [
+    "This shard did not run Cargo. Parent integrated the DL test and reports all 14 filters tests PASS in decoded-length-wave103.log.",
+    "No host file/network access is tested or performed.",
+    "The audit does not certify every named filter, every malformed parameter shape, stream parser recovery, xref-stream directness, image decoders, or codec-specific parameter semantics."
+  ]
+}

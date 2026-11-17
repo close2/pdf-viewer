@@ -20,19 +20,21 @@ use pdf_syntax::Document;
 
 /// A one-page document whose object 4 is a stream with the given dictionary entries and data.
 fn document_with_stream(entries: &str, data: &[u8]) -> Document {
+    // Section 7.5.2 requires a binary comment when stream data contains binary bytes.
+    let header = "%PDF-1.7\n%\u{80}\u{81}\u{82}\u{83}\n";
     let head = format!(
-        "%PDF-1.7\n\
+        "{header}\
          1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> >>\nendobj\n\
          4 0 obj\n<< {entries} /Length {} >>\nstream\n",
         data.len()
     );
 
     // The stream's data is binary, so the file is assembled as bytes; every object but the
-    // last is a chunk of `head`, and object 1's offset is where the header line ends.
+    // last is a chunk of `head`, and object 1 begins after the header and binary comment.
     let mut bytes = Vec::new();
-    let mut offsets = vec![9usize];
+    let mut offsets = vec![header.len()];
     let chunks: Vec<&str> = head.split_inclusive("endobj\n").collect();
     for chunk in &chunks {
         if !bytes.is_empty() {
@@ -450,4 +452,38 @@ fn png_sub_predicts_packed_bytes_and_restarts_after_row_padding() {
     let undone = pdf_syntax::filter::apply_predictor(&data, 11, 1, 2, 5)
         .expect("packed PNG Sub with independently padded rows");
     assert_eq!(&*undone, &[0x1b, 0xc0, 0xe4, 0x40]);
+}
+
+#[test]
+fn dl_is_a_decoded_length_hint_and_does_not_replace_encoded_length() {
+    // This valid Flate stream has a correct /DL for its decoded bytes and a distinct
+    // encoded /Length. The expected payload is literal, independent of the decoder.
+    let expected = b"decoded stream bytes have their own length";
+    let encoded = deflate(expected);
+    assert_ne!(
+        encoded.len(),
+        expected.len(),
+        "fixture distinguishes both lengths"
+    );
+
+    let control = document_with_stream("/Filter /FlateDecode", &encoded);
+    assert!(!control.was_recovered(), "direct control has exact xref");
+    assert!(
+        !control.cross_reference_chain_was_cut(),
+        "direct control has no cut xref chain"
+    );
+    assert_eq!(decoded(&control), expected.as_slice());
+
+    let entries = format!("/Filter /FlateDecode /DL {}", expected.len());
+    let hinted = document_with_stream(&entries, &encoded);
+    assert!(!hinted.was_recovered(), "hinted fixture has exact xref");
+    assert!(
+        !hinted.cross_reference_chain_was_cut(),
+        "hinted fixture has no cut xref chain"
+    );
+    assert_eq!(
+        decoded(&hinted),
+        expected.as_slice(),
+        "/DL describes the decoded byte count; /Length still frames the encoded bytes"
+    );
 }

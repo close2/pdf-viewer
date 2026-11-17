@@ -1,0 +1,23 @@
+# Function dictionary cell audit: Tables 38–42
+
+Worktree: `/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit`, verified with `git rev-parse --show-toplevel`. Baseline: `b901326c`. This is a source, implementation and assertion review only; no tests or Cargo commands were run.
+
+## Effective source and exact locations
+
+I checked table headings and the PDF footer on the primary EC3 PDF, not the previous section’s cross-reference. Table 38 begins on physical p.139 / printed p.124. Table 39 begins p.140 / printed p.125 and continues through printed pp.126–127. Table 40 begins physical p.143 / printed p.128. Table 41 begins physical p.144 / printed p.129 and continues to printed p.130. Table 42 is on physical p.146 / printed p.131. The direct text is also present in `scratchpad/r2038/spec-audit/ec3-parent-layout.txt` around lines 8045–8497.
+
+The actually inspected annotation objects on physical pp.143, 145 and 146 matter. Issue #30’s Caret on p.143 inserts the explicit Type2 Domain constraints: when N is noninteger, x values are nonnegative; when N is negative, x is nonzero. The adjacent struck text is replaced by this explicit statement; this is not deletion of the producer constraint. Type2 fractional-root and reciprocal fixtures use compatible domains. Issue #446 on p.145 corrects a note cross-reference only. Issue #269 corrects Table42’s `If` spelling to `if`; #669 corrects RIGHT CURLY BRACE to `7Dh`. These are located on p.146 above the following Type4 dictionary heading.
+
+## Coverage and current conclusions
+
+`features.json` records the required/optional/default/range cells individually. The key assertion families are `crates/pdf-colour/tests/functions_spec_audit.rs`, `sampled_functions_spec_audit.rs`, and the focused unit tests in `crates/pdf-colour/src/function.rs`. The latter’s exact width test checks all eight Table39 values; the public 12-bit test checks high-order-first continuous packing. Type0 tests have independent literal expected values for default/explicit Encode, input clipping before Encode, sample-table clipping, Decode default and post-Decode Range clipping, two output components, first-input-fastest storage, Size=1, and 2D bilinear interpolation. The prior function audit also traced stream extent.
+
+Type2 has separate checks for nonlinear N=2, componentwise Range clipping, absent Range preserving unbounded output, C0 and C1 independent defaults, and valid fractional/negative exponents. Type3 covers one-child/empty Bounds, ordinary right-hand bound selection, per-interval nonidentity/reversed Encode, Domain endpoints, nested functions and signed-zero cases. The signed-zero endpoint issue is already documented in `functions_current`; it is not recertified here. Type4 common dictionary and fault/report paths belong to `functions_current` and the calculator shards; Table42’s explicit operator list is not independently re-proven by this table inventory.
+
+I found no additional distinct valid-input combination defect in the requested table cells. Required-entry/type/dimensionality clauses chiefly constrain producers; absent required keys, inconsistent child dimensions, non-integer counts and Type2-invalid domains are not promoted here as mandatory reader-rejection requirements. The parser’s tolerance/fallbacks for some such malformed dictionaries are a recovery boundary, not proof of conformance. Source does not provide a universal malformed-input rejection algorithm. Resource bounds (`MAX_VALUES`, `MAX_SAMPLES`, `MAX_FUNCTIONS`, nesting depth) are code policy, not standard-defined numeric ceilings.
+
+## Decisions and limits
+
+The current Order3 code and tests are consistent with the adopted choice in ADR 1636, which implements ADR 1623’s correction to ADR 0098: not-a-knot tensor-product cubic interpolation, with the source’s ignore rule when any dimension is under four. This is a deliberate choice because Table39 specifies “cubic spline” without its endpoint condition; it is not an ISO-mandated not-a-knot algorithm. The prior narrative in ADR 0098 should not be carried forward as today’s unresolved Order3 status.
+
+ADR 0261’s Type3 function-tree resource bound remains a project policy: Table41 specifies no maximum k. Type4 operator semantics are delegated to PLRM3; prior calculator-oracle review appropriately distinguishes this delegation, literal expectations, production, and GPU tests. This review does not certify every operator or every consumer. The only prior distinct numerical gaps relevant here are the Type0 sub-EPSILON span and Type3 signed-zero endpoint, already recorded in `functions_current`; no duplicate draft was created.

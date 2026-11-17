@@ -81,10 +81,22 @@ fn pdf_with_font(
     font: &str,
     extra: &str,
 ) -> Vec<u8> {
+    pdf_with_field_list(form, annotation, appearance, font, extra, "5 0 R")
+}
+
+/// Give standalone annotations an empty field list while retaining their font resources.
+fn pdf_with_field_list(
+    form: &str,
+    annotation: &str,
+    appearance: &str,
+    font: &str,
+    extra: &str,
+    fields: &str,
+) -> Vec<u8> {
     let (width, height) = PAGE;
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
-         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> {form} >> >>\nendobj\n\
+         << /Fields [{fields}] /DR << /Font << /Helv 7 0 R >> >> {form} >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
          /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
@@ -120,6 +132,11 @@ fn pdf_with_font(
 /// Interprets a fixture, returning what it reported and the marks it made.
 fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    assert!(
+        !document.was_recovered(),
+        "fixture has exact cross references"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     let reports = interpretation
@@ -2636,12 +2653,16 @@ fn clearing_a_free_text_annotation_does_not_uncover_its_rich_text() {
 /// counts. The `/Rect` is `[20 40 180 70]` and every callout below runs in the empty half of the
 /// page under it, so the marks the callout makes and the marks the text makes never meet.
 fn callout_annotation(entries: &str) -> Vec<u8> {
-    pdf_with(
+    pdf_with_field_list(
         "",
         &format!(
             "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
              /DA (/Helv 12 Tf 0 g) /Border [0 0 0] {entries} >>"
         ),
+        "",
+        "",
+        "",
+        "",
     )
 }
 

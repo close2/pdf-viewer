@@ -1,0 +1,8 @@
+{
+  "verdict": "Selected Link/FreeText/Line cells reviewed; five existing callout tests now run with valid standalone annotation fixtures (T140).",
+  "source": "Parent read actual Table176 physical498 (497 only clause cross-reference),177 at499–500,178 at501–502. PA stores a former URI action for optional authoring restoration; draft characterization as additional actions/event triggers is withdrawn. No PA event-dispatch test or requirement follows.",
+  "assertions": "Parent read exact-xref public QuadPoints hit/highlight inside/outside controls, FreeText Q and each RD edge, CL straight/knee and LE endpoint/IT gating/RD independence, caption top/default Inline and literal diagonal CO transforms. CO test has a nonempty fill check and equal lengths before zip, and independently derives both axis shifts.",
+  "fixture_correction": "variable_text callout_annotation previously put FreeText in AcroForm Fields[5]. A parameterized field-list helper now leaves Fields[] for callouts while retaining page Annots and font DR. Existing tests, not duplicate copies, now exercise standalone annotations. draw also asserts no recovery/cut. Other legacy FreeText fixtures still need individual validity review.",
+  "execution": "standalone-callouts-wave103b:87/87 PASS, including all five callout tests; model all-target Clippy PASS. Initial standalone-callouts-wave103 was unchanged baseline because an edit script aborted before writing; it is not post-fix evidence.",
+  "qualification": "Line caption no-AP fixture is PDF1.7, so corrected its stale nonconforming comment under EC3#22; no behavior change/retest needed. Rich-text XFA subset, optional PA authoring, all hosts and artwork policy remain partial."
+}

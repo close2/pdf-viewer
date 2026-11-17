@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (102)
+## Current checkpoint (103)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -406,6 +406,13 @@ patch order. The Type5 test also proves nonzero padding bits are ignored. A wron
 coordinate in the first overlap draft was rejected, corrected, and guarded with
 single-patch controls. All eight selected tests and model Clippy pass. The failure
 manifest is unchanged; 63 table matrices remain partial reviews.
+
+Checkpoint103 adds passing checks for all48 Type5 coordinate/component width pairs
+and the stream DL/Length distinction. Five existing FreeText callout tests now use
+valid standalone annotations; all87 tests in that file pass. The shared filter fixture
+now has a binary header marker and page resources; all14 filter tests pass. Model
+and syntax Clippy pass. Function and annotation cell reviews retain existing
+qualifications; 72 table matrices remain partial and the failure manifest is unchanged.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

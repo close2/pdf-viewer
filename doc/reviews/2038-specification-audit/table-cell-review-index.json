@@ -1055,6 +1055,150 @@
       ],
       "artifact": "shards/patch_mesh_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "176",
+      "keys": [
+        "Subtype",
+        "A",
+        "Dest",
+        "H",
+        "PA",
+        "QuadPoints",
+        "BS"
+      ],
+      "ledger_rows": [
+        "12.5.6.5"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "177",
+      "keys": [
+        "Subtype",
+        "DA",
+        "Q",
+        "RC",
+        "DS",
+        "CL",
+        "IT",
+        "BE",
+        "RD",
+        "BS",
+        "LE"
+      ],
+      "ledger_rows": [
+        "12.5.6.6"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "178",
+      "keys": [
+        "Subtype",
+        "L",
+        "BS",
+        "LE",
+        "IC",
+        "LL",
+        "LLE",
+        "Cap",
+        "IT",
+        "LLO",
+        "CP",
+        "Measure",
+        "CO"
+      ],
+      "ledger_rows": [
+        "12.5.6.7"
+      ],
+      "artifact": "shards/annotation_subtype_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "38",
+      "keys": [
+        "FunctionType",
+        "Domain",
+        "Range"
+      ],
+      "ledger_rows": [
+        "7.10.1"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "39",
+      "keys": [
+        "Size",
+        "BitsPerSample",
+        "Order",
+        "Encode",
+        "Decode"
+      ],
+      "ledger_rows": [
+        "7.10.2"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "40",
+      "keys": [
+        "C0",
+        "C1",
+        "N"
+      ],
+      "ledger_rows": [
+        "7.10.3"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "41",
+      "keys": [
+        "Functions",
+        "Bounds",
+        "Encode"
+      ],
+      "ledger_rows": [
+        "7.10.4"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "42",
+      "keys": [
+        "operator categories",
+        "delegated semantics"
+      ],
+      "ledger_rows": [
+        "7.10.5"
+      ],
+      "artifact": "shards/functions_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "5",
+      "keys": [
+        "Length",
+        "Filter",
+        "DecodeParms",
+        "F",
+        "FFilter",
+        "FDecodeParms",
+        "DL"
+      ],
+      "ledger_rows": [
+        "7.3.8.2"
+      ],
+      "artifact": "shards/stream_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

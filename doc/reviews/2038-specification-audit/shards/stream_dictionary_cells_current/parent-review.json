@@ -1,0 +1,8 @@
+{
+  "verdict": "New public DL/Length distinction test PASS (T141); current stage/filter and external-source evidence reconciled.",
+  "source": "Parent read actual Table5 physical47–48: Length frames encoded bytes, DL is a decoded-size hint. Ordinary indirect values and special xref-stream directness remain distinct. No external file fetch is implied by this audit; existing refusal prevents fallback to embedded bytes when F is present.",
+  "oracle": "Literal decoded ASCII payload, deflated bytes, nonidentical compressed/decoded lengths, no-DL positive control and correct-DL case. Exact xrefs and no recovery/cut in both variants. This does not assert a particular malformed-DL policy.",
+  "fixture_correction": "The shared filters.rs builder lacked a binary header comment and page Resources. Parent added the section7.5.2 binary comment, recomputed object1 offset from actual header length, and supplied an empty resource dictionary. This makes the new raw-compressed fixture valid without changing production code.",
+  "execution": "All14 filters tests PASS in decoded-length-wave103; syntax all-target Clippy PASS.",
+  "limits": "No external provider implementation, all codec parameter combinations, encrypted streams or every damaged extent path certified. Refusal is the supported API boundary, not a claim of full external stream rendering."
+}

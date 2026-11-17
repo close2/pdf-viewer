@@ -152,3 +152,47 @@ fn type5_low_bit_vertices_pad_to_bytes_like_the_8bit_control() {
     let nonzero_padding = triangle_vertices("07 CF 3F F7 >", 2, 1);
     assert_same_source_vertices(&nonzero_padding);
 }
+
+fn endpoint_lattice_samples(coordinate_bits: u8, component_bits: u8) -> String {
+    let mut hex = String::new();
+    for (x, y, gray) in [
+        ('0', '0', '0'),
+        ('1', '0', '1'),
+        ('0', '1', '1'),
+        ('1', '1', '0'),
+    ] {
+        // Endpoint samples are literal all-zero/all-one bit strings. This fixture builder
+        // does not call a production bit writer or reproduce its integer-width arithmetic.
+        let mut record = format!(
+            "{}{}{}",
+            x.to_string().repeat(usize::from(coordinate_bits)),
+            y.to_string().repeat(usize::from(coordinate_bits)),
+            gray.to_string().repeat(usize::from(component_bits))
+        );
+        while !record.len().is_multiple_of(8) {
+            record.push('1');
+        }
+        for byte in record.as_bytes().chunks_exact(8) {
+            let binary = std::str::from_utf8(byte).expect("ASCII bit string");
+            let value = u8::from_str_radix(binary, 2).expect("exactly eight binary digits");
+            write!(hex, "{value:02X} ").expect("write hexadecimal fixture");
+        }
+    }
+    hex.push('>');
+    hex
+}
+
+#[test]
+fn type5_accepts_every_table82_coordinate_and_component_width() {
+    // Table82 lists eight coordinate widths and six component widths. The same four
+    // Decode endpoints must survive every permitted pair, including 32-bit coordinates
+    // and records crossing byte boundaries. The fixed-byte test above independently
+    // anchors the literal hex encoding used here.
+    for coordinate_bits in [1, 2, 4, 8, 12, 16, 24, 32] {
+        for component_bits in [1, 2, 4, 8, 12, 16] {
+            let samples = endpoint_lattice_samples(coordinate_bits, component_bits);
+            let triangles = triangle_vertices(&samples, coordinate_bits, component_bits);
+            assert_same_source_vertices(&triangles);
+        }
+    }
+}

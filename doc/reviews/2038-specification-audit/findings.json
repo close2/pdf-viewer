@@ -3290,5 +3290,41 @@
     "evidence": "Three flags with literal edge/interior/all-color checks; both overlapping patch orders after single-color controls.",
     "execution": "Two new tests PASS; model Clippy PASS.",
     "qualification": "An initial wrong raster-row oracle was rejected and corrected; no production failure. Byte-alignment ambiguity remains separate."
+  },
+  {
+    "id": "2038-T139",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.4.5.6"
+    ],
+    "summary": "Type5 endpoint geometry and colors survive all48 permitted coordinate/component bit-width pairs.",
+    "evidence": "Independent ASCII bit-string fixtures, nonzero padding, literal two-triangle Decode endpoint oracle; includes32-bit coordinates.",
+    "execution": "One new test PASS; model Clippy PASS.",
+    "qualification": "Endpoint and representation matrix, not every interior sample or color space."
+  },
+  {
+    "id": "2038-T140",
+    "kind": "fixture-validity-strengthening",
+    "clauses": [
+      "12.5.6.6",
+      "12.5.6.7"
+    ],
+    "summary": "Existing FreeText callout assertions now use standalone annotations rather than malformed AcroForm field entries.",
+    "evidence": "Five callout tests retain their geometric/intent/ending controls with Fields[]; shared draw now rejects recovery/cut.",
+    "execution": "All87 variable_text tests PASS; model Clippy PASS.",
+    "qualification": "Other legacy FreeText rich-text fixture shapes remain partial. Also correct the PDF1.7 line-caption AP comment without changing assertions."
+  },
+  {
+    "id": "2038-T141",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.3.8.2",
+      "7.4.1",
+      "7.5.2"
+    ],
+    "summary": "An accurate decoded-length hint does not replace encoded stream framing.",
+    "evidence": "Literal Flate payload with distinct Length/DL and no-DL control; repaired binary-header marker, object offset and page resources in shared fixture.",
+    "execution": "All14 filters tests PASS; syntax Clippy PASS.",
+    "qualification": "Valid hint case only, not arbitrary inaccurate hints or every filter."
   }
 ]

@@ -1,0 +1,48 @@
+{
+  "scope": "Selected successor decisions touching Link, FreeText, and Line table cells, not whole ADRs.",
+  "decisions": [
+    {
+      "adr": "2814",
+      "topic": "Link activation region",
+      "reconsideration": "The current region path uses QuadPoints when accepted and Rect on the table's fallback conditions. The exact-xref test checks both activation and pressed highlight in/out of region; a corpus census alone is not treated as the oracle.",
+      "disposition": "Retain the tested source-driven fallback. No new test draft: escaping QuadPoints are already checked by link_quadpoints_audit.rs."
+    },
+    {
+      "adr": "0293",
+      "topic": "Common Border versus BS precedence",
+      "reconsideration": "Read with EC3 #287, which sharpens the precedence to shall ignore Border when BS is present. Current test conflicts Border width/radii/dash and verifies the BS-only result. The table is not a malformed-input refusal rule.",
+      "disposition": "Retain; no subtype-specific gap found in this pass."
+    },
+    {
+      "adr": "1061",
+      "topic": "B/I relief styles for Link/FreeText borders",
+      "reconsideration": "The general Table 168 style language and subtype-specific width/dash rows have a scope-reading issue. Current implementation behavior is documented and contrast-tested, but I do not elevate the broader-style reading into a confirmed ISO defect in this bounded audit.",
+      "disposition": "Retain as qualified interpretation and rendering policy; avoid claiming each subtype row independently mandates every general style."
+    },
+    {
+      "adr": "0193 / 0329",
+      "topic": "Constructed geometry and FreeText callout",
+      "reconsideration": "Table 177 explicitly places CL coordinates in default user space. ADR 0329 supersedes the earlier omission and tests the line outside the text rectangle. RD separately defines the text inset; it is not a CL clip rule.",
+      "disposition": "Retain current CL route, with no new test because geometry, point count, intent gating, LE endpoint, RD independence, and outside-Rect behavior already have discriminating assertions."
+    },
+    {
+      "adr": "0409",
+      "topic": "Line captions",
+      "reconsideration": "Table 178 states caption text shall be replicated when Cap is true. The later ADR implements the caption and CP/CO placement. Current tests compare Cap absent/true, omitted CP default Inline versus Top, and a nonzero CO displacement.",
+      "disposition": "Retain; no new test draft. Exact font, size, and some text layout choices remain local because the table does not prescribe them."
+    },
+    {
+      "adr": "1784 and 0593",
+      "topic": "Line endings and Table 179 fill",
+      "reconsideration": "ADR 1784 preserves the required Line while naming unsupported ending values; EC3 #515 adds RClosedArrow to the fill set, with current tests checking its IC sensitivity. Tests are read by body, not names/comments alone.",
+      "disposition": "Retain current bounded behavior; no repeated test needed."
+    },
+    {
+      "adr": "0224 / 1634 / 1635",
+      "topic": "FreeText rich text and default style",
+      "reconsideration": "These later decisions supersede early refusal/limited-style premises. Current variable-text and rich-text tests cover selected XFA 3.3 behavior and Contents/RC relationship; this audit does not certify all XFA syntax.",
+      "disposition": "Retain current limited coverage with explicit residual; no new test."
+    }
+  ],
+  "test_drafts": []
+}
