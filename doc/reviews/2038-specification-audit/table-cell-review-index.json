@@ -2380,6 +2380,43 @@
       ],
       "artifact": "shards/compatibility_graphics_state_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "196",
+      "keys": [
+        "Type",
+        "S",
+        "Next"
+      ],
+      "ledger_rows": [
+        "12.6.2"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "210",
+      "keys": [
+        "S",
+        "URI",
+        "IsMap"
+      ],
+      "ledger_rows": [
+        "12.6.4.8"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "211",
+      "keys": [
+        "Base"
+      ],
+      "ledger_rows": [
+        "12.6.4.8"
+      ],
+      "artifact": "shards/uri_action_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

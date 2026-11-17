@@ -3173,6 +3173,15 @@
       "log": "quality-model-core-wave122b.log",
       "exit": 0,
       "scope": "Model/core all-target Clippy including compatibility, widget and queued URI tests"
+    },
+    {
+      "log": "uri-outline-wave122.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Outline IsMap exception versus shared-action click control"
     }
   ],
   "prior_expected_failures": {

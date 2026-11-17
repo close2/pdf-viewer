@@ -1,0 +1,91 @@
+{
+  "shard": "uri_action_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read primary EC3 table text/footers, directly inspect the applicable #256 annotation, current ledger and consumers, and actual test bodies. No tests executed and no network/external URI handler was invoked.",
+  "source_locations": [
+    {
+      "clause": "12.6.2, Table 196 and Note 1",
+      "physical_pages": "521-522",
+      "printed_pages": "506-507",
+      "coverage": "Table 196 entries Type/S/Next are on 521/506; Note 1 sequence semantics and recommendations continue on 522/507."
+    },
+    {
+      "clause": "12.6.4.8, Tables 210-211 and IsMap text",
+      "physical_page": 534,
+      "printed_page": 519,
+      "coverage": "Table 210's URI and IsMap cells, click-only rule, coordinate conversion/rounding formula, Table 211 Base and Note all appear before the 519 footer. Physical 535 begins 12.6.4.9 and is not a Table 211 continuation."
+    }
+  ],
+  "features": [
+    {
+      "table": 196,
+      "title": "Entries common to all action dictionaries",
+      "cells": [
+        {
+          "key": "Type",
+          "requirement": "Optional name; if present, shall be Action.",
+          "coverage": "The action reader dispatches by /S and does not use /Type as a performability gate. No assertion in this bounded pass establishes a contrary reader-rejection duty."
+        },
+        {
+          "key": "S",
+          "requirement": "Required action-type name; action-specific entries are defined by Table 201 and following tables.",
+          "coverage": "The action reader dispatches supported names and keeps named refusals for unsupported known types. Broader action-kind coverage belongs to other shards."
+        },
+        {
+          "key": "Next",
+          "requirement": "Optional dictionary or ordered array; every action's own Next follows recursively. Note 1 recommends reasonable treatment of anomalous cases, including not repeating self-referential actions and terminating when an action makes a later one impossible. It also says applications need a mechanism for user interruption.",
+          "coverage": "Current parser preserves ordered occurrences and path-cycle treatment; parent-review.json for actions_chains_current records executed repeated-sibling and cycle controls (actions-wave19b.log). Code caps flattened performed actions at 256 and visits at 1024; no per-sequence user-interrupt control was identified in the core call path. The source does not say the cap is an interrupt mechanism. This is recorded as a narrow owner/source question, not as a demonstrated behavioral failure. Multiple document-replacement actions remain separately unresolved in the earlier action-chain shard."
+        }
+      ]
+    },
+    {
+      "table": 210,
+      "title": "Additional entries specific to a URI action",
+      "cells": [
+        {
+          "key": "S",
+          "requirement": "Required; shall be URI.",
+          "coverage": "Current action parser has an explicit URI branch."
+        },
+        {
+          "key": "URI",
+          "requirement": "Required ASCII string encoded in UTF-8; the URI is resolved.",
+          "coverage": "pdf-model resolves against Catalog URI/Base when present; viewer-host resolves a remaining partial reference against the opened document location where available. Resolution is separate from any decision to open/fetch."
+        },
+        {
+          "key": "IsMap",
+          "requirement": "Optional boolean, default false. Only applies to a URI action triggered by a user clicking an annotation; explicitly ignored for outline-item and catalog OpenAction actions. A click point is transformed device-to-user, offset from the associated annotation Rect's upper-left, rounded to nearest integers, and appended after ? separated by comma.",
+          "coverage": "Tracked uri_ismap_click_spec_audit.rs covers literal click geometry, default/false, fractional rounding and OpenAction ignore; public headless.rs outline URI test only asserts a URI handoff and does not set IsMap. The scratch draft pairs one public outline action and one link click using the same IsMap=true action, without opening the URI."
+        }
+      ]
+    },
+    {
+      "table": 211,
+      "title": "Entry in a URI dictionary",
+      "cells": [
+        {
+          "key": "Base",
+          "requirement": "Optional ASCII string. A partial URI action reference is resolved relative to this URI when present; without it the reference is interpreted relative to the document location. Note says this supports moved/out-of-context documents and links to resources that stayed at their original location.",
+          "coverage": "Model action tests cover explicit Base, no Base, and absolute URI precedence. Host mapping tests cover opened-document location fallback and unresolved relative path behavior. EC3 #256 broadens the Base text to all relative URIs in a PDF, not only URI actions. No fetch/open is part of this shard."
+        }
+      ]
+    }
+  ],
+  "errata": [
+    {
+      "id": 256,
+      "source": "Primary EC3 physical p.534, annotation with Subj Issue #256; Review/Completed reply attached to that annotation.",
+      "effect": "The Editor Note says the remaining §12.6.4.8 Base/URI-dictionary text applies to all relative URIs in a PDF, not just URI actions as the placement suggests; a future edition may move it. This is a scope clarification, not a strike/caret edit to Tables 210-211.",
+      "existing_record": "doc/errata-read.md records #256 under §12.6.4.8; pdf-model action and file-spec URL callers cite the broadened scope."
+    }
+  ],
+  "test_draft": "drafts/uri_ismap_outline_spec_audit.rs",
+  "limits": [
+    "Does not certify every action type or all URI schemes, link geometry transforms, or native host event paths.",
+    "Does not make ISO action semantics permission to launch, browse, fetch, or send a request; all observations stop at the caller-visible Event::OpenUri boundary.",
+    "Passing existing click/OpenAction tests do not establish the outline IsMap exception; the scratch draft is proposed evidence and has not been run.",
+    "A URI action nested below /Next raises an interpretive question about whether the initiating click is the trigger for that nested action; this pass does not turn shared click context into a separate defect."
+  ],
+  "parent_execution": "T162 public outline/link test PASS. The same IsMap=true action emits the bare URI on outline activation and literal ?10,6 on an annotation click. No handler invoked. Pending draft statements below are superseded."
+}

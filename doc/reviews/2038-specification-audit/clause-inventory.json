@@ -6840,7 +6840,8 @@
       "shards/outlines_threads_current/features.json",
       "shards/outline_assertion_residual_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/outline_dictionary_cells_current/features.json"
+      "shards/outline_dictionary_cells_current/features.json",
+      "shards/uri_action_cells_current/features.json"
     ],
     "prior_artifacts": [
       "outlines_labels_audit",
@@ -7640,7 +7641,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/actions_chains_current/features.json",
-      "shards/indirect_annotation_parameters_current/features.json"
+      "shards/indirect_annotation_parameters_current/features.json",
+      "shards/uri_action_cells_current/features.json"
     ],
     "prior_artifacts": [
       "action_dictionaries_audit",
@@ -7804,7 +7806,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/actions_chains_current/features.json"
+      "shards/actions_chains_current/features.json",
+      "shards/uri_action_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

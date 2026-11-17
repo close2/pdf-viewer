@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (121)
+## Current checkpoint (122)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **112 failing test identities**: 111 behavior assertions/probes
@@ -512,6 +512,10 @@ compatibility sections independent, and widget border/background component count
 select the expected transparency and device spaces. An overstated old background
 assertion is corrected. An unsupported pure-K RGB oracle was rejected.
 Model/core Clippy passes;148 table matrices remain partial.
+
+Checkpoint 122 adds a passing outline-specific IsMap control and selected common
+action/URI/Base table reviews. The test observes the public URI handoff and invokes
+no external handler. Model/core Clippy passes;151 table matrices remain partial.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -1,0 +1,8 @@
+{
+  "source": "Read actual Table196 physical521 with NOTE1 continuation522;210/211 physical534. Independently read #256 Text annotation93269dc2-b905-4f4c-bb23-b125c359d304: Base applies to all relative URIs. It is an editorial scope note, not a strike/caret change.",
+  "fixture": "ASCII PDF1.7, complete exact xref, no recovery/chain cut; valid outline root/item and Link share one indirect URI action. Page100x100, Rect10,10,30,30; user point20,24 gives literal10,6 after PageGeometry mapping. No external URI invocation.",
+  "assertions": "New T162 tests explicit outline IsMap exception with the same action as click control. Earlier T29 covers default/false/fractional/OpenAction; broader relative-base tests retain their scope. Passed one new public test.",
+  "adr": "Read0070 resolution/launch split,1079 host location,0144 item activation and1155 host permission. Retain separate machine authorization. Table196 manual interruption is in NOTE1; numerical caps are not interruption, but this bounded review does not promote that informative wording to a fresh mandatory-failure test.",
+  "execution": "uri-outline-wave1221PASS. Model/core all-target Clippy122bPASS after doc/backtick, writeln and unused lint-expectation cleanup.",
+  "limits": "No all-scheme/all-geometry certification; Next initiation-context interpretation and interruption remain bounded residuals. Stale#618 alreadyD67, not another finding."
+}

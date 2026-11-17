@@ -3638,5 +3638,15 @@
     "summary": "Widget BC/BG component counts now have literal border/background raster assertions for transparent, Gray, RGB and CMYK no-ink cases.",
     "execution": "Two new tests PASS; all six widget tests PASS. Old background test only asserted commands and missingDA report; overstatement corrected.",
     "qualification": "Initial pure-K exact-black expectation rejected as an unsupported device-conversion oracle; no new behavior defect. No all-profile/all-color claim."
+  },
+  {
+    "id": "2038-T162",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.6.4.8",
+      "12.3.3"
+    ],
+    "summary": "The same URI action ignores IsMap for an outline item and appends independently calculated coordinates for an annotation click.",
+    "execution": "One new exact-xref public Viewer test PASS; observes Event::OpenUri only, no handler or network. Model/core Clippy PASS."
   }
 ]
