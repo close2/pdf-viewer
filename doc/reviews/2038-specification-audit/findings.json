@@ -3461,5 +3461,19 @@
     "summary": "DeviceN per-component Decode defaults and inline D spelling now have literal raster oracles.",
     "execution": "Two new tests PASS with explicit default/reversed-component and full-key controls; model all-target Clippy PASS.",
     "qualification": "One two-colourant tint function and one inline gray sample; no exhaustive image-table certification."
+  },
+  {
+    "id": "2038-B73",
+    "kind": "behavior",
+    "clauses": [
+      "8.9.5.1",
+      "12.9.1",
+      "12.10.2"
+    ],
+    "summary": "The interactive measurement query overlooks a GEO measure attached to an image XObject.",
+    "evidence": "Table87 says the image Measure applies to that image; Table269 defines its image-unit-square mapping. The ledger delegates this to measurement rows, but geometry::measured reads page VP only. Same-location viewport control returns literal11 N/21.5 E; image-only measure returns Answer::None.",
+    "test": "viewer-core::image_xobject_measurement_spec_audit::a_valid_image_measure_reaches_the_interactive_measurement_query",
+    "execution": "image-measure-wave112b.log: target FAIL, matched viewport control PASS. Viewer-core all-target Clippy PASS.",
+    "qualification": "Supported measurement feature gap, not a universal obligation to provide measuring UI or a pixel defect. Interpolated numeric oracle follows adopted affine choice ADR1593. No PtData display obligation inferred."
   }
 ]

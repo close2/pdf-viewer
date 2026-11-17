@@ -3022,6 +3022,20 @@
       "expected_failures": 99,
       "unexpected_failures": 0,
       "comparison": "broad111-comparison.json"
+    },
+    {
+      "log": "image-measure-wave112b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Matched viewport and image-attached GEO query cases; B73."
+    },
+    {
+      "log": "quality-core-wave112.log",
+      "exit": 0,
+      "scope": "Viewer-core all-target Clippy."
     }
   ],
   "prior_expected_failures": {

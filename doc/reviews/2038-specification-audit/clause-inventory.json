@@ -3753,7 +3753,8 @@
       "shards/lang_hex_and_predictor_bpc_current/features.json",
       "shards/security_file_only_assertions_current/features.json",
       "shards/image_dictionary_cells_current/features.json",
-      "shards/image_dictionary_cells_second_review_current/features.json"
+      "shards/image_dictionary_cells_second_review_current/features.json",
+      "shards/image_measurement_consumer_current/features.json"
     ],
     "prior_artifacts": [
       "image_dictionary_consistency_audit",
@@ -9049,7 +9050,8 @@
     "current_artifacts": [
       "shards/measurement_geospatial_current/features.json",
       "shards/interactive_framing_current/features.json",
-      "shards/errata_font_annotation_reference_batch_current/features.json"
+      "shards/errata_font_annotation_reference_batch_current/features.json",
+      "shards/image_measurement_consumer_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9104,7 +9106,8 @@
       "shards/measurement_geospatial_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
       "shards/errata_weak_dispositions_batch6_current/features.json",
-      "shards/structured_errata_metadata_media_current/features.json"
+      "shards/structured_errata_metadata_media_current/features.json",
+      "shards/image_measurement_consumer_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9145,7 +9148,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/measurement_geospatial_current/features.json"
+      "shards/measurement_geospatial_current/features.json",
+      "shards/image_measurement_consumer_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

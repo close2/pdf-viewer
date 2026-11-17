@@ -1,0 +1,81 @@
+{
+  "scope": "Table 87 /Measure and /PtData on image XObjects, traced through effective EC3 §§12.9–12.10 and the current page-measurement query. This is a focused consumer review, not a complete image or geospatial certification.",
+  "source": {
+    "primary": "ISO_32000-2_sponsored_EC3.pdf; local layout extraction scratchpad/r2038/spec-audit/ec3-parent-layout.txt",
+    "locators": [
+      {
+        "clause": "8.9.5.1, Table 87 continuation",
+        "physical_page": 276,
+        "printed_page": 261,
+        "entries": [
+          "Measure",
+          "PtData"
+        ]
+      },
+      {
+        "clause": "12.9.1, Table 265",
+        "physical_pages": [
+          610,
+          611
+        ],
+        "printed_pages": [
+          595,
+          596
+        ],
+        "locator": "viewport measure and point-data semantics"
+      },
+      {
+        "clause": "12.10.2, Table 269",
+        "physical_pages": [
+          617,
+          618
+        ],
+        "printed_pages": [
+          602,
+          603
+        ],
+        "locator": "Bounds and LPTS mapping to Viewport/image/form XObject"
+      },
+      {
+        "clause": "12.10.5, Table 272",
+        "physical_pages": [
+          620,
+          621
+        ],
+        "printed_pages": [
+          605,
+          606
+        ],
+        "locator": "PtData extended data and tuple semantics"
+      }
+    ],
+    "effective_rules": [
+      "Table 87: image /Measure is optional PDF 2.0 and specifies scale and units that shall apply to the image.",
+      "Table 87: image /PtData is optional PDF 2.0 and specifies extended geospatial data that shall apply to the image.",
+      "§12.10.2 Table 269 defines GEO mappings for 2D object space; Bounds coordinates are relative to the unit square for a viewport, form XObject, or image XObject. Effective EC3 #533 makes LPTS required, and its text says LPTS maps that square to the rectangular bounds of the containing image/form/viewport.",
+      "§12.10.5 makes PtData optional for a 2D GEO object; it describes extended point-associated values, with Names as column headings and XPTS tuples without guaranteed ordering or point-to-point relationship. No presentation procedure is specified there."
+    ],
+    "errata_overlay_check": "Inspected annotations directly on physical 276, 617–618, and 620–621. Physical 276 has navigation links to Tables 266/272 but no erratum altering the Table 87 Measure/PtData rows. EC3 #533 and #534 appear on physical 618; #533 makes LPTS required, which the fixture includes."
+  },
+  "features": [
+    {
+      "id": "image.measurement",
+      "source_rule": "A present image /Measure is defined to apply scale and units to the image; GEO registration uses image XObject position coordinates and its bounds/LPTS mapping.",
+      "current_consumer": "viewer_core::Query::Measure is a live interactive page-path feature. viewer-core/src/viewer/geometry.rs::measured converts screen points to page default user space, then reads only page /VP via measurement::Viewports::read. The PDF content interpreter transforms an image into Command::Image with a CTM, but the measurement query does not inspect those image commands or their source dictionaries.",
+      "assertions": "viewer-core/tests/measuring.rs and measurement_numeric_spec_audit.rs verify the page /VP route and numeric scale selection. Model tests cover viewport GEO registration. No assertion uses an image XObject /Measure. Existing image tests are about decoding/rendering and do not invoke Query::Measure.",
+      "status": "Strong consumer gap candidate: the application already offers the relevant interactive measurement tool, but a valid image-only GEO registration is invisible to that query. Scratch draft uses an image-space registration and literal geospatial position, with a matched page-viewport positive control. This is a semantic/query behavior finding, not a pixel-rendering defect."
+    },
+    {
+      "id": "image.point_data",
+      "source_rule": "Optional Table 87 /PtData applies extended geospatial data to the image; Table 272 defines columns/tuples and expressly gives no ordering or relationship among tuples.",
+      "current_consumer": "measurement::point_data parses dictionaries only when explicitly passed a viewport dictionary. Image decoding/painting does not expose a semantic PtData query; Query::Measure returns position/measurement state, not arbitrary extended columns.",
+      "assertions": "measurement model tests exercise PtData on viewports. No public UI/query assertion uses image-attached PtData.",
+      "status": "No distinct reader-facing omission established. Neither source clause defines displaying arbitrary PtData columns or a consumer action for them. Do not turn missing image PtData UI into a defect without an adopted extraction/query contract."
+    }
+  ],
+  "scope_limits": [
+    "A PDF producer may omit either optional image entry; the candidate concerns a present, valid image Measure in an application that already exposes measurement.",
+    "No claim about rendering, image decoding, all image transforms, PtData UI, every geospatial method, or output-device behavior.",
+    "The public test target is a simple geographic registration with explicit WKT and LPTS; it does not rely on an EPSG registry, external projection libraries, or a different renderer."
+  ]
+}

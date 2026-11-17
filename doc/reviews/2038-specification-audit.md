@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (111)
+## Current checkpoint (112)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 106 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 107 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave111, covered eleven crates: **7,298 tests ran, 7,199 passed,
 and exactly the 99 recorded in-scope assertions failed; 58 were skipped**.
@@ -458,6 +458,12 @@ Checkpoint 111 refreshes the eleven-crate run after the network interruption. Ev
 failing binary/test identity matches the manifest, with no extra or missing failures.
 The run completed in 64 seconds with a peak of 7.02 GiB; its failing exit status is
 expected for this audit branch. Font, filter and image-measurement reviews continue.
+
+Checkpoint 112 adds B73: a GEO measure attached to an image is invisible to the
+interactive measurement query. The matched page-viewport control returns the literal
+expected position; the image case returns no answer. Core Clippy passes. This is a
+supported measurement-feature gap, with no separate PtData display obligation inferred.
+Broad111 predates these two new tests. The manifest now has 107 identities.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

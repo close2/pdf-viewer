@@ -642,6 +642,12 @@
       "test": "type_one_keeps_constant_pixel_spacing_when_matrix_distortion_would_exceed_one_pixel",
       "finding": "2038-B72",
       "log": "type1-spacing-wave101.log"
+    },
+    {
+      "binary": "viewer-core::image_xobject_measurement_spec_audit",
+      "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
+      "finding": "2038-B73",
+      "log": "image-measure-wave112b.log"
     }
   ]
 }

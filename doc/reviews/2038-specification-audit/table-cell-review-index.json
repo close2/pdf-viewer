@@ -154,7 +154,8 @@
       "artifact": "shards/image_dictionary_cells_second_review_current/features.json",
       "status": "partial",
       "supplemental_artifacts": [
-        "shards/image_dictionary_cells_current/features.json"
+        "shards/image_dictionary_cells_current/features.json",
+        "shards/image_measurement_consumer_current/parent-review.json"
       ]
     },
     {
