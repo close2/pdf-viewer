@@ -231,8 +231,8 @@ jobs:
         run: |
           set -euo pipefail
           for example in \
-              encode_threads floor function_compile function_paint lane_placement \
-              outline_upload present_thread rect_lane residue_clip retained \
+              encode_threads fault_word_price floor function_compile function_paint \
+              lane_placement outline_upload present_thread rect_lane residue_clip retained \
               sample_pattern startup surface_measure window_smoke zoom
           do
             echo "== $example --check =="

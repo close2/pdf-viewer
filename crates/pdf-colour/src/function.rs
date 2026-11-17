@@ -579,6 +579,27 @@ impl Function {
         }
     }
 
+    /// Whether some input could make this function, or a function it stitches, meet one of
+    /// §7.10.5.3's run-time errors — a count of outputs other than `/Range`'s, an output that is
+    /// not a number, an overflow of the operand stack — as far as a walk of its program can tell.
+    ///
+    /// `false` is a proof over every path through every type 4 program it holds
+    /// (`faults_excluded`); `true` is "a run may", or "the walk could not decide", which a type 4
+    /// function with no `/Range` always is, having no count to hold its outputs to. Types 0, 2
+    /// and 3 have no such error to meet.
+    #[must_use]
+    pub fn may_fault(&self) -> bool {
+        // Recursion as deep as `MAX_STITCH_DEPTH`, the depth the parser built to.
+        match &self.kind {
+            Kind::PostScript(program) => self
+                .range
+                .as_ref()
+                .is_none_or(|range| !faults_excluded(program, self.domain.len(), range.len())),
+            Kind::Stitching { functions, .. } => functions.iter().any(Self::may_fault),
+            Kind::Sampled(_) | Kind::Exponential { .. } => false,
+        }
+    }
+
     /// This function as the flat program a device evaluates, when it is one a device may
     /// stand in for over `region`.
     ///
@@ -597,6 +618,11 @@ impl Function {
     /// - **`/Range` is required for a type 4 function** (§7.10.5.3) and this returns nothing
     ///   without one, because the caller has to state it and a device clipping to a range
     ///   nobody declared would be a bound this project invented.
+    /// - **No input may reach one of §7.10.5.3's run-time errors** ([`Self::may_fault`]). The
+    ///   processor's evaluator records each one it meets on the function ([`EvaluationFault`]),
+    ///   and a page's report says so; a device evaluating the program per pixel records nothing.
+    ///   A program the walk cannot clear is drawn from the processor's grid, whose every cell is
+    ///   asked, so a fault is said wherever it can occur (ADR 2940).
     ///
     /// `region` is `[x_min, x_max, y_min, y_max]`, Table 78's own order.
     #[must_use]
@@ -614,6 +640,9 @@ impl Function {
             || y_low > bottom.min(top)
             || y_high < bottom.max(top)
         {
+            return None;
+        }
+        if self.may_fault() {
             return None;
         }
         program
@@ -2183,6 +2212,153 @@ impl ProvenError {
     }
 }
 
+/// Whether **no** input can make `program` meet one of §7.10.5.3's three run-time errors.
+///
+/// > It shall be an error for the number of remaining operands to differ from the number of
+/// > output variables specified by Range or for any of them to be objects other than numbers.
+///
+/// > … it shall be an error to overflow the stack.
+///
+/// [`provable_error`] asks the opposite question — whether *every* run errs — over the same
+/// forward walk, and this one keeps what that one discards at a join: where two arms meet, each
+/// slot keeps what both arms agree on ([`joined`]) rather than becoming [`Slot::Unknown`]. So the
+/// depth is exact at every instruction of every path (two arms of different depths end the walk),
+/// an overflow is a push or an operator that finds that depth at [`MAX_STACK`], and the end is
+/// checked as the clause states it: `outputs` slots, each certainly a number.
+///
+/// Within this walk a slot that is certainly a number but not certainly which kind is held as a
+/// real (`Sorted(Sort::Real)`), where [`provable_error`] would hold it as `Unknown`. That is
+/// sound for the three questions asked here: whether [`apply_sorts`] answers a boolean never turns
+/// on an integer against a real, a count is read only from a [`Slot::Known`], and the end asks
+/// only "a number". It is what keeps `{ 1 } { 0 } ifelse add`, a sum of integers that `arithmetic2`
+/// may answer as a real on overflow, a number rather than a slot of no type.
+///
+/// It errs in one direction only: `false` is "a run may fault, or the walk could not tell" — a
+/// count `copy`, `index` or `roll` reads that is not a known value ([`operand_demand`]), arms of
+/// different depths, a slot that may be a boolean at the end — and `true` is a proof over every
+/// path. That is the direction [`Function::device_program`] needs: a device records none of the
+/// three, so it is handed only a program none of them can reach (ADR 2940).
+fn faults_excluded(program: &[Instruction], inputs: usize, outputs: usize) -> bool {
+    let mut promised: Vec<Option<Vec<Slot>>> = vec![None; program.len().saturating_add(1)];
+    let mut stack: Vec<Slot> = vec![Slot::Sorted(Sort::Real); inputs.min(MAX_VALUES)];
+    let mut window: Vec<Slot> = Vec::new();
+    for (at, instruction) in program.iter().enumerate() {
+        if let Some(arm) = promised.get_mut(at).and_then(Option::take)
+            && !joined(&mut stack, &arm)
+        {
+            return false;
+        }
+        match instruction {
+            Instruction::Push(value) => {
+                if stack.len() >= MAX_STACK {
+                    return false;
+                }
+                stack.push(Slot::Known(*value));
+            }
+            Instruction::Operator(operator) => {
+                if overflows_sorts(*operator, &stack) {
+                    return false;
+                }
+                let Some(demand) = operand_demand(*operator, &stack, Slot::count) else {
+                    return false;
+                };
+                let below = stack.len().saturating_sub(demand);
+                window.clear();
+                window.extend(stack.drain(below..));
+                apply_sorts(*operator, &mut window);
+                // `arithmetic1` and `arithmetic2` answer an integer or a real, never a boolean.
+                if matches!(
+                    operator,
+                    Operator::Abs
+                        | Operator::Add
+                        | Operator::Ceiling
+                        | Operator::Floor
+                        | Operator::Mul
+                        | Operator::Neg
+                        | Operator::Round
+                        | Operator::Sub
+                        | Operator::Truncate
+                ) && let Some(result @ Slot::Unknown) = window.last_mut()
+                {
+                    *result = Slot::Sorted(Sort::Real);
+                }
+                // [`provable_error`]'s rung: at the ceiling the evaluator's own `dup` and
+                // `copy` guards decline where [`apply_sorts`] does not.
+                if below.saturating_add(window.len()) >= MAX_STACK {
+                    return false;
+                }
+                stack.extend(window.iter().copied());
+            }
+            // The condition is popped (an empty stack answers `EMPTY_STACK`), and the arm not
+            // taken resumes at the target with the stack as it is now.
+            Instruction::JumpUnless(target) => {
+                stack.pop();
+                if !promise_stack(&mut promised, *target, &stack) {
+                    return false;
+                }
+            }
+            // The end of an `ifelse`'s first arm: it resumes at the target, and the second arm
+            // starts from what its `JumpUnless` left.
+            Instruction::Jump(target) => {
+                if !promise_stack(&mut promised, *target, &stack) {
+                    return false;
+                }
+                match promised
+                    .get_mut(at.saturating_add(1))
+                    .and_then(Option::take)
+                {
+                    Some(second) => stack = second,
+                    None => return false,
+                }
+            }
+        }
+    }
+    if let Some(arm) = promised.get_mut(program.len()).and_then(Option::take)
+        && !joined(&mut stack, &arm)
+    {
+        return false;
+    }
+    stack.len() == outputs
+        && stack
+            .iter()
+            .all(|slot| matches!(slot.sort(), Some(Sort::Integer | Sort::Real)))
+}
+
+/// Records the stack a jump leaves at its target for [`faults_excluded`], joining it with one an
+/// earlier jump left there; `false` where the two have different depths.
+fn promise_stack(promised: &mut [Option<Vec<Slot>>], target: usize, stack: &[Slot]) -> bool {
+    let Some(slot) = promised.get_mut(target) else {
+        return false;
+    };
+    match slot {
+        None => {
+            *slot = Some(stack.to_vec());
+            true
+        }
+        Some(already) => joined(already, stack),
+    }
+}
+
+/// `stack` where two arms meet, keeping in each slot what both say of it: the value where they
+/// agree on it, else the type, else — for an integer against a real — a number, held as a real
+/// (see [`faults_excluded`]). `false`, and `stack` unchanged, where the depths differ.
+fn joined(stack: &mut [Slot], other: &[Slot]) -> bool {
+    if stack.len() != other.len() {
+        return false;
+    }
+    for (slot, theirs) in stack.iter_mut().zip(other) {
+        *slot = match (slot.sort(), theirs.sort()) {
+            _ if *slot == *theirs => *slot,
+            (Some(mine), Some(their)) if mine == their => Slot::Sorted(mine),
+            (Some(Sort::Integer | Sort::Real), Some(Sort::Integer | Sort::Real)) => {
+                Slot::Sorted(Sort::Real)
+            }
+            _ => Slot::Unknown,
+        };
+    }
+    true
+}
+
 /// Which instructions run on every path through `program`: those outside every arm of an `if`
 /// or `ifelse`.
 ///
@@ -3750,6 +3926,68 @@ mod tests {
         );
         assert_eq!(faults_at(&deep, 0.1), None);
         assert_eq!(faults_at(&deep, 0.9), Some(EvaluationFault::StackOverflow));
+    }
+
+    /// ISO 32000-2 §7.10.5.3's three errors, where some input commits one, keep a §8.7.4.5.2
+    /// type 1 shading's program off the device, which records none of them; a program whose
+    /// every path ends in `/Range`'s count of numbers is handed over, an arm that leaves an
+    /// integer joining one that leaves a real included (ADR 2940).
+    #[test]
+    fn a_program_some_input_makes_fault_is_not_handed_to_a_device() {
+        let shading = |program: &str| {
+            let source = format!(
+                "%PDF-1.7\n1 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1] \
+                 /Length {} >>\nstream\n{program}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n",
+                program.len().saturating_add(1)
+            );
+            let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+            let object = document.get(pdf_syntax::ObjectId {
+                number: 1,
+                generation: 0,
+            });
+            Function::parse(&document, &object).expect(program)
+        };
+        let unit = [0.0, 1.0, 0.0, 1.0];
+        let deep = format!(
+            "{{ pop 0.5 gt {{ {} {} }} {{ 1 }} ifelse }}",
+            "1 ".repeat(super::MAX_STACK + 1),
+            "pop ".repeat(super::MAX_STACK - 1)
+        );
+        for (program, fault) in [
+            (
+                "{ pop 0.5 gt { 1 1 } { 1 } ifelse }",
+                EvaluationFault::OutputCount,
+            ),
+            ("{ pop 0.5 gt { 1 } if }", EvaluationFault::OutputCount),
+            (
+                "{ pop 0.5 gt { 1 } { true } ifelse }",
+                EvaluationFault::NonNumberOutput,
+            ),
+            (deep.as_str(), EvaluationFault::StackOverflow),
+        ] {
+            let function = shading(program);
+            assert!(function.may_fault(), "{program}");
+            assert!(function.device_program(unit).is_none(), "{program}");
+            // The processor's grid, which draws it instead, asks every cell and says the fault.
+            for x in [0.1, 0.9] {
+                let _ = function.eval(&[x, 0.5]);
+            }
+            assert_eq!(function.evaluation_fault(), Some(fault), "{program}");
+        }
+        // A count the walk cannot read is a program it cannot decide, and is drawn by the
+        // processor too, whether or not some input faults.
+        assert!(shading("{ pop cvi index }").device_program(unit).is_none());
+
+        for program in [
+            "{ add 2 div }",
+            "{ pop 0.5 gt { 0 } { 0.5 } ifelse }",
+            "{ 0.5 gt { pop 1 } { 2 mul } ifelse }",
+            "{ pop 0.5 gt { 1 } { 0 } ifelse dup 0.5 lt { 2 } { 3 } ifelse add }",
+        ] {
+            let function = shading(program);
+            assert!(!function.may_fault(), "{program}");
+            assert!(function.device_program(unit).is_some(), "{program}");
+        }
     }
 
     /// A clone is the same function of the file, so a fault one clone meets is the other's: the

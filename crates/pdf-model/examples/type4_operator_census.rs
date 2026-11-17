@@ -18,6 +18,12 @@
 //!   today and everything on the day a file reaches it.
 //! - **Consequence.** For each function reaching `round`, `eq` or `ne`, whether the value the
 //!   function returns actually moved. This is the number that says whether a page changed.
+//! - **The device's population** (ADR 2849's remedy 2, ADR 2940). For every §8.7.4.5.2 type 1
+//!   shading whose one function is a type 4 program, whether `Function::may_fault` leaves the
+//!   program on the device or sends it to the processor's grid — and, for each one sent, which of
+//!   the two shapes ADR 2849 confines an input-dependent fault to it carries: a conditional
+//!   (`if`, `ifelse`) or a stack operator whose count may be computed (`copy`, `index`, `roll`).
+//!   A shading is counted where its dictionary is, a direct one inside the object that holds it.
 //!
 //! # How the "before" arm is built, and why it is exact
 //!
@@ -103,6 +109,16 @@ struct Counts {
     uncomparable: BTreeMap<&'static str, usize>,
     /// Where each function reaching an audited operator was found, for reading afterwards.
     witnesses: Vec<String>,
+    /// §8.7.4.5.2 type 1 shadings found.
+    type1: usize,
+    /// Of those, the ones whose one function is a type 4 program this tree parses.
+    type1_type4: usize,
+    /// Of those, the ones `Function::may_fault` sends to the processor, by the shape they carry.
+    may_fault: BTreeMap<&'static str, usize>,
+    /// Documents with at least one shading `may_fault` sends to the processor.
+    documents_may_fault: usize,
+    /// Where each shading sent to the processor was found, and its program.
+    sent: Vec<String>,
 }
 
 impl Counts {
@@ -124,6 +140,16 @@ impl Counts {
             }
         }
         self.witnesses.append(&mut other.witnesses);
+        self.type1 = self.type1.saturating_add(other.type1);
+        self.type1_type4 = self.type1_type4.saturating_add(other.type1_type4);
+        for (key, count) in other.may_fault {
+            let slot = self.may_fault.entry(key).or_default();
+            *slot = slot.saturating_add(count);
+        }
+        self.documents_may_fault = self
+            .documents_may_fault
+            .saturating_add(other.documents_may_fault);
+        self.sent.append(&mut other.sent);
     }
 }
 
@@ -392,6 +418,17 @@ fn census(path: &str, document: &Document) -> Counts {
         );
     }
 
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId {
+            number,
+            generation: 0,
+        });
+        type1_shadings(path, number, document, &object, 0, &mut counts);
+    }
+    if !counts.sent.is_empty() {
+        counts.documents_may_fault = 1;
+    }
+
     for name in seen_in_document {
         let slot = counts.documents_with.entry(name).or_default();
         *slot = slot.saturating_add(1);
@@ -400,6 +437,99 @@ fn census(path: &str, document: &Document) -> Counts {
         counts.with_type4 = 1;
     }
     counts
+}
+
+/// How deep [`type1_shadings`] looks inside one object for a direct shading dictionary: a page's
+/// `/Resources`, its `/Pattern` or `/Shading` dictionary, a pattern, and the shading itself.
+const DIRECT_DEPTH: usize = 6;
+
+/// Every §8.7.4.5.2 type 1 shading stated directly in `object` — itself, or a dictionary or array
+/// it holds without a reference — counted by what `Function::may_fault` decides of its function.
+fn type1_shadings(
+    path: &str,
+    number: u32,
+    document: &Document,
+    object: &Object,
+    depth: usize,
+    counts: &mut Counts,
+) {
+    if depth > DIRECT_DEPTH {
+        return;
+    }
+    if let Some(array) = object.as_array() {
+        for entry in array {
+            type1_shadings(
+                path,
+                number,
+                document,
+                entry,
+                depth.saturating_add(1),
+                counts,
+            );
+        }
+        return;
+    }
+    let Some(dict) = object.as_dict() else {
+        return;
+    };
+    if document.get_key(dict, "ShadingType").as_integer() == Some(1) {
+        counts.type1 = counts.type1.saturating_add(1);
+        // §8.7.4.5.2's `/Function`: one function of two inputs, or an array of n of them; only
+        // the first is one program, and `device_program` hands over nothing else.
+        let stated = dict.get("Function").cloned().unwrap_or(Object::Null);
+        let listed = document.resolve(&stated);
+        let function = match listed.as_array() {
+            Some([only]) => only.clone(),
+            Some(_) => return,
+            None => stated,
+        };
+        let resolved = document.resolve(&function);
+        let Some(function_dict) = resolved.as_dict() else {
+            return;
+        };
+        if document.get_key(function_dict, "FunctionType").as_integer() != Some(4) {
+            return;
+        }
+        let Ok(parsed) = Function::parse(document, &function) else {
+            return;
+        };
+        counts.type1_type4 = counts.type1_type4.saturating_add(1);
+        if !parsed.may_fault() {
+            return;
+        }
+        let program = resolved
+            .as_stream()
+            .and_then(|stream| document.decoded_stream_data(stream))
+            .map(|data| String::from_utf8_lossy(&data).into_owned())
+            .unwrap_or_default();
+        let tokens = tokens(&program);
+        let has = |names: &[&str]| tokens.iter().any(|token| names.contains(&token.as_str()));
+        let shape = match (has(&["if", "ifelse"]), has(&["copy", "index", "roll"])) {
+            (true, true) => "a conditional and a counting operator",
+            (true, false) => "a conditional",
+            (false, true) => "a counting operator",
+            (false, false) => "neither shape",
+        };
+        let slot = counts.may_fault.entry(shape).or_default();
+        *slot = slot.saturating_add(1);
+        let program: String = tokens.join(" ").chars().take(160).collect();
+        counts
+            .sent
+            .push(format!("  {path} object {number} ({shape}): {program}"));
+        return;
+    }
+    for (_, value) in dict.iter() {
+        if !matches!(value, Object::Reference(_)) {
+            type1_shadings(
+                path,
+                number,
+                document,
+                value,
+                depth.saturating_add(1),
+                counts,
+            );
+        }
+    }
 }
 
 /// The paths to walk: arguments, and the lines of any argument beginning with `@`.
@@ -477,5 +607,20 @@ fn main() {
 
     for witness in &counts.witnesses {
         println!("{witness}");
+    }
+
+    println!(
+        "\n§8.7.4.5.2 type 1 shadings: {} found, {} with one type 4 function; of those, \
+         Function::may_fault sends {} to the processor, in {} documents:",
+        counts.type1,
+        counts.type1_type4,
+        counts.may_fault.values().sum::<usize>(),
+        counts.documents_may_fault,
+    );
+    for (shape, count) in &counts.may_fault {
+        println!("  {shape}: {count}");
+    }
+    for sent in &counts.sent {
+        println!("{sent}");
     }
 }
