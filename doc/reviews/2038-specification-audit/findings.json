@@ -3530,5 +3530,17 @@
     "summary": "Earlier audit notes attributed EC3 issue10 to the wrong sentence in Table5.",
     "evidence": "Linked strike/bbox selects should in Length entry should still specify; replacement shall. Embedded bytes shall be ignored was already mandatory.",
     "qualification": "Supersedes earlier audit attribution; tests of external refusal remain valid for the base table. No runtime defect or mandatory malformed-Length rejection inferred."
+  },
+  {
+    "id": "2038-T155",
+    "kind": "assertion-quality",
+    "clauses": [
+      "14.6.1",
+      "14.6.2",
+      "14.9.4"
+    ],
+    "summary": "Named property resources with an indirect ActualText value reach literal text extraction and speech output.",
+    "execution": "One new test PASS; inline direct-value control also asserts literal replacement. Model all-target Clippy PASS.",
+    "qualification": "Selected BDC consumer, valid exact-xref PDF1.7; no DP semantics or arbitrary property meaning inferred."
   }
 ]

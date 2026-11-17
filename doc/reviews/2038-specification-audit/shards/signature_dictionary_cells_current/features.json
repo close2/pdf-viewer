@@ -1,0 +1,79 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded reader-side review of Table 256 signature-reference dictionaries, Table 257 DocMDP transform parameters, and Table 259 FieldMDP transform parameters. Table255 signature dictionary is owned by signatures_current; Table258 UR is owned by usage_rights_current; revocation/DSS paths remain in their assigned shards. No whole-signature/profile or all-transform certification.",
+  "source": {
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "verified_tables": [
+      {
+        "table": "256 — Entries in a signature reference dictionary",
+        "physical_page": "587",
+        "printed_page": "572",
+        "continuation": "single-page table; footer checked"
+      },
+      {
+        "table": "257 — Entries in the DocMDP transform parameters dictionary",
+        "physical_page": "589",
+        "printed_page": "574",
+        "continuation": "single-page table; footer checked"
+      },
+      {
+        "table": "259 — Entries in the FieldMDP transform parameters dictionary",
+        "physical_pages": "591-592",
+        "printed_pages": "576-577",
+        "continuation": "header and first row on p591; Action/Fields/V continuation on p592; footers checked"
+      }
+    ],
+    "effective_errata": [
+      "#117 on physical p587/printed p572 strikes Required from Table256 /DigestMethod and inserts Optional; deprecated in PDF2.0. Absence is conforming under the effective table.",
+      "#152 on physical p589/printed p574 changes Table257 /P type from number to integer. The current implementation's as_integer route and real-value recovery test reflect the amended source.",
+      "#33 carets on physical p592/printed p577 insert fully qualified and the §12.7.4.2 cross-reference into Table259 /Fields. They constrain the field-name strings, but do not spell out a signed-to-current identity algorithm after a /T rename.",
+      "#131's DSS/DTS-only exception is attached to Table236 /P, while the same effective exception is printed directly in Table257 /P. #55 on physical p583 adds a producer-side timestamp ordering sentence; neither changes the selected transform table cells beyond the bounded DTS carveout."
+    ]
+  },
+  "features": [
+    {
+      "id": "table256-reference-cells",
+      "source_feature": "Table256 fields: optional Type=SigRef; required TransformMethod naming DocMDP, UR, or FieldMDP; optional TransformParams; Data required and indirect only for FieldMDP; DigestMethod now optional/deprecated in PDF2.0 after #117, with the listed algorithms and PDF1.5–1.7 MD5 default. DigestMethod states an algorithm for transform-related digest computation, not the signature ByteRange CMS digest by itself.",
+      "ledger": "doc/conformance/ledger.toml §§12.8.1, 12.8.2, 12.8.2.1–.4; current ledger claims methods and parameters are parsed and compared, while current findings qualify transform outcomes.",
+      "implementation": "crates/pdf-signature/src/signature.rs::has_transform, ::field_mdp, ::reference_digests; crates/pdf-signature/src/revision.rs transform comparison; viewer-core/src/notes.rs reports stated Table256 DigestMethod values/absence.",
+      "assertions": [
+        "crates/pdf-signature/src/signature.rs::a_reference_dictionary_says_which_digest_its_modification_analysis_uses",
+        "crates/viewer-core/src/notes.rs tests for stated, outside-list, and absent DigestMethod",
+        "crates/pdf-signature/src/revision/tests/field_mdp_signed_name_spec_audit.rs signed-prefix comparison seam uses indirect /Data"
+      ],
+      "assertion_assessment": "The DigestMethod unit fixture distinguishes two allowed values across multiple references, an out-of-table name, and absent value. It correctly treats absent as permitted after #117. FieldMDP tests carry /Data as an indirect reference. No evidence says an invalid producer type/value must be rejected by a PDF reader, and no separate transform-digest computation claim is promoted here.",
+      "verdict": "Selected Table256 fields have existing parsing/reporting assertions; no new behavior defect identified.",
+      "residuals": "No exhaustive malformed reference-array or transform-parameter matrix. ByteRange integrity is validated by Signature::integrity tests and the genuine B18 fixture; this pass does not re-certify CMS or all profiles."
+    },
+    {
+      "id": "table257-docmdp-parameters-and-dts-carveout",
+      "source_feature": "Table257 Type is optional. Effective #152 says /P is an integer; values 1/2/3 constrain changes and absent defaults to 2. P=1 and P=2/3 explicitly carve out incremental updates carrying only data necessary to add DSS and/or document timestamps. The comparison is between a validated signed revision and current revision; operation-level prevention is a related but distinct consumer.",
+      "ledger": "doc/conformance/ledger.toml §§12.8.2.2, 12.8.2.2.1, 12.8.2.2.2 and §12.8.5.3",
+      "implementation": "crates/pdf-signature/src/signature.rs::modification; crates/pdf-signature/src/revision.rs::classify_one, ::dispositions, ::Comparison::against; viewer-core/src/notes.rs::modifications; pdf-model/src/restriction.rs for per-operation gating.",
+      "assertions": [
+        "crates/pdf-signature/src/signature.rs::a_docmdp_level_written_as_a_real_takes_the_tables_default",
+        "crates/pdf-signature/src/revision.rs DSS-only and mixed-DSS/page-update comparison tests",
+        "crates/pdf-signature/tests/docmdp_dts_carveout.rs::valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout",
+        "same file mixed DTS plus page-change control"
+      ],
+      "assertion_assessment": "The #152 test is explicitly a malformed-type recovery control after the effective type became integer; it is not a valid-input conformance failure. DSS-only and mixed-update cases distinguish the Table257 'only necessary data' exception. The promoted genuine signed P=1 timestamp fixture has exact incremental ByteRanges and parent-verified CMS/RFC3161 evidence. Its DTS-only case fails as NotClassified for seven registration objects; the mixed page-change control passes.",
+      "verdict": "Known bounded B18 behavior gap remains: timestamp-only update registration objects (field/widget, page Annots, catalog/AcroForm) are not all recognized as part of the DTS carveout. This is the already-recorded 2038-B18 finding, not a new result from this shard.",
+      "residuals": "Do not generalize the carveout to an update that also has unrelated changes. Do not treat operation-level default/off host policy as a substitute for signature comparison. Full P-level class coverage and all update shapes are not re-certified."
+    },
+    {
+      "id": "table259-fieldmdp-selection",
+      "source_feature": "Effective #33 makes /Fields an array of text strings containing fully qualified field names. Action is required and selects All, Include, or Exclude; Fields is required when Action is Include/Exclude; V is required in PDF1.5+ and has default 1.2. The clause states that specified field-value modifications invalidate the recipient signature. It does not directly prescribe how to retain logical identity if the same indirect field dictionary is renamed in a later revision.",
+      "ledger": "doc/conformance/ledger.toml §12.8.2.4 and §12.8.2.1, coupled with §12.7.4.2 field-name derivation",
+      "implementation": "crates/pdf-signature/src/signature.rs::field_mdp and FieldSelection; crates/pdf-signature/src/revision.rs::field_subjects, ::Comparison::of, ::against_field_mdp; pdf-model/src/restriction.rs prospective operation policy is a separate path.",
+      "assertions": [
+        "crates/pdf-signature/src/revision.rs::a_field_mdp_transform_selects_by_the_fields_table_259_names stable-name selection controls",
+        "crates/pdf-signature/src/revision/tests/field_mdp_signed_name_spec_audit.rs signed-prefix field-rename witness",
+        "crates/pdf-signature/src/signature.rs FieldMDP transform reads /Action, /Fields and required /Data"
+      ],
+      "assertion_assessment": "Stable-name Include/Exclude controls prove ordinary selection. The current global finding 2038-B42 records an exact comparison-seam witness where an indirect field's signed /T Name becomes current /T Other and its value changes: the current-name-first subject map classifies it outside Include(Name). The witness uses a placeholder CMS and does not establish a cryptographically valid signature. Table259/#33 specifies fully qualified names but not the cross-revision rename identity rule.",
+      "verdict": "Keep B42 as an unresolved comparison-policy question, not an established ISO defect. The signed-name interpretation is plausible but inferred; no new behavior finding is asserted.",
+      "residuals": "No host currently invokes Comparison::against_field_mdp; practical UI effect remains future-facing. A verified signature fixture would strengthen cryptographic context but would not itself resolve the source's missing rename algorithm."
+    }
+  ],
+  "bounded_review": "Three transform-related tables sampled. UR transform Table258, general signature Table255, timestamp/revocation tables and all cryptographic profile rules are separate owner shards. Existing B18 and B42 are reconciled, not duplicated."
+}

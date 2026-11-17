@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (114)
+## Current checkpoint (115)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
@@ -475,6 +475,12 @@ formatting and nondefault external-filter parameters after archive embedding. Cl
 passes. D66 corrects an audit error: issue 10 changes the external stream Length
 obligation, not the already-mandatory embedded-byte-ignore rule. Seven more selected
 matrices bring the unique partial count to 125; no new failing identity is added.
+
+Checkpoint 115 adds a passing extraction and speech test for a named property
+resource with an indirect ActualText value, with a literal inline control. Model
+Clippy passes. Three signature transform tables and their actual assertion bodies
+are reconciled; B18 remains observed and B42 remains interpretation-qualified.
+The unique partial table count is 129; the 107-entry failure manifest is unchanged.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

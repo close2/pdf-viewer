@@ -1,0 +1,8 @@
+{
+  "verdict": "T155: named indirect ActualText and inline direct control both reach literal extraction and speech; PASS.",
+  "source": "Parent read actual Table352 physical736 and property-list text737. Corrected broad draft table locator735–737 to736. Table97 is a supplemental review of existing coverage.",
+  "oracle": "Both routes independently assert replacement, not merely equality to each other. Real glyph count, interpretation completeness, unrecovered document and complete xref chain are required. Named resource has an indirect string outside content; inline dictionary has a direct string.",
+  "fixture": "Standalone seven-object PDF1.7 replaces proposed shared accessibility helper to eliminate unrelated form data and dangling references. No production changes.",
+  "execution": "named-property-wave115: one PASS, zero skip. quality-model-wave115 initially caught unused lint expectation; final115b all-target Clippy PASS.",
+  "limits": "No arbitrary property meaning or DP ActualText semantics inferred. Selected resource/extraction consumer only."
+}

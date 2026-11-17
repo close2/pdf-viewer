@@ -414,7 +414,10 @@
         "8.11.2.2"
       ],
       "artifact": "shards/optional_content_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/marked_content_dictionary_cells_current/parent-review.json"
+      ]
     },
     {
       "table": "98",
@@ -2026,6 +2029,59 @@
         "9.7.5.2"
       ],
       "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "352",
+      "keys": [
+        "selected DP/BDC property operands and EMC"
+      ],
+      "ledger_rows": [
+        "14.6.1"
+      ],
+      "artifact": "shards/marked_content_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "256",
+      "keys": [
+        "Type",
+        "TransformMethod",
+        "TransformParams",
+        "Data",
+        "DigestMethod"
+      ],
+      "ledger_rows": [
+        "12.8.2.1"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "257",
+      "keys": [
+        "Type",
+        "P",
+        "V"
+      ],
+      "ledger_rows": [
+        "12.8.2.2"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "259",
+      "keys": [
+        "Type",
+        "Action",
+        "Fields",
+        "V"
+      ],
+      "ledger_rows": [
+        "12.8.2.4"
+      ],
+      "artifact": "shards/signature_dictionary_cells_current/features.json",
       "status": "partial"
     }
   ],

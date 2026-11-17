@@ -3073,6 +3073,20 @@
       "log": "quality-core-transform-wave114.log",
       "exit": 0,
       "scope": "Core/transform all-target Clippy."
+    },
+    {
+      "log": "named-property-wave115.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Named indirect ActualText and inline control."
+    },
+    {
+      "log": "quality-model-wave115b.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after unused lint expectation repair."
     }
   ],
   "prior_expected_failures": {
