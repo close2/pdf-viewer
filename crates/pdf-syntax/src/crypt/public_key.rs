@@ -170,6 +170,7 @@ impl Encryption {
                     encrypt_metadata: true,
                     length: key_length(get, version, resolve)?,
                     own: Vec::new(),
+                    string: None,
                 }
             }
         };
@@ -187,6 +188,7 @@ impl Encryption {
             encrypt_metadata,
             length,
             own,
+            string: string_lists,
         } = lists;
         // Table 25's `/AuthEvent`, asked of the document's key and of each filter's own key
         // separately: the two default filters always want theirs at the open, and every other
@@ -225,9 +227,16 @@ impl Encryption {
             }
             Err(error) => return Err(error),
         };
+        // A reader the `/StrF` list does not name fails the open, as for `/StmF`: Table 25 wants
+        // the default filters' keys at the open.
+        let string_key = match (&string_lists, recipient, key.is_empty()) {
+            (Some(string_lists), Some(recipient), false) => Some(string_lists.key(recipient)?),
+            _ => None,
+        };
         Ok(Self {
             authenticated: !key.is_empty(),
             key,
+            string_key,
             stream,
             string,
             embedded_file,
@@ -251,6 +260,61 @@ struct RecipientLists {
     length: usize,
     /// Table 27's second case: every other crypt filter that carries a recipient list of its own.
     own: Vec<OwnList>,
+    /// The `/StrF` filter's own recipient lists, where it is not the filter `/StmF` names.
+    string: Option<StringLists>,
+}
+
+/// The recipient lists of a `/StrF` filter that is not the `/StmF` one.
+///
+/// Table 27 gives a crypt filter that `/StmF` or `/StrF` names an array of byte strings as its
+/// `/Recipients`, so each of the two default filters carries its own recipient lists, and
+/// §7.6.5.3 makes the file encryption key of a filter out of that filter's seed and lists. Two
+/// filters with two arrays therefore make two keys, and the strings are under the
+/// second (ADR 2959).
+struct StringLists {
+    /// Each recipient list, in array order.
+    lists: Vec<Vec<u8>>,
+    /// The filter's key length, in bytes, by its `/CFM`.
+    length: usize,
+}
+
+impl StringLists {
+    /// Table 27's `/Recipients` and Table 25's `/Length` of the `/StrF` filter named in
+    /// `entries`, read as the `/StmF` filter's are.
+    fn read(
+        entries: &Dictionary,
+        name: &Name,
+        method: Method,
+        resolve: &dyn Fn(&Object) -> Object,
+    ) -> SyntaxResult<Self> {
+        let entry = entries
+            .iter()
+            .find(|(key, _)| *key == name)
+            .and_then(|(_, value)| resolve(value).as_dict().cloned())
+            .unwrap_or_default();
+        let lists =
+            byte_strings(&get_in(&entry, "Recipients", resolve), resolve).ok_or_else(|| {
+                SyntaxError::UnsupportedEncryption {
+                    detail: format!(
+                        "Table 27's /Recipients in the crypt filter /{}, which /StrF names, is \
+                         not an array of byte strings",
+                        name.as_bytes().escape_ascii()
+                    ),
+                }
+            })?;
+        Ok(Self {
+            lists,
+            length: filter_key_length(method, &entry, resolve)?,
+        })
+    }
+
+    /// §7.6.5.3's key for this filter: its own seed, its own lists, and never step (c)'s four
+    /// bytes, because Table 27 says `/EncryptMetadata` is used only by the `/StmF` filter.
+    fn key(&self, recipient: &RecipientKey) -> SyntaxResult<Vec<u8>> {
+        let array = scan(&self.lists, recipient)?;
+        let (seed, _) = seed_and_permissions(&array)?;
+        Ok(file_key(seed, &self.lists, false, self.length))
+    }
 }
 
 /// A crypt filter a stream's `/Crypt` decode parameters reach, with its own recipient list.
@@ -288,6 +352,8 @@ fn filter_lists(
         (Some(name), _) => (Some(name), true),
         (None, string) => (string, false),
     };
+    // `/StrF` naming a filter of its own beside `/StmF`'s: the second default filter.
+    let string_name = named("StrF").filter(|string| Some(string) != name.as_ref());
     let entry = entries
         .iter()
         .find(|(key, _)| Some(*key) == name.as_ref())
@@ -301,7 +367,7 @@ fn filter_lists(
     // key of its own (Table 27's second case), and its `/Recipients` is one CMS object.
     let mut own = Vec::new();
     for (other, value) in entries.iter() {
-        if Some(other) == name.as_ref() {
+        if Some(other) == name.as_ref() || Some(other) == string_name.as_ref() {
             continue;
         }
         let Some(dict) = resolve(value).as_dict().cloned() else {
@@ -365,12 +431,16 @@ fn filter_lists(
         filters.string
     };
     let length = filter_key_length(method, &entry, resolve)?;
+    let string = string_name
+        .map(|name| StringLists::read(&entries, &name, filters.string, resolve))
+        .transpose()?;
     Ok(RecipientLists {
         filters,
         lists,
         encrypt_metadata,
         length,
         own,
+        string,
     })
 }
 

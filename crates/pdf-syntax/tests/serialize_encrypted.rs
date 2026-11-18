@@ -257,6 +257,33 @@ fn the_plaintext_is_not_in_the_bytes() {
         written.windows(3).any(|window| window == b"/ID"),
         "the trailer still states §14.4's identifier",
     );
+    // Unencrypted is observable without trusting the reader's own exception: §14.4 makes a new
+    // file's two identifiers "the same value", and this writer's are a 16-byte MD5 digest. An
+    // identifier put through the AESV3 the strings are under would carry §7.6.3.2's 16-byte
+    // initialisation vector and a padded block (32 bytes at least), and two encryptions with
+    // fresh vectors would no longer be equal.
+    let opened = Document::open_with_password(written, Limits::DEFAULT, "reader")
+        .expect("the user password opens it");
+    let identifier = opened
+        .trailer()
+        .get("ID")
+        .and_then(Object::as_array)
+        .expect("Table 15: an encrypted file states /ID");
+    let [first, second] = identifier else {
+        panic!("§14.4: an array of two byte strings, got {identifier:?}");
+    };
+    let (Some(first), Some(second)) = (first.as_string(), second.as_string()) else {
+        panic!("§14.4: two byte strings");
+    };
+    assert_eq!(
+        first.len(),
+        16,
+        "the digest as written, not a ciphertext of it"
+    );
+    assert_eq!(
+        first, second,
+        "§14.4: a new file's two identifiers are equal"
+    );
 }
 
 /// §7.6.4.4.7 and §7.6.4.4.8 lay their entries out in three sections, and the salts are the

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::{DecodedStreamCache, Document, StreamRefusal, read, write};
 use crate::filter::Decoded;
-use crate::object::{Dictionary, Object, Stream};
+use crate::object::{Dictionary, Name, Object, Stream};
 use crate::parser::Limits;
 
 impl Document {
@@ -210,15 +210,42 @@ impl Document {
     ///
     /// The key may hold a single dictionary or an array with one entry per filter, and
     /// either may be indirect.
+    ///
+    /// **So may every value inside the dictionary**, and it is resolved here, once, so that no
+    /// filter reads a `/Predictor` or a `/Columns` with a bare `get` and takes a reference for
+    /// an absent entry. ISO 32000-2 §7.3.10:
+    ///
+    /// > Except where documented to the contrary, any object value may be a direct or an
+    /// > indirect reference; the semantics are equivalent.
+    ///
+    /// A value that resolves to a stream (Table 12's `/JBIG2Globals`) stays the reference it
+    /// was, because a stream is only ever read through [`Self::get_key`], which resolves it, and
+    /// copying its dictionary into every stage's parameters would buy nothing.
     pub(crate) fn decode_parms(&self, dict: &Dictionary, index: usize) -> Option<Dictionary> {
-        match self.get_key(dict, "DecodeParms") {
-            Object::Dictionary(parms) => Some(parms),
+        let parms = match self.get_key(dict, "DecodeParms") {
+            Object::Dictionary(parms) => parms,
             Object::Array(items) => items
                 .get(index)
                 .map(|item| self.resolve(item))
-                .and_then(|item| item.as_dict().cloned()),
-            _ => None,
+                .and_then(|item| item.as_dict().cloned())?,
+            _ => return None,
+        };
+        Some(self.with_values_resolved(parms))
+    }
+
+    /// `parms` with each indirect value replaced by the object it names, streams excepted.
+    fn with_values_resolved(&self, parms: Dictionary) -> Dictionary {
+        let resolved: Vec<(Name, Object)> = parms
+            .iter()
+            .filter(|(_, value)| matches!(value, Object::Reference(_)))
+            .map(|(key, value)| (key.clone(), self.resolve(value)))
+            .filter(|(_, value)| !matches!(value, Object::Stream(_)))
+            .collect();
+        let mut parms = parms;
+        for (key, value) in resolved {
+            parms.insert(key, value);
         }
+        parms
     }
 
     /// Returns the filter names for a stream, in application order.

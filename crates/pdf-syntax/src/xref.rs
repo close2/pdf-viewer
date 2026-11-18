@@ -377,9 +377,28 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     let header_at = header_position(file);
 
-    let replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None) {
+    let mut replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None) {
         Some(table) if !table.is_empty() => return Ok(table),
         unusable => unusable,
+    };
+
+    // NOTE 1 of §7.5.2 allows "arbitrary bytes preceding the %PDF-", and states no bound on
+    // how many. The window is where a header is looked for first, because that is where every
+    // header stands but a few; where the window holds none and the chain read from byte zero
+    // failed, the header may stand further in, and the file's offsets are counted from it. A
+    // scan instead would find objects the newest section deleted (§7.5.6), so the stated
+    // chain is tried from that header before anything is rebuilt (ADR 2960).
+    let header_at = if header_at.is_some() {
+        header_at
+    } else {
+        let far = header_past_window(file);
+        if let Some(table) = far.and_then(|far| read_from_startxref(file, far, limits, None)) {
+            if !table.is_empty() {
+                return Ok(table);
+            }
+            replaced = Some(table);
+        }
+        far
     };
 
     // The table was absent, unreadable, or empty. Scan.
@@ -422,6 +441,20 @@ fn header_position(file: &FileBytes) -> Option<usize> {
     start
         .windows(PDF.len())
         .position(|at| at == PDF || at == FDF)
+}
+
+/// The first header past [`HEADER_SEARCH_WINDOW`], asked only once the window held none and the
+/// chain read from byte zero failed, so that an intact file never pays for reading itself whole.
+fn header_past_window(file: &FileBytes) -> Option<usize> {
+    const PDF: [u8; 5] = *b"%PDF-";
+    const FDF: [u8; 5] = *b"%FDF-";
+    let whole = file.whole().ok()?;
+    let from = HEADER_SEARCH_WINDOW.saturating_sub(PDF.len().saturating_sub(1));
+    whole
+        .get(from..)?
+        .windows(PDF.len())
+        .position(|at| at == PDF || at == FDF)
+        .map(|at| at.saturating_add(from))
 }
 
 /// Where one cross-reference section stands, and what its own trailer says.

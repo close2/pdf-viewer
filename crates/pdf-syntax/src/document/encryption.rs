@@ -123,7 +123,7 @@ impl Document {
         match object {
             Object::String(bytes) => Object::String(
                 encryption
-                    .decrypt(encryption.string_method(), id, &bytes)
+                    .decrypt_string(id, &bytes)
                     // A string whose ciphertext is malformed has no recoverable value, and
                     // handing back the ciphertext would put binary noise into text
                     // extraction — a wrong answer dressed as a right one.
@@ -202,11 +202,9 @@ impl Document {
         object: &Object,
     ) -> Option<Object> {
         match object {
-            Object::String(bytes) => Some(Object::String(
-                encryption
-                    .encrypt(encryption.string_method(), id, bytes)?
-                    .into(),
-            )),
+            Object::String(bytes) => {
+                Some(Object::String(encryption.encrypt_string(id, bytes)?.into()))
+            }
             Object::Array(items) => items
                 .iter()
                 .map(|item| self.encrypt_value(encryption, id, item))

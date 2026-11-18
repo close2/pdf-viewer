@@ -1144,10 +1144,9 @@ impl<'e> Protected<'e> {
         match value {
             Object::String(bytes) => {
                 let iv = self.vector()?;
-                let method = self.encryption.string_method();
                 Ok(Object::String(
                     self.encryption
-                        .encrypt_with_iv(method, id, iv, bytes)
+                        .encrypt_string_with_iv(id, iv, bytes)
                         .ok_or(SerializeError::Cipher)?
                         .into(),
                 ))

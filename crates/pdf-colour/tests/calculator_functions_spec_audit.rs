@@ -158,7 +158,7 @@ fn stack_probe(zeros: usize) -> String {
     source
 }
 
-/// §7.10.5.2 uses PDF operand syntax; both PDF Table 1 and PLRM3 Table 3.1 include NUL.
+/// §7.10.5.2 uses PDF operand syntax; both PDF Table 1 and PLRM 3 Table 3.1 include NUL.
 #[test]
 fn type4_null_separates_operands_and_operators_like_the_other_five_white_spaces() {
     // Run the five other separators first: these isolate the exact-xref fixture and arithmetic

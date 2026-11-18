@@ -640,10 +640,13 @@ impl<'a> Lexer<'a> {
 
     /// Reads a hexadecimal string, having consumed the opening angle bracket.
     ///
-    /// Non-hex bytes are ignored, as the specification requires, and a trailing odd digit
-    /// is padded with zero.
+    /// ISO 32000-2 §7.3.4.3 requires two things of a reader here: "White-space characters (see
+    /// ' Table 1 -White-space characters ' ) shall be ignored", and an odd final digit "shall be
+    /// assumed to be 0". Any *other* byte that is not a hexadecimal digit is outside the
+    /// clause, which states only what a string "shall be written as"; skipping it is this
+    /// reader's recovery rather than a requirement.
     ///
-    /// **Both of those are lossy, and what they lose is recorded** in [`HexadecimalStrings`]
+    /// **Both the recovery and the padding are lossy, and what they lose is recorded** in [`HexadecimalStrings`]
     /// rather than thrown away: the value alone cannot say whether the producer wrote an odd
     /// number of digits or a byte that is not a digit at all, and two clauses ask. Nothing is
     /// counted per byte of a well-formed string — the digit count is `out.len()` and the parity

@@ -202,29 +202,29 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-colour/src/function.rs, crates/pdf-model/src/image/dispatch.rs, crates/pdf-model/src/image/space.rs, crates/pdf-syntax/src/crypt.rs, crates/pdf-syntax/src/crypt/public_key.rs, crates/pdf-syntax/src/filter.rs, crates/pdf-syntax/src/xref.rs
 - test files: crates/pdf-colour/tests/calculator_functions_spec_audit.rs, crates/pdf-colour/tests/functions_spec_audit.rs, crates/pdf-colour/tests/sampled_functions_spec_audit.rs, crates/pdf-model/tests/decode_element_types_audit.rs, crates/pdf-model/tests/indirect_function_colour_spec_audit.rs, crates/pdf-syntax/tests/encryption.rs?, crates/pdf-syntax/tests/encryption_fixtures.rs, crates/pdf-syntax/tests/incremental_object_zero_spec_audit.rs, crates/pdf-syntax/tests/indirect_filter_parameters_spec_audit.rs, crates/pdf-syntax/tests/lzw_full_table_audit.rs, crates/pdf-syntax/tests/prefixed_incremental_xref_spec_audit.rs, crates/pdf-syntax/tests/prev_xref_stream_spec_audit.rs, crates/pdf-syntax/tests/public_key_witnesses.rs, crates/pdf-syntax/tests/spec_objxref_audit.rs, crates/pdf-syntax/tests/type0_deletion_spec_audit.rs
 
-- 2038-B07 | pdf-syntax | behavior-gap | open | crypt filter Identity entry parsed before ignore rule | 1 manifest failure
-- 2038-B09 | pdf-colour | behavior-gap | open | function degenerate domain arithmetic | 1 manifest failure
-- 2038-B10 | pdf-colour | behavior-gap | open | function degenerate domain arithmetic | 1 manifest failure
-- 2038-B11 | pdf-model | behavior-gap | open | image Decode array element validation | 1 manifest failure
-- 2038-B21 | pdf-syntax | behavior-mismatch | open | xref recovery revives freed objects | 1 manifest failure
-- 2038-B45 | pdf-colour | calculator-lexical-whitespace | open | type4 calculator NUL whitespace | 1 manifest failure
-- 2038-B54 | pdf-syntax | behavior-gap | open | indirect DecodeParms values not resolved | 2 manifest failures
-- 2038-B57 | pdf-syntax | behavior-gap | open | public-key handler StmF/StrF recipients | 1 manifest failure
-- 2038-T42 | pdf-syntax | independent-oracle-gap | open | password preprocessing r6 vectors
-- 2038-T69 | pdf-syntax | test-coverage-gap | open | test control: LZW EarlyChange default
-- 2038-T72 | pdf-syntax | test-coverage-gap | open | test control: uncompressed ObjStm parameters
-- 2038-T73 | pdf-syntax | deliberate-departure-test-specificity | open | deliberate departure: xref entries above Size
-- 2038-T74 | pdf-syntax | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T76 | pdf-colour | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T90 | pdf-syntax | test-coverage-gap | open | test control: Prev chain traversal
-- 2038-T91 | pdf-syntax | test-coverage-gap | open | test control: object-zero free list
-- 2038-T108 | pdf-syntax | test-oracle-gap | open | test oracle independent of production helper
-- 2038-T130 | pdf-syntax | assertion-strengthening | open | crypt filter selector defaults
-- 2038-T145 | pdf-syntax | fixture-validity-and-coverage | open | xref recovery and free-entry handling
-- 2038-T157 | pdf-syntax | assertion-quality | open | crypt filter selector defaults
-- 2038-D16 | pdf-syntax | source-interpretation-qualification | open | perms-over-P tamper authority claim
-- 2038-D18 | pdf-syntax | implementation-bound-risk | open | algorithm 2.B round cap
-- 2038-D42 | pdf-syntax | test-claim-qualification | open | xref module doc overclaims valid-file coverage
+- 2038-B07 | pdf-syntax | behavior-gap | fixed (§7.6.2 Table 20 `/CF`; `crypt_filters` skips a `/CF` key Table 26 lists before reading it; encryption_fixtures::a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown passes) | crypt filter Identity entry parsed before ignore rule | 1 manifest failure
+- 2038-B09 | pdf-colour | behavior-gap | fixed (ADR 2963; stitching compares Bounds 0 with Domain 0 by IEEE `==`; functions_spec_audit::stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint passes) | function degenerate domain arithmetic | 1 manifest failure
+- 2038-B10 | pdf-colour | behavior-gap | fixed (ADR 2963; `interpolate` is degenerate only at zero width; sampled_functions_spec_audit::sampled_interpolation_preserves_a_small_but_nonzero_domain_span passes) | function degenerate domain arithmetic | 1 manifest failure
+- 2038-B11 | pdf-model | behavior-gap | fixed (Table 87 "An array of numbers"; `dispatch::inconsistent_entries` refuses a non-number element; decode_element_types_audit::decode_pairs_must_each_be_numbers passes) | image Decode array element validation | 1 manifest failure
+- 2038-B21 | pdf-syntax | behavior-mismatch | fixed (ADR 2960; `xref::read` looks for a header past the window and reads the stated chain from it before rebuilding; prefixed_incremental_xref_spec_audit::a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section passes) | xref recovery revives freed objects | 1 manifest failure
+- 2038-B45 | pdf-colour | calculator-lexical-whitespace | fixed (§7.2.3 Table 1; the Type 4 tokenizer splits on `pdf_syntax::lexer::is_whitespace`, NUL included; calculator_functions_spec_audit::type4_null_separates_operands_and_operators_like_the_other_five_white_spaces passes) | type4 calculator NUL whitespace | 1 manifest failure
+- 2038-B54 | pdf-syntax | behavior-gap | fixed (§7.3.10; `Document::decode_parms` resolves each indirect value of the parameter dictionary once, streams excepted; both indirect_filter_parameters_spec_audit numeric tests pass) | indirect DecodeParms values not resolved | 2 manifest failures
+- 2038-B57 | pdf-syntax | behavior-gap | fixed (ADR 2959; a `/StrF` filter other than `/StmF`'s keys the strings from its own seed and lists; public_key_witnesses::separate_stmf_and_strf_defaults_use_their_own_recipient_keys passes) | public-key handler StmF/StrF recipients | 1 manifest failure
+- 2038-T42 | pdf-syntax | independent-oracle-gap | fixed (audit test crypt::tests::r6_password_preparation_matches_saslprep_vectors_and_byte_limit, killed by a plant dropping SASLprep; `remaining` is a scope limit) | password preprocessing r6 vectors
+- 2038-T69 | pdf-syntax | test-coverage-gap | fixed (audit test lzw_full_table_audit::full_lzw_table_clear_resets_width_and_dictionary_for_both_earlychange_values, killed by a plant defaulting EarlyChange to 0) | test control: LZW EarlyChange default
+- 2038-T72 | pdf-syntax | test-coverage-gap | fixed (audit test cross_references::object_stream_dictionary_values_may_reference_uncompressed_objects, killed by a plant ignoring an indirect /Length) | test control: uncompressed ObjStm parameters
+- 2038-T73 | pdf-syntax | deliberate-departure-test-specificity | fixed (audit test cross_references::an_explicit_current_entry_past_size_is_retained_by_the_chosen_departure, killed by a plant dropping entries at or above /Size 4) | deliberate departure: xref entries above Size
+- 2038-T74 | pdf-syntax | test-coverage-gap | fixed (audit tests indirect_filter_parameters_spec_audit::indirect_filter_name_and_decodeparms_dictionary_match_direct_values and ::indirect_filter_and_decodeparms_arrays_resolve_each_stage_value, each killed by a plant leaving its reference unresolved) | test control: indirect values need resolving at consumer
+- 2038-T76 | pdf-colour | test-coverage-gap | fixed (audit test indirect_function_colour_spec_audit::sampled_function_indirect_arrays_and_numeric_members_keep_the_direct_result, killed by a plant reading array members without resolving) | test control: indirect values need resolving at consumer
+- 2038-T90 | pdf-syntax | test-coverage-gap | fixed (audit test prev_xref_stream_spec_audit::valid_incremental_xref_stream_prev_can_name_a_prior_xref_stream, killed by a plant that stops at the first section) | test control: Prev chain traversal
+- 2038-T91 | pdf-syntax | test-coverage-gap | fixed (audit test incremental_object_zero_spec_audit::incremental_object_zero_subsection_is_read_without_recovery, killed by a plant dropping classic free entries) | test control: object-zero free list
+- 2038-T108 | pdf-syntax | test-oracle-gap | fixed (audit test serialize_encrypted::r6_writer_entries_match_an_independent_algorithms_8_to_10_vector, killed by a plant zeroing the /Perms filler; the `remaining` weak /ID assertion is strengthened in serialize_encrypted::the_plaintext_is_not_in_the_bytes, two equal 16-byte strings, killed by a plant writing a 32-byte identifier) | test oracle independent of production helper
+- 2038-T130 | pdf-syntax | assertion-strengthening | fixed (audit test encryption_fixtures::absent_stream_and_string_defaults_are_identity, killed by a plant defaulting an absent selector to AESV2) | crypt filter selector defaults
+- 2038-T145 | pdf-syntax | fixture-validity-and-coverage | fixed (audit test type0_deletion_spec_audit::type_zero_with_valid_width_in_hybrid_update_deletes_the_old_entry, killed by a plant making a type 0 entry no opinion) | xref recovery and free-entry handling
+- 2038-T157 | pdf-syntax | assertion-quality | fixed (audit test encryption_fixtures::a_crypt_filter_with_no_name_uses_identity_instead_of_stmf, killed by a plant defaulting an unnamed /Crypt to /StmF) | crypt filter selector defaults
+- 2038-D16 | pdf-syntax | source-interpretation-qualification | fixed (ADR 2962; `crypt::perms_block`'s doc says reading /Perms over a disagreeing /P is this reader's recovery policy, step (f) "shall match", Algorithm 13 "should match") | perms-over-P tamper authority claim
+- 2038-D18 | pdf-syntax | implementation-bound-risk | fixed (ADR 2961; the 256-round ceiling is removed, the clause's own condition ends the loop after at most 287 repetitions) | algorithm 2.B round cap
+- 2038-D42 | pdf-syntax | test-claim-qualification | fixed (the audit corrected cross_references.rs's module comment; confirmed it now separates valid-file rules from recovery and departures) | xref module doc overclaims valid-file coverage
 
 ### G002 — file identifier doc; file identifier test gap; linearized header below EC3 version floor
 
@@ -232,9 +232,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-syntax/src/serialize.rs
 - test files: crates/pdf-syntax/tests/serialize.rs, crates/pdf-transform/tests/linearize.rs
 
-- 2038-B55 | pdf-syntax | behavior-gap | open | linearized header below EC3 version floor | 2 manifest failures
-- 2038-T54 | pdf-syntax,pdf-transform | assertion-coverage-gap | open | file identifier test gap
-- 2038-D28 | pdf-syntax,pdf-transform | stale-ledger-rationale | open | file identifier doc
+- 2038-B55 | pdf-syntax | behavior-gap | fixed (ADR 2958; the linearised header is raised to 1.2, Errata Collection 3 Issue #331; both linearize::linearizing_pdf_1_*_refuses_or_raises_the_header_to_the_ec3_floor pass) | linearized header below EC3 version floor | 2 manifest failures
+- 2038-T54 | pdf-syntax,pdf-transform | assertion-coverage-gap | fixed (audit test serialize::a_new_files_identifier_pair_is_equal_and_distinct_from_its_source, killed by a plant writing an unequal pair; added to §14.4's ledger row) | file identifier test gap
+- 2038-D28 | pdf-syntax,pdf-transform | stale-ledger-rationale | fixed (§14.4's ledger note names `reference.rs` and `forms_data.rs::belongs_to` as the two-document comparisons) | file identifier doc
 
 ### G003 — doc: hex string non-hex byte comment; lexical contexts test gap; test weakness: parser limit checks
 
@@ -242,9 +242,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-syntax/src/lexer.rs
 - test files: crates/pdf-syntax/tests/lexical_context_spec_audit.rs, crates/pdf-syntax/tests/parser_limit_boundaries_audit.rs
 
-- 2038-T18 | pdf-syntax | weak-test-oracle | open | test weakness: parser limit checks
-- 2038-T61 | pdf-syntax | strengthened-lexical-assertions | open | lexical contexts test gap
-- 2038-D08 | doc,pdf-syntax | incorrect-source-attribution | open | doc: hex string non-hex byte comment
+- 2038-T18 | pdf-syntax | weak-test-oracle | fixed (audit test parser_limit_boundaries_audit::complete_array_at_capacity_succeeds_and_one_more_item_names_the_limit, killed by a plant moving the array bound by one) | test weakness: parser limit checks
+- 2038-T61 | pdf-syntax | strengthened-lexical-assertions | fixed (audit test lexical_context_spec_audit::non_ascii_bytes_and_vertical_tab_remain_regular_name_bytes, killed by a plant counting VT as white space) | lexical contexts test gap
+- 2038-D08 | doc,pdf-syntax | incorrect-source-attribution | fixed (`lexer::read_hex_string`'s doc separates §7.3.4.3's white-space rule from this reader's skipping of other bytes) | doc: hex string non-hex byte comment
 
 ### G004 — test fixture: hybrid xref
 
@@ -252,7 +252,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-syntax/tests/cross_references.rs?
 
-- 2038-T09 | pdf-syntax | fixture-and-coverage-gap | open | test fixture: hybrid xref
+- 2038-T09 | pdf-syntax | fixture-and-coverage-gap | fixed (audit test cross_references::a_zero_width_type_field_defaults_a_valid_incremental_entry_to_type_one, killed by a plant defaulting the type to 0; `remaining` is scope) | test fixture: hybrid xref
 
 ### G005 — linearization writer parameters
 
@@ -260,7 +260,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-syntax/src/linearize.rs
 - test files: crates/pdf-transform/tests/linearize.rs
 
-- 2038-T119 | pdf-syntax | assertion-strengthening | open | linearization writer parameters
+- 2038-T119 | pdf-syntax | assertion-strengthening | fixed (audit test linearize::every_value_of_the_parameter_dictionary_is_where_the_file_says, killed by a plant writing /Linearized 2) | linearization writer parameters
 
 ### G006 — stream Length framing
 
@@ -268,7 +268,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-syntax/src/document/parsing.rs?
 - test files: crates/pdf-syntax/tests/cross_references.rs?
 
-- 2038-T141 | pdf-syntax | assertion-strengthening | open | stream Length framing
+- 2038-T141 | pdf-syntax | assertion-strengthening | fixed (new filters::dl_at_an_offset_where_endstream_appears_still_does_not_frame_the_stream; the audit's DL test survived a plant framing by /DL because the endstream check recovered, the new one is killed by it) | stream Length framing
 
 ### G007 — test comment: ASCII85 alphabet
 
@@ -276,7 +276,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-syntax/tests/ascii85_runlength_boundaries_audit.rs
 
-- 2038-T20 | pdf-syntax | test-premise-and-discrimination | open | test comment: ASCII85 alphabet
+- 2038-T20 | pdf-syntax | test-premise-and-discrimination | fixed (audit tests ascii85_runlength_boundaries::ascii85_tilde_followed_by_anything_but_greater_than_is_an_error and ::ascii85_windowed_reader_reports_a_malformed_eod_marker, killed by a plant accepting any byte after ~ on each route) | test comment: ASCII85 alphabet
 
 ### G008 — test oracle too weak or vacuous
 
@@ -284,7 +284,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-syntax/src/document.rs?
 - test files: crates/pdf-syntax/tests/on_disk.rs
 
-- 2038-T99 | pdf-syntax | test-oracle-gap | open | test oracle too weak or vacuous
+- 2038-T99 | pdf-syntax | test-oracle-gap | fixed (audit test on_disk::both_read_routes_compare_the_object_at_its_defined_nonzero_generation, killed by a plant answering generation 0) | test oracle too weak or vacuous
 
 
 ## pdf-colour

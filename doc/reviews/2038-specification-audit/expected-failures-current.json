@@ -58,35 +58,11 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-syntax::encryption_fixtures",
-   "test": "a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown",
-   "finding": "2038-B07",
-   "log": "broad.log"
-  },
-  {
    "binary": "viewer-core::named_destination_tables_audit",
    "test": "a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
    "finding": "2038-B08",
    "log": "broad.log",
    "disposition": "Unresolved interpretation/policy probe; not a confirmed mandatory ISO defect."
-  },
-  {
-   "binary": "pdf-colour::functions_spec_audit",
-   "test": "stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint",
-   "finding": "2038-B09",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-colour::sampled_functions_spec_audit",
-   "test": "sampled_interpolation_preserves_a_small_but_nonzero_domain_span",
-   "finding": "2038-B10",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::decode_element_types_audit",
-   "test": "decode_pairs_must_each_be_numbers",
-   "finding": "2038-B11",
-   "log": "broad.log"
   },
   {
    "binary": "viewer-core::headless",
@@ -158,12 +134,6 @@
    "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
    "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
    "finding": "2038-B20",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-syntax::prefixed_incremental_xref_spec_audit",
-   "test": "a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section",
-   "finding": "2038-B21",
    "log": "broad.log"
   },
   {
@@ -354,12 +324,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-colour::calculator_functions_spec_audit",
-   "test": "type4_null_separates_operands_and_operators_like_the_other_five_white_spaces",
-   "finding": "2038-B45",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-transform::archive_external_components_spec_audit",
    "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
    "finding": "2038-B46",
@@ -397,39 +361,9 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
-   "test": "indirect_predictor_number_keeps_the_same_decoded_samples",
-   "finding": "2038-B54",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
-   "test": "indirect_columns_number_keeps_the_same_decoded_samples",
-   "finding": "2038-B54",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-transform::linearize",
-   "test": "linearizing_pdf_1_0_refuses_or_raises_the_header_to_the_ec3_floor",
-   "finding": "2038-B55",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-transform::linearize",
-   "test": "linearizing_pdf_1_1_refuses_or_raises_the_header_to_the_ec3_floor",
-   "finding": "2038-B55",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-transform::warichu_split_spec_audit",
    "test": "each_page_split_keeps_empty_warichu_boundary_elements",
    "finding": "2038-B56",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-syntax::public_key_witnesses",
-   "test": "separate_stmf_and_strf_defaults_use_their_own_recipient_keys",
-   "finding": "2038-B57",
    "log": "broad.log"
   },
   {

@@ -128,6 +128,13 @@ use crate::version::Version;
 use crate::write;
 use crate::xref::Location;
 
+/// The lowest version a linearised file may state: §F.3.2 as Errata Collection 3 Issue #331
+/// amends it, striking the "1.1" of "may be applied to any PDF file of version 1.1 or greater"
+/// and writing 1.2 (ADR 2958). An older document is written at 1.2 rather than refused, because
+/// every construct a 1.0 or 1.1 file can hold is one a 1.2 file may hold, so the raise states
+/// nothing the content does not meet.
+const LINEARIZATION_FLOOR: Version = Version { major: 1, minor: 2 };
+
 /// The deepest a value tree is walked for references, the serializer's own bound.
 const MAX_VALUE_DEPTH: usize = 257;
 
@@ -894,7 +901,7 @@ fn write_linearized<W: Write>(
     } else {
         options.form
     };
-    let version = header_version(version, form, protected.is_some());
+    let version = header_version(version, form, protected.is_some()).max(LINEARIZATION_FLOOR);
     let graph = graph_of(objects);
     let placement = place(&graph, root, info, &pages, plan.first_page, &dropped);
     let layout = lay_out(

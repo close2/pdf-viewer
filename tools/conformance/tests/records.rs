@@ -59,6 +59,13 @@ const GATES_FROM: u32 = 1327;
 /// The first record whose gates are printed, so the rule is read against the records before it.
 const GATES_LISTED_FROM: u32 = 1284;
 
+/// Records the gates rule does not bind, by file name.
+///
+/// `2038-specification-evidence-audit.md` is the owner's record of the owner's own audit (review
+/// 2038), written outside a round, and a record is never rewritten to satisfy a gate: its Gates
+/// paragraph stands as the owner wrote it.
+const GATES_HELD: [&str; 1] = ["2038-specification-evidence-audit.md"];
+
 /// What a record says about its gates.
 #[derive(Debug, PartialEq, Eq)]
 enum Gates {
@@ -239,7 +246,7 @@ fn every_record_since_the_rule_states_its_gates() {
         "records since {GATES_LISTED_FROM} that do not state their gates in a **Gates.** paragraph:"
     );
     for (session, name, text) in &records {
-        if *session < GATES_LISTED_FROM {
+        if *session < GATES_LISTED_FROM || GATES_HELD.contains(&name.as_str()) {
             continue;
         }
         let gates = gates_of(text);

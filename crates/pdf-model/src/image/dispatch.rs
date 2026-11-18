@@ -912,11 +912,24 @@ fn inconsistent_entries(
     // Asked for its component count and nothing else, as `mask::colour_key_entry` asks it.
     let space = colour_space(document, dict, resources, &Conversion::device()).ok()?;
     let wanted = space.components().saturating_mul(2);
-    (decode.len() != wanted).then(|| {
-        format!(
-            "/Decode has {} numbers where its colour space's {} components need {wanted}",
+    if decode.len() != wanted {
+        return Some(format!(
+            "/Decode has {} entries where its colour space's {} components need {wanted}",
             decode.len(),
             space.components()
+        ));
+    }
+    // Table 87: "An array of numbers". An element that is not one is not a pair's endpoint, and
+    // dropping it would shift every later element into the wrong pair; §8.9.5.1 makes a base
+    // image's inconsistent entries an error rather than a guess.
+    let not_numbers = decode
+        .iter()
+        .filter(|item| document.resolve(item).as_number().is_none())
+        .count();
+    (not_numbers > 0).then(|| {
+        format!(
+            "/Decode has {not_numbers} entries that are not numbers, where Table 87 states \
+             an array of numbers"
         )
     })
 }

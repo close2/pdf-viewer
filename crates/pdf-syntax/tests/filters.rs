@@ -454,6 +454,43 @@ fn png_sub_predicts_packed_bytes_and_restarts_after_row_padding() {
     assert_eq!(&*undone, &[0x1b, 0xc0, 0xe4, 0x40]);
 }
 
+/// `/DL` is not the framing even where the bytes at its offset look like the stream's end.
+///
+/// Table 5: `/Length` is "\[t]he number of bytes from the beginning of the line following the
+/// keyword stream to the last byte just before the keyword endstream", and `/DL` is "the number
+/// of bytes in the decoded (defiltered) stream", a hint. A reader that framed by `/DL` and checked
+/// for `endstream` there would be satisfied by a payload that carries the keyword's bytes at that
+/// offset, and would cut the stream short. `RunLengthDecode` (§7.4.5) makes the payload exact:
+/// nine one-byte literal runs `00 61`, then one ten-byte run `09` holding a line feed and
+/// `endstream`, then EOD `80` — 30 encoded bytes, 19 decoded, and the encoded bytes from offset 19
+/// on begin with that line feed.
+#[test]
+fn dl_at_an_offset_where_endstream_appears_still_does_not_frame_the_stream() {
+    let mut encoded = Vec::new();
+    for _ in 0..9 {
+        encoded.extend_from_slice(&[0x00, b'a']);
+    }
+    encoded.push(0x09);
+    encoded.extend_from_slice(b"\nendstream");
+    encoded.push(0x80);
+    assert_eq!(encoded.len(), 30);
+    assert_eq!(
+        &encoded[19..29],
+        b"\nendstream",
+        "the keyword's bytes at /DL's offset"
+    );
+
+    let expected = b"aaaaaaaaa\nendstream";
+    let entries = format!("/Filter /RunLengthDecode /DL {}", expected.len());
+    let document = document_with_stream(&entries, &encoded);
+    assert!(!document.was_recovered(), "the fixture has an exact xref");
+    assert_eq!(
+        decoded(&document),
+        expected.as_slice(),
+        "/Length frames the 30 encoded bytes; /DL's 19 is the decoded count"
+    );
+}
+
 #[test]
 fn dl_is_a_decoded_length_hint_and_does_not_replace_encoded_length() {
     // This valid Flate stream has a correct /DL for its decoded bytes and a distinct

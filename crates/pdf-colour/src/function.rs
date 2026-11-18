@@ -716,9 +716,14 @@ impl Function {
         //
         // so x at that bound (the clipped input never lies below it) is the first function's,
         // whose zero-width interval `interpolate` maps to Encode 0.
-        let first_is_degenerate = bounds
-            .first()
-            .is_some_and(|first| first.total_cmp(&domain_low).is_eq());
+        //
+        // "Equal" is numeric equality, under which −0 and +0 are one number, so the comparison
+        // is IEEE 754's `==` rather than `total_cmp`, which orders −0 below +0.
+        #[expect(
+            clippy::float_cmp,
+            reason = "§7.10.4's degenerate case is exact numeric equality, with no tolerance"
+        )]
+        let first_is_degenerate = bounds.first().is_some_and(|first| *first == domain_low);
         let index = if first_is_degenerate && x <= domain_low {
             0
         } else {
@@ -1338,7 +1343,6 @@ fn clamp(value: f32, low: f32, high: f32) -> f32 {
     }
 }
 
-/// Maps `value` from one interval onto another.
 /// The last index of a sample table dimension holding `count` samples, Table 39's default
 /// `/Encode` bound `Size − 1`.
 fn last_index(count: usize) -> f32 {
@@ -1350,9 +1354,18 @@ fn last_index(count: usize) -> f32 {
     last
 }
 
+/// Maps `value` from one interval onto another: §7.10.1's `Interpolate`, which is the line
+/// through `(from_low, to_low)` and `(from_high, to_high)` evaluated at `value`.
+///
+/// **Only an interval of width exactly zero is degenerate.** The formula divides by
+/// `from_high − from_low` and states no tolerance, so a small nonzero domain such as `[0 1e-8]`
+/// is as much an interval as `[0 1]`; a zero width has no line, and answers `to_low`, which is
+/// §7.10.4's own answer for its one degenerate case ("x′ shall be defined to be Encode 0").
+/// ADR 2963.
 fn interpolate(value: f32, from_low: f32, from_high: f32, to_low: f32, to_high: f32) -> f32 {
     let span = from_high - from_low;
-    if span.abs() < f32::EPSILON {
+    // Exact, with no tolerance: the formula is undefined at zero width and nowhere else.
+    if span == 0.0 {
         return to_low;
     }
     to_low + (value - from_low) * (to_high - to_low) / span
@@ -2662,7 +2675,15 @@ fn compile_postscript(source: &[u8]) -> Result<Vec<Instruction>, FunctionError> 
     let text = String::from_utf8_lossy(source);
     let code = without_comments(&text);
     let spaced = code.replace('{', " { ").replace('}', " } ");
-    let mut tokens = spaced.split_whitespace().peekable();
+    // §7.2.3's Table 1 is the white space, NUL included, and nothing else: `str`'s own
+    // `split_whitespace` is Unicode's set, which leaves NUL inside a token and splits at a
+    // vertical tab PDF does not count.
+    let mut tokens = spaced
+        .split(|character: char| {
+            u8::try_from(character).is_ok_and(pdf_syntax::lexer::is_whitespace)
+        })
+        .filter(|token| !token.is_empty())
+        .peekable();
 
     // The whole program is wrapped in one pair of braces, which is consumed here so the
     // body compiles as a plain sequence.
@@ -2681,8 +2702,8 @@ fn compile_postscript(source: &[u8]) -> Result<Vec<Instruction>, FunctionError> 
 }
 
 /// Compiles until the closing brace of the current block.
-fn compile_block(
-    tokens: &mut std::iter::Peekable<std::str::SplitWhitespace<'_>>,
+fn compile_block<'a>(
+    tokens: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
     out: &mut Vec<Instruction>,
     depth: usize,
 ) -> Result<(), FunctionError> {

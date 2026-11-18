@@ -305,6 +305,9 @@ pub(crate) struct Encryption {
     stream: Method,
     /// Table 20's `/StrF`, resolved to a method.
     string: Method,
+    /// The key the strings are under where it is not [`Self::key`]: a public-key handler's
+    /// `/StrF` naming a filter other than `/StmF`'s, with recipient lists of its own (Table 27).
+    string_key: Option<Vec<u8>>,
     /// Table 20's `/EFF`, resolved to a method, falling back to `/StmF` where it is absent.
     embedded_file: Method,
     /// Table 20's `/CF`, so that a stream's own `/Crypt` filter can name one.
@@ -478,6 +481,7 @@ impl Encryption {
             string,
             embedded_file,
             filters,
+            string_key: None,
             own_keys: BTreeMap::new(),
             encrypt_metadata,
             // The match above admits 2 to 6 and refuses everything else, so this conversion
@@ -494,11 +498,6 @@ impl Encryption {
     /// The method Table 20's `/StmF` selects for a stream that names no filter of its own.
     pub(crate) fn stream_method(&self) -> Method {
         self.stream
-    }
-
-    /// The method Table 20's `/StrF` selects for every string.
-    pub(crate) fn string_method(&self) -> Method {
-        self.string
     }
 
     /// The method Table 20's `/EFF` selects for an embedded file stream (§7.11.4).
@@ -556,6 +555,37 @@ impl Encryption {
             return None;
         }
         decrypt_under(&self.key, method, id, data)
+    }
+
+    /// Decrypts one string belonging to the indirect object `id`, under `/StrF`'s method and
+    /// `/StrF`'s key.
+    pub(crate) fn decrypt_string(&self, id: ObjectId, data: &[u8]) -> Option<Vec<u8>> {
+        match &self.string_key {
+            Some(key) => decrypt_under(key, self.string, id, data),
+            None => self.decrypt(self.string, id, data),
+        }
+    }
+
+    /// [`Self::encrypt`] for one string, under the key [`Self::decrypt_string`] reads it with.
+    pub(crate) fn encrypt_string(&self, id: ObjectId, data: &[u8]) -> Option<Vec<u8>> {
+        match &self.string_key {
+            Some(key) => encrypt_under(key, self.string, id, data),
+            None => self.encrypt(self.string, id, data),
+        }
+    }
+
+    /// [`Self::encrypt_with_iv`] for one string, under the key [`Self::decrypt_string`] reads it
+    /// with.
+    pub(crate) fn encrypt_string_with_iv(
+        &self,
+        id: ObjectId,
+        iv: [u8; AES_BLOCK],
+        data: &[u8],
+    ) -> Option<Vec<u8>> {
+        match &self.string_key {
+            Some(key) => encrypt_under_with_iv(key, self.string, id, iv, data),
+            None => self.encrypt_with_iv(self.string, id, iv, data),
+        }
     }
 
     /// Decrypts one stream's data under the filter [`StreamFilter`] names: the document's key,
@@ -635,17 +665,7 @@ impl Encryption {
         if method != Method::Identity && !self.authenticated {
             return None;
         }
-        match method {
-            Method::Identity => Some(data.to_vec()),
-            Method::Rc4 => {
-                let mut out = data.to_vec();
-                rc4_apply(&self.object_key(method, id), &mut out)?;
-                Some(out)
-            }
-            Method::AesV2 | Method::AesV3 => {
-                aes_cbc_encrypt_with_iv(&self.object_key(method, id), iv, data)
-            }
-        }
+        encrypt_under_with_iv(&self.key, method, id, iv, data)
     }
 
     /// The handler a file this program *writes* is encrypted with: Table 20's `/V` 5 over
@@ -677,6 +697,7 @@ impl Encryption {
             string: Method::AesV3,
             embedded_file: Method::AesV3,
             filters,
+            string_key: None,
             own_keys: BTreeMap::new(),
             encrypt_metadata,
             permissions: Permissions::from_flags(i64::from(flags), true, 6),
@@ -684,6 +705,7 @@ impl Encryption {
     }
 
     /// [`object_key`] under the document's own file encryption key.
+    #[cfg(test)]
     fn object_key(&self, method: Method, id: ObjectId) -> Vec<u8> {
         object_key(&self.key, method, id)
     }
@@ -713,6 +735,27 @@ fn encrypt_under(key: &[u8], method: Method, id: ObjectId, data: &[u8]) -> Optio
             Some(out)
         }
         Method::AesV2 | Method::AesV3 => aes_cbc_encrypt(&object_key(key, method, id), data),
+    }
+}
+
+/// [`encrypt_under`] with the initialisation vector given rather than generated.
+fn encrypt_under_with_iv(
+    key: &[u8],
+    method: Method,
+    id: ObjectId,
+    iv: [u8; AES_BLOCK],
+    data: &[u8],
+) -> Option<Vec<u8>> {
+    match method {
+        Method::Identity => Some(data.to_vec()),
+        Method::Rc4 => {
+            let mut out = data.to_vec();
+            rc4_apply(&object_key(key, method, id), &mut out)?;
+            Some(out)
+        }
+        Method::AesV2 | Method::AesV3 => {
+            aes_cbc_encrypt_with_iv(&object_key(key, method, id), iv, data)
+        }
     }
 }
 
@@ -1029,15 +1072,13 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
 
     // "Perform the following steps (a)-(d) 64 times", then continue while the last byte of
     // E exceeds the round number less 32. NOTE 3 says the total is "most likely between 65
-    // and 80"; the bound below is far above that and exists because the loop's exit
-    // condition is computed from ciphertext, which a hostile file controls.
+    // and 80". **The clause bounds itself**, so no ceiling of this reader's is laid over it:
+    // the last byte of E is at most 255, so the condition is false once 287 repetitions are
+    // done, whatever the file's salt makes E, and no file can ask for more. A ceiling below
+    // that would answer a valid password with a key that does not authenticate (ADR 2961).
     let mut round: usize = 0;
     let mut last_of_e = 0u8;
     while round < 64 || usize::from(last_of_e) > round.saturating_sub(32) {
-        if round >= MAX_2B_ROUNDS {
-            break;
-        }
-
         // (a) K1 is 64 repetitions of password ‖ K ‖ extra.
         let mut k1 = Vec::with_capacity(
             password
@@ -1081,15 +1122,6 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
     k.truncate(32); // "The first 32 bytes of the final K are the output of the algorithm."
     k
 }
-
-/// A ceiling on Algorithm 2.B's rounds.
-///
-/// The clause's own NOTE 3 puts the real number "between 65 and 80". This bound is not a
-/// tuning constant but a refusal to let a file choose how long we compute: the exit test
-/// reads a byte of ciphertext the document supplies, and 64 rounds each hashing 64 copies
-/// of the password are already the expensive part of opening an encrypted file. Reaching it
-/// produces a key that will not authenticate, which is reported as a wrong password.
-const MAX_2B_ROUNDS: usize = 256;
 
 /// The refusal for a `/Filter` that is not `/Standard` and a `/SubFilter` that is not one of
 /// §7.6.5.2's three public-key formats: a handler this reader does not know and cannot guess at.
@@ -1174,6 +1206,14 @@ fn crypt_filters(
     let mut events = BTreeMap::new();
     if let Some(dict) = get("CF").as_dict() {
         for (name, value) in dict.iter() {
+            // Table 20's `/CF`: "Any keys in the CF dictionary that are listed in "Table 26 -
+            // Standard crypt filter names" shall be ignored by a PDF processor." Ignored means
+            // not read at all, so an `/Identity` entry whose `/CFM` this reader does not know
+            // cannot refuse the document; `select` and `named_method` answer the name with the
+            // standard filter's own properties.
+            if name.as_bytes() == b"Identity" {
+                continue;
+            }
             let Some(entry) = resolve(value).as_dict().cloned() else {
                 continue;
             };
@@ -1705,9 +1745,13 @@ struct PermsBlock {
 /// The block is the tamper-evident copy of what `/P` and `/EncryptMetadata` say, and
 /// §7.6.4.3.3 step (f) — part of retrieving the key rather than a separate check — states
 /// flatly that "Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer,
-/// **are** the user permissions". So a block that carries the "adb" marker is authoritative
-/// and a block that does not is unreadable, in which case the plaintext `/P` is all the
-/// file offers.
+/// **are** the user permissions", and that "\[t]hey shall match the value in the P key";
+/// Algorithm 13 says only that they "should match". A file whose two copies disagree is
+/// therefore one the standard does not describe, and **neither clause says which copy then
+/// wins**: reading the block that carries the "adb" marker is this reader's recovery policy
+/// for that file, chosen because the block is the copy under the key, not a rule the clause
+/// states (ADR 2962). A block without the marker is unreadable, and then the plaintext `/P` is
+/// all the file offers.
 fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
     let mut block = <[u8; AES_BLOCK]>::try_from(perms.get(..AES_BLOCK)?).ok()?;
     // Algorithm 13 step (a): AES-256 in ECB mode over one block, which is one application of
@@ -1937,7 +1981,7 @@ fn perms_entry(
 mod tests {
     use super::*;
 
-    // RFC 4013 §3 examples plus PDF §7.6.4.3.3 UTF-8 byte limit.
+    // RFC 4013 section 3 examples plus PDF §7.6.4.3.3 UTF-8 byte limit.
     #[test]
     fn r6_password_preparation_matches_saslprep_vectors_and_byte_limit() {
         assert_eq!(
@@ -2074,6 +2118,7 @@ mod tests {
             string: Method::Rc4,
             embedded_file: Method::Rc4,
             filters: BTreeMap::new(),
+            string_key: None,
             own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
@@ -2101,6 +2146,7 @@ mod tests {
             string: Method::AesV2,
             embedded_file: Method::AesV2,
             filters: BTreeMap::new(),
+            string_key: None,
             own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
