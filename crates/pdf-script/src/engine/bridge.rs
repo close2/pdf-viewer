@@ -1510,7 +1510,7 @@ fn style_of(name: &str, value: &JsValue, context: &mut Context) -> JsResult<Prop
 /// `Field.multiline`, `password`, `doNotScroll` or `comb` set: Table 231's flag on every terminal
 /// field the name stands for, each a text field.
 ///
-/// `comb` is held to the clause that defines it — the flag "[m]ay be set only if the `MaxLen`
+/// `comb` is held to the clause that defines it — the flag "\[m]ay be set only if the `MaxLen`
 /// entry is present in the text field dictionary … and if the Multiline, Password, and
 /// `FileSelect` flags are clear" — and setting it sets `doNotScroll` too, the side effect the
 /// reference's "Field properties" page states (ADR 1615). A refused write changes no field.

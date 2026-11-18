@@ -530,6 +530,7 @@ impl Viewer {
                 marked: interpretation.marked,
                 artifacts: interpretation.artifacts,
                 objects: interpretation.objects,
+                measured_xobjects: interpretation.measured_xobjects,
                 described: interpretation.described,
                 language: interpretation.language,
                 view_dependent: interpretation.view_dependent,

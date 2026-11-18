@@ -842,6 +842,14 @@ pub struct Interpretation {
     /// is a statement about *this* content and not about the document — the document-wide ones
     /// are `attachment::associated` on the catalog, and the page's on the page.
     pub associated_files: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
+    /// Every image or form `XObject` the page drew with its own `/Measure` — Table 87's "the
+    /// scale and units which shall apply to the image", Table 95's to the form — with where its
+    /// `Do` drew its bounds, in drawing order.
+    ///
+    /// Kept here because the CTM is a fact of the content stream and nowhere else:
+    /// `measurement::Viewports::on_page` reads it beside the page's `/VP` (ADR 3030). Empty on
+    /// every page whose objects state no measure, which is nearly all of them.
+    pub measured_xobjects: Vec<crate::measurement::MeasuredXObject>,
     /// The document catalog's `/Lang`, §14.9.2.3's default for everything in the file.
     pub language: Option<String>,
     /// Where each code's readback sits on the page, in the order it was shown.

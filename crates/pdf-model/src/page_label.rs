@@ -118,13 +118,11 @@ impl Style {
 /// *repeat count* is `⌈n ÷ 26⌉`. Base 26 would give `AA` at 27 by coincidence and `AB` at 28,
 /// where the clause gives `BB`.
 ///
-/// **Two of ISO 32000-2's errata contradict each other here, and this is the reading one of them
-/// states outright.** Issue #593 (`Review/Accepted`, 2026-05-21) inserts "AAA to ZZZ for the next
-/// 26, AAAA to ZZZZ for the next 26," into Table 161's `A` and `a` rows, which is this function's
-/// arithmetic written out. Issue #432 (`Review/Accepted`, 2024-06-17) strikes `ZZ` for `AZ` on the
-/// same line, which is the odometer instead. Both cannot be applied; the published sentence's own
-/// count — *for the next 26* — is satisfied only by the repeat, so the code is unchanged and the
-/// disagreement is recorded rather than resolved. `doc/errata-read.md` places both annotations.
+/// **This is the amended standard's reading.** Issue #593 inserts "AAA to ZZZ for the next 26,
+/// AAAA to ZZZZ for the next 26," into Table 161's `A` and `a` rows, which is this function's
+/// arithmetic written out; the PDF TWG agreed it, and Issue #432, which would have struck `ZZ` for
+/// `AZ` (the odometer), was closed as its duplicate. The sponsored PDF's errata overlay predates
+/// that settlement and still shows both (ADR 3018); `doc/errata-read.md` places them.
 fn letters(value: u32, upper: bool) -> String {
     if value == 0 {
         return String::new();

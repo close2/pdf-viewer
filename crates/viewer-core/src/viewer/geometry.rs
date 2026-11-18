@@ -613,8 +613,15 @@ impl Viewer {
             }
             user.push([x, y]);
         }
-        let object = open.placed_page(page?)?;
-        let viewports = measurement::Viewports::read(&open.document, &object.dict);
+        let page = page?;
+        let object = open.placed_page(page)?;
+        // An image's or a form's own measure is the interpretation's report (Tables 87 and 95); a
+        // page not yet interpreted has drawn neither, and its `/VP` is all it states.
+        let objects = open
+            .on(page)
+            .and_then(|on_screen| on_screen.interpreted.as_ref())
+            .map_or(&[][..], |interpreted| &interpreted.measured_xobjects[..]);
+        let viewports = measurement::Viewports::on_page(&open.document, object, objects);
         let traced = viewports.traced(&user)?;
         let located = user
             .last()

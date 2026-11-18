@@ -101,6 +101,11 @@ impl Interpreter<'_> {
                 None => self.alternate_image(&stream.dict, &label),
             };
             let drawn = alternate.as_ref().unwrap_or(&stream);
+            // Table 87's `/Measure` is the named image's, and an alternate is another rendition of
+            // that image (§8.9.5.4), so the base image's entry is the one read. Its bounds are
+            // the unit square §8.9.4 draws it into, and the CTM here is where that landed — the
+            // region Table 269's `/LPTS` describes (ADR 3030).
+            self.note_measured(&stream.dict, state.transform, [0.0, 0.0, 1.0, 1.0]);
             // An `XObject` is an object the resource dictionary hands out, so the same `Do`
             // twice is the same allocation twice and its address is the name of the image.
             self.draw_image(
@@ -162,6 +167,9 @@ impl Interpreter<'_> {
         // reading — clip to nothing — would delete content the producer plainly meant to
         // draw.
         if let Some(bbox) = self.rectangle(&stream.dict, "BBox") {
+            // Table 95's `/Measure` applies "to the form", whose rectangular bounds Table 269
+            // maps its unit square to: the `/BBox`, where the form's matrix and the CTM put it.
+            self.note_measured(&stream.dict, inner.transform, bbox);
             let Some(clip) = self.rect_clip(bbox, inner.transform, inner.clip) else {
                 self.note(Unsupported::LimitReached { limit: "max_clips" });
                 return;
@@ -267,6 +275,27 @@ impl Interpreter<'_> {
                 values[0], values[1], values[2], values[3], values[4], values[5],
             )
         })
+    }
+
+    /// Keeps an image's or a form's own `/Measure` with where its bounds were drawn
+    /// ([`crate::measurement::MeasuredXObject`]), up to the bound a page's `/VP` has.
+    fn note_measured(&mut self, dict: &Dictionary, transform: Transform, bounds: [f32; 4]) {
+        if self.measured_xobjects.len() >= crate::measurement::MAX_VIEWPORTS {
+            return;
+        }
+        let matrix = [
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
+            transform.e,
+            transform.f,
+        ];
+        if let Some(measured) =
+            crate::measurement::MeasuredXObject::of(self.document, dict, matrix, bounds)
+        {
+            self.measured_xobjects.push(measured);
+        }
     }
 
     /// Reads a rectangle entry as four numbers, in the order the file wrote them.

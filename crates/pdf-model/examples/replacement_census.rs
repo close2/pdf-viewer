@@ -150,6 +150,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         marked,
         objects,
         associated_files,
+        measured_xobjects,
         language,
         text_layer,
         functions,
@@ -196,6 +197,10 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
     differs(
         format!("{associated_files:?}") == format!("{:?}", whole.associated_files),
         "§14.13.5's associated files",
+    );
+    differs(
+        measured_xobjects == &whole.measured_xobjects,
+        "Tables 87 and 95's measured objects",
     );
     differs(language == &whole.language, "§14.9.2.3's /Lang");
     differs(text_layer == &whole.text_layer, "where the codes sit");

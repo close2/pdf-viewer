@@ -9,12 +9,6 @@
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
  "failures": [
-  {
-   "binary": "viewer-core::image_xobject_measurement_spec_audit",
-   "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
-   "finding": "2038-B73",
-   "log": "broad.log"
-  }
  ],
  "no_longer_failing": [
   {

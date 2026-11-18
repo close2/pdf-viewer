@@ -905,6 +905,12 @@ pub(crate) struct Interpreted {
     /// §14.7.5.3's annotations the structure tree claims, with what each read back, which a copy
     /// in logical order places where the tree names them (ADR 1970). Empty on every untagged page.
     pub(crate) objects: Vec<pdf_model::content::ObjectSpan>,
+    /// The images and forms this page drew with their own `/Measure`, and where each landed.
+    ///
+    /// Kept for `placed`'s reason — the CTM at an object's `Do` is only knowable while the page
+    /// is interpreted — so that a measurement finds an object's own scale and registration beside
+    /// the page's `/VP` (ADR 3030). Empty on nearly every page.
+    pub(crate) measured_xobjects: Vec<pdf_model::measurement::MeasuredXObject>,
     /// §14.9's `/Alt`, `/E` and `/Lang` spans, kept beside them for the same reason.
     pub(crate) described: Vec<pdf_model::accessibility::Described>,
     /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.

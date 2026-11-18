@@ -1152,6 +1152,7 @@ struct PieceRun {
     artifacts: Vec<super::ArtifactSpan>,
     marked: Vec<super::MarkedSpan>,
     associated: Vec<(Range<usize>, crate::attachment::Attachment)>,
+    measured_xobjects: Vec<crate::measurement::MeasuredXObject>,
     /// The extents of sections with an `/MCID` still open, which only the last piece may leave.
     marking: Vec<super::marked::OpenSequence>,
     /// How many hiding sections were open at the piece's end.
@@ -1294,6 +1295,7 @@ impl Interpreter<'_> {
         self.artifacts.append(&mut run.artifacts);
         self.marked.append(&mut run.marked);
         self.associated.append(&mut run.associated);
+        self.measured_xobjects.append(&mut run.measured_xobjects);
         self.marking.append(&mut run.marking);
         self.hidden = run.hidden;
         if let Some(readback) = run.text {
@@ -1506,6 +1508,7 @@ fn run_piece(
         artifacts: piece.artifacts,
         marked: piece.marked,
         associated: piece.associated,
+        measured_xobjects: piece.measured_xobjects,
         marking: piece.marking,
         hidden: piece.hidden,
         seeded,

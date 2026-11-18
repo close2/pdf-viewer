@@ -4,7 +4,7 @@
 //! # One realm per document
 //!
 //! A [`Realm`] is one Boa context that lives as long as its document: §12.6.4.17 has the
-//! name tree's scripts executed "[w]hen the document is opened, … defining ECMAScript functions for
+//! name tree's scripts executed "\[w]hen the document is opened, … defining ECMAScript functions for
 //! use by other scripts in the document", so what the open defines is what a field's script calls
 //! later, and the realm is where both run (ADR 1602). Each run installs a fresh `event` and clears
 //! its record; every global a script leaves — a function, a variable, a prototype it changed —

@@ -542,9 +542,12 @@ mod engine {
     #[test]
     fn a_page_shown_and_left_runs_each_annotation_s_visibility_with_its_open_and_close() {
         // Table 197's /PV is performed "when the page containing the annotation becomes visible"
-        // and /PI when it "is no longer visible"; a host showing one page at a time raises them
-        // with the page's open and close, so the open sequence and a turn run them there, each
-        // annotation's pair after the page's /O and before its /C (ADR 1750).
+        // and /PI when it "is no longer visible", and §12.6.3 keeps them apart from /PO and /PC:
+        // "[t]he PV and PI entries allow a distinction between pages that are open and pages that
+        // are visible." The open sequence is the first moment a script runs, so it runs the
+        // presented page's /PO and /PV; a page's close runs its /C and its annotations' /PC only,
+        // and /PI runs where the arrangement loses the page, raised as an annotation trigger of
+        // its own (ADR 2986).
         let document = document(
             "/AcroForm << /Fields [4 0 R] >>",
             "/AA << /O << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'O';) >> \
@@ -565,9 +568,15 @@ mod engine {
         assert_eq!(
             view.run_page_scripts(&document, 0, PageTrigger::Close)
                 .handed,
-            3
+            2
         );
-        assert_eq!(value(&view, &document, "Log"), "OPVciC");
+        assert_eq!(value(&view, &document, "Log"), "OPVcC");
+        assert_eq!(
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::PageInvisible)
+                .handed,
+            1
+        );
+        assert_eq!(value(&view, &document, "Log"), "OPVcCi");
     }
 
     #[test]

@@ -82,7 +82,7 @@ use crate::geospatial::{GeographicPosition, ReferenceSystem, Refusal};
 ///
 /// A viewport is a region of a page a person measures in; a page stating more of them than this
 /// is one making a reader work.
-const MAX_VIEWPORTS: usize = 1024;
+pub(crate) const MAX_VIEWPORTS: usize = 1024;
 
 /// Most number format dictionaries walked in one array.
 ///
@@ -119,6 +119,29 @@ pub struct Viewport {
     /// can say a viewport carries data this program does not use rather than implying it has
     /// none.
     pub has_point_data: bool,
+    /// Where this measuring region is an image's or a form's own rather than a `/VP` entry's.
+    ///
+    /// Table 87 gives an image its own `/Measure`, "the scale and units which shall apply to the
+    /// image", Table 95 gives a form one too, and Table 269's `/LPTS` maps the unit square "to the
+    /// rectangular bounds of the `Viewport`, image `XObject`, or forms `XObject` that contains the
+    /// measure dictionary". Those bounds are where the `Do` drew them, which may rotate or shear
+    /// them in a way no `/BBox` can state. [`Self::bbox`] is then the bounds of that
+    /// parallelogram in default user space and decides nothing; `None` for every `/VP` entry
+    /// (ADR 3030).
+    pub placement: Option<Placement>,
+}
+
+/// Where an `XObject` carrying its own `/Measure` was drawn. See [`Viewport::placement`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    /// The map from Table 269's unit square into default user space, `[a b c d e f]` in §8.3.4's
+    /// order: a point `(u, v)` of the square lands at `(a·u + c·v + e, b·u + d·v + f)`.
+    pub square: [f64; 6],
+    /// The object's rectangular bounds in its own space — `[0 0 1 1]` for an image, which §8.9.4
+    /// draws into the unit square of the user space current at its `Do`, and a form's `/BBox`,
+    /// stated in form space (Table 93) — which is the space `/PCSM`'s "`XObject` position
+    /// coordinates" are taken in.
+    pub bounds: [f64; 4],
 }
 
 impl Viewport {
@@ -129,6 +152,13 @@ impl Viewport {
     /// the measuring axes run.
     #[must_use]
     pub fn contains(&self, (x, y): (f32, f32)) -> bool {
+        if self.placement.is_some() {
+            // An object's region is its unit square wherever the `Do` carried it, edges included
+            // as a `/BBox`'s are.
+            return self
+                .unit_square((x, y))
+                .is_some_and(|[u, v]| (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v));
+        }
         let [x0, y0, x1, y1] = self.bbox;
         x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
     }
@@ -157,6 +187,23 @@ impl Viewport {
 
     /// [`Self::unit_square`] for a point already in `f64`.
     fn unit_square_at(&self, [x, y]: [f64; 2]) -> Option<[f64; 2]> {
+        if let Some(Placement {
+            square: [xx, xy, yx, yy, tx, ty],
+            ..
+        }) = self.placement
+        {
+            // The placement inverted; a singular one squeezed the object to a line or a point,
+            // which states no square, as a `/BBox` without extent does not.
+            let determinant = xx * yy - xy * yx;
+            if determinant == 0.0 || !determinant.is_finite() {
+                return None;
+            }
+            let (dx, dy) = (x - tx, y - ty);
+            return Some([
+                (yy * dx - yx * dy) / determinant,
+                (xx * dy - xy * dx) / determinant,
+            ]);
+        }
         let [x0, y0, x1, y1] = self.bbox.map(f64::from);
         let (width, height) = (x1 - x0, y1 - y0);
         if width == 0.0 || height == 0.0 {
@@ -169,8 +216,33 @@ impl Viewport {
     /// run backwards, with the corners as stated for that method's reason.
     #[must_use]
     pub fn from_unit_square(&self, [u, v]: [f64; 2]) -> [f64; 2] {
+        if let Some(Placement {
+            square: [xx, xy, yx, yy, tx, ty],
+            ..
+        }) = self.placement
+        {
+            return [xx * u + yx * v + tx, xy * u + yy * v + ty];
+        }
         let [x0, y0, x1, y1] = self.bbox.map(f64::from);
         [x0 + u * (x1 - x0), y0 + v * (y1 - y0)]
+    }
+
+    /// A point in default user space in Table 269's "`XObject` position coordinates", which
+    /// `/PCSM` transforms: default user space itself for a `/VP` entry, whose `/BBox` is stated
+    /// there, and the object's own space for an image or a form ([`Placement::bounds`], ADR 3030).
+    /// `None` for an object drawn under a singular matrix.
+    #[must_use]
+    pub fn object_position(&self, (x, y): (f32, f32)) -> Option<[f64; 2]> {
+        match self.placement {
+            Some(Placement {
+                bounds: [x0, y0, x1, y1],
+                ..
+            }) => {
+                let [u, v] = self.unit_square((x, y))?;
+                Some([x0 + u * (x1 - x0), y0 + v * (y1 - y0)])
+            }
+            None => Some([f64::from(x), f64::from(y)]),
+        }
     }
 
     /// Where on the page, in default user space, a position on the earth is in this viewport.
@@ -217,7 +289,22 @@ impl Viewport {
             let point = geospatial
                 .object_position(projected.grid(position)?)
                 .ok_or(Refusal::NotStated)??;
-            (point, self.unit_square_at(point).ok_or_else(no_square)?)
+            // [`Self::object_position`] run backwards: an object's position coordinates are its
+            // own bounds, which the unit square spans.
+            if let Some(Placement {
+                bounds: [x0, y0, x1, y1],
+                ..
+            }) = self.placement
+            {
+                let (width, height) = (x1 - x0, y1 - y0);
+                if width == 0.0 || height == 0.0 || self.unit_square_at([0.0, 0.0]).is_none() {
+                    return Err(no_square());
+                }
+                let local = [(point[0] - x0) / width, (point[1] - y0) / height];
+                (self.from_unit_square(local), local)
+            } else {
+                (point, self.unit_square_at(point).ok_or_else(no_square)?)
+            }
         } else {
             let local = geospatial
                 .registration_map()?
@@ -258,6 +345,29 @@ impl Viewports {
                 .filter_map(|entry| viewport(document, &document.resolve(entry)))
                 .collect(),
         }
+    }
+
+    /// Reads a page's `/VP` and adds, after its entries, every image and form the page's
+    /// interpretation drew with its own `/Measure` (Tables 87 and 95), in drawing order.
+    ///
+    /// **The order is a choice**, because ISO 32000-2 states none between the two. §12.9.1 orders
+    /// only the `/VP` array; Table 265 gives a viewport's measure to "the contents within the
+    /// viewport" and Table 87 gives an image's "to the image". Where both claim a point the
+    /// object's is the narrower statement — the producer said it of the very marks under the
+    /// point — so objects come after every viewport and [`Self::at`]'s reverse search meets them
+    /// first; among objects, the one drawn last is the one on top, which is §12.9.1's own rule
+    /// for overlapping viewports carried over (ADR 3030).
+    #[must_use]
+    pub fn on_page(document: &Document, page: &crate::Page, objects: &[MeasuredXObject]) -> Self {
+        let mut viewports = Self::read(document, &page.dict);
+        let room = MAX_VIEWPORTS.saturating_sub(viewports.viewports.len());
+        viewports.viewports.extend(
+            objects
+                .iter()
+                .take(room)
+                .filter_map(|object| object.viewport(page)),
+        );
+        viewports
     }
 
     /// Whether the page states any viewport.
@@ -1384,6 +1494,101 @@ pub fn point_data(document: &Document, viewport: &Dictionary) -> Vec<PointData> 
         .collect()
 }
 
+/// An image or form `XObject` a page drew with its own `/Measure` (Table 87, Table 95), and where
+/// its bounds landed.
+///
+/// Reported by the interpreter (`Interpretation::measured_xobjects`), because where an object
+/// lands is the CTM at its `Do`, which only the content stream decides; [`Viewports::on_page`]
+/// turns it into the measuring region Table 269 describes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasuredXObject {
+    /// The map from the object's own space into the display list's space (the page's, under
+    /// `content::base_transform`): the CTM at an image's `Do`, and a form's `/Matrix` followed
+    /// by that CTM (§8.10.1).
+    pub matrix: [f32; 6],
+    /// The object's rectangular bounds in its own space: `[0 0 1 1]` for an image (§8.9.4), the
+    /// `/BBox` for a form (Table 93), corners as stated.
+    pub bounds: [f32; 4],
+    /// The object's `/Measure`.
+    pub measure: Measure,
+}
+
+impl MeasuredXObject {
+    /// Reads an `XObject` dictionary's `/Measure` and pairs it with where the object was drawn;
+    /// `None` for the object that states none, which is nearly every one.
+    pub(crate) fn of(
+        document: &Document,
+        xobject: &Dictionary,
+        matrix: [f32; 6],
+        bounds: [f32; 4],
+    ) -> Option<Self> {
+        let measure = document.get_key(xobject, "Measure");
+        let measure = measure.as_dict()?;
+        Some(Self {
+            matrix,
+            bounds,
+            measure: measure_dictionary(document, measure),
+        })
+    }
+
+    /// This object as a measuring region in default user space: three corners of its bounds
+    /// carried there through the page's own transform, inverted, which is the map
+    /// [`Placement::square`] states. `None` where the page's transform is degenerate.
+    fn viewport(&self, page: &crate::Page) -> Option<Viewport> {
+        let [xx, xy, yx, yy, tx, ty] = self.matrix;
+        let [x0, y0, x1, y1] = self.bounds;
+        let corner = |u: f32, v: f32| {
+            let (along, up) = (x0 + u * (x1 - x0), y0 + v * (y1 - y0));
+            crate::content::user_space_at(
+                page,
+                xx * along + yx * up + tx,
+                xy * along + yy * up + ty,
+            )
+            .map(|(x, y)| [f64::from(x), f64::from(y)])
+        };
+        let origin = corner(0.0, 0.0)?;
+        let across = corner(1.0, 0.0)?;
+        let up = corner(0.0, 1.0)?;
+        let far = corner(1.0, 1.0)?;
+        let square = [
+            across[0] - origin[0],
+            across[1] - origin[1],
+            up[0] - origin[0],
+            up[1] - origin[1],
+            origin[0],
+            origin[1],
+        ];
+        let corners = [origin, across, up, far];
+        let lowest = |axis: usize| {
+            corners
+                .iter()
+                .map(|p| p[axis])
+                .fold(f64::INFINITY, f64::min)
+        };
+        let highest = |axis: usize| {
+            corners
+                .iter()
+                .map(|p| p[axis])
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the bounds are informative; `placement` carries the geometry in f64"
+        )]
+        let bbox = [lowest(0), lowest(1), highest(0), highest(1)].map(|value| value as f32);
+        Some(Viewport {
+            bbox,
+            name: None,
+            measure: Some(self.measure.clone()),
+            has_point_data: false,
+            placement: Some(Placement {
+                square,
+                bounds: self.bounds.map(f64::from),
+            }),
+        })
+    }
+}
+
 /// Reads one Table 265 viewport.
 fn viewport(document: &Document, entry: &Object) -> Option<Viewport> {
     let dict = entry.as_dict()?;
@@ -1399,6 +1604,7 @@ fn viewport(document: &Document, entry: &Object) -> Option<Viewport> {
             .as_dict()
             .map(|dict| measure_dictionary(document, dict)),
         has_point_data: document.get_key(dict, "PtData").as_dict().is_some(),
+        placement: None,
     })
 }
 
@@ -1663,7 +1869,8 @@ pub fn annotation_measurement(document: &Document, annotation: &Dictionary) -> O
 #[cfg(test)]
 mod tests {
     use super::{
-        CoordinateSystem, Fraction, Geospatial, Measure, NumberFormat, Viewport, Viewports, format,
+        CoordinateSystem, Fraction, Geospatial, Measure, NumberFormat, Placement, Viewport,
+        Viewports, format,
     };
     use crate::geospatial::{GeographicPosition, Refusal};
     use pdf_syntax::Document;
@@ -2357,6 +2564,7 @@ mod tests {
             name: None,
             measure: Some(Measure::Geospatial(Box::new(geospatial))),
             has_point_data: false,
+            placement: None,
         }
     }
 
@@ -2420,6 +2628,7 @@ mod tests {
             name: None,
             measure: None,
             has_point_data: false,
+            placement: None,
         };
         assert!(plain.page_position(degrees(51.0, 0.0)).is_none());
     }
@@ -2472,5 +2681,58 @@ mod tests {
             .object_position([500_000.0, 5_300_000.0]),
             Some(Err(Refusal::SingularMatrix))
         );
+    }
+
+    /// Table 269's unit square "mapped to the rectangular bounds of the … image `XObject`, or
+    /// forms `XObject`": an image drawn turned a quarter clockwise, `[0 -50 100 0 20 300]`, puts
+    /// its unit square's origin at (20, 300), its `u` axis down the page and its `v` axis to the
+    /// right — so a point is inside it, and where in it, by the CTM inverted, which no `/BBox`
+    /// could state.
+    #[test]
+    fn an_image_s_region_is_its_unit_square_wherever_the_ctm_carried_it() {
+        let image = Viewport {
+            bbox: [20.0, 250.0, 120.0, 300.0],
+            name: None,
+            measure: None,
+            has_point_data: false,
+            placement: Some(Placement {
+                square: [0.0, -50.0, 100.0, 0.0, 20.0, 300.0],
+                bounds: [0.0, 0.0, 1.0, 1.0],
+            }),
+        };
+        // (u, v) = (0.5, 0.25): x = 100·0.25 + 20 = 45, y = −50·0.5 + 300 = 275.
+        assert_eq!(image.unit_square((45.0, 275.0)), Some([0.5, 0.25]));
+        assert_eq!(image.from_unit_square([0.5, 0.25]), [45.0, 275.0]);
+        assert!(image.contains((45.0, 275.0)));
+        assert!(
+            image.contains((20.0, 300.0)),
+            "the edges belong to it, as a /BBox's do"
+        );
+        assert!(!image.contains((45.0, 301.0)), "above its origin is u < 0");
+        // `/PCSM`'s "XObject position coordinates" are the unit square for an image.
+        assert_eq!(image.object_position((45.0, 275.0)), Some([0.5, 0.25]));
+        // A form's are its own space, which the unit square spans as its `/BBox` does.
+        let form = Viewport {
+            placement: Some(Placement {
+                square: [0.0, -50.0, 100.0, 0.0, 20.0, 300.0],
+                bounds: [0.0, 0.0, 200.0, 100.0],
+            }),
+            ..image.clone()
+        };
+        assert_eq!(form.object_position((45.0, 275.0)), Some([100.0, 25.0]));
+
+        let squeezed = Viewport {
+            placement: Some(Placement {
+                square: [1.0, 2.0, 2.0, 4.0, 0.0, 0.0],
+                bounds: [0.0, 0.0, 1.0, 1.0],
+            }),
+            ..image
+        };
+        assert_eq!(
+            squeezed.unit_square((1.0, 2.0)),
+            None,
+            "a singular CTM states no square"
+        );
+        assert!(!squeezed.contains((1.0, 2.0)));
     }
 }

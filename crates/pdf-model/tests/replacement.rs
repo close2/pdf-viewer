@@ -205,6 +205,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         marked,
         objects,
         associated_files,
+        measured_xobjects,
         language,
         text_layer,
         functions,
@@ -254,6 +255,10 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         format!("{associated_files:?}"),
         format!("{:?}", whole.associated_files),
         "§14.13.5's associated files, {where_}"
+    );
+    assert_eq!(
+        measured_xobjects, &whole.measured_xobjects,
+        "Tables 87 and 95's measured objects, {where_}"
     );
     assert_eq!(language, &whole.language, "§14.9.2.3's /Lang, {where_}");
     assert_eq!(

@@ -1587,6 +1587,7 @@ impl<'a> Interpreter<'a> {
             word_gaps: text::WordGaps::default(),
             text_layer: Vec::new(),
             associated: Vec::new(),
+            measured_xobjects: Vec::new(),
             reversed_chars: 0,
             view_dependent: false,
             magnified_tiling: false,
@@ -1744,6 +1745,7 @@ impl<'a> Interpreter<'a> {
             structural_annotations,
             marking,
             associated,
+            measured_xobjects,
             reversed_chars,
             view_dependent,
             text_cursor,
@@ -1799,6 +1801,7 @@ impl<'a> Interpreter<'a> {
             structural_annotations: structural_annotations.clone(),
             marking: marking.clone(),
             associated: associated.clone(),
+            measured_xobjects: measured_xobjects.clone(),
             reversed_chars: *reversed_chars,
             view_dependent: *view_dependent,
             text_cursor: *text_cursor,
@@ -1851,6 +1854,7 @@ impl<'a> Interpreter<'a> {
             structural_annotations,
             marking,
             associated,
+            measured_xobjects,
             reversed_chars,
             view_dependent,
             text_cursor,
@@ -1895,6 +1899,7 @@ impl<'a> Interpreter<'a> {
         self.structural_annotations = structural_annotations;
         self.marking = marking;
         self.associated = associated;
+        self.measured_xobjects = measured_xobjects;
         self.reversed_chars = reversed_chars;
         self.view_dependent = view_dependent;
         self.text_cursor = text_cursor;
@@ -1992,6 +1997,8 @@ struct Checkpoint {
     marking: Vec<marked::OpenSequence>,
     /// See [`Interpretation::associated_files`].
     associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
+    /// See [`Interpretation::measured_xobjects`].
+    measured_xobjects: Vec<crate::measurement::MeasuredXObject>,
     /// See [`Interpreter::reversed_chars`].
     reversed_chars: usize,
     /// False at every seam — nothing but §12.5.3's own pass sets it — and carried rather than
@@ -2521,6 +2528,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         objects: interpreter.structural_annotations,
         inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
+        measured_xobjects: interpreter.measured_xobjects,
         language,
         text_layer: interpreter.text_layer,
         functions: crate::function::Watched::default(),
@@ -3051,6 +3059,9 @@ struct Interpreter<'a> {
     clip_extents: Vec<marked::ClipExtent>,
     /// §14.13.5's associated files, with the range of the readback their section covered.
     associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
+    /// The images and forms drawn with their own `/Measure`; see
+    /// [`Interpretation::measured_xobjects`].
+    measured_xobjects: Vec<crate::measurement::MeasuredXObject>,
     /// How many §14.8.2.5.3 `ReversedChars` sections are open.
     ///
     /// A counter because marked content nests and the clause states no limit on it; a show

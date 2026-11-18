@@ -48,18 +48,21 @@ pub enum Located {
     Refused(String),
 }
 
-/// The position of a point in default user space, where the viewport containing it is
-/// geospatial; `None` where it is not, because then there is nothing of §12.10's to say.
+/// The position of a point in default user space, where the viewport containing it — a `/VP`
+/// entry, or an image or a form drawn with its own `/Measure` (Tables 87 and 95) — is geospatial; `None` where it is not, because then there is nothing of §12.10's to say.
 pub(crate) fn locate(viewports: &Viewports, point: (f32, f32)) -> Option<Located> {
     let viewport = viewports.at(point)?;
     let Some(Measure::Geospatial(geospatial)) = &viewport.measure else {
         return None;
     };
     let Some(local) = viewport.unit_square(point) else {
-        return Some(Located::Refused(
+        let why = if viewport.placement.is_some() {
+            "the object was drawn under a singular matrix, so its bounds are no region to locate \
+             a point in"
+        } else {
             "the viewport's /BBox has no extent, so it states no unit square to locate a point in"
-                .to_owned(),
-        ));
+        };
+        return Some(Located::Refused(why.to_owned()));
     };
     // Table 269's `/Bounds` describes "the bounds of an area for which geospatial transformations
     // are valid": outside it, the file has disclaimed every position.
@@ -70,14 +73,17 @@ pub(crate) fn locate(viewports: &Viewports, point: (f32, f32)) -> Option<Located
                 .to_owned(),
         ));
     }
-    Some(position(geospatial, point, local))
+    // Where `local` exists the object position does too: both invert the same map.
+    let object = viewport.object_position(point).unwrap_or(local);
+    Some(position(geospatial, object, local))
 }
 
 /// The position itself: `/PCSM` where Table 269 gives it priority, the affine fit otherwise.
-fn position(geospatial: &Geospatial, point: (f32, f32), local: [f64; 2]) -> Located {
-    // `/PCSM` is "the transformation from XObject position coordinates", and a page's viewport is
-    // positioned in default user space, so that is the position it is handed.
-    let matrix = geospatial.geographic_position([f64::from(point.0), f64::from(point.1), 0.0]);
+fn position(geospatial: &Geospatial, object: [f64; 2], local: [f64; 2]) -> Located {
+    // `/PCSM` is "the transformation from XObject position coordinates": default user space for a
+    // page's viewport, which is where its `/BBox` is stated, and the object's own space for an
+    // image's or a form's measure (`Viewport::object_position`, ADR 3030).
+    let matrix = geospatial.geographic_position([object[0], object[1], 0.0]);
     let found = match matrix {
         Some(found) => found.map(|position| (position, 0.0)),
         None => geospatial

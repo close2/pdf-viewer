@@ -617,7 +617,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - test files: crates/pdf-model/tests/media_viability.rs, crates/viewer-core/tests/rich_media_assets.rs
 
 - 2038-T55 | viewer-core,pdf-model | fixture-evidence-boundary | fixed (the audit's module doc in rich_media_assets.rs states the fixture's consumer-only scope; nothing remaining) | rich media fixtures partial
-- 2038-T82 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: media_viability BU (MH half planted) fails on a plant of the defect and passes restored) | test control: media data BU judge
+- 2038-T82 | pdf-model | test-coverage-gap | fixed (plant-checked: round 2077 planted the MH half; round 2084 planted the BE half twice — /BE's /BU read as must-honour fails the test at its `expect("BE does not veto handoff")`, and /BE's /BU left unreported fails it at the `unhonoured` assertion — and it passes restored; no new test needed) | test control: media data BU judge
 - 2038-D31 | pdf-model | scoped-implementation-boundary | fixed (13.2.7.4 and 13.2.7.4.4 notes say the status certifies the nameless-software decisions only: URI, OS and range comparisons are not built, owed once a host names its player) | media software identifier scope doc
 
 ### G039 — compatibility section test gap; contents array q/Q test gap; contents array token split comment
@@ -704,7 +704,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/transparency.rs?
 - test files: crates/pdf-model/tests/transparency_groups.rs, crates/pdf-model/tests/transparency_repeated_group_spec_audit.rs
 
-- 2038-T44 | pdf-model,render-raster | independent-numeric-oracle-gap | fixed (plant-checked in round 2077: render-cpu basic_composite_partial_alpha_spec_audit (Color mode planted) fails on a plant of the defect and passes restored) | fractional alpha compositing test gap
+- 2038-T44 | pdf-model,render-raster | independent-numeric-oracle-gap | fixed (plant-checked: round 2077 planted Color; round 2084 planted Normal as tiny-skia SourceAtop, which fails the Normal control, and Multiply as Modulate, the alpha-blind blend-function-only result, which fails the Multiply line at [30,30,120,51]; passes restored; no new test needed. The remaining field's other backends are not this test's) | fractional alpha compositing test gap
 - 2038-T105 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: transparency_groups and transparency_repeated_group_spec_audit fails on a plant of the defect and passes restored) | test control: transparency group reuse
 
 ### G048 — OC language precedence test gap; optional content recommendation AND
@@ -713,7 +713,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/optional_content.rs
 - test files: crates/pdf-model/tests/optional_content.rs, crates/pdf-model/tests/optional_content_nested_spec_audit.rs?
 
-- 2038-T66 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: optional_content exact-match language (partial-tie half not planted) fails on a plant of the defect and passes restored) | OC language precedence test gap
+- 2038-T66 | pdf-model | test-coverage-gap | fixed (plant-checked: round 2077 planted the exact half; round 2084 planted the partial-tie half with /Preferred ignored, which fails the partial half's OFF assertion, and the test passes restored; no new test needed) | OC language precedence test gap
 - 2038-T123 | pdf-model | assertion-strengthening | fixed (the audit's last-writer-wins plant fails the AND assertion in optional_content.rs, which passes) | optional content recommendation AND
 
 ### G049 — embedded file checksum test gap; embedded file description reading
@@ -1207,7 +1207,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/measurement.rs, crates/viewer-core/src/viewer/geometry.rs
 - test files: crates/viewer-core/tests/image_xobject_measurement_spec_audit.rs, crates/viewer-core/tests/measurement_format_spec_audit.rs, crates/viewer-core/tests/measurement_numeric_spec_audit.rs
 
-- 2038-B73 | viewer-core,pdf-model | behavior | open (not reached in rounds 2073, 2076 and 2077. What it needs: Table 269's /LPTS unit square "is mapped to the rectangular bounds of the ... image XObject", which is the image's own unit square, so the CTM at its `Do` is the mapping; the interpreter reports each image XObject's CTM and /Measure (crates/pdf-model/src/content/xobject.rs), the viewer keeps them with the interpreted page, and viewer-core `geometry::measured` and `located::locate` read them beside the page's /VP, with /PCSM's "XObject position coordinates" taken in image space) | image XObject measure ignored by query | 1 manifest failure
+- 2038-B73 | viewer-core,pdf-model | behavior | fixed (ADR 3030, image_xobject_measurement_spec_audit both, form_xobject_measurement, measurement::tests::an_image_s_region_is_its_unit_square_wherever_the_ctm_carried_it: the interpreter reports each image and form drawn with its own /Measure and where its bounds landed (`Interpretation::measured_xobjects`, content/xobject.rs); `Viewports::on_page` makes each a `Viewport` with a `Placement` (the unit square's map into default user space, rotation and shear included) searched before the page's /VP, a stated choice; /PCSM's XObject position coordinates are the object's own space) | image XObject measure ignored by query | 1 manifest failure, now passing
 - 2038-T52 | viewer-core,pdf-model | assertion-coverage-gap | fixed (measurement_numeric_spec_audit, plant-checked: `traced` taking the last point's viewport fails it; its viewports do not overlap, so /VP's last-containing order is not pinned) | measurement numeric test gap
 - 2038-T153 | viewer-core,pdf-model | assertion-quality | fixed (measurement_format_spec_audit, plant-checked: a literal '.' for /RD fails it) | measurement number formatting
 
@@ -1581,6 +1581,14 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
   invalid for the point it tests; the round that takes G061 gives the font /Widths (A868), not the code a change.
   Status: fixed in round 2079 (G061): the fixture's /BaseFont /InheritedOnlyetica was a renaming accident of
   /Helvetica, standard 14, for which Table 109 asks no /Widths; restored, and the test passes.
+
+- pdf-script::hook engine::a_page_shown_and_left_runs_each_annotation_s_visibility_with_its_open_and_close
+  (with `--features engine`; not in the manifest) fails on main, left 2 right 3, since 65fe934f (round 2076's B78,
+  ADR 2986), which moved `/PI` out of `ViewState::run_page_scripts`. The code is right: §12.6.3 says "[t]he PV and PI
+  entries allow a distinction between pages that are open and pages that are visible", and Table 197's `/PI` runs
+  "when the page containing the annotation is no longer visible", which a page's close does not decide. Status: fixed
+  in round 2084: the test expects the close to run `/C` and the annotation's `/PC` (two), and raises `/PI` as the
+  annotation trigger it now is; its name, which review 1983's features.json lists, is kept.
 
 ## Conformance gates the merged audit files fail
 
