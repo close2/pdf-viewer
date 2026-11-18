@@ -720,12 +720,12 @@ fn every_other_key_is_asked_to_resist_over_its_period() {
     );
     assert_eq!(
         asked(
-            KeyRole::OcspResponder,
+            KeyRole::OcspResponder { about: 0 },
             rsa(3_072, Some(false)),
             Some(year_2035)
         ),
         [Issue::OtherKeyOutlived {
-            key: KeyRole::OcspResponder,
+            key: KeyRole::OcspResponder { about: 0 },
             rule: Rule::SignatureAlgorithms,
             entry: "RSA-PKCS#1v1_5",
             class: Class::LEGACY,

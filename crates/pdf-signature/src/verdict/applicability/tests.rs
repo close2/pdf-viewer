@@ -293,6 +293,7 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
         signatures: &[],
         lists: &[],
         path: &[],
+        responders: &[],
     });
     assert_eq!(report.scope, Scope::EuQualifiedUsingTrustedLists);
     assert_eq!(
@@ -418,6 +419,7 @@ fn the_authorities_keys_are_asked_by_clause_9_5_in_the_report() {
         signatures: &[],
         lists: &[],
         path: &path,
+        responders: &[],
     });
     let security = report.security.expect("a suite was reached");
     let clause_9_5: Vec<&Issue> = security
@@ -596,6 +598,7 @@ fn every_tokens_imprint_hash_is_asked_of_table_1_in_the_report() {
         signatures: &found,
         lists: &[],
         path: &[],
+        responders: &[],
     });
     assert_eq!(
         report
@@ -721,6 +724,7 @@ fn the_report_asks_the_unit_of_each_token_it_takes_as_a_time() {
             signatures: &found,
             lists: &[],
             path: &[],
+            responders: &[],
         });
         report
             .security
@@ -762,14 +766,19 @@ fn the_report_asks_the_unit_of_each_token_it_takes_as_a_time() {
 }
 
 /// TS 119 312 clause 9.5's OCSP responder: the delegate a response about the signer's
-/// certificate names and carries (RFC 6960 section 4.2.2.2 criterion 3), certified by the
-/// signer's issuer. The fixture's responder has a 3072-bit key under a CA whose key is 2048 bits,
-/// so the CA's modulus is smaller than the key it certifies — clause 9.5's *shall*. A response
-/// about another certificate names no responder for this one.
+/// certificate names, carries and is authorised by (RFC 6960 section 4.2.2.2 criterion 3), found
+/// by the path validation that read the response and certified by the signer's issuer. The
+/// fixture's responder has a 3072-bit key under a CA whose key is 2048 bits, so the CA's modulus
+/// is smaller than the key it certifies — clause 9.5's *shall*. Validated with the CA as the
+/// anchor, the responder is asked and in no pair, the anchor being clause 9.4's; the pair is asked
+/// over a path that carries the CA as position 1. Another leaf of the same CA, which the response
+/// is not about, names none.
 #[test]
 fn a_delegated_responder_is_asked_and_compared_with_its_issuer() {
     use super::ts_119_312::{Assessment, KeyRole, Parameter};
-    use crate::trust::{CertifiedKey, KeyParameters};
+    use crate::trust::{CertifiedKey, KeyParameters, Responder, Trust};
+    // The revocation module's instant, inside the fixture response's window.
+    let at = Instant::from_unix_seconds(1_790_812_800);
     let ca = hex(revocation_fixtures::CA);
     let leaf = hex(revocation_fixtures::GOOD_LEAF);
     let (ca, leaf) = (
@@ -778,23 +787,34 @@ fn a_delegated_responder_is_asked_and_compared_with_its_issuer() {
     );
     let response = hex(revocation_fixtures::OCSP_GOOD_BY_DELEGATE);
     let material = Material::read(&[], &[&response]);
-    let responders = ocsp_responders(&leaf, &material);
+    let anchors = TrustAnchors::of(std::slice::from_ref(&ca));
+    let trust = crate::trust::validate(&leaf, &[], &anchors, &material, at);
+    let Trust::Anchored { responders, .. } = &trust else {
+        panic!("the leaf chains to its CA: {trust:?}");
+    };
     let [responder] = responders.as_slice() else {
         panic!("one delegate: {responders:?}");
     };
+    assert_eq!(responder.about, 0);
     assert_eq!(
-        responder.key,
+        responder.key.key,
         KeyParameters::Rsa {
             modulus_bits: 3_072,
             pss: Some(false),
         }
     );
-    assert!(responder.validity.is_some());
+    assert!(responder.key.validity.is_some());
+    let (others, pairs) = other_keys(&[CertifiedKey::of(&leaf, None)], responders, &[]);
+    assert_eq!(
+        others.iter().map(|other| other.role).collect::<Vec<_>>(),
+        [KeyRole::OcspResponder { about: 0 }]
+    );
+    assert_eq!(pairs, [], "the responder's certifier is the anchor");
     let path = [
         CertifiedKey::of(&leaf, None),
         CertifiedKey::of(&ca, Some(leaf.signature_algorithm)),
     ];
-    let (_, pairs) = other_keys(&path, &responders, &[]);
+    let (_, pairs) = other_keys(&path, responders, &[]);
     let mut assessment = Assessment {
         components: Vec::new(),
         issues: Vec::new(),
@@ -805,13 +825,172 @@ fn a_delegated_responder_is_asked_and_compared_with_its_issuer() {
         assessment.issues,
         [Issue::WeakerThanCertified {
             certifier: ca_role,
-            certified: KeyRole::OcspResponder,
+            certified: KeyRole::OcspResponder { about: 0 },
             parameter: Parameter::Modulus,
             certifier_bits: 2_048,
             certified_bits: 3_072,
         }]
     );
-    let other = hex(PSEUDONYMOUS);
-    let other = x509::parse(&other).expect("it parses");
-    assert_eq!(ocsp_responders(&other, &material), []);
+    let other = hex(revocation_fixtures::REVOKED_LEAF);
+    let other = x509::parse(&other).expect("the other leaf parses");
+    let unanswered = crate::trust::validate(&other, &[], &anchors, &material, at);
+    let Trust::Anchored { responders, .. } = &unanswered else {
+        panic!("the leaf chains to its CA: {unanswered:?}");
+    };
+    assert_eq!(responders.as_slice(), &[] as &[Responder]);
+}
+
+/// The fixture of `tests/fixtures/token_path/generate.sh`: a token whose time-stamping unit is
+/// issued by an intermediate authority under a test root, and the two delegated responders'
+/// answers about that path's certificates. Every certificate names itself a test.
+mod token_path {
+    pub(super) const TOKEN: &[u8] = include_bytes!("../../../tests/fixtures/token_path/token.der");
+    pub(super) const ROOT: &[u8] = include_bytes!("../../../tests/fixtures/token_path/root.der");
+    pub(super) const UNIT_STATUS: &[u8] =
+        include_bytes!("../../../tests/fixtures/token_path/unit-status.der");
+    pub(super) const INTERMEDIATE_STATUS: &[u8] =
+        include_bytes!("../../../tests/fixtures/token_path/intermediate-status.der");
+}
+
+/// TS 119 312 clause 9.5 over a token's own path, in the report itself (ADRs 3056 and 3057). The
+/// document's second timestamp, taken as a time for the first, holds a token whose unit (RSA 3072,
+/// to 2031-01-01) an intermediate authority (RSA 2048, to 2030-01-01) issued under the supplied
+/// root, and the material holds a response about the unit by a delegate the intermediate certified
+/// (RSA 3072, to 2028-01-01) and one about the intermediate by a delegate the root certified (RSA
+/// 2048, to 2036-01-01). Read against the clause and Tables 2 and 6:
+///
+/// - the unit resists to its own `notAfter` under both rows: nothing;
+/// - the intermediate's period runs to the unit's later `notAfter`, 2031, past Table 6's
+///   `L[2026]` for 1 900 to 3 000 bits: outlived; and its modulus is smaller than the unit's and
+///   than its responder's, each a *shall* broken;
+/// - the unit's responder resists to 2028: nothing, and its pair is the one just named;
+/// - the intermediate's responder runs to 2036, past Table 2's bare `L` (2034) and Table 6's
+///   `L[2026]`: outlived twice, and in no pair, its certifier being the anchor.
+///
+/// With no anchor supplied the token's time is not established, no path validated, and only the
+/// unit is asked, which raises nothing: the control that the path is what the issues come from.
+#[test]
+fn a_tokens_own_path_and_its_responders_are_asked_by_clause_9_5_in_the_report() {
+    use super::ts_119_312::{KeyRole, Parameter};
+    // 2027-01-01T00:00:00Z: after the token's `genTime`, inside every certificate's validity and
+    // every response's window.
+    let at = Instant::from_unix_seconds(1_798_761_600);
+    let root = x509::parse(token_path::ROOT).expect("the fixture root parses");
+    let material = Material::read(
+        &[],
+        &[token_path::UNIT_STATUS, token_path::INTERMEDIATE_STATUS],
+    );
+    assert!(material.refused.is_empty(), "{:?}", material.refused);
+    let issues = |anchors: &TrustAnchors<'_>| token_path_report(anchors, &material, at);
+    let authority = KeyRole::TimeStampingAuthority { position: 1 };
+    let (established, asked) = issues(&TrustAnchors::of(std::slice::from_ref(&root)));
+    assert!(established, "the token chains to the supplied root");
+    assert_eq!(
+        asked,
+        [
+            Issue::OtherKeyOutlived {
+                key: authority,
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+                // 2031-01-01T00:00:00Z, the unit's `notAfter`.
+                until: Instant::from_unix_seconds(1_924_992_000),
+            },
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingResponder { about: 1 },
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+                until: Instant::from_unix_seconds(2_082_758_400),
+            },
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingResponder { about: 1 },
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+                // 2036-01-01T00:00:00Z.
+                until: Instant::from_unix_seconds(2_082_758_400),
+            },
+            Issue::WeakerThanCertified {
+                certifier: authority,
+                certified: KeyRole::TimeStampingUnit,
+                parameter: Parameter::Modulus,
+                certifier_bits: 2_048,
+                certified_bits: 3_072,
+            },
+            Issue::WeakerThanCertified {
+                certifier: authority,
+                certified: KeyRole::TimeStampingResponder { about: 0 },
+                parameter: Parameter::Modulus,
+                certifier_bits: 2_048,
+                certified_bits: 3_072,
+            },
+        ]
+    );
+    let (established, asked) = issues(&TrustAnchors::none());
+    assert!(!established, "no anchor, no established time");
+    assert_eq!(asked, []);
+}
+
+/// The report on the first timestamp of [`token_path`]'s document, asked with `anchors` and
+/// `material` at `at`: whether a document timestamp's time was established, and the report's
+/// clause 9.5 issues in its order.
+fn token_path_report(
+    anchors: &TrustAnchors<'_>,
+    material: &Material<'_>,
+    at: Instant,
+) -> (bool, Vec<Issue>) {
+    use crate::timestamp::chain;
+    use crate::timestamp::tests::fixtures::two_timestamps_holding;
+    let document = pdf_syntax::Document::open(two_timestamps_holding(token_path::TOKEN))
+        .expect("the fixture opens");
+    let found = crate::signature::signatures(&document);
+    let chain = chain(&document, anchors, &[], material, at);
+    let authenticity = Authenticity::Verified {
+        digest: Digest::Sha256,
+        family: Family::Rsa,
+        key_bits: 3_072,
+        over: Signed::TheDocumentsBytes,
+    };
+    let report = Report::of(&Asked {
+        signature: &found[0],
+        authenticity: &authenticity,
+        when: BestSignatureTime::now(at),
+        chain: &chain,
+        index: 0,
+        material,
+        anchors,
+        now: at,
+        signatures: &found,
+        lists: &[],
+        path: &[],
+        responders: &[],
+    });
+    let established = report.times.iter().any(|timing| {
+        timing.kind == TimeKind::DocumentTimestamp
+            && matches!(
+                timing.assurance,
+                Assurance::Token {
+                    established: true,
+                    ..
+                }
+            )
+    });
+    let clause_9_5: Vec<Issue> = report
+        .security
+        .expect("a suite was reached")
+        .issues
+        .into_iter()
+        .filter(|issue| {
+            matches!(
+                issue,
+                Issue::OtherKeyOutlived { .. }
+                    | Issue::OtherKeyNotListed { .. }
+                    | Issue::OtherKeyValidityNotRead { .. }
+                    | Issue::WeakerThanCertified { .. }
+                    | Issue::NotCompared { .. }
+            )
+        })
+        .collect();
+    (established, clause_9_5)
 }

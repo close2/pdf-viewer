@@ -84,9 +84,12 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   taken as a time (ADR 2905), clause 9.3's signer's key, whose legacy rows of Tables 2, 3, 6 and
   7 are asked to outlast its certificate's `notAfter` (ADR 2927), and clause 9.5's other keys —
   each authority's on the validated path (`trust::Trust::Anchored::keys`, `verdict::Valid::keys`),
-  a delegated OCSP responder's, each token's time-stamping unit's — asked the same over their own
-  certificate's validity and the certificates relying on it, each certifying key compared with the
-  key it certifies within a family and said as not compared across families (ADR 2928).
+  each token's time-stamping unit's and, where its time was established, the authorities' on its
+  own path (`timestamp::Time::Established::keys`, ADR 3056), and the delegated responder of every
+  response about a certificate on either path (`trust::Responder`, ADR 3057) — asked the same over
+  their own certificate's validity and the certificates relying on it, each certifying key
+  compared with the key it certifies within a family and said as not compared across families
+  (ADR 2928).
   `viewer_core::notes` says one sentence per item beside a listed signature's level, and e)'s
   warning wherever lists were given. `verdict::level`'s join is pinned end to end by a listed
   signer whose issuer's CRL was issued after the best signature time (`TOTAL-PASSED`), with the
@@ -149,11 +152,11 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905, 2927, 2928): no national rules
-   are held. Of TS 119 312 clause 9.5, the keys of a token's own path (its unit's issuer) and of an
-   OCSP response about a certificate other than the signer's are not carried, and clause 9.4's
-   rule, which the clause extends to these keys, is not asked: it runs to whenever the signature
-   needs verifying, an instant the report is not given.
+3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905, 2927, 2928, 3056, 3057, 3058):
+   clause 9.4's rule, which clause 9.5 extends to the other keys, is not asked, because the period
+   it runs to is a business policy's prose (TS 119 172-1 BSP (j)) that no input states; a host
+   input or a machine-readable policy element carrying it would bring it. No national rules are
+   held, and h)'s "either" does not ask for them.
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
    the location not fetched (re-read 2026-11-16, ADR 2886; unchanged under ADRs 2932 and 2936). The

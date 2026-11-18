@@ -741,6 +741,17 @@ pub(crate) mod fixtures {
         })
     }
 
+    /// [`two_timestamps`] with the store covered and both timestamps holding `token` itself.
+    ///
+    /// Each token's imprint is then not the digest of its byte range, which no question asked of
+    /// these documents reads: whether a token's time is established is steps 1 to 4 of the module
+    /// comment, and the imprint against the document is the integrity question
+    /// ([`super::established`]). So a token minted once, outside this tree, stands in both places.
+    pub(crate) fn two_timestamps_holding(token: &[u8]) -> Vec<u8> {
+        let room = token.len().saturating_mul(2).saturating_add(64);
+        laid_down(false, room, &|_| token.to_vec())
+    }
+
     /// The two-revision layout, with `room` hexadecimal characters reserved for each signature
     /// value and `mint` making each token from the digest of its byte range.
     fn laid_down(material_last: bool, room: usize, mint: &dyn Fn(&[u8]) -> Vec<u8>) -> Vec<u8> {

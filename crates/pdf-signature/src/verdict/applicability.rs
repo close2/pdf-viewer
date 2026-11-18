@@ -66,10 +66,11 @@ use crate::saml::{self, Saml, SignatureCheck};
 use crate::signature::{Authenticity, Family, Signature};
 use crate::timestamp::{self, Accuracy, AskedAt, Chain, Time};
 use crate::trust::names::{self, Name, NamedAttribute, Unreadable};
-use crate::trust::{CertifiedKey, TrustAnchors};
+use crate::trust::{CertifiedKey, Responder, TrustAnchors};
 use crate::trusted_list::TrustedList;
 use crate::trusted_list::time_stamp::{self, ListedAuthority};
 use crate::x509::{self, Instant};
+use ts_119_312::KeyRole;
 
 /// X.520's `id-at-pseudonym`, `2.5.4.65` — the attribute ETSI EN 319 412-2 clause 4.2.4 has a
 /// natural person's certificate state a pseudonym in.
@@ -377,6 +378,22 @@ pub struct Asked<'a, 'm> {
     /// and the anchor excluded ([`super::Valid::keys`]): the authorities' keys TS 119 312 clause
     /// 9.5 asks about. Empty where no path is handed in.
     pub path: &'a [CertifiedKey],
+    /// The delegated OCSP responders the material named about `path`'s certificates
+    /// ([`super::Valid::responders`]): clause 9.5's responder keys. Empty where no path is
+    /// handed in.
+    pub responders: &'a [Responder],
+}
+
+/// A time-stamp token's own keys, for TS 119 312 clause 9.5: its unit's and, where the token's
+/// time was established, the authorities' above it on the path that validated and the responders
+/// the material named about that path (ADR 3056).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct TokenKeys {
+    /// The unit first, then its issuer and the rest of the path, the anchor excluded; the unit
+    /// alone where no path validated.
+    path: Vec<CertifiedKey>,
+    /// The delegated responders about that path's certificates.
+    responders: Vec<Responder>,
 }
 
 impl Report {
@@ -393,17 +410,15 @@ impl Report {
         let mut times = Vec::new();
         // The imprint digest of each time-stamp token taken as a time (TS 119 312 clause 9.2).
         let mut imprints = Vec::new();
-        // The key of each time-stamping unit whose token is taken as a time (clause 9.5).
-        let mut units = Vec::new();
+        // The keys of each token taken as a time (clause 9.5).
+        let mut tokens = Vec::new();
         claimed(asked.signature, cms.as_ref(), &mut times);
-        document_timestamps(asked, &mut times, &mut imprints, &mut units);
+        document_timestamps(asked, &mut times, &mut imprints, &mut tokens);
         if let Some(cms) = &cms {
-            signature_timestamp(cms, asked, &mut times, &mut imprints, &mut units);
+            signature_timestamp(cms, asked, &mut times, &mut imprints, &mut tokens);
         }
-        let mut responders = Vec::new();
         if let Some(Ok(certificate)) = &parsed {
             revocation_times(certificate, asked.material, &mut times);
-            responders = ocsp_responders(certificate, asked.material);
         }
         times.push(Timing {
             kind: TimeKind::BestSignatureTime,
@@ -438,7 +453,7 @@ impl Report {
                 Some(Ok(certificate)) => certificate.validity.map(|validity| validity.not_after),
                 _ => None,
             });
-            let (others, pairs) = other_keys(asked.path, &responders, &units);
+            let (others, pairs) = other_keys(asked.path, asked.responders, &tokens);
             assessment.other_keys(&others);
             assessment.certifications(&pairs);
             assessment
@@ -518,7 +533,7 @@ fn document_timestamps(
     asked: &Asked<'_, '_>,
     times: &mut Vec<Timing>,
     imprints: &mut Vec<Digest>,
-    units: &mut Vec<CertifiedKey>,
+    tokens: &mut Vec<TokenKeys>,
 ) {
     for link in asked
         .chain
@@ -532,7 +547,7 @@ fn document_timestamps(
                 .get(link.signature)
                 .and_then(|signature| signature.signed_data().ok());
             imprints.push(claim.imprint_digest);
-            units.extend(cms.as_ref().and_then(unit));
+            tokens.extend(token_keys(cms.as_ref(), &link.time));
             times.push(Timing {
                 kind: TimeKind::DocumentTimestamp,
                 at: claim.gen_time,
@@ -548,7 +563,7 @@ fn signature_timestamp(
     asked: &Asked<'_, '_>,
     times: &mut Vec<Timing>,
     imprints: &mut Vec<Digest>,
-    units: &mut Vec<CertifiedKey>,
+    tokens: &mut Vec<TokenKeys>,
 ) {
     let Some(Ok(attribute)) = timestamp::signature_timestamp(cms) else {
         return;
@@ -568,7 +583,10 @@ fn signature_timestamp(
     };
     let token_cms = timestamp::signature_timestamp_token(cms).and_then(Result::ok);
     imprints.push(attribute.claim.imprint_digest);
-    units.extend(token_cms.as_ref().and_then(|(token, _)| unit(token)));
+    tokens.extend(token_keys(
+        token_cms.as_ref().map(|(token, _)| token),
+        &time,
+    ));
     times.push(Timing {
         kind: TimeKind::SignatureTimestamp,
         at: attribute.claim.gen_time,
@@ -591,67 +609,113 @@ fn unit(token: &SignedData<'_>) -> Option<CertifiedKey> {
     ))
 }
 
-/// The delegated responder of each OCSP response in `material` that states the signer's status:
-/// the certificate the response carries that its `ResponderID` names, issued by the signer's
-/// issuer and asserting `id-kp-OCSPSigning`, which is RFC 6960 section 4.2.2.2's criterion 3. A
-/// response its CA signed itself names no such certificate; that key is the path's.
-fn ocsp_responders(signer: &x509::Certificate<'_>, material: &Material<'_>) -> Vec<CertifiedKey> {
-    let mut responders = Vec::new();
-    for response in material.responses.iter().filter(|response| {
-        response
-            .responses
-            .iter()
-            .any(|single| same_serial(single.serial_number, signer.serial_number))
-    }) {
-        let named = response.certificates.iter().find_map(|value| {
-            let certificate = x509::read(*value).ok()?;
-            let by_name = response.responder_name == Some(certificate.subject);
-            let by_key = response.responder_key_hash.is_some_and(|hash| {
-                Digest::Sha1
-                    .compute(&[certificate.public_key_bits])
-                    .as_slice()
-                    == hash
-            });
-            ((by_name || by_key)
-                && certificate.issuer == signer.issuer
-                && certificate
-                    .extensions
-                    .extended_key_usage
-                    .is_some_and(crate::revocation::asserts_ocsp_signing))
-            .then(|| CertifiedKey::of(&certificate, Some(response.signature_algorithm)))
-        });
-        if let Some(responder) = named
-            && !responders.contains(&responder)
-        {
-            responders.push(responder);
+/// A token's keys for clause 9.5: the path its time was established through, with the unit's key
+/// as [`unit()`] reads it — the path's own first key has no signature of its own seen, and the
+/// token's signature is the one that decides Table 2's row — or the unit alone where the token's
+/// time was not established, because then no path validated to name its issuer.
+fn token_keys(token: Option<&SignedData<'_>>, time: &Time) -> Option<TokenKeys> {
+    let unit = token.and_then(unit);
+    match time {
+        Time::Established {
+            keys, responders, ..
+        } if !keys.is_empty() => {
+            let mut path = keys.clone();
+            if let (Some(unit), Some(first)) = (unit, path.first_mut()) {
+                *first = unit;
+            }
+            Some(TokenKeys {
+                path,
+                responders: responders.clone(),
+            })
         }
+        _ => unit.map(|unit| TokenKeys {
+            path: vec![unit],
+            responders: Vec::new(),
+        }),
     }
-    responders
+}
+
+/// Whose key sits where on one path, for [`other_keys`].
+struct Roles {
+    /// The key at position 0: the signer's, or a time-stamping unit's.
+    first: KeyRole,
+    /// Whether clause 9.5 asks the key at position 0 itself — a unit's, yes; the signer's is
+    /// clause 9.3's, asked by [`ts_119_312::Assessment::signer_key`].
+    first_is_other: bool,
+    /// An authority's role, by its position.
+    authority: fn(usize) -> KeyRole,
+    /// A delegated responder's role, by the position of the certificate it answered about.
+    responder: fn(usize) -> KeyRole,
 }
 
 /// Clause 9.5's keys and the pairs of a certifying key and the key it certifies.
 ///
-/// A certification authority at position `i` of the path certifies the key at `i - 1`, and every
-/// certificate below it relies on its validity, so its period ends at the latest `notAfter` among
-/// its own and theirs. The signer's issuer, the path's position 1, certifies a delegated OCSP
-/// responder (RFC 6960 section 4.2.2.2's same issuing key). A responder's and a time-stamping
-/// unit's period is their own certificate's: no certificate here relies on theirs, and the unit's
-/// own issuer is not carried, so it is in no pair (ADR 2928).
+/// Over the signer's path and over each token's own (ADR 3056), alike. A certification authority
+/// at position `i` of a path certifies the key at `i - 1`, and every certificate below it relies
+/// on its validity, so its period ends at the latest `notAfter` among its own and theirs. A
+/// delegated responder about the certificate at `about` is certified by that certificate's issuer,
+/// the path's key at `about + 1` (RFC 6960 section 4.2.2.2's same issuing key), and is in no pair
+/// where that issuer is the anchor, which clause 9.4 asks and this report does not (ADR 3058). A
+/// responder's and a time-stamping unit's period is their own certificate's: no certificate here
+/// relies on theirs.
 fn other_keys(
     path: &[CertifiedKey],
-    responders: &[CertifiedKey],
-    units: &[CertifiedKey],
+    responders: &[Responder],
+    tokens: &[TokenKeys],
 ) -> (Vec<ts_119_312::OtherKey>, Vec<ts_119_312::Certification>) {
-    use ts_119_312::{Certification, KeyRole, OtherKey};
-    let role = |position: usize| {
-        if position == 0 {
-            KeyRole::Signer
-        } else {
-            KeyRole::CertificationAuthority { position }
-        }
-    };
     let mut others = Vec::new();
     let mut pairs = Vec::new();
+    let signer = Roles {
+        first: KeyRole::Signer,
+        first_is_other: false,
+        authority: |position| KeyRole::CertificationAuthority { position },
+        responder: |about| KeyRole::OcspResponder { about },
+    };
+    one_path(path, responders, &signer, &mut others, &mut pairs);
+    let unit = Roles {
+        first: KeyRole::TimeStampingUnit,
+        first_is_other: true,
+        authority: |position| KeyRole::TimeStampingAuthority { position },
+        responder: |about| KeyRole::TimeStampingResponder { about },
+    };
+    for token in tokens {
+        one_path(
+            &token.path,
+            &token.responders,
+            &unit,
+            &mut others,
+            &mut pairs,
+        );
+    }
+    (others, pairs)
+}
+
+/// [`other_keys`] over one path, its roles named by `roles`.
+fn one_path(
+    path: &[CertifiedKey],
+    responders: &[Responder],
+    roles: &Roles,
+    others: &mut Vec<ts_119_312::OtherKey>,
+    pairs: &mut Vec<ts_119_312::Certification>,
+) {
+    use ts_119_312::{Certification, OtherKey};
+    let role = |position: usize| {
+        if position == 0 {
+            roles.first
+        } else {
+            (roles.authority)(position)
+        }
+    };
+    let own = |key: &CertifiedKey, role| OtherKey {
+        role,
+        key: key.key,
+        until: key.validity.map(|validity| validity.not_after),
+    };
+    if roles.first_is_other
+        && let Some(first) = path.first()
+    {
+        others.push(own(first, roles.first));
+    }
     for (position, authority) in path.iter().enumerate().skip(1) {
         let until = authority.validity.map(|own| {
             path.get(..position)
@@ -676,26 +740,17 @@ fn other_keys(
             });
         }
     }
-    let own = |key: &CertifiedKey, role| OtherKey {
-        role,
-        key: key.key,
-        until: key.validity.map(|validity| validity.not_after),
-    };
     for responder in responders {
-        others.push(own(responder, KeyRole::OcspResponder));
-        if let Some(issuer) = path.get(1) {
+        let responder_role = (roles.responder)(responder.about);
+        others.push(own(&responder.key, responder_role));
+        let issuer = responder.about.saturating_add(1);
+        if let Some(certifier) = path.get(issuer) {
             pairs.push(Certification {
-                certifier: (role(1), issuer.key),
-                certified: (KeyRole::OcspResponder, responder.key),
+                certifier: (role(issuer), certifier.key),
+                certified: (responder_role, responder.key.key),
             });
         }
     }
-    others.extend(
-        units
-            .iter()
-            .map(|unit| own(unit, KeyRole::TimeStampingUnit)),
-    );
-    (others, pairs)
 }
 
 /// d) iii) for a token: items 1) and 2) from the token, 3) by ETSI TS 119 615 clause 4.7 at the

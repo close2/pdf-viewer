@@ -849,10 +849,26 @@ pub enum KeyRole {
         /// Its position on the path.
         position: usize,
     },
-    /// The delegated responder an OCSP response about the signer's certificate names.
-    OcspResponder,
+    /// The delegated responder an OCSP response about a certificate on that path names, by the
+    /// position of the certificate it answered about (ADR 3057).
+    OcspResponder {
+        /// The position of the certificate the response answered about, the signer's being 0.
+        about: usize,
+    },
     /// The time-stamping unit that signed a token taken as a time.
     TimeStampingUnit,
+    /// A certification authority's on the path a token's time was established through, by its
+    /// position — the unit's certificate being 0, its issuer 1 (ADR 3056).
+    TimeStampingAuthority {
+        /// Its position on the token's path.
+        position: usize,
+    },
+    /// The delegated responder an OCSP response about a certificate on a token's path names, by
+    /// that certificate's position (ADR 3057).
+    TimeStampingResponder {
+        /// The position of the certificate the response answered about, the unit's being 0.
+        about: usize,
+    },
 }
 
 /// A key's parameter clause 9.5 compares with the corresponding parameter of a certified key.

@@ -587,6 +587,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
             position: 1,
         },
         keys: Vec::new(),
+        responders: Vec::new(),
     })
     .expect("an anchored trust is a proof");
     assert_eq!(
@@ -609,6 +610,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
             position: 0,
         },
         keys: Vec::new(),
+        responders: Vec::new(),
     })
     .expect("an anchored trust is a proof");
     assert_eq!(
@@ -663,6 +665,7 @@ fn a_revocation_after_a_proven_instant_does_not_reach_the_signature() {
                 position: 1,
             },
             keys: Vec::new(),
+            responders: Vec::new(),
         })
         .expect("an anchored trust is a proof")
     };
@@ -760,6 +763,7 @@ fn only_an_anchored_trust_is_a_proof() {
             length: 1,
             revocation: Revocation::NotChecked,
             keys: Vec::new(),
+            responders: Vec::new(),
         })
         .is_some()
     );

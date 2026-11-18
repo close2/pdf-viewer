@@ -368,6 +368,7 @@ fn a_chain_to_a_supplied_anchor_validates() {
             length: 2,
             revocation: Revocation::NotChecked,
             keys,
+            responders: Vec::new(),
         },
         "the signer and its one intermediate are RFC 5280 section 6.1's certificates 1 and 2"
     );

@@ -67,7 +67,7 @@ use crate::der::{
 };
 use crate::revocation::{Material, Revocation};
 use crate::signature::{self, Authenticity, Integrity, Signature, SignedEnd};
-use crate::trust::{Purpose, Trust, TrustAnchors};
+use crate::trust::{CertifiedKey, Purpose, Responder, Trust, TrustAnchors};
 use crate::trusted_list::TrustedList;
 use crate::trusted_list::time_stamp::{self, ListedAuthority};
 use crate::x509::{self, Instant};
@@ -458,12 +458,19 @@ pub fn signature_timestamp_established(
         asked_at.instant(),
     );
     Some(match trust {
-        Trust::Anchored { revocation, .. } => Time::Established {
+        Trust::Anchored {
+            revocation,
+            keys,
+            responders,
+            ..
+        } => Time::Established {
             at: info.gen_time,
             accuracy: info.accuracy,
             revocation,
             asked_at,
             through,
+            keys,
+            responders,
         },
         other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
     })
@@ -697,6 +704,12 @@ pub enum Time {
         asked_at: AskedAt,
         /// Whose anchor that path ended at.
         through: Authority,
+        /// The key and validity of each certificate on that path, the time-stamping unit's first
+        /// and the anchor excluded: what ETSI TS 119 312 clause 9.5 asks of "TSU keys" and of the
+        /// authorities' keys above them (ADR 3056).
+        keys: Vec<CertifiedKey>,
+        /// The delegated OCSP responders the material named about that path's certificates.
+        responders: Vec<Responder>,
     },
     /// It did not, and this is where it stopped.
     Unknown(Unestablished),
@@ -863,12 +876,19 @@ pub fn established(
         asked_at.instant(),
     );
     match trust {
-        Trust::Anchored { revocation, .. } => Time::Established {
+        Trust::Anchored {
+            revocation,
+            keys,
+            responders,
+            ..
+        } => Time::Established {
             at: info.gen_time,
             accuracy: info.accuracy,
             revocation,
             asked_at,
             through,
+            keys,
+            responders,
         },
         other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
     }

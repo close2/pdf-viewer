@@ -50,7 +50,7 @@
 
 use crate::revocation::{Revocation, Undetermined};
 use crate::signature::{Authenticity, Integrity};
-use crate::trust::{CertifiedKey, PathRefusal, Trust};
+use crate::trust::{CertifiedKey, PathRefusal, Responder, Trust};
 use crate::x509::Instant;
 
 /// A certification path that reached an anchor a host supplied.
@@ -64,6 +64,7 @@ pub struct Anchored {
     length: usize,
     revocation: Revocation,
     keys: Vec<CertifiedKey>,
+    responders: Vec<Responder>,
     standing: Standing,
 }
 
@@ -132,10 +133,12 @@ impl Anchored {
                 length,
                 revocation,
                 keys,
+                responders,
             } => Some(Self {
                 length: *length,
                 revocation: revocation.clone(),
                 keys: keys.clone(),
+                responders: responders.clone(),
                 standing: Standing::Local,
             }),
             _ => None,
@@ -175,6 +178,12 @@ impl Anchored {
     #[must_use]
     pub fn keys(&self) -> &[CertifiedKey] {
         &self.keys
+    }
+
+    /// The delegated OCSP responders the material named about the path's certificates.
+    #[must_use]
+    pub fn responders(&self) -> &[Responder] {
+        &self.responders
     }
 }
 
@@ -415,6 +424,7 @@ pub struct Valid {
     path_length: usize,
     revocation: Revocation,
     keys: Vec<CertifiedKey>,
+    responders: Vec<Responder>,
     when: BestSignatureTime,
     timestamps: Timestamps,
     standing: Standing,
@@ -433,6 +443,13 @@ impl Valid {
     #[must_use]
     pub fn keys(&self) -> &[CertifiedKey] {
         &self.keys
+    }
+
+    /// The delegated OCSP responders the material named about that path's certificates, each by
+    /// the position of the certificate it answered about ([`applicability::Asked::responders`]).
+    #[must_use]
+    pub fn responders(&self) -> &[Responder] {
+        &self.responders
     }
 
     /// What §12.8.4's material said about that path — a [`Revocation::Good`] this program computed,
@@ -603,6 +620,7 @@ impl Verdict {
             path_length: anchored.path_length(),
             revocation: anchored.revocation().clone(),
             keys: anchored.keys().to_vec(),
+            responders: anchored.responders().to_vec(),
             when,
             timestamps,
             standing: anchored.standing().clone(),

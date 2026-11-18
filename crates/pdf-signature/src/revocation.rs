@@ -70,7 +70,7 @@
 
 use crate::cms::{ADBE_REVOCATION_INFO_ARCHIVAL, Digest, SignedData};
 use crate::der::{self, DerError, INTEGER, NotCanonical, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::x509::{self, Instant, KeyUsage, PublicKey};
+use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
 use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
 
 /// X.690's `BIT STRING`, primitive and universal.
@@ -1816,12 +1816,46 @@ fn names(single: &SingleResponse<'_>, subject: &Subject<'_>) -> bool {
         && digest.compute(&[subject.issuer_key_bits]) == single.issuer_key_hash
 }
 
-/// RFC 6960 section 4.2.2.2's authorisation check, and the signature that goes with it.
-fn authorised(
+/// The delegated responders RFC 6960 section 4.2.2.2's criterion 3 authorised to answer about
+/// `subject`: for each response in `material` whose `CertID` names the certificate, the
+/// delegation certificate the response carried, issued under the certificate's issuer's key and
+/// asserting `id-kp-OCSPSigning`, under whose key the response verifies — by the same check
+/// [`status`] takes the response's answer by — each beside the `signatureAlgorithm` of the
+/// response it signed. A response its CA signed itself (criterion 2) names no delegate, and an
+/// unauthorised response none either.
+///
+/// ETSI TS 119 312 clause 9.5 asks each such key — "OCSP responder keys" — to resist over its
+/// certificate's validity (ADR 3057).
+#[must_use]
+pub fn delegated_responders<'m>(
     subject: &Subject<'_>,
-    response: &BasicResponse<'_>,
+    material: &Material<'m>,
+) -> Vec<(Certificate<'m>, &'m [u8])> {
+    let mut delegates: Vec<(Certificate<'m>, &'m [u8])> = Vec::new();
+    for response in &material.responses {
+        if !response
+            .responses
+            .iter()
+            .any(|single| names(single, subject))
+        {
+            continue;
+        }
+        if let Ok(Some(delegate)) = authorised(subject, response, material)
+            && !delegates.iter().any(|(held, _)| *held == delegate)
+        {
+            delegates.push((delegate, response.signature_algorithm));
+        }
+    }
+    delegates
+}
+
+/// RFC 6960 section 4.2.2.2's authorisation check, and the signature that goes with it: `None`
+/// where the CA signed the response itself, and the delegation certificate where a delegate did.
+fn authorised<'m>(
+    subject: &Subject<'_>,
+    response: &BasicResponse<'m>,
     material: &Material<'_>,
-) -> Result<(), Undetermined> {
+) -> Result<Option<Certificate<'m>>, Undetermined> {
     // Criterion 2: the CA that issued the certificate in question signed the response itself.
     //
     // **A failure here is not the end of the search**, and the distinction cost this module a
@@ -1838,7 +1872,7 @@ fn authorised(
         response.signature,
         subject.issuer_key,
     ) {
-        Ok(true) => return Ok(()),
+        Ok(true) => return Ok(None),
         Ok(false) => {}
         Err(named) => refusal = Undetermined::AlgorithmNotVerifiable(named),
     }
@@ -1886,7 +1920,7 @@ fn authorised(
             response.signature,
             responder.public_key,
         ) {
-            Ok(true) => return Ok(()),
+            Ok(true) => return Ok(Some(responder)),
             Ok(false) => refusal = Undetermined::NotUnderIssuersKey,
             Err(named) => refusal = Undetermined::AlgorithmNotVerifiable(named),
         }

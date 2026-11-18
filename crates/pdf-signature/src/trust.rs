@@ -574,6 +574,10 @@ pub enum Trust {
         /// Each certificate's key and validity, target first and the anchor excluded, so
         /// `length` of them: what ETSI TS 119 312 clause 9.5 asks of the authorities' keys.
         keys: Vec<CertifiedKey>,
+        /// The delegated OCSP responders the material's responses about the path's certificates
+        /// name, each by the position of the certificate it answered about: clause 9.5's "OCSP
+        /// responder keys" for every certificate on the path, not the target's alone (ADR 3057).
+        responders: Vec<Responder>,
     },
     /// No path from the signer's certificate to any supplied anchor could be built.
     ///
@@ -686,6 +690,22 @@ impl CertifiedKey {
     }
 }
 
+/// A delegated OCSP responder, RFC 6960 section 4.2.2.2's criterion 3, about one certificate on a
+/// path that validated.
+///
+/// What [`revocation::delegated_responders`] names for the certificate at `about`, owned as a
+/// [`CertifiedKey`] for [`Trust`]'s reason. Its certifier is the issuer of the certificate it
+/// answered about — the path's key at `about + 1`, or the anchor where `about` is the path's last
+/// position — because the criterion asks the delegation certificate to be "signed by the same key"
+/// as the certificate in question (ADR 3057).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Responder {
+    /// The position on the path of the certificate the response answered about, the target being 0.
+    pub about: usize,
+    /// The responder's key and validity, its padding the response's signature's.
+    pub key: CertifiedKey,
+}
+
 /// RFC 5280 section 6.1's path validation, over the certificates a file carries.
 ///
 /// `target` is the signer's certificate — section 6.1's certificate `n` — `others` the rest of
@@ -794,6 +814,7 @@ pub fn validate_constrained<'p, 'c: 'p>(
         steps: 0,
         first_refusal: None,
         revocation: Revocation::NotChecked,
+        responders: Vec::new(),
         policies: Policies::default(),
     };
     // The path is held target-first while it is built and reversed before validation, because
@@ -805,6 +826,7 @@ pub fn validate_constrained<'p, 'c: 'p>(
                 length: validated.len(),
                 revocation: search.revocation,
                 keys: CertifiedKey::of_path(&validated),
+                responders: std::mem::take(&mut search.responders),
             },
             path: validated,
             policies: search.policies,
@@ -857,6 +879,9 @@ struct Search<'p, 'c: 'p> {
     /// Written by [`Self::walk`] on the one path that passes, so a prospective path that was
     /// refused for some other reason leaves nothing behind here.
     revocation: Revocation,
+    /// The delegated responders of the material's responses about the path that validated,
+    /// written as [`Self::revocation`] is.
+    responders: Vec<Responder>,
     /// Section 6.1.6's policy output over the path that validated, written as [`Self::revocation`]
     /// is.
     policies: Policies,
@@ -947,6 +972,7 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 covered: 0,
             }
         };
+        let mut responders = Vec::new();
         for (index, certificate) in path.iter().rev().enumerate() {
             // One certificate looked at, whether it passes or not: `examined` is the cost this
             // search paid, which is what a bound is about, rather than the number that passed.
@@ -987,6 +1013,18 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                         self.inputs.revocation_issuance,
                     ),
                 );
+                // ETSI TS 119 312 clause 9.5's responder keys. The authorisation is checked a
+                // second time here rather than threaded out of the status decision, which keeps
+                // `status_within` one answer; a path holds a handful of responses, so the cost is
+                // that many signature verifications, and none of them is on the launch path.
+                responders.extend(
+                    revocation::delegated_responders(&subject, self.material)
+                        .into_iter()
+                        .map(|(delegate, algorithm)| Responder {
+                            about: subject.position,
+                            key: CertifiedKey::of(&delegate, Some(algorithm)),
+                        }),
+                );
             }
             if index < last {
                 // Section 6.1.4 (a), (b) and (g) to (j), then (k) to (n).
@@ -1013,6 +1051,7 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
         let target = path.first().ok_or(PathRefusal::IssuerNameDoesNotChain)?;
         self.policies = constraints.wrap_up(target, path.len(), &self.inputs)?;
         self.revocation = revocation;
+        self.responders = responders;
         Ok(())
     }
 }

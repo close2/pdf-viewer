@@ -2619,6 +2619,7 @@ fn verdicts(
                             signatures: asked.signatures,
                             lists: asked.lists,
                             path: valid.keys(),
+                            responders: valid.responders(),
                         },
                     ));
             }
@@ -3087,8 +3088,17 @@ fn security_sentence(
         KeyRole::CertificationAuthority { position } => {
             format!("certification authority at position {position} of the path")
         }
-        KeyRole::OcspResponder => "OCSP responder".to_owned(),
+        KeyRole::OcspResponder { about } => {
+            format!("OCSP responder about the certificate at position {about} of the path")
+        }
         KeyRole::TimeStampingUnit => "time-stamping unit".to_owned(),
+        KeyRole::TimeStampingAuthority { position } => {
+            format!("certification authority at position {position} of a time-stamping unit's path")
+        }
+        KeyRole::TimeStampingResponder { about } => format!(
+            "OCSP responder about the certificate at position {about} of a time-stamping unit's \
+             path"
+        ),
     };
     let what = |rule: Rule| match rule {
         Rule::HashFunctions => "digest",
