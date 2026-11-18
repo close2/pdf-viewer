@@ -514,6 +514,7 @@ pub(super) fn encode_collection(
         split,
         folders,
         invalid_names,
+        items,
     } = collection;
 
     writer.usize(schema.len());
@@ -643,6 +644,14 @@ pub(super) fn encode_collection(
             }
         }
     }
+
+    // §7.11.6's items cross for the reason the schema does: Table 155's `S`, `D` and `N` columns
+    // read them, and the file specifications they are on stay on this side of the boundary.
+    writer.usize(items.len());
+    for (key, item) in items {
+        writer.str(key);
+        encode_collection_item(writer, item)?;
+    }
     Ok(())
 }
 
@@ -758,6 +767,13 @@ pub(super) fn decode_collection(reader: &mut Reader<'_>) -> Result<Collection, P
     };
 
     let invalid_names = reader.list("a collection's restricted names", decode_name_defect)?;
+    let items = reader
+        .list("a collection's items", |reader| {
+            let key = reader.string("a collection item's file key")?;
+            Ok((key, decode_collection_item(reader)?))
+        })?
+        .into_iter()
+        .collect();
 
     Ok(Collection {
         schema,
@@ -769,6 +785,7 @@ pub(super) fn decode_collection(reader: &mut Reader<'_>) -> Result<Collection, P
         split,
         folders,
         invalid_names,
+        items,
     })
 }
 
@@ -1961,6 +1978,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             continues_a_list,
             continued_from,
             lines,
+            interleaving,
             drawn,
             enclosed_a_refusal,
             decoration,
@@ -2054,6 +2072,12 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             writer.quad(*quad);
         }
         encode_lines(writer, lines);
+        // Where the children stand among those lines, which §14.8.2.5's order needs and the lines
+        // alone cannot say.
+        writer.usize(interleaving.len());
+        for before in interleaving {
+            writer.usize(*before);
+        }
         // Where §12.7.4.3's layout placed each character of the value above, in the same shape
         // and under the same invariant as the element's own lines (ADR 1501).
         encode_lines(writer, value_lines);
@@ -2150,6 +2174,9 @@ pub(super) fn decode_accessibility(
             position: read_position(reader)?,
             quads: super::wire::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
+            interleaving: reader.list("a node's child positions", |reader| {
+                reader.usize("a child's position among the lines")
+            })?,
             value_lines: read_lines(reader)?,
         })
     })

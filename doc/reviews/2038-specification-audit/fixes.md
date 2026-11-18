@@ -1285,9 +1285,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-host/src/panel.rs
 - test files: crates/viewer-host/tests/collection_schema_cells_audit.rs, crates/viewer-host/tests/metadata_sources_spec_audit.rs
 
-- 2038-B05 | viewer-host | behavior-gap | open | collection details view cells incomplete | 3 manifest failures
-- 2038-B06 | viewer-host | behavior-gap | open | collection details view cells incomplete | 1 manifest failure
-- 2038-T16 | viewer-host | test-coverage-gap | open | test control: Info vs XMP properties
+- 2038-B05 | viewer-host | behavior-gap | fixed (ADR 3012: Table 154/155 — `Collection::items` carries §7.11.6's /CI by tree key, an S/D/N column reads it under its own key as the schema's type with Table 47's /P; collection_schema_cells_audit text/date/numeric pass; the file is `crates/viewer-host/src/panel.rs` with `crates/pdf-model/src/collection.rs` and the confined wire) | collection details view cells incomplete | 3 manifest failures
+- 2038-B06 | viewer-host | behavior-gap | fixed (ADR 3012: Table 155 CompressedSize is the stream dictionary's /Length; collection_schema_cells_audit details_view_distinguishes_compressed_size_from_decoded_size passes) | collection details view cells incomplete | 1 manifest failure
+- 2038-T16 | viewer-host | test-coverage-gap | fixed (audit test metadata_sources_spec_audit passes; plant-checked in round 2081) | test control: Info vs XMP properties
 
 ### G112 — required-empty field submit diagnostics
 
@@ -1295,7 +1295,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-host/src/submit.rs?
 - test files: crates/viewer-host/tests/required_empty_field_report_and_policy.rs
 
-- 2038-T121 | viewer-host | assertion-strengthening | open | required-empty field submit diagnostics
+- 2038-T121 | viewer-host | assertion-strengthening | fixed (audit tests in required_empty_field_report_and_policy pass; plant-checked in round 2081) | required-empty field submit diagnostics
 
 
 ## viewer-accessibility
@@ -1306,7 +1306,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-accessibility/src/tree.rs
 - test files: crates/viewer-accessibility/tests/interleaved_struct_content_spec_audit.rs
 
-- 2038-B43 | viewer-accessibility | accessibility-logical-order | open | mixed K logical order lost | 1 manifest failure
+- 2038-B43 | viewer-accessibility | accessibility-logical-order | fixed (ADR 3013: §14.8.2.5.1 — the walk records where each child stands among its parent's own sequences, `AccessibilityNode::interleaving` carries it, tree.rs lays runs and children in /K order; interleaved_struct_content_spec_audit passes) | mixed K logical order lost | 1 manifest failure
 
 ### G114 — Ruby role mapping ADR stale
 
@@ -1314,7 +1314,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/2384-table-380s-decoration-and-position-reach-the-accessibility-tree-on-the-elements-own-text.md
 - test files: none located
 
-- 2038-D23 | viewer-accessibility | adr-wording-gap | open | Ruby role mapping ADR stale
+- 2038-D23 | viewer-accessibility | adr-wording-gap | fixed (ADR 3014 supersedes ADR 2384's ruby-role sentence: Ruby→Ruby, RB→Label, RT→RubyAnnotation) | Ruby role mapping ADR stale
 
 ### G115 — artifact classification test reach doc
 
@@ -1322,7 +1322,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-accessibility/src/bridge.rs?
 - test files: crates/viewer-accessibility/tests/tree.rs
 
-- 2038-D26 | viewer-accessibility | consumer-evidence-boundary | open | artifact classification test reach doc
+- 2038-D26 | viewer-accessibility | consumer-evidence-boundary | fixed (the doc of `tree::artifact` and of tests/tree.rs's artifact test now state the reach: the raw update, which AT-SPI's common_filter strips of a GenericContainer; the file is tree.rs, not bridge.rs) | artifact classification test reach doc
 
 ### G116 — Ruby role mapping test gap
 
@@ -1330,7 +1330,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-accessibility/src/role.rs
 - test files: crates/viewer-accessibility/tests/tree.rs?
 
-- 2038-T49 | viewer-accessibility | assertion-coverage-gap | open | Ruby role mapping test gap
+- 2038-T49 | viewer-accessibility | assertion-coverage-gap | fixed (audit test a_ruby_assembly_keeps_its_base_and_annotation_roles_and_order in tests/tree.rs passes; plant-checked in round 2081; ADR 3014) | Ruby role mapping test gap
 
 
 ## viewer-ui
@@ -1341,7 +1341,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: none located
 
-- 2038-D53 | viewer-ui | test-integration-residual | open | Windows HideWindowUI tests lack control observation
+- 2038-D53 | viewer-ui | test-integration-residual | fixed (doc/todo/30 states that /HideWindowUI is checked only as Quorra.Chrome.Tests' state mapping and owes a probe line for StatusLine.Visibility and IsPaneToggleButtonVisible; no Windows run made) | Windows HideWindowUI tests lack control observation
 
 ### G118 — outline item style rendering
 
@@ -1349,7 +1349,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/outline.rs?
 - test files: crates/viewer-ui/tests/outline_style_spec_audit.rs
 
-- 2038-T134 | viewer-ui,pdf-model | assertion-strengthening | open | outline item style rendering
+- 2038-T134 | viewer-ui,pdf-model | assertion-strengthening | fixed (audit test outline_style_spec_audit passes; plant-checked in round 2081; no pdf-model change) | outline item style rendering
 
 ### G119 — test control: outline colour pixels
 
@@ -1357,7 +1357,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-ui/src/outline.rs?
 - test files: crates/viewer-ui/tests/outline_colour_spec_audit.rs
 
-- 2038-T71 | viewer-ui | test-coverage-gap | open | test control: outline colour pixels
+- 2038-T71 | viewer-ui | test-coverage-gap | fixed (audit test outline_colour_spec_audit passes; plant-checked in round 2081) | test control: outline colour pixels
 
 
 ## viewer-confined
@@ -1368,7 +1368,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-confined/src/protocol/?
 - test files: crates/viewer-confined/tests/confined.rs?
 
-- 2038-T114 | viewer-confined | assertion-strengthening | open | test control: confined saved-event
+- 2038-T114 | viewer-confined | assertion-strengthening | fixed (the three saved-event tests are in crates/viewer-ui/src/bin/quorra-confined/tests.rs and pass; plant-checked in round 2081; stderr unasserted, as the finding says) | test control: confined saved-event
 
 
 ## viewer-gtk
@@ -1379,7 +1379,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-gtk/src/host/printing.rs
 - test files: crates/viewer-gtk/src/host/printing/print_defaults_settings_spec_audit.rs, crates/viewer-qt/src/host/tests/print_defaults_spec_audit.rs
 
-- 2038-T89 | viewer-gtk,viewer-qt | test-coverage-gap | open | test control: print preference settings
+- 2038-T89 | viewer-gtk,viewer-qt | test-coverage-gap | fixed (GTK print_defaults_settings_spec_audit passes under Xvfb; plant-checked in round 2081; the Qt test as far as it builds here) | test control: print preference settings
 
 
 ## confined-transport
@@ -1390,7 +1390,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/confined-transport/src/?
 - test files: crates/viewer-confined/tests/confined.rs?
 
-- 2038-T106 | confined-transport,viewer-confined | test-assurance-gap | open | test claims too strong
+- 2038-T106 | confined-transport,viewer-confined | test-assurance-gap | fixed (commands.rs duplicates the sender's descriptor and confined.rs unlinks before transfer; both pass; plant-checked in round 2081) | test claims too strong
 
 
 ## doc

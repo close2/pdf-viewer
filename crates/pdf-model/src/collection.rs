@@ -105,6 +105,18 @@ pub struct Collection {
     /// restrictions, so it is bounded by the same walk that bounds [`Self::folders`]: no separate
     /// budget is owed here because nothing here reads anything the tree does not already hold.
     pub invalid_names: Vec<NameDefect>,
+    /// §7.11.6's collection item of every file in the `/EmbeddedFiles` tree, by the tree's key.
+    ///
+    /// Table 155 puts the data of an `S`, `D` or `N` field in "the collection item or collection
+    /// subitem dictionary" on the file specification's `/CI`, and a details view of Table 153's
+    /// `/View D` presents "all information in the Schema dictionary" — so a host drawing the
+    /// columns needs these values beside the file-related ones an attachment carries, and holds
+    /// no document to read them from. A file stating no `/CI` has an empty item, which is the
+    /// file saying nothing rather than a column missing.
+    ///
+    /// Read by the function [`sorted_keys`] orders by, so a column and the sort cannot disagree
+    /// about what a file's value is.
+    pub items: BTreeMap<String, Item>,
 }
 
 /// Table 153's `/View`: how the collection is first presented.
@@ -403,6 +415,7 @@ impl Collection {
             split: split(document, dict),
             folders,
             invalid_names,
+            items: items_by_key(document),
         })
     }
 

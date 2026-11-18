@@ -543,20 +543,11 @@ fn elements(
             built.add_action(Action::Click);
         }
         flows_to(&mut built, band, continued_by.get(index), &published);
-        // §14.8.2.5's order within one element is the file's `/K` order, and the answer this crate
-        // is handed does not record where an element's own content items sat among its child
-        // elements — so the lines go first and the child elements after them. It costs nothing on
-        // the elements that have both kinds in the corpus, because an element with text of its own
-        // and structure elements below it is rare: a `P` has text and no element children, a
-        // `Sect` has element children and no text. Where a document does write both, a caret
-        // crosses this element's own words before its children's rather than between them.
-        let mut below: Vec<NodeId> = runs(node, band, mapping.speaks, allocated, out);
-        // What a control holds, before any child element for the same reason the lines are: it is
-        // the control's own (ADR 1489).
-        below.extend(held(node, &mut built, band, allocated, out));
-        if let Some(list) = children.get(index) {
-            below.extend(list.iter().copied());
-        }
+        let kids: &[NodeId] = match children.get(index) {
+            Some(list) => list,
+            None => &[],
+        };
+        let below = in_k_order(node, kids, &mut built, band, mapping.speaks, allocated, out);
         if !below.is_empty() {
             built.set_children(below);
         }
@@ -653,7 +644,7 @@ fn silence(tagging: viewer_core::Tagging) -> &'static str {
     }
 }
 
-/// One [`Role::TextRun`] per line of the element's own text, appended, and their identifiers.
+/// One [`Role::TextRun`] per line of some of the element's own text, appended, and their identifiers.
 ///
 /// # What this is for, and why the nodes are invisible
 ///
@@ -701,6 +692,7 @@ fn silence(tagging: viewer_core::Tagging) -> &'static str {
 /// element's attributes are exactly the ones `viewer_core` resolved for its own text (ADR 2384).
 fn runs(
     node: &AccessibilityNode,
+    lines: &[viewer_core::TextLine],
     band: Band,
     speaks: bool,
     allocated: &mut u64,
@@ -710,7 +702,7 @@ fn runs(
         return Vec::new();
     }
     let first = out.len();
-    let ids = line_runs(&node.lines, band, allocated, out);
+    let ids = line_runs(lines, band, allocated, out);
     if let Some(added) = out.get_mut(first..) {
         for (_, run) in added {
             drawn_as(run, node);
@@ -764,6 +756,45 @@ fn decoration_colour(stated: Option<[f32; 3]>) -> Color {
         blue,
         alpha: u8::MAX,
     }
+}
+
+/// An element's runs, what a control holds, and its child elements, in §14.8.2.5's order.
+///
+/// The order within one element is the file's `/K` order, which may put a child element between
+/// two of the element's own content items: `viewer_core` states where each child stands among the
+/// element's lines ([`AccessibilityNode::interleaving`]), so a caret crosses a `P`'s words, then
+/// its `Span`'s, then the `P`'s again exactly as the `/K` names them (ADR 3013). What a control
+/// holds follows the text its `/K` names before any child, because it is the control's own (ADR
+/// 1489), and a child the answer states no place for follows every line.
+fn in_k_order(
+    node: &AccessibilityNode,
+    kids: &[NodeId],
+    built: &mut Node,
+    band: Band,
+    speaks: bool,
+    allocated: &mut u64,
+    out: &mut Vec<(NodeId, Node)>,
+) -> Vec<NodeId> {
+    let (placed, unplaced) = kids.split_at(kids.len().min(node.interleaving.len()));
+    let mut below: Vec<NodeId> = Vec::new();
+    let mut from = 0;
+    for (at, (kid, &before)) in placed.iter().zip(&node.interleaving).enumerate() {
+        let to = before.clamp(from, node.lines.len());
+        let stretch = node.lines.get(from..to).unwrap_or_default();
+        below.extend(runs(node, stretch, band, speaks, allocated, out));
+        if at == 0 {
+            below.extend(held(node, built, band, allocated, out));
+        }
+        below.push(*kid);
+        from = to;
+    }
+    let rest = node.lines.get(from..).unwrap_or_default();
+    below.extend(runs(node, rest, band, speaks, allocated, out));
+    if placed.is_empty() {
+        below.extend(held(node, built, band, allocated, out));
+    }
+    below.extend(unplaced.iter().copied());
+    below
 }
 
 /// The runs of some lines of text, each line one run or more joined along it — [`runs`]'s body,
@@ -1035,12 +1066,22 @@ fn unmapped(name: &str, reason: Nonstandard) -> String {
 /// # Why there is anything to say
 ///
 /// An artifact has no name — §14.8.2.2.1 makes its text what is not the document's content, and
-/// [`crate::role`] withholds it on that strength — so a person moving through a page's structure
-/// meets this node as a container with nothing in it. §14.8.2.2.1 is also what says the kind
-/// matters: "\[a] text-to-speech engine, for instance, may decide not to speak running heads or
-/// page numbers when the page is turned", and a running head, a footnote rule and a cut mark are
-/// three different things to decide about. This is the sentence that lets a person make that
-/// decision instead of a container telling them nothing.
+/// [`crate::role`] withholds it on that strength — so a consumer of this tree meets the node as a
+/// container with nothing in it. §14.8.2.2.1 is also what says the kind matters: "\[a]
+/// text-to-speech engine, for instance, may decide not to speak running heads or page numbers when
+/// the page is turned", and a running head, a footnote rule and a cut mark are three different
+/// things to decide about. This is the sentence that lets a consumer make that decision instead of
+/// a container telling it nothing.
+///
+/// # How far it reaches
+///
+/// As far as the [`accesskit::TreeUpdate`] this module builds, and no further by itself: an
+/// `Artifact` is a [`Role::GenericContainer`], and `accesskit_consumer`'s `common_filter`, which
+/// the AT-SPI adapter applies, removes such a node — description and all — from the tree an
+/// assistive technology is shown. So on that bus no person is told this sentence; a consumer reading
+/// the unfiltered update is. Whether an artifact should be presented on the bus at all is a choice
+/// the standard does not make for a reader — §14.8.2.2.1's "may decide not to speak" is the
+/// consumer's — and the tests of this function pin the update, not a bus.
 ///
 /// On the description channel for the reason [`continuation`] and a table's `/Summary` are: it is
 /// a statement *about* the element rather than something its content says.
@@ -1052,7 +1093,7 @@ fn unmapped(name: &str, reason: Nonstandard) -> String {
 ///
 /// `None` for every element that is not an `Artifact`, and for one whose producer stated neither
 /// entry: §14.8.2.2.2 calls that a generic artifact, the role has already said so, and a
-/// description repeating the role would be noise on the one channel that reaches a person.
+/// description repeating the role would be noise.
 fn artifact(node: &AccessibilityNode) -> Option<String> {
     let artifact = node.artifact.as_ref()?;
     let kind = artifact.kind.map(|kind| match kind {

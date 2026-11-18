@@ -10,36 +10,6 @@
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
  "failures": [
   {
-   "binary": "viewer-host::collection_schema_cells_audit",
-   "test": "details_view_presents_the_ci_text_value",
-   "finding": "2038-B05",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-host::collection_schema_cells_audit",
-   "test": "details_view_presents_a_ci_date_cell",
-   "finding": "2038-B05",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-host::collection_schema_cells_audit",
-   "test": "details_view_distinguishes_compressed_size_from_decoded_size",
-   "finding": "2038-B06",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-host::collection_schema_cells_audit",
-   "test": "details_view_presents_the_ci_numeric_value",
-   "finding": "2038-B05",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-accessibility::interleaved_struct_content_spec_audit",
-   "test": "accesskit_preserves_interleaving_of_parent_content_and_child_elements",
-   "finding": "2038-B43",
-   "log": "broad.log"
-  },
-  {
    "binary": "viewer-core::image_xobject_measurement_spec_audit",
    "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
    "finding": "2038-B73",

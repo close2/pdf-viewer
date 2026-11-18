@@ -47,6 +47,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         headers: Vec::new(),
         continues_a_list: false,
         continued_from: None,
+        interleaving: Vec::new(),
         lines: Vec::new(),
         drawn: None,
         enclosed_a_refusal: false,
@@ -842,6 +843,7 @@ fn typed(text: &str, origin: (f32, f32), width: f32) -> AccessibilityNode {
         });
     }
     AccessibilityNode {
+        interleaving: Vec::new(),
         lines: vec![TextLine {
             text: text.to_owned(),
             characters,
@@ -969,11 +971,13 @@ fn an_artifact_has_no_run_to_move_through() {
     );
 }
 
-/// Table 385's kind and subtype are what a person is told about a node that has no name.
+/// Table 385's kind and subtype are what the update says about a node that has no name.
 ///
 /// ISO 32000-2 §14.8.2.2.1 leaves the decision to the consumer — "[a] text-to-speech engine, for
 /// instance, may decide not to speak running heads or page numbers when the page is turned" — and
-/// a person can only decide about what they were told. The three elements here are the three
+/// a consumer can only decide about what it was told. **This reaches the raw update and no
+/// further**: an `Artifact` is a `GenericContainer`, which the AT-SPI adapter's `common_filter`
+/// removes with its description, so nothing here shows the sentence reaching a person on a bus. The three elements here are the three
 /// answers there are: a folio stating both entries, a footnote rule stating only its type, and a
 /// generic artifact stating neither, which the role has already described and which therefore
 /// says nothing more.

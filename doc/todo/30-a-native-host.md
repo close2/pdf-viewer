@@ -290,7 +290,11 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   own `AppWindow` and page area (`Probe.cs`), and the job's Table 147 step opens a page stating
   `/FitWindow`, `/CenterWindow` and `/NonFullScreenPageMode` and a deck stating `/PageMode
   /FullScreen`, presses Escape once a page is drawn full screen, and holds each line to a sentence of
-  Table 147 (ADR 2436). §12.2 moves to `implemented` on that step's first green run.
+  Table 147 (ADR 2436). §12.2 moves to `implemented` on that step's first green run. Table 29's
+  `/HideWindowUI` is checked only as a state mapping (`Quorra.Chrome.Tests`): no run observes the
+  status line's `Visibility` or the navigation's `IsPaneToggleButtonVisible` that
+  `MainWindow.ApplyChrome` sets, and the probe reads the pane, the presenter and the placement. A
+  probe line for the two controls, and a document stating `/HideWindowUI` in that step, are owed.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

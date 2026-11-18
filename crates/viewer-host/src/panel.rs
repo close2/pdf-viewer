@@ -34,13 +34,16 @@
 
 use pdf_model::article::Thread;
 use pdf_model::attachment::{Attachment, ExternalAssociatedFile};
-use pdf_model::collection::{Collection, Field, FieldKind, Initial, Layout, SplitDirection, View};
+use pdf_model::collection::{
+    Collection, Field, FieldKind, Initial, Item as CollectionItem, Layout, SplitDirection,
+    Value as CollectionValue, View,
+};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
 use pdf_model::viewer_preferences::PageMode;
 use pdf_model::xmp::{Xmp, XmpError};
 use pdf_render::Image;
-use pdf_syntax::ObjectId;
+use pdf_syntax::{Object, ObjectId};
 use viewer_core::{Answer, Layer, Query, Viewer};
 
 /// What a row does when a person acts on it.
@@ -559,10 +562,10 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 /// states nothing. They become the row's one detail line, which is what a two-line tree row has
 /// in place of a table's columns.
 ///
-/// Only Table 155's **file-related** subtypes are answered. The other three read §7.11.6's
-/// collection item on the file specification's `/CI`, which [`Attachment`] does not carry; that
-/// is a gap recorded here rather than papered over, and it is the same gap `viewer_ui::chrome`
-/// records.
+/// Every Table 155 subtype is answered: the file-related ones from the [`Attachment`], and `S`,
+/// `D` and `N` from §7.11.6's collection item on the file specification's `/CI`, which
+/// [`Collection::items`] carries by the same `/EmbeddedFiles` key. A subtype the standard does
+/// not define has an empty cell under its heading.
 ///
 /// # `/D`, and what "presented first" means for a panel over a page
 ///
@@ -615,6 +618,7 @@ pub fn collection_rows(
         columns: &columns,
         previewed: previewed.as_deref(),
         folders: folder_names(collection),
+        items: &collection.items,
     };
 
     let mut rows = if mode.is_flat() {
@@ -669,6 +673,9 @@ struct Shape<'a> {
     previewed: Option<&'a str>,
     /// §12.3.5.2's folder identifiers and what each is called, for the layouts that draw no tree.
     folders: std::collections::BTreeMap<u32, String>,
+    /// §7.11.6's collection item of each file, by its `/EmbeddedFiles` key, which Table 155's
+    /// `S`, `D` and `N` columns read.
+    items: &'a std::collections::BTreeMap<String, CollectionItem>,
 }
 
 impl Shape<'_> {
@@ -1082,7 +1089,7 @@ fn files_where(
             }
             let previewed = shape.previewed == Some(attachment.name.as_str());
             let mut cells = if shape.shows_fields(previewed) {
-                cells_of(shape.columns, attachment)
+                cells_of(shape.columns, attachment, shape.items.get(&attachment.name))
             } else {
                 Vec::new()
             };
@@ -1247,12 +1254,16 @@ fn mark_first(rows: &mut [PanelRow], wanted: Option<&str>, done: &mut bool) {
 /// the same headings in the same places on every row, and a field a file says nothing about is a
 /// file saying nothing rather than a column that is not there — so the value is empty and the
 /// heading stands. [`joined`] drops the empty ones, because a line is not a column.
-fn cells_of(columns: &[(&String, &Field)], attachment: &Attachment) -> Vec<Cell> {
+fn cells_of(
+    columns: &[(&String, &Field)],
+    attachment: &Attachment,
+    item: Option<&CollectionItem>,
+) -> Vec<Cell> {
     columns
         .iter()
-        .map(|(_, field)| Cell {
+        .map(|(key, field)| Cell {
             heading: field.name.clone(),
-            value: column_value(field, attachment).unwrap_or_default(),
+            value: column_value(key, field, attachment, item).unwrap_or_default(),
         })
         .collect()
 }
@@ -1332,17 +1343,68 @@ pub fn icon_of(attachment: &Attachment) -> Icon {
 /// One column's value for one file.
 ///
 /// Table 155's `/Subtype` decides *where the value lives*, which is the distinction
-/// [`pdf_model::collection::FieldKind`] exists for: the first three kinds read §7.11.6's
-/// collection item and the file-related ones read the file specification a host already has.
-/// Only the second group can be answered from an [`Attachment`].
-fn column_value(field: &Field, attachment: &Attachment) -> Option<String> {
+/// [`pdf_model::collection::FieldKind`] exists for: `S`, `D` and `N` read §7.11.6's collection
+/// item under the column's own schema key — Table 154's other keys "shall be used to identify a
+/// corresponding collection item dictionary referenced from the file specification
+/// dictionary's CI entry" — and the file-related ones read the file specification an
+/// [`Attachment`] carries.
+fn column_value(
+    key: &str,
+    field: &Field,
+    attachment: &Attachment,
+    item: Option<&CollectionItem>,
+) -> Option<String> {
     match field.kind {
+        FieldKind::Text | FieldKind::Date | FieldKind::Number => {
+            item_value(&field.kind, item?.values.get(key)?)
+        }
         FieldKind::FileName => attachment.file_name.clone(),
         FieldKind::Description => attachment.description.clone(),
         FieldKind::Size => attachment.size.map(|size| format!("{size}")),
+        FieldKind::CompressedSize => Some(compressed_size(attachment).to_string()),
         FieldKind::ModificationDate => attachment.modified.clone(),
         FieldKind::CreationDate => attachment.created.clone(),
-        _ => None,
+        FieldKind::Other(_) => None,
+    }
+}
+
+/// One §7.11.6 value as the text a column shows, with Table 47's prefix on it.
+///
+/// The schema's field decides how the object is read, never the object's own type: Table 46
+/// says "\[t]he type of each entry shall match the type of data identified by the collection
+/// field dictionary", so a value of another type is a file breaking that `shall`, and the cell
+/// stays empty rather than showing a reading the schema did not ask for.
+///
+/// Table 47's `/P` is "\[a] prefix string that shall be concatenated with the text string
+/// presented to the user", so it goes in front of every kind. A date is shown the way every
+/// other date in these panels is ([`stamp`]); the clause leaves its format to the processor.
+fn item_value(kind: &FieldKind, value: &CollectionValue) -> Option<String> {
+    let shown = match (kind, &value.data) {
+        (FieldKind::Text, Object::String(bytes)) => pdf_syntax::text_string(bytes),
+        (FieldKind::Date, Object::String(bytes)) => {
+            let written = pdf_syntax::text_string(bytes);
+            stamp(pdf_syntax::Date::parse(&written), Some(&written))?
+        }
+        (FieldKind::Number, Object::Integer(number)) => number.to_string(),
+        (FieldKind::Number, Object::Real(number)) => number.to_string(),
+        _ => return None,
+    };
+    Some(match &value.prefix {
+        Some(prefix) => format!("{prefix}{shown}"),
+        None => shown,
+    })
+}
+
+/// Table 155's `CompressedSize`: "the length of the embedded file stream, as identified by the
+/// Length entry in the embedded file stream dictionary".
+///
+/// The direct `/Length` where the stream dictionary states one; otherwise — an indirect
+/// `/Length`, already resolved when the stream was read — the length of the bytes the stream
+/// holds, which is what that `/Length` delimited.
+fn compressed_size(attachment: &Attachment) -> i64 {
+    match attachment.stream.dict.get("Length") {
+        Some(Object::Integer(length)) => *length,
+        _ => i64::try_from(attachment.stream.data.len()).unwrap_or(i64::MAX),
     }
 }
 

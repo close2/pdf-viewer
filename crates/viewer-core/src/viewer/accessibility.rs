@@ -182,7 +182,7 @@ impl Viewer {
             return Some((Vec::new(), BTreeSet::new()));
         };
         let index = on_screen.page;
-        let gathered =
+        let mut gathered =
             crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref());
         let named: BTreeSet<ObjectId> = gathered
             .iter()
@@ -211,6 +211,17 @@ impl Viewer {
             values: &referenced.values,
             glyphs: &referenced.glyphs,
         };
+        // Where each element's children stand among its own content items, collected before the
+        // elements are consumed: a child is finished on its own, and its parent needs the answer.
+        for at in 0..gathered.len() {
+            let (parent, after_own) = match gathered.get(at) {
+                Some((parent, element)) => (*parent, element.after_own),
+                None => continue,
+            };
+            if let Some((_, above)) = parent.and_then(|parent| gathered.get_mut(parent)) {
+                above.children_after.push(after_own);
+            }
+        }
         let nodes = gathered
             .into_iter()
             .map(|(parent, gathered)| {

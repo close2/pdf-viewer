@@ -627,6 +627,16 @@ pub struct AccessibilityNode {
     /// The lines are the element's **own** content items, as [`Self::name`] is, and in the order
     /// the page drew them within §14.8.2.5's order over the elements.
     pub lines: Vec<TextLine>,
+    /// Where this element's child elements stand among [`Self::lines`]: for each child, in the
+    /// order the children stand in the answer, how many of the lines come before it.
+    ///
+    /// §14.8.2.5's logical order is the depth-first traversal of the structure tree, and a `/K`
+    /// that names a content item, then a child element, then another content item puts the child
+    /// *between* the two — so a host reading the element's lines and its children has to know
+    /// where each child goes, and the lines alone cannot say. A child with no entry here follows
+    /// every line, which is also where an element whose `/K` names its content items first puts
+    /// it.
+    pub interleaving: Vec<usize>,
     /// Table 380's `/TextDecorationType` as it reaches this element's own text: a line under it,
     /// over it or through it.
     ///
@@ -688,6 +698,7 @@ impl AccessibilityNode {
             continues_a_list: false,
             continued_from: None,
             lines: Vec::new(),
+            interleaving: Vec::new(),
             decoration: TextDecoration::None,
             decoration_colour: None,
             position: TextPosition::Normal,
@@ -831,6 +842,13 @@ pub(crate) struct Gathered {
     pub(crate) continued_from: Option<usize>,
     /// Table 380's reach at this element, as [`Inline::enter`] resolved it.
     pub(crate) inline: Inline,
+    /// How many of its parent's [`Self::own`] sequences the parent's `/K` names before this
+    /// element: where it stands among its parent's own content items in §14.8.2.5's order, which
+    /// is what [`finish`] reads to place the parent's lines around it.
+    pub(crate) after_own: usize,
+    /// Each child's [`Self::after_own`], in the order the children stand in the answer: filled
+    /// once the walk is over, because a child is gathered after its parent.
+    pub(crate) children_after: Vec<usize>,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -1150,6 +1168,12 @@ fn walk(
                     None => (None, None),
                 };
                 let index = out.len();
+                // The walk reaches `/K` in its own order, so the parent's own sequences gathered so
+                // far are exactly the ones its `/K` names before this element.
+                let after_own = match parent.and_then(|above| out.get(above)) {
+                    Some((_, above)) => above.own.len(),
+                    None => 0,
+                };
                 // Table 384's two spoken entries, each behind the standard type its own sentence
                 // conditions it on — "[t]his entry shall only be used within Table structure
                 // elements" for `/Summary`, "shall only have an effect for structure elements of
@@ -1216,6 +1240,8 @@ fn walk(
                         continues_a_list,
                         continued_from: None,
                         inline,
+                        after_own,
+                        children_after: Vec::new(),
                     },
                 ));
                 walk(
@@ -1646,7 +1672,11 @@ pub(crate) fn finish(
     };
     // Nothing to move a caret through where the element has said what to say instead of its
     // content: see `AccessibilityNode::lines`.
-    let caret = if substituted { Vec::new() } else { lines(&own) };
+    let (caret, interleaving) = if substituted {
+        (Vec::new(), Vec::new())
+    } else {
+        interleaved_lines(page.marked, &gathered.own, &gathered.children_after, &lines)
+    };
     let mut all = Vec::new();
     for (start, end) in ranges(page.marked, &gathered.mcids) {
         all.extend(quads(start, end));
@@ -1705,12 +1735,52 @@ pub(crate) fn finish(
         continues_a_list: gathered.continues_a_list,
         continued_from: gathered.continued_from,
         lines: caret,
+        interleaving,
         drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
         enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
         decoration: gathered.inline.decoration,
         decoration_colour: gathered.inline.colour,
         position: gathered.inline.position,
     }
+}
+
+/// An element's own lines, and how many of them precede each of its child elements.
+///
+/// §14.8.2.5 makes logical order the depth-first traversal of the structure tree, and an
+/// element's `/K` may name its own content items and child elements in any mix — so the own
+/// sequences are cut where each child stands ([`Gathered::children_after`]) and each stretch is laid into lines of its
+/// own. A line of the page that holds content from both sides of a child is therefore two lines
+/// here, which is the price of a caret reading in the order the file states.
+///
+/// Where no child stands inside the own sequences — the ordinary case, a `P` of text or a `Sect`
+/// of elements — this is one stretch and the lines are exactly the element's own, in drawing order.
+fn interleaved_lines(
+    marked: &[MarkedSpan],
+    own: &[Sequence],
+    children_after: &[usize],
+    lines: &impl Fn(&[(usize, usize)]) -> Vec<TextLine>,
+) -> (Vec<TextLine>, Vec<usize>) {
+    let mut out = Vec::new();
+    let mut interleaving = Vec::with_capacity(children_after.len());
+    let mut from = 0;
+    for &cut in children_after {
+        // The walk visits `/K` in order, so the cuts never go backwards; the clamp keeps a
+        // stretch well formed whatever a later change to the walk does.
+        let cut = cut.clamp(from, own.len());
+        if cut > from
+            && let Some(stretch) = own.get(from..cut)
+        {
+            out.extend(lines(&ranges(marked, stretch)));
+        }
+        from = cut;
+        interleaving.push(out.len());
+    }
+    if let Some(rest) = own.get(from..)
+        && !rest.is_empty()
+    {
+        out.extend(lines(&ranges(marked, rest)));
+    }
+    (out, interleaving)
 }
 
 /// A field's value as [`AccessibilityNode::value_lines`] states it: one [`TextLine`] per line of
@@ -2058,6 +2128,7 @@ mod tests {
             continues_a_list: false,
             continued_from: None,
             lines: Vec::new(),
+            interleaving: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
             decoration: pdf_model::structure::TextDecoration::None,

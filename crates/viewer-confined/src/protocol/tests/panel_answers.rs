@@ -176,7 +176,9 @@ fn a_populated_collection() -> pdf_model::collection::Collection {
                 id: 7,
                 name: "drafts".to_owned(),
                 description: None,
-                item: Item { values },
+                item: Item {
+                    values: values.clone(),
+                },
                 has_thumbnail: false,
                 children: Vec::new(),
             }],
@@ -193,7 +195,21 @@ fn a_populated_collection() -> pdf_model::collection::Collection {
                 normalised: "drafts".to_owned(),
             }),
         ],
+        items: collection_items(values),
     }
+}
+
+/// A file with values and a file stating no `/CI`, so the codec carries both shapes.
+fn collection_items(
+    values: std::collections::BTreeMap<String, pdf_model::collection::Value>,
+) -> std::collections::BTreeMap<String, pdf_model::collection::Item> {
+    use pdf_model::collection::Item;
+    [
+        ("first.pdf".to_owned(), Item { values }),
+        ("second.pdf".to_owned(), Item::default()),
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// One of §12.3.5.2's restrictions, against a folder and against a file in turn.
@@ -741,6 +757,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -775,6 +792,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -808,6 +826,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             // §14.8.3.3's content rectangle beside the stated one, because the host chooses
             // between them and a boundary that carried only one would make that choice here.
@@ -858,6 +877,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -893,6 +913,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -930,6 +951,7 @@ fn every_panel_answer_round_trips() {
             // two halves have to agree: the characters' byte counts sum to the text's length,
             // and `read_lines` refuses a message where they do not. A `TD` whose lines did not
             // cross would be a cell an assistive technology could hear and not move through.
+            interleaving: vec![1],
             lines: vec![TextLine {
                 text: "north".to_owned(),
                 characters: vec![
@@ -978,6 +1000,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -1009,6 +1032,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: true,
             continued_from: Some(6),
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -1055,6 +1079,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -1101,6 +1126,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -1135,6 +1161,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
@@ -1166,6 +1193,7 @@ fn every_panel_answer_round_trips() {
             headers: Vec::new(),
             continues_a_list: false,
             continued_from: None,
+            interleaving: Vec::new(),
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
