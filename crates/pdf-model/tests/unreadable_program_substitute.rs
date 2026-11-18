@@ -50,7 +50,9 @@ fn marked_pixels(interpretation: &Interpretation) -> usize {
         .expect("the page draws");
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0)
         .count()
 }

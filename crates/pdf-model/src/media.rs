@@ -421,7 +421,7 @@ impl Walk<'_> {
                     return false;
                 }
                 let items = document.get_key(dict, "R");
-                let items = items.as_array().map(<[Object]>::to_vec).unwrap_or_default();
+                let items = items.as_array().map_or_default(<[Object]>::to_vec);
                 items
                     .iter()
                     .any(|item| self.rendition(item, depth.saturating_add(1)))
@@ -1452,9 +1452,11 @@ fn content_type(document: &Document, data: &Dictionary) -> Option<String> {
 #[must_use]
 pub fn alternate(document: &Document, items: &[Object], language: Option<&str>) -> Option<String> {
     let pairs: Vec<(String, String)> = items
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| {
-            let [tag, text] = pair else { return None };
+            let [tag, text] = pair;
             match (document.resolve(tag), document.resolve(text)) {
                 (Object::String(tag), Object::String(text)) => Some((
                     pdf_syntax::text_string(&tag),
@@ -1758,6 +1760,6 @@ mod tests {
         let doc = document(&["<< /Type /Catalog >>", "<< /S /SR /R [2 0 R] >>"]);
         let report = judge(&doc, &rendition(2), Processor::default());
         assert!(report.chosen().is_none());
-        assert!(!report.notes().is_empty());
+        assert_ne!(report.notes(), [] as [String; 0]);
     }
 }

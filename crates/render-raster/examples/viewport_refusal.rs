@@ -73,11 +73,10 @@ fn attempt(
     let raster = backend
         .rasterize_frame(&frame)
         .map_err(|error| error.to_string())?;
-    let pixels = raster.data.chunks_exact(4);
+    let pixels = raster.data.as_chunks::<4>().0;
     let total = pixels.len();
-    let marked = raster
-        .data
-        .chunks_exact(4)
+    let marked = pixels
+        .iter()
         .filter(|pixel| pixel[..3] != [u8::MAX; 3])
         .count();
     Ok(if total == 0 {

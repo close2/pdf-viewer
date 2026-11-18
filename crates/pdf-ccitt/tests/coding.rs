@@ -461,5 +461,5 @@ fn a_run_past_the_end_of_the_line_is_damage() {
         ),
         "{result:?}"
     );
-    assert!(lines.is_empty());
+    assert_eq!(lines, [] as [Vec<u32>; 0]);
 }

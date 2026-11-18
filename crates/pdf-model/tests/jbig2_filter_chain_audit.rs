@@ -102,10 +102,15 @@ fn render(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
         .map_err(|error| error.to_string())?;
     assert_eq!((raster.width, raster.height), (52, 66));
     assert!(
-        raster.data.chunks_exact(4).all(|pixel| pixel[0] == pixel[1]
-            && pixel[1] == pixel[2]
-            && matches!(pixel[0], 0 | 255)
-            && pixel[3] == 255),
+        raster
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[0] == pixel[1]
+                && pixel[1] == pixel[2]
+                && matches!(pixel[0], 0 | 255)
+                && pixel[3] == 255),
         "bilevel opaque gray output"
     );
     Ok(raster.data)

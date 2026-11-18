@@ -322,11 +322,6 @@ mod tests {
     /// asks `Component.ScrollTo` on every element it speaks, so an implementation that centred
     /// each one would move the page under a person on every word. Verified on a real bus — a link
     /// already on the screen answered `ScrollTo` with its extents unchanged.
-    #[expect(
-        clippy::float_cmp,
-        reason = "every one of these is a difference of two of the inputs, so each is exact in \
-                  binary and a tolerance would only hide an arithmetic that stopped being one"
-    )]
     #[test]
     fn a_span_already_in_the_viewport_is_not_scrolled_to() {
         assert_eq!(delta(10.0, 40.0, 100.0), 0.0);

@@ -1034,8 +1034,7 @@ fn decided(
     let subtype = document
         .get_key(annotation, "Subtype")
         .as_name()
-        .map(|name| name.as_bytes().to_vec())
-        .unwrap_or_default();
+        .map_or_default(|name| name.as_bytes().to_vec());
 
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, opened in
     // response to that one. It is never part of the page's own rendering, so its absence

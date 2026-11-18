@@ -1073,9 +1073,7 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
                 // used" — §9.7.4.3, of `/W`, and `/W2` is the same array one field wider.
                 metrics.list(
                     first,
-                    values
-                        .chunks_exact(3)
-                        .map(|group| <[f32; 3]>::try_from(group).ok()),
+                    values.as_chunks::<3>().0.iter().map(|group| Some(*group)),
                 );
                 index = index.saturating_add(2);
             }
@@ -1111,11 +1109,6 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
 /// not cover. `issue7439.pdf` is the corpus's one witness and the oracle holds it by name;
 /// these state the rule itself, which is what survives that file being deleted.
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "both sides are an integer written in the fixture or a constant, so the \
-              comparison is exact by construction"
-)]
 mod missing_width_tests {
     use crate::fixture::font_dictionary;
 

@@ -16,10 +16,8 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    clippy::float_cmp,
-    reason = "test code: a malformed fixture should fail loudly, the fixtures are small pages \
-              where no index can overflow, and a page boundary is read from the file's own \
-              decimal literals and arrives exactly"
+    reason = "test code: a malformed fixture should fail loudly, and the fixtures are small \
+              pages where no index can overflow"
 )]
 
 use std::fmt::Write as _;
@@ -654,8 +652,10 @@ fn a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_mediu
             name,
             disjoint
                 .data
-                .chunks_exact(4)
-                .any(|p| p != [255, 255, 255, 255]),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p != &[255, 255, 255, 255]),
         ));
     }
     assert_eq!(

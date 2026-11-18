@@ -1280,7 +1280,7 @@ pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
     if is_a_set(admitted, value, reach, stride) {
         return false;
     }
-    for (index, sample) in band.chunks_exact_mut(4).enumerate() {
+    for (index, sample) in band.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (Some(&bound), Some(&alpha)) = (admitted.data().get(index), sample.get(3)) else {
             continue;
         };

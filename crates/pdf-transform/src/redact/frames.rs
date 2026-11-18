@@ -50,8 +50,7 @@ impl Walk<'_> {
             .document
             .get_key(dict, "Subtype")
             .as_name()
-            .map(|name| name.as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|name| name.as_bytes().to_vec());
         match subtype.as_slice() {
             b"Image" => {
                 if !self

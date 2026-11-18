@@ -203,8 +203,8 @@ fn bytes(segment: &[u8], into: &mut Vec<u16>) {
     } else {
         BYTE_LATCH
     });
-    let mut groups = segment.chunks_exact(6);
-    for group in groups.by_ref() {
+    let (groups, rest) = segment.as_chunks::<6>();
+    for group in groups {
         let mut value = group
             .iter()
             .fold(0_u64, |sum, byte| sum * 256 + u64::from(*byte));
@@ -216,7 +216,7 @@ fn bytes(segment: &[u8], into: &mut Vec<u16>) {
         }
         into.extend(codewords);
     }
-    into.extend(groups.remainder().iter().map(|byte| u16::from(*byte)));
+    into.extend(rest.iter().map(|byte| u16::from(*byte)));
 }
 
 /// Numeric Compaction (clause 5.4.4.2): the latch, then each group of up to 44 digits with a 1

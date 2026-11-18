@@ -197,7 +197,8 @@ fn an_amendment_identifier_in_a_replaced_packet_takes_the_replacements_decision(
             ..Authorisations::default()
         },
     );
-    assert!(super::conversion(&report).removed_identifiers.is_empty());
+    let removed_identifiers = &super::conversion(&report).removed_identifiers;
+    assert!(removed_identifiers.is_empty(), "{removed_identifiers:?}");
 }
 
 #[test]
@@ -212,7 +213,8 @@ fn a_structure_field_in_a_replaced_packet_takes_the_replacements_decision() {
             ..Authorisations::default()
         },
     );
-    assert!(super::conversion(&report).described_fields.is_empty());
+    let described_fields = &super::conversion(&report).described_fields;
+    assert!(described_fields.is_empty(), "{described_fields:?}");
     let output = output.expect("it converts");
     assert!(
         !String::from_utf8_lossy(&output).contains("pdfaField"),

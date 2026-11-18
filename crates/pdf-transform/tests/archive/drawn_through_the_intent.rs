@@ -385,7 +385,7 @@ fn a_cmyk_profile_the_file_already_held_keeps_the_sentence_it_was_drawn_through(
 fn pixel(raster: &pdf_render::Raster, x: u32, y: u32) -> [f64; 3] {
     assert_eq!(raster.format, pdf_render::RasterFormat::Rgba8);
     let width = usize::try_from(raster.width).expect("a width that fits in memory");
-    let pixels: Vec<&[u8]> = raster.data.chunks_exact(4).collect();
+    let pixels: &[[u8; 4]] = raster.data.as_chunks::<4>().0;
     let row = pixels
         .chunks_exact(width)
         .nth(usize::try_from(y).expect("a row index"))

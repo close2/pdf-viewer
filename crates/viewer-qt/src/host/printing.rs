@@ -279,8 +279,7 @@ impl Host {
     pub(crate) fn print_reports(&self) -> Vec<String> {
         self.printed
             .as_ref()
-            .map(|printed| printed.reports.clone())
-            .unwrap_or_default()
+            .map_or_default(|printed| printed.reports.clone())
     }
 
     /// The end of the operation — §8.11.4.5's "then all groups shall revert to their prior

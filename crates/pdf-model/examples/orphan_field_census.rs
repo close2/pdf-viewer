@@ -127,11 +127,10 @@ fn examine(path: &str) -> Option<Finding> {
     let producer = document
         .get_key(document.trailer(), "Info")
         .as_dict()
-        .map(|info| match document.get_key(info, "Producer") {
+        .map_or_default(|info| match document.get_key(info, "Producer") {
             Object::String(bytes) => pdf_syntax::text_string(&bytes),
             _ => String::new(),
-        })
-        .unwrap_or_default();
+        });
     Some(Finding {
         path: path.to_owned(),
         listed: fields.len(),

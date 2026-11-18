@@ -428,7 +428,7 @@ fn a_rule_recommended_for_generation_alone_is_named_and_not_enforced() {
         &facts(None),
     );
     assert_eq!(component_verdicts(&found, outside), [Verdict::NotEvaluated]);
-    assert!(component_verdicts(&found, any).is_empty());
+    assert_eq!(component_verdicts(&found, any), [] as [Verdict; 0]);
     let found = judged(
         &[rule(media, Some("Generation Validation"))],
         &default_cms(),
@@ -1242,8 +1242,7 @@ fn a_signer_attribute_identified_by_its_urn_must_be_claimed_where_the_set_accept
     let sentence = found
         .iter()
         .find(|finding| present(&finding.constraint))
-        .map(ToString::to_string)
-        .unwrap_or_default();
+        .map_or_default(ToString::to_string);
     assert!(sentence.contains("2.5.4.72"), "{sentence}");
     // A level outside `HowCertAttributeType`'s four is refused by name.
     let wrong = document_of(
@@ -1336,7 +1335,10 @@ fn an_entry_naming_no_usage_constrains_the_attribute_authority_too() {
         [Verdict::Broken]
     );
     // No attribute certificate, and no entry naming the usage outright: nothing is said.
-    assert!(verdicts(&[suite(ECDSA_SHA256_URI, None, None)], 0).is_empty());
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256_URI, None, None)], 0),
+        [] as [Verdict; 0]
+    );
 }
 
 /// Clause 4.22.2.1 b)'s `TLReference`s are what the document hands a host to fetch (ADR 2936):

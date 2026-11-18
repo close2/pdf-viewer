@@ -1280,11 +1280,6 @@ fn device_bounds(
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "the matrix mapping must be exact; an approximate comparison would not \
-              catch a transposition"
-)]
 mod tests {
     use super::affine;
     use pdf_render::{Point, Transform};

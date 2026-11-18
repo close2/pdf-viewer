@@ -9,10 +9,8 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    clippy::float_cmp,
-    reason = "test code: a malformed fixture should fail loudly, the fixtures are small pages \
-              where no index can overflow, and every number compared is read from the fixture's \
-              own decimal literals and arrives exactly"
+    reason = "test code: a malformed fixture should fail loudly, and the fixtures are small \
+              pages where no index can overflow"
 )]
 
 use std::fmt::Write as _;
@@ -176,8 +174,14 @@ fn guidelines_are_drawn_only_on_a_screen_that_asked_for_them() {
         "",
         &format!("{BOXES} /BoxColorInfo << /TrimBox << /C [1 0 0] >> >>"),
     );
-    assert!(strokes(&interpreted(&document, false, Purpose::View).display_list).is_empty());
-    assert!(strokes(&interpreted(&document, true, Purpose::Print).display_list).is_empty());
+    assert_eq!(
+        strokes(&interpreted(&document, false, Purpose::View).display_list),
+        [] as [(f32, Vec<f32>, f32, [f32; 3]); 0]
+    );
+    assert_eq!(
+        strokes(&interpreted(&document, true, Purpose::Print).display_list),
+        [] as [(f32, Vec<f32>, f32, [f32; 3]); 0]
+    );
     let drawn = strokes(&interpreted(&document, true, Purpose::View).display_list);
     assert_eq!(
         drawn,

@@ -175,7 +175,13 @@ fn a_run_of_shadings_drawn_as_instances_is_the_run_drawn_one_by_one() {
         "and the same bytes as each quad read at the start of a window of its own"
     );
     assert!(
-        band(&runs).chunks_exact(4).filter(|p| p[3] != 0).count() > 2_000,
+        band(&runs)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .count()
+            > 2_000,
         "the shadings mark the target"
     );
 }

@@ -247,8 +247,10 @@ fn changes(carried: &Image, other: &Image, rectangular: bool) -> Image {
     };
     for (index, (pixel, out)) in carried
         .data
-        .chunks_exact(4)
-        .zip(data.chunks_exact_mut(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(data.as_chunks_mut::<4>().0)
         .enumerate()
     {
         let kept = match bounds {
@@ -1440,7 +1442,7 @@ mod tests {
     #[test]
     fn a_glitter_is_a_dissolve_inside_a_band_that_sweeps_along_di() {
         let shaped = frame(&of(Style::Glitter), viewport(), 0.5).expect("shaped");
-        let front = 0.5 * (1.0 + GLITTER_BAND) * 200.0;
+        let front = f32::midpoint(1.0, GLITTER_BAND) * 200.0;
         let behind = front - GLITTER_BAND * 200.0;
         for row in 0..20_u16 {
             let y = 2.5 + 5.0 * f32::from(row);

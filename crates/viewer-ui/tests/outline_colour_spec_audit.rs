@@ -93,10 +93,6 @@ fn black_title_pixels(raster: &pdf_render::Raster) -> usize {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "PDF integer components zero and one are exactly representable; this checks parsed constants"
-)]
 fn explicit_outline_rgb_is_visible_in_the_panel_and_default_remains_black() {
     let document = Document::open(outline_pdf()).expect("valid exact-xref fixture");
     assert!(!document.was_recovered());

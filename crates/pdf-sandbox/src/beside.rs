@@ -153,8 +153,7 @@ mod tests {
         }
         let refusal = cargo_profile_directory(Path::new("/usr/bin/quorra"))
             .err()
-            .map(|refusal| refusal.to_string())
-            .unwrap_or_default();
+            .map_or_default(|refusal| refusal.to_string());
         assert!(
             refusal.starts_with("/usr/bin/quorra is not in a Cargo profile"),
             "{refusal}"

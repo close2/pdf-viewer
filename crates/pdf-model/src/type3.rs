@@ -312,14 +312,13 @@ impl Type3Font {
         let widths = document
             .get_key(dict, "Widths")
             .as_array()
-            .map(|items| {
+            .map_or_default(|items| {
                 items
                     .iter()
                     .map(|item| document.resolve(item))
                     .map(|item| item.as_number().map_or(0.0, narrow))
                     .collect()
-            })
-            .unwrap_or_default();
+            });
 
         Ok(Self {
             font_matrix,

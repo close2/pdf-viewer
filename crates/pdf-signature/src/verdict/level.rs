@@ -259,8 +259,7 @@ pub fn determine(valid: &Valid, asked: &Asked<'_, '_>) -> Option<Level> {
     let identities = services
         .into_iter()
         .find(|(found, _)| found == listing.as_ref())
-        .map(|(_, identities)| identities)
-        .unwrap_or_default();
+        .map_or_default(|(_, identities)| identities);
     let parsed: Vec<_> = identities
         .iter()
         .filter_map(|der| crate::x509::parse(der).ok())

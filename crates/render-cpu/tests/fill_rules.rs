@@ -90,7 +90,9 @@ fn scene(rule: FillRule, same_direction: bool) -> DisplayList {
 fn ink(raster: &Raster) -> f64 {
     let sum: u64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| u64::from(255 - pixel[0]))
         .sum();
     #[expect(

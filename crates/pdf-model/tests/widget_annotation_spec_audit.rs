@@ -229,7 +229,9 @@ fn widget_tp_six_overlays_the_caption_on_the_icon() {
     assert!(
         image
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[0] < 200 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255),
         "black caption must darken the red icon (allowing antialiasing)"
     );

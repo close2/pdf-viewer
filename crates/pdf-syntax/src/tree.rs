@@ -168,7 +168,7 @@ fn descend(
     // more than the clause promises and costs nothing.
     if let Object::Array(pairs) = resolve(node.get(key.entries()).unwrap_or(&Object::Null)) {
         // `[key1 value1 key2 value2 …]`, so the keys are the even positions.
-        for pair in pairs.chunks_exact(2) {
+        for pair in pairs.as_chunks::<2>().0 {
             let (Some(candidate), Some(value)) = (pair.first(), pair.get(1)) else {
                 continue;
             };
@@ -342,7 +342,7 @@ fn collect<T>(
         return;
     }
     if let Object::Array(pairs) = resolve(node.get(entry).unwrap_or(&Object::Null)) {
-        for pair in pairs.chunks_exact(2) {
+        for pair in pairs.as_chunks::<2>().0 {
             let (Some(key), Some(value)) = (pair.first(), pair.get(1)) else {
                 continue;
             };
@@ -627,6 +627,6 @@ mod tests {
         };
 
         assert_eq!(lookup(&root, &TreeKey::Name(b"anything"), &cyclic), None);
-        assert!(number_pairs(&root, &cyclic).is_empty());
+        assert_eq!(number_pairs(&root, &cyclic), [] as [(i64, Object); 0]);
     }
 }

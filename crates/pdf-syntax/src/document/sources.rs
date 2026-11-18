@@ -160,8 +160,7 @@ impl Document {
         let name = decoding
             .chain
             .last()
-            .map(|(filter, _)| String::from_utf8_lossy(filter).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|(filter, _)| String::from_utf8_lossy(filter).into_owned());
         write(&self.decoded).refuse(
             &decoding.encoded,
             decoding.chain.clone(),

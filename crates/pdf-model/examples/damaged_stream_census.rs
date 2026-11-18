@@ -682,8 +682,7 @@ fn examine(path: &Path) -> Tally {
     tally.opened = 1;
     let name = path
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
 
     let pages = pdf_model::Pages::new(&document);
     let damaged_here = every_stream(&document, &pages, &name, &mut tally);

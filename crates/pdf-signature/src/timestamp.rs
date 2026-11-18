@@ -1119,8 +1119,7 @@ fn nothing_left_uncovered(chain: &mut Chain) {
         let uncovered = chain
             .links
             .get(outermost)
-            .map(|link| link.material_uncovered.clone())
-            .unwrap_or_default();
+            .map_or_default(|link| link.material_uncovered.clone());
         for object in uncovered {
             chain.refused.push(ChainRefusal::DoesNotCoverMaterial {
                 index: outermost,

@@ -109,7 +109,7 @@ fn push_clipped_inputs(
         ));
     }
     // One `[min, max]` pair per input, in order, which is how Table 38 writes the row.
-    for (bounds, value) in domain.chunks_exact(2).zip(inputs) {
+    for (bounds, value) in domain.as_chunks::<2>().0.iter().zip(inputs) {
         stack.push(Value::Real(value.max(bounds[0]).min(bounds[1])))?;
     }
     Ok(())

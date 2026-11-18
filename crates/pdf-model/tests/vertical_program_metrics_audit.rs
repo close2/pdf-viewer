@@ -8,7 +8,6 @@
 #![expect(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
-    clippy::float_cmp,
     clippy::indexing_slicing,
     reason = "test code reads fixed fields from a checked-in font and complete synthetic fixtures"
 )]

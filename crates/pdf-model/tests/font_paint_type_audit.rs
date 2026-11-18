@@ -4,7 +4,6 @@
 #![expect(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
-    clippy::indexing_slicing,
     clippy::panic,
     reason = "test code builds fixed, complete PDF and font-program fixtures"
 )]
@@ -32,7 +31,9 @@ enum Format {
 fn unhex(hex: &str) -> Vec<u8> {
     assert_eq!(hex.len() % 2, 0);
     hex.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let digit = |byte: u8| -> u8 {
                 match byte {

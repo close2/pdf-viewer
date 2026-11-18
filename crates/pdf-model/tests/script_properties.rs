@@ -815,5 +815,5 @@ fn a_style_in_another_font_is_reported_and_not_drawn() {
         "{:?}",
         view.script_reports()
     );
-    assert!(view.script_properties("Field").is_empty());
+    assert_eq!(view.script_properties("Field"), []);
 }

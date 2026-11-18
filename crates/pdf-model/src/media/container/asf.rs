@@ -220,7 +220,9 @@ fn markers(data: &[u8], out: &mut Vec<Marker>) -> Result<(), String> {
 /// one (section 3.7 allows the terminator to be absent).
 fn description_text(bytes: &[u8]) -> String {
     let units = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .take_while(|unit| *unit != 0);
     char::decode_utf16(units)
@@ -311,7 +313,7 @@ mod tests {
         let read = timeline(&file(&[properties(300_000_000, 3000, 2)])).expect("an ASF file");
         assert_eq!(read.seconds, Some(27.0));
         assert_eq!(read.frames, None);
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [Marker; 0]);
         let read = timeline(&file(&[properties(300_000_000, 0, 2)])).expect("an ASF file");
         assert_eq!(read.seconds, Some(30.0));
     }

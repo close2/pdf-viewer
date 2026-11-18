@@ -216,7 +216,13 @@ fn main() {
             raster.clone()
         }
     };
-    let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
+    let ink = raster
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[0] < 200)
+        .count();
     println!("  {ink} dark pixels");
 
     // **The document crossing, with nothing on the other side to interpret.**

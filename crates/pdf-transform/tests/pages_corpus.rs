@@ -371,7 +371,7 @@ fn ppm_parts(ppm: &[u8]) -> Option<(usize, usize, &[u8])> {
 fn raster(ppm: &[u8]) -> Option<Raster> {
     let (width, height, data) = ppm_parts(ppm)?;
     let mut rgba = Vec::with_capacity(data.len().checked_add(data.len().checked_div(3)?)?);
-    for pixel in data.chunks_exact(3) {
+    for pixel in data.as_chunks::<3>().0 {
         rgba.extend_from_slice(pixel);
         rgba.push(255);
     }

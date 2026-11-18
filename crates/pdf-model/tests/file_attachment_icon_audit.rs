@@ -70,7 +70,9 @@ fn attachment_name_defaults_to_pushpin_and_the_chosen_four_icons_differ() {
     let pin = raster(Some("PushPin"), false);
     assert!(
         pin.data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|p| p.last().is_some_and(|a| *a > 0))
     );
     assert!(
@@ -83,7 +85,9 @@ fn attachment_name_defaults_to_pushpin_and_the_chosen_four_icons_differ() {
         assert!(
             figure
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|p| p.last().is_some_and(|a| *a > 0)),
             "{name}"
         );
@@ -99,7 +103,7 @@ fn attachment_name_defaults_to_pushpin_and_the_chosen_four_icons_differ() {
 fn attachment_stored_appearance_wins_over_every_icon_name() {
     let stored = raster(Some("PushPin"), true);
     assert!(
-        stored.data.chunks_exact(4).any(|p| p == [255, 0, 0, 255]),
+        stored.data.as_chunks::<4>().0.contains(&[255, 0, 0, 255]),
         "red AP positive control"
     );
     assert!(

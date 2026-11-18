@@ -187,12 +187,12 @@ fn region(document: &Document, annotation: &Dictionary, rect: [f32; 4]) -> Vec<[
         return vec![corners(rect)];
     }
     let mut out = Vec::new();
-    for quad in numbers.chunks_exact(8) {
+    for quad in numbers.as_chunks::<8>().0 {
         let mut points = [0.0f32; 8];
         points.copy_from_slice(quad);
         // The clause's third condition, and the one a lenient reader gets wrong: a coordinate
         // outside `/Rect` sends the *whole* annotation back to its rectangle.
-        if points.chunks_exact(2).any(|point| {
+        if points.as_chunks::<2>().0.iter().any(|point| {
             point.first().is_none_or(|x| *x < rect[0] || *x > rect[2])
                 || point.get(1).is_none_or(|y| *y < rect[1] || *y > rect[3])
         }) {
@@ -218,7 +218,9 @@ fn corners(rect: [f32; 4]) -> [f32; 8] {
 fn inside(quad: &[f32; 8], x: f32, y: f32) -> bool {
     let mut crossings = false;
     let points: Vec<(f32, f32)> = quad
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
         .collect();
     let count = points.len();

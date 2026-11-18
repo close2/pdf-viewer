@@ -140,8 +140,7 @@ fn main() {
             let candidates = std::fs::read(path)
                 .ok()
                 .and_then(|bytes| Document::open(bytes).ok())
-                .map(|document| document_candidates(&document))
-                .unwrap_or_default();
+                .map_or_default(|document| document_candidates(&document));
             candidates
                 .into_iter()
                 .map(|candidate| (path.clone(), candidate))

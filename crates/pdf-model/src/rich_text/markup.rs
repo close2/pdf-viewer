@@ -631,8 +631,7 @@ impl Walk {
         let ordered = element.name == "ol";
         let declarations = element
             .attribute("", "style")
-            .map(Declarations::parse)
-            .unwrap_or_default();
+            .map_or_default(Declarations::parse);
         let stated = |name: &str| {
             declarations
                 .0
@@ -668,15 +667,11 @@ impl Walk {
             .attribute("", "start")
             .and_then(|start| start.trim().parse::<i64>().ok())
             .unwrap_or(1);
-        let ancestry = self
-            .lists
-            .last()
-            .map(|list| {
-                let mut ancestry = list.ancestry.clone();
-                ancestry.extend(list.current.clone());
-                ancestry
-            })
-            .unwrap_or_default();
+        let ancestry = self.lists.last().map_or_default(|list| {
+            let mut ancestry = list.ancestry.clone();
+            ancestry.extend(list.current.clone());
+            ancestry
+        });
         self.lists.push(List {
             style,
             next: start,
@@ -1542,8 +1537,7 @@ mod tests {
                     paragraph
                         .tag
                         .as_ref()
-                        .map(|tag| tag.text.clone())
-                        .unwrap_or_default(),
+                        .map_or_default(|tag| tag.text.clone()),
                     paragraph.list,
                 )
             })

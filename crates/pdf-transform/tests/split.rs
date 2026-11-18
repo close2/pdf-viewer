@@ -127,12 +127,12 @@ fn a_document_becomes_one_file_per_page_and_each_holds_its_own() {
     assert_eq!(report.outputs.len(), count);
     assert!(report.refused.is_empty(), "{:?}", report.refused);
 
-    for ordinal in 0..count {
+    for (ordinal, output) in report.outputs.iter().enumerate() {
         let name = format!("piece-{}.pdf", ordinal.saturating_add(1));
         let read = Document::open_with_limits(piece(&outputs, &name), Limits::DEFAULT)
             .unwrap_or_else(|error| panic!("{name}: does not open: {error}"));
         assert_eq!(Pages::new(&read).len(), 1, "{name}: one page");
-        let origin = &report.outputs[ordinal].origin;
+        let origin = &output.origin;
         assert!(
             matches!(
                 origin,
@@ -166,10 +166,6 @@ fn the_inheritable_attributes_are_flattened_onto_every_piece() {
     // The comparison is exact on purpose and the values are not computed: both sides read the
     // same four numbers out of the same `/MediaBox` array, so a difference is a lost or
     // rewritten entry rather than an arithmetic one.
-    #[expect(
-        clippy::float_cmp,
-        reason = "both sides are the same four numbers read out of the file, never computed"
-    )]
     {
         assert_eq!(page.media_box, before, "the media box came across");
     }
@@ -709,7 +705,7 @@ fn a_piece_carries_no_web_capture_database() {
     );
     let (report, outputs) = split(&source, "1", Pieces::EachPage);
     let piece = Document::open(piece(&outputs, "piece-1.pdf")).expect("the piece opens");
-    assert!(support::web_capture_trees(&piece).is_empty());
+    assert_eq!(support::web_capture_trees(&piece), [] as [&str; 0]);
     let said: Vec<&str> = report
         .warnings
         .iter()

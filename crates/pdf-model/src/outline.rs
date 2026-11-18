@@ -414,10 +414,7 @@ mod tests {
         assert!(second.bold && !second.italic, "Table 152's bit 2");
         // `[1 0 0]` reaches the array unchanged: every component is exactly representable and
         // nothing scales it, so an exact comparison is the assertion the clause supports.
-        #[expect(clippy::float_cmp, reason = "the file's own three integers, unscaled")]
-        {
-            assert_eq!(second.colour, [1.0, 0.0, 0.0]);
-        }
+        assert_eq!(second.colour, [1.0, 0.0, 0.0]);
         assert_eq!(second.children.len(), 1, "a closed item still has children");
     }
 

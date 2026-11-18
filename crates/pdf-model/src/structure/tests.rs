@@ -2315,12 +2315,6 @@ fn the_allocation_rectangle_moves_the_edges_the_writing_mode_calls_before_and_af
 /// admit. Every consumer of this rectangle unions and intersects it, and one whose lower-left
 /// is above its upper-right would make both mean the opposite of what they say.
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "the arithmetic is one subtraction and a sort of values written in the test, so \
-              every result is exactly representable and an epsilon here would accept the \
-              defect this test exists to find"
-)]
 fn a_negative_spacing_still_leaves_a_rectangle_the_right_way_up() {
     let crossed = allocation_rectangle(
         [20.0, 30.0, 70.0, 60.0],
@@ -2777,8 +2771,7 @@ fn a_cells_headers_are_its_rows_then_its_columns() {
         found
             .iter()
             .find(|(cell, _)| *cell == token)
-            .map(|(_, headers)| headers.clone())
-            .unwrap_or_default()
+            .map_or_default(|(_, headers)| headers.clone())
     };
     assert_eq!(of(2), Vec::<usize>::new(), "the corner cell has no headers");
     assert_eq!(

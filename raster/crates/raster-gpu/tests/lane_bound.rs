@@ -119,7 +119,13 @@ fn the_lanes_agree_to_one_coverage_step() {
         };
         let cpu = px(Coverage::Cpu);
         let gpu = px(Coverage::Compute);
-        for (index, (a, b)) in cpu.chunks_exact(4).zip(gpu.chunks_exact(4)).enumerate() {
+        for (index, (a, b)) in cpu
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(gpu.as_chunks::<4>().0)
+            .enumerate()
+        {
             assert!(
                 a[3].abs_diff(b[3]) <= 1,
                 "pixel {index} at scale {scale}: alpha {} vs {} — past one coverage step",

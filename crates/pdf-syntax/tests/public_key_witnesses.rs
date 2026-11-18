@@ -155,7 +155,9 @@ fn directory_string(value: Tlv<'_>) -> String {
         0x1E => {
             let units: Vec<u16> = value
                 .content
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
                 .collect();
             String::from_utf16(&units).unwrap_or_else(|_| panic!("a BMPString is UTF-16"))

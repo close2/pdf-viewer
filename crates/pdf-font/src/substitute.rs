@@ -113,8 +113,7 @@ impl Request {
         let base = document
             .get_key(dict, "BaseFont")
             .as_name()
-            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
         let base = strip_subset_prefix(&base);
 
         // The name is the strongest signal and the only one the standard 14 reliably
@@ -262,8 +261,7 @@ fn folded_base_font(document: &Document, dict: &Dictionary) -> String {
     let base = document
         .get_key(dict, "BaseFont")
         .as_name()
-        .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
     strip_subset_prefix(&base)
         .chars()
         .filter(char::is_ascii_alphanumeric)
@@ -1191,8 +1189,7 @@ fn catalogue() -> &'static [Candidate] {
                             let stem = path
                                 .file_stem()
                                 .and_then(|stem| stem.to_str())
-                                .map(normalise)
-                                .unwrap_or_default();
+                                .map_or_default(normalise);
                             found.push(Candidate { path, stem });
                         }
                     }

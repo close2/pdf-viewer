@@ -579,7 +579,10 @@ fn a_page_the_window_could_not_draw_whole_is_not_photographed() {
     let (report, output) =
         convert_with_plan(&source, &printing("as-if-printed", Target::Two(Level::B)));
     assert!(output.is_none(), "no file is written");
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
     assert!(matches!(
         decision(&report, OPERATORS),
         Decision::Refused(pdf_transform::archive::Because::TheFence(_))
@@ -624,7 +627,10 @@ fn levels_u_and_a_keep_the_refusal_of_a_fault_of_the_content_stream() {
             ),
             "{level:?}"
         );
-        assert!(conversion(&report).photographed.is_empty());
+        assert_eq!(
+            conversion(&report).photographed,
+            [] as [pdf_transform::archive::PhotographedPage; 0]
+        );
     }
 }
 
@@ -1007,13 +1013,19 @@ fn a_tagged_document_keeps_the_refusal_where_the_tagging_loss_was_not_authorised
     plan.authorised.tagging_of_photographed_pages = false;
     let (report, output) = convert_with_plan(&source, &plan);
     assert!(output.is_none(), "no file is written");
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
     // Level A exists to keep the tagging, and is offered no photograph at all.
     let level_a = Target::Two(Level::A);
     let source = a_tagged_document_with_a_fault_on_its_first_page(level_a);
     let (report, output) = convert_with_plan(&source, &printing("as-if-printed", level_a));
     assert!(output.is_none(), "no file is written at Level A");
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1072,7 +1084,7 @@ pub(super) fn a_layered_document_with_a_fault_on_its_first_page(target: Target) 
 /// How many pixels of a raster are mostly red, and how many mostly blue.
 fn red_and_blue(raster: &pdf_render::Raster) -> (usize, usize) {
     let mut counted = (0_usize, 0_usize);
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0 {
         let [red, green, blue, _] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         if red > 200 && green < 60 && blue < 60 {
             counted.0 = counted.0.saturating_add(1);
@@ -1172,7 +1184,10 @@ fn a_layered_document_keeps_the_refusal_where_the_optional_content_loss_was_not_
     plan.authorised.optional_content_of_photographed_pages = false;
     let (report, output) = convert_with_plan(&source, &plan);
     assert!(output.is_none(), "no file is written");
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
     let rendered = conversion(&report).render();
     assert!(
         rendered.contains("states optional content")
@@ -1184,7 +1199,10 @@ fn a_layered_document_keeps_the_refusal_where_the_optional_content_loss_was_not_
         let source = a_layered_document_with_a_fault_on_its_first_page(target);
         let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
         assert!(output.is_none(), "no file is written at {target:?}");
-        assert!(conversion(&report).photographed.is_empty());
+        assert_eq!(
+            conversion(&report).photographed,
+            [] as [pdf_transform::archive::PhotographedPage; 0]
+        );
     }
 }
 
@@ -1272,7 +1290,10 @@ fn an_operator_inside_an_annotation_appearance_keeps_the_refusal_a_photograph_ca
         decision(&report, OPERATORS)
     );
     assert!(output.is_none());
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
 }
 
 #[test]

@@ -215,7 +215,7 @@ impl Viewer {
         let [x0, y0, x1, y1] = rect;
         let corners = [(x0, y1), (x1, y1), (x1, y0), (x0, y0)];
         let mut out = [0.0_f32; 8];
-        for (corner, place) in corners.iter().zip(out.chunks_exact_mut(2)) {
+        for (corner, place) in corners.iter().zip(out.as_chunks_mut::<2>().0) {
             let (x, y) = self.device_point(open, page, *corner)?;
             place[0] = x;
             place[1] = y;
@@ -424,7 +424,12 @@ impl Viewer {
                 // Two paired iterators rather than an index: the corners are (x, y) pairs and a
                 // `chunks_exact(2)` over both sides says so without arithmetic on the index.
                 let mut out = [0.0; 8];
-                for (corner, place) in quad.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
+                for (corner, place) in quad
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(out.as_chunks_mut::<2>().0)
+                {
                     place[0] = origin.0 + corner[0] * magnification;
                     place[1] = origin.1 + (height - corner[1]) * magnification;
                 }
@@ -823,7 +828,7 @@ fn states_a_format(document: &pdf_syntax::Document, widgets: &[crate::FormWidget
 /// display list's space is its highest on the screen and a box taken first would come out inverted.
 fn device_box(quad: [f32; 8], origin: (f32, f32), height: f32, magnification: f32) -> [f32; 4] {
     let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
-    for corner in quad.chunks_exact(2) {
+    for corner in quad.as_chunks::<2>().0 {
         let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
             continue;
         };

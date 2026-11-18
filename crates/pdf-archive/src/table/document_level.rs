@@ -991,8 +991,7 @@ fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
     let groups: BTreeSet<ObjectId> = document
         .get_key(properties, "OCGs")
         .as_array()
-        .map(|array| array.iter().filter_map(Object::as_reference).collect())
-        .unwrap_or_default();
+        .map_or_default(|array| array.iter().filter_map(Object::as_reference).collect());
     if groups.is_empty() {
         return;
     }

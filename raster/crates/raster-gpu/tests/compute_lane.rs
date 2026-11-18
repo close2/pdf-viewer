@@ -100,7 +100,7 @@ fn render(adapter: &str, coverage: Coverage, scene: &dyn Fn(&mut Device) -> Scen
 fn diff(a: &[u8], b: &[u8]) -> (usize, u8) {
     let mut pixels = 0;
     let mut max = 0_u8;
-    for (a, b) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+    for (a, b) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0) {
         let worst = a
             .iter()
             .zip(b)

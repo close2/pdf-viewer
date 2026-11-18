@@ -240,7 +240,7 @@ impl Layer<'_> {
 // a whole number of pixels — the arithmetic ends in `floor`, `ceil` and a clamp to an
 // integral extent — so exact equality is the right assertion, where an epsilon would
 // hide a defect of less than a pixel.
-#[expect(clippy::float_cmp, clippy::cast_precision_loss)]
+#[expect(clippy::cast_precision_loss)]
 mod tests {
     use raster_scene::{Affine, ImageFilter};
 

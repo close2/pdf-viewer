@@ -449,15 +449,12 @@ fn named_on_page_one(document: &Document, category: &str) -> Vec<Object> {
     let resources = document.get_key(&page.dict, "Resources");
     let resources = resources.as_dict().expect("page one states its resources");
     let named = document.get_key(resources, category);
-    named
-        .as_dict()
-        .map(|named| {
-            named
-                .iter()
-                .map(|(_, value)| document.resolve(value))
-                .collect()
-        })
-        .unwrap_or_default()
+    named.as_dict().map_or_default(|named| {
+        named
+            .iter()
+            .map(|(_, value)| document.resolve(value))
+            .collect()
+    })
 }
 
 /// A simple `TrueType` font dictionary over the embedded Liberation Sans of

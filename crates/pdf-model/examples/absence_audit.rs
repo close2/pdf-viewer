@@ -859,7 +859,9 @@ fn decode_departure(document: &Document, dict: &Dictionary) -> Option<String> {
         ));
     }
     let pairs: Vec<(f64, f64)> = stated
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (pair[0], pair[1]))
         .collect();
 
@@ -972,8 +974,10 @@ fn colour_space_label(document: &Document, dict: &Dictionary) -> String {
 fn language_escapes(bytes: &[u8]) -> (usize, usize) {
     const ESCAPE: char = '\u{1b}';
     let stated = if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
-        rest.chunks_exact(2)
-            .filter(|unit| *unit == [0x00, 0x1B])
+        rest.as_chunks::<2>()
+            .0
+            .iter()
+            .filter(|unit| **unit == [0x00, 0x1B])
             .count()
     } else if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
         rest.split(|byte| *byte == 0x1B).count().saturating_sub(1)

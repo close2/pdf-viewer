@@ -205,7 +205,7 @@ pub fn resolve(
     space: &BlendingSpace,
     separation: &SpotSeparation,
 ) {
-    for (index, pixel) in chromatic.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in chromatic.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         if pixel[3] == 0 {
             continue;
         }
@@ -240,7 +240,7 @@ pub fn resolve(
 /// components stop being the group's; [`resolve_over_device`] runs after it. A pixel nothing
 /// painted is left for the medium. ADR 1329.
 pub fn matte(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         if pixel[3] == 0 {
             continue;
         }
@@ -262,7 +262,7 @@ pub fn matte(data: &mut [u8]) {
 /// multiplied in as [`resolve`] multiplies it, and the product goes out through
 /// [`SpotSeparation::flat_to_device`], opaque. ADR 1329.
 pub fn resolve_over_device(data: &mut [u8], spots: &[&[u8]], separation: &SpotSeparation) {
-    for (index, pixel) in data.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in data.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         if pixel[3] == 0 {
             continue;
         }

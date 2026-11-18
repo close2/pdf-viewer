@@ -5319,7 +5319,10 @@ mod tests {
                 b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC",
             ],
         );
-        assert!(missing_required_tags(IccEdition::TwentyTwo, &matrix, b"mntr").is_empty());
+        assert_eq!(
+            missing_required_tags(IccEdition::TwentyTwo, &matrix, b"mntr"),
+            [] as [&str; 0]
+        );
         assert_eq!(
             missing_required_tags(IccEdition::TwentyTwo, &matrix, b"prtr").len(),
             1,

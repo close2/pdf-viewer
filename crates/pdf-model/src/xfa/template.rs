@@ -896,7 +896,7 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                 container.rich |= tree.child(child, "exData").is_some();
                 let kind = property.children.first().and_then(|&kind| tree.get(kind));
                 container.value_type = kind.map(|kind| kind.local.clone());
-                container.digits = kind.map(Digits::of).unwrap_or_default();
+                container.digits = kind.map_or_default(Digits::of);
             }
             "validate" => {
                 container.pictures.validate = picture(tree, child);
@@ -922,7 +922,7 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                 container.pictures.messages = tree
                     .child(child, "message")
                     .and_then(|message| tree.get(message))
-                    .map(|message| {
+                    .map_or_default(|message| {
                         message
                             .children
                             .iter()
@@ -933,8 +933,7 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                             })
                             .filter(|(_, said)| !said.is_empty())
                             .collect()
-                    })
-                    .unwrap_or_default();
+                    });
             }
             "event" => read_event(container, tree, child, property),
             "calculate" => read_calculate(container, tree, child, property),

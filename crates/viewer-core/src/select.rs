@@ -938,11 +938,6 @@ mod tests {
     /// `pdf_font::measured_extent`: the band that keeps a font descriptor from stating a
     /// zero-height line is what keeps this merge working (ADR 0216).
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "test code: the fixture's coordinates are whole numbers, exactly representable, \
-                  and the merge is expected to carry them across unchanged"
-    )]
     fn one_line_of_an_ocr_layer_is_one_shape() {
         let merged = quads_for(&line(10.0, 12.0), (0, 6));
         assert_eq!(merged.len(), 1, "one run: {merged:?}");

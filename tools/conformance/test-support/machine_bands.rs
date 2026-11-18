@@ -76,14 +76,13 @@ pub(crate) fn fingerprint(adapter: &str) -> String {
 /// Every machine directory under `doc/checks/machines`, in name order.
 pub(crate) fn machine_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("doc/checks/machines"))
-        .map(|entries| {
+        .map_or_default(|entries| {
             entries
                 .filter_map(Result::ok)
                 .map(|entry| entry.path())
                 .filter(|path| path.join("fingerprint").is_file())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     dirs.sort();
     dirs
 }

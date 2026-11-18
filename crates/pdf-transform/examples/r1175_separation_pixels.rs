@@ -141,8 +141,10 @@ fn main() {
 fn inked(raster: &pdf_render::Raster) -> u64 {
     raster
         .data
-        .chunks_exact(4)
-        .filter(|pixel| pixel != &[0xff, 0xff, 0xff, 0xff])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| **pixel != [0xff, 0xff, 0xff, 0xff])
         .count() as u64
 }
 

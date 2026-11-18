@@ -191,10 +191,7 @@ fn number_tree_entries(
                 if pairs.len() % 2 != 0 {
                     return Err("a node's Nums holds a key with no value");
                 }
-                for pair in pairs.chunks_exact(2) {
-                    let [key, value] = pair else {
-                        continue;
-                    };
+                for [key, value] in pairs.as_chunks::<2>().0 {
                     let Some(key) = document.resolve(key).as_integer() else {
                         return Err("a node's Nums holds a key that is not an integer");
                     };

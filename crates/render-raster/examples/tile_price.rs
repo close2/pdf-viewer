@@ -563,8 +563,10 @@ fn assemble(target: TargetSpec, tiles: &[TargetSpec], drawn: &[Raster]) -> Raste
 /// How many pixels of two rasters of one size differ in any channel.
 fn differing(a: &Raster, b: &Raster) -> usize {
     a.data
-        .chunks_exact(4)
-        .zip(b.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.data.as_chunks::<4>().0)
         .filter(|(x, y)| x != y)
         .count()
 }

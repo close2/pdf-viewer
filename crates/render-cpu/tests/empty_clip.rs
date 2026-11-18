@@ -25,11 +25,6 @@
     reason = "test code: a rasteriser that refuses one of these scenes should fail loudly, \
               and the arithmetic is over a hundred-unit page and a raster of known size"
 )]
-#![expect(
-    clippy::float_cmp,
-    reason = "a clip that admits nothing leaves exactly zero ink, not nearly zero: a \
-              tolerance here would pass for a fill that had been merely attenuated"
-)]
 
 use pdf_render::{
     BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point,
@@ -70,7 +65,9 @@ fn scene(clip: Clip) -> DisplayList {
 fn ink(raster: &Raster) -> f64 {
     let sum: u64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| u64::from(255 - pixel[0]))
         .sum();
     #[expect(

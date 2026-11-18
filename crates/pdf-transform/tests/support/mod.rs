@@ -520,7 +520,7 @@ fn check_object_stream(read: &Document, id: ObjectId, out: &mut OptimizedCheck) 
         return;
     }
     let mut previous: Option<i64> = None;
-    for pair in numbers.chunks_exact(2) {
+    for pair in numbers.as_chunks::<2>().0 {
         let (member, offset) = (pair[0], pair[1]);
         if previous.is_some_and(|last| offset <= last) {
             out.faults.push(format!(

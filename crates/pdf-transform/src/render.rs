@@ -521,7 +521,9 @@ pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, EncodeErr
             // onto white before the raster leaves the backend, so every alpha is 255.
             let samples: Vec<u8> = raster
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
                 .collect();
             Ok(pdf_sandbox::encode_dct(
@@ -542,7 +544,7 @@ pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, EncodeErr
                     .saturating_add(raster.data.len().saturating_mul(3).saturating_div(4)),
             );
             bytes.extend_from_slice(header.as_bytes());
-            for pixel in raster.data.chunks_exact(4) {
+            for pixel in raster.data.as_chunks::<4>().0 {
                 bytes.extend_from_slice(&pixel[..3]);
             }
             Ok(bytes)
@@ -550,7 +552,9 @@ pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, EncodeErr
         ImageFormat::Pgm => {
             let samples: Vec<u8> = raster
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| grey_of([pixel[0], pixel[1], pixel[2], pixel[3]]))
                 .collect();
             Ok(pgm(raster.width, raster.height, &samples))

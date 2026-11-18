@@ -103,7 +103,7 @@ impl CpuRasterizer {
         for (target, source) in samples
             .pixels_mut()
             .iter_mut()
-            .zip(image.data.chunks_exact(4))
+            .zip(image.data.as_chunks::<4>().0)
         {
             let a = source[3];
             // `from_rgba` rejects a channel exceeding its alpha, which `premultiply`

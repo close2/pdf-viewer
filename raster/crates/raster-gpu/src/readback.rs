@@ -80,7 +80,7 @@ fn onto_params(backdrop: &Backdrop, width: u32, height: u32, bytes_per_row: u32)
         bytes_per_row / 4,
     ];
     let mut bytes = [0_u8; 32];
-    for (slot, word) in bytes.chunks_exact_mut(4).zip(words) {
+    for (slot, word) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(words) {
         slot.copy_from_slice(&word.to_le_bytes());
     }
     bytes
@@ -474,7 +474,12 @@ fn demultiply(padded: &[u8], width: u32, height: u32, bytes_per_row: u32) -> Vec
         let start = row * bytes_per_row;
         let source = &padded[start..start + row_bytes];
         let destination = &mut pixels[row * row_bytes..(row + 1) * row_bytes];
-        for (pixel, out) in source.chunks_exact(4).zip(destination.chunks_exact_mut(4)) {
+        for (pixel, out) in source
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(destination.as_chunks_mut::<4>().0)
+        {
             let alpha = pixel[3];
             if alpha == 0 {
                 continue; // the destination is already zero

@@ -222,7 +222,9 @@ pub fn spans_under(
             continue;
         };
         if numbers
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .any(|quad| contains(quad, transform, centre))
         {
             spans.push(placed.span.clone());
@@ -275,7 +277,7 @@ fn squeezed(text: &str) -> String {
 fn centre(quad: &[f32; 8]) -> Option<Point> {
     let mut x = 0.0f32;
     let mut y = 0.0f32;
-    for pair in quad.chunks_exact(2) {
+    for pair in quad.as_chunks::<2>().0 {
         x += pair.first()?;
         y += pair.get(1)?;
     }
@@ -305,7 +307,7 @@ fn contains(quad: &[f32], transform: Transform, point: Point) -> bool {
         x: f32::MIN,
         y: f32::MIN,
     };
-    for pair in quad.chunks_exact(2) {
+    for pair in quad.as_chunks::<2>().0 {
         let (Some(x), Some(y)) = (pair.first(), pair.get(1)) else {
             return false;
         };

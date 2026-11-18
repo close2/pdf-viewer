@@ -410,7 +410,7 @@ fn an_imported_template_adds_a_page_the_document_already_held() {
     assert_eq!(pdf_model::Pages::new(&document).len(), 1, "the page tree");
 
     let mut view = ViewState::of(&document);
-    assert!(view.appended_pages().is_empty());
+    assert_eq!(view.appended_pages(), []);
 
     let data = FormsData::read(&fdf(
         "<< /Pages [ << /Templates [ << /TRef << /Name (blank) >> >> ] >> ] >>",
@@ -468,7 +468,7 @@ fn a_template_this_document_cannot_reach_is_named() {
     assert_eq!(outcome.awaiting.len(), 1, "{:?}", outcome.awaiting);
     assert!(outcome.awaiting[0].contains("library.pdf"));
     assert_eq!(view.file_awaited(), Some("library.pdf"));
-    assert!(view.appended_pages().is_empty());
+    assert_eq!(view.appended_pages(), []);
 }
 
 /// Table 253's `/F` end to end: the import asks for the file, a caller supplies it, and the page
@@ -534,7 +534,7 @@ fn a_template_in_another_file_that_is_not_supplied_is_named() {
     assert!(said[0].contains("library.pdf"), "{said:?}");
     assert!(said[0].contains("stamp"), "{said:?}");
     assert_eq!(view.file_awaited(), None);
-    assert!(view.appended_pages().is_empty());
+    assert_eq!(view.appended_pages(), []);
 }
 
 /// Whether any part of a copied value still names an object of the file it came from.

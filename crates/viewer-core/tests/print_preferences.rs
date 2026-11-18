@@ -154,7 +154,7 @@ fn the_print_half_of_table_147_is_answered_to_a_host() {
     assert_eq!(silent.print_scaling, PrintScaling::AppDefault);
     assert_eq!(silent.duplex, None);
     assert_eq!(silent.pick_tray_by_pdf_size, None);
-    assert!(silent.print_page_range.is_empty());
+    assert_eq!(silent.print_page_range, [] as [(i64, i64); 0]);
     assert_eq!(silent.num_copies, None);
 }
 

@@ -157,8 +157,7 @@ fn main() {
         documents = documents.saturating_add(1);
         let name = path
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         let numbers: Vec<u32> = document.xref().object_numbers().collect();
         for number in numbers {
             let object = document.get(ObjectId::new(number, 0));

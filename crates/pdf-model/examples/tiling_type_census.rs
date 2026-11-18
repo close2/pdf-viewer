@@ -327,8 +327,10 @@ fn moved_pixels(
     }
     let differing = before
         .data
-        .chunks_exact(4)
-        .zip(after.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(after.data.as_chunks::<4>().0)
         .filter(|(one, other)| one != other)
         .count();
     let pixels = before.data.len() / 4;

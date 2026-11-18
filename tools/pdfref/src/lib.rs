@@ -485,7 +485,7 @@ impl Outcome {
 /// emits, and which no threshold has to be invented to recognise.
 #[must_use]
 pub fn is_uniform(raster: &Raster) -> bool {
-    let mut pixels = raster.data.chunks_exact(4);
+    let mut pixels = raster.data.as_chunks::<4>().0.iter();
     let Some(first) = pixels.next() else {
         // No pixels at all is not a picture either, and the callers below treat it as one
         // colour rather than as a special case.
@@ -1607,7 +1607,7 @@ mod tests {
             (Reference::Ghostscript, solid(WHITE)),
         ];
         let result = triangulate(&banded(8, GREY), &refs, &Tolerance::DEFAULT).expect("comparable");
-        assert!(result.abstained.is_empty());
+        assert_eq!(result.abstained, [] as [Reference; 0]);
         match result.outcome {
             Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 2),
             other => panic!("expected a regression, got {other:?}"),
@@ -1748,7 +1748,7 @@ mod tests {
             Judgement::Absolute,
         )
         .expect("comparable");
-        assert!(result.abstained.is_empty());
+        assert_eq!(result.abstained, [] as [Reference; 0]);
         match result.outcome {
             Outcome::Agrees { ref with } => assert_eq!(with.len(), 3),
             other => panic!("expected agreement, got {other:?}"),
@@ -1783,7 +1783,7 @@ mod tests {
             triangulate(&banded(8, GREY), &refs, &Tolerance::DEFAULT).expect("comparable");
         assert_eq!(with_silence.abstained, without.abstained);
         assert_eq!(with_silence.outcome, without.outcome);
-        assert!(with_silence.abstained.is_empty());
+        assert_eq!(with_silence.abstained, [] as [Reference; 0]);
     }
 
     /// One abstention out of three still leaves a consensus, and it is the two that drew.

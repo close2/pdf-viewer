@@ -797,21 +797,17 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
             .as_ref()
             .and_then(skrifa::raw::tables::layout::Script::default_lang_sys)
             .and_then(Result::ok)
-            .map(|system| kern_lookups_of(&system, &features))
-            .unwrap_or_default();
-        let languages = table
-            .as_ref()
-            .map(|table| {
-                table
-                    .lang_sys_records()
-                    .iter()
-                    .filter_map(|language| {
-                        let system = language.lang_sys(table.offset_data()).ok()?;
-                        Some((language.lang_sys_tag(), kern_lookups_of(&system, &features)))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+            .map_or_default(|system| kern_lookups_of(&system, &features));
+        let languages = table.as_ref().map_or_default(|table| {
+            table
+                .lang_sys_records()
+                .iter()
+                .filter_map(|language| {
+                    let system = language.lang_sys(table.offset_data()).ok()?;
+                    Some((language.lang_sys_tag(), kern_lookups_of(&system, &features)))
+                })
+                .collect()
+        });
         reached.push(Reaching {
             tag: record.script_tag(),
             default,

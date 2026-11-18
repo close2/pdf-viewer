@@ -66,13 +66,17 @@ fn pixels(flags: u32, rect: &str) -> Vec<u8> {
 fn a_signature_fields_hidden_no_view_and_zero_rectangle_cases_leave_no_visible_appearance() {
     let visible = pixels(0, "10 10 50 50");
     assert!(
-        visible.chunks_exact(4).any(|rgba| rgba == [255, 0, 0, 255]),
+        visible.as_chunks::<4>().0.contains(&[255, 0, 0, 255]),
         "positive stored signature appearance"
     );
     for (flags, rect) in [(2, "10 10 50 50"), (32, "10 10 50 50"), (0, "10 10 10 10")] {
         let hidden = pixels(flags, rect);
         assert!(
-            hidden.chunks_exact(4).all(|rgba| rgba == [0, 0, 0, 0]),
+            hidden
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|rgba| *rgba == [0, 0, 0, 0]),
             "signature flags={flags}, Rect={rect} must leave no mark"
         );
     }

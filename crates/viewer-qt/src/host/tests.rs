@@ -342,7 +342,7 @@ fn a_silent_document_is_titled_by_its_file_and_placed_nowhere() {
     let mut host = opened(&path);
     std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
     assert!(host.title().starts_with("silent.pdf"), "{}", host.title());
-    assert!(
+    assert_eq!(
         host.place_window(QtWindowExtents {
             window_width: 1000,
             window_height: 1100,
@@ -353,8 +353,8 @@ fn a_silent_document_is_titled_by_its_file_and_placed_nowhere() {
             screen_width: 1400,
             screen_height: 1200,
             positions: true,
-        })
-        .is_empty()
+        }),
+        [] as [i32; 0]
     );
 }
 

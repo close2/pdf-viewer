@@ -134,7 +134,7 @@ fn ink_above(raster: &Raster, y: f32, scale: f32) -> f64 {
     for row in 0..rows.min(raster.height) {
         let start = (row * raster.width * 4) as usize;
         let end = start + (raster.width * 4) as usize;
-        for pixel in raster.data[start..end].chunks_exact(4) {
+        for pixel in raster.data[start..end].as_chunks::<4>().0 {
             total += 1.0 - f64::from(pixel[0]) / 255.0;
         }
     }
@@ -146,7 +146,12 @@ fn reaches(raster: &Raster, scale: f32) -> f64 {
     for row in 0..raster.height {
         let start = (row * raster.width * 4) as usize;
         let end = start + (raster.width * 4) as usize;
-        if raster.data[start..end].chunks_exact(4).any(|p| p[0] < 255) {
+        if raster.data[start..end]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|p| p[0] < 255)
+        {
             return f64::from(PAGE.height) - f64::from(row) / f64::from(scale);
         }
     }

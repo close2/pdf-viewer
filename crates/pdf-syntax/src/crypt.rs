@@ -368,7 +368,7 @@ impl Encryption {
         // are the three formats — and Table 20 makes /SubFilter the entry that "completely
         // specifies the format". Any other handler cannot be guessed at and is refused by name.
         let filter = get("Filter");
-        let handler = filter.as_name().map(Name::as_bytes).unwrap_or_default();
+        let handler = filter.as_name().map_or_default(Name::as_bytes);
         if handler != b"Standard" {
             return match public_key::SubFilter::of(&get("SubFilter")) {
                 Some(sub_filter) => Self::public_key(&get, sub_filter, recipient, resolve),

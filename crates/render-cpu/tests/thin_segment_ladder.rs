@@ -762,7 +762,9 @@ fn a_mark_under_one_level_everywhere_is_lifted_rather_than_lost() {
     let raster = raster(&list);
     let painted: Vec<u8> = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| 255 - pixel[0])
         .filter(|&level| level > 0)
         .collect();

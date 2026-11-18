@@ -88,8 +88,7 @@ fn main() {
                                 .as_stream()
                                 .and_then(|stream| document.decoded_stream_data(stream))
                         })
-                        .map(|data| data.to_vec())
-                        .unwrap_or_default();
+                        .map_or_default(|data| data.to_vec());
                     let Ok(length) = u16::try_from(globals.len()) else {
                         skipped += 1;
                         continue;

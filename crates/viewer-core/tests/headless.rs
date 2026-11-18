@@ -1980,10 +1980,10 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
         "half a line of text: {:?}",
         selection.text
     );
-    assert!(!selection.quads.is_empty());
+    assert_ne!(selection.quads, [] as [[f32; 8]; 0]);
     // The shapes are in device pixels, over the text they cover, between the two points.
     for quad in &selection.quads {
-        for corner in quad.chunks_exact(2) {
+        for corner in quad.as_chunks::<2>().0 {
             assert!(
                 (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
                 "{quad:?} is off an 800x1000 viewport"
@@ -2162,7 +2162,7 @@ fn the_tab_key_walks_the_pages_annotations() {
     let Answer::Focus { quad, .. } = viewer.query(Query::Focus) else {
         panic!("something is focused, and it has a /Rect");
     };
-    for corner in quad.chunks_exact(2) {
+    for corner in quad.as_chunks::<2>().0 {
         assert!(
             (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
             "{quad:?} is off an 800x1000 viewport"
@@ -2612,7 +2612,7 @@ fn a_point_inside_a_value_names_the_byte_it_is_nearest() {
     // The round trip, at every byte of the value.
     for want in 0..="Ada Lovelace".len() {
         let (from, to) = caret(&viewer, want);
-        let middle = (from.0, (from.1 + to.1) * 0.5);
+        let middle = (from.0, f32::midpoint(from.1, to.1));
         assert_eq!(
             offset(&viewer, middle),
             want,
@@ -3455,8 +3455,8 @@ fn a_password_fields_value_says_that_it_is_not_the_fields_characters() {
     // either way round.
     let widget = secret.widgets.first().expect("the field has a widget");
     let at = (
-        (widget.quad[0] + widget.quad[4]) * 0.5,
-        (widget.quad[1] + widget.quad[5]) * 0.5,
+        f32::midpoint(widget.quad[0], widget.quad[4]),
+        f32::midpoint(widget.quad[1], widget.quad[5]),
     );
     let Answer::Field { value, .. } = viewer.query(Query::FieldAt(at)) else {
         panic!("the widget is at its own centre");
@@ -3834,7 +3834,7 @@ fn a_search_finds_every_occurrence_and_hands_back_its_shapes() {
     for occurrence in &found {
         assert!(!occurrence.is_empty(), "each match has shapes");
         for quad in occurrence {
-            for corner in quad.chunks_exact(2) {
+            for corner in quad.as_chunks::<2>().0 {
                 assert!(
                     (0.0..=800.0).contains(&corner[0]) && (0.0..=1000.0).contains(&corner[1]),
                     "{quad:?} is off an 800x1000 viewport"
@@ -3848,11 +3848,11 @@ fn a_search_finds_every_occurrence_and_hands_back_its_shapes() {
     let Answer::Found(none) = viewer.query(Query::Find("zzzzz")) else {
         panic!("a search always answers");
     };
-    assert!(none.is_empty());
+    assert_eq!(none, [] as [Vec<[f32; 8]>; 0]);
     let Answer::Found(none) = viewer.query(Query::Find("")) else {
         panic!("a search always answers");
     };
-    assert!(none.is_empty());
+    assert_eq!(none, [] as [Vec<[f32; 8]>; 0]);
 }
 
 /// A question about the page on the screen does not walk the page tree.
@@ -3950,7 +3950,7 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
         panic!("the page showing has a geometry");
     };
     for quad in &named.quads {
-        for corner in quad.chunks_exact(2) {
+        for corner in quad.as_chunks::<2>().0 {
             assert!(
                 corner[0] >= geometry.origin.0 - 1.0
                     && corner[0] <= geometry.origin.0 + geometry.page.width * geometry.scale + 1.0,
@@ -5166,7 +5166,7 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
 
     // And the paragraph, which the text layer places and no annotation describes.
     let caption = node("a caption");
-    assert!(!caption.quads.is_empty());
+    assert_ne!(caption.quads, [] as [[f32; 8]; 0]);
     assert_eq!(caption.bounds, None);
     assert_eq!(caption.control, None);
 
@@ -7969,7 +7969,9 @@ fn raster(request: &viewer_core::RenderRequest) -> pdf_render::Raster {
 fn yellow(raster: &pdf_render::Raster) -> usize {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] > 200 && pixel[1] > 200 && pixel[2] < 60)
         .count()
 }
@@ -8466,7 +8468,9 @@ fn a_free_text_annotation_is_drawn_from_a_drag_typed_into_and_read_back() {
 fn red(raster: &pdf_render::Raster) -> usize {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] > 150 && pixel[1] < 100 && pixel[2] < 100)
         .count()
 }
@@ -10248,7 +10252,7 @@ fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
         Answer::Attachments(files) => files.into_iter().map(|file| file.name).collect::<Vec<_>>(),
         _ => panic!("a list"),
     };
-    assert!(names(&viewer).is_empty());
+    assert_eq!(names(&viewer), [] as [String; 0]);
 
     // A certification at /P 2 withholds bit 4's residual; the reader turns that off.
     viewer
@@ -10292,7 +10296,7 @@ fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
             .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
         "{undone:?}"
     );
-    assert!(names(&viewer).is_empty());
+    assert_eq!(names(&viewer), [] as [String; 0]);
     viewer.handle(Command::Redo).for_each(drop);
     assert_eq!(names(&viewer), ["figures.txt"]);
 
@@ -10339,7 +10343,7 @@ fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
             .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
         "{detached:?}"
     );
-    assert!(names(&viewer).is_empty());
+    assert_eq!(names(&viewer), [] as [String; 0]);
     assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(true)));
     let nothing: Vec<_> = viewer
         .handle(Command::Edit(Edit::Detach {
@@ -10415,7 +10419,9 @@ fn a_file_dropped_on_a_page_draws_its_icon_at_once_and_is_on_the_page_after_a_sa
 fn count_ink(raster: &pdf_render::Raster) -> usize {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250)
         .count()
 }

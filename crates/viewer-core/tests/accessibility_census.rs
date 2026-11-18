@@ -2238,8 +2238,8 @@ fn the_census_reads_a_tagged_document_as_structured_and_answering() {
     assert_eq!(census.structured_pages, 1, "one page, and it was visited");
     assert_eq!(census.answered_pages, 1, "and it answered");
     assert!(census.nodes > 0, "with elements");
-    assert!(census.named_but_silent.is_empty());
-    assert!(census.no_parent_key_silent.is_empty());
+    assert_eq!(census.named_but_silent, [] as [(String, String); 0]);
+    assert_eq!(census.no_parent_key_silent, [] as [(String, String); 0]);
     assert_eq!(census.untagged_pages, 0, "it is not in that population");
     // And a caret reaches its words. The count is not pinned — that is the ratchet's business —
     // but "some element of a document that draws text has a line" is the shape of the answer,
@@ -2329,5 +2329,5 @@ fn the_census_reads_an_untagged_document_as_honestly_silent() {
     assert_eq!(census.with_structure, 0);
     assert_eq!(census.untagged_pages, 1, "page one alone answers for it");
     assert_eq!(census.untagged_honest, 1);
-    assert!(census.invented.is_empty());
+    assert_eq!(census.invented, [] as [(String, String); 0]);
 }

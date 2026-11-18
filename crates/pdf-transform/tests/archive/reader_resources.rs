@@ -61,13 +61,12 @@ fn names_in(document: &Document, resources: &Dictionary, category: &str) -> Vec<
     document
         .get_key(resources, category)
         .as_dict()
-        .map(|table| {
+        .map_or_default(|table| {
             table
                 .iter()
                 .map(|(name, _)| String::from_utf8_lossy(name.as_bytes()).into_owned())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// The decoded bytes of the stream a resource name stands for.

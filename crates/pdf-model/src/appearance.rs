@@ -874,8 +874,7 @@ pub(crate) fn regenerate(
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
-        .map(|border| border.thickness())
-        .unwrap_or_default();
+        .map_or_default(|border| border.thickness());
 
     // The stream keeps its own `/Resources` with `/DR`'s added under them, so a `/DA` font name
     // the stream already defines is laid out in the font the stream will show it in.
@@ -2409,7 +2408,12 @@ fn text_markup(
     let Some(points) = points(document, annotation, "QuadPoints") else {
         return Err(Refusal::Missing("/QuadPoints"));
     };
-    let quads: Vec<Quad> = points.chunks_exact(4).filter_map(Quad::read).collect();
+    let quads: Vec<Quad> = points
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter_map(|corners| Quad::read(corners))
+        .collect();
     if quads.is_empty() {
         return Err(Refusal::Missing("/QuadPoints"));
     }
@@ -2856,8 +2860,8 @@ fn caption(
     // therefore what `/CO`'s second number and `/CP`'s `Top` are measured against.
     let up = [-forward[1], forward[0]];
     let middle = [
-        (ends[0][0] + ends[1][0]) * 0.5,
-        (ends[0][1] + ends[1][1]) * 0.5,
+        f32::midpoint(ends[0][0], ends[1][0]),
+        f32::midpoint(ends[0][1], ends[1][1]),
     ];
     let origin = [
         offset[1].mul_add(up[0], offset[0].mul_add(forward[0], middle[0])),
@@ -4669,7 +4673,12 @@ pub(crate) fn selection(
             .iter()
             .map(|shape| {
                 let mut quad = [0.0_f32; 8];
-                for (corner, place) in shape.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+                for (corner, place) in shape
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(quad.as_chunks_mut::<2>().0)
+                {
                     let point = onto_page.apply(Point::new(corner[0], corner[1]));
                     place[0] = point.x;
                     place[1] = point.y;
@@ -4704,7 +4713,13 @@ pub(crate) fn glyphs(
             .into_iter()
             .map(|glyph| {
                 let mut quad = [0.0_f32; 8];
-                for (corner, place) in glyph.quad.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+                for (corner, place) in glyph
+                    .quad
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(quad.as_chunks_mut::<2>().0)
+                {
                     let point = onto_page.apply(Point::new(corner[0], corner[1]));
                     place[0] = point.x;
                     place[1] = point.y;
@@ -4762,8 +4777,7 @@ fn frame(
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
-        .map(|border| border.thickness())
-        .unwrap_or_default();
+        .map_or_default(|border| border.thickness());
     if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
         return Some((inset(bbox, width), placement));
     }
@@ -6607,7 +6621,7 @@ impl Stream {
 
     fn ellipse(&mut self, box_: [f32; 4]) {
         let (left, bottom, right, top) = (box_[0], box_[1], box_[2], box_[3]);
-        let (middle_x, middle_y) = ((left + right) * 0.5, (bottom + top) * 0.5);
+        let (middle_x, middle_y) = (f32::midpoint(left, right), f32::midpoint(bottom, top));
         let (grip_x, grip_y) = ((right - left) * 0.5 * ARC, (top - bottom) * 0.5 * ARC);
 
         self.move_to([left, middle_y]);
@@ -6780,7 +6794,9 @@ fn pairs(document: &Document, values: &[Object]) -> Vec<[f32; 2]> {
         .map_while(|value| number(document, Some(value)))
         .collect();
     numbers
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| [pair[0], pair[1]])
         .collect()
 }

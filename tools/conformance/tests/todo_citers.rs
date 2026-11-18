@@ -136,8 +136,7 @@ fn every_cited_by_line_names_citers_that_cite_the_file() {
         let path = entry.expect("a directory entry").path();
         let name = path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         let Some(number) = name.split('-').next().filter(|n| n.len() == 2) else {
             continue;
         };

@@ -149,7 +149,7 @@ fn at_off_nothing_is_held_or_said() {
         RestrictionPolicy::default().with(Operation::OverridePreference, RestrictionLevel::Off);
     let (_, events) = printing(Some(policy), ENFORCING);
     assert_eq!(held(&events), Some(false));
-    assert!(about(&events).is_empty());
+    assert_eq!(about(&events), [] as [&str; 0]);
 }
 
 /// `ask` holds the print on the question, and either answer starts it: a `no` holds the scaling.
@@ -190,5 +190,5 @@ fn an_enforce_over_app_default_restricts_nothing() {
         "/PrintScaling /AppDefault /Enforce [/PrintScaling]",
     );
     assert_eq!(held(&events), Some(false));
-    assert!(about(&events).is_empty());
+    assert_eq!(about(&events), [] as [&str; 0]);
 }

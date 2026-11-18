@@ -22,11 +22,6 @@
 //! Table 104's invisible modes place their glyphs like any other mode.
 
 #![expect(
-    clippy::float_cmp,
-    reason = "the exact comparisons here are the assertion: an invisible mode must place a glyph \
-              in the *same* place a visible one does, not in a nearby one"
-)]
-#![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,

@@ -279,11 +279,6 @@ pub(crate) fn stroke(s: &Stroke, to_device: Transform) -> tiny_skia::Stroke {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "the matrix mapping must be exact, not approximate — an approximate \
-              comparison here would not catch a transposition"
-)]
 mod tests {
     use super::{solid, transform};
     use pdf_render::{Color, Transform};

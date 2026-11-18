@@ -3086,12 +3086,12 @@ mod tests {
         let named_only = page_with("/Span /P0 BDC EMC /ActualText", "", &[]);
         let survey = Survey::of(&named_only);
         assert!(survey.names_actual_text());
-        assert!(survey.inline_actual_texts().is_empty());
+        assert_eq!(survey.inline_actual_texts(), []);
 
         let neither = page_with("/Span << /Lang (en) >> BDC EMC", "", &[]);
         let survey = Survey::of(&neither);
         assert!(!survey.names_actual_text());
-        assert!(survey.inline_actual_texts().is_empty());
+        assert_eq!(survey.inline_actual_texts(), []);
     }
 
     /// ISO 19005-4 section 6.3.3 sends an appearance dictionary's graphics to clause 6.2, and

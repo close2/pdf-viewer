@@ -191,7 +191,7 @@ fn a_sound_without_name_uses_the_chosen_speaker_icon_default() {
     let speaker = sound_icon_fallback(Some("Speaker"));
     let mic = sound_icon_fallback(Some("Mic"));
     for interpreted in [&default, &speaker, &mic] {
-        assert!(!interpreted.display_list.commands().is_empty());
+        assert_ne!(interpreted.display_list.commands(), []);
         assert!(
             interpreted.unsupported.is_empty(),
             "{:?}",
@@ -208,7 +208,10 @@ fn a_sound_without_name_uses_the_chosen_speaker_icon_default() {
 #[test]
 fn clicking_sound_and_movie_annotations_hands_off_their_media_files() {
     let mut viewer = opened();
-    assert!(media(&click(&mut viewer, [45.0, 10.0, 55.0, 20.0])).is_empty());
+    assert_eq!(
+        media(&click(&mut viewer, [45.0, 10.0, 55.0, 20.0])),
+        [] as [Media; 0]
+    );
     let sound_events = click(&mut viewer, [10.0, 60.0, 40.0, 90.0]);
     assert_eq!(
         media(&sound_events),

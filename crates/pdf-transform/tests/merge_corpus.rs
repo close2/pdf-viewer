@@ -290,13 +290,12 @@ fn encoded_contents(document: &Document, index: usize) -> Option<Vec<u8>> {
 fn states(document: &Document, key: &str) -> bool {
     document
         .catalog()
-        .ok()
-        .is_some_and(|catalog| catalog.get(key).is_some())
+        .is_ok_and(|catalog| catalog.get(key).is_some())
 }
 
 /// Whether a document's outline holds at least one top-level item.
 fn has_outline_items(document: &Document) -> bool {
-    document.catalog().ok().is_some_and(|catalog| {
+    document.catalog().is_ok_and(|catalog| {
         document
             .get_key(&catalog, "Outlines")
             .as_dict()
@@ -308,7 +307,7 @@ fn has_outline_items(document: &Document) -> bool {
 
 /// Whether a document's interactive form states at least one root field.
 fn has_root_fields(document: &Document) -> bool {
-    document.catalog().ok().is_some_and(|catalog| {
+    document.catalog().is_ok_and(|catalog| {
         let form = document.get_key(&catalog, "AcroForm");
         form.as_dict().is_some_and(|form| {
             document

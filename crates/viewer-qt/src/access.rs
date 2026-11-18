@@ -374,11 +374,6 @@ mod tests {
     use super::delta;
 
     /// The smallest move that brings a span inside the viewport, and none where it already is.
-    #[expect(
-        clippy::float_cmp,
-        reason = "every one of these is a difference of two of the inputs, so each is exact in \
-                  binary and a tolerance would only hide an arithmetic that stopped being one"
-    )]
     #[test]
     fn a_span_already_in_the_viewport_is_not_scrolled_to() {
         assert_eq!(delta(10.0, 40.0, 100.0), 0.0);

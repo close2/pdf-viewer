@@ -378,7 +378,7 @@ fn flatten_cubic(
     // chord than the control polygon's diagonal, and each split divides that distance
     // by about four, so 1/32 of the diagonal is reached in three levels whatever the
     // curve's size.
-    let mid = |a: Point, b: Point| Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    let mid = |a: Point, b: Point| Point::new(f32::midpoint(a.x, b.x), f32::midpoint(a.y, b.y));
     let q1 = mid(p1, p2);
     if flat || depth >= 16 {
         out.push(q1);

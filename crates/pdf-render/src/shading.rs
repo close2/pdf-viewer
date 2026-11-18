@@ -1627,7 +1627,7 @@ impl RadialRaster {
             .enumerate()
         {
             let y = top.saturating_add(u32::try_from(row).unwrap_or(u32::MAX)) as f32 + 0.5;
-            for (column, pixel) in line.chunks_exact_mut(4).enumerate() {
+            for (column, pixel) in line.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 // A pixel's colour is the shading's value at the pixel's centre, which is
                 // the sampling `MeshRaster` uses and the one §10.7.4 describes for images.
                 let device = Point {
@@ -1738,7 +1738,7 @@ impl ShadingRaster {
                 .saturating_mul(rows as usize)
                 .saturating_mul(4)
         ];
-        for pixel in data.chunks_exact_mut(4) {
+        for pixel in data.as_chunks_mut::<4>().0 {
             write_colour(pixel, background);
         }
 
@@ -1941,7 +1941,7 @@ fn paint_pixels(
         .enumerate()
     {
         let y = top.saturating_add(u32::try_from(row).unwrap_or(u32::MAX)) as f32 + 0.5;
-        for (column, pixel) in line.chunks_exact_mut(4).enumerate() {
+        for (column, pixel) in line.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let device = Point {
                 x: left.saturating_add(u32::try_from(column).unwrap_or(u32::MAX)) as f32 + 0.5,
                 y,

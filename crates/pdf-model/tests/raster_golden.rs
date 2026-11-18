@@ -682,8 +682,10 @@ fn divided(path: &Path) -> Option<Division> {
         let mut first = None;
         for (at, (ours, theirs)) in whole
             .data
-            .chunks_exact(4)
-            .zip(split.data.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(split.data.as_chunks::<4>().0)
             .enumerate()
         {
             if ours == theirs {

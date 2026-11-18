@@ -2155,7 +2155,7 @@ fn a_point_names_the_byte_whose_caret_stands_there() {
     let field = || text_field("abc", "", "");
     for offset in 0..=3 {
         let caret = caret_of(field(), offset);
-        let middle = (caret[1] + caret[3]) * 0.5;
+        let middle = f32::midpoint(caret[1], caret[3]);
         assert_eq!(
             offset_at(field(), (caret[0], middle)),
             offset,
@@ -2262,7 +2262,7 @@ fn a_selection_covers_the_glyphs_between_two_offsets() {
     );
     // Two equal offsets select nothing, which is what a caret is: the shapes are absent rather
     // than a rectangle of no width, because a host draws the caret itself for that.
-    assert!(selection_of(field(), 2, 2).is_empty());
+    assert_eq!(selection_of(field(), 2, 2), [] as [[f32; 8]; 0]);
     // The order of the two ends does not change what is between them.
     let backwards = selection_of(field(), 3, 1);
     assert_eq!(backwards.len(), 1);
@@ -2350,7 +2350,10 @@ fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
         let caret = view
             .caret_at(&document, &page, at.0, at.1, offset)
             .expect("a caret at every boundary of the value");
-        let middle = ((caret[0] + caret[2]) * 0.5, (caret[1] + caret[3]) * 0.5);
+        let middle = (
+            f32::midpoint(caret[0], caret[2]),
+            f32::midpoint(caret[1], caret[3]),
+        );
         assert_eq!(
             view.offset_at(&document, &page, at, middle),
             Some(offset),
@@ -2524,7 +2527,10 @@ fn a_corpus_documents_own_free_text_annotation_is_retyped_and_written_back() {
                 corners.next()?,
             );
             // A page coordinate, so the narrowing is exact for anything a `/MediaBox` admits.
-            let middle = (f64_as_f32((x0 + x1) * 0.5), f64_as_f32((y0 + y1) * 0.5));
+            let middle = (
+                f64_as_f32(f64::midpoint(x0, x1)),
+                f64_as_f32(f64::midpoint(y0, y1)),
+            );
             let (found, text) = view.free_text_at(&document, &page, middle.0, middle.1)?;
             (found == id).then_some((index, id, text))
         })

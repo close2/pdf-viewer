@@ -493,7 +493,13 @@ fn difference(one: &[u8], other: &[u8], width: u32) -> (usize, u8, Option<(usize
     let mut moved = 0;
     let mut worst = 0;
     let mut first = None;
-    for (at, (a, b)) in one.chunks_exact(4).zip(other.chunks_exact(4)).enumerate() {
+    for (at, (a, b)) in one
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(other.as_chunks::<4>().0)
+        .enumerate()
+    {
         let most = a
             .iter()
             .zip(b)

@@ -278,8 +278,7 @@ fn disagreement(
 fn cross_check(path: &Path, tally: &mut Tally) {
     let name = path
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let Ok(bytes) = FileBytes::on_disk(path) else {
         tally.unopenable = tally.unopenable.saturating_add(1);
         return;

@@ -127,8 +127,10 @@ fn compared(
             continue;
         };
         for (column, (a, b)) in whole_row
-            .chunks_exact(4)
-            .zip(drawn_row.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(drawn_row.as_chunks::<4>().0)
             .enumerate()
         {
             if a != b {
@@ -477,8 +479,7 @@ fn isolated(request: &RenderRequest, window: Window, differences: &[Difference])
             .list
             .commands()
             .get(index)
-            .map(|command| format!("{command:?}").chars().take(900).collect())
-            .unwrap_or_default();
+            .map_or_default(|command| format!("{command:?}").chars().take(900).collect());
         println!("    still differing with command {index}: {described}");
     }
 }

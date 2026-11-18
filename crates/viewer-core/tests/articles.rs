@@ -163,5 +163,5 @@ fn a_document_with_no_threads_answers_with_an_empty_list() {
     let Answer::Articles(threads) = viewer.query(Query::Articles) else {
         panic!("Query::Articles always answers with a list");
     };
-    assert!(threads.is_empty());
+    assert_eq!(threads, [] as [pdf_model::article::Thread; 0]);
 }

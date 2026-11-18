@@ -776,7 +776,7 @@ impl<H: Host> Evaluator<'_, H> {
         if pattern.is_empty() {
             return self.checked(source);
         }
-        let replacement = values.get(2).map(Value::text).unwrap_or_default();
+        let replacement = values.get(2).map_or_default(Value::text);
         let count = source.matches(pattern.as_str()).count();
         let grown = source
             .len()

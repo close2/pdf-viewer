@@ -364,18 +364,17 @@ impl PolicyTree {
     /// Marks every node whose parent is dead as dead too, from `depth` down.
     fn cascade(&mut self, depth: usize) {
         for below in depth.saturating_add(1)..self.levels.len() {
-            let dead: Vec<usize> = self
-                .levels
-                .get(below.saturating_sub(1))
-                .map(|level| {
-                    level
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, node)| !node.alive)
-                        .map(|(index, _)| index)
-                        .collect()
-                })
-                .unwrap_or_default();
+            let dead: Vec<usize> =
+                self.levels
+                    .get(below.saturating_sub(1))
+                    .map_or_default(|level| {
+                        level
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, node)| !node.alive)
+                            .map(|(index, _)| index)
+                            .collect()
+                    });
             if let Some(level) = self.levels.get_mut(below) {
                 for node in level.iter_mut().filter(|node| dead.contains(&node.parent)) {
                     node.alive = false;

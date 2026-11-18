@@ -228,7 +228,7 @@ fn a_scene_of_lines_is_kept_across_views_and_draws_what_a_fresh_build_draws() {
         let (fresh, _) = frame(&mut backend(), &list, placed(view));
         identical(&format!("view {step} ({view:?})"), &drawn, &fresh);
         assert!(
-            drawn.data.chunks_exact(4).any(|p| p[0] < 128),
+            drawn.data.as_chunks::<4>().0.iter().any(|p| p[0] < 128),
             "view {step}: the lines are on the page"
         );
     }

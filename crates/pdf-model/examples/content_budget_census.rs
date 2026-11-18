@@ -149,8 +149,7 @@ fn one(path: &Path) -> Tally {
     tally.documents = 1;
     let name = path
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
 
     for number in document.xref().object_numbers() {
         let object = document.get(ObjectId {

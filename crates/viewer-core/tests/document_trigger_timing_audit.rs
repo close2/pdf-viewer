@@ -143,8 +143,7 @@ fn value(viewer: &Viewer) -> String {
         .into_iter()
         .find(|field| field.name.qualified == "Stamp")
         .and_then(|field| field.value)
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 /// Compare save and close triggers with public Viewer results: WS edits serialize, DS edits remain
@@ -218,7 +217,13 @@ fn printed_ink(viewer: &Viewer) -> usize {
         .with_medium(pdf_render::Medium::NONE)
         .rasterize(&page.list, page.target.expect("small printable page"))
         .expect("CPU draws the actual print page");
-    image.data.chunks_exact(4).filter(|p| p[3] > 0).count()
+    image
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[3] > 0)
+        .count()
 }
 
 /// Compare print triggers with the public print lifecycle, including a finish without a job.

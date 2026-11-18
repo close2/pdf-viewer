@@ -650,7 +650,12 @@ fn region_boxes(document: &Document, dict: &Dictionary) -> Vec<[f32; 4]> {
         && !values.is_empty()
         && values.len().is_multiple_of(8)
     {
-        return values.chunks_exact(8).map(bbox_of_points).collect();
+        return values
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|points| bbox_of_points(points))
+            .collect();
     }
     match numbers(document, dict, "Rect") {
         Some(rect) if rect.len() >= 4 => vec![[
@@ -691,7 +696,7 @@ fn bbox_of_points(points: &[f32]) -> [f32; 4] {
         f32::NEG_INFINITY,
         f32::NEG_INFINITY,
     ];
-    for pair in points.chunks_exact(2) {
+    for pair in points.as_chunks::<2>().0 {
         bbox[0] = bbox[0].min(pair[0]);
         bbox[1] = bbox[1].min(pair[1]);
         bbox[2] = bbox[2].max(pair[0]);
@@ -2274,13 +2279,12 @@ fn decode_pairs(
     let stated: Vec<f32> = document
         .get_key(dict, "Decode")
         .as_array()
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(|item| document.resolve(item).as_number().map(narrow))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let bits = u32::try_from(bits).unwrap_or(8);
     (0..space.components())
         .map(|component| {

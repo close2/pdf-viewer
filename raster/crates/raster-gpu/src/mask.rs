@@ -88,7 +88,7 @@ impl MaskPlacement {
             self.size[1],
             self.outside,
         ];
-        for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
+        for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
             slot.copy_from_slice(&value.to_le_bytes());
         }
         bytes

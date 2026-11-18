@@ -170,12 +170,15 @@ fn a_lone_delimiter_where_no_operand_stands_is_written_as_white_space() {
         assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
         let conversion = conversion(&report);
         assert!(conversion.settled.is_empty(), "{:?}", conversion.settled);
-        assert!(conversion.photographed.is_empty());
+        assert_eq!(
+            conversion.photographed,
+            [] as [pdf_transform::archive::PhotographedPage; 0]
+        );
         let [written] = conversion.runs_written_as_drawn.as_slice() else {
             panic!("one delimiter: {:?}", conversion.runs_written_as_drawn);
         };
         assert_eq!(written.run, b">");
-        assert!(written.number.is_empty());
+        assert_eq!(written.number, [] as [u8; 0]);
         let contents = decoded_contents(&output);
         assert!(
             holds_bytes(&contents, b"(World) Tj   Tj ET"),
@@ -270,7 +273,10 @@ fn an_operator_that_is_no_run_keeps_the_fence_under_as_shown() {
         decision(&report, OPERATORS)
     );
     assert!(output.is_none());
-    assert!(conversion(&report).runs_written_as_drawn.is_empty());
+    assert_eq!(
+        conversion(&report).runs_written_as_drawn,
+        [] as [pdf_transform::archive::WrittenRun; 0]
+    );
 }
 
 #[test]
@@ -326,7 +332,10 @@ fn the_runs_one_conversion_writes_are_bounded_and_tested_at_the_bound() {
     );
     let past = b"1.2.3 ".repeat(MOST_RUNS + 1);
     let (report, _) = convert_with_plan(&a_page_drawing(&past), &under("as-if-printed", target));
-    assert!(conversion(&report).runs_written_as_drawn.is_empty());
+    assert_eq!(
+        conversion(&report).runs_written_as_drawn,
+        [] as [pdf_transform::archive::WrittenRun; 0]
+    );
     assert!(
         !matches!(
             decision(&report, OPERATORS),
@@ -398,7 +407,10 @@ fn a_form_whose_bytes_are_written_as_drawn_keeps_its_cid_font_s_identity_map() {
         assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
         let conversion = conversion(&report);
         assert!(conversion.settled.is_empty(), "{:?}", conversion.settled);
-        assert!(conversion.photographed.is_empty());
+        assert_eq!(
+            conversion.photographed,
+            [] as [pdf_transform::archive::PhotographedPage; 0]
+        );
         let [written] = conversion.runs_written_as_drawn.as_slice() else {
             panic!("one delimiter: {:?}", conversion.runs_written_as_drawn);
         };

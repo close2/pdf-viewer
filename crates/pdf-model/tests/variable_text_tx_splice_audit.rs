@@ -2,7 +2,6 @@
 
 #![expect(
     clippy::expect_used,
-    clippy::arithmetic_side_effects,
     reason = "a complete fixture and its pixel oracle must fail loudly"
 )]
 

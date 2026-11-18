@@ -637,7 +637,9 @@ pub(super) fn matte_through_unpack(
         return Ok(Ok(false));
     }
     let raw: Vec<u8> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| pixel.iter().take(wanted).copied())
         .collect();
     *rgba = unpack(&raw, grid.0, grid.1, &samples)?;
@@ -811,7 +813,9 @@ pub fn filter_samples(document: &Document, stream: &Stream) -> Result<FilterSamp
             // frame's own components are the first `components` of them, a grey frame's one
             // component being delivered three times over.
             let data = samples
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|pixel| pixel.iter().take(components).copied())
                 .collect();
             Ok(FilterSamples {

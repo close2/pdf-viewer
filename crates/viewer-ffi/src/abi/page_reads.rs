@@ -77,7 +77,9 @@ pub unsafe extern "C" fn quorra_measure(
         Vec::new()
     } else {
         core::slice::from_raw_parts(points, pairs)
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| [pair[0], pair[1]])
             .collect()
     };

@@ -762,12 +762,14 @@ impl Image {
     pub fn is_opaque(&self) -> bool {
         let opaque = |samples: &[u8]| {
             samples
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .fold(u8::MAX, |alphas, sample| alphas & sample[3])
                 == u8::MAX
         };
-        let mut blocks = self.data.chunks_exact(256);
-        blocks.by_ref().all(opaque) && opaque(blocks.remainder())
+        let (blocks, rest) = self.data.as_chunks::<256>();
+        blocks.iter().all(|samples| opaque(samples)) && opaque(rest)
     }
 
     /// Whether a backend should filter between samples when drawing under `placement`.
@@ -1024,7 +1026,7 @@ impl Image {
                 .filter(|band| opaque_band(band))
         };
         let Some(band) = band else {
-            for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+            for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(spans) {
                 cell.copy_from_slice(&self.average_block(x0, y0, x1, y1));
             }
             return;
@@ -1037,7 +1039,7 @@ impl Image {
             }
         }
         let lines = y1 - y0;
-        for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+        for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(spans) {
             let count = (x1 - x0) * lines;
             // Four lanes written out rather than zipped: the compiler keeps them in registers,
             // which the zipped form measured a fifth slower than (ADR 1457).
@@ -1045,7 +1047,7 @@ impl Image {
             let columns = sums
                 .get((x0 as usize) * 4..(x1 as usize) * 4)
                 .unwrap_or_default();
-            for column in columns.chunks_exact(4) {
+            for column in columns.as_chunks::<4>().0 {
                 block[0] += column[0];
                 block[1] += column[1];
                 block[2] += column[2];
@@ -1098,7 +1100,7 @@ impl Image {
             let Some(span) = self.data.get(from..to) else {
                 continue;
             };
-            for sample in span.chunks_exact(4) {
+            for sample in span.as_chunks::<4>().0 {
                 let alpha = u64::from(sample[3]);
                 for (sum, component) in colour.iter_mut().zip(sample) {
                     *sum += u64::from(*component) * alpha;
@@ -1371,17 +1373,11 @@ impl From<Image> for ImageSource {
 /// and the two alpha lanes of the fold tested once, as `Image::is_opaque`'s blocks are.
 fn opaque_band(band: &[u8]) -> bool {
     const ALPHAS: u64 = u64::from_le_bytes([0, 0, 0, 0xFF, 0, 0, 0, 0xFF]);
-    let mut words = band.chunks_exact(8);
-    let folded = words.by_ref().fold(u64::MAX, |all, word| {
-        let mut eight = [0u8; 8];
-        eight.copy_from_slice(word);
-        all & u64::from_le_bytes(eight)
-    });
-    folded & ALPHAS == ALPHAS
-        && words
-            .remainder()
-            .get(3)
-            .is_none_or(|&alpha| alpha == u8::MAX)
+    let (words, rest) = band.as_chunks::<8>();
+    let folded = words
+        .iter()
+        .fold(u64::MAX, |all, word| all & u64::from_le_bytes(*word));
+    folded & ALPHAS == ALPHAS && rest.get(3).is_none_or(|&alpha| alpha == u8::MAX)
 }
 
 /// The largest block, in samples, whose opaque mean [`Image::area_averaged`] reads off column
@@ -1867,11 +1863,15 @@ mod resampling {
                     .expect("a reduction");
                 let rows = Bands::new(height, reduced.height);
                 let columns = Bands::new(width, reduced.width);
-                for (index, cell) in reduced.data.chunks_exact(4).enumerate() {
+                for (index, cell) in reduced.data.as_chunks::<4>().0.iter().enumerate() {
                     let index = index as u32;
                     let (x, y) = (index % reduced.width, index / reduced.width);
                     let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
-                    assert_eq!(cell, image.average_block(x0, y0, x1, y1), "cell ({x}, {y})");
+                    assert_eq!(
+                        *cell,
+                        image.average_block(x0, y0, x1, y1),
+                        "cell ({x}, {y})"
+                    );
                 }
             }
         }
@@ -2084,11 +2084,6 @@ mod device_scale {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "test code: the widths here are exactly representable, and the whole point is \
-              that the substituted width is the reciprocal of the scale rather than near it"
-)]
 mod stroke_width {
     use super::{Stroke, Transform};
 

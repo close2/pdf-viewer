@@ -394,6 +394,6 @@ mod tests {
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
         ]);
-        assert!(in_force_on_pages(&document).is_empty());
+        assert_eq!(in_force_on_pages(&document), [] as [OutputIntent; 0]);
     }
 }

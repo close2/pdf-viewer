@@ -222,7 +222,9 @@ fn ink(raster: &pdf_render::Raster) -> f32 {
 fn total_ink(raster: &pdf_render::Raster) -> f32 {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
         .sum()
 }
@@ -761,7 +763,7 @@ fn pixels_the_band_does_not_meet(raster: &pdf_render::Raster, degrees: f32, widt
     let to = (cx + REACH * cos, TURNED.height - (cy + REACH * sin));
     let mut stray = 0;
     let stride = raster.width as usize;
-    for (index, pixel) in raster.data.chunks_exact(4).enumerate() {
+    for (index, pixel) in raster.data.as_chunks::<4>().0.iter().enumerate() {
         if pixel[0] == 255 {
             continue;
         }

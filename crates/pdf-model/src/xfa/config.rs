@@ -78,8 +78,7 @@ impl Config {
         };
         let applications: Vec<usize> = tree
             .get(root)
-            .map(|element| element.children.clone())
-            .unwrap_or_default();
+            .map_or_default(|element| element.children.clone());
         for &application in &applications {
             let Some(common) = tree.child(application, "common") else {
                 continue;

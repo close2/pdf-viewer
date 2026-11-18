@@ -216,10 +216,9 @@ fn a_cid_the_charset_does_not_hold_is_given_a_copy_of_notdef_under_its_own_cid()
         assert_eq!(after.drawn_cid(seven), Some(7));
         let outline = |font: &LoadedFont, code| {
             font.outline(code)
-                .map(|outline| outline.commands().to_vec())
-                .unwrap_or_default()
+                .map_or_default(|outline| outline.commands().to_vec())
         };
-        assert!(!outline(&before, seven).is_empty());
+        assert_ne!(outline(&before, seven), [] as [pdf_render::PathCommand; 0]);
         assert_eq!(
             outline(&after, seven),
             outline(&before, seven),
@@ -278,8 +277,7 @@ fn a_code_whose_own_cid_is_0_is_sent_to_a_fresh_cid_given_a_copy_of_notdef() {
         );
         let outline = |font: &LoadedFont, code| {
             font.outline(code)
-                .map(|outline| outline.commands().to_vec())
-                .unwrap_or_default()
+                .map_or_default(|outline| outline.commands().to_vec())
         };
         for code in [zero, seven] {
             assert!(after.glyph_index(code).is_some_and(|glyph| glyph != 0));

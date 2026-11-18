@@ -1552,7 +1552,9 @@ fn postscript_name(program: &[u8], table: usize) -> Option<String> {
         let bytes = program.get(offset..offset.checked_add(length)?)?;
         let name: String = match platform {
             3 => bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| char::from(pair.get(1).copied().unwrap_or(0)))
                 .collect(),
             1 => bytes.iter().map(|byte| char::from(*byte)).collect(),
@@ -2220,11 +2222,12 @@ impl NumberTree {
         let mut nums = document
             .get_key(&self.root, "Nums")
             .as_array()
-            .map(<[Object]>::to_vec)
-            .unwrap_or_default();
+            .map_or_default(<[Object]>::to_vec);
         // The walk read every key as an integer in ascending order, so these are the array's tail.
         let kept = nums
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .take_while(|pair| {
                 pair.first()
                     .and_then(|key| document.resolve(key).as_integer())
@@ -2293,8 +2296,7 @@ impl NumberTree {
             let mut nums = document
                 .get_key(&out, "Nums")
                 .as_array()
-                .map(<[Object]>::to_vec)
-                .unwrap_or_default();
+                .map_or_default(<[Object]>::to_vec);
             nums.extend(flat);
             out.insert(Name::new(&b"Nums"[..]), Object::Array(nums));
             return Ok(out);
@@ -2380,10 +2382,7 @@ impl Walk {
             if nums.len() % 2 != 0 {
                 return refused(self.refusals.not_a_tree);
             }
-            for pair in nums.chunks_exact(2) {
-                let [key, value] = pair else {
-                    continue;
-                };
+            for [key, value] in nums.as_chunks::<2>().0 {
                 let Some(key) = document.resolve(key).as_integer() else {
                     return refused(self.refusals.not_a_tree);
                 };

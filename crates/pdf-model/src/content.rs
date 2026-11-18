@@ -2167,8 +2167,7 @@ fn interpret_into(
     let unresolved: Vec<&'static str> = interpreter
         .optional_content
         .as_ref()
-        .map(crate::optional_content::OptionalContent::unresolved_usage)
-        .unwrap_or_default()
+        .map_or_default(crate::optional_content::OptionalContent::unresolved_usage)
         .to_vec();
     for category in unresolved {
         interpreter.note(Unsupported::OptionalContent {

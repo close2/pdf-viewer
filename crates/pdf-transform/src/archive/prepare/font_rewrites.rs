@@ -166,10 +166,7 @@ pub(super) fn prepare_fonts(
         (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics, spare),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
-    let recorded = substitutes
-        .as_ref()
-        .map(Substitutes::recorded)
-        .unwrap_or_default();
+    let recorded = substitutes.as_ref().map_or_default(Substitutes::recorded);
     PreparedFonts {
         substitutes,
         metrics,
@@ -196,8 +193,7 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
         .map(|font| {
             let described = font
                 .described
-                .map(|described| format!(" ({})", described.describe()))
-                .unwrap_or_default();
+                .map_or_default(|described| format!(" ({})", described.describe()));
             // Every loss the font's embedding incurred is in the file's own history as well as
             // the run's report, the fitting with the scale it removed (`doc/adr/2262`).
             let lost = if font.losses.is_empty() {
@@ -247,8 +243,7 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             // (`doc/adr/2636`).
             let cut = font
                 .cut_program
-                .map(|cut| format!("; {}", cut.describe()))
-                .unwrap_or_default();
+                .map_or_default(|cut| format!("; {}", cut.describe()));
             format!(
                 "{} (resource {}) was not embedded and {} was embedded in its place, {}, taking \
                  the {} route{described}{lost}{fitting}{layout}{empty}{twins}{cut}",

@@ -372,8 +372,7 @@ fn proved_for_every_font(
 /// The outline this reader draws for `code`, as its path commands; empty where it draws none.
 fn drawn(font: &LoadedFont, code: Code) -> Vec<pdf_render::PathCommand> {
     font.outline(code)
-        .map(|outline| outline.commands().to_vec())
-        .unwrap_or_default()
+        .map_or_default(|outline| outline.commands().to_vec())
 }
 
 /// Whether every code shown draws, in the font as written, the outline it drew at the width it

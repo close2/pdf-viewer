@@ -1611,7 +1611,7 @@ fn embed_pass(
             fitting,
             empty_glyphs: Vec::new(),
             empty_cids: Vec::new(),
-            twin_codes: twins.map(|twins| twins.codes).unwrap_or_default(),
+            twin_codes: twins.map_or_default(|twins| twins.codes),
             cut_program: cut,
             font: selected(used),
         });

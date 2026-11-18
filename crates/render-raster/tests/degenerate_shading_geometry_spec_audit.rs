@@ -117,7 +117,9 @@ fn check_axial(coverage: raster_gpu::Coverage) {
     let painted = blank.map(|raster| {
         raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|rgba| rgba[3] != 0)
             .count()
     });
@@ -161,7 +163,9 @@ fn check_radial(coverage: raster_gpu::Coverage) {
         result.map(|raster| {
             raster
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|rgba| rgba[3] != 0)
                 .count()
         })

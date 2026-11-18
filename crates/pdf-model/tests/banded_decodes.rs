@@ -238,7 +238,9 @@ fn a_complete_last_row_without_its_eoi_is_decoded_as_the_frame() {
     let first_of_the_last_row = 104 * row;
     assert!(
         whole[first_of_the_last_row..]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[..3] != [128, 128, 128]),
         "the frame's last MCU row is not grey, so a grey one would be seen below"
     );

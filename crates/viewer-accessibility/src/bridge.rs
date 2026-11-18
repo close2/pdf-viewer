@@ -558,7 +558,7 @@ fn caret(tree: &TreeUpdate, position: TextPosition) -> Option<(f32, f32)> {
     reason = "see `caret`: these corners were `f32` before AccessKit widened them"
 )]
 fn middle(low: f64, high: f64) -> f32 {
-    ((low + high) * 0.5) as f32
+    f64::midpoint(low, high) as f32
 }
 
 /// A published rectangle back in the device pixels a `Command` takes.

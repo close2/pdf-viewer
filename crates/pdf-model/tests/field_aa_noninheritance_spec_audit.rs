@@ -108,5 +108,5 @@ fn a_terminal_field_aa_is_used_for_its_keystroke_event() {
 
 #[test]
 fn an_absent_field_aa_does_not_dispatch_a_keystroke_script() {
-    assert!(keystroke_scripts(false, false).is_empty());
+    assert_eq!(keystroke_scripts(false, false), [] as [String; 0]);
 }

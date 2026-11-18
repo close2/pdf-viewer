@@ -81,7 +81,10 @@ fn refuse_any_loss_authorises_nothing() {
         config.authorisations(Target::Two(Level::B)),
         pdf_transform::archive::Authorisations::default()
     );
-    assert!(config.departures.is_empty());
+    assert_eq!(
+        config.departures,
+        [] as [pdf_transform::archive::Departure; 0]
+    );
 }
 
 #[test]

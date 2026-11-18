@@ -260,7 +260,10 @@ fn an_expansion_is_spoken_in_place_of_its_abbreviation() {
 #[test]
 fn an_untagged_page_carries_nothing() {
     let drawn = interpret("BT /F1 12 Tf 10 50 Td (plain) Tj ET", "", "", "");
-    assert!(drawn.described.is_empty());
+    assert_eq!(
+        drawn.described,
+        [] as [pdf_model::accessibility::Described; 0]
+    );
     assert_eq!(drawn.language, None);
     assert_eq!(runs(&drawn.speech()), vec![("plain", None)]);
 }

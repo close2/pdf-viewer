@@ -1027,15 +1027,12 @@ fn function_based(
 
     // A type 1 shading's `/Domain` is a rectangle rather than an interval.
     let array = document.get_key(dict, "Domain");
-    let values: Vec<f32> = array
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| document.resolve(item).as_number().map(narrow))
-                .collect()
-        })
-        .unwrap_or_default();
+    let values: Vec<f32> = array.as_array().map_or_default(|items| {
+        items
+            .iter()
+            .filter_map(|item| document.resolve(item).as_number().map(narrow))
+            .collect()
+    });
     let rectangle = <[f32; 4]>::try_from(values.as_slice()).unwrap_or([0.0, 1.0, 0.0, 1.0]);
 
     // A conversion's alpha is the space's rather than the value's — the one colour space

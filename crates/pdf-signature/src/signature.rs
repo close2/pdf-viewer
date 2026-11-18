@@ -1548,14 +1548,12 @@ impl Signature {
         if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
             return self.chain.clone();
         }
-        self.signed_data()
-            .map(|cms| {
-                cms.certificates
-                    .iter()
-                    .map(|value| value.encoding().to_vec())
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.signed_data().map_or_default(|cms| {
+            cms.certificates
+                .iter()
+                .map(|value| value.encoding().to_vec())
+                .collect()
+        })
     }
 
     /// §12.8.3.2's path: the target is `/Cert`'s first entry and the rest of the entry is the pool.
@@ -3536,7 +3534,7 @@ fn read_selection(document: &Document, dict: &Dictionary) -> Option<FieldSelecti
         document
             .get_key(dict, "Fields")
             .as_array()
-            .map(|fields| {
+            .map_or_default(|fields| {
                 fields
                     .iter()
                     .map(|field| document.resolve(field))
@@ -3546,7 +3544,6 @@ fn read_selection(document: &Document, dict: &Dictionary) -> Option<FieldSelecti
                     })
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default()
     };
     match action.as_bytes() {
         b"All" => Some(FieldSelection::All),
@@ -3614,7 +3611,7 @@ fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRigh
             document
                 .get_key(parameters, key)
                 .as_array()
-                .map(|entries| {
+                .map_or_default(|entries| {
                     entries
                         .iter()
                         .filter_map(|entry| {
@@ -3625,7 +3622,6 @@ fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRigh
                         })
                         .collect::<Vec<String>>()
                 })
-                .unwrap_or_default()
         };
         return Some(UsageRights {
             document: names("Document"),
@@ -3875,7 +3871,9 @@ fn byte_range(document: &Document, dict: &Dictionary) -> Vec<(u64, u64)> {
         return Vec::new();
     }
     range
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| {
             let start = document.resolve(pair.first()?).as_integer()?;
             let length = document.resolve(pair.get(1)?).as_integer()?;
@@ -4164,7 +4162,7 @@ mod tests {
             "<< /FT /Sig /T (Empty) /Subtype /Widget >>",
             "<< /FT /Sig /T (AlsoEmpty) /V << /Type /Sig /Filter /Adobe.PPKLite >> >>",
         ]);
-        assert!(signatures(&doc).is_empty());
+        assert_eq!(signatures(&doc), [] as [Signature; 0]);
     }
 
     /// A form that does not declare its signature fields is walked all the same.
@@ -6227,10 +6225,9 @@ mod tests {
         other.push(b'\n');
         let (other_document, other_signature) = only_signature(&other);
         let other_cms = other_signature.signed_data().expect("a SignedData");
-        assert!(
-            other_signature
-                .pades_departures(&other_cms, other_document.bytes())
-                .is_empty()
+        assert_eq!(
+            other_signature.pades_departures(&other_cms, other_document.bytes()),
+            [] as [PadesDeparture; 0]
         );
     }
 

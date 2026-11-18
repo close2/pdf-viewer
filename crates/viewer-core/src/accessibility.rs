@@ -1899,7 +1899,7 @@ fn equalise_table_cells(nodes: &[AccessibilityNode], answer: &mut [Option<[f32; 
 fn quad_bounds(quads: &[[f32; 8]]) -> Option<[f32; 4]> {
     let mut union: Option<[f32; 4]> = None;
     for quad in quads {
-        for corner in quad.chunks_exact(2) {
+        for corner in quad.as_chunks::<2>().0 {
             let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
                 continue;
             };

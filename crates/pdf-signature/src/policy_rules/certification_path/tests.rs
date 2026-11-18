@@ -23,7 +23,9 @@ const AFTER_THE_SIGNER_EXPIRED: Instant = Instant::from_unix_seconds(1_811_808_0
 pub(crate) fn hex(text: &str) -> Vec<u8> {
     let digits: Vec<u8> = text.bytes().filter(u8::is_ascii_hexdigit).collect();
     digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let text = std::str::from_utf8(pair).expect("hex digits");
             u8::from_str_radix(text, 16).expect("hex digits")

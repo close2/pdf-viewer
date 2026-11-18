@@ -441,8 +441,10 @@ fn differing(
     {
         let y = u32::try_from(y).expect("a row");
         for (x, (drawn_px, bare_px)) in drawn_row
-            .chunks_exact(4)
-            .zip(bare_row.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(bare_row.as_chunks::<4>().0)
             .enumerate()
         {
             let x = u32::try_from(x).expect("a column");
@@ -907,7 +909,7 @@ fn a_names_dictionary_that_is_indirect_is_the_object_rewritten_and_the_catalog_i
     );
     let none_left = remove(&one_left, "old.txt");
     let document = Document::open(none_left.clone()).expect("opens");
-    assert!(tree_names(&document).is_empty());
+    assert_eq!(tree_names(&document), [] as [String; 0]);
     assert!(
         offset_of(&document, 6).is_none() && offset_of(&document, 7).is_none(),
         "the fixture's specification and stream are free in the newest section"

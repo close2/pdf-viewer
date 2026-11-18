@@ -229,7 +229,7 @@ fn pgm_is_the_clauses_grey_of_the_oracles_raster() {
     let samples = &pgm[header.len()..];
     assert_eq!(samples.len(), expected.data.len() / 4);
     let mut greys = BTreeSet::new();
-    for (pixel, &grey) in expected.data.chunks_exact(4).zip(samples) {
+    for (pixel, &grey) in expected.data.as_chunks::<4>().0.iter().zip(samples) {
         let exact =
             0.3 * f64::from(pixel[0]) + 0.59 * f64::from(pixel[1]) + 0.11 * f64::from(pixel[2]);
         assert!(
@@ -293,7 +293,7 @@ fn images_in_a_netpbm_form_are_the_decoded_pixels_with_the_mask_beside() {
         assert_eq!(rgb_name, &png_name.replace(".png", ".ppm"));
         let header = format!("P5\n{width} {height}\n255\n");
         assert!(grey.starts_with(header.as_bytes()), "{grey_name}");
-        for (pixel, &level) in pixels.chunks_exact(4).zip(&grey[header.len()..]) {
+        for (pixel, &level) in pixels.as_chunks::<4>().0.iter().zip(&grey[header.len()..]) {
             let exact =
                 0.3 * f64::from(pixel[0]) + 0.59 * f64::from(pixel[1]) + 0.11 * f64::from(pixel[2]);
             assert!(
@@ -304,8 +304,10 @@ fn images_in_a_netpbm_form_are_the_decoded_pixels_with_the_mask_beside() {
         let header = format!("P6\n{width} {height}\n255\n");
         assert!(rgb.starts_with(header.as_bytes()), "{rgb_name}");
         for (pixel, triple) in pixels
-            .chunks_exact(4)
-            .zip(rgb[header.len()..].chunks_exact(3))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(rgb[header.len()..].as_chunks::<3>().0)
         {
             assert_eq!(&pixel[..3], triple, "{rgb_name}");
         }
@@ -506,7 +508,7 @@ fn images_are_listed_and_extracted() {
         &Budget::default(),
     )
     .expect("lists");
-    assert!(listing.outputs.is_empty());
+    assert_eq!(listing.outputs, [] as [Output; 0]);
     let entries: Vec<_> = listing
         .listed
         .iter()
@@ -760,7 +762,7 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
     assert_eq!(entry.bits_per_component, Some(8));
     // Table 92's abbreviation `/RGB` expanded to the name the clause says it means.
     assert_eq!(entry.colour_space.as_deref(), Some("DeviceRGB"));
-    assert!(entry.filters.is_empty());
+    assert_eq!(entry.filters, [] as [String; 0]);
     assert_eq!(entry.page, 1);
 
     let sinks = MemorySinks::new();
@@ -929,7 +931,7 @@ fn file_attachment_annotations_are_listed_with_their_page_and_saved() {
     let bytes = std::fs::read(&path).expect("a committed document");
     let document = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
     let expected = support::annotation_file_names(&document);
-    assert!(!expected.is_empty());
+    assert_ne!(expected, [] as [(usize, String); 0]);
 
     let sinks = MemorySinks::new();
     let report = apply(
@@ -1063,7 +1065,7 @@ fn a_soft_mask_is_composited_by_default_and_kept_beside_the_image_under_no_mask(
     );
 
     assert!(
-        base.chunks_exact(4).all(|px| px[3] == 255),
+        base.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
         "the base without its mask is opaque everywhere"
     );
     assert!(
@@ -1071,8 +1073,10 @@ fn a_soft_mask_is_composited_by_default_and_kept_beside_the_image_under_no_mask(
         "the mask masks something and keeps something"
     );
     for ((c, b), &m) in composite
-        .chunks_exact(4)
-        .zip(base.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(base.as_chunks::<4>().0)
         .zip(mask.iter())
     {
         assert_eq!(c[3], m, "the composite's alpha is the mask's sample");

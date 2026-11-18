@@ -76,7 +76,7 @@ fn on_the_processor(straight: &[u8], backdrop: &Backdrop) -> Vec<u8> {
     let below = [red, green, blue, 255_u8];
     let [left, top, right, bottom] = backdrop.keep.unwrap_or([0, 0, WIDTH, HEIGHT]);
     let mut out = straight.to_vec();
-    for (index, pixel) in (0_u32..).zip(out.chunks_exact_mut(4)) {
+    for (index, pixel) in (0_u32..).zip(out.as_chunks_mut::<4>().0) {
         let (x, y) = (index % WIDTH, index / WIDTH);
         let alpha = u16::from(pixel[3]);
         if alpha != 255 {
@@ -119,7 +119,9 @@ fn onto(device: &mut Device, scene: &Scene, backdrop: Backdrop) -> raster_gpu::F
 /// is about, which a scene that drew nothing translucent would leave empty.
 fn partial(raster: &[u8]) -> usize {
     raster
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0 && pixel[3] != 255)
         .count()
 }
@@ -212,6 +214,6 @@ fn a_zero_size_frame_onto_a_backdrop_is_empty() {
             }),
         )
         .expect("a zero-size readback is a legitimate frame");
-    assert!(pixels(frame).is_empty());
+    assert_eq!(pixels(frame), [] as [u8; 0]);
     assert!(device.backdrop_fits(WIDTH, HEIGHT));
 }

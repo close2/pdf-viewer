@@ -57,8 +57,7 @@ impl Walk<'_> {
             .document
             .get_key(font, "Subtype")
             .as_name()
-            .map(|name| name.as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|name| name.as_bytes().to_vec());
         match subtype.as_slice() {
             b"Type1" | b"TrueType" | b"MMType1" => Ok(Codes::Simple),
             b"Type3" => self.type3_codes(font, name),

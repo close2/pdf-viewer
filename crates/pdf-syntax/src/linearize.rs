@@ -1445,15 +1445,12 @@ fn place(
                     || in_part4.get(target).copied().unwrap_or(true))
         };
         let skip = ["Parent", "Thumb"];
-        let starts: Vec<usize> = graph
-            .dict(*page)
-            .map(|dict| {
-                dict.iter()
-                    .filter(|(key, _)| !skip.iter().any(|skip| key.as_bytes() == skip.as_bytes()))
-                    .flat_map(|(_, value)| graph.targets(Some(value)))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let starts: Vec<usize> = graph.dict(*page).map_or_default(|dict| {
+            dict.iter()
+                .filter(|(key, _)| !skip.iter().any(|skip| key.as_bytes() == skip.as_bytes()))
+                .flat_map(|(_, value)| graph.targets(Some(value)))
+                .collect()
+        });
         for index in preorder(graph, &starts, &stop, &mut seen) {
             if !first_reach.get(index).copied().unwrap_or(true)
                 && others.get(index).copied().flatten() == Some(None)

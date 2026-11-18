@@ -138,7 +138,7 @@ pub(crate) struct Agreement {
 /// Compare two RGBA8 rasters of equal size.
 pub(crate) fn agreement(left: &[u8], right: &[u8]) -> Agreement {
     let mut result = Agreement::default();
-    for (a, b) in left.chunks_exact(4).zip(right.chunks_exact(4)) {
+    for (a, b) in left.as_chunks::<4>().0.iter().zip(right.as_chunks::<4>().0) {
         let worst = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
         result.worst = result.worst.max(worst);
         match worst {

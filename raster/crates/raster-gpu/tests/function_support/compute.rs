@@ -197,7 +197,9 @@ impl Compute {
             .expect("the device should answer the map");
         let mapped = slice.get_mapped_range().expect("the readback should map");
         let colours = mapped
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
+            .iter()
             .map(|chunk| {
                 let component = |index: usize| {
                     let at = index * 4;

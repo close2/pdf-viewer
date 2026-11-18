@@ -6,10 +6,6 @@ use pdf_syntax::{Object, ObjectId};
 /// The writer emits four numeric coordinates for two opposite corners; either diagonal order
 /// denotes the same bounds.
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these exact small integer coordinates are only stored and reordered"
-)]
 fn attachment_writer_emits_four_numeric_coordinates_with_the_requested_bounds() {
     let annotation = file_attachment_annotation(
         ObjectId::new(3, 0),

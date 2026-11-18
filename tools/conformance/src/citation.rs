@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn a_section_sign_with_no_number_is_a_finding_not_a_skip() {
         let scan = scan(&format!("{DOC} see {SECTION} above\n"));
-        assert!(scan.citations.is_empty());
+        assert_eq!(scan.citations, [] as [Citation; 0]);
         assert_eq!(scan.malformed.len(), 1);
     }
 
@@ -1319,7 +1319,7 @@ mod tests {
     fn the_standards_own_name_before_a_clause_is_a_citation() {
         let source = format!("{DOC} ISO 32000-2 {SECTION}9.6.5.4 names five routes\n");
         let scan = scan(&source);
-        assert!(scan.foreign.is_empty());
+        assert_eq!(scan.foreign, [] as [ForeignCitation; 0]);
         assert_eq!(scan.citations.len(), 1);
     }
 

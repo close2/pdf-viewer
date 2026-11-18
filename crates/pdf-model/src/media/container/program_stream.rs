@@ -114,7 +114,7 @@ mod tests {
         let read = timeline(&pack(90_000, 25_000, 0)).expect("a program stream");
         assert_eq!(read.seconds, None);
         assert_eq!(read.frames, None);
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [crate::media::container::Marker; 0]);
         assert!(timeline(&pack(1, 1, 7)).is_ok());
     }
 

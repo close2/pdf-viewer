@@ -385,7 +385,7 @@ fn table_22s_bit_12_limits_a_print_that_bit_3_let_through() {
     // Every level off: the document withholds both and this reader obeys neither.
     let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
     assert_eq!(fidelity(&events), Some(Fidelity::Faithful));
-    assert!(about(&events, Operation::PrintFaithfully).is_empty());
+    assert_eq!(about(&events, Operation::PrintFaithfully), [] as [&str; 0]);
 
     // Bit 3 on: the operation is refused and no job starts at all, so bit 12 is never reached —
     // a fidelity is not withheld from a print that is not happening.
@@ -394,7 +394,7 @@ fn table_22s_bit_12_limits_a_print_that_bit_3_let_through() {
     let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
     assert_eq!(fidelity(&events), None);
     assert_eq!(about(&events, Operation::Print), ["refused"]);
-    assert!(about(&events, Operation::PrintFaithfully).is_empty());
+    assert_eq!(about(&events, Operation::PrintFaithfully), [] as [&str; 0]);
 
     // Bit 3's level off, bit 12's on: the print goes ahead and the *fidelity* is refused by name.
     let policy =

@@ -81,7 +81,7 @@ fn a_specific_lists_initial_set_is_every_services_certificate() {
         .anchors(&reference("https://example.at/tl.xml"))
         .expect("the file named the reference's last path segment");
     assert_eq!(found.certificates, [root, intermediate]);
-    assert!(found.missing.is_empty());
+    assert_eq!(found.missing, [] as [String; 0]);
 }
 
 /// Step 2: only a service of a listed type contributes (Example 1's `CA/QC`).
@@ -112,7 +112,10 @@ fn service_types_keep_only_the_services_of_those_types() {
     };
     assert_eq!(typed(&[CA_QC]), [root]);
     assert_eq!(typed(&[QTST]), [intermediate]);
-    assert!(typed(&["http://uri.etsi.org/TrstSvc/Svctype/CA/PKC"]).is_empty());
+    assert_eq!(
+        typed(&["http://uri.etsi.org/TrstSvc/Svctype/CA/PKC"]),
+        [] as [Vec<u8>; 0]
+    );
 }
 
 /// Step 3: the status *at current time* decides (Example 2's `granted`), so the same service is
@@ -196,7 +199,7 @@ fn an_authenticated_list_of_trusted_lists_can_be_referenced() {
     .anchors(&reference(OJEU_LOTL_LOC_AT_PUBLICATION))
     .expect("the authenticated list of trusted lists");
     assert_eq!(found.certificates, [root]);
-    assert!(found.missing.is_empty());
+    assert_eq!(found.missing, [] as [String; 0]);
 }
 
 /// A reference no supplied file answers, or one to a file the reading refused, determines nothing;

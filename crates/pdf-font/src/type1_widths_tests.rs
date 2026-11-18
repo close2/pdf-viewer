@@ -42,7 +42,10 @@ fn a_glyphs_advance_is_restated_and_its_outline_and_every_other_glyph_kept() {
     for glyph in [0, a, b] {
         assert_eq!(outline(&after, glyph), outline(&before, glyph));
     }
-    assert!(!outline(&after, a).expect("drawn").is_empty());
+    assert_ne!(
+        outline(&after, a).expect("drawn"),
+        [] as [(u8, [u32; 6]); 0]
+    );
 }
 
 #[test]

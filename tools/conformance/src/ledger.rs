@@ -2333,7 +2333,7 @@ mod tests {
         );
         assert!(!read.rows[1].status.owes());
         assert!(!read.is_aggregate(&read.rows[0]));
-        assert!(read.owing().is_empty());
+        assert_eq!(read.owing(), [] as [&Row; 0]);
     }
 
     /// Trap 13: the sweep is run against the defect it looks for before it is believed. The

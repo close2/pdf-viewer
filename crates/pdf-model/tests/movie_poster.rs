@@ -102,7 +102,12 @@ fn pixel(raster: &pdf_render::Raster, x: u32, y: u32) -> [u8; 4] {
 
 /// Whether nothing at all was painted on the page.
 fn blank(raster: &pdf_render::Raster) -> bool {
-    raster.data.chunks_exact(4).all(|sample| sample[3] == 0)
+    raster
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|sample| sample[3] == 0)
 }
 
 /// A stream `/Poster` is drawn in `/Rect`, scaled proportionally and centred, and says so.

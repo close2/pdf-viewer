@@ -316,7 +316,7 @@ fn restricted(document: &Document, source: &Source) -> Result<Object, &'static s
     if domain.iter().any(|(bound, _)| !bound.is_finite()) {
         return Err(UNREADABLE);
     }
-    for (at, bounds) in domain.chunks_exact(2).enumerate() {
+    for (at, bounds) in domain.as_chunks::<2>().0.iter().enumerate() {
         if at == source.index {
             continue;
         }
@@ -343,8 +343,9 @@ fn restricted(document: &Document, source: &Source) -> Result<Object, &'static s
         Name::new(&b"Domain"[..]),
         Object::Array(
             domain
-                .chunks_exact(2)
-                .nth(source.index)
+                .as_chunks::<2>()
+                .0
+                .get(source.index)
                 .ok_or(UNREADABLE)?
                 .iter()
                 .map(|(_, written)| written.clone())

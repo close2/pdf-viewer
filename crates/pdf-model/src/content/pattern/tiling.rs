@@ -131,15 +131,12 @@ impl Interpreter<'_> {
             .as_number()
             .map_or(0.0, narrow);
         let bbox = self.document.get_key(dict, "BBox");
-        let bbox: Vec<f32> = bbox
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| self.document.resolve(item).as_number().map(narrow))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let bbox: Vec<f32> = bbox.as_array().map_or_default(|items| {
+            items
+                .iter()
+                .filter_map(|item| self.document.resolve(item).as_number().map(narrow))
+                .collect()
+        });
         // A missing or zero step falls back to the cell's own size, which is what a
         // producer means by it and what other readers assume.
         let step = (

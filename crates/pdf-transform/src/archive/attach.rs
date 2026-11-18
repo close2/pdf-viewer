@@ -451,10 +451,7 @@ pub(super) fn xfa_resource(document: &Document, form: &Dictionary) -> Option<Vec
         return None;
     }
     let mut out = Vec::new();
-    for pair in packets.chunks_exact(2) {
-        let [name, packet] = pair else {
-            return None;
-        };
+    for [name, packet] in packets.as_chunks::<2>().0 {
         if !matches!(document.resolve(name), Object::String(_)) {
             return None;
         }

@@ -162,8 +162,7 @@ fn given_with(
         .unwrap_or(0);
     let global = global_subroutines(data);
     let local = index_item(data, stated.fd_array_at, usize::from(notdefs_dict))
-        .map(|dict| local_subroutines(data, dict))
-        .unwrap_or_default();
+        .map_or_default(|dict| local_subroutines(data, dict));
     let subroutines = Subroutines {
         global: &global,
         local: &local,

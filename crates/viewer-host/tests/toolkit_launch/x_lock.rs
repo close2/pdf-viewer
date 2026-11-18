@@ -72,9 +72,8 @@ fn own_uid() -> Option<u32> {
 
 /// Removes `path` where it exists and is this user's; another user's is left alone.
 fn remove_own(path: &Path) {
-    let ours = std::fs::symlink_metadata(path)
-        .ok()
-        .is_some_and(|metadata| Some(metadata.uid()) == own_uid());
+    let ours =
+        std::fs::symlink_metadata(path).is_ok_and(|metadata| Some(metadata.uid()) == own_uid());
     if ours {
         // A file that went between the look and the removal is the outcome wanted.
         drop(std::fs::remove_file(path));

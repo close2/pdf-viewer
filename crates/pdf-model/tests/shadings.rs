@@ -517,7 +517,7 @@ fn a_function_based_shadings_grid_is_the_same_however_it_is_divided() {
     );
     // And it is a picture rather than a blank page, or the comparison above is vacuous.
     assert!(
-        divided.data.chunks_exact(4).any(|p| p[0] != p[2]),
+        divided.data.as_chunks::<4>().0.iter().any(|p| p[0] != p[2]),
         "the function varies across the domain, so red and blue differ somewhere"
     );
 }
@@ -2111,7 +2111,9 @@ fn a_window_of_a_magnified_page_draws_what_the_whole_page_has_there() {
     assert!(
         cropped
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|p| p[3] == 255 && p[0] != p[2]),
         "the shading paints this window in colours that vary"
     );

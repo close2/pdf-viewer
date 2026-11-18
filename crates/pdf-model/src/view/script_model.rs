@@ -1626,8 +1626,7 @@ impl ViewState {
             text_font: tf
                 .as_ref()
                 .and_then(|(font, _)| font.as_ref())
-                .map(|name| base_font_of(document, form, name))
-                .unwrap_or_default(),
+                .map_or_default(|name| base_font_of(document, form, name)),
             rect: rect_of(document, widget),
             captions: captions_of(document, &characteristics),
             on_state: match field.kind {

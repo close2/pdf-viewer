@@ -5,7 +5,6 @@
 //! expected bytes are derived from the uncompressed PNG rows, independently of the decoder.
 
 #![expect(
-    clippy::arithmetic_side_effects,
     clippy::expect_used,
     reason = "small exact-xref in-memory PDF fixtures with checked-by-construction offsets"
 )]

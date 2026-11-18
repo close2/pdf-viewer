@@ -24,7 +24,6 @@
 //! under that point, and `scan_conversion_shapes_without_area.rs` holds it (ADR 2330).
 #![expect(
     clippy::expect_used,
-    clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "test code: a fixture that does not open should fail loudly, and the arithmetic is \
               over a fixture of a few hundred bytes and a raster this file sized"
@@ -86,7 +85,9 @@ fn drawn(content: &str) -> (Vec<f64>, Vec<Unsupported>, Vec<Command>) {
         .data
         .chunks_exact(width * 4)
         .map(|row| {
-            row.chunks_exact(4)
+            row.as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| f64::from(255 - pixel[0]) / 255.0)
                 .sum()
         })

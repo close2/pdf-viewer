@@ -160,27 +160,27 @@ impl Decode {
         space: &ColourSpace,
         bits: u32,
     ) -> Self {
-        let stated: Vec<f32> = document
-            .get_key(dict, "Decode")
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .map(|item| document.resolve(item))
-                    .filter_map(|item| item.as_number())
-                    .map(|value| {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "a component value beyond f32 is clamped to its \
+        let stated: Vec<f32> =
+            document
+                .get_key(dict, "Decode")
+                .as_array()
+                .map_or_default(|items| {
+                    items
+                        .iter()
+                        .map(|item| document.resolve(item))
+                        .filter_map(|item| item.as_number())
+                        .map(|value| {
+                            #[expect(
+                                clippy::cast_possible_truncation,
+                                reason = "a component value beyond f32 is clamped to its \
                                       permitted range either way"
-                        )]
-                        {
-                            value as f32
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+                            )]
+                            {
+                                value as f32
+                            }
+                        })
+                        .collect()
+                });
         Self::from_pairs(&stated, space, bits)
     }
 

@@ -61,7 +61,12 @@ pub(crate) fn fnv(bytes: &[u8]) -> u64 {
 pub(crate) fn differ(reference: &[u8], drawn: &[u8]) -> String {
     let (mut differing, mut past_16, mut worst, mut vanished, mut extra, mut inked) =
         (0_u64, 0_u64, 0_u8, 0_u64, 0_u64, 0_u64);
-    for (r, d) in reference.chunks_exact(4).zip(drawn.chunks_exact(4)) {
+    for (r, d) in reference
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(drawn.as_chunks::<4>().0)
+    {
         let largest = r
             .iter()
             .zip(d)

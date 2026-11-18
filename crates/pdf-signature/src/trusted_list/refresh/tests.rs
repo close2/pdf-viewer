@@ -139,8 +139,8 @@ fn what_both_clauses_authenticate_is_kept_under_its_location() {
         assert_eq!(fate_of(&refreshed, uri), &Fate::Kept, "{uri}");
         assert!(stored(&refreshed, &stored_name(uri)).is_some(), "{uri}");
     }
-    assert!(refreshed.remove.is_empty());
-    assert!(refreshed.configuration.is_empty());
+    assert_eq!(refreshed.remove, [] as [String; 0]);
+    assert_eq!(refreshed.configuration, [] as [String; 0]);
     let mut files = vec![(CERTIFICATES.to_owned(), LOTL_KEY.certificate())];
     files.extend(refreshed.store);
     let reading = Lists::of(files, "stored".to_owned()).read(Instant::from_unix_seconds(NOW));
@@ -180,7 +180,7 @@ fn a_member_list_clause_4_2_refuses_is_not_kept_and_the_held_copy_stays() {
         ["EUTLSO_SIGNER_CERT_NOT_AUTHENTICATED_BY_LOTL"]
     );
     assert!(stored(&refreshed, &stored_name(AT_TSL)).is_none());
-    assert!(refreshed.remove.is_empty());
+    assert_eq!(refreshed.remove, [] as [String; 0]);
     assert_eq!(fate_of(&refreshed, BE_TSL), &Fate::Kept);
 }
 
@@ -216,7 +216,7 @@ fn without_the_official_journals_certificates_nothing_is_asked_for() {
         refreshed,
         Err(RefreshRefusal::NoOfficialJournalCertificates)
     );
-    assert!(asked.is_empty());
+    assert_eq!(asked, [] as [String; 0]);
 }
 
 /// A list that could not be fetched keeps the host's copy; a file the host stored from a location
@@ -340,7 +340,7 @@ fn a_new_publication_with_no_following_pivot_moves_nothing_and_says_so() {
     let refreshed = refreshed.expect("a refresh");
     assert_eq!(refreshed.lotl.status, "LOTL_VERIFICATION_PASSED");
     assert_eq!(stored(&refreshed, OJEU_LOC), None);
-    assert!(refreshed.remove.is_empty());
+    assert_eq!(refreshed.remove, [] as [String; 0]);
     assert!(
         refreshed
             .configuration
@@ -424,7 +424,7 @@ fn a_policys_reference_outside_the_tree_is_fetched_last_and_kept_once_authentica
             statuses: None,
         })
         .expect("the reference resolves to the list stored from it");
-    assert!(!determined.certificates.is_empty());
+    assert_ne!(determined.certificates, [] as [Vec<u8>; 0]);
 }
 
 /// Nothing a reference names is kept unless it is believed as every list is: a Member State's
@@ -468,7 +468,7 @@ fn a_file_kept_for_a_reference_stays_while_the_reference_is_given() {
     )]);
     let served = served_with_mirror(member("AT", MEMBER_KEY));
     let (given, _) = run_with(&lists, &[AT_MIRROR], &served);
-    assert!(given.expect("a refresh").remove.is_empty());
+    assert_eq!(given.expect("a refresh").remove, [] as [String; 0]);
     let (not_given, _) = run(&lists, &served);
     assert_eq!(
         not_given.expect("a refresh").remove,

@@ -118,8 +118,10 @@ fn difference(name: &str, whole: &Raster, culled: &Raster) {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
     for (index, (a, b)) in whole
         .data
-        .chunks_exact(4)
-        .zip(culled.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(culled.data.as_chunks::<4>().0)
         .enumerate()
     {
         let most = a

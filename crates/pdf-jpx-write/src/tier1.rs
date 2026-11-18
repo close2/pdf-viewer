@@ -51,7 +51,7 @@ struct Block {
 pub(crate) fn encode_block(coefficients: &[i32], width: usize, height: usize) -> CodedBlock {
     let mut block = Block::new(coefficients, width, height);
     let largest = block.magnitude.iter().copied().max().unwrap_or(0);
-    let planes = u32::BITS - largest.leading_zeros();
+    let planes = largest.bit_width();
     if planes == 0 {
         return CodedBlock {
             data: Vec::new(),

@@ -95,8 +95,8 @@ fn disagreements(
 
 /// The file names under `fuzz/fuzz_targets/`, less `.rs`.
 fn targets(root: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(root.join("fuzz/fuzz_targets"))
-        .map(|entries| {
+    let mut names: Vec<String> =
+        fs::read_dir(root.join("fuzz/fuzz_targets")).map_or_default(|entries| {
             entries
                 .filter_map(Result::ok)
                 .filter_map(|e| {
@@ -106,8 +106,7 @@ fn targets(root: &Path) -> Vec<String> {
                         .map(str::to_owned)
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     names.sort();
     names
 }

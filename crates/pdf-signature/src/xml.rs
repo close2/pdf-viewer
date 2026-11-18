@@ -276,7 +276,7 @@ pub(crate) fn base64(text: &str) -> Option<Vec<u8>> {
     }
     let last = (symbols.len() / 4).checked_sub(1);
     let mut out = Vec::with_capacity(symbols.len());
-    for (index, group) in symbols.chunks_exact(4).enumerate() {
+    for (index, group) in symbols.as_chunks::<4>().0.iter().enumerate() {
         // `=` pads only the last group, and at most two of its symbols.
         let padding = group
             .iter()

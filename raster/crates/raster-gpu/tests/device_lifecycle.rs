@@ -48,7 +48,7 @@ fn churn() {
             adapter: Some(name),
             ..Options::default()
         }) {
-            assert!(!device.description().is_empty());
+            assert_ne!(device.description(), "");
         }
     }
 }

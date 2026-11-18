@@ -61,8 +61,7 @@ impl Host {
     pub(crate) fn question_prompt(&self) -> String {
         self.question
             .as_ref()
-            .map(|(_, words)| words.clone())
-            .unwrap_or_default()
+            .map_or_default(|(_, words)| words.clone())
     }
 
     /// What the person answered, carried out as every window carries it out (ADR 2105). Taking
@@ -78,16 +77,14 @@ impl Host {
     pub(crate) fn script_question_title(&self) -> String {
         self.script_question
             .as_ref()
-            .map(|(_, name, question)| viewer_host::script_asks::title(name, question))
-            .unwrap_or_default()
+            .map_or_default(|(_, name, question)| viewer_host::script_asks::title(name, question))
     }
 
     /// The script's message or question.
     pub(crate) fn script_question_text(&self) -> String {
         self.script_question
             .as_ref()
-            .map(|(_, _, question)| viewer_host::script_asks::text(question).to_owned())
-            .unwrap_or_default()
+            .map_or_default(|(_, _, question)| viewer_host::script_asks::text(question).to_owned())
     }
 
     /// The line under the text: an alert's icon as a word, or a response's label.

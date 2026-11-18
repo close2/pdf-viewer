@@ -2176,8 +2176,10 @@ mod tests {
         let differing = band
             .rows
             .data
-            .chunks_exact(4)
-            .zip(rows.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(rows.as_chunks::<4>().0)
             .filter(|(a, b)| a != b)
             .count();
         println!("band {seen:?}: {differing} pixels differ from the page's, by at most {worst}");

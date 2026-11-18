@@ -188,7 +188,7 @@ impl Bits {
     /// A negative difference is written as its one's complement in the same width, which is what
     /// makes the category enough to read it back.
     fn dc(&mut self, difference: i32) {
-        let category = u32::BITS - difference.unsigned_abs().leading_zeros();
+        let category = difference.unsigned_abs().bit_width();
         let (code, length) = canonical(DC_BITS, category)
             .expect("the table above holds every category written here");
         self.push(code, length);
@@ -211,7 +211,7 @@ impl Bits {
         while !self.written.len().is_multiple_of(8) {
             self.written.push(1);
         }
-        for byte in self.written.chunks_exact(8) {
+        for byte in self.written.as_chunks::<8>().0 {
             let packed = byte.iter().fold(0u8, |acc, bit| (acc << 1) | bit);
             out.push(packed);
             if packed == 0xFF {

@@ -186,7 +186,7 @@ fn a_new_variable_text_appearance_uses_origin_and_widget_dimensions() {
         1
     );
     let written = view.save(&document).expect("save new appearance");
-    assert!(written.unconstructed.is_empty());
+    assert_eq!(written.unconstructed, [] as [String; 0]);
     let saved = Document::open(written.bytes).expect("saved PDF");
     assert!(!saved.was_recovered());
     let widget_object = saved.get(ObjectId {

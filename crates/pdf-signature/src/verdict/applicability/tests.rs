@@ -73,7 +73,7 @@ fn a_signer_without_a_pseudonym_indicates_none() {
         .expect("the fixture carries its signer");
     let signer = signer(&x509::parse(&der).expect("it parses")).expect("its names read");
     assert_eq!(signer.pseudonym, None);
-    assert!(signer.alternative_names.is_empty());
+    assert_eq!(signer.alternative_names, [] as [Name; 0]);
     assert!(
         signer
             .subject
@@ -541,7 +541,7 @@ fn a_tokens_qualification_and_listing_are_reported_from_the_lists() {
         panic!("a token's assurance");
     };
     assert_eq!(eu_qualified, EuQualified::NoListSupplied);
-    assert!(listed.is_empty());
+    assert_eq!(listed, [] as [ListedAuthority; 0]);
 
     let issuer_only = Written {
         service_type: CA_QC,

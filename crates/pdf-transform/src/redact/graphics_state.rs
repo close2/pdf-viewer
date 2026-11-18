@@ -121,15 +121,12 @@ impl Walk<'_> {
         let dash = self.document.get_key(dict, "D");
         if let Some([array, phase]) = dash.as_array() {
             let array = self.document.resolve(array);
-            let dashes: Vec<f64> = array
-                .as_array()
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| self.document.resolve(item).as_number())
-                        .collect()
-                })
-                .unwrap_or_default();
+            let dashes: Vec<f64> = array.as_array().map_or_default(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| self.document.resolve(item).as_number())
+                    .collect()
+            });
             if dashes.iter().any(|dash| *dash < 0.0) || dashes.iter().all(|dash| *dash == 0.0) {
                 self.graphics.dashes = Vec::new();
                 self.graphics.dash_phase = 0.0;

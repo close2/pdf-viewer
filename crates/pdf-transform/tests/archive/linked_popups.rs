@@ -241,10 +241,7 @@ fn linked_pair_removal_preserves_actual_page_marks_and_closed_default() {
         assert_eq!((before.width, before.height), (after.width, after.height));
         assert_eq!(before.data, after.data);
         assert!(
-            after
-                .data
-                .chunks_exact(4)
-                .any(|pixel| pixel == [0, 0, 255, 255]),
+            after.data.as_chunks::<4>().0.contains(&[0, 0, 255, 255]),
             "visible blue mark is nonempty"
         );
         let document = Document::open(output.clone()).expect("output");

@@ -373,7 +373,7 @@ impl Lane {
             self.width as f32,
             self.height as f32,
         ];
-        for (slot, value) in uniform.chunks_exact_mut(4).zip(values) {
+        for (slot, value) in uniform.as_chunks_mut::<4>().0.iter_mut().zip(values) {
             slot.copy_from_slice(&value.to_le_bytes());
         }
         self.queue.write_buffer(&self.uniform, 0, &uniform);

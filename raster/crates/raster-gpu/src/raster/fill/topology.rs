@@ -544,7 +544,10 @@ fn shape_of(polyline: &Polyline) -> Option<Shape> {
     // coordinates, `(−dy, dx)`), and on the right of a negative one.
     let step = f64::from(orientation) * longest * 1.0e-3;
     let (dx, dy) = ((q.0 - p.0) / longest, (q.1 - p.1) / longest);
-    let inside = (0.5 * (p.0 + q.0) - dy * step, 0.5 * (p.1 + q.1) + dx * step);
+    let inside = (
+        f64::midpoint(p.0, q.0) - dy * step,
+        f64::midpoint(p.1, q.1) + dx * step,
+    );
     Some(Shape {
         orientation,
         inside,

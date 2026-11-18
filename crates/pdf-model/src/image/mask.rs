@@ -278,7 +278,7 @@ fn colour_key_entry(
     });
     let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
     let mut ranges = Vec::with_capacity(components);
-    for pair in values.chunks_exact(2) {
+    for pair in values.as_chunks::<2>().0 {
         let (Some(&low), Some(&high)) = (pair.first(), pair.get(1)) else {
             continue;
         };

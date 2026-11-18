@@ -59,5 +59,8 @@ fn a_state_chain_crosses_a_text_reply_without_a_state() {
     // The middle Text reply carries no State/StateModel, so it cannot overwrite the state, but it
     // remains the previous reply for Ada and can be the target of the later state change.
     // A state is attached to its target, not to the annotation that carries it.
-    assert!(states(&document, &page, ObjectId::new(7, 0)).is_empty());
+    assert_eq!(
+        states(&document, &page, ObjectId::new(7, 0)),
+        [] as [pdf_model::annotation_state::AnnotationState; 0]
+    );
 }

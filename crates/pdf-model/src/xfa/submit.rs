@@ -218,8 +218,7 @@ impl Execute {
         Self {
             connection: execute
                 .attribute("connection")
-                .map(str::trim)
-                .unwrap_or_default()
+                .map_or_default(str::trim)
                 .to_owned(),
             server_only: execute
                 .attribute("runAt")

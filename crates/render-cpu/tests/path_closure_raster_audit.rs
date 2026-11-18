@@ -79,7 +79,9 @@ fn explicit_line_to_start_uses_caps_where_h_uses_a_join() {
     );
     assert!(
         vertical_leg_pixels(&explicit)
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[0] < 255),
         "the common leg contains visible stroke ink"
     );

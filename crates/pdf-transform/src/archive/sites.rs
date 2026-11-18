@@ -169,9 +169,7 @@ pub(super) fn rendering_intents(
     if named.is_some_and(pdf_archive::Named::elsewhere) {
         return Err(Because::TheFence(INLINE_IMAGE_INTENT));
     }
-    let mut at: BTreeSet<ObjectId> = named
-        .map(|named| named.objects().clone())
-        .unwrap_or_default();
+    let mut at: BTreeSet<ObjectId> = named.map_or_default(|named| named.objects().clone());
     let mut tables = BTreeSet::new();
     if named.is_some_and(pdf_archive::Named::cut_short) {
         let reach = GraphicsStateReach::of(document);
@@ -662,18 +660,14 @@ pub(super) fn page_resources(
     // it; every other is a form `XObject`, a tiling pattern or a Type 3 glyph procedure, which
     // `super::reader_resources::assign` answers.
     let every_page = survey.is_none_or(Survey::stopped_short);
-    let pages: BTreeSet<usize> = survey
-        .map(|survey| {
-            survey
-                .opened_streams()
-                .iter()
-                .filter(|opened| {
-                    opened.object.is_none() && opened.referenced && !opened.own_resources
-                })
-                .map(|opened| opened.page)
-                .collect()
-        })
-        .unwrap_or_default();
+    let pages: BTreeSet<usize> = survey.map_or_default(|survey| {
+        survey
+            .opened_streams()
+            .iter()
+            .filter(|opened| opened.object.is_none() && opened.referenced && !opened.own_resources)
+            .map(|opened| opened.page)
+            .collect()
+    });
     let mut inheritance = MemoisedInheritance::new(document);
     let mut copied = 0_usize;
     for (index, page) in Pages::new(document).every().into_iter().enumerate() {
@@ -1315,8 +1309,7 @@ pub(super) fn completed_orders(document: &Document) -> Result<CompletedOrders, B
     let groups: Vec<Object> = document
         .get_key(&properties, "OCGs")
         .as_array()
-        .map(<[Object]>::to_vec)
-        .unwrap_or_default()
+        .map_or_default(<[Object]>::to_vec)
         .into_iter()
         .filter(|entry| entry.as_reference().is_some())
         .collect();
@@ -1348,10 +1341,7 @@ pub(super) fn completed_orders(document: &Document) -> Result<CompletedOrders, B
                 // reference is rewritten in its own object; one written directly inside an array
                 // this walk does not reach is what the refusal is for.
                 let resolved = document.resolve(entry);
-                let items = resolved
-                    .as_array()
-                    .map(<[Object]>::to_vec)
-                    .unwrap_or_default();
+                let items = resolved.as_array().map_or_default(<[Object]>::to_vec);
                 for item in &items {
                     if one_configuration(document, item, &groups, &mut found).is_some() {
                         return Err(Because::NotBuiltYet(ORDER_NOT_REACHABLE));
@@ -1553,11 +1543,7 @@ pub(super) fn automatic_states(document: &Document) -> Result<AutomaticStates, B
                 // rewritten in its own object; one written directly inside that array is what the
                 // refusal is for, because this walk edits dictionaries and the array is neither.
                 let resolved = document.resolve(entry);
-                for item in resolved
-                    .as_array()
-                    .map(<[Object]>::to_vec)
-                    .unwrap_or_default()
-                {
+                for item in resolved.as_array().map_or_default(<[Object]>::to_vec) {
                     if one_automatic_state(document, &item, &mut found) {
                         return Err(Because::NotBuiltYet(AUTOMATIC_STATE_NOT_REACHABLE));
                     }
@@ -2693,7 +2679,7 @@ fn place_in_devicen(
     let used: BTreeSet<Vec<u8>> = document
         .resolve(&items[1])
         .as_array()
-        .map(|names| {
+        .map_or_default(|names| {
             names
                 .iter()
                 .filter_map(|entry| {
@@ -2703,8 +2689,7 @@ fn place_in_devicen(
                         .map(|name| name.as_bytes().to_vec())
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let wanted: Vec<(&Vec<u8>, &Object)> = entries
         .iter()
         .filter(|(name, _)| used.contains(*name))

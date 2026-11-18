@@ -105,8 +105,7 @@ fn main() {
         Some(page) => page
             .parse::<usize>()
             .ok()
-            .map(|page| vec![("page", page.saturating_sub(1))])
-            .unwrap_or_default(),
+            .map_or_default(|page| vec![("page", page.saturating_sub(1))]),
         None => found
             .dependent
             .first()

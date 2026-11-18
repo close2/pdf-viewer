@@ -340,7 +340,9 @@ fn text(value: &Value<'_>) -> Option<String> {
         BMP_STRING => {
             let units = value
                 .contents
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
             (value.contents.len().is_multiple_of(2))
                 .then(|| {
@@ -354,7 +356,9 @@ fn text(value: &Value<'_>) -> Option<String> {
             .then(|| {
                 value
                     .contents
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|quad| {
                         char::from_u32(u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]))
                     })

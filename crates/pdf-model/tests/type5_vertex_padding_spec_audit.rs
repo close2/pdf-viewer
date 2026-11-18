@@ -172,7 +172,7 @@ fn endpoint_lattice_samples(coordinate_bits: u8, component_bits: u8) -> String {
         while !record.len().is_multiple_of(8) {
             record.push('1');
         }
-        for byte in record.as_bytes().chunks_exact(8) {
+        for byte in record.as_bytes().as_chunks::<8>().0 {
             let binary = std::str::from_utf8(byte).expect("ASCII bit string");
             let value = u8::from_str_radix(binary, 2).expect("exactly eight binary digits");
             write!(hex, "{value:02X} ").expect("write hexadecimal fixture");

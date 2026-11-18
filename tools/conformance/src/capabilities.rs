@@ -369,8 +369,7 @@ fn extract(lowered: &str, lack: Option<&str>, standalone: Option<&str>) -> Strin
     }
     standalone
         .and_then(|phrase| lowered.find(phrase))
-        .map(|index| preceding(lowered, index))
-        .unwrap_or_default()
+        .map_or_default(|index| preceding(lowered, index))
 }
 
 /// Up to six words in front of `index`, cut at the nearest punctuation, with the claim's own

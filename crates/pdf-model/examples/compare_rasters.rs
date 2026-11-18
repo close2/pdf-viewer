@@ -47,7 +47,9 @@ fn read(path: &str) -> pdf_render::Raster {
     let data = match info.color_type {
         png::ColorType::Rgba => buffer[..info.buffer_size()].to_vec(),
         png::ColorType::Rgb => buffer[..info.buffer_size()]
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
             .collect(),
         other => panic!("unsupported colour type {other:?}"),

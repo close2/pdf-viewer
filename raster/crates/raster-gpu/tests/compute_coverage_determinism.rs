@@ -206,7 +206,7 @@ fn deposit_inside(row: &mut [f32], fw: f32, dir: f32, xs: f32, ys: f32, xe: f32,
         };
         let d = dir * (ny - py);
         if d != 0.0 {
-            let xm = 0.5 * (px + nx);
+            let xm = f32::midpoint(px, nx);
             let cell = (xm.floor().max(0.0) as usize).min(row.len().saturating_sub(2));
             let frac = xm - cell as f32;
             row[cell] += d * (1.0 - frac);
@@ -508,7 +508,9 @@ impl Gpu {
             .expect("the device should answer the map");
         let mapped = slice.get_mapped_range().expect("the readback should map");
         let out = mapped
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]).min(255) as u8)
             .collect();
         drop(mapped);

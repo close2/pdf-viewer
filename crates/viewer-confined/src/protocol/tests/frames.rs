@@ -311,12 +311,28 @@ fn a_window_drawn_here_crosses_where_the_page_could_not() {
 
     // A scroll inside the margin owes nothing; one past it owes the next window.
     marks.place(|_| Some((-1150.0, -1100.0)));
-    assert!(marks.windows_owed(viewport).is_empty());
+    assert_eq!(
+        marks.windows_owed(viewport),
+        [] as [(
+            usize,
+            std::sync::Arc<pdf_render::DisplayList>,
+            pdf_render::TargetSpec,
+            windowed::Window
+        ); 0]
+    );
     marks.place(|_| Some((-1300.0, -1000.0)));
     assert_eq!(marks.windows_owed(viewport).len(), 1);
     // A refused window lets the page go, naming its document for the sentence.
     assert_eq!(marks.refused_window(request.page), Some(DocumentId(1)));
-    assert!(marks.windows_owed(viewport).is_empty());
+    assert_eq!(
+        marks.windows_owed(viewport),
+        [] as [(
+            usize,
+            std::sync::Arc<pdf_render::DisplayList>,
+            pdf_render::TargetSpec,
+            windowed::Window
+        ); 0]
+    );
 }
 
 /// **A page the host asked for as windows is not encoded again** (ADR 2017): its next render

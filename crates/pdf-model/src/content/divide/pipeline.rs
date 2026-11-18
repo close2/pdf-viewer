@@ -203,8 +203,7 @@ impl Composer {
     fn statement(&self, range: &Range<usize>) -> &[u8] {
         self.statements
             .get(&range.start)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+            .map_or_default(Vec::as_slice)
     }
 
     /// Marks segment `index` read by its piece. The first segment's is the first piece, after

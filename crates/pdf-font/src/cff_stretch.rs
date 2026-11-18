@@ -441,7 +441,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
         }
         self.stems = self.stems.saturating_add(operands.len() / 2);
         let (mut edge, mut stated_edge) = (0.0_f64, 0.0_f64);
-        for pair in operands.chunks_exact(2) {
+        for pair in operands.as_chunks::<2>().0 {
             let (lower, upper) = (edge + pair[0], edge + pair[0] + pair[1]);
             let stated_lower = self.x(lower);
             let stated_upper = if matches!(whole(pair[1]), Some(-20 | -21)) {
@@ -535,7 +535,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
                 if ops.is_empty() || !ops.len().is_multiple_of(2) {
                     return Err(Refusal::Operands);
                 }
-                for pair in ops.chunks_exact(2) {
+                for pair in ops.as_chunks::<2>().0 {
                     self.line_by(pair[0], pair[1])?;
                 }
             }
@@ -557,7 +557,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
                 if ops.is_empty() || !ops.len().is_multiple_of(6) {
                     return Err(Refusal::Operands);
                 }
-                for six in ops.chunks_exact(6) {
+                for six in ops.as_chunks::<6>().0 {
                     self.curve_by(sextuple(six))?;
                 }
             }
@@ -566,7 +566,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
                     return Err(Refusal::Operands);
                 }
                 let (curves, line) = ops.split_at(ops.len().saturating_sub(2));
-                for six in curves.chunks_exact(6) {
+                for six in curves.as_chunks::<6>().0 {
                     self.curve_by(sextuple(six))?;
                 }
                 self.line_by(line[0], line[1])?;
@@ -576,7 +576,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
                     return Err(Refusal::Operands);
                 }
                 let (lines, curve) = ops.split_at(ops.len().saturating_sub(6));
-                for pair in lines.chunks_exact(2) {
+                for pair in lines.as_chunks::<2>().0 {
                     self.line_by(pair[0], pair[1])?;
                 }
                 self.curve_by(sextuple(curve))?;
@@ -590,7 +590,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
                 if rest.is_empty() || !rest.len().is_multiple_of(4) {
                     return Err(Refusal::Operands);
                 }
-                for (index, four) in rest.chunks_exact(4).enumerate() {
+                for (index, four) in rest.as_chunks::<4>().0.iter().enumerate() {
                     let lead = if index == 0 { first } else { 0.0 };
                     let deltas = if op == VVCURVETO {
                         [lead, four[0], four[1], four[2], 0.0, four[3]]
@@ -619,7 +619,7 @@ impl<'s, 'a> Restatement<'s, 'a> {
         }
         let count = curves.len() / 4;
         let mut horizontal = starts_horizontal;
-        for (index, four) in curves.chunks_exact(4).enumerate() {
+        for (index, four) in curves.as_chunks::<4>().0.iter().enumerate() {
             let tail = if index.saturating_add(1) == count {
                 last.unwrap_or(0.0)
             } else {
@@ -683,7 +683,12 @@ impl<'s, 'a> Restatement<'s, 'a> {
             }
             _ => return Err(Refusal::Operands),
         };
-        for (dx, dy) in deltas.chunks_exact(2).map(|pair| (pair[0], pair[1])) {
+        for (dx, dy) in deltas
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (pair[0], pair[1]))
+        {
             let point = (self.at.0 + dx, self.at.1 + dy);
             let stated = self.stated_point(point);
             put_number(&mut self.out, stated.0 - self.stated.0)?;

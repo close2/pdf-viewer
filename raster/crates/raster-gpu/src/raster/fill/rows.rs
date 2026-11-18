@@ -392,7 +392,7 @@ mod tests {
         let index = RowIndex::of(&polylines, usize::MAX).expect("a bounded shape");
         let mut listed = Vec::new();
         assert!(index.edges_meeting(48, 4, &mut listed));
-        assert!(!listed.is_empty());
+        assert_ne!(listed, [] as [(usize, usize); 0]);
         assert!(listed.windows(2).all(|pair| pair[0] < pair[1]));
         let every = polylines.iter().map(|p| p.points.len()).sum::<usize>();
         assert!(

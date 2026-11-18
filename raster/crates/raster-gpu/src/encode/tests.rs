@@ -211,7 +211,7 @@ fn a_solid_fill_of_a_rectangle_takes_the_rectangle_lane() {
             ..
         })]
     ));
-    assert!(encoded.quad_instances.is_empty());
+    assert_eq!(encoded.quad_instances, [] as [u8; 0]);
     assert!(encoded.scratch.is_none());
     assert_eq!(encoded.atlas_distinct_keys, 0);
     assert_eq!(encoded.tiles, 0);
@@ -300,8 +300,8 @@ fn an_oblique_fill_of_a_rectangle_keeps_the_path_lane() {
         1,
     )
     .expect("drawable");
-    assert!(encoded.rect_instances.is_empty());
-    assert!(!encoded.quad_instances.is_empty());
+    assert_eq!(encoded.rect_instances, [] as [u8; 0]);
+    assert_ne!(encoded.quad_instances, [] as [u8; 0]);
 }
 
 /// The budget is checked before allocation, and the error names both numbers.

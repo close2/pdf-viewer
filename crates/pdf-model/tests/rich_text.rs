@@ -1189,7 +1189,7 @@ fn a_caret_point_and_range_follow_the_runs_as_drawn() {
         &document,
         &page,
         (150.0, 100.0),
-        (after[0] + 0.5, (after[1] + after[3]) * 0.5),
+        (after[0] + 0.5, f32::midpoint(after[1], after[3])),
     );
     assert_eq!(offset, Some(4), "a point at a caret names its offset");
     let shapes = view
@@ -1392,7 +1392,7 @@ fn a_character_no_run_face_draws_is_set_in_a_machine_face_beside_the_runs() {
             .all(|report| !report.contains("one style") && !report.contains("default style alone")),
         "{reports:?}"
     );
-    assert!(!inked(&raster).is_empty());
+    assert_ne!(inked(&raster), [] as [(u32, u32); 0]);
 }
 
 /// A tab in a paragraph read right to left moves to the next stop on the left — chapter 2's

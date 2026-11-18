@@ -348,7 +348,7 @@ pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
         spanned(|| Stages::of(0.0, draw(&mut backend, &page.list, stepped)));
     drop(backend);
     drop(device_section);
-    let readings = sampler.map(Sampler::stop).unwrap_or_default();
+    let readings = sampler.map_or_default(Sampler::stop);
     for (stages, span) in [
         (&mut turn, turn_span),
         (&mut warm, warm_span),

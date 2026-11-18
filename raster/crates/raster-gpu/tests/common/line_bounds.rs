@@ -19,7 +19,7 @@ fn line(ends: [f32; 4], half: [f32; 2], resolution: u32) -> Bounds {
         half[1],
         (resolution * 3) as f32,
     ];
-    for (value, destination) in fields.iter().zip(bytes.chunks_exact_mut(4)) {
+    for (value, destination) in fields.iter().zip(bytes.as_chunks_mut::<4>().0) {
         destination.copy_from_slice(&value.to_le_bytes());
     }
     Bounds::of(&bytes)

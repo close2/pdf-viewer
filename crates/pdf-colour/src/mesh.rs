@@ -324,7 +324,9 @@ fn decode_ranges(document: &Document, dict: &Dictionary) -> Option<Vec<(f32, f32
     }
     Some(
         values
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
             .collect(),
     )
@@ -345,8 +347,8 @@ impl<C: Corner> Vertex<C> {
     fn midpoint(&self, other: &Self) -> Self {
         Self {
             point: Point::new(
-                (self.point.x + other.point.x) * 0.5,
-                (self.point.y + other.point.y) * 0.5,
+                f32::midpoint(self.point.x, other.point.x),
+                f32::midpoint(self.point.y, other.point.y),
             ),
             corner: self.corner.mix(&other.corner, 0.5),
         }

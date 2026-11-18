@@ -1281,7 +1281,7 @@ fn a_planted_busy_device_is_seen_as_busy() {
             break busy;
         }
     };
-    let clock_readings = sampler.map(device_clock::Sampler::stop).unwrap_or_default();
+    let clock_readings = sampler.map_or_default(device_clock::Sampler::stop);
     let clock = Residency::during(&clock_readings, (busy_from, Instant::now()));
     // Drained to its end, so the plant's last line has somewhere to go and it exits on its own.
     std::io::copy(&mut said, &mut std::io::sink()).expect("the plant's stdout");

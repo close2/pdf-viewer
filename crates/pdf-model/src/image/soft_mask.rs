@@ -386,7 +386,9 @@ impl MaskPlane {
             height: image.height,
             opacity: image
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|sample| sample.first().copied().unwrap_or(0))
                 .collect(),
             shortfall,

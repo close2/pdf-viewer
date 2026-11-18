@@ -482,16 +482,14 @@ impl PipelineStore {
         };
         #[cfg(not(test))]
         let entry = spec.entry;
-        let buffers: Vec<Option<wgpu::VertexBufferLayout<'_>>> = spec
-            .buffer
-            .map(|(stride, attributes)| {
+        let buffers: Vec<Option<wgpu::VertexBufferLayout<'_>>> =
+            spec.buffer.map_or_default(|(stride, attributes)| {
                 vec![Some(wgpu::VertexBufferLayout {
                     array_stride: stride,
                     step_mode: spec.step,
                     attributes,
                 })]
-            })
-            .unwrap_or_default();
+            });
         let (pipeline, detail) = captured(&self.device, || {
             self.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {

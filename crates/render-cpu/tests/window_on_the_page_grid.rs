@@ -301,7 +301,9 @@ fn a_window_s_thin_dot_is_the_page_s() {
         .expect("the page draws");
     let inked = page
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] < 255)
         .count();
     assert!(inked > 0, "the dot drew nothing on the page");
@@ -373,7 +375,11 @@ fn every_window_is_the_page(
         .rasterize(list, target)
         .expect("the page draws");
     assert!(
-        page.data.chunks_exact(4).any(|pixel| pixel != [255; 4]),
+        page.data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| *pixel != [255; 4]),
         "the page holds no mark"
     );
     for shown in WINDOWS {
@@ -707,7 +713,11 @@ fn a_strip_of_a_tall_page_draws_a_knockout_element_as_the_page_does() {
         .rasterize(&list, target)
         .expect("the page draws");
     assert!(
-        page.data.chunks_exact(4).any(|pixel| pixel != [255; 4]),
+        page.data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| *pixel != [255; 4]),
         "the page holds no mark"
     );
     for strips in [2, 4, 8] {
@@ -717,8 +727,10 @@ fn a_strip_of_a_tall_page_draws_a_knockout_element_as_the_page_does() {
             .expect("the page draws in strips");
         let moved = page
             .data
-            .chunks_exact(4)
-            .zip(divided.data.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(divided.data.as_chunks::<4>().0)
             .filter(|(whole, strip)| whole != strip)
             .count();
         assert_eq!(

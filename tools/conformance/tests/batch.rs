@@ -587,8 +587,7 @@ fn check_prints_the_tasks_held_and_the_limit_where_called() {
         .split("the bound")
         .nth(1)
         .and_then(|rest| rest.split(';').next())
-        .map(str::trim)
-        .unwrap_or_default();
+        .map_or_default(str::trim);
     assert!(
         held.parse::<u32>().is_ok_and(|count| count > 0),
         "the line carries no task count: {bounded}"
@@ -947,8 +946,7 @@ fn batch_list(variable: &str) -> Vec<String> {
         .lines()
         .find_map(|line| line.strip_prefix(prefix.as_str()))
         .and_then(|rest| rest.split_once('"'))
-        .map(|(words, _)| words.split_whitespace().map(str::to_owned).collect())
-        .unwrap_or_default()
+        .map_or_default(|(words, _)| words.split_whitespace().map(str::to_owned).collect())
 }
 
 /// A workspace whose targets carry `install`'s names, built into its own `target/` — never the

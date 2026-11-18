@@ -176,8 +176,10 @@ fn the_gap_between_two_pages_is_not_the_page() {
     let perimeter = 4 * (PAGE.0 as usize).saturating_add(PAGE.1 as usize);
     let differing = processor
         .data
-        .chunks_exact(4)
-        .zip(device.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(device.data.as_chunks::<4>().0)
         .filter(|(ours, theirs)| ours[0..3] != theirs[0..3])
         .count();
     assert!(

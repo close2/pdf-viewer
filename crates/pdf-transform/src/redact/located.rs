@@ -1238,7 +1238,9 @@ fn pair(document: &pdf_syntax::Document, dict: &Dictionary, key: &str) -> Option
 /// Numbers taken two at a time.
 fn pairs(values: &[f32]) -> Vec<(f64, f64)> {
     values
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (f64::from(pair[0]), f64::from(pair[1])))
         .collect()
 }

@@ -432,7 +432,9 @@ fn pairs(document: &Document, dict: &Dictionary) -> Vec<[f64; 2]> {
         return Vec::new();
     };
     array
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| {
             Some([
                 document.resolve(pair.first()?).as_number()?,

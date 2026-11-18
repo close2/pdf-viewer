@@ -3540,8 +3540,7 @@ fn reaches_replacement_text(
     let tree = trees.entry(page).or_insert_with(|| {
         exam.pages()
             .get(page)
-            .map(|sheet| ParentTree::for_page(document, &sheet.dict))
-            .unwrap_or_default()
+            .map_or_default(|sheet| ParentTree::for_page(document, &sheet.dict))
     });
     let Some(element) = tree.element(document, mcid) else {
         return true;
@@ -4084,7 +4083,10 @@ mod tests {
             "/Subtype /Type1C",
             "00000000000000000000000000",
         );
-        assert!(findings(&font, font_programs_filed_by_their_format).is_empty());
+        assert_eq!(
+            findings(&font, font_programs_filed_by_their_format),
+            [] as [String; 0]
+        );
         assert_eq!(
             table_124_rows("Type1", &[0_u8; 13]),
             None,
@@ -4155,7 +4157,10 @@ mod tests {
              3 0 obj\n<< /Type /FontDescriptor /FontFile2 4 0 R >>\nendobj\n\
              4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
         );
-        assert!(findings(&identity, cid_to_gid_map_present).is_empty());
+        assert_eq!(
+            findings(&identity, cid_to_gid_map_present),
+            [] as [String; 0]
+        );
     }
 
     /// A font is a font by where it stands as well as by its `/Type`: the descendant a Type 0
@@ -4240,8 +4245,14 @@ mod tests {
              /Resources << /ExtGState << /G1 << /Font [4 0 R 12] >> >> >> >>\nendobj\n\
              4 0 obj\n<< {untyped} >>\nendobj\n"
         ));
-        assert!(findings(&state, font_dictionary_states_type_font).is_empty());
-        assert!(findings(&state, widths_array_covers_character_range).is_empty());
+        assert_eq!(
+            findings(&state, font_dictionary_states_type_font),
+            [] as [String; 0]
+        );
+        assert_eq!(
+            findings(&state, widths_array_covers_character_range),
+            [] as [String; 0]
+        );
     }
 
     /// The population is fonts, not objects: a `CIDFont` written directly into a Type 0 font's
@@ -4324,7 +4335,10 @@ mod tests {
             "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
              2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding /Identity-H >>\nendobj\n",
         );
-        assert!(findings(&listed, cmap_embedded_or_predefined).is_empty());
+        assert_eq!(
+            findings(&listed, cmap_embedded_or_predefined),
+            [] as [String; 0]
+        );
     }
 
     #[test]
@@ -4457,7 +4471,7 @@ mod tests {
              3 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
              /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> >>\nendobj\n",
         );
-        assert!(findings(&japanese, to_unicode_present).is_empty());
+        assert_eq!(findings(&japanese, to_unicode_present), [] as [String; 0]);
 
         let type1 = document(
             "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
@@ -4491,7 +4505,10 @@ mod tests {
             findings(&cmap(0, 1), embedded_cmap_states_its_own_write_mode).len(),
             1
         );
-        assert!(findings(&cmap(1, 1), embedded_cmap_states_its_own_write_mode).is_empty());
+        assert_eq!(
+            findings(&cmap(1, 1), embedded_cmap_states_its_own_write_mode),
+            [] as [String; 0]
+        );
 
         // ISO 32000-2 §9.7.5.3, Table 118: `/WMode` defaults to 0, so a program that states
         // none states 0 and a dictionary that states none agrees with it.
@@ -4499,7 +4516,10 @@ mod tests {
             "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
              2 0 obj\n<< /Type /CMap /CMapName /Test /Length 0 >>\nstream\n\nendstream\nendobj\n",
         );
-        assert!(findings(&silent, embedded_cmap_states_its_own_write_mode).is_empty());
+        assert_eq!(
+            findings(&silent, embedded_cmap_states_its_own_write_mode),
+            [] as [String; 0]
+        );
     }
 
     #[test]
@@ -4795,12 +4815,12 @@ mod tests {
 
     #[test]
     fn a_type3_glyphs_two_stated_widths_are_compared_in_text_space() {
-        assert!(
+        assert_eq!(
             findings(
                 &type3_page("[1000 1000]", 1000),
                 type3_glyph_procedures_state_their_width
-            )
-            .is_empty()
+            ),
+            [] as [String; 0]
         );
 
         let found = findings(
@@ -4812,12 +4832,12 @@ mod tests {
         // The FontMatrix maps glyph space to text space, and the tolerance is a thousandth of a
         // text-space unit — so with the usual 0.001 matrix a difference of one glyph unit is
         // exactly at the limit and is not a failure.
-        assert!(
+        assert_eq!(
             findings(
                 &type3_page("[1000 1000]", 1001),
                 type3_glyph_procedures_state_their_width
-            )
-            .is_empty()
+            ),
+            [] as [String; 0]
         );
     }
 
@@ -4842,12 +4862,12 @@ mod tests {
             .len(),
             1
         );
-        assert!(
+        assert_eq!(
             findings(
                 &with("grave"),
                 non_symbolic_truetype_differences_are_listed_names
-            )
-            .is_empty()
+            ),
+            [] as [String; 0]
         );
         // The clause asks for a row of the 2002 list, and the list's specification derives a
         // value for these without listing them (`doc/adr/2540`): `issue6961`'s fonts write the
@@ -4909,7 +4929,10 @@ mod tests {
                 "U+{placeholder} is one of the three the clause names"
             );
         }
-        assert!(findings(&mapping("0041"), to_unicode_values_are_usable).is_empty());
+        assert_eq!(
+            findings(&mapping("0041"), to_unicode_values_are_usable),
+            [] as [String; 0]
+        );
     }
 
     /// A `bfrange` states its values by arithmetic, so the rule is judged by arithmetic: the
@@ -4972,7 +4995,7 @@ mod tests {
     #[test]
     fn the_private_use_codes_are_read_off_the_statements() {
         let plain = ToUnicode::parse(b"1 beginbfchar\n<41> <0041>\nendbfchar\n");
-        assert!(private_use_codes(&plain).is_empty());
+        assert_eq!(private_use_codes(&plain), [] as [(u32, u32); 0]);
 
         let single = ToUnicode::parse(b"1 beginbfchar\n<01> <e020>\nendbfchar\n");
         assert_eq!(private_use_codes(&single), vec![(1, 0xE020)]);
@@ -4990,7 +5013,7 @@ mod tests {
         assert_eq!(private_use_codes(&span), vec![(0x18, 0xF_0000)]);
 
         let missing = ToUnicode::parse(b"1 beginbfrange\n<10> <20> <0041>\nendbfrange\n");
-        assert!(private_use_codes(&missing).is_empty());
+        assert_eq!(private_use_codes(&missing), [] as [(u32, u32); 0]);
     }
 
     #[test]
@@ -5023,7 +5046,10 @@ mod tests {
             "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
              2 0 obj\n<< /Type /StructElem /ActualText (ff) >>\nendobj\n",
         );
-        assert!(findings(&plain, actual_text_states_no_private_use).is_empty());
+        assert_eq!(
+            findings(&plain, actual_text_states_no_private_use),
+            [] as [String; 0]
+        );
     }
 
     /// A one-page tagged document that shows code 0x41, which its `/ToUnicode` maps into the

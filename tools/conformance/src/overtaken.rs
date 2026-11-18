@@ -402,8 +402,7 @@ pub fn decisions(root: &Path) -> std::io::Result<Vec<Decision>> {
         }
         let name = path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         let Some(number) = leading_number(&name) else {
             continue;
         };

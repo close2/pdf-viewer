@@ -259,7 +259,9 @@ fn the_caps_this_file_asserts_are_absent_are_ones_the_target_can_see() {
     let mut ink = |cap: LineCap| -> f64 {
         let pixels = stroked(&mut device, &line(), cap);
         pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|p| f64::from(p[3]) / 255.0)
             .sum()
     };

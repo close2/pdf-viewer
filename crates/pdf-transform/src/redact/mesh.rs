@@ -143,14 +143,15 @@ pub(super) fn read(document: &Document, stream: &Stream) -> Result<Mesh, String>
     let decode: Vec<(f64, f64)> = document
         .get_key(dict, "Decode")
         .as_array()
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(|item| document.resolve(item).as_number())
                 .collect::<Vec<f64>>()
         })
-        .unwrap_or_default()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (pair[0], pair[1]))
         .collect();
     if decode.len() < 3 {

@@ -15,13 +15,11 @@
 #![expect(
     clippy::expect_used,
     clippy::panic,
-    clippy::float_cmp,
     clippy::arithmetic_side_effects,
     clippy::doc_markdown,
-    reason = "test code: a fixture that stops loading should fail loudly; every width compared is \
-              a value the test wrote divided by 1000, compared against the same division; the \
-              arithmetic counts a handful of objects; and the comments quote the clause verbatim, \
-              where a name is not marked up"
+    reason = "test code: a fixture that stops loading should fail loudly; the arithmetic counts \
+              a handful of objects; and the comments quote the clause verbatim, where a name is \
+              not marked up"
 )]
 
 use std::fmt::Write as _;

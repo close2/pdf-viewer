@@ -358,7 +358,7 @@ fn spot_tints_survive_nested_targets_and_return_to_the_parent_plane() {
             assert_eq!(selected.colourants(), reference.colourants());
             assert_eq!(selected.colourants().len(), 1);
             assert_eq!(selected.plane_count(), reference.plane_count());
-            assert!(selected.without_a_plane().is_empty());
+            assert_eq!(selected.without_a_plane(), [] as [pdf_syntax::Name; 0]);
             for plane in [
                 pdf_model::colour::Plane::Chromatic,
                 pdf_model::colour::Plane::Black,

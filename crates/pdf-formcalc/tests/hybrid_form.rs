@@ -162,7 +162,7 @@ fn a_name_the_form_does_not_hold_is_an_error_not_a_zero() {
         matches!(outcomes.as_slice(), [Err(Stop::Exception(_))]),
         "{outcomes:?}"
     );
-    assert!(edits.is_empty());
+    assert_eq!(edits, [] as [(String, Scalar); 0]);
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn a_construct_outside_the_subset_is_refused_and_assigns_nothing() {
         matches!(outcomes.as_slice(), [Err(Stop::Unsupported(_))]),
         "{outcomes:?}"
     );
-    assert!(edits.is_empty());
+    assert_eq!(edits, [] as [(String, Scalar); 0]);
 }
 
 #[test]

@@ -178,7 +178,7 @@ pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
     let node_names = document
         .get_key(root, "NodeNameList")
         .as_array()
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .map(|item| document.resolve(item))
@@ -190,8 +190,7 @@ pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
                         .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     Some(Hierarchy {
         record_level: document.get_key(root, "RecordLevel").as_integer(),
@@ -549,7 +548,7 @@ mod tests {
             "<< /Type /DPartRoot >>",
         ]);
         let hierarchy = hierarchy(&document).expect("the catalog names a /DPartRoot");
-        assert!(hierarchy.parts.is_empty());
+        assert_eq!(hierarchy.parts, [] as [crate::document_part::Part; 0]);
         assert_eq!(hierarchy.levels(), 0);
     }
 

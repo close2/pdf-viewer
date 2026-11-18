@@ -21,7 +21,6 @@ pdf-sandbox.workspace = true
 # why the twelve cryptographic packages are still in this graph after the extraction — ADR 1020
 # names the two call sites and what removing them would cost.
 pdf-signature.workspace = true
-pdf-spec.workspace = true
 pdf-syntax.workspace = true
 # §8.9.5's per-sample colour conversion, on a photograph, is embarrassingly parallel; see
 # `image::rows_per_band` for the measurement that decided the threshold.
@@ -39,6 +38,9 @@ criterion.workspace = true
 # there, and a dev-dependency because nothing this crate ships decodes with it.
 hayro-ccitt.workspace = true
 pdf-ccitt.workspace = true
+# `examples/integer_entry_census.rs` reads the Arlington model's integer entries; nothing this
+# crate ships consults it.
+pdf-spec.workspace = true
 # The bounds `tests/corpus.rs`, `tests/dates.rs`, `tests/xmp.rs`, `tests/text_extraction.rs` and
 # `tests/save_round_trip.rs` hold, each printed beside the population it bounds (ADR 1075).
 gate-ratchet.workspace = true

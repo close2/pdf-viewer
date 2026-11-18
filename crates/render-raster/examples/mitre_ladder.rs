@@ -108,7 +108,7 @@ fn ink_above(raster: &Raster, y: f32) -> f64 {
     for row in 0..rows {
         let start = (row * raster.width * 4) as usize;
         let end = start + (raster.width * 4) as usize;
-        for pixel in raster.data[start..end].chunks_exact(4) {
+        for pixel in raster.data[start..end].as_chunks::<4>().0 {
             total += 1.0 - f64::from(pixel[0]) / 255.0;
         }
     }
@@ -122,7 +122,9 @@ fn reaches(raster: &Raster) -> f64 {
             let start = (row * raster.width * 4) as usize;
             let end = start + (raster.width * 4) as usize;
             raster.data[start..end]
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|p| p[0] < 255)
                 .then(|| f64::from(PAGE.height) - f64::from(row))
         })

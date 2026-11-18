@@ -102,8 +102,7 @@ fn the_crate_contains_exactly_one_hand_written_unsafe_and_it_is_the_bridges_own(
         .map(|(path, number, line)| {
             let named = path
                 .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|name| name.to_string_lossy().into_owned());
             // The file and the token, not the line number: what is being fixed is *where* and
             // *what*, and a test that also pinned the line would fail on every paragraph added
             // above it, which teaches a later change to loosen the assertion rather than read it.

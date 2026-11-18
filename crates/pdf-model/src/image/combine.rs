@@ -150,8 +150,10 @@ pub(super) fn combine_on_the_finer_grid(
         // meets under a soft mask: `scale` is then the identity on every row and column, so the
         // pixels pair by position and the walk is three iterators in step (ADR 1433).
         for ((out, pixel), above) in data
-            .chunks_exact_mut(4)
-            .zip(image.data.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(image.data.as_chunks::<4>().0)
             .zip(mask.data.chunks_exact(stride))
         {
             combine(pixel, above, out);
@@ -162,7 +164,9 @@ pub(super) fn combine_on_the_finer_grid(
                 scale(y, image.height, height_usize).saturating_mul(image.width as usize);
             let mask_row = scale(y, mask.height, height_usize).saturating_mul(mask.width as usize);
             for ((out, &image_x), &mask_x) in out_row
-                .chunks_exact_mut(4)
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
                 .zip(&image_columns)
                 .zip(&mask_columns)
             {

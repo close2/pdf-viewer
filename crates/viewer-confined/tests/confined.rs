@@ -220,7 +220,7 @@ fn the_worker_reads_the_outline_beside_page_one_and_its_next_answer_names_the_se
         "{opened:?}"
     );
     match confined.query(Query::Outline).expect("a question crosses") {
-        Reply::Outline(outline) => assert!(!outline.items.is_empty()),
+        Reply::Outline(outline) => assert_ne!(outline.items, [] as [pdf_model::outline::Item; 0]),
         other => panic!("the note's outline came back as {other:?}"),
     }
     let events = confined
@@ -296,7 +296,13 @@ fn the_confined_process_draws_the_page_this_one_would_have() {
 
     // A blank raster would satisfy every equality above if both sides were blank, so this is the
     // assertion that says a page was actually drawn.
-    let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
+    let ink = raster
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[0] < 200)
+        .count();
     assert!(
         ink > 1000,
         "the page came back nearly blank: {ink} dark pixels"
@@ -386,7 +392,9 @@ fn a_document_open_on_disk_crosses_as_a_descriptor_and_draws_the_same_page() {
     );
     let ink = from_disk
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| p[0] < 200)
         .count();
     assert!(
@@ -1134,7 +1142,9 @@ fn a_free_text_annotation_is_drawn_typed_and_saved_behind_the_filter() {
     let raster = &pixels(frame);
     let red = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] > 150 && pixel[1] < 100 && pixel[2] < 100)
         .count();
     assert!(red > 40, "the text is on the confined frame: {red} pixels");
@@ -1199,7 +1209,13 @@ fn a_document_with_a_sandboxed_codec_draws_inside_the_confinement() {
         );
     };
     let raster = &pixels(frame);
-    let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
+    let ink = raster
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[0] < 200)
+        .count();
     assert!(
         ink > 100,
         "the page came back nearly blank: {ink} dark pixels"
@@ -1829,7 +1845,9 @@ fn a_page_past_the_bound_whose_marks_cannot_cross_crosses_as_its_window() {
     assert!(
         raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| pixel[2] < 8 && pixel[0].abs_diff(pixel[1]) < 8),
         "the window holds the shading's colours"
     );
@@ -3140,7 +3158,13 @@ fn a_face_this_host_can_look_up_reaches_a_worker_that_cannot() {
     }
     let ours = frame_here(&here).1;
     assert!(
-        ours.data.chunks_exact(4).filter(|p| p[0] < 200).count() > 1000,
+        ours.data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[0] < 200)
+            .count()
+            > 1000,
         "the reference page came back nearly blank, so nothing below discriminates"
     );
 

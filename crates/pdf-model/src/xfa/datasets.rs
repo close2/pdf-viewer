@@ -280,11 +280,7 @@ impl Datasets {
     /// The data subtree under `element` as writer nodes, numbered in document order.
     fn overlay(&self, element: usize, nodes: &mut Vec<Node>) -> usize {
         let at = nodes.len();
-        let name = self
-            .tree
-            .get(element)
-            .map(|e| e.local.clone())
-            .unwrap_or_default();
+        let name = self.tree.get(element).map_or_default(|e| e.local.clone());
         nodes.push(Node {
             name,
             origin: Some(element),
@@ -294,8 +290,7 @@ impl Datasets {
         let children = self
             .tree
             .get(element)
-            .map(|e| e.children.clone())
-            .unwrap_or_default();
+            .map_or_default(|e| e.children.clone());
         for child in children {
             let node = self.overlay(child, nodes);
             if let Some(parent) = nodes.get_mut(at) {
@@ -546,8 +541,7 @@ fn typed(
             // Page 383: the form designer's message for the test where the form gives one.
             let said = pictures
                 .message("formatTest")
-                .map(|said| format!(" — its form's message for it is {said:?}"))
-                .unwrap_or_default();
+                .map_or_default(|said| format!(" — its form's message for it is {said:?}"));
             return Err(format!(
                 "its value {:?} fails its validate picture's format test (XFA 3.3 \
                  page 382) at the level {level}{said}, and page 162 updates the data only \

@@ -862,8 +862,8 @@ mod tests {
     #[test]
     fn a_reduction_averages_its_footprint_by_alpha() {
         let mut page = filled(1024, 1024, [255, 0, 0, 255]);
-        for row in page.data.chunks_exact_mut(1024 * 4) {
-            for pixel in row[512 * 4..].chunks_exact_mut(4) {
+        for row in page.data.as_chunks_mut::<{ 1024 * 4 }>().0 {
+            for pixel in row[512 * 4..].as_chunks_mut::<4>().0 {
                 pixel.copy_from_slice(&[0, 0, 255, 255]);
             }
         }
@@ -873,7 +873,7 @@ mod tests {
         assert_eq!(&small.data[10 * row + 10 * 4..][..4], &[255, 0, 0, 255]);
         assert_eq!(&small.data[300 * row + 500 * 4..][..4], &[0, 0, 255, 255]);
         let mut edged = filled(1024, 1024, [255, 255, 255, 255]);
-        for pixel in edged.data[..1024 * 4].chunks_exact_mut(4) {
+        for pixel in edged.data[..1024 * 4].as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[0, 0, 0, 0]);
         }
         let small = reduced(&edged).expect("a page with pixels");

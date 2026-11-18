@@ -101,7 +101,7 @@ impl App {
                 options, selected, ..
             } => (
                 options.clone(),
-                selected.map(|index| vec![index]).unwrap_or_default(),
+                selected.map_or_default(|index| vec![index]),
                 selected.unwrap_or_default(),
             ),
             ControlKind::List {
@@ -214,7 +214,7 @@ impl App {
             ControlKind::Combo {
                 options, selected, ..
             } => (
-                selected.map(|index| vec![index]).unwrap_or_default(),
+                selected.map_or_default(|index| vec![index]),
                 options.len(),
                 selected.unwrap_or_default(),
             ),

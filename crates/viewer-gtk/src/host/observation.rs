@@ -112,7 +112,9 @@ pub(super) fn opaque_roi(raster: &Raster, roi: (u32, u32, u32, u32)) -> bool {
             })
             .is_some_and(|bytes| {
                 bytes
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .all(|pixel| pixel.last() == Some(&255))
             })
     })

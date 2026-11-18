@@ -218,6 +218,8 @@ pub fn curve_clip(shape: &Archetype, i: u32) -> Affine {
         return position(shape, i, shape.side * 6.0);
     };
     let side = outline_side(shape, i % shape.distinct.max(1));
-    Affine::scale((x1 - x0) / side, (y1 - y0) / (side * 1.3))
-        .then(Affine::translate((x0 + x1) * 0.5, (y0 + y1) * 0.5))
+    Affine::scale((x1 - x0) / side, (y1 - y0) / (side * 1.3)).then(Affine::translate(
+        f32::midpoint(x0, x1),
+        f32::midpoint(y0, y1),
+    ))
 }

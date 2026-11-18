@@ -598,7 +598,7 @@ fn paint_raster(
         .enumerate()
     {
         let start = y.saturating_mul(row_bytes);
-        for (x, pixel) in row.chunks_exact(4).enumerate() {
+        for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
             let alpha = u32::from(pixel[3]);
             // Premultiplied, rounded the way cairo's own converters round: the value times the
             // alpha plus a half, divided by 255. Every operand is a byte, so the largest
@@ -646,11 +646,6 @@ fn paint_raster(
 /// raises and the dialogue it builds. Run under a display: `xvfb-run -a cargo test -p viewer-gtk
 /// --lib printing`.
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "GTK's stored percentage against the whole numbers this test set and the hold sets: \
-              exact by construction, and a scale off by any amount is a scale not held"
-)]
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;

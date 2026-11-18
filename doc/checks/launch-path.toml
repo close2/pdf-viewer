@@ -478,9 +478,11 @@ peak_anon_mib = 10.5 .. 14.0
 open_anon_mib = 1.0 .. 1.5
 read_kib = 115 .. 121
 read_calls = 28 .. 32
-# What this program's own object executes (ADR 2666): 9559.4 thousand in four children of HEAD on
-# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
-open_kinstructions = 9463 .. 9656
+# What this program's own object executes (ADR 2666): 10098.1 thousand in four children of HEAD built
+# by Rust 1.100.0 on 2026-11-17, this file's rule — the observed range widened by one per cent, rounded
+# outwards. The compiler moved it, not this tree: LLVM 23's code for zlib-rs's `inflate_fast_help_avx2`
+# executes about 30% more instructions for the same streams (ADR 2915, ADR 2950).
+open_kinstructions = 9997 .. 10200
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
 # less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 41201.8 to 41204.2
@@ -508,14 +510,18 @@ peak_anon_mib = 15.5 .. 20.5
 open_anon_mib = 3.0 .. 4.5
 read_kib = 99 .. 105
 read_calls = 25 .. 29
-# What this program's own object executes (ADR 2666): 53396.4 thousand in four children of HEAD on
-# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
-open_kinstructions = 52862 .. 53931
+# What this program's own object executes (ADR 2666): 55619.4 thousand in four children of HEAD built
+# by Rust 1.100.0 on 2026-11-17, this file's rule — the observed range widened by one per cent, rounded
+# outwards. The compiler moved it, not this tree: LLVM 23's code for zlib-rs's `inflate_fast_help_avx2`,
+# and 6% more in the closure that reads each cross-reference stream entry (ADR 2915, ADR 2950).
+open_kinstructions = 55063 .. 56176
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
-# less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 157676.7 to
-# 157676.8 thousand in four children of HEAD on 2026-11-17, this file's rule.
-frame_kinstructions = 156099 .. 159254
+# less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 159060.5 to
+# 159060.7 thousand in four children of HEAD built by Rust 1.100.0 on 2026-11-17, this file's rule. The
+# compiler moved it: the open's inflate and cross-reference loops above, less 1.6 million in
+# `image::unpack::sample_rgba` (ADR 2915, ADR 2950).
+frame_kinstructions = 157469 .. 160652
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -549,11 +555,13 @@ read_calls = 23 .. 27
 open_kinstructions = 1726 .. 1762
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
-# window, rayon's pool at one thread. 64752.1 to 64752.2 thousand in four children of HEAD on
-# 2026-11-17, this file's rule, with the sandbox worker built beside the test binary: one of this
-# page's images is decoded in it, in a process callgrind does not follow, and with no worker there
-# the page drew 1490 commands rather than 1522 and counted 63549.0 (trap 10, ADR 2944).
-frame_kinstructions = 64104 .. 65400
+# window, rayon's pool at one thread. 63482.1 to 63482.2 thousand in four children of HEAD built by
+# Rust 1.100.0 on 2026-11-17, this file's rule, with the sandbox worker built beside the test binary:
+# one of this page's images is decoded in it, in a process callgrind does not follow, and with no
+# worker there the page draws 1490 commands rather than 1522 (trap 10, ADR 2944). The compiler moved
+# it down: LLVM 23's code for zune-jpeg's `ycbcr_to_rgba_unsafe` executes 1.09 million fewer
+# instructions for the same page, at 1522 commands either way (ADR 2915, ADR 2950).
+frame_kinstructions = 62847 .. 64118
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and the row whose page one costs the most to interpret, 20 ms of the device's 23. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
 
 [[document]]
@@ -587,9 +595,10 @@ read_calls = 22 .. 26
 open_kinstructions = 269 .. 276
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
-# window, rayon's pool at one thread. 3236.4 thousand in four children of HEAD on 2026-11-17, this
-# file's rule.
-frame_kinstructions = 3204 .. 3269
+# window, rayon's pool at one thread. 3266.7 to 3266.8 thousand in four children of HEAD built by Rust
+# 1.100.0 on 2026-11-17, this file's rule. The compiler moved it: `pdf_render::geom::Path::bounds`
+# executes a third more for the same paths (ADR 2915, ADR 2950).
+frame_kinstructions = 3234 .. 3300
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"
 
 [[document]]

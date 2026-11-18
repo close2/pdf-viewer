@@ -574,8 +574,7 @@ fn colour_space(
             let attributes = items.get(4).map(|attributes| document.resolve(attributes));
             let process = attributes
                 .as_ref()
-                .map(|attributes| nchannel_process(document, attributes))
-                .unwrap_or_default();
+                .map_or_default(|attributes| nchannel_process(document, attributes));
             let colorants = attributes
                 .as_ref()
                 .and_then(Object::as_dict)
@@ -672,10 +671,6 @@ fn nchannel_process(document: &Document, attributes: &Object) -> Vec<Name> {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "the curves compared are one space evaluated by one route, so equal means bit-equal"
-)]
 mod tests {
     use std::fmt::Write as _;
 

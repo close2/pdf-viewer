@@ -265,8 +265,7 @@ fn entry(
     let value = field
         .value
         .as_ref()
-        .map(|shown| shown.text.clone())
-        .unwrap_or_default();
+        .map_or_default(|shown| shown.text.clone());
     let name = field.name.qualified.clone();
     if multiline {
         // Table 231 bit 13: "the field may contain multiple lines of text". A `GtkEntry` cannot
@@ -936,8 +935,7 @@ fn list(
         let text = item
             .item()
             .and_downcast::<gtk4::StringObject>()
-            .map(|held| held.string().to_string())
-            .unwrap_or_default();
+            .map_or_default(|held| held.string().to_string());
         let label = gtk4::Label::new(Some(&text));
         label.set_xalign(0.0);
         item.set_child(Some(&label));

@@ -267,8 +267,7 @@ impl StatedMetrics {
             },
             widths: descendant
                 .as_ref()
-                .map(|descendant| composite_widths(document, descendant))
-                .unwrap_or_default(),
+                .map_or_default(|descendant| composite_widths(document, descendant)),
             default_width: descendant
                 .as_ref()
                 .and_then(|descendant| document.get_key(descendant, "DW").as_number())
@@ -976,8 +975,7 @@ impl LoadedFont {
         let subtype = document
             .get_key(dict, "Subtype")
             .as_name()
-            .map(|value| value.as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|value| value.as_bytes().to_vec());
 
         // A Type 3 font has no font program at all: each glyph is a content stream in
         // `/CharProcs`, run by the interpreter (§9.6.4), so nothing in this crate can draw

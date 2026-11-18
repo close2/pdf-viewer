@@ -164,7 +164,7 @@ pub(super) fn streams(
             }
         }
     }
-    for opened in survey.map(Survey::opened_streams).unwrap_or_default() {
+    for opened in survey.map_or_default(Survey::opened_streams) {
         let Some(id) = opened.object else {
             continue;
         };
@@ -202,8 +202,7 @@ pub(super) fn taken_off_by(
         return BTreeSet::new();
     }
     let mut kept: BTreeSet<ObjectId> = survey
-        .map(Survey::opened_streams)
-        .unwrap_or_default()
+        .map_or_default(Survey::opened_streams)
         .iter()
         .filter_map(|opened| opened.object)
         .collect();

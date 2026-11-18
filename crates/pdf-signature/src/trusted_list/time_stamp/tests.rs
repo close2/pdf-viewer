@@ -577,5 +577,8 @@ fn a_tokens_listed_authorities_are_its_time_stamping_services_and_only_those() {
         ..qtst(&root)
     };
     let lists = [list("AT", PROVIDER, &[issuer_only])];
-    assert!(listed_authorities(&lists, &cms, GEN_TIME).is_empty());
+    assert_eq!(
+        listed_authorities(&lists, &cms, GEN_TIME),
+        [] as [(ListedAuthority, Vec<Vec<u8>>); 0]
+    );
 }

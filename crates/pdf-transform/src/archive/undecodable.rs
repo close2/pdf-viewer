@@ -104,10 +104,9 @@ impl UndecodableStream {
     /// The sentence the report and `xmpMM:History` carry for it.
     #[must_use]
     pub fn sentence(&self) -> String {
-        let stated = self
-            .stated_on
-            .map(|page| format!("; its removal is stated on page {}", page.saturating_add(1)))
-            .unwrap_or_default();
+        let stated = self.stated_on.map_or_default(|page| {
+            format!("; its removal is stated on page {}", page.saturating_add(1))
+        });
         format!(
             "the {} object {} {} ({} bytes of stream data under {}) is {} (undecodable-stream): \
              {}{stated}",

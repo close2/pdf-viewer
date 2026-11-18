@@ -1075,7 +1075,9 @@ fn a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states() {
 
     let ink: f64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| f64::from(pixel[3]) / 255.0)
         .sum();
     let covered = ink / f64::from(raster.width.saturating_mul(raster.height));
@@ -1148,7 +1150,9 @@ fn a_rule_stated_at_both_cell_edges_weighs_one_rule() {
 
     let ink: f64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| f64::from(pixel[3]) / 255.0)
         .sum();
     let covered = ink / f64::from(raster.width.saturating_mul(raster.height));
@@ -1230,7 +1234,9 @@ fn the_page_that_is_a_closed_form_weighs_what_the_closed_form_says() {
 
     let covered: f64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| f64::from(pixel[3]) / 255.0)
         .sum();
     let ink = covered / f64::from(scale * scale);

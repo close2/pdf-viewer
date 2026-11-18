@@ -766,7 +766,7 @@ mod tests {
             "Table 147's own implementation dependent"
         );
         assert_eq!(silent.pick_tray_by_page_size, None);
-        assert!(silent.page_range.is_empty());
+        assert_eq!(silent.page_range, [] as [(i64, i64); 0]);
         assert_eq!(silent.copies, None);
         // A document stating no range has not stated a range of nothing, so every page is in it.
         assert!(silent.in_page_range(1) && silent.in_page_range(9999));

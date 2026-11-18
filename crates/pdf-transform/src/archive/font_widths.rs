@@ -236,8 +236,7 @@ fn laid_out(
     let name = document
         .get_key(dict, "BaseFont")
         .as_name()
-        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
     if document.get_key(dict, "FontDescriptor").is_null() {
         if embedded.contains(&Some(id)) {
             return Ok(());

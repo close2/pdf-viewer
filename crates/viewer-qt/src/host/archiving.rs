@@ -44,36 +44,29 @@ impl Host {
     pub(crate) fn archive_targets(&self) -> Vec<String> {
         self.archive_choice
             .as_ref()
-            .map(|choosing| choosing.targets().iter().map(ToString::to_string).collect())
-            .unwrap_or_default()
+            .map_or_default(|choosing| choosing.targets().iter().map(ToString::to_string).collect())
     }
 
     /// The profiles' names, in the order offered.
     pub(crate) fn archive_profiles(&self) -> Vec<String> {
-        self.archive_choice
-            .as_ref()
-            .map(|choosing| {
-                choosing
-                    .profiles()
-                    .iter()
-                    .map(|offered| offered.name.clone())
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.archive_choice.as_ref().map_or_default(|choosing| {
+            choosing
+                .profiles()
+                .iter()
+                .map(|offered| offered.name.clone())
+                .collect()
+        })
     }
 
     /// Each profile's sentence, beside [`Self::archive_profiles`]'s names.
     pub(crate) fn archive_sentences(&self) -> Vec<String> {
-        self.archive_choice
-            .as_ref()
-            .map(|choosing| {
-                choosing
-                    .profiles()
-                    .iter()
-                    .map(|offered| offered.sentence.clone())
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.archive_choice.as_ref().map_or_default(|choosing| {
+            choosing
+                .profiles()
+                .iter()
+                .map(|offered| offered.sentence.clone())
+                .collect()
+        })
     }
 
     /// The target the dialogue starts on, as an index into [`Self::archive_targets`]: the held

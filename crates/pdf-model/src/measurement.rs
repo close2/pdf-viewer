@@ -1301,7 +1301,9 @@ fn pairs(document: &Document, dict: &Dictionary, key: &str) -> Vec<[f64; 2]> {
         return Vec::new();
     };
     array
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(MAX_POINTS)
         .filter_map(|pair| {
             Some([

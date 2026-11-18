@@ -294,8 +294,8 @@ fn an_indexed_images_default_decode_passes_every_index_through_unchanged() {
     let raster = render(assemble(&objects));
     assert_eq!((raster.width, raster.height), (256, 1));
     assert_eq!(raster.data.len(), 256 * 4);
-    for (index, pixel) in (0..=255u8).zip(raster.data.chunks_exact(4)) {
-        assert_eq!(pixel, [index, 0, 0, 255], "palette entry {index}");
+    for (index, pixel) in (0..=255u8).zip(raster.data.as_chunks::<4>().0) {
+        assert_eq!(*pixel, [index, 0, 0, 255], "palette entry {index}");
     }
 }
 

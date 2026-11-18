@@ -167,8 +167,7 @@ fn value(viewer: &Viewer, field: &str) -> String {
         .into_iter()
         .find(|candidate| candidate.name.qualified == field)
         .and_then(|field| field.value)
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 fn sentences(events: &[Event]) -> Vec<String> {

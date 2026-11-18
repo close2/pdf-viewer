@@ -106,7 +106,7 @@ fn a_file_attached_to_the_document_is_listed_now_and_in_the_tree_after_a_save() 
     assert_eq!(new.checksum_matches(b"fresh"), Some(true));
 
     let written = view.save(&doc).expect("the fixture can be updated");
-    assert!(written.still_reached.is_empty());
+    assert_eq!(written.still_reached, [] as [(String, String); 0]);
     assert!(
         written
             .bytes

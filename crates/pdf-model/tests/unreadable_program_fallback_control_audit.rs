@@ -112,7 +112,9 @@ fn rendered(bytes: Vec<u8>) -> Rendered {
     let complete = result.is_complete();
     let marked_pixels = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0)
         .count();
     Rendered {

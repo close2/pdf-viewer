@@ -368,7 +368,7 @@ mod tests {
         // is not a refusal, because nothing was undecidable.
         assert_eq!(decision.class_for('\u{7684}'), None);
         assert_eq!(decision.class_for('\u{FF21}'), None);
-        assert!(decision.refused().is_empty());
+        assert_eq!(decision.refused(), []);
     }
 
     /// The two Latin classes stated together are what no character tells apart.

@@ -198,7 +198,12 @@ impl BlendingSpace {
 /// A pixel nothing painted is left alone: with no alpha there is no colour to convert, and
 /// [`crate::impose_on_medium`] is what puts the medium there.
 pub fn resolve(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
-    for (pixel, ink) in chromatic.chunks_exact_mut(4).zip(black.chunks_exact(4)) {
+    for (pixel, ink) in chromatic
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(black.as_chunks::<4>().0)
+    {
         let alpha = f32::from(pixel[3]);
         if pixel[3] == 0 {
             continue;
@@ -314,7 +319,7 @@ impl GreyCurve {
 /// resolves a component to `1 ÷ (255 α)`, the curve is a convex combination of colours in
 /// `0..=1`, and the result is scaled by `α` again. A pixel nothing painted is left alone.
 pub fn resolve_grey(pixels: &mut [u8], curve: &GreyCurve) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = f32::from(pixel[3]);
         if pixel[3] == 0 {
             continue;
@@ -563,7 +568,7 @@ const CUBE_BLOCK: usize = 4 * 16_384;
 /// [`resolve_cube`] over one piece of a raster, on the calling thread.
 fn resolve_cube_in(pixels: &mut [u8], cube: &ColourCube) {
     let mut previous: Option<([u8; 4], [u8; 4])> = None;
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = f32::from(pixel[3]);
         if pixel[3] == 0 {
             continue;
@@ -892,11 +897,11 @@ mod tests {
         let order = [0, 0, 0, 1, 1, 2, 1, 0, 3, 3, 2, 2, 0];
         let mut raster: Vec<u8> = order.iter().flat_map(|&at| colours[at]).collect();
         resolve_cube(&mut raster, &cube);
-        for (pixel, &at) in raster.chunks_exact(4).zip(&order) {
+        for (pixel, &at) in raster.as_chunks::<4>().0.iter().zip(&order) {
             let mut alone = colours[at];
             resolve_cube(&mut alone, &cube);
             assert_eq!(
-                pixel, alone,
+                *pixel, alone,
                 "colour {at} in a run against the same colour alone"
             );
         }
@@ -922,11 +927,11 @@ mod tests {
         };
         let mut raster: Vec<u8> = (0..pixels).flat_map(colour).collect();
         resolve_cube(&mut raster, &cube);
-        for (index, pixel) in raster.chunks_exact(4).enumerate() {
+        for (index, pixel) in raster.as_chunks::<4>().0.iter().enumerate() {
             let mut alone = colour(index);
             resolve_cube(&mut alone, &cube);
             assert_eq!(
-                pixel, alone,
+                *pixel, alone,
                 "pixel {index} of a divided raster against itself alone"
             );
         }

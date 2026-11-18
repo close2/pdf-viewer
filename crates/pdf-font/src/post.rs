@@ -124,15 +124,12 @@ fn resolve<'a>(post: &Post<'a>) -> Box<[Option<&'a str>]> {
             let Some(indices) = post.glyph_name_index() else {
                 return Box::default();
             };
-            let strings: Vec<Option<&'a str>> = post
-                .string_data()
-                .map(|strings| {
-                    strings
-                        .iter()
-                        .map(|string| string.ok().map(|string| string.as_str()))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let strings: Vec<Option<&'a str>> = post.string_data().map_or_default(|strings| {
+                strings
+                    .iter()
+                    .map(|string| string.ok().map(|string| string.as_str()))
+                    .collect()
+            });
             indices
                 .iter()
                 .map(|index| {

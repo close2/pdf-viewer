@@ -89,8 +89,7 @@ impl Interpreter<'_> {
         let subtype = self.document.get_key(&stream.dict, "Subtype");
         let subtype = subtype
             .as_name()
-            .map(|name| name.as_bytes().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|name| name.as_bytes().to_vec());
 
         if subtype == b"Image" {
             // §8.9.5.4 steps c), d) and e): a base image stating no `/OC` may be replaced by the

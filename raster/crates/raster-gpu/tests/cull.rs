@@ -222,7 +222,7 @@ fn a_fill_straddling_the_edge_keeps_its_coverage() {
     with_redundant_vertex.insert(
         1,
         Segment::LineTo(Point::new(
-            (straddling.min.x + straddling.max.x) * 0.5,
+            f32::midpoint(straddling.min.x, straddling.max.x),
             straddling.min.y,
         )),
     );

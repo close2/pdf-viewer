@@ -561,7 +561,9 @@ fn map_entries(document: &Document, descendant: &Dictionary) -> Option<Vec<u16>>
     let bytes = document.decoded_stream_data(&stream)?;
     Some(
         bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .take(MOST_ENTRIES)
             .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
             .collect(),

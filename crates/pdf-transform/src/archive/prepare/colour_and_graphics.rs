@@ -255,8 +255,7 @@ pub(in crate::archive) fn output_intent_entries(
     document
         .get_key(catalog, "OutputIntents")
         .as_array()
-        .map(<[Object]>::to_vec)
-        .unwrap_or_default()
+        .map_or_default(<[Object]>::to_vec)
 }
 
 /// The colour family a profile's header names, where it is one of ISO 19005's three.

@@ -841,9 +841,8 @@ fn statement_of(
     {
         return Ok(None);
     }
-    let listed: Vec<&super::super::report::AttachmentOutcome> = files
-        .map(|(removed, _)| removed.iter().collect())
-        .unwrap_or_default();
+    let listed: Vec<&super::super::report::AttachmentOutcome> =
+        files.map_or_default(|(removed, _)| removed.iter().collect());
     let mut text = statement::text(
         document,
         target,

@@ -464,7 +464,7 @@ fn blank_scene_renders_ok_and_transparent() {
             )
             .expect("a blank scene renders");
         assert_eq!(frame.counters().commands, 0);
-        assert!(frame.reports().is_empty());
+        assert_eq!(frame.reports(), []);
         let raster = frame.into_raster().unwrap();
         assert!(raster.pixels().iter().all(|&b| b == 0));
     }
@@ -486,7 +486,7 @@ fn zero_size_targets() {
         .expect("zero-size readback is legitimate");
     let raster = frame.into_raster().unwrap();
     assert_eq!((raster.width(), raster.height()), (0, 0));
-    assert!(raster.pixels().is_empty());
+    assert_eq!(raster.pixels(), []);
 
     let (gpu, _) = device.wgpu();
     let texture = gpu.create_texture(&wgpu::TextureDescriptor {

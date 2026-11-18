@@ -257,13 +257,10 @@ impl Viewer {
         }
         self.stepping = true;
         if self.presenting == crate::PresentationMode::On {
-            let outcome = self
-                .focused_mut()
-                .map(|open| {
-                    let actions = crate::presentation::arrived(open, forward);
-                    interact::navigate(open, &actions)
-                })
-                .unwrap_or_default();
+            let outcome = self.focused_mut().map_or_default(|open| {
+                let actions = crate::presentation::arrived(open, forward);
+                interact::navigate(open, &actions)
+            });
             self.apply(id, outcome, events);
         }
         if turn == Turn::Automatic || self.presenting == crate::PresentationMode::On {

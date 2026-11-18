@@ -137,8 +137,10 @@ fn a_real_page_drawn_in_strips_is_the_page_drawn_whole() {
         for strips in DIVISIONS {
             let split = drawn(&list, target, strips);
             let moved: Vec<usize> = whole
-                .chunks_exact(4)
-                .zip(split.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(split.as_chunks::<4>().0)
                 .enumerate()
                 .filter_map(|(at, (ours, theirs))| (ours != theirs).then_some(at))
                 .collect();
@@ -302,7 +304,9 @@ fn cells_of(list: &DisplayList, target: TargetSpec) -> Vec<Cell> {
     let mut images = Vec::new();
     collect_images(list.commands(), &mut images);
     images
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let (backdrop, source) = (pair[0], pair[1]);
             assert_eq!(

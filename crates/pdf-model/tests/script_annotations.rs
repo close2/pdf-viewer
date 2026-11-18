@@ -114,10 +114,6 @@ fn object(saved: &Document, number: u32) -> Dictionary {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "the fixture writes whole numbers, which a double holds exactly"
-)]
 fn a_realm_is_told_every_page_s_scripted_annotations_in_page_order() {
     let document = document();
     let runner = Arc::new(Changing::default());
@@ -297,8 +293,7 @@ impl ScriptRunner for Queued {
         let edits = self
             .next
             .lock()
-            .map(|mut next| std::mem::take(&mut *next))
-            .unwrap_or_default();
+            .map_or_default(|mut next| std::mem::take(&mut *next));
         ScriptResult {
             rc: true,
             value: None,

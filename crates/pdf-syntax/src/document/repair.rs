@@ -62,8 +62,7 @@ impl Document {
         }
         let scanned = Arc::new(
             self.whole_for_a_scan()
-                .map(|input| crate::xref::scan_for_objects(input, self.limits))
-                .unwrap_or_default(),
+                .map_or_default(|input| crate::xref::scan_for_objects(input, self.limits)),
         );
         *write(&self.headers) = Some(Arc::clone(&scanned));
         scanned

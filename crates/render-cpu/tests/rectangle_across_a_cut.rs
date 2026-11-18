@@ -118,8 +118,10 @@ type Difference = (u32, u32, u8, u8);
 /// Every pixel at which `one` and `cut` differ.
 fn differences(one: &Raster, cut: &Raster) -> Vec<Difference> {
     one.data
-        .chunks_exact(4)
-        .zip(cut.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(cut.data.as_chunks::<4>().0)
         .enumerate()
         .filter(|(_, (a, b))| a != b)
         .map(|(index, (a, b))| {
@@ -148,7 +150,9 @@ fn the_library_states_one_row_left_inside_a_surface_a_level_from_the_row_unclipp
     let row = |pixmap: &tiny_skia::Pixmap| -> Vec<u8> {
         let stride = SIDE as usize * 4;
         pixmap.data()[19 * stride..20 * stride]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| pixel[3])
             .collect()
     };

@@ -76,8 +76,7 @@ impl Interpreter<'_> {
                 resolved.as_dict().is_some_and(|dict| {
                     let view = entry
                         .as_reference()
-                        .map(|id| self.view.annotation(id))
-                        .unwrap_or_default();
+                        .map_or_default(|id| self.view.annotation(id));
                     crate::annotation::no_zoom_in_force(self.document, dict, view)
                 })
             })

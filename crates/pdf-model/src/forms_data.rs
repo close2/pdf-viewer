@@ -2056,7 +2056,7 @@ mod tests {
         assert_eq!(data.annotations[0].page, Some(3));
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
         // Table 249's `/RV` is carried rather than named: a text string crosses whole (ADR 1648).
-        assert!(data.fields[0].owed.is_empty());
+        assert_eq!(data.fields[0].owed, [] as [&str; 0]);
         assert_eq!(data.fields[0].rich_value.as_deref(), Some("rich"));
         // Named one by one rather than counted: an assertion on a length would accept any five
         // sentences, including five of the wrong ones (trap 27).
@@ -2264,7 +2264,7 @@ mod tests {
                 .to_owned(),
         ]);
         let data = FormsData::read(&document).expect("an FDF catalog");
-        assert!(data.embedded.is_empty());
+        assert_eq!(data.embedded, [] as [FormsData; 0]);
         assert_eq!(
             data.owed,
             ["/EmbeddedFDFs: an encrypted FDF, whose Table 247 key derivation is deprecated"]
@@ -2278,7 +2278,7 @@ mod tests {
         let document = fdf("1 0 obj\n<< /FDF << /EmbeddedFDFs [ (elsewhere.fdf) \
              << /Type /Filespec /F (outside.fdf) >> ] >>\n>>\nendobj");
         let data = FormsData::read(&document).expect("an FDF catalog");
-        assert!(data.embedded.is_empty());
+        assert_eq!(data.embedded, [] as [FormsData; 0]);
         assert_eq!(
             data.owed,
             ["/EmbeddedFDFs: a file specification naming a file outside this one"],

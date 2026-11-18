@@ -277,8 +277,7 @@ impl Census {
             let base = document
                 .get_key(&described, "BaseFont")
                 .as_name()
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-                .unwrap_or_default();
+                .map_or_default(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
             let Ok(font) = LoadedFont::load(document, dict, &base) else {
                 continue;
             };
@@ -361,8 +360,7 @@ fn main() {
         };
         let name = path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         let password = corpus_passwords::corpus_password(&name).map_or("", |known| known.password);
         let Ok(document) = Document::open_with_password(bytes, Limits::default(), password) else {
             continue;

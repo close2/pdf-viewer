@@ -741,7 +741,7 @@ mod tests {
     fn a_path_inside_the_region_is_deleted_entirely() {
         let square = ring(&[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0)]);
         let cut = subtract(&[square], &[[0.0, 0.0, 10.0, 10.0]], IDENTITY).expect("inside budget");
-        assert!(cut.polygons.is_empty());
+        assert_eq!(cut.polygons, [] as [BezPath; 0]);
     }
 
     /// A square the region does not reach keeps its own control points, bit for bit.

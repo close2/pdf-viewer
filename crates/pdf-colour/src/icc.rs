@@ -496,14 +496,14 @@ impl Curve {
             _ => {
                 let (mut low, mut high) = (0.0f32, 1.0f32);
                 for _ in 0..24 {
-                    let middle = 0.5 * (low + high);
+                    let middle = f32::midpoint(low, high);
                     if self.apply(middle) < y {
                         low = middle;
                     } else {
                         high = middle;
                     }
                 }
-                0.5 * (low + high)
+                f32::midpoint(low, high)
             }
         }
     }
@@ -894,12 +894,12 @@ fn multi_localized(tag: &[u8]) -> Option<String> {
         return None;
     }
     let bytes = tag.get(offset..offset.checked_add(length)?)?;
-    let units = bytes.chunks_exact(2).map(|pair| match pair {
-        &[high, low] => u16::from_be_bytes([high, low]),
-        // `chunks_exact(2)` yields nothing else; the arm exists because the slice pattern is
-        // not exhaustive to the compiler.
-        _ => 0,
-    });
+    let units = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .copied()
+        .map(u16::from_be_bytes);
     let text: String = char::decode_utf16(units)
         .collect::<Result<String, _>>()
         .ok()?;

@@ -1615,7 +1615,7 @@ fn our_words(interpretation: &pdf_model::Interpretation, frame: &Frame) -> Vec<W
             }
             placed_any = true;
             let (mut cx, mut cy) = (0.0f64, 0.0f64);
-            for corner in placed.quad.chunks_exact(2) {
+            for corner in placed.quad.as_chunks::<2>().0 {
                 let (x, y) = frame.reference_point(f64::from(corner[0]), f64::from(corner[1]));
                 (x0, y0) = (x0.min(x), y0.min(y));
                 (x1, y1) = (x1.max(x), y1.max(y));

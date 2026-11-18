@@ -169,6 +169,6 @@ fn imported_choice_options_reach_the_form_control_before_saving() {
     .expect("FDF fields");
     let imported = view.import(&source, &data);
     assert_eq!(imported.widgets, 1);
-    assert!(imported.unmatched.is_empty());
+    assert_eq!(imported.unmatched, [] as [String; 0]);
     assert_eq!(labels(&view), ["new-amber", "new-green"]);
 }

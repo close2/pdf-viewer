@@ -7,7 +7,7 @@ resolver = "3"
 # workspace manifest before that workspace was folded into this one.
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 license = "Apache-2.0"
 repository = "https://github.com/example/pdf-viewer"
 
@@ -46,9 +46,6 @@ viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
 viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
 viewer-device = { path = "crates/viewer-device", version = "0.1.0" }
 viewer-display-link = { path = "crates/viewer-display-link", version = "0.1.0" }
-viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }
-viewer-qt = { path = "crates/viewer-qt", version = "0.1.0" }
-viewer-ffi = { path = "crates/viewer-ffi", version = "0.1.0" }
 pdf-transform = { path = "crates/pdf-transform", version = "0.1.0" }
 pdf-vfs = { path = "crates/pdf-vfs", version = "0.1.0" }
 pdf-formcalc = { path = "crates/pdf-formcalc", version = "0.1.0" }
@@ -73,7 +70,6 @@ gate-ratchet = { path = "crates/gate-ratchet", version = "0.1.0" }
 # change that spans the viewer and the library is one change under one tree's gates and
 # the library's own (`raster/CLAUDE.md`).
 raster-gpu = { path = "raster/crates/raster-gpu", version = "0.1.0" }
-raster = { path = "raster/crates/raster", version = "0.1.0" }
 raster-pages = { path = "raster/crates/raster-pages", version = "0.1.0" }
 raster-function-conformance = { path = "raster/crates/raster-function-conformance", version = "0.1.0" }
 raster-scene = { path = "raster/crates/raster-scene", version = "0.1.0" }
@@ -353,7 +349,6 @@ xmlparser = "0.13.6"
 # crate twice and `cargo deny` warns of the duplicates, and the reference decodes as the release
 # does while this tree decodes with the fixes (ADR 1730).
 zune-jpeg = { git = "https://github.com/close2/zune-image", rev = "1c7d01b815932b3722766ee88f59b4d61f91771d", version = "0.5.15" }
-zune-png = "0.5.2"
 
 # The DCT encoder, the owner's choice (doc/questions/A01: "Use mozjpeg-rs"), for `optimize --images`
 # and `render --format jpeg` and for nothing a document can ask for (ADR 2138). **Pure Rust**: imazen's
@@ -459,7 +454,7 @@ ripemd = "0.2.0"
 # in one package and the fourth in another; `sha3` 0.11.0 still has both and is superseded, which
 # would buy two packages instead of four at the price of pinning to a dead minor. Four new
 # compiled packages between them (`sha3`, `shake`, and the shared `keccak` and `sponge-cursor`),
-# all `MIT OR Apache-2.0`, MSRV 1.85 against the pinned 1.97.1, all RustCrypto — the supplier of
+# all `MIT OR Apache-2.0`, MSRV 1.85 against the pinned 1.100.0, all RustCrypto — the supplier of
 # every cipher and digest already here. `sha3`'s default `oid` feature costs nothing (`const-oid`
 # is already in this graph) and buys the corroboration `cms::Digest`'s identifier test uses;
 # `shake` has no such feature, so SHAKE256's second reading is `const-oid`'s `db` feature, in this
@@ -648,7 +643,6 @@ criterion = "0.8.2"
 # which is what a CI gate needs to be. Requires `valgrind`, and
 # `cargo install iai-callgrind-runner` at a matching version.
 iai-callgrind = "0.16.1"
-proptest = "1.11.0"
 # PNG encoding for test artefacts and, later, the comparison harness. Straight-alpha
 # RGBA in, which matches `Raster`'s documented format with no conversion.
 png = "0.18.1"

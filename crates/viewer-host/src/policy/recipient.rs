@@ -286,7 +286,7 @@ mod tests {
     fn no_word_is_no_key() {
         let (key, refused) = recipient_key(None, None);
         assert!(key.is_none());
-        assert!(refused.is_empty());
+        assert_eq!(refused, [] as [RecipientRefusal; 0]);
     }
 
     /// DER on disk is handed over byte for byte, both halves.

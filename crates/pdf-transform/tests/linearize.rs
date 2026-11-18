@@ -1487,8 +1487,7 @@ fn every_bead_names_its_thread_and_every_page_with_beads_lists_them_in_part_six(
                 .as_dict()
                 .and_then(|dict| dict.get("B"))
                 .and_then(Object::as_array)
-                .map(|beads| beads.iter().filter_map(Object::as_reference).collect())
-                .unwrap_or_default();
+                .map_or_default(|beads| beads.iter().filter_map(Object::as_reference).collect());
             assert_eq!(
                 stated,
                 beads_on.get(&id.number).cloned().unwrap_or_default(),

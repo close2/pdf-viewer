@@ -630,7 +630,12 @@ fn source_over(under: &mut Raster, top: &Raster) {
               before the cast, so neither truncation nor a negative value is reachable"
 )]
 fn over_rows(under: &mut [u8], top: &[u8]) {
-    for (dst, src) in under.chunks_exact_mut(4).zip(top.chunks_exact(4)) {
+    for (dst, src) in under
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(top.as_chunks::<4>().0)
+    {
         let source_alpha = f32::from(src[3]) / 255.0;
         if source_alpha <= 0.0 {
             continue;
@@ -679,15 +684,17 @@ mod tests {
         let mut picture = page(width, height, [0, 0, 0, 0]);
         let drawn = [200, 10, 10, 255];
         let row = (width as usize).saturating_mul(4);
-        for pixel in picture.data[..row].chunks_exact_mut(4) {
+        for pixel in picture.data[..row].as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&drawn);
         }
         let shown = over_the_ground(&picture).expect("a picture of a window's extent");
         let ground = surround(width, height).expect("the window's ground");
         assert!(
             shown.data[..row]
-                .chunks_exact(4)
-                .all(|pixel| pixel == drawn),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == drawn),
             "the drawn row is the picture's"
         );
         assert_eq!(

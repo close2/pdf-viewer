@@ -1030,7 +1030,9 @@ fn parse_file_type(payload: &[u8]) -> Result<FileType, HeaderError> {
         compatibility: payload
             .get(NEEDED..)
             .unwrap_or_default()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|entry| [entry[0], entry[1], entry[2], entry[3]])
             .collect(),
     })
@@ -1060,7 +1062,9 @@ fn parse_fragments(payload: &[u8]) -> Result<Vec<Fragment>, HeaderError> {
             needed,
         })?;
     Ok(body
-        .chunks_exact(EACH)
+        .as_chunks::<EACH>()
+        .0
+        .iter()
         .map(|entry| Fragment {
             offset: u64::from_be_bytes([
                 entry[0], entry[1], entry[2], entry[3], entry[4], entry[5], entry[6], entry[7],
@@ -1106,7 +1110,9 @@ fn parse_first_layer(payload: &[u8], base: usize) -> Result<FirstLayer<'_>, Head
                         .payload
                         .get(GRID..)
                         .unwrap_or_default()
-                        .chunks_exact(EACH)
+                        .as_chunks::<EACH>()
+                        .0
+                        .iter()
                         .map(|entry| u16::from_be_bytes([entry[0], entry[1]]))
                         .collect(),
                 );
@@ -1178,7 +1184,9 @@ fn parse_channels(payload: &[u8]) -> Result<Vec<Channel>, HeaderError> {
             needed,
         })?;
     Ok(body
-        .chunks_exact(EACH)
+        .as_chunks::<EACH>()
+        .0
+        .iter()
         .map(|entry| Channel {
             channel: u16::from_be_bytes([entry[0], entry[1]]),
             kind: u16::from_be_bytes([entry[2], entry[3]]),
@@ -1217,7 +1225,9 @@ fn parse_codestream(data: &[u8]) -> Result<Codestream, HeaderError> {
         x_offset: u32::from_be_bytes([fixed[10], fixed[11], fixed[12], fixed[13]]),
         y_offset: u32::from_be_bytes([fixed[14], fixed[15], fixed[16], fixed[17]]),
         depths: tail
-            .chunks_exact(SIZ_PER_COMPONENT)
+            .as_chunks::<SIZ_PER_COMPONENT>()
+            .0
+            .iter()
             .map(|entry| Depth::from_byte(entry[0]))
             .collect(),
         collections: Vec::new(),
@@ -1579,7 +1589,7 @@ mod tests {
         let data = codestream(&[7, 7, 7]);
         let headers = Headers::parse(&data).expect("the codestream is readable");
         assert!(headers.image.is_none());
-        assert!(headers.colour.is_empty());
+        assert_eq!(headers.colour, [] as [ColourSpecification<'_>; 0]);
         assert_eq!(headers.colour_channels(), Some(3));
     }
 
@@ -1606,7 +1616,7 @@ mod tests {
 
         let headers = Headers::parse(&data).expect("the file is well formed");
         assert_eq!(headers.colour[0].profile, Some(&[0xAA, 0xBB][..]));
-        assert!(headers.colour[0].reserved.is_empty());
+        assert_eq!(headers.colour[0].reserved, [] as [u8; 0]);
     }
 
     /// T.801 M.11.7.3.1: the `EP` field is every byte after `EnumCS`.
@@ -1881,11 +1891,9 @@ mod tests {
         assert_eq!(again.colour[0].profile, Some(&[0xAA][..]));
 
         let none = headers.keeping_colour(&data, None, None);
-        assert!(
-            Headers::parse(&none)
-                .expect("well formed")
-                .colour
-                .is_empty()
+        assert_eq!(
+            Headers::parse(&none).expect("well formed").colour,
+            [] as [ColourSpecification<'_>; 0]
         );
     }
 

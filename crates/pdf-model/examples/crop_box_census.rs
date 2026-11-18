@@ -293,7 +293,7 @@ fn confirm(list: &DisplayList, region: Rect) -> Result<u64, String> {
         // A pixel counts only where the *whole* of it lies beyond the boundary, so that the
         // anti-aliased edge of a mark that stops at the crop box is not read as a mark past it.
         let outside_row = !overlaps(row, area.min.y, area.max.y);
-        for (column, pixel) in pixels.chunks_exact(4).enumerate() {
+        for (column, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             if pixel[3] == 0 {
                 continue;
             }

@@ -460,9 +460,9 @@ fn a_commitment_rule_is_enforced_only_where_its_matching_indicator_selects_the_s
     };
     // `all`: applies to the signature stating the commitment and not to one stating none.
     assert_eq!(count(&[commitment(0)], &stating), [Verdict::Broken]);
-    assert!(count(&[commitment(0)], &default_cms()).is_empty());
+    assert_eq!(count(&[commitment(0)], &default_cms()), [] as [Verdict; 0]);
     // `none`: the other way round.
-    assert!(count(&[commitment(1)], &stating).is_empty());
+    assert_eq!(count(&[commitment(1)], &stating), [] as [Verdict; 0]);
     assert_eq!(count(&[commitment(1)], &default_cms()), [Verdict::Broken]);
 }
 
@@ -1098,8 +1098,7 @@ fn a_signer_attribute_set_is_judged_on_the_attributes_the_signature_carries() {
                 policy_rules::Constraint::SignerAttribute(Check::Level { .. })
             )
         })
-        .map(ToString::to_string)
-        .unwrap_or_default();
+        .map_or_default(ToString::to_string);
     assert!(
         sentence.contains("a claimed attribute") && sentence.contains("certified"),
         "{sentence}"
@@ -1191,7 +1190,10 @@ fn a_sets_revocation_trust_is_read_whole_and_its_retention_named() {
         retention(&judged(&[rule(true)], &signed, &facts(None))),
         [Verdict::NotEvaluated]
     );
-    assert!(retention(&judged(&[rule(false)], &signed, &facts(None))).is_empty());
+    assert_eq!(
+        retention(&judged(&[rule(false)], &signed, &facts(None))),
+        [] as [Verdict; 0]
+    );
 }
 
 #[test]
@@ -1244,7 +1246,10 @@ fn an_attribute_authority_is_held_to_the_suites_usage_for_attribute_certificates
         [Verdict::Met]
     );
     // A list whose entries name other usages only says nothing of attribute certificates.
-    assert!(verdicts(&[suite(ECDSA_SHA256, &[SIGNATURE_USAGE], None, None)], 1).is_empty());
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256, &[SIGNATURE_USAGE], None, None)], 1),
+        [] as [Verdict; 0]
+    );
     // The usage is no longer among those named and not evaluated.
     let attributes = v2(&[], 1, 0);
     let signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
@@ -1253,7 +1258,10 @@ fn an_attribute_authority_is_held_to_the_suites_usage_for_attribute_certificates
         &signed,
         &facts(None),
     );
-    assert!(component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))).is_empty());
+    assert_eq!(
+        component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))),
+        [] as [Verdict; 0]
+    );
 }
 
 #[test]
@@ -1331,8 +1339,14 @@ fn a_time_stamping_authority_is_held_to_the_suites_usage_for_time_stamp_tokens()
         [Verdict::Met]
     );
     // A list whose entries name other usages only says nothing of time-stamp tokens.
-    assert!(verdicts(&[suite(SHA256, &[SIGNATURE_USAGE], None, None)], &stamped).is_empty());
+    assert_eq!(
+        verdicts(&[suite(SHA256, &[SIGNATURE_USAGE], None, None)], &stamped),
+        [] as [Verdict; 0]
+    );
     // The usage is no longer among those named and not evaluated.
     let found = judged(&[suites(&[digest])], &stamped, &facts(None));
-    assert!(component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))).is_empty());
+    assert_eq!(
+        component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))),
+        [] as [Verdict; 0]
+    );
 }

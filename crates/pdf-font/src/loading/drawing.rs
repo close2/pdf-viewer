@@ -308,7 +308,7 @@ impl LoadedFont {
                 last: None,
             };
             let drawn = match self.program {
-                Program::Sfnt => FontRef::new(&self.data).ok().is_some_and(|font| {
+                Program::Sfnt => FontRef::new(&self.data).is_ok_and(|font| {
                     font.outline_glyphs()
                         .get(GlyphId::from(glyph))
                         .is_some_and(|outline| {

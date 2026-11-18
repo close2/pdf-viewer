@@ -2466,8 +2466,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
 fn string_map(tbl: &toml::Table, key: &str) -> Vec<(String, String)> {
     tbl.get(key)
         .and_then(Value::as_map)
-        .map(<[(String, String)]>::to_vec)
-        .unwrap_or_default()
+        .map_or_default(<[(String, String)]>::to_vec)
 }
 
 /// `field-descriptions`: each structure field the operator describes, by its namespace URI and
@@ -2901,8 +2900,7 @@ fn declared_tool(tbl: &toml::Table) -> Result<Tool, ConfigError> {
     let args: Vec<String> = tbl
         .get("args")
         .and_then(Value::as_list)
-        .map(|items| items.into_iter().map(str::to_owned).collect())
-        .unwrap_or_default();
+        .map_or_default(|items| items.into_iter().map(str::to_owned).collect());
     for argument in &args {
         if let Some(unknown) = unknown_placeholder(argument) {
             return Err(ConfigError::UnknownPlaceholder {
@@ -3253,8 +3251,7 @@ fn departure(tbl: &toml::Table, target: Target) -> Result<Option<Departure>, Con
 fn string_list(tbl: &toml::Table, key: &str) -> Vec<String> {
     tbl.get(key)
         .and_then(Value::as_list)
-        .map(|items| items.into_iter().map(str::to_owned).collect())
-        .unwrap_or_default()
+        .map_or_default(|items| items.into_iter().map(str::to_owned).collect())
 }
 
 /// The losses the conversion asks about itself, at every target, whichever requirement binds.
@@ -3583,7 +3580,7 @@ remedy = \"discard\"
         let config = Configuration::read(text, TWO_B).expect("it reads");
         let authorised = config.authorisations(TWO_B);
         assert!(authorised.grants(Loss::ImageSmoothing));
-        assert!(config.unbuilt(TWO_B).is_empty());
+        assert_eq!(config.unbuilt(TWO_B), [] as [Unbuilt; 0]);
     }
 
     #[test]
@@ -3621,7 +3618,7 @@ remedy = \"discard\"
 ";
         let config = Configuration::read(text, TWO_B).expect("it reads");
         assert_eq!(config.authorisations(TWO_B), Authorisations::default());
-        assert!(config.unbuilt(TWO_B).is_empty());
+        assert_eq!(config.unbuilt(TWO_B), [] as [Unbuilt; 0]);
     }
 
     #[test]
@@ -3674,10 +3671,10 @@ on-failure = [\"preserve\", \"stop\"]
                 .count()
         };
         let four = Configuration::read(&plain, target).expect("reads");
-        assert!(four.unbuilt(target).is_empty());
+        assert_eq!(four.unbuilt(target), [] as [Unbuilt; 0]);
         assert_eq!(by_page(&four), 0);
         let four = Configuration::read(&qualified, target).expect("reads");
-        assert!(four.unbuilt(target).is_empty());
+        assert_eq!(four.unbuilt(target), [] as [Unbuilt; 0]);
         assert_eq!(by_page(&four), 1);
     }
 
@@ -3706,7 +3703,7 @@ fresh-packet = true
         // (`doc/adr/1245`, `doc/adr/1270`), so a count of unbuilt answers would no longer
         // discriminate between them.
         let two = Configuration::read(text, TWO_B).expect("reads");
-        assert!(two.unbuilt(TWO_B).is_empty());
+        assert_eq!(two.unbuilt(TWO_B), [] as [Unbuilt; 0]);
         let mechanism = |config: &Configuration, target| {
             let rows = config.preservations(target);
             assert_eq!(rows.len(), 1, "one preservation: {rows:?}");
@@ -3721,7 +3718,7 @@ fresh-packet = true
 
         let target = Target::Four(Flavour::F);
         let four = Configuration::read(text, target).expect("reads");
-        assert!(four.unbuilt(target).is_empty());
+        assert_eq!(four.unbuilt(target), [] as [Unbuilt; 0]);
         assert_eq!(
             mechanism(&four, target),
             (false, true),
@@ -3820,7 +3817,10 @@ reason = \"Factur-X invoices; our archive accepts them\"
         assert_eq!(built.len(), 1);
         assert_eq!(built[0].media_types, vec!["application/xml", "text/xml"]);
         // At PDF/A-4f the embedding rule is lifted, so the departure does not apply.
-        assert!(config.built_departures(Target::Four(Flavour::F)).is_empty());
+        assert_eq!(
+            config.built_departures(Target::Four(Flavour::F)),
+            [] as [Departure; 0]
+        );
     }
 
     #[test]
@@ -3883,7 +3883,10 @@ output-limit = \"256MiB\"
         assert_eq!(tool.bounds.output_limit, 256 << 20);
         // A tool given `{out}` writes there; one that is not writes to standard output.
         assert_eq!(tool.delivery(), crate::tool::Delivery::OutputDirectory);
-        assert!(config.unbuilt(Target::Four(Flavour::Plain)).is_empty());
+        assert_eq!(
+            config.unbuilt(Target::Four(Flavour::Plain)),
+            [] as [Unbuilt; 0]
+        );
 
         for missing in ["program", "expects", "timeout", "output-limit"] {
             let without: String = text
@@ -3934,7 +3937,7 @@ output-limit = \"1MiB\"
         let text = "[site.\"embedded-files/associated-file-media-type\"]\nremedy = \"supply\"\n";
         let target = Target::Four(Flavour::F);
         let config = Configuration::read(text, target).expect("it reads");
-        assert!(config.supplies(target).is_empty());
+        assert_eq!(config.supplies(target), [] as [Supply; 0]);
         assert_eq!(config.unbuilt(target).len(), 1);
     }
 

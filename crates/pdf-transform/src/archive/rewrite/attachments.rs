@@ -160,8 +160,7 @@ impl Rewriter<'_> {
             .document
             .get_key(catalog, "AF")
             .as_array()
-            .map(<[Object]>::to_vec)
-            .unwrap_or_default();
+            .map_or_default(<[Object]>::to_vec);
         for specification in &attached.associated {
             associated.push(Object::Reference(*specification));
             count(applied, Rewrite::PreservedAsAttachment);

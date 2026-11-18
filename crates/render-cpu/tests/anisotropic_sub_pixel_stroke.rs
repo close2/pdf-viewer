@@ -112,7 +112,9 @@ fn raster() -> Raster {
 fn ink(raster: &Raster) -> f64 {
     let sum: u64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| u64::from(255 - pixel[0]))
         .sum();
     #[expect(
@@ -129,7 +131,13 @@ fn widest_marked_row(raster: &Raster) -> usize {
     raster
         .data
         .chunks_exact(4 * width)
-        .map(|row| row.chunks_exact(4).filter(|pixel| pixel[0] < 255).count())
+        .map(|row| {
+            row.as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel[0] < 255)
+                .count()
+        })
         .max()
         .unwrap_or(0)
 }

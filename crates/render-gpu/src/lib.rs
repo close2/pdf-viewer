@@ -968,7 +968,7 @@ impl Rasterizer for GpuRasterizer {
 
 /// Converts straight-alpha RGBA to premultiplied, in place: [`demultiply`]'s inverse.
 fn premultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         if alpha == u8::MAX {
             continue;
@@ -999,7 +999,7 @@ fn premultiply(data: &mut [u8]) {
 /// `[255, 0, 0, 128]` here, the colour divided by its own coverage.
 /// `vello_hands_back_straight_alpha` pins it.
 fn demultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         if alpha == 0 || alpha == u8::MAX {
             continue;

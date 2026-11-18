@@ -440,11 +440,10 @@ fn page_range(document: &Document, preferences: &Dictionary) -> Vec<(i64, i64)> 
         numbers.push(number);
     }
     numbers
-        .chunks_exact(2)
-        .filter_map(|pair| match pair {
-            [first, last] => Some((*first, *last)),
-            _ => None,
-        })
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[first, last]| (first, last))
         .collect()
 }
 
@@ -562,7 +561,10 @@ mod tests {
         let doc = document(
             "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /PrintPageRange [1 4 9] >> >>",
         );
-        assert!(ViewerPreferences::read(&doc).print_page_range.is_empty());
+        assert_eq!(
+            ViewerPreferences::read(&doc).print_page_range,
+            [] as [(i64, i64); 0]
+        );
     }
 
     /// "The first page of the PDF file shall be denoted by 1", so a pair beginning at 0 names

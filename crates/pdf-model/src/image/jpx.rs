@@ -363,7 +363,7 @@ fn jpx_decode_pairs(
                 .as_array()
                 .map(<[Object]>::to_vec)
         })
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(|item| document.resolve(item).as_number())
@@ -378,8 +378,7 @@ fn jpx_decode_pairs(
                     }
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     (0..components)
         .map(|component| {
             let at = component.saturating_mul(2);
@@ -1218,8 +1217,7 @@ pub(super) fn jpx_sample_domain(
         );
     };
     let depths = crate::jpeg2000::Headers::parse(&source.data)
-        .map(|headers| headers.component_depths())
-        .unwrap_or_default();
+        .map_or_default(|headers| headers.component_depths());
     let Some(first) = depths.first() else {
         return Err(
             "colour-key /Mask on a JPXDecode image whose data states no bit depth, \

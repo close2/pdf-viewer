@@ -273,8 +273,10 @@ fn a_clip_beyond_the_page_draws_nothing() {
     assert!(
         raster
             .data
-            .chunks_exact(4)
-            .all(|p| p == [255, 255, 255, 255]),
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [255, 255, 255, 255]),
         "a clip entirely off the page must leave the page blank"
     );
 }

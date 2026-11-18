@@ -282,8 +282,8 @@ pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>,
         return None;
     }
     let mut wanted = Vec::with_capacity(count);
-    for chunk in rest.chunks_exact(4) {
-        let value = u32::from_be_bytes(chunk.try_into().ok()?);
+    for chunk in rest.as_chunks::<4>().0 {
+        let value = u32::from_be_bytes(*chunk);
         wanted.push(char::from_u32(value)?);
     }
     Some((

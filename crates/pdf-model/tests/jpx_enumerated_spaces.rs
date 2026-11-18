@@ -842,7 +842,9 @@ fn a_writer_is_handed_sycc_inside_srgb_and_refused_it_outside() {
     assert_eq!((carried.components, carried.precision), (3, 8));
     let pixels: Vec<[u8; 3]> = carried
         .colour
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
     assert_near(

@@ -889,7 +889,7 @@ fn fill_with_raster(
     for (target, source) in samples
         .pixels_mut()
         .iter_mut()
-        .zip(image.data.chunks_exact(4))
+        .zip(image.data.as_chunks::<4>().0)
     {
         let alpha = source[3];
         *target = tiny_skia::PremultipliedColorU8::from_rgba(

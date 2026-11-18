@@ -256,7 +256,7 @@ fn grid(domain: &[f32]) -> Vec<Vec<f32>> {
     const ACROSS: u8 = 9;
 
     let mut rows: Vec<Vec<f32>> = vec![Vec::new()];
-    for pair in domain.chunks_exact(2) {
+    for pair in domain.as_chunks::<2>().0 {
         let (low, high) = (pair.first().copied(), pair.get(1).copied());
         let (Some(low), Some(high)) = (low, high) else {
             continue;
@@ -500,8 +500,7 @@ fn type1_shadings(
         let program = resolved
             .as_stream()
             .and_then(|stream| document.decoded_stream_data(stream))
-            .map(|data| String::from_utf8_lossy(&data).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|data| String::from_utf8_lossy(&data).into_owned());
         let tokens = tokens(&program);
         let has = |names: &[&str]| tokens.iter().any(|token| names.contains(&token.as_str()));
         let shape = match (has(&["if", "ifelse"]), has(&["copy", "index", "roll"])) {

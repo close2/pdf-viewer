@@ -364,7 +364,7 @@ fn text_extent(
         if !(overlaps || unnameable) {
             continue;
         }
-        for corner in placed.quad.chunks_exact(2) {
+        for corner in placed.quad.as_chunks::<2>().0 {
             let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
                 continue;
             };

@@ -144,7 +144,7 @@ fn a_filter_against_no_backend_refuses_too() {
             available,
         }) => {
             assert_eq!(requested.as_deref(), Some(SOFTWARE));
-            assert!(available.is_empty());
+            assert_eq!(available, [] as [String; 0]);
         }
         Err(other) => panic!("the wrong refusal: {other}"),
         Ok(device) => panic!(

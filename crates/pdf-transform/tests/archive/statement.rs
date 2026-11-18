@@ -388,7 +388,7 @@ fn a_parent_tree_with_kids_gains_the_statement_pages_entries_at_any_depth() {
                 Some(&b"P"[..]),
                 "{tree:?} {target}: the producer's page"
             );
-            assert!(!statement.pages.is_empty());
+            assert_ne!(statement.pages, [] as [usize; 0]);
             for index in &statement.pages {
                 let page = pages.get(*index).expect("the statement's page");
                 assert!(
@@ -936,8 +936,7 @@ fn fonts_read_back_against(conversion: &pdf_transform::archive::Conversion, page
             let fonts = following
                 .clone()
                 .find_map(|line| line.strip_prefix("Fonts not drawn: "))
-                .map(|fonts| fonts.split(',').map(str::trim).collect::<Vec<_>>())
-                .unwrap_or_default();
+                .map_or_default(|fonts| fonts.split(',').map(str::trim).collect::<Vec<_>>());
             assert_eq!(fonts, photographed.fonts, "page {number}'s fonts: {page}");
             read = read.saturating_add(1);
         } else if let Some(stated) = line.strip_prefix("Font: ") {

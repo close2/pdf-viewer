@@ -2232,7 +2232,7 @@ fn judge_path_suites(
     out: &mut Vec<Finding>,
 ) {
     if list.iter().any(|entry| names(entry, &[PATH_CERT_USAGE])) {
-        let authorities = path.map(Path::authorities).unwrap_or_default();
+        let authorities = path.map_or_default(Path::authorities);
         if authorities.is_empty() {
             out.push(component(
                 if path.is_some() {

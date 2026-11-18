@@ -60,7 +60,9 @@ pub fn is_text_string(bytes: &[u8]) -> bool {
     if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
         return rest.len() % 2 == 0
             && char::decode_utf16(
-                rest.chunks_exact(2)
+                rest.as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|pair| u16::from_be_bytes([pair[0], pair[1]])),
             )
             .all(|unit| unit.is_ok());

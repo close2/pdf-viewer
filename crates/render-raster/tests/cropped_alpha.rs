@@ -77,15 +77,17 @@ fn cropping_preserves_the_straight_colour_of_surviving_pixels() {
     let mut translucent = 0;
     for (index, (before, after)) in whole
         .data
-        .chunks_exact(4)
-        .zip(cropped.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(cropped.data.as_chunks::<4>().0)
         .enumerate()
     {
         if index % 8 < 4 {
             assert_eq!(before, after, "surviving pixel {index}");
             translucent += usize::from(before[3] > 0 && before[3] < 255);
         } else {
-            assert_eq!(after, [0, 0, 0, 0], "removed pixel {index}");
+            assert_eq!(*after, [0, 0, 0, 0], "removed pixel {index}");
         }
     }
     assert_eq!(translucent, 32, "the witness must reach demultiply");

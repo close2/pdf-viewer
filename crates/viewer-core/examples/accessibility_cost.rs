@@ -194,8 +194,7 @@ fn ask(viewer: &Viewer, repeats: usize) -> Measured {
             );
             measured.longest = lines()
                 .max_by_key(|line| line.characters.len())
-                .map(|line| line.text.clone())
-                .unwrap_or_default();
+                .map_or_default(|line| line.text.clone());
         }
     }
     measured

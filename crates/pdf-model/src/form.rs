@@ -703,10 +703,7 @@ pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
                 }
                 other => Choice {
                     export: None,
-                    label: other
-                        .as_string()
-                        .map(pdf_syntax::text_string)
-                        .unwrap_or_default(),
+                    label: other.as_string().map_or_default(pdf_syntax::text_string),
                 },
             }
         })
@@ -1152,6 +1149,9 @@ mod tests {
             "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] >> endobj\n",
         );
         let view = ViewState::of(&document);
-        assert!(fields(&document, &page(&document), &view).is_empty());
+        assert_eq!(
+            fields(&document, &page(&document), &view),
+            [] as [crate::form::FormField; 0]
+        );
     }
 }

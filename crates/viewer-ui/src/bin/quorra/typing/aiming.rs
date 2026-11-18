@@ -295,7 +295,10 @@ impl App {
         };
         // The centre of the ring, which is inside the widget's `/Rect` by construction: §12.5.5
         // places the appearance *on* that rectangle and `Query::Focus` answers with it.
-        let at = ((quad[0] + quad[4]) * 0.5, (quad[1] + quad[5]) * 0.5);
+        let at = (
+            f32::midpoint(quad[0], quad[4]),
+            f32::midpoint(quad[1], quad[5]),
+        );
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
             // The same refusal a click makes, for the same reason — see `aim_at_field`.
             Answer::Field {

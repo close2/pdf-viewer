@@ -236,8 +236,7 @@ fn write_places(
             out.runs.push(WrittenRun {
                 pages: read_on
                     .get(run.as_slice())
-                    .map(|pages| pages.iter().copied().collect())
-                    .unwrap_or_default(),
+                    .map_or_default(|pages| pages.iter().copied().collect()),
                 object: id,
                 run,
                 number: place.number,

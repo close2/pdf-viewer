@@ -110,7 +110,7 @@ fn required_empty_is_reported_and_include_no_value_policy_remains_explicit() {
 
     let omitted = compose_fixture(false);
     assert_eq!(omitted.fields, 0);
-    assert!(exported_fields(&omitted).is_empty());
+    assert_eq!(exported_fields(&omitted), [] as [(String, bool); 0]);
     assert_eq!(omitted.owed.len(), 1);
     assert!(omitted.owed[0].contains("required"));
 }

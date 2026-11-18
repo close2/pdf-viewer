@@ -1802,7 +1802,6 @@ dependencies = [
  "pdf-render",
  "pdf-sandbox",
  "pdf-signature",
- "pdf-spec",
  "pdf-syntax",
  "rayon",
  "thiserror",
@@ -1901,10 +1900,6 @@ dependencies = [
  "thiserror",
  "xmlparser",
 ]
-
-[[package]]
-name = "pdf-spec"
-version = "0.1.0"
 
 [[package]]
 name = "pdf-syntax"

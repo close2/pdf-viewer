@@ -110,7 +110,7 @@ fn the_first_signer_attributes_is_read_as_a_list_of_claimed_and_certified() {
     let read = carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR, &value)).expect("readable");
     assert_eq!(read.claimed, vec![ROLE, TITLE]);
     assert_eq!(read.certified.len(), 1);
-    assert!(read.assertions.is_empty());
+    assert_eq!(read.assertions, []);
 }
 
 #[test]

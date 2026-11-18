@@ -819,10 +819,7 @@ impl Writer<'_> {
             .position(|(uri, attribute)| uri == XML_NAMESPACE && attribute.local == "base");
         let mut values = omitted.into_iter().rev();
         let mut value = match own {
-            Some(at) => resolved
-                .get(at)
-                .map(|(_, a)| a.value.clone())
-                .unwrap_or_default(),
+            Some(at) => resolved.get(at).map_or_default(|(_, a)| a.value.clone()),
             None => values.next().unwrap_or_default().to_owned(),
         };
         for outer in values {

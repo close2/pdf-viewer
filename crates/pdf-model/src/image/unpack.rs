@@ -455,7 +455,9 @@ pub(super) fn unpack_matted_eight_bit_device(
         // does.
         let alphas = alphas.iter().copied().chain(std::iter::repeat(0));
         let pixels = pixels
-            .chunks_exact_mut(4)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
             .zip(row.chunks_exact(stride))
             .zip(alphas);
         match tables {
@@ -560,13 +562,17 @@ fn unpack_eight_bit_device(
                 }
             }
             [grey] => {
-                for (pixel, &value) in pixels.chunks_exact_mut(4).zip(row) {
+                for (pixel, &value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(row) {
                     let level = grey[usize::from(value)];
                     pixel.copy_from_slice(&[level, level, level, u8::MAX]);
                 }
             }
             [red, green, blue] => {
-                for (pixel, sample) in pixels.chunks_exact_mut(4).zip(row.chunks_exact(components))
+                for (pixel, sample) in pixels
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(row.chunks_exact(components))
                 {
                     pixel.copy_from_slice(&[
                         red[usize::from(sample[0])],

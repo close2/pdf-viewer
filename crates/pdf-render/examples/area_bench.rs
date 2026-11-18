@@ -107,7 +107,7 @@ fn average_block(image: &Image, x0: u32, y0: u32, x1: u32, y1: u32) -> [u8; 4] {
         let Some(span) = image.data.get(from..to) else {
             continue;
         };
-        for sample in span.chunks_exact(4) {
+        for sample in span.as_chunks::<4>().0 {
             let alpha = u64::from(sample[3]);
             for (sum, component) in colour.iter_mut().zip(sample) {
                 *sum += u64::from(*component) * alpha;
@@ -180,7 +180,7 @@ fn divided(image: &Image, factor: u32) -> Arc<[u8]> {
         .enumerate()
         .for_each(|(out_y, row)| {
             let (y0, y1) = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
-            for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(&spans) {
+            for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(&spans) {
                 cell.copy_from_slice(&average_block(image, x0, y0, x1, y1));
             }
         });

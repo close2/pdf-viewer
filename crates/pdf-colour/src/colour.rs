@@ -480,11 +480,6 @@ impl<'a> Reading<'a> {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "test code: these conversions are exact by definition, so an approximate \
-              comparison would hide the very drift the test exists to catch"
-)]
 mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object};
 
@@ -688,10 +683,9 @@ mod tests {
             "an Indexed space starts at entry 0, whatever colour that is"
         );
         // A pattern paints nothing until `scn` names one, so it has no components at all.
-        assert!(
-            ColourSpace::Pattern { base: None }
-                .initial_colour()
-                .is_empty()
+        assert_eq!(
+            ColourSpace::Pattern { base: None }.initial_colour(),
+            [] as [f32; 0]
         );
     }
 

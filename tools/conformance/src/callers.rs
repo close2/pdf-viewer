@@ -495,8 +495,7 @@ pub fn sweep(answering: &str, sources: &[(PathBuf, String)], consumers: &[Consum
         .map(|(name, (rung, witness))| Function {
             declared: declared
                 .get(&name)
-                .map(|names| names.iter().cloned().collect())
-                .unwrap_or_default(),
+                .map_or_default(|names| names.iter().cloned().collect()),
             name,
             reach: rung,
             witness,

@@ -2122,11 +2122,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             return;
         };
         named.remove(&calculation.node);
-        let old = self
-            .named
-            .get_mut(index)
-            .map(std::mem::take)
-            .unwrap_or_default();
+        let old = self.named.get_mut(index).map_or_default(std::mem::take);
         self.edges = self.edges.saturating_sub(old.len());
         for node in &old {
             if let Some(readers) = self.readers_of.get_mut(node) {

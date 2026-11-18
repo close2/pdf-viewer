@@ -99,7 +99,9 @@ fn ink(path: &Path) -> String {
     };
     let sum: u64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| 765 - u64::from(pixel[0]) - u64::from(pixel[1]) - u64::from(pixel[2]))
         .sum();
     let pixels = u64::from(raster.width) * u64::from(raster.height);

@@ -49,10 +49,6 @@ fn settings(duplex: &str) -> gtk4::PrintSettings {
     super::print_settings(&defaults)
 }
 
-#[expect(
-    clippy::float_cmp,
-    reason = "100 is an exact stored setting, not a computed approximation"
-)]
 #[gtk4::test]
 fn pdf_preferences_reach_gtk_settings_with_independent_range_and_duplex_values() {
     use gtk4::{PrintDuplex, PrintPages};

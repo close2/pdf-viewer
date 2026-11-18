@@ -1082,8 +1082,8 @@ fn a_document_without_redactions_is_written_and_unchanged() {
     let content = "BT /F1 12 Tf 20 100 Td (HELLO) Tj ET";
     let bytes = build(content, &[]);
     let (report, out) = redact(&bytes);
-    assert!(report.refused.is_empty());
-    assert!(report.departures.is_empty());
+    assert_eq!(report.refused, [] as [pdf_transform::Declined; 0]);
+    assert_eq!(report.departures, [] as [Departure; 0]);
     assert_eq!(page_text(&out).trim(), "HELLO");
     let Some(Origin::Redacted { glyphs, .. }) =
         report.outputs.first().map(|output| output.origin.clone())
@@ -1470,8 +1470,7 @@ fn image_entries(bytes: &[u8]) -> (String, String, i64) {
             Object::Array(items) => items
                 .first()
                 .and_then(Object::as_name)
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-                .unwrap_or_default(),
+                .map_or_default(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
             _ => String::new(),
         }
     };
@@ -1567,7 +1566,9 @@ fn twelve_bit_sample(row: usize, col: usize) -> u16 {
 /// The output's `/Im1` samples as sixteen-bit big-endian integers.
 fn read_back_wide_samples(bytes: &[u8]) -> Vec<u16> {
     read_back_samples(bytes)
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
         .collect()
 }
@@ -2472,10 +2473,9 @@ fn form_fixture(form_content: &str, pages: usize, annotation: &str) -> Vec<u8> {
     let mut objects: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         String::new(), // the page tree, filled once the page numbers are known
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 \
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 \
              5 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>"
-        ),
+            .to_string(),
         "<< /Length 12 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
         format!(
             "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 7 0 \

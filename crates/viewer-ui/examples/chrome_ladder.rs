@@ -362,7 +362,7 @@ fn difference(a: &[u8], b: &[u8]) -> (f64, u8) {
 fn ink_of(crop: &[u8]) -> f64 {
     let mut total = 0_u64;
     let mut pixels = 0_u64;
-    for pixel in crop.chunks_exact(4) {
+    for pixel in crop.as_chunks::<4>().0 {
         let grey = u64::from(pixel[0])
             .saturating_add(u64::from(pixel[1]))
             .saturating_add(u64::from(pixel[2]));

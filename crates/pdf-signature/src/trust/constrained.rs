@@ -178,11 +178,7 @@ impl State {
             }
         }
         // (g).
-        let authorities_constrained = self
-            .tree
-            .as_ref()
-            .map(|tree| tree.admitted(n))
-            .unwrap_or_default();
+        let authorities_constrained = self.tree.as_ref().map_or_default(|tree| tree.admitted(n));
         if let (Some(tree), Some(user)) = (&mut self.tree, &inputs.policy_set) {
             tree.intersect(n, user)
                 .map_err(|_| PathRefusal::PolicyTreeTooLarge)?;
@@ -190,11 +186,7 @@ impl State {
                 self.tree = None;
             }
         }
-        let user_constrained = self
-            .tree
-            .as_ref()
-            .map(|tree| tree.admitted(n))
-            .unwrap_or_default();
+        let user_constrained = self.tree.as_ref().map_or_default(|tree| tree.admitted(n));
         // "If either (1) the value of explicit_policy variable is greater than zero or (2) the
         // valid_policy_tree is not NULL, then path processing has succeeded."
         if self.explicit_policy == 0 && self.tree.is_none() {

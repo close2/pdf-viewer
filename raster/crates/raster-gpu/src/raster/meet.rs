@@ -755,7 +755,7 @@ fn partial_windings(sets: usize, work: &mut Work) {
     for k in 1..work.cuts.len() {
         let (ya, yz) = (work.cuts[k - 1], work.cuts[k]);
         if yz > ya {
-            work.middles.push(0.5 * (ya + yz));
+            work.middles.push(f64::midpoint(ya, yz));
         }
     }
     let bands = work.middles.len();
@@ -805,7 +805,7 @@ fn band_area(
     band: usize,
     work: &mut Work,
 ) -> f64 {
-    let ym = 0.5 * (ya + yz);
+    let ym = f64::midpoint(ya, yz);
     work.windings.clone_from(&work.left);
     let partials = &work.band_partials[band * sets.len()..(band + 1) * sets.len()];
     for (winding, partial) in work.windings.iter_mut().zip(partials) {

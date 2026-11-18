@@ -249,7 +249,7 @@ fn a_magnified_stencils_smoothed_edge_is_the_painted_colour_at_partial_coverage(
         let (oracle, ours) = both(stencil_file(), scale);
         for (name, raster) in [("the oracle", &oracle), ("the device", &ours)] {
             let mut partial = 0_usize;
-            for pixel in raster.data.chunks_exact(4) {
+            for pixel in raster.data.as_chunks::<4>().0 {
                 assert!(
                     pixel[0] >= 254 && pixel[1].abs_diff(pixel[2]) <= 1,
                     "at scale {scale} {name} drew {pixel:?}: a smoothed stencil edge over \

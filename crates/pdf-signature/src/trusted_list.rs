@@ -844,15 +844,14 @@ impl<'t> Reader<'t> {
                 providers.push(self.provider(provider, &mut services)?);
             }
         }
-        let scheme_information_uris = self
-            .first(scheme, "SchemeInformationURI")
-            .map(|uris| {
-                self.all(uris, "URI")
-                    .into_iter()
-                    .map(|uri| uri.text.trim().to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let scheme_information_uris =
+            self.first(scheme, "SchemeInformationURI")
+                .map_or_default(|uris| {
+                    self.all(uris, "URI")
+                        .into_iter()
+                        .map(|uri| uri.text.trim().to_owned())
+                        .collect()
+                });
         let mut pointers = Vec::new();
         if let Some(list) = self.first(scheme, "PointersToOtherTSL") {
             for pointer in self.all(list, "OtherTSLPointer") {
@@ -933,8 +932,7 @@ impl<'t> Reader<'t> {
         let mut read = Vec::new();
         for service in self
             .first(provider, "TSPServices")
-            .map(|list| self.all(list, "TSPService"))
-            .unwrap_or_default()
+            .map_or_default(|list| self.all(list, "TSPService"))
         {
             read.push(self.service(service, services)?);
         }

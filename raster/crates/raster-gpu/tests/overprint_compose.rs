@@ -138,7 +138,9 @@ fn coverage(device: &mut Device, outline: OutlineId) -> Vec<f32> {
     )
     .unwrap();
     render(device, &builder.finish(), SIZE, SIZE)
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| f32::from(pixel[3]) / 255.0)
         .collect()
 }
@@ -363,7 +365,12 @@ fn onto_an_opaque_backdrop_a_kept_channel_is_the_backdrop() {
         )
         .unwrap();
         let after = render(&mut device, &builder.finish(), SIZE, SIZE);
-        for (b, a) in before.chunks_exact(4).zip(after.chunks_exact(4)) {
+        for (b, a) in before
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(after.as_chunks::<4>().0)
+        {
             for channel in 0..3 {
                 if kept[channel] {
                     assert!(

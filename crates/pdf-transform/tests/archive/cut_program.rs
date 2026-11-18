@@ -113,7 +113,7 @@ fn draws_the_text_drawn(source: &[u8], output: &[u8]) -> bool {
     fn ink(raster: &pdf_render::Raster) -> Option<([u32; 4], usize)> {
         let mut found: Option<[u32; 4]> = None;
         let mut count = 0;
-        for (index, pixel) in (0_u32..).zip(raster.data.chunks_exact(4)) {
+        for (index, pixel) in (0_u32..).zip(raster.data.as_chunks::<4>().0) {
             if pixel[..3] == [0xFF, 0xFF, 0xFF] {
                 continue;
             }

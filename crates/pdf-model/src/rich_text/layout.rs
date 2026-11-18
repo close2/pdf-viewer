@@ -645,8 +645,7 @@ fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool, u8)
 fn base_font_of(dict: &Dictionary) -> String {
     dict.get("BaseFont")
         .and_then(Object::as_name)
-        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
 }
 
 /// One of §9.6.2.2's fourteen, for a family and style, where the family is one of theirs.
@@ -1974,21 +1973,19 @@ fn aligned(
     request: &Request,
 ) -> (f32, f32, Vec<f32>, Vec<(usize, super::style::Leader)>) {
     let advanced = advances(measure, &paragraph.block, shown, root, from_margin);
-    let leaders = from_margin
-        .map(|from_margin| {
-            shown
-                .iter()
-                .zip(&advanced)
-                .enumerate()
-                .filter(|(_, (atom, _))| atom.tab > 0)
-                .filter_map(|(at, (atom, before))| {
-                    let (_, _, leader) =
-                        reached_stop(&paragraph.block, (from_margin + before, atom.tab), root)?;
-                    Some((at, leader?.clone()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let leaders = from_margin.map_or_default(|from_margin| {
+        shown
+            .iter()
+            .zip(&advanced)
+            .enumerate()
+            .filter(|(_, (atom, _))| atom.tab > 0)
+            .filter_map(|(at, (atom, before))| {
+                let (_, _, leader) =
+                    reached_stop(&paragraph.block, (from_margin + before, atom.tab), root)?;
+                Some((at, leader?.clone()))
+            })
+            .collect()
+    });
     let used = advanced.last().copied().unwrap_or_default();
     let align = paragraph.block.align.unwrap_or(match request.quadding {
         Quadding::Left => Align::Left,
@@ -2342,7 +2339,7 @@ fn auto_size(measure: &Measure, paragraphs: &[Encoded], area: Room, request: &Re
         return high;
     }
     for _ in 0..variable_text::AUTO_SIZE_STEPS {
-        let middle = (low + high) * 0.5;
+        let middle = f32::midpoint(low, high);
         if fits(middle) {
             low = middle;
         } else {

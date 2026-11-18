@@ -898,14 +898,12 @@ pub(in crate::archive) fn undescribed_fields_in(
     document: &Document,
 ) -> Vec<pdf_archive::UndescribedField> {
     let catalog = document.catalog().ok();
-    fields_by_packet(document, catalog.as_ref(), Edited::default())
-        .map(|packets| {
-            packets
-                .into_iter()
-                .flat_map(|(_, _, _, undescribed)| undescribed)
-                .collect()
-        })
-        .unwrap_or_default()
+    fields_by_packet(document, catalog.as_ref(), Edited::default()).map_or_default(|packets| {
+        packets
+            .into_iter()
+            .flat_map(|(_, _, _, undescribed)| undescribed)
+            .collect()
+    })
 }
 
 /// Whether a packet already states an extension schema container.
@@ -1446,22 +1444,20 @@ pub(super) fn prepare_amendment(
     if malformed.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
-    let stated: Vec<RemovedIdentifier> = xmp::Xmp::parse(&bytes)
-        .map(|packet| {
-            packet
-                .properties()
-                .iter()
-                .filter(|(name, _)| malformed.contains(name))
-                .map(|(name, value)| RemovedIdentifier {
-                    spelled: format!("{IDENTIFICATION_PREFIX}:{}", name.local),
-                    stated: match value {
-                        xmp::Value::Text(text) => short(text),
-                        _ => "a value that is not a simple one".to_owned(),
-                    },
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let stated: Vec<RemovedIdentifier> = xmp::Xmp::parse(&bytes).map_or_default(|packet| {
+        packet
+            .properties()
+            .iter()
+            .filter(|(name, _)| malformed.contains(name))
+            .map(|(name, value)| RemovedIdentifier {
+                spelled: format!("{IDENTIFICATION_PREFIX}:{}", name.local),
+                stated: match value {
+                    xmp::Value::Text(text) => short(text),
+                    _ => "a value that is not a simple one".to_owned(),
+                },
+            })
+            .collect()
+    });
     let cut =
         xmp::remove(&bytes, &malformed).map_err(|_| Because::NotBuiltYet(IDENTIFIER_NOT_CUT))?;
     // Read back rather than trusted, which is `prepare_properties`'s rule: the writer says what

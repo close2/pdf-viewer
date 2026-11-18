@@ -570,7 +570,7 @@ fn a_document_with_no_timestamp_has_no_chain_and_nothing_to_refuse() {
     assert!(chain.is_empty());
     assert!(chain.outermost().is_none());
     assert_eq!(chain.signatures, 0);
-    assert!(chain.refused.is_empty());
+    assert_eq!(chain.refused, [] as [ChainRefusal; 0]);
 }
 
 /// **A host's trusted list anchors a token's authority where the reader's anchors do not** (ADR

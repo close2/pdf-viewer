@@ -553,7 +553,7 @@ fn a_fields_characters_have_places_inside_its_widget() {
     let widget = cells.bounds.expect("the widget is placed");
     let said: Vec<&str> = boxes.iter().map(|(text, _)| text.as_str()).collect();
     assert_eq!(said, ["a", "b", "c"], "{boxes:?}");
-    let cell = boxes.first().map(|(_, b)| b[2] - b[0]).unwrap_or_default();
+    let cell = boxes.first().map_or_default(|(_, b)| b[2] - b[0]);
     assert!(
         boxes
             .iter()

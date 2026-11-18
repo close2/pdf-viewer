@@ -236,8 +236,7 @@ impl Viewer {
             .out
             .as_ref()
             .filter(|out| out.document == id)
-            .map(|out| out.pages.clone())
-            .unwrap_or_default();
+            .map_or_default(|out| out.pages.clone());
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };

@@ -177,8 +177,10 @@ fn both_backends_draw_the_same_transition_frame() {
     // than zero because a fraction of a pixel is a rasteriser's business and not this clause's.
     let differing = processor
         .data
-        .chunks_exact(4)
-        .zip(device.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(device.data.as_chunks::<4>().0)
         .filter(|(ours, theirs)| ours[0..3] != theirs[0..3])
         .count();
     let column = WINDOW.1 as usize;
@@ -239,7 +241,9 @@ fn a_dissolve_and_a_fly_are_the_same_frame_on_both_backends() {
             .expect("the correctness oracle draws the frame");
         let blue = processor
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[0..3] == [0, 0, 255])
             .count();
         let half = (WINDOW.0 as usize).saturating_mul(WINDOW.1 as usize) / 2;
@@ -273,8 +277,10 @@ fn a_dissolve_and_a_fly_are_the_same_frame_on_both_backends() {
             });
         let differing = processor
             .data
-            .chunks_exact(4)
-            .zip(device.data.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(device.data.as_chunks::<4>().0)
             .filter(|(ours, theirs)| ours[0..3] != theirs[0..3])
             .count();
         assert_eq!(

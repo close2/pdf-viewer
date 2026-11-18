@@ -408,14 +408,11 @@ impl ExtractionCache {
     /// What [`crate::cache::Runs::repeated`] counted, said rather than totalled.
     #[must_use]
     pub fn repeated_keys(&self) -> Vec<String> {
-        self.repeats
-            .lock()
-            .map(|held| {
-                let mut named: Vec<String> = held.iter().cloned().collect();
-                named.sort();
-                named
-            })
-            .unwrap_or_default()
+        self.repeats.lock().map_or_default(|held| {
+            let mut named: Vec<String> = held.iter().cloned().collect();
+            named.sort();
+            named
+        })
     }
 
     /// Records that an extractor is about to be run for `key`, counting a second run of one.

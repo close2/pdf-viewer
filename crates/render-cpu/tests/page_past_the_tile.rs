@@ -240,8 +240,10 @@ fn a_mark_past_what_f32_measures_is_drawn_as_the_library_draws_it() {
             .expect("the spike draws aliased");
         let differing = asked
             .data
-            .chunks_exact(4)
-            .zip(aliased.data.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(aliased.data.as_chunks::<4>().0)
             .filter(|(a, b)| a != b)
             .count();
         assert_eq!(
@@ -304,8 +306,10 @@ type Difference = (u32, u32, u8, u8);
 /// Every pixel at which `one` and `cut` differ.
 fn differences(one: &Raster, cut: &Raster) -> Vec<Difference> {
     one.data
-        .chunks_exact(4)
-        .zip(cut.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(cut.data.as_chunks::<4>().0)
         .enumerate()
         .filter(|(_, (a, b))| a != b)
         .map(|(index, (a, b))| {

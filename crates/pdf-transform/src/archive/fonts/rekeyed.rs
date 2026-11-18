@@ -179,10 +179,6 @@ fn noticed(
 ///
 /// [`Because::NotBuiltYet`] naming the condition met, and [`Because::TheFence`] where one glyph of
 /// a `glyf` face would have to state two advances.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one ordered embedding: choose the face, write its program, place its map and report it"
-)]
 pub(super) fn embed(
     document: &Document,
     used: &SelectedFont,
@@ -260,9 +256,7 @@ pub(super) fn embed(
     if let Some(named) = font_name_of(&gains) {
         substitutes.described.insert(descriptor, named);
     }
-    let mut descendants = earlier
-        .map(|earlier| earlier.descendants)
-        .unwrap_or_default();
+    let mut descendants = earlier.map_or_default(|earlier| earlier.descendants);
     if !descendants.contains(&descendant_at) {
         descendants.push(descendant_at);
     }
@@ -471,10 +465,7 @@ fn chosen_face(
     {
         return Ok(Face::Shipped(program, format));
     }
-    for collection in pack
-        .map(|_| collections(document, descriptor, characters))
-        .unwrap_or_default()
-    {
+    for collection in pack.map_or_default(|_| collections(document, descriptor, characters)) {
         let Some(Ok(program)) = pack.map(|pack| pack.program(collection)) else {
             continue;
         };

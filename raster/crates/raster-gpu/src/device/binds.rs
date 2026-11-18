@@ -234,7 +234,7 @@ fn globals_bytes(region: Region, view: LineView) -> [u8; GLOBALS_BYTES] {
     head.copy_from_slice(&attachment);
     tail.copy_from_slice(&view.0);
     let mut bytes = [0_u8; GLOBALS_BYTES];
-    for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
+    for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
         slot.copy_from_slice(&value.to_le_bytes());
     }
     bytes

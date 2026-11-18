@@ -238,8 +238,7 @@ fn population() -> (usize, Vec<(&'static str, u32, String, String)>) {
             walked = walked.saturating_add(1);
             let name = path
                 .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|name| name.to_string_lossy().into_owned());
             let Some(number) = name
                 .split('-')
                 .next()

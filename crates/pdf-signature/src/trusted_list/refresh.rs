@@ -353,8 +353,7 @@ fn clause_4_1_inputs(
             fate,
         })?;
     let further = TrustedList::read(&octets)
-        .map(|lotl| clause_4_1_locations(&lotl, configuration))
-        .unwrap_or_default();
+        .map_or_default(|lotl| clause_4_1_locations(&lotl, configuration));
     let mut locations = vec![Location {
         uri: lotl_uri.clone(),
         territory: "EU".to_owned(),
@@ -514,8 +513,7 @@ fn updated_configuration(
         .filter(|uri| authentication::is_https_with_path(uri, true))
         .and_then(|pivot| authentication::obtained(overlay, pivot))
         .and_then(|octets| TrustedList::read(octets).ok())
-        .map(|pivot| authentication::eu_pointer_certificates(&pivot))
-        .unwrap_or_default();
+        .map_or_default(|pivot| authentication::eu_pointer_certificates(&pivot));
     if certificates.is_empty() {
         sentences.push(format!(
             "{OJEU_LOC} stays {}: the authenticated list of trusted lists names {publication} as \

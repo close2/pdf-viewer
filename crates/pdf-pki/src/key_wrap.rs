@@ -88,10 +88,7 @@ fn unwrap_with<C: BlockCipherDecrypt<BlockSize = U16>>(
     ) else {
         return Err(KeyWrapError::Length);
     };
-    let mut registers: Vec<[u8; SEMIBLOCK]> = rest
-        .chunks_exact(SEMIBLOCK)
-        .filter_map(|chunk| <[u8; SEMIBLOCK]>::try_from(chunk).ok())
-        .collect();
+    let mut registers: Vec<[u8; SEMIBLOCK]> = rest.as_chunks::<SEMIBLOCK>().0.to_vec();
     if registers.len() < 2 {
         return Err(KeyWrapError::Length);
     }
@@ -208,7 +205,7 @@ const TRIPLE_DES_KEY: usize = 24;
 fn cbc_decrypt_des(cipher: &TdesEde3, iv: &[u8], body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len());
     let mut previous = iv;
-    for chunk in body.chunks_exact(DES_BLOCK) {
+    for chunk in body.as_chunks::<DES_BLOCK>().0 {
         let mut block = des::cipher::Block::<TdesEde3>::default();
         block.copy_from_slice(chunk);
         cipher.decrypt_block(&mut block);

@@ -208,7 +208,7 @@ pub(crate) fn packet(blocks: &[CodedBlock], columns: usize, most: u32) -> Vec<u8
         // B.10.7.1: the length takes Lblock + ⌊log2 passes⌋ bits, and Lblock, 3 at first, is
         // raised by the count of one bits before a zero.
         let length = u32::try_from(block.data.len()).unwrap_or(u32::MAX);
-        let needed = u32::BITS - length.leading_zeros();
+        let needed = length.bit_width();
         let given = 3 + (u32::BITS - 1 - block.passes.leading_zeros());
         for _ in given..needed {
             bits.put(true);

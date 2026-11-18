@@ -75,7 +75,7 @@ fn projection_without_runtime_has_no_constructed_mark_but_keeps_a_stored_appeara
     assert!(!parsed.was_recovered(), "the xref offsets are exact");
     let page = Pages::new(&parsed).get(0).expect("one page");
     let absent = pdf_model::interpret(&parsed, &page);
-    assert!(absent.display_list.commands().is_empty());
+    assert_eq!(absent.display_list.commands(), []);
     assert_eq!(pixel(&absent, 40, 40), [0, 0, 0, 0]);
     assert!(
         absent.is_complete(),
@@ -156,7 +156,7 @@ fn a_redaction_ro_is_reported_while_removal_proceeds_without_composing_the_overl
     assert!(!parsed.was_recovered(), "the xref offsets are exact");
     let (plain_report, plain_out) = apply_redaction(&plain);
     assert_redacted(&plain_out);
-    assert!(plain_report.refused.is_empty());
+    assert_eq!(plain_report.refused, [] as [pdf_transform::Declined; 0]);
     assert!(plain_report.departures.is_empty(), "{plain_report:?}");
 
     // RO is producer-written content independent of AP. The owner's answer A842 (2026-11-13)
@@ -182,7 +182,7 @@ fn a_redaction_ro_is_reported_while_removal_proceeds_without_composing_the_overl
         [0, 255, 0, 255],
         "RO is drawn after removal at its stated origin"
     );
-    assert!(report.refused.is_empty());
+    assert_eq!(report.refused, [] as [pdf_transform::Declined; 0]);
     assert!(report.departures.is_empty(), "{report:?}");
 }
 

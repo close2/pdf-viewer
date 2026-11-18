@@ -48,12 +48,8 @@ fn fixture(annotation_page: u8, element_page: Option<u8>, objr_page: Option<u8>)
     }
     let page1_annots = format!("[{}]", page1_items.join(" "));
     let page2_annots = format!("[{}]", page2_items.join(" "));
-    let element_pg = element_page
-        .map(|page| format!("/Pg {page} 0 R "))
-        .unwrap_or_default();
-    let objr_pg = objr_page
-        .map(|page| format!("/Pg {page} 0 R "))
-        .unwrap_or_default();
+    let element_pg = element_page.map_or_default(|page| format!("/Pg {page} 0 R "));
+    let objr_pg = objr_page.map_or_default(|page| format!("/Pg {page} 0 R "));
     let annotation = format!(
         "<< /Type /Annot /Subtype /Text /P {annotation_page} 0 R /F 4 \
          /Rect [10 10 20 20] /Contents (tagged note) /StructParent 0 \
@@ -179,7 +175,7 @@ fn objr_page_overrides_element_page_with_inheritance_and_requiredness_controls()
             page: Some(PAGE_1),
         }]
     );
-    assert!(object_item(&inherited_doc, PAGE_2).is_empty());
+    assert_eq!(object_item(&inherited_doc, PAGE_2), [] as [Child; 0]);
 
     // Table 358 requires an OBJR `/Pg` if the containing element has none.
     let required_doc =
@@ -189,7 +185,7 @@ fn objr_page_overrides_element_page_with_inheritance_and_requiredness_controls()
         !required_doc.cross_reference_chain_was_cut(),
         "complete xref chain"
     );
-    assert!(object_item(&required_doc, PAGE_1).is_empty());
+    assert_eq!(object_item(&required_doc, PAGE_1), [] as [Child; 0]);
     assert_eq!(
         object_item(&required_doc, PAGE_2),
         vec![Child::Object {

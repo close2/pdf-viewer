@@ -806,7 +806,10 @@ mod tests {
             quotations_in(&note(&["differing 0.54% of it"], &[])).len(),
             1
         );
-        assert!(quotations_in(&note(&["differing 0.54 of it"], &[])).is_empty());
+        assert_eq!(
+            quotations_in(&note(&["differing 0.54 of it"], &[])),
+            [] as [Quotation; 0]
+        );
     }
 
     /// This tree writes the differing fraction in front of its word as often as behind it.

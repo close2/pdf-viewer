@@ -129,8 +129,10 @@ fn eight_pictures_agree(relative: &str) {
     let first = block(PLACES[0]);
     assert!(
         first
-            .chunks_exact(4)
-            .any(|pixel| pixel != [255, 255, 255, 255]),
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| *pixel != [255, 255, 255, 255]),
         "the first image should have drawn something"
     );
     for (index, place) in PLACES.iter().enumerate().skip(1) {

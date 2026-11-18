@@ -149,15 +149,12 @@ pub fn parse(text: &str) -> Held {
         let table = table.split_once("\n];").map_or(table, |(table, _)| table);
         for row in table.split('(').skip(1) {
             let literals = string_literals(row);
-            let whose = row
-                .split_once("Whose::")
-                .map(|(_, after)| {
-                    after
-                        .chars()
-                        .take_while(char::is_ascii_alphanumeric)
-                        .collect::<String>()
-                })
-                .unwrap_or_default();
+            let whose = row.split_once("Whose::").map_or_default(|(_, after)| {
+                after
+                    .chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect::<String>()
+            });
             if let [group, clause] = literals.as_slice()
                 && !whose.is_empty()
             {

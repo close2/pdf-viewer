@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn blank_scene_is_legitimate() {
         let scene = SceneBuilder::new().finish();
-        assert!(scene.commands().is_empty());
+        assert_eq!(scene.commands(), []);
         assert_eq!(scene.cost().commands, 0);
     }
 

@@ -1818,7 +1818,7 @@ impl RowScratch {
             if below <= above {
                 continue;
             }
-            let middle = 0.5 * (above + below);
+            let middle = f32::midpoint(above, below);
             // The order is carried from the sub-strip above rather than rebuilt: strands keep their
             // places except where two cross, which is at a cut, so the sort below meets an order
             // that is already nearly right and an insertion sort is linear on it.
@@ -1886,7 +1886,7 @@ impl RowScratch {
         {
             return None;
         }
-        let middle = 0.5 * (a.from + a.to);
+        let middle = f32::midpoint(a.from, a.to);
         let (left, right) = if a.x_at(middle) <= b.x_at(middle) {
             (a, b)
         } else {

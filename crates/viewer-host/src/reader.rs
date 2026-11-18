@@ -376,7 +376,7 @@ mod tests {
         assert_eq!(words, ReaderWords::default());
         assert_eq!(left, ["doc.pdf"]);
         let supply = words.commands();
-        assert!(supply.refused.is_empty());
+        assert_eq!(supply.refused, [] as [String; 0]);
         match &supply.commands {
             [
                 viewer_core::Command::Trust(trust),

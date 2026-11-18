@@ -66,7 +66,7 @@ fn flat_jpeg(samples: &[u8]) -> Vec<u8> {
     while !bits.len().is_multiple_of(8) {
         bits.push(1);
     }
-    for byte in bits.chunks_exact(8) {
+    for byte in bits.as_chunks::<8>().0 {
         let packed = byte.iter().fold(0u8, |acc, bit| (acc << 1) | bit);
         out.push(packed);
         if packed == 0xFF {
@@ -89,7 +89,7 @@ fn push(bits: &mut Vec<u8>, code: u32, length: u32) {
 
 /// Appends one DC difference as ISO/IEC 10918-1 section F.1.2.1 codes it.
 fn dc(bits: &mut Vec<u8>, difference: i32) {
-    let category = u32::BITS - difference.unsigned_abs().leading_zeros();
+    let category = difference.unsigned_abs().bit_width();
     let (mut code, mut index) = (0u32, 0u32);
     let mut found = None;
     for (offset, count) in DC_BITS.iter().enumerate() {
@@ -207,7 +207,9 @@ fn routes_agree(space: &str, components: &[u8], matte: &str) {
     let plain = drawn(page(space, "/Filter /DCTDecode", &jpeg, false, matte));
     let width = components.len();
     let raw: Vec<u8> = plain
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| pixel[..width.min(3)].to_vec())
         .collect();
     assert!(

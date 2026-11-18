@@ -332,12 +332,6 @@ fn slow(stale: &mut Stale, page: &Sheet) {
 /// snapped to whole device pixels — the owner's "scrolling with the mouse still
 /// shows blurry text", fixed at the placement rather than in the sampler. The
 /// half-pixel it costs lives one refresh; the blur it removes covered every glyph.
-#[expect(
-    clippy::float_cmp,
-    reason = "snapping to whole device pixels is the behaviour under test, so the expected \
-              values are exact in binary and a tolerance would hide a snap that stopped \
-              snapping"
-)]
 #[test]
 fn a_scroll_stand_in_lands_on_whole_pixels() {
     let page = page();
@@ -1523,7 +1517,10 @@ fn a_picture_of_superseded_ink_leaves_the_store_when_the_next_one_arrives() {
         1,
         "both pictures of the ink that has gone are dropped, not one of them"
     );
-    assert!(proxies.placements(&alone(&first, 1.0)).is_empty());
+    assert_eq!(
+        proxies.placements(&alone(&first, 1.0)),
+        [] as [(usize, Transform); 0]
+    );
     assert_eq!(proxies.placements(&alone(&edited, 1.0)).len(), 1);
 }
 

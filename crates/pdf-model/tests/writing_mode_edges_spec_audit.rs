@@ -2,11 +2,6 @@
 //! Coordinates are PDF default user space: y increases upward. The unequal spacing
 //! distinguishes before from after; literal rectangles cover all four block directions.
 
-#![expect(
-    clippy::float_cmp,
-    reason = "small integer coordinates and spacing are exactly representable"
-)]
-
 use pdf_model::structure::{BlockSpacing, WritingMode, allocation_rectangle};
 
 #[test]

@@ -235,7 +235,14 @@ fn bs_presence_ignores_conflicting_border_geometry_as_a_whole() {
     };
     let border = "/Border [12 12 6 [1 5]]";
     let border_only = draw(border);
-    assert!(border_only.data.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    assert!(
+        border_only
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0)
+    );
     for bs in ["/BS << /W 2 /S /D /D [3 2] >>", "/BS << /W 2 /S /S >>"] {
         let both = draw(&format!("{border} {bs}"));
         let bs_only = draw(bs);

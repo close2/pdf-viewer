@@ -134,7 +134,9 @@ fn a_filtered_utf8_text_stream_uses_the_text_string_encoding_after_decoding() {
     assert!(
         string_raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] != 0),
         "the reference page must produce nontransparent marks"
     );

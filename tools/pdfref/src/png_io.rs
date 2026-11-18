@@ -54,7 +54,7 @@ pub fn read(path: &Path) -> Result<Raster, HarnessError> {
         png::ColorType::Rgba => buffer[..pixels].to_vec(),
         png::ColorType::Rgb => {
             let mut rgba = Vec::with_capacity(pixels / 3 * 4);
-            for chunk in buffer[..pixels].chunks_exact(3) {
+            for chunk in buffer[..pixels].as_chunks::<3>().0 {
                 rgba.extend_from_slice(chunk);
                 // Reference renderers composite onto an opaque page, so a missing alpha
                 // channel means fully opaque rather than unknown.

@@ -182,7 +182,7 @@ impl Sha256 {
         self.update(&bits.to_be_bytes());
 
         let mut digest = [0_u8; 32];
-        for (word, out) in self.state.iter().zip(digest.chunks_exact_mut(4)) {
+        for (word, out) in self.state.iter().zip(digest.as_chunks_mut::<4>().0) {
             out.copy_from_slice(&word.to_be_bytes());
         }
         digest
@@ -222,7 +222,7 @@ impl Sha256 {
         // bounded by `chunks_exact(4)` over 64 bytes, and the second runs `16..64` and
         // subtracts at most 16.
         let mut w = [0_u32; 64];
-        for (word, bytes) in w.iter_mut().zip(block.chunks_exact(4)) {
+        for (word, bytes) in w.iter_mut().zip(block.as_chunks::<4>().0) {
             *word = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         }
         for t in 16..64 {

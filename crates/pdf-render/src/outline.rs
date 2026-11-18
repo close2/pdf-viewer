@@ -330,11 +330,6 @@ fn segment(a: Point, b: Point, half: f32) -> Rect {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "test code: these bounds are exact sums of exactly-representable values, and \
-              a tolerance would hide the arithmetic being wrong"
-)]
 mod tests {
     use super::{marked_bounds, stroked_bounds};
     use crate::display_list::Command;

@@ -579,6 +579,9 @@ mod tests {
             "[site.\"{SITE}-in-the-plain-profile\"]\ntry = [\"preserve:attach\", \"preserve:append\"]\n"
         );
         let config = Configuration::read(&text, Target::Four(Flavour::F)).expect("never asked");
-        assert!(config.preservations(Target::Four(Flavour::F)).is_empty());
+        assert_eq!(
+            config.preservations(Target::Four(Flavour::F)),
+            [] as [crate::archive::config::Preservation; 0]
+        );
     }
 }

@@ -655,7 +655,13 @@ fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, Stri
             decode_image(document, mask, &found.resources)
                 .map_err(|error| format!("the /SMask could not be decoded ({error})"))?;
         return Ok(Some(MaskImage {
-            opacity: image.data.chunks_exact(4).map(|px| px[0]).collect(),
+            opacity: image
+                .data
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|px| px[0])
+                .collect(),
             width: image.width,
             height: image.height,
             shortfall,
@@ -671,7 +677,13 @@ fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, Stri
             decode_image(document, stencil, &found.resources)
                 .map_err(|error| format!("the /Mask could not be decoded ({error})"))?;
         return Ok(Some(MaskImage {
-            opacity: image.data.chunks_exact(4).map(|px| px[3]).collect(),
+            opacity: image
+                .data
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|px| px[3])
+                .collect(),
             width: image.width,
             height: image.height,
             shortfall,
@@ -958,7 +970,7 @@ impl Walk<'_> {
         };
         let filters = dict
             .get("Filter")
-            .map(|object| match document.resolve(object) {
+            .map_or_default(|object| match document.resolve(object) {
                 Object::Name(name) => name.as_str().map(str::to_owned).into_iter().collect(),
                 Object::Array(items) => items
                     .iter()
@@ -971,8 +983,7 @@ impl Walk<'_> {
                     })
                     .collect(),
                 _ => Vec::new(),
-            })
-            .unwrap_or_default();
+            });
         let stencil = dict
             .get("ImageMask")
             .map(|object| document.resolve(object))

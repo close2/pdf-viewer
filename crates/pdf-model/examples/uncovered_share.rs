@@ -139,8 +139,10 @@ fn main() {
         let (width, height) = (light.width as usize, light.height as usize);
         let showing: Vec<f64> = light
             .data
-            .chunks_exact(4)
-            .zip(dark.data.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(dark.data.as_chunks::<4>().0)
             .map(|(over, under)| f64::from(over[0].saturating_sub(under[0])) / 255.0)
             .collect();
 

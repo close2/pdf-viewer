@@ -181,7 +181,7 @@ fn red_bounds(
         .rasterize(&page.list, target)
         .expect("the public PrintPage display list rasterizes");
     let mut pixels = None::<(u32, u32, u32, u32)>;
-    for (index, pixel) in raster.data.chunks_exact(4).enumerate() {
+    for (index, pixel) in raster.data.as_chunks::<4>().0.iter().enumerate() {
         if pixel[0] < 200 || pixel[1] > 20 || pixel[2] > 20 || pixel[3] == 0 {
             continue;
         }

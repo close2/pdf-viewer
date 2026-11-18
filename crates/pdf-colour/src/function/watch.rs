@@ -114,12 +114,7 @@ pub fn watching<R>(work: impl FnOnce() -> R) -> (R, Watched) {
     OPEN.with(|open| open.borrow_mut().push(Scope::default()));
     let close = Close;
     let answer = work();
-    let scope = OPEN.with(|open| {
-        open.borrow_mut()
-            .last_mut()
-            .map(std::mem::take)
-            .unwrap_or_default()
-    });
+    let scope = OPEN.with(|open| open.borrow_mut().last_mut().map_or_default(std::mem::take));
     drop(close);
     OPEN.with(|open| {
         if let Some(outer) = open.borrow_mut().last_mut() {

@@ -180,7 +180,7 @@ fn hidden_gs_lookup_that_changes_visible_state_is_reported() {
         common("/ExtGState << /GS0 6 0 R >>")
     );
     let defined = interpretation(&defined_body);
-    assert!(defined.unsupported.is_empty());
+    assert_eq!(defined.unsupported, [] as [pdf_model::Unsupported; 0]);
     assert_eq!(
         defined.display_list.commands().len(),
         1,

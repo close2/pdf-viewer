@@ -108,8 +108,7 @@ fn main() {
         pages.push(
             retrieval
                 .page(index, &pdf_retrieve::Wanted::default())
-                .map(|read| read.text)
-                .unwrap_or_default(),
+                .map_or_default(|read| read.text),
         );
     }
     let extraction = started.elapsed();

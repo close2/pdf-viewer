@@ -442,7 +442,10 @@ mod tests {
 
     #[test]
     fn a_span_of_three_words_is_a_term_rather_than_a_quotation() {
-        assert!(quoted_spans("the \"soft mask\" entry").is_empty());
+        assert_eq!(
+            quoted_spans("the \"soft mask\" entry"),
+            [] as [(Mark, String); 0]
+        );
         assert_eq!(
             quoted_spans("the \u{201c}four words go here\u{201d} entry"),
             vec![(Mark::Double, "four words go here".to_owned())]
@@ -452,9 +455,18 @@ mod tests {
     /// The whole reason the single-quoted half was left unread for eleven hundred spans.
     #[test]
     fn a_possessive_does_not_open_a_quotation() {
-        assert!(quoted_spans("`Tree::role`'s walk is what the clause states").is_empty());
-        assert!(quoted_spans("the standard's own words about what a reader owes").is_empty());
-        assert!(quoted_spans("PDF processors' handling of a flatness tolerance").is_empty());
+        assert_eq!(
+            quoted_spans("`Tree::role`'s walk is what the clause states"),
+            [] as [(Mark, String); 0]
+        );
+        assert_eq!(
+            quoted_spans("the standard's own words about what a reader owes"),
+            [] as [(Mark, String); 0]
+        );
+        assert_eq!(
+            quoted_spans("PDF processors' handling of a flatness tolerance"),
+            [] as [(Mark, String); 0]
+        );
     }
 
     #[test]
@@ -483,7 +495,10 @@ mod tests {
 
     #[test]
     fn a_mark_that_never_closes_opens_nothing() {
-        assert!(quoted_spans("a note that opens \"and never closes it again").is_empty());
+        assert_eq!(
+            quoted_spans("a note that opens \"and never closes it again"),
+            [] as [(Mark, String); 0]
+        );
     }
 
     /// §9.4.3's operator names are quotation marks, and a note that lists them must not lose

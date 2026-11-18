@@ -97,7 +97,9 @@ fn coincident_axial_endpoints_paint_nothing_even_with_extend_and_direct_backgrou
     let painted = blank.map(|raster| {
         raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|rgba| rgba[3] != 0)
             .count()
     });
@@ -132,7 +134,9 @@ fn both_zero_radial_radii_paint_nothing_but_a_zero_radius_circle_is_a_point() {
         result.map(|raster| {
             raster
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|rgba| rgba[3] != 0)
                 .count()
         })

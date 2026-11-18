@@ -100,7 +100,9 @@ fn marked(content: &str) -> Vec<bool> {
         .expect("supported");
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| pixel[3] > 128)
         .collect()
 }

@@ -223,7 +223,7 @@ fn a_substitution_stops_the_walk() {
         node(&update, NodeId(16)).label(),
         Some("a bar chart of quarterly revenue")
     );
-    assert!(node(&update, NodeId(16)).children().is_empty());
+    assert_eq!(node(&update, NodeId(16)).children(), []);
     assert!(
         update.nodes.iter().all(|(id, _)| *id != NodeId(17)),
         "the span under a substitution is not published"
@@ -1385,7 +1385,7 @@ fn a_text_fields_value_is_a_run_below_the_control() {
 
     let (_, runs, _) = read(filled(Control::Text(TextControl::default()), "", false));
     assert_eq!(runs[0].value(), Some(""), "an empty field says it is empty");
-    assert!(runs[0].character_lengths().is_empty());
+    assert_eq!(runs[0].character_lengths(), []);
 
     let password = Control::Text(TextControl {
         password: true,

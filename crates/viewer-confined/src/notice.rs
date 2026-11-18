@@ -15,11 +15,11 @@ const LENGTH: usize = 24;
 /// A reading as the worker sends it.
 pub(crate) fn encode(reading: Reading) -> [u8; LENGTH] {
     let mut bytes = [0u8; LENGTH];
-    for (slot, figure) in
-        bytes
-            .chunks_exact_mut(8)
-            .zip([reading.operators, reading.taken, reading.held])
-    {
+    for (slot, figure) in bytes.as_chunks_mut::<8>().0.iter_mut().zip([
+        reading.operators,
+        reading.taken,
+        reading.held,
+    ]) {
         slot.copy_from_slice(&figure.to_be_bytes());
     }
     bytes
@@ -31,8 +31,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Reading> {
         return None;
     }
     let mut figures = bytes
-        .chunks_exact(8)
-        .map(|chunk| chunk.try_into().ok().map(u64::from_be_bytes));
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|chunk| Some(u64::from_be_bytes(*chunk)));
     Some(Reading {
         operators: figures.next()??,
         taken: figures.next()??,

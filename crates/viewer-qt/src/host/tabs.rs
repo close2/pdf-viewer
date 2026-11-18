@@ -161,8 +161,7 @@ impl Host {
             .showing
             .path
             .parent()
-            .map(|directory| directory.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .map_or_default(|directory| directory.to_string_lossy().into_owned())
     }
 
     /// The C++ side's answer to [`Host::arrival_due`]: what the document in front owes once a

@@ -216,7 +216,7 @@ fn logo_green_paints_its_own_plane_and_no_process_ink() {
         assert_colour(plane(&separation, Plane::Spot(0))[0], [0.5, 1.0, 1.0], page);
         assert_colour(plane(&separation, Plane::Chromatic)[0], WHITE, page);
         assert_colour(plane(&separation, Plane::Black)[0], WHITE, page);
-        assert!(separation.without_a_plane().is_empty());
+        assert_eq!(separation.without_a_plane(), [] as [pdf_syntax::Name; 0]);
     }
 }
 
@@ -645,7 +645,7 @@ fn an_unpainted_colourant_past_the_bound_is_not_named() {
         "0 0 0 1 k 0 0 20 20 re f",
         &[],
     ));
-    assert!(separation.without_a_plane().is_empty());
+    assert_eq!(separation.without_a_plane(), [] as [pdf_syntax::Name; 0]);
 }
 
 /// The colourant past the bound reaches the page's report, because the separated page is the page

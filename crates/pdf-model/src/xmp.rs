@@ -2365,12 +2365,7 @@ fn decode_16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> Result<String, XmpError>
     if !bytes.len().is_multiple_of(2) {
         return Err(XmpError::NotText);
     }
-    let units = bytes.chunks_exact(2).map(|pair| match pair {
-        &[a, b] => unit([a, b]),
-        // `chunks_exact(2)` yields nothing else; the arm exists because the slice pattern is
-        // not exhaustive to the compiler.
-        _ => 0,
-    });
+    let units = bytes.as_chunks::<2>().0.iter().copied().map(unit);
     char::decode_utf16(units)
         .collect::<Result<String, _>>()
         .map_err(|_| XmpError::NotText)
@@ -2382,11 +2377,10 @@ fn decode_32(bytes: &[u8], unit: fn([u8; 4]) -> u32) -> Result<String, XmpError>
         return Err(XmpError::NotText);
     }
     bytes
-        .chunks_exact(4)
-        .map(|quad| match quad {
-            &[a, b, c, d] => char::from_u32(unit([a, b, c, d])).ok_or(XmpError::NotText),
-            _ => Err(XmpError::NotText),
-        })
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&quad| char::from_u32(unit(quad)).ok_or(XmpError::NotText))
         .collect()
 }
 
@@ -4122,10 +4116,9 @@ mod tests {
              <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\
              <pdf:Keywords>annual, report</pdf:Keywords>\
              </rdf:Description></rdf:RDF>";
-        assert!(
-            Xmp::stray_character_data(leaves.as_bytes())
-                .expect("well-formed")
-                .is_empty()
+        assert_eq!(
+            Xmp::stray_character_data(leaves.as_bytes()).expect("well-formed"),
+            [] as [String; 0]
         );
 
         // Section 7.6's structured spelling: the element says its value is a structure before any

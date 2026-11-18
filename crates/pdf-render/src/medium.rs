@@ -313,7 +313,7 @@ pub fn crop_to_page(data: &mut [u8], width: u32, first_row: u32, area: Rect) {
             row.fill(0);
             continue;
         }
-        for (column, pixel) in row.chunks_exact_mut(4).enumerate() {
+        for (column, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let Some(left) = row_edge(0, column) else {
                 pixel.fill(0);
                 continue;
@@ -410,7 +410,7 @@ pub fn impose_on_medium(data: &mut [u8], medium: Color) {
         return;
     }
 
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         if pixel[3] == u8::MAX {
             continue;
         }
@@ -477,7 +477,7 @@ pub fn impose_within(data: &mut [u8], width: u32, first_row: u32, area: Rect, me
             impose_on_medium(row, medium.surround);
             continue;
         }
-        for (column, pixel) in row.chunks_exact_mut(4).enumerate() {
+        for (column, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let Some(left) = row_edge(0, column) else {
                 over_pixel(pixel, surround);
                 continue;
@@ -624,7 +624,7 @@ mod tests {
             box_of((0.0, 0.0), (2.0, 1.0)),
             Medium::WINDOW,
         );
-        let pixels: Vec<&[u8]> = data.chunks_exact(4).collect();
+        let pixels: &[[u8; 4]] = data.as_chunks::<4>().0;
         assert_eq!(pixels[0], [255, 255, 255, 255], "the page is 𝑊");
         assert_eq!(pixels[1], [255, 255, 255, 255], "the page is 𝑊");
         for outside in &pixels[2..] {
@@ -709,7 +709,7 @@ mod tests {
         // Four opaque black pixels in a row; the page is the left half exactly.
         let mut data: Vec<u8> = (0..4).flat_map(|_| [0, 0, 0, 255]).collect();
         crop_to_page(&mut data, 4, 0, box_of((0.0, 0.0), (2.0, 1.0)));
-        let pixels: Vec<&[u8]> = data.chunks_exact(4).collect();
+        let pixels: &[[u8; 4]] = data.as_chunks::<4>().0;
         assert_eq!(
             pixels[0],
             [0, 0, 0, 255],
@@ -816,7 +816,7 @@ mod tests {
             let mut data = vec![255_u8; (width * height * 4) as usize];
             crop_to_page(&mut data, width, 0, area);
             let [left, top, right, bottom] = crop_pixels(width, height, area);
-            for (index, pixel) in (0_u32..).zip(data.chunks_exact(4)) {
+            for (index, pixel) in (0_u32..).zip(data.as_chunks::<4>().0) {
                 let (x, y) = (index % width, index / width);
                 let inside = (left..right).contains(&x) && (top..bottom).contains(&y);
                 assert_eq!(pixel[3] == 255, inside, "{area:?} at ({x}, {y})");

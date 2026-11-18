@@ -499,8 +499,7 @@ fn value_of(viewer: &Viewer, field: &str) -> String {
         .expect("the field this test is about")
         .value
         .as_ref()
-        .map(|value| value.text.clone())
-        .unwrap_or_default()
+        .map_or_default(|value| value.text.clone())
 }
 
 /// Annex O's `fdf` names "an FDF or XFDF file", and both are asked for.

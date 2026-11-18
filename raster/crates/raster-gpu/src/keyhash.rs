@@ -101,14 +101,12 @@ impl Hasher for KeyHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        let mut chunks = bytes.chunks_exact(8);
-        for chunk in &mut chunks {
-            // The slice is exactly eight bytes by `chunks_exact`.
-            let word = u64::from_le_bytes(chunk.try_into().unwrap_or([0; 8]));
-            self.mix(word);
+        let (words, rest) = bytes.as_chunks::<8>();
+        for word in words {
+            self.mix(u64::from_le_bytes(*word));
         }
         let mut tail = 0_u64;
-        for (index, byte) in chunks.remainder().iter().enumerate() {
+        for (index, byte) in rest.iter().enumerate() {
             // At most seven bytes, so the shift is under 64.
             tail |= u64::from(*byte) << (index.min(7).saturating_mul(8));
         }

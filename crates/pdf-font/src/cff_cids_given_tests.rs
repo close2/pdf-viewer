@@ -179,7 +179,7 @@ fn each_cid_is_given_a_copy_of_glyph_0_under_its_font_dict_in_either_fdselect_fo
         );
         // The copies draw glyph 0's square, which only FD 1's local subroutine draws.
         let square = outline(&source, 0);
-        assert!(!square.is_empty());
+        assert_ne!(square, [] as [String; 0]);
         assert_eq!(outline(&rebuilt, 3), square);
         assert_eq!(outline(&rebuilt, 4), square);
         let widths = advances(&rebuilt, &[0, 3, 4]).expect("advances");

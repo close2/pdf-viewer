@@ -1038,8 +1038,8 @@ fn the_census_judges_a_committed_document_rather_than_refusing_it() {
         census.missed
     );
     assert_eq!(census.readbacks, 1);
-    assert!(census.readback_differs.is_empty());
-    assert!(census.not_inverse.is_empty());
+    assert_eq!(census.readback_differs, [] as [(String, String); 0]);
+    assert_eq!(census.not_inverse, [] as [(String, String); 0]);
     assert_eq!(census.searched_documents, 1, "the document was searched");
     assert_eq!(
         census.found, census.finds,

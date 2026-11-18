@@ -28,7 +28,7 @@ path = "src/main.rs"
 # and `ref-cast` (with its proc macro). Every one of its other dependencies — `libc`, `log`,
 # `memchr`, `page_size`, `smallvec`, `zerocopy`, `bitflags`, `num_enum`, `parking_lot` and the
 # `pkg-config` build script — was already locked here. MIT, MSRV 1.85 against this workspace's
-# 1.97.
+# 1.100.
 [dependencies]
 fuser = "=0.18.0"
 pdf-vfs.workspace = true

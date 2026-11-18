@@ -2,7 +2,6 @@
 #![expect(
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "the controlled fixture and sample raster should fail loudly if this path changes"
 )]
@@ -99,7 +98,7 @@ fn pigment_counts(viewer: &Viewer) -> (usize, usize, usize) {
 
 fn count_colors(raster: &pdf_render::Raster) -> (usize, usize, usize) {
     let (mut red, mut green, mut blue) = (0, 0, 0);
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0 {
         if pixel[0] > 200 && pixel[1] < 20 && pixel[2] < 20 {
             red += 1;
         }

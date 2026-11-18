@@ -2249,8 +2249,7 @@ fn kids(document: &Document, node: &Dictionary) -> Vec<ObjectId> {
     document
         .get_key(node, "Kids")
         .as_array()
-        .map(|kids| kids.iter().filter_map(Object::as_reference).collect())
-        .unwrap_or_default()
+        .map_or_default(|kids| kids.iter().filter_map(Object::as_reference).collect())
 }
 
 /// The object numbers an annotation's `/AP` names, one appearance subdictionary deep.

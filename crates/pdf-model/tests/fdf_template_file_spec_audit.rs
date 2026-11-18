@@ -72,5 +72,5 @@ fn named_template_file_spec_uses_the_dictionarys_unicode_filename() {
     assert_eq!(outcome.pages, 0);
     assert_eq!(view.file_awaited(), Some("library-unicode.pdf"));
     assert_eq!(outcome.awaiting.len(), 1);
-    assert!(outcome.refused.is_empty());
+    assert_eq!(outcome.refused, [] as [String; 0]);
 }

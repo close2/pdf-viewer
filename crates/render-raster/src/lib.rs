@@ -791,7 +791,7 @@ impl QuorraRasterizer {
 /// Converts straight-alpha RGBA to premultiplied, in place ([`demultiply`]'s
 /// inverse; the same rounding as the other backends).
 pub(crate) fn premultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         if alpha == u8::MAX {
             continue;
@@ -811,7 +811,7 @@ pub(crate) fn premultiply(data: &mut [u8]) {
 /// §11.3.3's result colour is unassociated with alpha. The eight-bit boundary uses nearest
 /// rounding, as raster's readback does (ADR 2183), so cropping cannot change surviving colours.
 pub(crate) fn demultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         if alpha == 0 || alpha == u8::MAX {
             continue;

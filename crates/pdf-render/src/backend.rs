@@ -342,12 +342,6 @@ pub enum BackendError {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assertions compare exactly representable values on purpose — the \
-              y-flip must land precisely on row zero, and pixel extents are integers \
-              — so an approximate comparison would weaken the test"
-)]
 mod tests {
     use super::{BackendError, MAX_EXTENT, TargetSpec};
     use crate::display_list::DisplayList;

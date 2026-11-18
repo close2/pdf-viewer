@@ -161,7 +161,7 @@ impl Affine {
         let y = self.c * self.c + self.d * self.d;
         let z = self.a * self.c + self.b * self.d;
         let half_diff = (x - y) * 0.5;
-        let s_squared = (x + y) * 0.5 + (half_diff * half_diff + z * z).sqrt();
+        let s_squared = f32::midpoint(x, y) + (half_diff * half_diff + z * z).sqrt();
         s_squared.sqrt()
     }
 

@@ -17,11 +17,8 @@
 #![expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
-    clippy::float_cmp,
-    reason = "test code: a malformed fixture should fail loudly, the one length computed \
-              here is a fixed string's, and the miter limits and line widths compared are \
-              values a clause states, carried from a decimal literal in the fixture to the \
-              same literal here with no arithmetic between them"
+    reason = "test code: a malformed fixture should fail loudly, and the one length computed \
+              here is a fixed string's"
 )]
 
 use std::fmt::Write as _;

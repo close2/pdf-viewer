@@ -184,8 +184,7 @@ mod tests {
         let base = |dict: &Dictionary| {
             dict.get("BaseFont")
                 .and_then(Object::as_name)
-                .map(|name| name.as_bytes().to_vec())
-                .unwrap_or_default()
+                .map_or_default(|name| name.as_bytes().to_vec())
         };
         let descendant = font
             .get("DescendantFonts")
@@ -209,8 +208,7 @@ mod tests {
             descriptor
                 .get("FontName")
                 .and_then(Object::as_name)
-                .map(|name| name.as_bytes().to_vec())
-                .unwrap_or_default(),
+                .map_or_default(|name| name.as_bytes().to_vec()),
             program[9..length.saturating_add(9)].to_vec(),
         ]
     }

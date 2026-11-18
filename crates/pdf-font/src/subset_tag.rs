@@ -166,7 +166,7 @@ fn in_name_table(table: &mut [u8], from: [u8; 6], to: [u8; 6]) -> bool {
     };
     let wide = |tag: [u8; 6]| -> [u8; 12] {
         let mut out = [0u8; 12];
-        for (pair, letter) in out.chunks_exact_mut(2).zip(tag) {
+        for (pair, letter) in out.as_chunks_mut::<2>().0.iter_mut().zip(tag) {
             if let Some(low) = pair.get_mut(1) {
                 *low = letter;
             }

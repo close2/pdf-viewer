@@ -106,7 +106,7 @@ fn a_meet_of_other_sets_is_the_general_meets() {
         ellipse((10.6, 10.0), (0.7, 0.7), 37),
     ];
     let (tile, cut, _, link) = meet_of(&disc, &touching);
-    assert!(!cut.is_empty());
+    assert_ne!(cut, [] as [usize; 0]);
     assert_eq!(
         areas(&tile, &cut, mark, std::slice::from_ref(&link)),
         None,

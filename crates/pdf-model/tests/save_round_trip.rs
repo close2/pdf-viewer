@@ -600,8 +600,7 @@ fn read_back(performed: &Performed, password: &str, page_id: ObjectId) -> Result
         }
         let stored: Vec<f64> = entry(&saved, id, "Rect")
             .as_array()
-            .map(|edges| edges.iter().filter_map(Object::as_number).collect())
-            .unwrap_or_default();
+            .map_or_default(|edges| edges.iter().filter_map(Object::as_number).collect());
         let unchanged = <[f64; 4]>::try_from(stored)
             .is_ok_and(|stored| rects_agree(stored, rect.map(f64::from), 1e-6));
         if !unchanged {
@@ -650,8 +649,7 @@ fn formatted_appearance(saved: &Document, name: &str, formatted: &str) -> Result
     };
     let content = saved
         .decoded_stream_data(stream)
-        .map(|data| String::from_utf8_lossy(&data).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|data| String::from_utf8_lossy(&data).into_owned());
     let escaped: String = formatted
         .chars()
         .flat_map(|c| match c {
@@ -1414,7 +1412,7 @@ fn the_witness_readers_see_one_documents_saved_edit() {
     let tally = tally.into_inner().expect("nothing panicked");
     assert_eq!(tally.on.saved, 1, "the fixture saves");
     assert_eq!(tally.on.fields_checked, 1, "160F-2019.pdf has a text field");
-    assert!(tally.on.prefix_failed.is_empty());
+    assert_eq!(tally.on.prefix_failed, [] as [String; 0]);
     assert!(
         tally.on.readback_failed.is_empty(),
         "{:?}",

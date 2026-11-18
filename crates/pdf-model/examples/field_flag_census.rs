@@ -323,10 +323,7 @@ fn main() {
     println!("{documents} document(s) opened, {with_form} with an /AcroForm, {widgets} widget(s)");
     for flag in FLAGS {
         let count = set.get(flag.name).copied().unwrap_or_default();
-        let files = documents_setting
-            .get(flag.name)
-            .map(Vec::len)
-            .unwrap_or_default();
+        let files = documents_setting.get(flag.name).map_or_default(Vec::len);
         println!(
             "  bit {:>2} {:<24} {:<6} {count:>5} widget(s) over {files:>3} document(s)",
             flag.bit, flag.name, flag.kind

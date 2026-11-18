@@ -280,7 +280,7 @@ fn push_cubic(
         return;
     }
     // de Casteljau at t = ½: exact in `f32`, since halving is exact.
-    let mid = |a: Point, b: Point| Point::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y));
+    let mid = |a: Point, b: Point| Point::new(f32::midpoint(a.x, b.x), f32::midpoint(a.y, b.y));
     let (ab, bc, cd) = (mid(p0, c1), mid(c1, c2), mid(c2, p3));
     let (abc, bcd) = (mid(ab, bc), mid(bc, cd));
     let apex = mid(abc, bcd);
@@ -376,7 +376,7 @@ mod conversion_error {
         outline.append_triangles(|p| [p.x, p.y], [0.0, 0.0, 64.0, 64.0], &mut vertices);
         // Every curve triangle's three vertices, in order: (from, control, to).
         let mut quads = Vec::new();
-        for triangle in vertices.chunks_exact(3) {
+        for triangle in vertices.as_chunks::<3>().0 {
             let uv = triangle[1].floats();
             if (uv[2] - 0.5).abs() < 1e-6 && uv[3].abs() < 1e-6 {
                 let f = |v: &super::WindingVertex| {

@@ -174,7 +174,7 @@ mod tests {
             permissions: OPERATIONS.into_iter().zip([true; 7]).collect(),
             as_owner: true,
         };
-        assert!(protection.withheld().is_empty());
+        assert_eq!(protection.withheld(), [] as [&str; 0]);
         assert!(
             protection.sentence().contains("withheld no operation"),
             "{}",

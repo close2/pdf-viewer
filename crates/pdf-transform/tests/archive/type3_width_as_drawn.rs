@@ -258,7 +258,7 @@ fn state_every_loss_writes_each_width_and_states_it_on_its_appended_page() {
     let output = written(&report, output);
     assert_eq!(holds(&output, PART_FOUR).verdict(), Verdict::Conforms);
     let conversion = conversion(&report);
-    assert!(conversion.photographed.is_empty());
+    assert_eq!(conversion.photographed, []);
     // The statement page's own objects are numbered among the source's, so `/F1` is found by
     // its resource name rather than by its number in the source.
     assert_eq!(

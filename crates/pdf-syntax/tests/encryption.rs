@@ -245,7 +245,7 @@ fn the_file_identifier_is_not_decrypted() {
         .and_then(|item| item.as_string().map(<[u8]>::to_vec))
         .expect("the document has an /ID");
 
-    assert!(!id.is_empty());
+    assert_ne!(id, [] as [u8; 0]);
     // The trailer writes it as a hexadecimal string, so search for that form.
     let hex = id.iter().fold(String::new(), |mut text, byte| {
         use std::fmt::Write as _;

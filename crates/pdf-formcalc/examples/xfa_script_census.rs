@@ -140,14 +140,18 @@ fn template_text(document: &Document) -> Option<String> {
 }
 
 fn named(packets: &[Object], wanted: &str) -> Option<pdf_syntax::ObjectId> {
-    packets.chunks_exact(2).find_map(|pair| match pair {
-        [Object::String(name), Object::Reference(id)]
-            if pdf_syntax::text_string(name) == wanted =>
-        {
-            Some(*id)
-        }
-        _ => None,
-    })
+    packets
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .find_map(|pair| match pair {
+            [Object::String(name), Object::Reference(id)]
+                if pdf_syntax::text_string(name) == wanted =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
 }
 
 /// XML's five predefined entities and its character references.

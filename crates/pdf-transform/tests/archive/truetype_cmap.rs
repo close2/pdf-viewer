@@ -556,7 +556,10 @@ fn a_font_the_file_did_not_embed_is_restated_over_the_face_the_conversion_embeds
     let output = output.unwrap_or_else(|| panic!("{:?}\n{:?}", report.refused, report.warnings));
     let checked = holds(&output, Target::Two(Level::B));
     assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
-    assert!(conversion(&report).photographed.is_empty());
+    assert_eq!(
+        conversion(&report).photographed,
+        [] as [pdf_transform::archive::PhotographedPage; 0]
+    );
     let (flags, encoding) = flags_and_encoding(&output);
     assert_eq!(flags & (SYMBOLIC | NONSYMBOLIC), SYMBOLIC);
     assert!(!encoding);

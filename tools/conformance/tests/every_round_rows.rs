@@ -120,7 +120,10 @@ fn a_drifted_row_a_missing_row_and_a_duplicate_are_each_named() {
     let index = "| # | when | rule | group |\n|---|---|---|---|\n\
                  | 1 | a mark | render the page | pixels |\n\
                  | 2 | a paint | compose once | pixels |\n";
-    assert!(departures(index, "| 1 | a mark | render the page | pixels |\n").is_empty());
+    assert_eq!(
+        departures(index, "| 1 | a mark | render the page | pixels |\n"),
+        [] as [String; 0]
+    );
     let drifted = departures(index, "| 1 | a mark | render a page | pixels |\n");
     assert_eq!(drifted.len(), 1, "{drifted:?}");
     assert!(

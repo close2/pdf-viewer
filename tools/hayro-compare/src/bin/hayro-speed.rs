@@ -145,8 +145,7 @@ fn parse_arguments() -> Result<Options, String> {
 fn measure(path: &Path, options: &Options) -> Measured {
     let name = path
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|name| name.to_string_lossy().into_owned());
     let Ok(bytes) = std::fs::read(path) else {
         return Measured {
             name,

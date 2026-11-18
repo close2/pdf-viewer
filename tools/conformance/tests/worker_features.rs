@@ -176,8 +176,7 @@ fn inherited(own: &BTreeMap<String, BTreeSet<String>>, shipped: &str) -> Vec<Str
         .filter_map(|(package, features)| {
             let extra: Vec<&String> = resolved
                 .get(package)
-                .map(|shipped| shipped.difference(features).collect())
-                .unwrap_or_default();
+                .map_or_default(|shipped| shipped.difference(features).collect());
             (!extra.is_empty()).then(|| {
                 format!(
                     "{package}: the resolution read turns on {} beyond the worker's own {:?}",
@@ -313,8 +312,7 @@ fn the_builds_that_ship_the_worker_select_its_package_alone() {
         .lines()
         .find_map(|line| line.strip_prefix("install_alone=\""))
         .and_then(|rest| rest.split_once('"'))
-        .map(|(words, _)| words.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default();
+        .map_or_default(|(words, _)| words.split_whitespace().collect::<Vec<_>>());
     assert!(
         alone.contains(&"pdf-sandbox-worker:pdf-sandbox"),
         "tools/batch.sh's install_alone does not name the worker and its package: {alone:?}"

@@ -33,12 +33,6 @@
     reason = "test code: a malformed fixture should fail loudly, and these pages are 100 \
               units square where no index can overflow"
 )]
-#![expect(
-    clippy::float_cmp,
-    reason = "the one exact comparison here is a line width that must arrive unscaled: 3.0 \
-              is exactly representable and any arithmetic on the way would show as a miss, \
-              which is the whole point of the assertion"
-)]
 
 use std::fmt::Write as _;
 

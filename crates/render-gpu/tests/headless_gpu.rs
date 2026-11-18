@@ -1392,7 +1392,9 @@ fn a_sub_pixel_dot_marks_the_devices_raster() {
         let raster = gpu().rasterize(&list, target).expect("supported");
         let ink: f32 = raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
             .sum();
         assert!(

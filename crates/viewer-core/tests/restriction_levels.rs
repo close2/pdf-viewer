@@ -556,7 +556,7 @@ fn a_document_over_the_penalty_threshold_is_processed_at_the_level_the_reader_se
         holds(&asking, |event| matches!(event, Event::Asking { .. })),
         "{asking:?}"
     );
-    assert!(!about(&asking, Operation::Process).is_empty());
+    assert_ne!(about(&asking, Operation::Process), [] as [String; 0]);
 
     // `Warn`: the document opens, and the reason is said after it.
     let warned = opening(RestrictionLevel::Warn);

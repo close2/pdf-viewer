@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn a_form_boundary_is_not_a_flag() {
-        assert!(flags("--quorra-form-data-0--").is_empty());
+        assert_eq!(flags("--quorra-form-data-0--"), [] as [(usize, String); 0]);
         assert_eq!(flags("pass --font here")[0].1, "--font");
     }
 

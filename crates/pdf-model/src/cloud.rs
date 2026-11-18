@@ -210,7 +210,10 @@ pub(crate) fn rectangle(box_: [f32; 4]) -> Vec<Edge> {
 #[must_use]
 pub(crate) fn ellipse(box_: [f32; 4]) -> Vec<Edge> {
     const SEGMENTS: u16 = 128;
-    let (cx, cy) = ((box_[0] + box_[2]) * 0.5, (box_[1] + box_[3]) * 0.5);
+    let (cx, cy) = (
+        f32::midpoint(box_[0], box_[2]),
+        f32::midpoint(box_[1], box_[3]),
+    );
     let (a, b) = ((box_[2] - box_[0]) * 0.5, (box_[3] - box_[1]) * 0.5);
     let point = |i: u16| {
         let angle = std::f32::consts::TAU * f32::from(i) / f32::from(SEGMENTS);

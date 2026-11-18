@@ -141,8 +141,7 @@ impl Host {
                     thread: viewer_host::popup::thread(window),
                     rich: window
                         .rich
-                        .map(|note| rich_paragraphs(note, base, width))
-                        .unwrap_or_default(),
+                        .map_or_default(|note| rich_paragraphs(note, base, width)),
                     not_drawn: window
                         .rich
                         // The window sets both font scales and measures a space for a spacing
@@ -167,8 +166,7 @@ impl Host {
                     note_generation: window.note.map_or(0, |note| note.generation),
                     spans: window
                         .rich
-                        .map(|note| note_spans(window.text, note))
-                        .unwrap_or_default(),
+                        .map_or_default(|note| note_spans(window.text, note)),
                     editor_not_drawn: window
                         .rich
                         .and_then(|note| viewer_host::popup::editor_not_drawn(note, true))

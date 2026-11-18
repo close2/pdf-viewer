@@ -367,8 +367,7 @@ fn asked_for(font: &LoadedFont, code: Code, units: f32) -> Option<Needs> {
 /// The outline this reader draws for `code`, as its path commands; empty where it draws none.
 fn drawn(font: &LoadedFont, code: Code) -> Vec<pdf_render::PathCommand> {
     font.outline(code)
-        .map(|outline| outline.commands().to_vec())
-        .unwrap_or_default()
+        .map_or_default(|outline| outline.commands().to_vec())
 }
 
 /// Whether the font as written draws, for every one of the 256 codes, the outline the font as read

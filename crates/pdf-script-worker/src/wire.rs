@@ -364,7 +364,7 @@ pub(crate) mod tests {
         let mut holding = run();
         holding.request.script = "event.rc = false;".to_owned();
         let decoded = decode_run(&encode_run(&holding)).expect("decodes");
-        assert!(decoded.request.script.is_empty());
+        assert_eq!(decoded.request.script, "");
 
         let request = pdf_script::wire::encode_request(&holding.request);
         let mut bytes = vec![VERSION, 0, 0, 0, 0, 0];

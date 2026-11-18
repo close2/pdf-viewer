@@ -446,7 +446,7 @@ fn a_document_that_already_conforms_is_not_rewritten() {
         .as_ref()
         .expect("the output was held to the target");
     assert!(achieved.conforms, "and the report says so");
-    assert!(achieved.still_failing.is_empty());
+    assert_eq!(achieved.still_failing, [] as [&str; 0]);
 }
 
 #[test]
@@ -13832,7 +13832,9 @@ fn rename_tag(profile: &mut [u8], from: [u8; 4], to: [u8; 4]) {
     let count = u32::from_be_bytes(profile[128..132].try_into().expect("four bytes"));
     let table = &mut profile[132..];
     let entry = table
-        .chunks_exact_mut(12)
+        .as_chunks_mut::<12>()
+        .0
+        .iter_mut()
         .take(usize::try_from(count).expect("a count"))
         .find(|entry| entry[..4] == from)
         .expect("the profile states the tag");
@@ -13933,8 +13935,7 @@ fn a_profile_lacking_only_its_copyright_is_given_the_operators_text_and_draws_th
         shown
             .split(", identity:")
             .next()
-            .map(str::to_owned)
-            .unwrap_or_default()
+            .map_or_default(str::to_owned)
     };
     assert_eq!(transform(&srgb_without_a_copyright()), transform(profile));
     assert_eq!(drawn(&source), drawn(&output_bytes));
@@ -15028,7 +15029,10 @@ fn a_file_the_name_tree_already_files_is_not_filed_twice() {
     let (report, output) = convert(&source, target, authorised);
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
-    assert!(conversion(&report).kept_attachments.is_empty());
+    assert_eq!(
+        conversion(&report).kept_attachments,
+        [] as [pdf_transform::archive::KeptAttachment; 0]
+    );
     let document =
         Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
     let catalog = document.catalog().expect("a catalog");
@@ -15512,8 +15516,7 @@ fn name_entry(document: &Document, dict: &pdf_syntax::object::Dictionary, key: &
     document
         .get_key(dict, key)
         .as_name()
-        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
 }
 
 #[test]
@@ -16221,7 +16224,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         recorded.contains("losing substitute-stretch"),
         "and the fitting: {recorded}"
     );
-    assert!(!output.is_empty());
+    assert_ne!(output, [] as [u8; 0]);
 }
 
 /// §9.6.5.1 gives an absent Encoding the program's built-in table, which changes when a
@@ -16317,14 +16320,13 @@ fn a_differences_array_naming_notdef_is_restated_once_the_font_is_truetype() {
         let names: Vec<String> = document
             .get_key(encoding, "Differences")
             .as_array()
-            .map(|items| {
+            .map_or_default(|items| {
                 items
                     .iter()
                     .filter_map(|item| item.as_name())
                     .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         assert_eq!(
             names,
             vec!["B".to_owned()],
@@ -16806,7 +16808,7 @@ fn a_constructed_appearance_is_converted_beside_a_page_font_the_source_never_emb
     let held = holds(&output, Target::Two(Level::B));
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
     let conversion = report.archive.expect("a conversion was reported");
-    assert!(!conversion.settled.is_empty());
+    assert_ne!(conversion.settled, [] as [&str; 0]);
 }
 
 #[test]

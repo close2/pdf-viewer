@@ -481,10 +481,9 @@ mod tests {
             &["<< /Type /Template /MediaBox [0 0 200 100] >>"],
         );
         let pages = crate::page::Pages::new(&good);
-        assert!(
-            NamedPages::read(&good)
-                .disagreements(&good, &pages)
-                .is_empty()
+        assert_eq!(
+            NamedPages::read(&good).disagreements(&good, &pages),
+            [] as [Disagreement; 0]
         );
 
         let bare = with_names("", &[]);

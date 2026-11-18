@@ -666,7 +666,9 @@ fn top_level_items(text: &str) -> Option<Vec<Item>> {
 fn nums_value_index(text: &str, key: i64) -> Option<usize> {
     let items = top_level_items(text)?;
     items
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .position(|pair| pair.first() == Some(&Item::Integer(key)))
         .map(|pair| pair.saturating_mul(2).saturating_add(2))
 }
@@ -1038,7 +1040,7 @@ fn sample(files: &[PathBuf]) -> Vec<PathBuf> {
         .enumerate()
         .filter(|(index, path)| {
             index.checked_rem(STRIDE) == Some(0) || {
-                std::fs::read(path).ok().is_some_and(|bytes| {
+                std::fs::read(path).is_ok_and(|bytes| {
                     Document::open_with_limits(bytes, Limits::DEFAULT).is_ok_and(|document| {
                         document.catalog().is_ok_and(|catalog| {
                             document

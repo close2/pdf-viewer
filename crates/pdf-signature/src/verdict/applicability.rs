@@ -447,7 +447,7 @@ impl Report {
             scope: Scope::EuQualifiedUsingTrustedLists,
             signer,
             times,
-            attributes: cms.as_ref().map(attributes).unwrap_or_default(),
+            attributes: cms.as_ref().map_or_default(attributes),
             cryptography,
             security,
         }

@@ -371,8 +371,10 @@ fn tally_seams(
 /// How many pixels the two arms differ at.
 fn changed(off: &Raster, on: &Raster) -> usize {
     off.data
-        .chunks_exact(4)
-        .zip(on.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(on.data.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count()
 }

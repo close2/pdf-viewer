@@ -7,6 +7,6 @@
 # call sites (`cargo +nightly ...`) rather than pinned here, so that ordinary builds
 # never silently depend on an unstable compiler.
 [toolchain]
-channel = "1.97.1"
+channel = "1.100.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

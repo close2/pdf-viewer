@@ -218,7 +218,7 @@ fn an_assertion_changed_after_signing_is_not_relied_on() {
         SignatureCheck::Failed(XmlSignatureError::DigestDiffers("#A1".to_owned()))
     );
     assert!(saml.signature.is_invalid());
-    assert!(saml.attributes_relied_on().is_empty());
+    assert_eq!(saml.attributes_relied_on(), []);
 }
 
 /// A value made by another key does not verify under the carried certificate.
@@ -256,7 +256,7 @@ fn without_a_certificate_the_signature_is_unverified_not_invalid() {
         saml.signature,
         SignatureCheck::Failed(XmlSignatureError::DigestDiffers("#A1".to_owned()))
     );
-    assert!(saml.attributes_relied_on().is_empty());
+    assert_eq!(saml.attributes_relied_on(), []);
 }
 
 /// Section 5.4.2: the reference names the root's `ID`; one naming the whole document instead is

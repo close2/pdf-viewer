@@ -392,8 +392,7 @@ impl ViewState {
             slots,
             ..
         } = annotation_chain(document, &dictionary, trigger)
-            .map(|entry| chain(document, &entry))
-            .unwrap_or_default();
+            .map_or_default(|entry| chain(document, &entry));
         let said = self.report_unread(
             &format!(
                 "the /{} event of the annotation of object {}",
@@ -526,8 +525,7 @@ impl ViewState {
             scripts, unread, ..
         } = dictionary
             .get("A")
-            .map(|entry| chain(document, entry))
-            .unwrap_or_default();
+            .map_or_default(|entry| chain(document, entry));
         // Table 151's `/Title` is the text a person clicked, so it is what names the script.
         let title = match document.get_key(&dictionary, "Title") {
             Object::String(bytes) => pdf_syntax::text_string(&bytes),
@@ -878,8 +876,7 @@ impl ViewState {
                 let Walked {
                     scripts, unread, ..
                 } = annotation_chain(document, &dictionary, each)
-                    .map(|entry| chain(document, &entry))
-                    .unwrap_or_default();
+                    .map_or_default(|entry| chain(document, &entry));
                 total.said = total.said.saturating_add(self.report_unread(
                     &format!(
                         "the /{} event of the annotation of object {}",
@@ -915,8 +912,7 @@ impl ViewState {
         let field = table
             .iter()
             .find(|(_, widgets)| widgets.contains(&annotation))
-            .map(|(name, _)| name.clone())
-            .unwrap_or_default();
+            .map_or_default(|(name, _)| name.clone());
         let value = if field.is_empty() {
             String::new()
         } else {
@@ -1111,8 +1107,7 @@ fn page_entry_scripts(document: &Document, page: &Dictionary, trigger: PageTrigg
     additional
         .as_dict()
         .and_then(|additional| additional.get(page_key(trigger)).cloned())
-        .map(|entry| chain(document, &entry))
-        .unwrap_or_default()
+        .map_or_default(|entry| chain(document, &entry))
 }
 
 /// Which of Table 197's annotation events ride with one of Table 198's page events.

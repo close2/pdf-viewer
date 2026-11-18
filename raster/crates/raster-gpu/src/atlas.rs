@@ -795,12 +795,6 @@ mod tests {
     /// device pixel, on 3.1 % of phases per axis, on the lane that draws text. Stated as
     /// the two halves it is made of, so that a future `%` cannot pass one of them.
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "every value compared here is exact by construction: a phase of zero, an \
-                  integer origin, and 0.875 = 14/16, none of which is the result of an \
-                  approximation"
-    )]
     fn a_phase_that_rounds_to_the_next_pixel_carries_into_the_origin() {
         let placement = placed(20.99, 40.99, Some(16));
         assert_eq!(

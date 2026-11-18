@@ -308,7 +308,7 @@ mod tests {
         let read = timeline(&file(9, 0x1800, 72, &[])).expect("a SWF file");
         assert_eq!(read.seconds, Some(3.0));
         assert_eq!(read.frames, Some(72));
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [Marker; 0]);
         // A rate with a fraction: 12.5 frames a second is 0x0C80.
         let read = timeline(&file(9, 0x0C80, 25, &[])).expect("a SWF file");
         assert_eq!(read.seconds, Some(2.0));
@@ -343,7 +343,7 @@ mod tests {
             &[1, 0, 1, 0, 43 << 6 | 6, 0, b'i', b'n', b'n', b'e', b'r'],
         );
         let read = timeline(&file(8, 0x0A00, 10, &[sprite])).expect("a SWF file");
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [Marker; 0]);
     }
 
     #[test]

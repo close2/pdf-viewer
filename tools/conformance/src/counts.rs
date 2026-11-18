@@ -886,8 +886,14 @@ mod tests {
     /// A cardinal is a claim only where it governs one of the ledger's own words for a row.
     #[test]
     fn a_count_of_something_else_is_not_a_claim() {
-        assert!(claims_in("Four of them are stream filters.").is_empty());
-        assert!(claims_in("Three of the clause's properties are read.").is_empty());
+        assert_eq!(
+            claims_in("Four of them are stream filters."),
+            [] as [Claim; 0]
+        );
+        assert_eq!(
+            claims_in("Three of the clause's properties are read."),
+            [] as [Claim; 0]
+        );
         assert_eq!(
             claims_in("Of the twelve rows below, two are owed.").len(),
             1

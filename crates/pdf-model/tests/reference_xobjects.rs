@@ -306,7 +306,9 @@ fn raster(interpretation: &pdf_model::Interpretation) -> Vec<[u8; 4]> {
         .expect("the fixture rasterises");
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|bytes| [bytes[0], bytes[1], bytes[2], bytes[3]])
         .collect()
 }

@@ -5,11 +5,6 @@
 //! This checks the parsed page model directly; it does not claim that a named resource was
 //! exercised by the content interpreter or rendered.
 
-#![expect(
-    clippy::float_cmp,
-    reason = "integer fixture coordinates are exactly representable and undergo no arithmetic"
-)]
-
 use std::fmt::Write as _;
 
 use pdf_syntax::Document;

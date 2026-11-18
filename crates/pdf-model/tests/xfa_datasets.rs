@@ -308,9 +308,7 @@ fn fixture(fields: &[(&str, &str)], config: Option<&str>) -> Document {
         )
     };
     // A `config` packet goes after the widgets, so that their numbers stay 8 onwards.
-    let config_packet = config
-        .map(|_| format!(" (config) {} 0 R", 8 + fields.len()))
-        .unwrap_or_default();
+    let config_packet = config.map_or_default(|_| format!(" (config) {} 0 R", 8 + fields.len()));
     let mut objects = vec![
         format!(
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
@@ -662,7 +660,7 @@ fn a_save_reports_each_field_its_null_test_holds_and_writes_it_empty() {
         said[1][0].starts_with("form1[0].remark[0] is saved empty, and its XFA form recommends"),
         "{said:?}"
     );
-    assert!(reported("preSubmit").is_empty());
+    assert_eq!(reported("preSubmit"), [] as [Vec<String>; 0]);
 }
 
 /// A submit-form action over a fixed URL and no flags, Table 239 read from a one-object document.
@@ -742,7 +740,10 @@ fn a_submit_names_the_validations_the_form_fails_and_still_composes() {
     assert!(amount.contains("\"Enter the amount.\""), "{amount}");
     let config = "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\"><acrobat><validate/>\
                   </acrobat></config>";
-    assert!(owed_at_submit(&fields, Some(config), &typed).is_empty());
+    assert_eq!(
+        owed_at_submit(&fields, Some(config), &typed),
+        [] as [String; 0]
+    );
 }
 
 /// XFA 3.3 page 527's default bind picture: a field whose template states no bind picture is
@@ -1008,7 +1009,7 @@ mod calculations {
         assert_eq!(form.value(units), Scalar::Number(3.0));
         assert_eq!(form.value(note), Scalar::Text("3".to_owned()));
         assert_eq!(form.value(total), Scalar::Null);
-        assert!(form.edits().is_empty());
+        assert_eq!(form.edits(), [] as [(String, Scalar); 0]);
         form.set(total, Scalar::Number(6.0)).unwrap();
         assert!(
             form.set(group, Scalar::Null).is_err(),

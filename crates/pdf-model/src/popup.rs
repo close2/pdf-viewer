@@ -1231,7 +1231,10 @@ mod tests {
              endobj\n",
         );
         let view = crate::view::ViewState::of(&document);
-        assert!(popups(&document, &page(&document), &view).is_empty());
+        assert_eq!(
+            popups(&document, &page(&document), &view),
+            [] as [crate::popup::Popup; 0]
+        );
     }
 
     #[test]
@@ -1259,7 +1262,10 @@ mod tests {
             "5 0 obj << /Type /Annot /Subtype /Popup /Contents (nowhere) >> endobj\n",
         );
         let view = crate::view::ViewState::of(&document);
-        assert!(popups(&document, &page(&document), &view).is_empty());
+        assert_eq!(
+            popups(&document, &page(&document), &view),
+            [] as [crate::popup::Popup; 0]
+        );
     }
 
     #[test]
@@ -1383,7 +1389,7 @@ mod tests {
         assert_eq!(item.level, 1);
         assert_eq!(item.tag.as_ref().map(|tag| tag.text.as_str()), Some("1."));
         assert_eq!(item.runs[0].text, "first");
-        assert!(note.unapplied.is_empty());
+        assert_eq!(note.unapplied, [] as [String; 0]);
     }
 
     /// Where `/Contents` states other characters, NOTE 1's expectation is broken and the plain

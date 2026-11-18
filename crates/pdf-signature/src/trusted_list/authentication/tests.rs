@@ -171,7 +171,7 @@ fn a_member_list_changed_after_signing_is_refused() {
         vec![certificate_file()],
         NOW,
     );
-    assert!(reading.lists.is_empty());
+    assert_eq!(reading.lists, [] as [TrustedList; 0]);
     let indications = refused_with(&reading, "at.xml");
     assert_eq!(
         indications.first().map(String::as_str),

@@ -633,9 +633,10 @@ fn the_crypt_filter_is_the_one_the_clause_permits() {
 
 /// Decode literal expected bytes produced by the independent audit vector script.
 fn hex_bytes(hex: &str) -> Vec<u8> {
-    let pairs = hex.as_bytes().chunks_exact(2);
-    assert!(pairs.remainder().is_empty(), "whole hexadecimal bytes");
+    let (pairs, rest) = hex.as_bytes().as_chunks::<2>();
+    assert_eq!(rest, [] as [u8; 0], "whole hexadecimal bytes");
     pairs
+        .iter()
         .map(|pair| {
             u8::from_str_radix(std::str::from_utf8(pair).expect("ASCII hex"), 16)
                 .expect("literal hexadecimal byte")

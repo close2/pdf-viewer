@@ -560,6 +560,9 @@ mod tests {
                  /T (Ada) /State (Accepted) /StateModel (Review) >> endobj\n"
             ),
         );
-        assert!(states(&document, &page(&document), ObjectId::new(4, 0)).is_empty());
+        assert_eq!(
+            states(&document, &page(&document), ObjectId::new(4, 0)),
+            [] as [crate::annotation_state::AnnotationState; 0]
+        );
     }
 }

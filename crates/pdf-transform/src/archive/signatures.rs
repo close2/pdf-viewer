@@ -936,8 +936,8 @@ mod tests {
         ];
         let document = Document::open(build(&objects)).expect("the fixture opens");
         let found = find(&document);
-        assert!(found.each.is_empty());
-        assert!(remaining(&document).is_empty());
+        assert_eq!(found.each, [] as [SourceSignature; 0]);
+        assert_eq!(remaining(&document), [] as [String; 0]);
     }
 
     #[test]

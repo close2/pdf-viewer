@@ -522,9 +522,8 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
     // payload was a part's `/AF` carried a file no panel could list and no host could extract.
     // A document that states no `/DPartRoot` — which is every document in every corpus on this
     // disk — pays one absent lookup in the catalog for it.
-    let parts = crate::document_part::hierarchy(document)
-        .map(|hierarchy| hierarchy.parts)
-        .unwrap_or_default();
+    let parts =
+        crate::document_part::hierarchy(document).map_or_default(|hierarchy| hierarchy.parts);
     let carriers = std::iter::once(catalog).chain(parts.into_iter().map(|part| part.dictionary));
     for carrier in carriers {
         for attachment in associated(document, &carrier) {
@@ -626,7 +625,9 @@ pub fn related(document: &Document, specification: &Dictionary) -> Vec<(String, 
         return Vec::new();
     };
     array
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(MAX_ATTACHMENTS)
         .filter_map(|pair| {
             // "The first element of each pair shall be a string giving the name of one of the

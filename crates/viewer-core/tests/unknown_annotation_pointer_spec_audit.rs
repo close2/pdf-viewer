@@ -2,7 +2,6 @@
 #![expect(
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "controlled PDF fixture and literal solid-color assertions should fail loudly"
 )]
@@ -72,7 +71,7 @@ fn pigment(raster: &pdf_render::Raster) -> Pigment {
     let mut red = 0usize;
     let mut green = 0usize;
     let mut blue = 0usize;
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0 {
         if pixel[0] > 200 && pixel[1] < 20 && pixel[2] < 20 && pixel[3] > 0 {
             red += 1;
         }

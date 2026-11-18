@@ -55,12 +55,8 @@ fn fixture(sequence_page: u8, element_page: Option<u8>, mcr_page: Option<u8>) ->
             "/Contents 8 0 R /StructParents 0".to_owned(),
         )
     };
-    let element_pg = element_page
-        .map(|page| format!("/Pg {page} 0 R "))
-        .unwrap_or_default();
-    let mcr_pg = mcr_page
-        .map(|page| format!("/Pg {page} 0 R "))
-        .unwrap_or_default();
+    let element_pg = element_page.map_or_default(|page| format!("/Pg {page} 0 R "));
+    let mcr_pg = mcr_page.map_or_default(|page| format!("/Pg {page} 0 R "));
     let parent_mcr = if parent_sibling {
         format!(
             " << /Type /MCR /Pg {} 0 R /MCID 1 >>",
@@ -204,7 +200,7 @@ fn mcr_page_overrides_element_page_with_inheritance_and_requiredness_controls() 
             owner: None,
         }]
     );
-    assert!(sequence_item(&inherited_doc, PAGE_2).is_empty());
+    assert_eq!(sequence_item(&inherited_doc, PAGE_2), [] as [Child; 0]);
 
     // Without an element `/Pg`, Table 357 requires the MCR `/Pg` that names the sequence page.
     let required_doc =
@@ -212,7 +208,7 @@ fn mcr_page_overrides_element_page_with_inheritance_and_requiredness_controls() 
     assert!(!required_doc.was_recovered(), "the control xref is exact");
     assert!(!required_doc.cross_reference_chain_was_cut());
     assert_real_sequence(&required_doc, 1, 0);
-    assert!(sequence_item(&required_doc, PAGE_1).is_empty());
+    assert_eq!(sequence_item(&required_doc, PAGE_1), [] as [Child; 0]);
     assert_eq!(
         sequence_item(&required_doc, PAGE_2),
         vec![Child::MarkedContent {

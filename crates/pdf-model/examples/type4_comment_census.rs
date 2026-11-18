@@ -150,7 +150,7 @@ fn grid(domain: &[f32]) -> Vec<Vec<f32>> {
     const MOST: usize = 4096;
 
     let mut rows: Vec<Vec<f32>> = vec![Vec::new()];
-    for pair in domain.chunks_exact(2) {
+    for pair in domain.as_chunks::<2>().0 {
         let (low, high) = (pair.first().copied(), pair.get(1).copied());
         let (Some(low), Some(high)) = (low, high) else {
             continue;

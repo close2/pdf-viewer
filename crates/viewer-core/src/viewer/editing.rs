@@ -578,7 +578,12 @@ impl Viewer {
             .into_iter()
             .map(|quad| {
                 let mut out = [0.0_f32; 8];
-                for (corner, place) in quad.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
+                for (corner, place) in quad
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .zip(out.as_chunks_mut::<2>().0)
+                {
                     let (x, y) = self.device_point(open, page, (corner[0], corner[1]))?;
                     place[0] = x;
                     place[1] = y;
@@ -1137,8 +1142,7 @@ fn refused_keystroke(open: &Open, done: &crate::open::Done) -> Option<String> {
     let kept = open
         .view
         .field_value(&open.document, field)
-        .map(|shown| shown.text)
-        .unwrap_or_default();
+        .map_or_default(|shown| shown.text);
     let event = pdf_model::aform::Keystroke {
         value: &kept,
         change: typed,

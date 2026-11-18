@@ -155,8 +155,10 @@ fn a_page_past_the_bound_is_drawn_as_the_window_shows_it_and_answered_listed() {
     assert!(
         raster
             .data
-            .chunks_exact(4)
-            .all(|pixel| pixel == [255, 0, 0, 255]),
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [255, 0, 0, 255]),
         "a pixel of the window is not the page's red"
     );
 

@@ -330,8 +330,7 @@ impl Tested<'_> {
         }
         let said = pictures
             .message("nullTest")
-            .map(|said| format!(", and its message for it is {said:?}"))
-            .unwrap_or_default();
+            .map_or_default(|said| format!(", and its message for it is {said:?}"));
         Some(format!(
             "{name} is {} empty, and its XFA form {wants} a value there (its validate element's \
              null test at the level {level}, XFA 3.3 page 384){said}; {}",
@@ -416,8 +415,7 @@ impl Tested<'_> {
                 let said = container
                     .pictures
                     .message("formatTest")
-                    .map(|said| format!(", and its message for it is {said:?}"))
-                    .unwrap_or_default();
+                    .map_or_default(|said| format!(", and its message for it is {said:?}"));
                 Some(format!(
                     "{name} holds {:?}, which its validate picture cannot format (its format test \
                      at the level {level}, XFA 3.3 page 382){said}; {}",
@@ -678,9 +676,15 @@ mod tests {
     #[test]
     fn a_form_that_validates_before_submitting_alone_is_not_tested_at_a_save() {
         // Page 1340's default, and what RFC 0011 section 4's four hybrids state.
-        assert!(save(&template(), &config("preSubmit", ""), &fields()).is_empty());
+        assert_eq!(
+            save(&template(), &config("preSubmit", ""), &fields()),
+            [] as [Vec<String>; 0]
+        );
         let unstated = Config::read(&parse(b"<config/>").expect("well formed"));
-        assert!(save(&template(), &unstated, &fields()).is_empty());
+        assert_eq!(
+            save(&template(), &unstated, &fields()),
+            [] as [Vec<String>; 0]
+        );
     }
 
     #[test]
@@ -692,7 +696,7 @@ mod tests {
             shaped("firstMessageOnly"),
             vec![shaped("allMessagesIndividually")[0].clone()]
         );
-        assert!(shaped("noMessages").is_empty());
+        assert_eq!(shaped("noMessages"), [] as [Vec<String>; 0]);
     }
 
     #[test]
@@ -705,7 +709,10 @@ mod tests {
             ("form1[0].Agree[0]".to_owned(), Change::On("1".to_owned())),
             ("form1[0].Choice[0]".to_owned(), Change::On("a".to_owned())),
         ];
-        assert!(save(&template(), &config("preSave", ""), &filled).is_empty());
+        assert_eq!(
+            save(&template(), &config("preSave", ""), &filled),
+            [] as [Vec<String>; 0]
+        );
     }
 
     const TYPED: &str = "<template><subform name=\"form1\">\
@@ -801,11 +808,20 @@ mod tests {
             ("At", "06:30:00"),
             ("Stamp", "2001-03-26T06:30:00"),
         ]);
-        assert!(save(&typed_template(), &config("preSave", ""), &passes).is_empty());
+        assert_eq!(
+            save(&typed_template(), &config("preSave", ""), &passes),
+            [] as [Vec<String>; 0]
+        );
         let empty = typed(&[("Count", ""), ("Born", "")]);
-        assert!(save(&typed_template(), &config("preSave", ""), &empty).is_empty());
+        assert_eq!(
+            save(&typed_template(), &config("preSave", ""), &empty),
+            [] as [Vec<String>; 0]
+        );
         let dated = typed(&[("Born", "2001-03-26T06:30:00")]);
-        assert!(save(&typed_template(), &config("preSave", ""), &dated).is_empty());
+        assert_eq!(
+            save(&typed_template(), &config("preSave", ""), &dated),
+            [] as [Vec<String>; 0]
+        );
     }
 
     #[test]
@@ -830,8 +846,14 @@ mod tests {
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0][0].contains("before a submit (page 1340)"));
         assert!(said[0][0].contains("submit policy"));
-        assert!(submit(&typed_template(), &config("", ""), &fields).is_empty());
-        assert!(submit(&typed_template(), &config("preSave", ""), &fields).is_empty());
+        assert_eq!(
+            submit(&typed_template(), &config("", ""), &fields),
+            [] as [Vec<String>; 0]
+        );
+        assert_eq!(
+            submit(&typed_template(), &config("preSave", ""), &fields),
+            [] as [Vec<String>; 0]
+        );
         assert_eq!(
             submit(&typed_template(), &config("preSubmit", ""), &fields).len(),
             1
@@ -855,6 +877,9 @@ mod tests {
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0][0].contains("cannot format") && said[0][0].contains("level error"));
         assert!(said[0][0].contains("\"Two digits.\""));
-        assert!(save(&typed_template(), &config("preSave", ""), &fields).is_empty());
+        assert_eq!(
+            save(&typed_template(), &config("preSave", ""), &fields),
+            [] as [Vec<String>; 0]
+        );
     }
 }

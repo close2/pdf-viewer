@@ -77,7 +77,7 @@ fn params_bytes(
         texel(shown.bottom), // source
     ];
     let mut bytes = [0_u8; 64];
-    for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
+    for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
         slot.copy_from_slice(&value.to_le_bytes());
     }
     bytes
@@ -240,7 +240,6 @@ pub(super) fn record(
 // below are asserted against the same two operations that produced them — a doubling and
 // a division by a power of two, both exact — so equality is the assertion and a tolerance
 // would weaken it.
-#[expect(clippy::float_cmp)]
 mod tests {
     use raster_scene::{Affine, ImageFilter};
 
@@ -672,7 +671,9 @@ mod tests {
             .get_mapped_range()
             .expect("the buffer is mapped");
         let row = mapped[..bytes as usize]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
             .collect();
         drop(mapped);

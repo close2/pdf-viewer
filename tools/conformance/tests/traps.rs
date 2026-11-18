@@ -210,12 +210,12 @@ fn the_reader_finds_rows_and_headings_and_nothing_else() {
         index_rows(escaped),
         [("127".to_owned(), "instruments".to_owned())]
     );
-    assert!(malformed_rows(escaped).is_empty());
+    assert_eq!(malformed_rows(escaped), [] as [(usize, String, usize); 0]);
     let split =
         "| # | a | b | group |\n| 127 | a build sits behind `| tail` | so | instruments |\n";
-    assert!(index_rows(split).is_empty());
+    assert_eq!(index_rows(split), [] as [(String, String); 0]);
     assert_eq!(malformed_rows(split), [(2, "127".to_owned(), 5)]);
-    assert!(malformed_rows(index).is_empty());
+    assert_eq!(malformed_rows(index), [] as [(usize, String, usize); 0]);
 
     let group = "## Traps\n### 53. A title\n#### 4. Merged\n## 2. Not a trap\n### Things. No\n";
     assert_eq!(

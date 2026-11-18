@@ -33,10 +33,6 @@ fn the_fixture_page_is_modelled_correctly() {
     // Exact comparison is intended: these values come from the fixture's own
     // `/MediaBox [0 0 595 842]` and are integers, so any difference is a real defect
     // rather than accumulated floating-point error.
-    #[expect(
-        clippy::float_cmp,
-        reason = "the fixture declares exact integral page bounds"
-    )]
     {
         assert_eq!(page.media_box, [0.0, 0.0, 595.0, 842.0]);
         assert_eq!(

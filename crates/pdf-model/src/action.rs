@@ -1830,8 +1830,7 @@ fn import_data(document: &Document, dict: &Dictionary) -> Option<Action> {
 pub fn data_format(name: &str) -> DataFormat {
     let extension = std::path::Path::new(name)
         .extension()
-        .map(|extension| extension.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|extension| extension.to_string_lossy().into_owned());
     if extension.eq_ignore_ascii_case("fdf") {
         DataFormat::Fdf
     } else if extension.eq_ignore_ascii_case("xfdf") {
@@ -2543,7 +2542,7 @@ mod tests {
     #[test]
     fn a_name_the_table_does_not_hold_is_not_an_action() {
         let doc = document(&["<< /Type /Catalog >>", "<< /S /Teleport >>"]);
-        assert!(read(&doc, &Object::Reference(id(2))).is_empty());
+        assert_eq!(read(&doc, &Object::Reference(id(2))), [] as [Action; 0]);
     }
 
     /// Table 209's three spellings of a thread, and both spellings of a bead.

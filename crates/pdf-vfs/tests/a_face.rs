@@ -196,8 +196,8 @@ fn a_read_answers_at_an_offset_and_stops_at_the_end() {
     assert_eq!(handle.read(0, 5), b"%PDF-");
     let length = handle.len();
     assert_eq!(handle.read(length.saturating_sub(2), 64).len(), 2);
-    assert!(handle.read(length, 1).is_empty());
-    assert!(handle.read(length.saturating_add(1000), 1).is_empty());
+    assert_eq!(handle.read(length, 1), []);
+    assert_eq!(handle.read(length.saturating_add(1000), 1), []);
 }
 
 #[test]

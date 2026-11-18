@@ -239,26 +239,22 @@ fn read_locale(tree: &Tree, at: usize, name: Option<&str>) -> Locale {
         ..Locale::default()
     };
     let texts = |list: usize| -> Vec<String> {
-        tree.get(list)
-            .map(|e| {
-                e.children
-                    .iter()
-                    .filter_map(|&c| tree.get(c))
-                    .map(|c| c.text.trim().to_owned())
-                    .collect()
-            })
-            .unwrap_or_default()
+        tree.get(list).map_or_default(|e| {
+            e.children
+                .iter()
+                .filter_map(|&c| tree.get(c))
+                .map(|c| c.text.trim().to_owned())
+                .collect()
+        })
     };
     let named = |list: usize| -> Vec<(String, String)> {
-        tree.get(list)
-            .map(|e| {
-                e.children
-                    .iter()
-                    .filter_map(|&c| tree.get(c))
-                    .map(|c| (c.attribute("name").unwrap_or("").to_owned(), c.text.clone()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        tree.get(list).map_or_default(|e| {
+            e.children
+                .iter()
+                .filter_map(|&c| tree.get(c))
+                .map(|c| (c.attribute("name").unwrap_or("").to_owned(), c.text.clone()))
+                .collect()
+        })
     };
     let Some(element) = tree.get(at) else {
         return locale;

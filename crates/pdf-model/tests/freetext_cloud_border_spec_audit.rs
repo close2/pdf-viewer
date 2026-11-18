@@ -5,7 +5,6 @@
 
 #![expect(
     clippy::expect_used,
-    clippy::indexing_slicing,
     reason = "small fixed fixtures: malformed input and invalid raster coordinates should fail loudly"
 )]
 
@@ -81,7 +80,9 @@ fn border_ink(raster: &pdf_render::Raster) -> usize {
     // Empty Contents and absent background color leave only the border as possible ink.
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] > 0)
         .count()
 }

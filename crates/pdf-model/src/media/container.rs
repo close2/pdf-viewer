@@ -1002,14 +1002,18 @@ fn title(sample: &[u8]) -> Option<String> {
     let text = fields.take(length)?;
     if let Some(units) = text.strip_prefix(&[0xFE, 0xFF]) {
         let units: Vec<u16> = units
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
             .collect();
         return Some(String::from_utf16_lossy(&units));
     }
     if let Some(units) = text.strip_prefix(&[0xFF, 0xFE]) {
         let units: Vec<u16> = units
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .collect();
         return Some(String::from_utf16_lossy(&units));
@@ -1061,7 +1065,7 @@ mod tests {
         let read = timeline("audio/wav", &file).expect("a WAVE file");
         assert_eq!(read.seconds, Some(2.0));
         assert_eq!(read.frames, None, "a sound has no frame an offset names");
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [Marker; 0]);
     }
 
     #[test]
@@ -1264,7 +1268,7 @@ mod tests {
         let read = timeline("video/mp4", &file).expect("an MP4 file");
         assert_eq!(read.seconds, Some(10.0));
         assert_eq!(read.frames, Some(250));
-        assert!(read.markers.is_empty());
+        assert_eq!(read.markers, [] as [Marker; 0]);
     }
 
     #[test]

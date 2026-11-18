@@ -361,7 +361,7 @@ pub fn unsplittable_rows_and_freed_fills(
         freed: Some(RefCell::new(vec![false; target.height as usize])),
     };
     walk.segments(list.commands(), false, &mut rows, &mut clips);
-    let freed = walk.freed.map(RefCell::into_inner).unwrap_or_default();
+    let freed = walk.freed.map_or_default(RefCell::into_inner);
     (rows, freed)
 }
 
@@ -946,7 +946,7 @@ impl<'a> Piece<'a> {
             walk.element(command, false, own, &mut forbidden, &mut seen);
         }
         let extents = extents.settled();
-        let freed = walk.freed.map(RefCell::into_inner).unwrap_or_default();
+        let freed = walk.freed.map_or_default(RefCell::into_inner);
         let width = f64::from(target.width);
         let mut reaching = vec![Vec::new(); rows.checked_div(band).unwrap_or(0).saturating_add(1)];
         let mut past_the_keys = false;

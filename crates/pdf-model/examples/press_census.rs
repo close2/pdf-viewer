@@ -573,8 +573,7 @@ fn facts_of(data: &[u8]) -> ProfileFacts {
     };
     let text = |range: std::ops::Range<usize>| {
         data.get(range)
-            .map(|bytes| String::from_utf8_lossy(bytes).trim().to_owned())
-            .unwrap_or_default()
+            .map_or_default(|bytes| String::from_utf8_lossy(bytes).trim().to_owned())
     };
     if data.get(36..40) != Some(b"acsp") {
         "not a profile".clone_into(&mut facts.space);

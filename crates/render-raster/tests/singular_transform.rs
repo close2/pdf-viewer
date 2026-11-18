@@ -282,7 +282,9 @@ fn backends() -> Vec<Backend> {
 fn ink(raster: &Raster) -> f64 {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| 1.0 - f64::from(pixel[0].min(pixel[1]).min(pixel[2])) / 255.0)
         .sum()
 }

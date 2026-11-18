@@ -171,15 +171,13 @@ fn parse_row(fields: &[&str], at: &dyn Fn() -> String) -> Row {
             format!(
                 "TypeAlternative {{ kind: PdfType::{kind}, links: &[{}], \
                  possible_values: {}, indirect: {}, gate: {gate} }}",
-                link_group
-                    .map(|group| group
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|item| !item.is_empty())
-                        .map(|item| format!("{item:?}"))
-                        .collect::<Vec<_>>()
-                        .join(", "))
-                    .unwrap_or_default(),
+                link_group.map_or_default(|group| group
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .map(|item| format!("{item:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")),
                 optional_str(value_group.filter(|group| !group.is_empty())),
                 parse_indirect(indirect_group.unwrap_or(""), at),
             )

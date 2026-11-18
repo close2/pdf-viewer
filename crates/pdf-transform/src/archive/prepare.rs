@@ -817,8 +817,7 @@ impl Prepared {
             .as_ref()
             .ok()
             .zip(survey.as_ref())
-            .map(|(defined, survey)| defined.rendered_standard_fonts(survey))
-            .unwrap_or_default();
+            .map_or_default(|(defined, survey)| defined.rendered_standard_fonts(survey));
         let raised: Vec<(&'static str, usize)> = if standard_fonts.is_empty()
             || failed.contains(fonts::EMBEDDED_PROGRAMS)
             || !input.judgements.iter().any(|judgement| {
@@ -962,14 +961,12 @@ impl Prepared {
         });
         let removals = properties
             .as_ref()
-            .map(|cleaned| names_removed(&cleaned.removed))
-            .unwrap_or_default();
+            .map_or_default(|cleaned| names_removed(&cleaned.removed));
         // A discarded container is its own recorded action, because its reason is section
         // 6.6.2.3.3's and not the misused property's.
         let discards = respelled
             .as_ref()
-            .map(|respelled| names_discarded(&respelled.removed))
-            .unwrap_or_default();
+            .map_or_default(|respelled| names_discarded(&respelled.removed));
         // Section 6.6.4's amendment identifier is cut last of the four editors, in what the
         // three before it left: the schema is restated into this, so a cut taken from the
         // producer's original would undo them.
@@ -1207,16 +1204,14 @@ impl Prepared {
         });
         // The entries the information rows' `append-statement` removed, which the statement page
         // lists (`doc/adr/2681`); an entry merely dropped is the report's alone.
-        let stated_information: Vec<RemovedInformation> = information
-            .as_ref()
-            .map(|moved| {
+        let stated_information: Vec<RemovedInformation> =
+            information.as_ref().map_or_default(|moved| {
                 moved
                     .entries
                     .iter()
                     .filter_map(|entry| entry.removed.clone())
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         // Read before any page is composed, because an appended page's parent tree key comes after
         // every key the rebuild hands out (`doc/adr/2674`).
         let parent_tree = asked(wanted(Rewrite::ParentTreeRebuilt), || {
@@ -1302,8 +1297,7 @@ impl Prepared {
             .and_then(|files| super::attach::attached_history(&files.rows));
         let gained: Vec<Gained> = information
             .as_ref()
-            .map(|moved| moved.supplements.clone())
-            .unwrap_or_default();
+            .map_or_default(|moved| moved.supplements.clone());
         let supplements: Vec<xmp::Supplement<'_>> = gained.iter().map(Gained::supplement).collect();
         let modification_history = information
             .as_ref()
@@ -1417,8 +1411,7 @@ impl Prepared {
             .any(|(row, refused)| *refused && failed.contains(row));
             let restated_programs = metrics
                 .as_ref()
-                .map(|metrics| metrics.at.clone())
-                .unwrap_or_default();
+                .map_or_default(|metrics| metrics.at.clone());
             // The `.notdef` rows join the restatement only where every font they name has a
             // TrueType program, because a font the restatement cannot carry refuses it whole,
             // and the fonts the other rows name should not lose their answer to it
@@ -1666,8 +1659,7 @@ impl Prepared {
         // wrote its own into (ADR 2838).
         let mut subset_names = substitutes
             .as_ref()
-            .map(|substitutes| substitutes.names.clone())
-            .unwrap_or_default();
+            .map_or_default(|substitutes| substitutes.names.clone());
         let appearances = asked(wanted(Rewrite::AppearanceDictionary), || {
             prepare_appearances(
                 document,
@@ -1709,8 +1701,7 @@ impl Prepared {
                 // (ADR 2568), so the walk reads that removal first.
                 let removed = forbidden_annotations
                     .as_ref()
-                    .map(|forbidden| forbidden.at.clone())
-                    .unwrap_or_default();
+                    .map_or_default(|forbidden| forbidden.at.clone());
                 super::actions::prepare(document, plan.target, &failed, &removed)
             },
         );

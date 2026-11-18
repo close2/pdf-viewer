@@ -163,8 +163,7 @@ fn every_jbig2_coding_mode_decodes_to_the_same_image() {
         .map(|path| {
             let name = path
                 .file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|stem| stem.to_string_lossy().into_owned());
             (name, render(path))
         })
         .collect();
@@ -226,7 +225,9 @@ fn every_jbig2_coding_mode_decodes_to_the_same_image() {
     // ink on a few percent of it.
     let dark = image
         .pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel.first().is_some_and(|red| *red < 128))
         .count();
     let pixels = image.pixels.len() / 4;

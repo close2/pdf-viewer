@@ -977,14 +977,13 @@ fn a_mandated_attribute_within_the_attribute_trust_condition_is_met_and_its_abse
     assert_eq!(verdicts(&v2(&[TITLE], 0, 0), &mandated), [Verdict::Broken]);
     // An attribute certificate is not of the accepted kind: it is passed over, never judged.
     assert_eq!(verdicts(&v2(&[], 1, 0), &mandated), [Verdict::Broken]);
-    assert!(verdicts(&v2(&[], 1, 0), &certified).is_empty());
+    assert_eq!(verdicts(&v2(&[], 1, 0), &certified), [] as [Verdict; 0]);
     let none = findings(&document, &default_cms(), &facts(None));
     assert_eq!(verdict_of(&none, mandated), [Verdict::Broken]);
     let sentence = none
         .iter()
         .find(|finding| mandated(&finding.constraint))
-        .map(ToString::to_string)
-        .unwrap_or_default();
+        .map_or_default(ToString::to_string);
     assert!(
         sentence.contains("claimed") && sentence.contains("broken"),
         "{sentence}"

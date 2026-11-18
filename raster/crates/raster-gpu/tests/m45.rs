@@ -57,7 +57,10 @@ fn rasterised_rect_outline(rect: Rect) -> Vec<Segment> {
     vec![
         Segment::MoveTo(rect.min),
         // On the top edge by construction: same y, an x strictly between the corners.
-        Segment::LineTo(Point::new((rect.min.x + rect.max.x) * 0.5, rect.min.y)),
+        Segment::LineTo(Point::new(
+            f32::midpoint(rect.min.x, rect.max.x),
+            rect.min.y,
+        )),
         Segment::LineTo(Point::new(rect.max.x, rect.min.y)),
         Segment::LineTo(rect.max),
         Segment::LineTo(Point::new(rect.min.x, rect.max.y)),
@@ -88,8 +91,10 @@ fn max_diff_premultiplied(a: &[u8], b: &[u8]) -> i32 {
             alpha as i32,
         ]
     };
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .map(|(pa, pb)| {
             let (qa, qb) = (premul(pa), premul(pb));
             (0..4).map(|i| (qa[i] - qb[i]).abs()).max().unwrap_or(0)

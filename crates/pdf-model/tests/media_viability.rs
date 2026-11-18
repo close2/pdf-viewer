@@ -148,7 +148,7 @@ fn a_non_viable_selector_evaluates_none_of_its_renditions() {
         Processor::default(),
     );
     assert!(report.considered.is_empty(), "{report:?}");
-    assert!(!report.stopped.is_empty());
+    assert_ne!(report.stopped, [] as [String; 0]);
     let report = judged("<< /S /SR /R [] >>", Processor::default());
     assert!(report.chosen().is_none());
     assert!(report.considered.is_empty());

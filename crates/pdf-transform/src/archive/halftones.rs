@@ -148,8 +148,7 @@ pub(super) fn name_history(document: &Document, input: &pdf_archive::Report) -> 
         };
         let named = halftone
             .and_then(|halftone| halftone.get("HalftoneName"))
-            .map(written_name)
-            .unwrap_or_default();
+            .map_or_default(written_name);
         let _ = write!(
             out,
             "{lead} {} {} R named {named}",

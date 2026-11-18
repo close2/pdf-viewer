@@ -148,7 +148,7 @@ impl SoftwareSurface {
         // softbuffer's pixel is `00000000RRRRRRRRGGGGGGGGBBBBBBBB` on every platform it
         // supports, so the window is opaque by construction and the page's alpha — which
         // `impose_on_medium` has already resolved against the medium — is dropped here.
-        for (pixel, rgba) in buffer.iter_mut().zip(composed.data.chunks_exact(4)) {
+        for (pixel, rgba) in buffer.iter_mut().zip(composed.data.as_chunks::<4>().0) {
             *pixel = u32::from_be_bytes([0, rgba[0], rgba[1], rgba[2]]);
         }
         buffer.present()?;
@@ -161,7 +161,7 @@ impl SoftwareSurface {
 /// Counted through `chunks_exact` rather than divided, so there is no arithmetic to be wrong
 /// about and a truncated buffer answers with what it actually holds.
 fn pixels(raster: &Raster) -> usize {
-    raster.data.chunks_exact(4).len()
+    raster.data.as_chunks::<4>().0.len()
 }
 
 // The processor's composition, which the device's processor lane draws with as well, lives in

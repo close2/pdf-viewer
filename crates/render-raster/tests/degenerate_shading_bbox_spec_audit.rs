@@ -79,7 +79,9 @@ fn render(backend: &mut QuorraRasterizer, bbox: &str) -> pdf_render::Raster {
 fn painted_pixels(raster: &pdf_render::Raster) -> usize {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|rgba| rgba[3] != 0)
         .count()
 }
@@ -137,7 +139,7 @@ fn check(coverage: raster_gpu::Coverage) {
         // and reject a wrong-location spot or any distant coloured paint.
         let width = usize::try_from(raster.width).expect("small page width");
         let cross_band = if orientation == 0 { 28..=32 } else { 67..=72 };
-        for (index, rgba) in raster.data.chunks_exact(4).enumerate() {
+        for (index, rgba) in raster.data.as_chunks::<4>().0.iter().enumerate() {
             if rgba[3] == 0 {
                 continue;
             }

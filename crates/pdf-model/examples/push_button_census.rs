@@ -242,11 +242,7 @@ struct Tally {
 fn print_entries(tally: &Tally) {
     for entry in ENTRIES {
         let count = tally.stated.get(*entry).copied().unwrap_or_default();
-        let names = tally
-            .files
-            .get(*entry)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
+        let names = tally.files.get(*entry).map_or_default(Vec::as_slice);
         let constructed = tally.constructs.get(*entry).copied().unwrap_or_default();
         println!(
             "  /{entry:<3} {count:>5} widget(s) ({constructed} of them constructing) in \

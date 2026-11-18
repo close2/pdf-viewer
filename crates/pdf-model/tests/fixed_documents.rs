@@ -102,7 +102,7 @@ struct Row {
 fn ink(pixels: &[u8]) -> f64 {
     let mut total = 0.0_f64;
     let mut count = 0_u64;
-    for pixel in pixels.chunks_exact(4) {
+    for pixel in pixels.as_chunks::<4>().0 {
         let [red, green, blue] = [pixel[0], pixel[1], pixel[2]].map(f64::from);
         total += 255.0 - 0.2126_f64.mul_add(red, 0.7152_f64.mul_add(green, 0.0722 * blue));
         count = count.saturating_add(1);
@@ -522,6 +522,6 @@ mod tests {
                     ink =\nwhy = \"because\"\n";
         let parsed = rows(text).expect("a row with no ink band");
         assert_eq!(parsed[0].ink, Ink::Unpinned);
-        assert!(parsed[0].reports.is_empty());
+        assert_eq!(parsed[0].reports, [] as [String; 0]);
     }
 }

@@ -1205,7 +1205,7 @@ mod tests {
             unapplied: Vec::new(),
         };
         assert!(super::html(&note, 10.0).contains("letter-spacing:13.33px"));
-        assert!(super::toolkit_unapplied(&note, false).is_empty());
+        assert_eq!(super::toolkit_unapplied(&note, false), [] as [String; 0]);
     }
 
     /// A toolkit's label states no font scale, so a note with one says so; one without says nothing.
@@ -1228,7 +1228,10 @@ mod tests {
             super::toolkit_unapplied(&note(vec![wide]), false),
             vec!["a font scale in a popup window".to_owned()]
         );
-        assert!(super::toolkit_unapplied(&note(vec![run("x")]), false).is_empty());
+        assert_eq!(
+            super::toolkit_unapplied(&note(vec![run("x")]), false),
+            [] as [String; 0]
+        );
     }
 
     /// A toolkit that sets a font scale says none, and the face it is set in is the run's size
@@ -1252,7 +1255,7 @@ mod tests {
             }],
             unapplied: Vec::new(),
         };
-        assert!(super::toolkit_unapplied(&note, true).is_empty());
+        assert_eq!(super::toolkit_unapplied(&note, true), [] as [String; 0]);
     }
 
     /// Chapter 27's *Tab Stops*: the stated stops in order of position, then the default ones at
@@ -1274,7 +1277,10 @@ mod tests {
             tab_stops: Vec::new(),
         };
         assert!(!super::advances(&paragraph));
-        assert!(super::tab_stops(&paragraph, 10.0, 1.0, 500.0).is_empty());
+        assert_eq!(
+            super::tab_stops(&paragraph, 10.0, 1.0, 500.0),
+            [] as [crate::popup::TabStop; 0]
+        );
         paragraph.tab_stops = vec![
             RichTabStop {
                 align: RichTabAlign::Decimal,
@@ -1308,7 +1314,7 @@ mod tests {
             paragraphs: vec![paragraph],
             unapplied: Vec::new(),
         };
-        assert!(super::toolkit_unapplied(&note, true).is_empty());
+        assert_eq!(super::toolkit_unapplied(&note, true), [] as [String; 0]);
         let mut unbounded = note.clone();
         if let Some(paragraph) = unbounded.paragraphs.first_mut() {
             paragraph.tab_interval = None;
@@ -1374,7 +1380,7 @@ mod tests {
         // Every stop above is reached leftward by both toolkits once handed from the line's
         // start edge (ADR 1690), and both paint the leader over their line (ADR 1722), so nothing
         // is said; the C ABI hands the leader over for its caller to paint (ADR 1726).
-        assert!(super::toolkit_unapplied(&note, true).is_empty());
+        assert_eq!(super::toolkit_unapplied(&note, true), [] as [String; 0]);
     }
 
     /// A tab reaches the nearest stop beyond where it starts, in the direction its paragraph
@@ -1400,9 +1406,9 @@ mod tests {
             super::leader_cycles(25.0, 50.0, 10.0, 6.0),
             vec![28.0, 34.0, 40.0]
         );
-        assert!(super::leader_cycles(25.0, 30.0, 10.0, 6.0).is_empty());
-        assert!(super::leader_cycles(25.0, 50.0, 10.0, 0.0).is_empty());
-        assert!(super::leader_cycles(50.0, 25.0, 10.0, 6.0).is_empty());
+        assert_eq!(super::leader_cycles(25.0, 30.0, 10.0, 6.0), [] as [f32; 0]);
+        assert_eq!(super::leader_cycles(25.0, 50.0, 10.0, 0.0), [] as [f32; 0]);
+        assert_eq!(super::leader_cycles(50.0, 25.0, 10.0, 6.0), [] as [f32; 0]);
     }
 
     /// A rule leader is one piece solid, a dash of two thicknesses every four dashed and a square
@@ -1423,7 +1429,10 @@ mod tests {
             super::rule_pieces(RichRuleStyle::Dotted, 2.0, (10.0, 20.0), 0.0),
             vec![(12.0, 2.0), (16.0, 2.0)]
         );
-        assert!(super::rule_pieces(RichRuleStyle::Solid, 0.0, (10.0, 30.0), 0.0).is_empty());
+        assert_eq!(
+            super::rule_pieces(RichRuleStyle::Solid, 0.0, (10.0, 30.0), 0.0),
+            [] as [(f32, f32); 0]
+        );
         assert!((super::rule_thickness(None, 40.0) - 2.0).abs() < f32::EPSILON);
         assert!((super::rule_thickness(None, 10.0) - 1.0).abs() < f32::EPSILON);
         assert!((super::rule_thickness(Some(3.0), 10.0) - 3.0).abs() < f32::EPSILON);
@@ -1578,8 +1587,14 @@ mod tests {
     /// Table 166 requires `/Rect`; a rectangle with no area is a window a person cannot see.
     #[test]
     fn a_window_with_no_area_is_not_placed() {
-        assert!(windows(&[window(0.0, 60.0)]).is_empty());
-        assert!(windows(&[window(120.0, 0.0)]).is_empty());
+        assert_eq!(
+            windows(&[window(0.0, 60.0)]),
+            [] as [crate::popup::Window<'_>; 0]
+        );
+        assert_eq!(
+            windows(&[window(120.0, 0.0)]),
+            [] as [crate::popup::Window<'_>; 0]
+        );
     }
 
     /// §12.5.6.2's `/T` is optional and names a person, so nothing is invented for it.

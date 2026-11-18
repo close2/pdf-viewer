@@ -156,7 +156,7 @@ fn a_code_on_notdef_and_a_code_on_no_glyph_are_given_glyphs_of_their_own() {
         .expect("the .notdef triangle")
         .commands()
         .to_vec();
-    assert!(!notdef_drawn.is_empty());
+    assert_ne!(notdef_drawn, [] as [pdf_render::PathCommand; 0]);
     assert!(before.draws_notdef_in_place(one));
     let failed: Vec<&str> = holds(&source, Target::Two(Level::B))
         .failures()

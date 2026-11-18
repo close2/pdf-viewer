@@ -238,7 +238,7 @@ fn at_off_nothing_asks_and_an_answer_is_dropped() {
             answer: ScriptAnswer::Unanswerable,
         })
         .collect();
-    assert!(questions(&events).is_empty());
+    assert_eq!(questions(&events), [] as [ScriptQuestion; 0]);
 }
 
 /// A question whose wait ran out is withdrawn once, after the next command, and before a question

@@ -142,7 +142,10 @@ fn a_code_on_notdef_is_given_a_copy_at_its_own_width_and_every_glyph_held_is_kep
     assert_eq!(read.advance(index_of(&read, "A")), Ok(Some(700.0)));
     assert_eq!(read.advance(0), Ok(Some(250.0)));
     assert_eq!(super::outline(&read, 2), super::outline(&read, 0));
-    assert!(!super::outline(&read, 0).expect("drawn").is_empty());
+    assert_ne!(
+        super::outline(&read, 0).expect("drawn"),
+        [] as [(u8, [u32; 6]); 0]
+    );
     assert_eq!(super::outline(&read, 3), Ok(Vec::new()));
 }
 

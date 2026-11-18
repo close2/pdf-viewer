@@ -513,7 +513,7 @@ mod tests {
         let one = message_budget(ceiling, already, max_pixels, 1);
         let wide = message_budget(ceiling, already, max_pixels, 24);
         let stacks = 23 * RASTERISING_STACK as u64;
-        assert_eq!(one - wide, stacks / COPIES_OF_AN_ANSWER.get());
+        assert_eq!(one - wide, stacks / COPIES_OF_AN_ANSWER);
         assert_eq!(message_budget(0, already, max_pixels, 24), u64::MAX);
     }
 }

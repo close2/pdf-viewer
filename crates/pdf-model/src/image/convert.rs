@@ -373,14 +373,19 @@ pub(super) fn widened(pixels: &[u8], count: usize, channels: usize) -> Result<Ve
     let mut out = vec![255u8; count.saturating_mul(4)];
     match channels {
         1 => {
-            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.iter()) {
+            for (destination, source) in out.as_chunks_mut::<4>().0.iter_mut().zip(pixels.iter()) {
                 if let Some(rgb) = destination.get_mut(..3) {
                     rgb.fill(*source);
                 }
             }
         }
         3 => {
-            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.chunks_exact(3)) {
+            for (destination, source) in out
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(pixels.as_chunks::<3>().0)
+            {
                 if let Some(rgb) = destination.get_mut(..3) {
                     rgb.copy_from_slice(source);
                 }
@@ -390,7 +395,12 @@ pub(super) fn widened(pixels: &[u8], count: usize, channels: usize) -> Result<Ve
         // `convert_channels` is where they become pixels. The alpha byte carries `k` until
         // then, which is why that conversion restores it rather than leaving it alone.
         4 => {
-            for (destination, source) in out.chunks_exact_mut(4).zip(pixels.chunks_exact(4)) {
+            for (destination, source) in out
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(pixels.as_chunks::<4>().0)
+            {
                 destination.copy_from_slice(source);
             }
         }
@@ -452,7 +462,7 @@ fn apply_decode_to_channels(
     // A greyscale JPEG's one component was written to all three channels, so three is right
     // for one component as well as for three; four components are still four channels.
     let touched = if components == 4 { 4 } else { 3 };
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         for (component, channel) in pixel.iter_mut().take(touched).enumerate() {
             let pair = if grey { 0 } else { component };
             *channel = decode.channel(pair, usize::from(*channel));
@@ -568,7 +578,7 @@ pub(super) fn convert_channels(
                     [channel(colour.r), channel(colour.g), channel(colour.b)]
                 })
                 .collect();
-            for pixel in rgba.chunks_exact_mut(4) {
+            for pixel in rgba.as_chunks_mut::<4>().0 {
                 let grey = usize::from(pixel.first().copied().unwrap_or(0));
                 if let Some(rgb) = pixel.get_mut(..3)
                     && let Some(converted) = table.get(grey)

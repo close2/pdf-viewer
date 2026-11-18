@@ -115,8 +115,11 @@ impl Open {
                         .into_iter()
                         .map(|quad| {
                             let mut mapped = [0.0; 8];
-                            for (corner, out) in
-                                quad.chunks_exact(2).zip(mapped.chunks_exact_mut(2))
+                            for (corner, out) in quad
+                                .as_chunks::<2>()
+                                .0
+                                .iter()
+                                .zip(mapped.as_chunks_mut::<2>().0)
                             {
                                 let point = back.apply(Point {
                                     x: corner[0],

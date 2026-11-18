@@ -575,7 +575,7 @@ mod tests {
         ]);
         let pages = crate::page::Pages::new(&doc);
         let page = pages.get(0).expect("one page");
-        assert!(steps(&doc, &page.dict).is_empty());
+        assert_eq!(steps(&doc, &page.dict), [] as [crate::navigation::Node; 0]);
     }
 
     /// §12.4.4.1's two page entries are read, and neither reaches what the page *draws*.

@@ -678,9 +678,11 @@ impl SoftMask {
     pub fn values(&self, pixels: &[u8]) -> Vec<u8> {
         let outside = self.outside();
         pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| {
-                if pixel == [0, 0, 0, 0] {
+                if *pixel == [0, 0, 0, 0] {
                     outside
                 } else {
                     self.value([pixel[0], pixel[1], pixel[2], pixel[3]])
@@ -703,7 +705,9 @@ impl SoftMask {
     pub fn paired_values(&self, chromatic: &[u8], black: &[u8]) -> Vec<u8> {
         let outside = self.outside();
         chromatic
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .map(|(at, pixel)| {
                 let Some(other) = black
@@ -712,7 +716,7 @@ impl SoftMask {
                 else {
                     return outside;
                 };
-                if pixel == [0, 0, 0, 0] && *other == [0, 0, 0, 0] {
+                if *pixel == [0, 0, 0, 0] && *other == [0, 0, 0, 0] {
                     return outside;
                 }
                 self.paired_value([pixel[0], pixel[1], pixel[2], pixel[3]], *other)

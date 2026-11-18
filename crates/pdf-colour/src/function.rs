@@ -1324,7 +1324,9 @@ fn pairs(
     }
     Some(
         values
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
             .collect(),
     )
@@ -4374,7 +4376,7 @@ mod tests {
         assert_eq!(function.eval(&[-5.0]), vec![0.0, 0.0, 0.0]);
         assert_eq!(function.eval(&[5.0]), vec![1.0, 0.5, 0.0]);
         // A function with no `/Bounds` declares no discontinuity.
-        assert!(function.breakpoints().is_empty());
+        assert_eq!(function.breakpoints(), [] as [f32; 0]);
     }
 
     /// Table 39's eight `/BitsPerSample` widths, each read back as the value it encodes.

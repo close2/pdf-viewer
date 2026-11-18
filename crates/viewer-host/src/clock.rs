@@ -377,7 +377,7 @@ pub fn face_as_shown(
         let Some(y) = usize::try_from(y).ok().filter(|&y| y < height) else {
             continue;
         };
-        for (column, pixel) in line.chunks_exact(4).enumerate() {
+        for (column, pixel) in line.as_chunks::<4>().0.iter().enumerate() {
             let Some(x) = i64::try_from(column)
                 .ok()
                 .and_then(|column| column.checked_add(left))

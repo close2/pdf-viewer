@@ -1,6 +1,6 @@
 # Kept in step with `rust-version` in the workspace manifest, so Clippy will not
 # suggest constructs newer than the pinned toolchain.
-msrv = "1.97"
+msrv = "1.100"
 
 # Any type large enough to be worth passing by reference should be passed by
 # reference; the default (128 bytes) is generous for a renderer whose hot loops pass

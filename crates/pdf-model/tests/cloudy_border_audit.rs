@@ -153,8 +153,14 @@ fn a_cloudy_polygon_honours_bs_width_and_zero_suppresses_its_stroke() {
     let thin = draw(1);
     let thick = draw(4);
     assert_ne!(thin, thick, "changing BS width changes the cloud stroke");
-    let coverage =
-        |r: &pdf_render::Raster| -> u64 { r.data.chunks_exact(4).map(|p| u64::from(p[3])).sum() };
+    let coverage = |r: &pdf_render::Raster| -> u64 {
+        r.data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| u64::from(p[3]))
+            .sum()
+    };
     assert!(coverage(&thin) > 0);
     assert!(
         coverage(&thick) > 2 * coverage(&thin),

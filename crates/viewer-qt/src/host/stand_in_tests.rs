@@ -41,7 +41,7 @@ fn a_short_raster_is_not_handed_to_the_image_sink() {
     raster.data.pop();
     let view = describe(&raster, (2.0, 3.0), (2, 2));
     assert!(!view.frame.present);
-    assert!(view.pixels.is_empty());
+    assert_eq!(view.pixels, []);
     assert_eq!((view.frame.width, view.frame.height), (0, 0));
 }
 

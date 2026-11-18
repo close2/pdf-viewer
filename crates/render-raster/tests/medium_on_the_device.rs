@@ -30,7 +30,7 @@ use render_raster::QuorraRasterizer;
 
 /// `render_raster`'s premultiply, transcribed: the processor's first pass.
 fn premultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = u16::from(pixel[3]);
         if alpha == 255 {
             continue;
@@ -44,7 +44,7 @@ fn premultiply(data: &mut [u8]) {
 
 /// `render_raster`'s demultiply, transcribed: the processor's last pass.
 fn demultiply(data: &mut [u8]) {
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = u16::from(pixel[3]);
         if alpha == 0 || alpha == 255 {
             continue;
@@ -115,8 +115,10 @@ fn a_page_on_white_is_the_processor_s_three_passes_to_the_byte() {
             pdf_render::impose_on_medium(&mut expected, Color::WHITE);
             demultiply(&mut expected);
             let differing = drawn
-                .chunks_exact(4)
-                .zip(expected.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(expected.as_chunks::<4>().0)
                 .filter(|(a, b)| a != b)
                 .count();
             assert_eq!(

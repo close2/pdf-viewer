@@ -144,7 +144,9 @@ fn scene(clip: Option<(f32, f32, f32, f32)>) -> DisplayList {
 fn ink(raster: &Raster) -> f64 {
     let sum: u64 = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| 765 - u64::from(pixel[0]) - u64::from(pixel[1]) - u64::from(pixel[2]))
         .sum();
     #[expect(

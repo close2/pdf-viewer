@@ -183,8 +183,7 @@ fn main() {
     for (space, (total, parametric)) in &by_space {
         let documents = spaces_of
             .get(space)
-            .map(|names| names.iter().cloned().collect::<Vec<_>>().join(", "))
-            .unwrap_or_default();
+            .map_or_default(|names| names.iter().cloned().collect::<Vec<_>>().join(", "));
         println!("  {space}: {total} shadings, {parametric} with a /Function — {documents}");
     }
     println!();

@@ -353,7 +353,7 @@ fn reduce_row(
         window
     };
     let Some(band) = band else {
-        for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+        for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(spans) {
             cell.copy_from_slice(&average_block(spec, x0, y0, x1, y1));
         }
         return;
@@ -370,13 +370,13 @@ fn reduce_row(
         }
     }
     let lines = y1 - y0;
-    for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+    for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(spans) {
         let count = (x1 - x0) * lines;
         let mut block = [0u32; 4];
         let columns = sums
             .get((x0 as usize - left) * 4..(x1 as usize - left) * 4)
             .unwrap_or_default();
-        for column in columns.chunks_exact(4) {
+        for column in columns.as_chunks::<4>().0 {
             block[0] += column[0];
             block[1] += column[1];
             block[2] += column[2];
@@ -419,7 +419,12 @@ fn translucent_row(
     sums.resize(band.first().map_or(0, |source| source.len()), 0);
     let mut sources = band.iter();
     if let Some(first) = sources.next() {
-        for (sum, sample) in sums.chunks_exact_mut(4).zip(first.chunks_exact(4)) {
+        for (sum, sample) in sums
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(first.as_chunks::<4>().0)
+        {
             let alpha = u32::from(sample[3]);
             sum[0] = u32::from(sample[0]) * alpha;
             sum[1] = u32::from(sample[1]) * alpha;
@@ -428,7 +433,12 @@ fn translucent_row(
         }
     }
     for source in sources {
-        for (sum, sample) in sums.chunks_exact_mut(4).zip(source.chunks_exact(4)) {
+        for (sum, sample) in sums
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(source.as_chunks::<4>().0)
+        {
             let alpha = u32::from(sample[3]);
             sum[0] += u32::from(sample[0]) * alpha;
             sum[1] += u32::from(sample[1]) * alpha;
@@ -436,13 +446,13 @@ fn translucent_row(
             sum[3] += alpha;
         }
     }
-    for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(spans) {
+    for (cell, &(x0, x1)) in row.as_chunks_mut::<4>().0.iter_mut().zip(spans) {
         let count = u64::from((x1 - x0) * lines);
         let mut block = [0u32; 4];
         let columns = sums
             .get((x0 as usize - left) * 4..(x1 as usize - left) * 4)
             .unwrap_or_default();
-        for column in columns.chunks_exact(4) {
+        for column in columns.as_chunks::<4>().0 {
             block[0] += column[0];
             block[1] += column[1];
             block[2] += column[2];
@@ -466,17 +476,11 @@ fn translucent_row(
 /// bytes folded at a time, the two alpha lanes tested once.
 fn opaque_band(band: &[u8]) -> bool {
     const ALPHAS: u64 = u64::from_le_bytes([0, 0, 0, 0xFF, 0, 0, 0, 0xFF]);
-    let mut words = band.chunks_exact(8);
-    let folded = words.by_ref().fold(u64::MAX, |all, word| {
-        let mut eight = [0u8; 8];
-        eight.copy_from_slice(word);
-        all & u64::from_le_bytes(eight)
-    });
-    folded & ALPHAS == ALPHAS
-        && words
-            .remainder()
-            .get(3)
-            .is_none_or(|&alpha| alpha == u8::MAX)
+    let (words, rest) = band.as_chunks::<8>();
+    let folded = words
+        .iter()
+        .fold(u64::MAX, |all, word| all & u64::from_le_bytes(*word));
+    folded & ALPHAS == ALPHAS && rest.get(3).is_none_or(|&alpha| alpha == u8::MAX)
 }
 
 /// The caller's `average_block`: the mean of one block as straight-alpha RGBA8,
@@ -495,7 +499,7 @@ fn average_block(spec: &ImageSpec, x0: u32, y0: u32, x1: u32, y1: u32) -> [u8; 4
         let Some(span) = spec.data.get(from..to) else {
             continue;
         };
-        for sample in span.chunks_exact(4) {
+        for sample in span.as_chunks::<4>().0 {
             let alpha = u64::from(sample[3]);
             for (sum, component) in colour.iter_mut().zip(sample) {
                 *sum += u64::from(*component) * alpha;
@@ -561,8 +565,8 @@ mod tests {
         assert_eq!(reduced.factors, (2, 2));
         assert_eq!((reduced.width, reduced.height), (2, 2));
         let out = area_averaged(&source, reduced, 1);
-        for cell in out.data.chunks_exact(4) {
-            assert_eq!(cell, [128, 128, 128, 255]);
+        for cell in out.data.as_chunks::<4>().0 {
+            assert_eq!(*cell, [128, 128, 128, 255]);
         }
     }
 
@@ -629,12 +633,12 @@ mod tests {
                 let out = area_averaged(&source, reduced, 1);
                 let rows = Bands::new(height, reduced.height);
                 let columns = Bands::new(width, reduced.width);
-                for (index, cell) in out.data.chunks_exact(4).enumerate() {
+                for (index, cell) in out.data.as_chunks::<4>().0.iter().enumerate() {
                     let index = u32::try_from(index).expect("a small grid");
                     let (x, y) = (index % reduced.width, index / reduced.width);
                     let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
                     assert_eq!(
-                        cell,
+                        *cell,
                         average_block(&source, x0, y0, x1, y1),
                         "cell ({x}, {y})"
                     );
@@ -678,12 +682,12 @@ mod tests {
             let out = area_averaged(&source, reduced, 1);
             let rows = Bands::new(height, reduced.height);
             let columns = Bands::new(width, reduced.width);
-            for (index, cell) in out.data.chunks_exact(4).enumerate() {
+            for (index, cell) in out.data.as_chunks::<4>().0.iter().enumerate() {
                 let index = u32::try_from(index).expect("a small grid");
                 let (x, y) = (index % reduced.width, index / reduced.width);
                 let ((x0, x1), (y0, y1)) = (columns.at(x), rows.at(y));
                 assert_eq!(
-                    cell,
+                    *cell,
                     average_block(&source, x0, y0, x1, y1),
                     "cell ({x}, {y})"
                 );

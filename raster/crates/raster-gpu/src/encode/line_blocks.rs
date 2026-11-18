@@ -75,7 +75,7 @@ impl Bounds {
     /// The first seven little-endian floats are endpoints, pen radii, and packed cap/resolution.
     fn of(instance: &[u8]) -> Self {
         let mut fields = [0.0_f32; 7];
-        for (field, bytes) in fields.iter_mut().zip(instance.chunks_exact(4)) {
+        for (field, bytes) in fields.iter_mut().zip(instance.as_chunks::<4>().0) {
             *field = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         }
         if fields.iter().any(|value| !value.is_finite()) {

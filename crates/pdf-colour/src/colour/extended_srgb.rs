@@ -218,7 +218,7 @@ impl ExtendedSrgb {
                                 ..at.saturating_mul(3).saturating_add(3),
                         )
                         .map_or(0.0, |pair| pair.iter().map(|value| value.abs()).sum());
-                    0.5 * (1.0 + chroma) / top
+                    f32::midpoint(1.0, chroma) / top
                 };
                 [row(0), row(1), row(2)]
             }

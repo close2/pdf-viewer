@@ -67,8 +67,10 @@ fn page() -> DisplayList {
 fn differences(one: &Raster, other: &Raster) -> Vec<(usize, usize)> {
     let width = one.width as usize;
     one.data
-        .chunks_exact(4)
-        .zip(other.data.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(other.data.as_chunks::<4>().0)
         .enumerate()
         .filter(|(_, (a, b))| a != b)
         .map(|(index, _)| (index % width, index / width))

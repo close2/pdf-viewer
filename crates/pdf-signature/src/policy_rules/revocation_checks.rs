@@ -683,7 +683,7 @@ fn retention_found(
     path: Option<&Path>,
     material: &Material<'_>,
 ) -> RetentionFound {
-    let certificates = path.map(Path::certificates).unwrap_or_default();
+    let certificates = path.map_or_default(Path::certificates);
     // The signing certificate is position 0 and its issuer position 1; a path of the trust point
     // alone has no certificate below it whose issuer could be asked about.
     let (Some(held), Some(issuer)) = (certificates.first(), certificates.get(1)) else {

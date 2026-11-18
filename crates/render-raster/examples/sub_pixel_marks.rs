@@ -169,7 +169,7 @@ const REACH: f32 = 100.0;
 fn total_ink(raster: &pdf_render::Raster) -> f32 {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>().0.iter()
         // The scenes are black on white, so darkness is coverage.
         .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
         .sum()

@@ -110,7 +110,9 @@ fn controlled_viewer() -> Viewer {
     let ink = frame
         .raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|rgba| rgba[..3] != [255, 255, 255])
         .count();
 
@@ -126,7 +128,9 @@ fn controlled_viewer() -> Viewer {
     let blank_ink = blank_frame
         .raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|rgba| rgba[..3] != [255, 255, 255])
         .count();
     assert!(

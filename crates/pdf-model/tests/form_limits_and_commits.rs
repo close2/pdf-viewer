@@ -55,8 +55,7 @@ fn shown(document: &Document, view: &ViewState) -> String {
         Control::Choice(choice) => choice
             .selected
             .first()
-            .map(|index| choice.options[*index].label.clone())
-            .unwrap_or_default(),
+            .map_or_default(|index| choice.options[*index].label.clone()),
         _ => String::new(),
     }
 }

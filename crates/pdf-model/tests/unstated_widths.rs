@@ -40,7 +40,9 @@ fn marked_columns(interpretation: &Interpretation) -> (usize, usize) {
     let width = usize::try_from(raster.width).expect("a page width fits");
     let columns: Vec<usize> = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .filter(|(_, pixel)| pixel[3] != 0)
         .filter_map(|(index, _)| index.checked_rem(width))

@@ -130,8 +130,7 @@ fn script_kinds(script: &str) -> (Vec<String>, Vec<String>) {
     let main = functions
         .iter()
         .find(|(name, _)| name == "main")
-        .map(|(_, body)| body.as_str())
-        .unwrap_or_default();
+        .map_or_default(|(_, body)| body.as_str());
     let mut called: Vec<(usize, &String, &String)> = functions
         .iter()
         .filter(|(name, _)| name != "main")

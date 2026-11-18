@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn an_unlabelled_page_resolves_directly_under_the_root() {
         let page = pages(PLAIN).pop().expect("one ambiguous line");
-        assert!(page.label.is_empty());
+        assert_eq!(page.label, "");
         assert_eq!(
             page.ours(),
             Path::new("issue16038/p1/issue16038-p1-ours.png")
@@ -392,7 +392,7 @@ mod tests {
                       b.pdf page 1: contradicted — ours at worst mean 9.00\n  \
                       c.pdf page 1: not comparable (incomplete) — poppler returned one colour\n  \
                       d.pdf page 2: no render — the page could not be drawn\n";
-        assert!(pages(report).is_empty());
+        assert_eq!(pages(report), [] as [Page; 0]);
     }
 
     /// Correction 1, both ways: a blank reference is dropped, and a live one is not.
@@ -488,7 +488,7 @@ mod tests {
     #[test]
     fn a_page_the_gate_judged_whole_excludes_no_reference() {
         let page = pages(PLAIN).pop().expect("one ambiguous line");
-        assert!(page.without.is_empty());
+        assert_eq!(page.without, [] as [String; 0]);
         for renderer in REFERENCES {
             assert!(page.drew(renderer));
         }

@@ -276,7 +276,7 @@ fn a_cycle_is_also_ended_by_the_steps_the_scripts_take_between_them() {
     };
     let activation = activate(&template, &[("A", ""), ("B", "")], Stimulus::Merge, limits);
     assert_eq!(activation.ended, Ended::Budget("steps"));
-    assert!(activation.edits.is_empty());
+    assert_eq!(activation.edits, [] as [(String, Scalar); 0]);
     assert!(activation.activations < 40, "{}", activation.activations);
 }
 
@@ -372,7 +372,10 @@ fn an_override_decides_whether_a_calculation_replaces_what_a_person_entered() {
         );
     }
     let template = field("Total", &calculate("5", "override=\"disabled\""));
-    assert!(merge(&template, &[("Total", "")]).edits.is_empty());
+    assert_eq!(
+        merge(&template, &[("Total", "")]).edits,
+        [] as [(String, Scalar); 0]
+    );
     assert_eq!(merge(&template, &[("Total", "")]).activations, 0);
 }
 
@@ -515,7 +518,7 @@ fn a_reported_sentence_is_cut_to_its_cap() {
         "<calculate><script contentType=\"application/x-javascript\">1;</script></calculate>",
     );
     let merged = merge(&template, &[(long.as_str(), "")]);
-    assert!(!merged.report.is_empty());
+    assert_ne!(merged.report, [] as [String; 0]);
     assert!(
         merged.report.iter().all(|s| s.chars().count() <= 512),
         "{:?}",
@@ -581,7 +584,7 @@ fn the_names_the_calculations_hold_are_bounded() {
     };
     let activation = resource.activate(&all, Stimulus::Merge, &mut FormCalcRunner, limits);
     assert_eq!(activation.ended, Ended::Budget("names"));
-    assert!(activation.edits.is_empty());
+    assert_eq!(activation.edits, [] as [(String, Scalar); 0]);
     let roomy = resource.activate(&all, Stimulus::Merge, &mut FormCalcRunner, Limits::DEFAULT);
     assert_eq!(roomy.ended, Ended::Settled);
 }
@@ -844,7 +847,7 @@ fn focus_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
         },
         Limits::DEFAULT,
     );
-    assert!(activation.edits.is_empty());
+    assert_eq!(activation.edits, [] as [(String, Scalar); 0]);
     assert!(
         activation
             .report
@@ -1198,7 +1201,7 @@ fn a_text_encoding_other_than_utf_8_is_named_on_what_the_submit_owes() {
 fn an_execute_is_ignored_where_the_server_runs_it_and_said_where_the_client_would() {
     let server = click_send("<execute connection=\"Lookup\" runAt=\"server\"/>");
     assert!(server.report.is_empty(), "{:?}", server.report);
-    assert!(server.submits.is_empty());
+    assert_eq!(server.submits, [] as [pdf_model::xfa::FormSubmit; 0]);
     let client = click_send("<execute connection=\"Lookup\"/>");
     assert!(
         says(&client, "web service of the connection Lookup"),
@@ -1308,7 +1311,7 @@ fn a_click_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
         },
         Limits::DEFAULT,
     );
-    assert!(activation.edits.is_empty());
+    assert_eq!(activation.edits, [] as [(String, Scalar); 0]);
     assert!(
         activation
             .report
@@ -1343,7 +1346,7 @@ fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
     assert!(started.elapsed() < std::time::Duration::from_secs(30));
     assert_eq!(activation.ended, Ended::Settled);
     assert_eq!(activation.activations, 0);
-    assert!(activation.submits.is_empty());
+    assert_eq!(activation.submits, [] as [pdf_model::xfa::FormSubmit; 0]);
     assert_eq!(
         activation
             .report
@@ -2160,7 +2163,10 @@ fn a_script_test_reads_its_value_as_formcalc_promotes_a_boolean() {
 #[test]
 fn an_empty_field_is_not_put_to_its_script_test() {
     let template = field("Amount", &validate("0", "", None));
-    assert!(merge(&template, &[("Amount", "")]).script_tests.is_empty());
+    assert_eq!(
+        merge(&template, &[("Amount", "")]).script_tests,
+        [] as [Vec<pdf_model::xfa::Invalid>; 0]
+    );
     assert_eq!(invalid(&merge(&template, &[("Amount", "x")])).len(), 1);
 }
 
@@ -2218,7 +2224,10 @@ fn a_validation_script_that_assigns_changes_nothing_and_is_reported() {
         activation.edits,
         vec![edit("Note", Scalar::Text("seen ".to_owned()))]
     );
-    assert!(activation.script_tests.is_empty());
+    assert_eq!(
+        activation.script_tests,
+        [] as [Vec<pdf_model::xfa::Invalid>; 0]
+    );
     assert!(
         activation
             .report
@@ -2299,7 +2308,7 @@ fn a_dismissed_warning_runs_the_calculation_over_the_entry_and_what_reads_it() {
             edit("Double", Scalar::Number(12.0)),
         ]
     );
-    assert!(activation.overridden.is_empty());
+    assert_eq!(activation.overridden, [] as [pdf_model::xfa::Overridden; 0]);
 }
 
 /// A radio button of an exclusion group: a check button whose on value, the first of its `items`,
@@ -3853,7 +3862,7 @@ fn where_no_script_runs_a_click_still_holds_its_events_submit() {
             button: None,
         },
     );
-    assert!(activation.submits.is_empty());
+    assert_eq!(activation.submits, [] as [pdf_model::xfa::FormSubmit; 0]);
     assert!(
         says(&activation, "would begin a submit inside the one under way"),
         "{:?}",

@@ -253,7 +253,7 @@ impl App {
         )]
         let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
         let mut path = Path::new();
-        for (index, corner) in quad.chunks_exact(2).enumerate() {
+        for (index, corner) in quad.as_chunks::<2>().0.iter().enumerate() {
             let point = Point::new(corner[0], corner[1]);
             path.push(if index == 0 {
                 PathCommand::MoveTo(point)
@@ -424,7 +424,7 @@ pub(crate) fn highlight_list(
     let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
     let mut path = Path::new();
     for quad in quads {
-        for (index, corner) in quad.chunks_exact(2).enumerate() {
+        for (index, corner) in quad.as_chunks::<2>().0.iter().enumerate() {
             let point = Point::new(corner[0], corner[1]);
             path.push(if index == 0 {
                 PathCommand::MoveTo(point)

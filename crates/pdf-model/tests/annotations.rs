@@ -370,7 +370,7 @@ fn an_appearance_box_covering_no_area_draws_nothing_and_reports_nothing() {
         "/BBox [0 0 0 0]",
         "0 0 1 rg 10 20 20 30 re f",
     ));
-    assert!(interpretation.display_list.commands().is_empty());
+    assert_eq!(interpretation.display_list.commands(), []);
     assert!(
         interpretation.is_complete(),
         "an annotation the file gives no area is not a gap: {:?}",
@@ -731,7 +731,7 @@ fn each_of_the_seven_standard_icon_names_draws_its_own_shape() {
     let drawn: Vec<Vec<u8>> = names.iter().map(|name| icon(name)).collect();
     for (name, pixels) in names.iter().zip(&drawn) {
         assert!(
-            pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
+            pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0),
             "/{name} drew nothing"
         );
     }
@@ -2422,7 +2422,9 @@ fn a_text_annotations_icon_is_one_size_whatever_its_rect_states() {
             .expect("supported");
         raster
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[0] < 128)
             .count()
     };

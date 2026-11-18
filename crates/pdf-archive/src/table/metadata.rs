@@ -2408,15 +2408,9 @@ pub fn undescribed_schemas(packet: &[u8], described: Option<&[u8]>) -> Vec<Undes
         return Vec::new();
     };
     let inherited = described.and_then(|bytes| Xmp::parse_detail(bytes).ok());
-    let mut known = inherited
-        .as_deref()
-        .map(described_schemas)
-        .unwrap_or_default();
+    let mut known = inherited.as_deref().map_or_default(described_schemas);
     known.extend(described_schemas(&properties));
-    let mut named = inherited
-        .as_deref()
-        .map(described_properties)
-        .unwrap_or_default();
+    let mut named = inherited.as_deref().map_or_default(described_properties);
     named.extend(described_properties(&properties));
     let mut out: Vec<UndescribedSchema> = Vec::new();
     for property in &properties {
@@ -2985,14 +2979,8 @@ fn described_schemas(properties: &[XmpProperty]) -> Vec<String> {
 fn extension_schemas_embedded(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let catalog = catalog_detail(document);
-    let inherited = catalog
-        .as_deref()
-        .map(described_schemas)
-        .unwrap_or_default();
-    let inherited_names = catalog
-        .as_deref()
-        .map(described_properties)
-        .unwrap_or_default();
+    let inherited = catalog.as_deref().map_or_default(described_schemas);
+    let inherited_names = catalog.as_deref().map_or_default(described_properties);
     for_each_packet(exam, |id, properties| {
         let mut described = inherited.clone();
         described.extend(described_schemas(properties));
@@ -3908,7 +3896,7 @@ mod tests {
              <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
              <rdf:Description rdf:about=\"\"></rdf:Description>\n\
              </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
-        assert!(packet_faults(conforming).is_empty());
+        assert_eq!(packet_faults(conforming), [] as [PacketFault; 0]);
 
         // An element closed by another element's tag: not well-formed XML, which ISO 16684-1
         // section 7.1 makes not well-formed XMP. Nothing else is reported over it, because the
@@ -4559,7 +4547,7 @@ mod tests {
             names.sort_unstable();
             names.dedup();
             assert_eq!(names.len(), stated, "{} repeats a property", schema.name);
-            assert!(!schema.uri.is_empty());
+            assert_ne!(schema.uri, "");
         }
     }
 
@@ -5444,9 +5432,9 @@ mod tests {
             property.because
         );
         // The plant: the same packet, its description naming the structure the items are.
-        assert!(
-            properties_outside_their_description(stated("Bag ResourceRef").as_bytes(), None)
-                .is_empty()
+        assert_eq!(
+            properties_outside_their_description(stated("Bag ResourceRef").as_bytes(), None),
+            [] as [crate::table::metadata::MisusedProperty; 0]
         );
 
         // A description the catalog's packet carries types a property every stream states.
@@ -5460,16 +5448,17 @@ mod tests {
             .len(),
             1
         );
-        assert!(
+        assert_eq!(
             properties_outside_their_description(
                 alone.as_bytes(),
                 Some(catalog("Bag ResourceRef").as_bytes())
-            )
-            .is_empty()
+            ),
+            [] as [crate::table::metadata::MisusedProperty; 0]
         );
         // A type neither the edition nor a description defines is another row's question.
-        assert!(
-            properties_outside_their_description(stated("Bag Machine").as_bytes(), None).is_empty()
+        assert_eq!(
+            properties_outside_their_description(stated("Bag Machine").as_bytes(), None),
+            [] as [crate::table::metadata::MisusedProperty; 0]
         );
     }
 }

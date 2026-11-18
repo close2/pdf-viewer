@@ -133,9 +133,8 @@ fn run() -> Result<Value, Refused> {
         }
     };
     // `--subtype` implies `--annotations`, which `Wanted::wants_annotations` states once.
-    let subtypes: Vec<String> = value(VALUED)
-        .map(|list| list.split(',').map(str::to_owned).collect())
-        .unwrap_or_default();
+    let subtypes: Vec<String> =
+        value(VALUED).map_or_default(|list| list.split(',').map(str::to_owned).collect());
     let wanted = Wanted {
         annotations: flag("--annotations"),
         subtypes,

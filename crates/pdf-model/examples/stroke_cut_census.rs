@@ -366,8 +366,10 @@ fn divisions(list: &DisplayList, target: pdf_render::TargetSpec, dump: Option<&s
             .strip_plan(list, target);
         let near = whole
             .0
-            .chunks_exact(4)
-            .zip(split.0.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(split.0.as_chunks::<4>().0)
             .enumerate()
             .filter(|(_, (a, b))| a != b)
             .filter(|(at, _)| {
@@ -415,7 +417,13 @@ fn compare(one: &[u8], other: &[u8], width: u32) -> (usize, u8, Option<(usize, u
     let mut moved = 0;
     let mut worst = 0;
     let mut first = None;
-    for (index, (a, b)) in one.chunks_exact(4).zip(other.chunks_exact(4)).enumerate() {
+    for (index, (a, b)) in one
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(other.as_chunks::<4>().0)
+        .enumerate()
+    {
         let most = a
             .iter()
             .zip(b)

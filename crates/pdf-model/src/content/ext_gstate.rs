@@ -594,12 +594,11 @@ fn blends_under(
         document
             .get_key(resources, category)
             .as_dict()
-            .map(|dict| {
+            .map_or_default(|dict| {
                 dict.iter()
                     .map(|(_, value)| document.resolve(value))
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default()
     };
     let blends = entries("ExtGState").iter().any(|state| {
         state.as_dict().is_some_and(|state| {

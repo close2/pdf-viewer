@@ -128,8 +128,7 @@ impl ViewState {
             .filter(|index| *index < options.len())
             .min()
             .and_then(|index| options.get(index))
-            .map(|option| option.label.clone())
-            .unwrap_or_default();
+            .map_or_default(|option| option.label.clone());
         match self.keystroke_verdict(document, taking, &change) {
             Verdict::Stands => Selected::Stands,
             Verdict::Rejected => Selected::Rejected,

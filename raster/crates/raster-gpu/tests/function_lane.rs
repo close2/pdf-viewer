@@ -486,7 +486,7 @@ fn a_program_that_reads_no_empty_stack_reports_nothing() {
             Target::Readback,
         )
         .expect("the frame is drawn");
-    assert!(frame.reports().is_empty());
+    assert_eq!(frame.reports(), []);
 }
 
 /// A released program is refused by name on the next frame, like every other resource

@@ -57,8 +57,7 @@ fn nodes(open: &Open) -> Vec<Node> {
     let pages = pdf_model::Pages::new(&open.document);
     pages
         .get(open.page_index)
-        .map(|page| pdf_model::navigation::steps(&open.document, &page.dict))
-        .unwrap_or_default()
+        .map_or_default(|page| pdf_model::navigation::steps(&open.document, &page.dict))
 }
 
 /// Enters presentation mode for one document.
@@ -216,9 +215,7 @@ pub(crate) fn arrived(open: &mut Open, forward: bool) -> Vec<Action> {
         return Vec::new();
     }
     open.node = Some(0);
-    step(open, forward)
-        .map(|step| step.actions)
-        .unwrap_or_default()
+    step(open, forward).map_or_default(|step| step.actions)
 }
 
 /// Table 165's `/Dur`, after `seconds` more of the current node being shown (§12.4.4.2).

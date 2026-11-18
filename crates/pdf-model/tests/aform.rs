@@ -718,8 +718,7 @@ fn saved_value(view: &ViewState, document: &Document, widget: u32) -> String {
     saved
         .get_key(dict, "V")
         .as_string()
-        .map(pdf_syntax::text_string)
-        .unwrap_or_default()
+        .map_or_default(pdf_syntax::text_string)
 }
 
 const CURRENCY: &str = "/F << /S /JavaScript /JS (AFNumber_Format\\(2, 0, 0, 0, \"$\", true\\);) >> \

@@ -196,7 +196,7 @@ fn each_format_reaches_the_server_as_it_was_composed() {
                     format!("/cgi?{}", query.expect("a GET's data is its query")),
                     "flags {flags}"
                 );
-                assert!(arrived.body.is_empty());
+                assert_eq!(arrived.body, [] as [u8; 0]);
             }
             Method::Post => assert_eq!(arrived.target, "/cgi", "flags {flags}"),
         }

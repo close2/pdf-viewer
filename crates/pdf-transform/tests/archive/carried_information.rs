@@ -173,8 +173,7 @@ fn stated_sentence(conversion: &pdf_transform::archive::Conversion) -> String {
     conversion
         .statement
         .as_ref()
-        .map(pdf_transform::archive::StatementPage::sentence)
-        .unwrap_or_default()
+        .map_or_default(pdf_transform::archive::StatementPage::sentence)
 }
 
 /// The page count, and the text of every page after the source's one: the statement.

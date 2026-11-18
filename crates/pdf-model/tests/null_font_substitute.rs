@@ -142,7 +142,7 @@ fn under_the_setting_the_text_draws_in_the_substitute_at_its_own_advances_and_is
 fn the_graphics_states_font_entry_takes_the_same_answer() {
     let content = "BT /Null gs 10 10 Td (A) Tj ET";
     let off = interpreted(content, false);
-    assert!(fills(&off).is_empty());
+    assert_eq!(fills(&off), [] as [f32; 0]);
     assert!(reports(&off).contains("the /Font entry object 9 0 is stated"));
     let on = interpreted(content, true);
     assert_eq!(fills(&on).len(), 1);

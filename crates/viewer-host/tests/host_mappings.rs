@@ -1049,7 +1049,7 @@ fn the_document_a_collection_opens_on_is_the_row_set_apart() {
 
     // "If the D entry is missing or is not a valid byte string, the initial document shall be the
     // one that contains the collection dictionary" — which is on the screen, so no row is marked.
-    assert!(marked("", "/Folders 10 0 R").is_empty());
+    assert_eq!(marked("", "/Folders 10 0 R"), [] as [String; 0]);
     assert!(
         marked("/D /report", "/Folders 10 0 R").is_empty(),
         "a name is not a byte string"
@@ -1496,11 +1496,9 @@ fn a_name_the_clause_restricts_is_said_out_loud_and_a_valid_one_is_not() {
 
     let plain = panel("Chapters");
     assert!(
-        plain.iter().all(|row| row.label
-            != restricted
-                .last()
-                .map(|row| row.label.clone())
-                .unwrap_or_default()),
+        plain
+            .iter()
+            .all(|row| row.label != restricted.last().map_or_default(|row| row.label.clone())),
         "a conforming name adds no sentence: {plain:?}"
     );
 }
@@ -1565,7 +1563,7 @@ fn a_host_supplies_the_anchors_or_nobody_does() {
     );
     assert!(none.anchors.is_empty(), "nobody named an anchor");
     assert_eq!(none.anchors.source(), "");
-    assert!(refused.is_empty());
+    assert_eq!(refused, [] as [viewer_host::AnchorRefusal; 0]);
     assert_eq!(
         none.acceptance,
         pdf_signature::verdict::Acceptance::RevocationMustBeGood,
@@ -1638,7 +1636,7 @@ fn a_host_supplies_the_anchors_or_nobody_does() {
 fn trusted_lists_are_read_from_the_directory_a_person_named() {
     let (none, refused) = viewer_host::trusted_lists(None);
     assert!(none.is_empty(), "nobody named a list");
-    assert!(refused.is_empty());
+    assert_eq!(refused, [] as [viewer_host::AnchorRefusal; 0]);
 
     let directory = std::env::temp_dir().join(format!(
         "quorra-trusted-lists-{}-{}",

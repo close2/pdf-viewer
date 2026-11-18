@@ -170,8 +170,7 @@ impl ViewState {
             .scripting
             .told
             .as_deref()
-            .map(|told| told.names.clone())
-            .unwrap_or_default();
+            .map_or_default(|told| told.names.clone());
         told_names.extend(names.iter().map(|name| (*name).clone()));
         let states = names
             .into_iter()

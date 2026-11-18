@@ -173,10 +173,9 @@ fn a_page_states_its_true_size_and_reads_back_in_pieces() {
         .read(handle, size.saturating_sub(4), 64)
         .expect("reads the end");
     assert_eq!(tail.len(), 4);
-    assert!(
-        face.read(handle, size, 16)
-            .expect("past the end")
-            .is_empty()
+    assert_eq!(
+        face.read(handle, size, 16).expect("past the end"),
+        [] as [u8; 0]
     );
     face.release(handle);
 

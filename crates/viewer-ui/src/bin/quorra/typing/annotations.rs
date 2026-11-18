@@ -75,7 +75,7 @@ impl App {
                     to: at,
                     colour: FREE_TEXT_INK,
                 }));
-                let middle = ((from.0 + at.0) * 0.5, (from.1 + at.1) * 0.5);
+                let middle = (f32::midpoint(from.0, at.0), f32::midpoint(from.1, at.1));
                 self.typing = self.aim_at_free_text(middle);
                 if self.typing.is_none() {
                     println!("note: that rectangle has no area, so there is nothing to type in");

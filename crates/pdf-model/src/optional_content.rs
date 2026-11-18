@@ -267,8 +267,7 @@ impl OptionalContent {
         let groups: Vec<ObjectId> = document
             .get_key(properties, "OCGs")
             .as_array()
-            .map(|array| array.iter().filter_map(reference).collect())
-            .unwrap_or_default();
+            .map_or_default(|array| array.iter().filter_map(reference).collect());
 
         let configuration = document.get_key(properties, "D");
         let configuration = configuration.as_dict().cloned().unwrap_or_default();
@@ -345,7 +344,7 @@ impl OptionalContent {
         let radio_buttons = document
             .get_key(&configuration, "RBGroups")
             .as_array()
-            .map(|outer| {
+            .map_or_default(|outer| {
                 outer
                     .iter()
                     .filter_map(|inner| {
@@ -355,8 +354,7 @@ impl OptionalContent {
                         (!members.is_empty()).then_some(members)
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
 
         let order = presentation(document, &configuration, &states, 0);
         let locked: BTreeSet<ObjectId> = listed(document, &configuration, "Locked")
@@ -1025,8 +1023,7 @@ fn listed(document: &Document, dictionary: &Dictionary, key: &str) -> Vec<Object
     document
         .get_key(dictionary, key)
         .as_array()
-        .map(|array| array.iter().filter_map(reference).collect())
-        .unwrap_or_default()
+        .map_or_default(|array| array.iter().filter_map(reference).collect())
 }
 
 /// An object's identity, which for an optional content group is the only identity it has.
@@ -1328,7 +1325,7 @@ fn usage_applications(
         let categories: Vec<Category> = document
             .get_key(application, "Category")
             .as_array()
-            .map(|items| {
+            .map_or_default(|items| {
                 items
                     .iter()
                     .filter_map(|item| {
@@ -1338,8 +1335,7 @@ fn usage_applications(
                             .map(|name| Category::read(name.as_bytes()))
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         if categories.is_empty() {
             continue;
         }

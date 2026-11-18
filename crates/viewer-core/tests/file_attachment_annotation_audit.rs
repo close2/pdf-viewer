@@ -138,7 +138,10 @@ fn clicking_attachment_activates_its_own_filespec_not_a_name_tree_file() {
     );
 
     // Negative control first: an unrelated point must not enumerate the EmbeddedFiles tree.
-    assert!(extracted_at(&mut viewer, [120.0, 120.0, 140.0, 140.0]).is_empty());
+    assert_eq!(
+        extracted_at(&mut viewer, [120.0, 120.0, 140.0, 140.0]),
+        [] as [(String, Vec<u8>); 0]
+    );
 
     // Each annotation names a different FileSpec; a separate third payload is present in the
     // catalog's EmbeddedFiles tree. Exact names and bytes reject a wrong candidate or a mere

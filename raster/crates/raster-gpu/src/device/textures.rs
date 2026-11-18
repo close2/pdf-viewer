@@ -303,12 +303,14 @@ pub(super) fn write_samples(
 pub(super) fn opaque(data: &[u8]) -> bool {
     let block = |samples: &[u8]| {
         samples
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .fold(u8::MAX, |alphas, sample| alphas & sample[3])
             == u8::MAX
     };
-    let mut blocks = data.chunks_exact(256);
-    blocks.by_ref().all(block) && block(blocks.remainder())
+    let (blocks, rest) = data.as_chunks::<256>();
+    blocks.iter().all(|samples| block(samples)) && block(rest)
 }
 
 /// An image's straight-alpha samples premultiplied, where they lie, for the texture the image
@@ -326,7 +328,7 @@ pub(super) fn opaque(data: &[u8]) -> bool {
 /// Its callers skip it where [`opaque`] says every sample is, which premultiplying leaves
 /// unchanged.
 pub(super) fn premultiply_in_place(data: &mut [u8]) {
-    for sample in data.chunks_exact_mut(4) {
+    for sample in data.as_chunks_mut::<4>().0 {
         let alpha = u16::from(sample[3]);
         for component in &mut sample[..3] {
             let scaled = u16::from(*component)
@@ -542,10 +544,10 @@ mod tests {
         for alpha in 0..=255u8 {
             let mut data: Vec<u8> = (0..=255u8).flat_map(|c| [c, c, c, alpha]).collect();
             premultiply_in_place(&mut data);
-            for (c, sample) in (0..=255u16).zip(data.chunks_exact(4)) {
+            for (c, sample) in (0..=255u16).zip(data.as_chunks::<4>().0) {
                 let expected = u8::try_from((c * u16::from(alpha) + 127) / 255).unwrap_or(0);
                 assert_eq!(
-                    sample,
+                    *sample,
                     [expected, expected, expected, alpha],
                     "{c} at {alpha}"
                 );

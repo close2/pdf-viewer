@@ -156,7 +156,9 @@ fn prepared(value: &Value<'_>) -> Option<String> {
             }
             let units = value
                 .contents
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
             char::decode_utf16(units)
                 .collect::<Result<String, _>>()
@@ -168,7 +170,9 @@ fn prepared(value: &Value<'_>) -> Option<String> {
             }
             value
                 .contents
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|quad| {
                     char::from_u32(u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]))
                 })

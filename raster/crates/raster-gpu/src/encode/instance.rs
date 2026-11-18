@@ -164,7 +164,7 @@ impl LineInstance {
         let (front, back) = bytes.split_at_mut(LINE_HEAD_BYTES);
         front.copy_from_slice(head);
         let corners = [admit.min.x, admit.min.y, admit.max.x, admit.max.y];
-        for (slot, value) in back.chunks_exact_mut(4).zip(corners) {
+        for (slot, value) in back.as_chunks_mut::<4>().0.iter_mut().zip(corners) {
             slot.copy_from_slice(&value.to_le_bytes());
         }
         Self { bytes, ink }
@@ -197,7 +197,7 @@ pub(super) fn line_head(
         color.a,
     ];
     let mut head = [0_u8; LINE_HEAD_BYTES];
-    for (slot, value) in head.chunks_exact_mut(4).zip(values) {
+    for (slot, value) in head.as_chunks_mut::<4>().0.iter_mut().zip(values) {
         slot.copy_from_slice(&value.to_le_bytes());
     }
     head

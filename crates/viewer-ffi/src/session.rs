@@ -785,7 +785,7 @@ mod tests {
             "the note's outline has children"
         );
         for row in 0..outline.len() {
-            assert!(!outline.title(row).expect("in range").is_empty());
+            assert_ne!(outline.title(row).expect("in range"), "");
         }
         assert_eq!(outline.title(outline.len()), Err(Status::OutOfRange));
     }

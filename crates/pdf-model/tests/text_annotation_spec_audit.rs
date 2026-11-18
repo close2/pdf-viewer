@@ -85,7 +85,7 @@ fn render(bytes: Vec<u8>) -> (pdf_render::Raster, bool) {
 fn extent(raster: &pdf_render::Raster) -> (u32, u32, u32, u32) {
     let (mut left, mut top, mut right, mut bottom) = (u32::MAX, u32::MAX, 0, 0);
     let mut found = false;
-    for (index, pixel) in raster.data.chunks_exact(4).enumerate() {
+    for (index, pixel) in raster.data.as_chunks::<4>().0.iter().enumerate() {
         if pixel[3] > 0 {
             found = true;
             let x = u32::try_from(index % raster.width as usize).expect("x fits");

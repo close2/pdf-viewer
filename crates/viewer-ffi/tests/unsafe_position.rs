@@ -72,8 +72,7 @@ fn lines_using_the_permission() -> Vec<(String, String)> {
         let text = std::fs::read_to_string(&path).expect("a source file of this crate");
         let named = path
             .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
+            .map_or_default(|relative| relative.to_string_lossy().replace('\\', "/"));
         for line in text.lines() {
             if code_only(line).contains("unsafe") {
                 found.push((named.clone(), line.trim().to_owned()));

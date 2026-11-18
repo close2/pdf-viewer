@@ -1721,9 +1721,9 @@ pub unsafe extern "C" fn quorra_window_controls_measured(
         return Status::NullArgument.code();
     } else {
         core::slice::from_raw_parts(sizes, values)
-            .chunks_exact(4)
-            .filter_map(|four| <[i32; 4]>::try_from(four).ok())
-            .collect()
+            .as_chunks::<4>()
+            .0
+            .to_vec()
     };
     let fits = window.controls_measured(&measured);
     if let Some(magnification) = magnification.as_mut() {

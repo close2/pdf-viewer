@@ -248,14 +248,18 @@ impl Resource {
     /// its EXAMPLE 1 writes as a text string followed by a reference.
     fn from_packets(document: &Document, packets: &[Object]) -> Result<Self, ResourceError> {
         let named = |wanted: &str| {
-            packets.chunks_exact(2).find_map(|pair| match pair {
-                [Object::String(name), Object::Reference(id)]
-                    if pdf_syntax::text_string(name) == wanted =>
-                {
-                    Some(*id)
-                }
-                _ => None,
-            })
+            packets
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .find_map(|pair| match pair {
+                    [Object::String(name), Object::Reference(id)]
+                        if pdf_syntax::text_string(name) == wanted =>
+                    {
+                        Some(*id)
+                    }
+                    _ => None,
+                })
         };
         let template_id = named("template").ok_or(ResourceError::Missing("template"))?;
         let datasets_id = named("datasets").ok_or(ResourceError::Missing("datasets"))?;
@@ -279,7 +283,7 @@ impl Resource {
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: datasets_id,
             locales: Self::locales(document, named("localeSet"), config.as_ref()),
-            config: config.as_ref().map(Config::read).unwrap_or_default(),
+            config: config.as_ref().map_or_default(Config::read),
         })
     }
 
@@ -363,7 +367,9 @@ fn resource_text(document: &Document) -> Option<Result<(String, xml::Tree), Reso
 /// The streams of §K.2's array, in its order: the second of each name-and-stream pair.
 fn packet_streams(packets: &[Object]) -> Vec<ObjectId> {
     packets
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| match pair {
             [_, Object::Reference(id)] => Some(*id),
             _ => None,

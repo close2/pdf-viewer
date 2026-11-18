@@ -5,7 +5,6 @@
 //! `CalGray`'s expected neutral is sRGB encoding of linear 0.25.
 
 #![expect(
-    clippy::arithmetic_side_effects,
     clippy::expect_used,
     clippy::float_cmp,
     reason = "small exact-xref fixtures; parsed literals and identical computations must be exactly equal"

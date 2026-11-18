@@ -281,10 +281,6 @@ pub enum CompareError {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert an exact zero difference, which is the property under test"
-)]
 mod tests {
     use super::{CompareError, compare, compare_with_tile};
     use pdf_render::{Raster, RasterFormat};
@@ -662,7 +658,7 @@ mod structural_tests {
         // contrast, which *is* a structural change, and the fixture would test nothing.
         let base = stripes(128, 16, 60, 200);
         let mut lifted = base.clone();
-        for pixel in lifted.data.chunks_exact_mut(4) {
+        for pixel in lifted.data.as_chunks_mut::<4>().0 {
             for channel in &mut pixel[..3] {
                 *channel = channel.saturating_add(40);
             }

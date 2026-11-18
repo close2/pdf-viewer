@@ -202,7 +202,7 @@ fn step(gpu: &mut QuorraRasterizer, list: &Arc<DisplayList>, view: (f32, (f32, f
     let (fresh, _) = frame(&mut backend(), list, placed(view));
     identical(&format!("view {view:?}"), &drawn, &fresh);
     assert!(
-        drawn.data.chunks_exact(4).any(|p| p[0] < 255),
+        drawn.data.as_chunks::<4>().0.iter().any(|p| p[0] < 255),
         "view {view:?}: the marks are on the page"
     );
 }

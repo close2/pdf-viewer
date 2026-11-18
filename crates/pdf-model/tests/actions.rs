@@ -915,7 +915,7 @@ fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
 
     // Table 204: `/T` is "Optional if F is present", and the clause's EXAMPLE object 5 is it.
     let (none, _) = action("");
-    assert!(none.path.is_empty());
+    assert_eq!(none.path, [] as [TargetStep; 0]);
     let itself = none
         .target_from_root(root)
         .expect("the root that arrived is the target");

@@ -291,8 +291,7 @@ impl Membership {
     pub fn members_of(&self, part: Part) -> Vec<String> {
         self.populations
             .get(&part)
-            .map(|members| members.iter().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|members| members.iter().cloned().collect())
     }
 
     /// Whether `member` is a workspace member at all.
@@ -712,8 +711,11 @@ mod tests {
     /// is judged by nothing here.
     #[test]
     fn a_count_of_something_the_workspace_does_not_state_is_not_a_claim() {
-        assert!(claims_in("Four of them are stream filters.").is_empty());
-        assert!(claims_in("Three subclauses are owed.").is_empty());
+        assert_eq!(
+            claims_in("Four of them are stream filters."),
+            [] as [Claim; 0]
+        );
+        assert_eq!(claims_in("Three subclauses are owed."), [] as [Claim; 0]);
         assert!(NOUNS.iter().all(|(name, _)| name.is_ascii()));
     }
 

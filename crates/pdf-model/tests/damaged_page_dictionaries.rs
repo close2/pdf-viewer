@@ -397,14 +397,13 @@ mod the_third_door {
         let opened = Document::open(bytes).expect("the fixture opens");
         let keys = opened
             .damaged_dictionary(pdf_syntax::ObjectId::new(2, 0))
-            .map(|damaged| {
+            .map_or_default(|damaged| {
                 damaged
                     .entries
                     .iter()
                     .map(|(key, _)| String::from_utf8_lossy(key.as_bytes()).into_owned())
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         (keys, pdf_model::Pages::new(&opened).get(0).is_some())
     }
 

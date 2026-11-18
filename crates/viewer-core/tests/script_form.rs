@@ -263,8 +263,7 @@ fn value(viewer: &Viewer, short: &str) -> String {
         .into_iter()
         .find(|candidate| candidate.name.qualified == format!("form1[0].{short}[0]"))
         .and_then(|field| field.value)
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 fn enter(viewer: &mut Viewer, short: &str, text: &str) -> Vec<Event> {
@@ -396,7 +395,7 @@ fn a_person_s_entry_into_a_calculated_field_puts_a_notice_once() {
 
         // Put once: a command that follows does not put it again, and its answer reaches no runner.
         let later: Vec<Event> = viewer.handle(Command::Tick { millis: 16 }).collect();
-        assert!(notices(&later).is_empty());
+        assert_eq!(notices(&later), [] as [ScriptQuestion; 0]);
         viewer
             .handle(Command::AnswerScript {
                 document: DOCUMENT,
@@ -1076,7 +1075,7 @@ fn an_entry_its_validation_script_refuses_puts_the_designers_message() {
     );
     let mut viewer = opened_on(Scripting::Run(Arc::new(Calculators::default())), bytes);
     let presented: Vec<Event> = viewer.handle(Command::Presented).collect();
-    assert!(notices(&presented).is_empty());
+    assert_eq!(notices(&presented), [] as [ScriptQuestion; 0]);
     let put = notices(&enter(&mut viewer, "Units", "5"));
     assert_eq!(put.len(), 1, "{put:?}");
     let ScriptQuestion::Alert {
@@ -1114,7 +1113,10 @@ fn an_entry_its_format_test_refuses_puts_a_message_at_every_level() {
     ] {
         let mut viewer = opened_on(scripting, bytes());
         viewer.handle(Command::Presented).for_each(drop);
-        assert!(notices(&enter(&mut viewer, "Code", "ABC123")).is_empty());
+        assert_eq!(
+            notices(&enter(&mut viewer, "Code", "ABC123")),
+            [] as [ScriptQuestion; 0]
+        );
         let events = enter(&mut viewer, "Code", "12");
         let put = notices(&events);
         assert_eq!(put.len(), 1, "{level}: {events:?}");

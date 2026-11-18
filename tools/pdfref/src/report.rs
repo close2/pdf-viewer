@@ -42,7 +42,13 @@ pub fn heatmap(left: &Raster, right: &Raster) -> Result<Raster, HarnessError> {
     }
 
     let mut data = Vec::with_capacity(left.data.len());
-    for (a, b) in left.data.chunks_exact(4).zip(right.data.chunks_exact(4)) {
+    for (a, b) in left
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(right.data.as_chunks::<4>().0)
+    {
         let difference = a
             .iter()
             .zip(b)

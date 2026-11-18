@@ -177,8 +177,7 @@ fn every_heavy_script_in_tools_runs_under_the_task_budget() {
     for script in &scripts {
         let name = script
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|name| name.to_string_lossy().into_owned());
         if name == "bounded.sh" {
             continue;
         }
@@ -333,8 +332,7 @@ fn the_lock_cost_counts_a_line_that_names_no_batch_for_the_batch_its_round_is_in
             .find(|line| {
                 line.trim_start().starts_with(&format!("round {round} ")) && line.contains("run(s)")
             })
-            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-            .unwrap_or_default()
+            .map_or_default(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
     };
     assert!(
         stdout.contains("batch batch-100-105, by round:"),
@@ -817,8 +815,7 @@ fn every_clock_gate_the_merge_names_is_a_gate_it_runs() {
         .lines()
         .find_map(|line| line.strip_prefix("clock_gates=\""))
         .and_then(|rest| rest.strip_suffix('"'))
-        .map(|list| list.split_whitespace().collect())
-        .unwrap_or_default();
+        .map_or_default(|list| list.split_whitespace().collect());
     assert!(
         clocks.contains(&"t2-turn_path"),
         "tools/batch.sh's clock_gates does not hold t2-turn_path: {clocks:?}"
@@ -953,8 +950,7 @@ fn merge_clocks(batch: &str) -> Vec<(String, bool)> {
         .lines()
         .find_map(|line| line.strip_prefix("clock_gates=\""))
         .and_then(|rest| rest.strip_suffix('"'))
-        .map(|list| list.split_whitespace().collect())
-        .unwrap_or_default();
+        .map_or_default(|list| list.split_whitespace().collect());
     merge_gates(batch)
         .into_iter()
         .filter_map(|(name, call)| {

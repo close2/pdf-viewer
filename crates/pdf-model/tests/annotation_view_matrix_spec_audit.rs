@@ -1,10 +1,6 @@
 //! Public pixel regression for §12.5.3 flags applied to a §12.5.5 appearance mapping.
 
-#![expect(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    clippy::arithmetic_side_effects
-)]
+#![expect(clippy::expect_used, clippy::arithmetic_side_effects)]
 
 use std::fmt::Write as _;
 
@@ -79,7 +75,9 @@ fn render(flags: i64) -> pdf_render::Raster {
 fn extent(raster: &pdf_render::Raster) -> (u32, u32, u32, u32) {
     let mut points = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .filter_map(|(index, rgba)| {
             let index = u32::try_from(index).expect("small raster index");

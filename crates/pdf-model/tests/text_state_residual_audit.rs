@@ -337,7 +337,13 @@ fn hidden_optional_content_still_contributes_text_clip() {
     );
     let no_clip = raster(optional_content_pdf(false, 3));
     assert_eq!(
-        no_clip.data.chunks_exact(4).filter(|px| px[3] > 0).count(),
+        no_clip
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|px| px[3] > 0)
+            .count(),
         80 * 80
     );
     let visible = raster(optional_content_pdf(true, 7));
@@ -346,7 +352,13 @@ fn hidden_optional_content_still_contributes_text_clip() {
         hidden.data, visible.data,
         "OCG visibility must not remove the text clip"
     );
-    let opaque = hidden.data.chunks_exact(4).filter(|px| px[3] > 0).count();
+    let opaque = hidden
+        .data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|px| px[3] > 0)
+        .count();
     assert!(opaque > 0, "A's clipping path admits some rectangle pixels");
     assert!(
         opaque < 80 * 80,

@@ -120,7 +120,9 @@ fn resource_text(document: &Document) -> Vec<u8> {
     let streams = match document.get_key(form, "XFA") {
         Object::Stream(stream) => vec![stream],
         Object::Array(packets) => packets
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter_map(|pair| match pair {
                 [_, Object::Reference(id)] => document.get(*id).as_stream().cloned(),
                 [_, Object::Stream(stream)] => Some(stream.clone()),

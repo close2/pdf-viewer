@@ -288,12 +288,7 @@ pub fn errata(notes: &[Note]) -> Vec<Erratum> {
             let first = members.first()?;
             let mut issues: Vec<String> = Vec::new();
             for member in &members {
-                for issue in member
-                    .subject
-                    .as_deref()
-                    .map(issues_named)
-                    .unwrap_or_default()
-                {
+                for issue in member.subject.as_deref().map_or_default(issues_named) {
                     if !issues.contains(&issue) {
                         issues.push(issue);
                     }
@@ -929,7 +924,10 @@ mod tests {
                     one entry\" is what a wrapper states.";
         let report = sweep(&[erratum], &[place(note)]);
         assert_eq!(report.hits.len(), 1);
-        assert!(report.hits.first().expect("one hit").replacement.is_empty());
+        assert_eq!(
+            report.hits.first().expect("one hit").replacement,
+            [] as [String; 0]
+        );
     }
 
     /// A number no erratum carries is not a citation, and the count of those is what lets a
@@ -943,7 +941,7 @@ mod tests {
         assert_eq!(report.citing, 1, "and #437 is this collection's");
         // And a number welded to a word is not a token at all: `mozilla/pdf.js#12725` is one
         // reference, which is how this project writes another repository's issue.
-        assert!(issues_named("`mozilla/pdf.js#12725`").is_empty());
+        assert_eq!(issues_named("`mozilla/pdf.js#12725`"), [] as [String; 0]);
     }
 
     /// The token has to be an issue number rather than any `#`: an attribute, a heading, a
@@ -951,11 +949,17 @@ mod tests {
     #[test]
     fn only_an_issue_number_is_read_as_one() {
         assert_eq!(issues_named("Issue #437 and #133"), vec!["437", "133"]);
-        assert!(issues_named("#[expect(clippy::pedantic)]").is_empty());
-        assert!(issues_named("# A heading, and ## another").is_empty());
-        assert!(issues_named("the colour #00ff00").is_empty());
-        assert!(issues_named("label #2a").is_empty());
-        assert!(issues_named("a run of #12345 digits").is_empty());
+        assert_eq!(
+            issues_named("#[expect(clippy::pedantic)]"),
+            [] as [String; 0]
+        );
+        assert_eq!(
+            issues_named("# A heading, and ## another"),
+            [] as [String; 0]
+        );
+        assert_eq!(issues_named("the colour #00ff00"), [] as [String; 0]);
+        assert_eq!(issues_named("label #2a"), [] as [String; 0]);
+        assert_eq!(issues_named("a run of #12345 digits"), [] as [String; 0]);
     }
 
     /// A doc comment that names the erratum in its prose and quotes the standard in a blockquote

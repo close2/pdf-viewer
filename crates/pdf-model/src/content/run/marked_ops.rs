@@ -86,8 +86,7 @@ impl Interpreter<'_> {
         // list is Table 363's.
         let artifact = (tag == b"Artifact").then(|| {
             self.property_list(resources, operands.get(1))
-                .map(|list| crate::structure::Artifact::read(self.document, &list))
-                .unwrap_or_default()
+                .map_or_default(|list| crate::structure::Artifact::read(self.document, &list))
         });
         let reversed = tag == b"ReversedChars";
         // §14.13.5: "One or more files may be associated with sections of content in
@@ -117,8 +116,7 @@ impl Interpreter<'_> {
             actual_text_owner: actual_text.as_ref().and_then(|(_, owner)| *owner),
             actual_text_languages: actual_text
                 .as_ref()
-                .map(|((_, languages), _)| languages.clone())
-                .unwrap_or_default(),
+                .map_or_default(|((_, languages), _)| languages.clone()),
             actual_text: actual_text.map(|((text, _), _)| text),
             described,
             artifact,
@@ -203,8 +201,7 @@ impl Interpreter<'_> {
                     .alt
                     .as_ref()
                     .or(described.expansion.as_ref())
-                    .map(|(_, languages)| languages.clone())
-                    .unwrap_or_default();
+                    .map_or_default(|(_, languages)| languages.clone());
                 self.described.push(crate::accessibility::Described {
                     range: section.starts_at..self.text.len(),
                     alt: described.alt.map(|(text, _)| text),

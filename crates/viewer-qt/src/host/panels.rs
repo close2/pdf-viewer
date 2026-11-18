@@ -65,8 +65,7 @@ impl Host {
     pub(crate) fn rows(&self, tree: u8) -> Vec<QtRow> {
         let rows: Vec<QtRow> = self
             .tree(tree)
-            .map(|rows| rows.iter().map(|flat| flat.row.clone()).collect())
-            .unwrap_or_default();
+            .map_or_default(|rows| rows.iter().map(|flat| flat.row.clone()).collect());
         for row in &rows {
             self.ask_machine(&row.label);
             self.ask_machine(&row.detail);
@@ -313,9 +312,7 @@ impl Host {
     /// Builds every panel that has rows from its own answer.
     pub(super) fn build_panels(&mut self) {
         let trees = std::array::from_fn(|index| {
-            Tab::at(index)
-                .map(|tab| flatten(&self.panel_of(tab)))
-                .unwrap_or_default()
+            Tab::at(index).map_or_default(|tab| flatten(&self.panel_of(tab)))
         });
         self.trees = trees;
         for (tab, rows) in Tab::ALL.iter().zip(&self.trees) {
@@ -378,8 +375,7 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 values: row.cells.iter().map(|cell| cell.value.clone()).collect(),
                 icon: row
                     .picture
-                    .map(|picture| Icon::theme_name(picture.kind()))
-                    .unwrap_or_default()
+                    .map_or_default(|picture| Icon::theme_name(picture.kind()))
                     .to_owned(),
                 picture: match row.picture {
                     None => 0,

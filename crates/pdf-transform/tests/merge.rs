@@ -1330,7 +1330,7 @@ fn a_merge_carries_no_web_capture_database() {
     let (report, bytes) =
         merge(&[(&capture, "1"), (&capture, "1"), (&first, "1")], false).expect("it merges");
     let merged = Document::open(bytes).expect("the merged file opens");
-    assert!(support::web_capture_trees(&merged).is_empty());
+    assert_eq!(support::web_capture_trees(&merged), [] as [&str; 0]);
     let named = report
         .warnings
         .iter()

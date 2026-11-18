@@ -160,8 +160,10 @@ fn main() {
             let (band_seen, band, band_page) = drawn(&request, seen.clone());
             let differing = whole_page
                 .data
-                .chunks_exact(4)
-                .zip(band_page.data.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(band_page.data.as_chunks::<4>().0)
                 .filter(|(a, b)| a != b)
                 .count();
             let worst = whole_page

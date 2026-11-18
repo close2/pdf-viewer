@@ -56,7 +56,10 @@ fn only_the_validly_signed_field_lock_restricts_its_named_field() {
         signatures(&unsigned).is_empty(),
         "no field value means unsigned"
     );
-    assert!(pdf_signature::signature::field_locks(&unsigned).is_empty());
+    assert_eq!(
+        pdf_signature::signature::field_locks(&unsigned),
+        [] as [FieldSelection; 0]
+    );
     assert!(
         asserted(&unsigned, Operation::FillInForm, Some("name"), None).is_empty(),
         "the same /Lock on an unsigned field is only a future signing instruction"

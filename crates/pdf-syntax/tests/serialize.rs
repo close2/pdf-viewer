@@ -851,7 +851,7 @@ fn a_new_files_identifier_pair_is_equal_and_distinct_from_its_source() {
             .get(1)
             .and_then(Object::as_string)
             .expect("second byte string");
-        assert!(!first.is_empty());
+        assert_ne!(first, []);
         assert_eq!(
             first, second,
             "a newly written file has one initial identifier"

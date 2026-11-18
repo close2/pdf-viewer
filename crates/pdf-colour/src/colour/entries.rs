@@ -26,8 +26,7 @@ pub(super) fn colourant_names(
         document
             .resolve(item)
             .as_name()
-            .map(|name| name.as_bytes().to_vec())
-            .unwrap_or_default()
+            .map_or_default(|name| name.as_bytes().to_vec())
     };
     let Some(object) = object else {
         return Vec::new();
@@ -38,8 +37,7 @@ pub(super) fn colourant_names(
     document
         .resolve(object)
         .as_array()
-        .map(|items| items.iter().map(name_of).collect())
-        .unwrap_or_default()
+        .map_or_default(|items| items.iter().map(name_of).collect())
 }
 
 /// Reads a fixed-length array of numbers from a colour space dictionary.
@@ -86,7 +84,9 @@ pub(super) fn icc_range(document: &Document, dict: &Dictionary) -> Vec<(f32, f32
         return Vec::new();
     };
     items
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter_map(|pair| {
             let low = document.resolve(pair.first()?).as_number().map(narrow)?;
             let high = document.resolve(pair.get(1)?).as_number().map(narrow)?;

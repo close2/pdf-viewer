@@ -1158,8 +1158,14 @@ mod tests {
     /// is a population of documents, and a count of anything else has none here.
     #[test]
     fn a_quantifier_outside_a_sentence_about_a_corpus_is_not_a_claim() {
-        assert!(claims_in("No document states a `/DocTimeStamp`.").is_empty());
-        assert!(claims_in("Four documents write an indefinite length.").is_empty());
+        assert_eq!(
+            claims_in("No document states a `/DocTimeStamp`."),
+            [] as [Claim; 0]
+        );
+        assert_eq!(
+            claims_in("Four documents write an indefinite length."),
+            [] as [Claim; 0]
+        );
     }
 
     /// The three forms, each of which a round wrote and a later round had to correct.

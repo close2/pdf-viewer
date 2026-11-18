@@ -126,7 +126,7 @@ fn report(raster: &Raster) {
         return;
     }
     let (mut partial, mut on, mut mixed, mut inked) = (0_u64, 0_u64, 0_u64, 0_u64);
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0 {
         let t = (
             255.0 - f32::from(pixel[0]),
             255.0 - f32::from(pixel[1]),
@@ -173,7 +173,7 @@ fn report(raster: &Raster) {
 /// The page's own ink: the largest per-channel distance from white any pixel states.
 fn darkest(raster: &Raster) -> (f32, f32, f32) {
     let mut best = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0 {
         let t = (
             255.0 - f32::from(pixel[0]),
             255.0 - f32::from(pixel[1]),

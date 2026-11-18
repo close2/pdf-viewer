@@ -390,7 +390,7 @@ fn a_write_that_is_never_flushed_is_in_the_tree_and_not_in_the_document() {
     assert!(abandoned.sentence().contains("nothing was committed"));
     assert_eq!(on_disk(&backing), before, "the document is untouched");
     assert!(!names(&vfs, "/attachments").contains(&"half.txt".to_owned()));
-    assert!(vfs.pending().is_empty());
+    assert_eq!(vfs.pending(), [] as [pdf_vfs::Pending; 0]);
 }
 
 /// A second `flush` does nothing, because the kernel issues one per `close(2)`.

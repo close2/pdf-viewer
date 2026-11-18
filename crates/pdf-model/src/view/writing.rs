@@ -1319,7 +1319,7 @@ impl Update {
     /// A built appearance as the form `XObject` §8.10.2 defines, its dictionary the one it replaces
     /// where there was one.
     fn form_stream(&mut self, built: crate::appearance::SavedStream) -> Object {
-        let mut stream_dict = built.existing.map(|(_, dict)| dict).unwrap_or_default();
+        let mut stream_dict = built.existing.map_or_default(|(_, dict)| dict);
         // §8.10.2's three required entries, plus the resources §12.7.4.3 builds from `/DR`.
         stream_dict.insert(
             Name::new(&b"Type"[..]),
@@ -1821,8 +1821,7 @@ fn replaced_stream(document: &Document, id: ObjectId, data: Vec<u8>) -> Object {
     let mut dict = document
         .get(id)
         .as_stream()
-        .map(|stream| stream.dict.clone())
-        .unwrap_or_default();
+        .map_or_default(|stream| stream.dict.clone());
     dict.remove("Filter");
     dict.remove("DecodeParms");
     dict.insert(

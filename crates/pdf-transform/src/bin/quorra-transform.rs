@@ -1680,10 +1680,9 @@ fn first_answer(site: &pdf_transform::archive::Site) -> String {
                 .to_owned()
         }
         // `doc/adr/1285`: a site whose one built answer keeps the object where it is.
-        None if site.preserves_in_place.is_some() => site
-            .preserves_in_place
-            .map(str::to_owned)
-            .unwrap_or_default(),
+        None if site.preserves_in_place.is_some() => {
+            site.preserves_in_place.map_or_default(str::to_owned)
+        }
         None if site.departable => {
             "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
                 .to_owned()

@@ -250,7 +250,7 @@ impl ViewState {
         let (mut left, mut bottom) = (f32::MAX, f32::MAX);
         let (mut right, mut top) = (f32::MIN, f32::MIN);
         for quad in quads {
-            for corner in quad.chunks_exact(2) {
+            for corner in quad.as_chunks::<2>().0 {
                 let (x, y) = (corner[0], corner[1]);
                 if !x.is_finite() || !y.is_finite() {
                     return None;

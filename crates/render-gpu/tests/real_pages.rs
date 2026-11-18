@@ -41,7 +41,9 @@ use pdf_syntax::Document;
 fn ink(raster: &Raster) -> u64 {
     raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| u64::from(255 - pixel[0].min(pixel[1]).min(pixel[2])))
         .sum()
 }

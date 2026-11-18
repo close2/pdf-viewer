@@ -1310,7 +1310,7 @@ impl SubsetNames {
     pub(crate) fn name(&mut self, subset: &mut Dictionary, document: Option<&Document>) {
         let stated = self
             .stated
-            .get_or_insert_with(|| document.map(stated_subset_names).unwrap_or_default());
+            .get_or_insert_with(|| document.map_or_default(stated_subset_names));
         let mut steps = self
             .written
             .len()
@@ -1641,15 +1641,14 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
     let used: BTreeSet<u16> = descendant
         .get("W")
         .and_then(Object::as_array)
-        .map(|w| {
+        .map_or_default(|w| {
             w.iter()
                 .filter_map(|entry| match entry {
                     Object::Integer(glyph) => u16::try_from(*glyph).ok(),
                     _ => None,
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let embedded = pdf_font::embed::for_embedding(&program, &used).map_err(|refusal| {
         format!("its value is drawn in a face from this machine that is not written into a file: {refusal}")
     })?;
@@ -2147,7 +2146,7 @@ impl Stack<'_> {
         let top = if matches!(self.shape, Shape::Multiline | Shape::ListBox) {
             self.room.top()
         } else {
-            self.room.bottom() + (self.room.height() + text_height) * 0.5
+            self.room.bottom() + f32::midpoint(self.room.height(), text_height)
         };
         top - ascent
     }
@@ -2392,7 +2391,12 @@ impl Frame {
     /// Four corners, each carried by [`Self::place`].
     fn place_quad(self, shape: [f32; 8]) -> [f32; 8] {
         let mut quad = [0.0_f32; 8];
-        for (corner, place) in shape.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+        for (corner, place) in shape
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(quad.as_chunks_mut::<2>().0)
+        {
             let placed = self.place([corner[0], corner[1]]);
             place[0] = placed[0];
             place[1] = placed[1];
@@ -2413,7 +2417,12 @@ impl Frame {
                 .into_iter()
                 .map(|shape| {
                     let mut quad = [0.0_f32; 8];
-                    for (corner, place) in shape.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+                    for (corner, place) in shape
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .zip(quad.as_chunks_mut::<2>().0)
+                    {
                         let placed = self.place([corner[0], corner[1]]);
                         place[0] = placed[0];
                         place[1] = placed[1];
@@ -2846,7 +2855,7 @@ fn auto_size(measure: &Measure, codes: &[Placed], stack: Stack) -> f32 {
         return high;
     }
     for _ in 0..AUTO_SIZE_STEPS {
-        let middle = (low + high) * 0.5;
+        let middle = f32::midpoint(low, high);
         if fits(middle) {
             low = middle;
         } else {

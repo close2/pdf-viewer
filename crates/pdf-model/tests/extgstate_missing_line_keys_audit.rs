@@ -6,9 +6,7 @@
 
 #![expect(
     clippy::arithmetic_side_effects,
-    clippy::float_cmp,
-    reason = "test code: malformed fixtures should fail loudly and the exact parsed miter
-              limit is carried unchanged from its literal"
+    reason = "test code: malformed fixtures should fail loudly"
 )]
 
 use std::fmt::Write as _;
@@ -101,6 +99,6 @@ fn the_initial_line_parameters_match_table_51() {
     assert_eq!(stroke.cap, LineCap::Butt);
     assert_eq!(stroke.join, LineJoin::Miter);
     assert_eq!(stroke.miter_limit, 10.0);
-    assert!(stroke.dash_array.is_empty());
+    assert_eq!(stroke.dash_array, [] as [f32; 0]);
     assert_eq!(stroke.dash_phase, 0.0);
 }

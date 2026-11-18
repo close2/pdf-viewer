@@ -608,8 +608,9 @@ impl Interpreter<'_> {
             return crate::attachment::associated_in_array(self.document, items);
         }
         self.property_list(resources, operand)
-            .map(|list| crate::attachment::associated_in_property_list(self.document, &list))
-            .unwrap_or_default()
+            .map_or_default(|list| {
+                crate::attachment::associated_in_property_list(self.document, &list)
+            })
     }
 
     /// The property list a `BDC` operand names, inline or through `/Properties`.

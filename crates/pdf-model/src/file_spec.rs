@@ -716,7 +716,7 @@ mod tests {
             url.url().as_deref(),
             Some("ftp://www.beatles.com/Movies/AbbeyRoad.mov")
         );
-        assert!(url.components().is_empty());
+        assert_eq!(url.components(), [] as [Vec<u8>; 0]);
         assert!(!url.is_absolute());
         assert_eq!(url.resolve_against(&[]), None);
     }

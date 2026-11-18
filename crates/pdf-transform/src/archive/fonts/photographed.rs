@@ -972,7 +972,9 @@ fn placement(
 fn image_stream(raster: &pdf_render::Raster, space: ObjectId) -> Option<Object> {
     let samples: Vec<u8> = raster
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
     let data = flate_encode(&samples, COMPRESSION_LEVEL)?;

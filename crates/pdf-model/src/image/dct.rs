@@ -110,7 +110,7 @@ pub(super) fn samples_of_frame(
     if let Some(masked) = masked {
         // The same answer [`unpack`] gives a masked sample: its position, and no
         // opacity at all.
-        for (pixel, covered) in rgba.chunks_exact_mut(4).zip(masked) {
+        for (pixel, covered) in rgba.as_chunks_mut::<4>().0.iter_mut().zip(masked) {
             if covered {
                 pixel.fill(0);
             }
@@ -149,7 +149,9 @@ pub(super) fn samples_of_frame(
 /// pairings of space and frame it converts. A longer `ranges` than a pixel has bytes belongs
 /// to a space that conversion refuses outright, so the flags it produces are never applied.
 fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| {
             ranges.iter().enumerate().all(|(component, (low, high))| {
                 pixel.get(component).is_some_and(|sample| {
@@ -206,7 +208,7 @@ fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
 /// The witness is outside this repository — a 92-page commercial catalogue whose every page is one
 /// such image, and which drew nothing at all until this (`doc/todo/28`).
 fn ycck_to_cmyk(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let (Some(y), Some(cb), Some(cr)) = (
             pixel.first().copied(),
             pixel.get(1).copied(),
@@ -236,7 +238,7 @@ fn ycck_to_cmyk(pixels: &mut [u8]) {
 /// which Table 13 says the transform applies, by the marker, the entry or the default.
 /// [`decode_jpeg`] has that reading.
 fn ycbcr_to_rgb(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(3) {
+    for pixel in pixels.as_chunks_mut::<3>().0 {
         let (Some(y), Some(cb), Some(cr)) = (
             pixel.first().copied(),
             pixel.get(1).copied(),
@@ -414,13 +416,10 @@ fn next_ff_byte(data: &[u8], from: usize) -> Option<usize> {
     const HIGHS: u64 = u64::from_ne_bytes([0x80; 8]);
 
     let tail = data.get(from..)?;
-    let mut words = tail.chunks_exact(8);
+    let (words, rest) = tail.as_chunks::<8>();
     let mut at = from;
-    for chunk in words.by_ref() {
-        let mut eight = [0u8; 8];
-        // `chunks_exact(8)` yields eight bytes, so the lengths agree and this cannot panic.
-        eight.copy_from_slice(chunk);
-        let bytes = u64::from_ne_bytes(eight);
+    for chunk in words {
+        let bytes = u64::from_ne_bytes(*chunk);
         let holes = !bytes;
         if holes.wrapping_sub(ONES) & bytes & HIGHS != 0
             && let Some(offset) = chunk.iter().position(|&byte| byte == 0xFF)
@@ -429,7 +428,7 @@ fn next_ff_byte(data: &[u8], from: usize) -> Option<usize> {
         }
         at = at.checked_add(8)?;
     }
-    let offset = words.remainder().iter().position(|&byte| byte == 0xFF)?;
+    let offset = rest.iter().position(|&byte| byte == 0xFF)?;
     at.checked_add(offset)
 }
 

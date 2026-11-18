@@ -230,7 +230,7 @@ fn a_list_outside_the_union_fails_clause_4_3() {
     let matched = search(&list, LATER);
     assert_eq!(matched.status, Status::Failed);
     assert_eq!(matched.faults, vec![Fault::NotAnEuMemberState]);
-    assert!(matched.results.is_empty());
+    assert_eq!(matched.results, [] as [Matched<'_>; 0]);
 }
 
 /// PRO-4.3.4-03 i) and ii): a service of the type asked for whose identity is the certificate's

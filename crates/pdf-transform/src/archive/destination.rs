@@ -219,7 +219,9 @@ mod tests {
     fn tag_entry(profile: &mut [u8], signature: [u8; 4]) -> &mut [u8] {
         let count = u32::from_be_bytes(profile[128..132].try_into().expect("four bytes"));
         profile[132..]
-            .chunks_exact_mut(12)
+            .as_chunks_mut::<12>()
+            .0
+            .iter_mut()
             .take(usize::try_from(count).expect("a count"))
             .find(|entry| entry[..4] == signature)
             .expect("the profile states the tag")

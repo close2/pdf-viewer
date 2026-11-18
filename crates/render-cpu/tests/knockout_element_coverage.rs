@@ -156,7 +156,9 @@ fn coverages() -> Vec<Vec<f64>> {
         .map(|mark| {
             drawn(vec![mark])
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| 1.0 - f64::from(pixel[0]) / 255.0)
                 .collect()
         })
@@ -179,7 +181,7 @@ fn a_knockout_element_knocks_out_the_area_it_covers() {
     let backdrop = [BACKDROP.r, BACKDROP.g, BACKDROP.b].map(|c| f64::from(c) * 255.0);
     let mut partial = 0;
     let mut wrong = Vec::new();
-    for (index, pixel) in group.data.chunks_exact(4).enumerate() {
+    for (index, pixel) in group.data.as_chunks::<4>().0.iter().enumerate() {
         // §11.4.6 element after element: the black object replaces `f` of what is there.
         let kept: f64 = shapes.iter().map(|shape| 1.0 - shape[index]).product();
         if kept > 0.0 && kept < 1.0 {

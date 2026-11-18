@@ -318,14 +318,11 @@ impl Cache {
     /// Only the keys run more than once are named; the set is otherwise the whole run.
     #[must_use]
     pub fn repeated_keys(&self) -> Vec<String> {
-        self.repeats
-            .lock()
-            .map(|held| {
-                let mut named: Vec<String> = held.iter().cloned().collect();
-                named.sort();
-                named
-            })
-            .unwrap_or_default()
+        self.repeats.lock().map_or_default(|held| {
+            let mut named: Vec<String> = held.iter().cloned().collect();
+            named.sort();
+            named
+        })
     }
 
     /// Records that a renderer is about to be run for `key`, counting a second run of one.
