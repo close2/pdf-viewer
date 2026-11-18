@@ -568,8 +568,9 @@ impl Reader {
             // gap — the format states no element carrying another XFDF file inside one.
             status: None,
             // Section 5.5.2 makes the file UTF-8, so its values arrive as characters rather than
-            // as bytes in some registered character set. `Unicode` is the entry that says so.
-            encoding: Encoding::Unicode,
+            // as bytes in some registered character set; the reader stores each as a text
+            // string, and `TextStrings` is the entry that says so.
+            encoding: Encoding::TextStrings,
             annotations,
             pages: Vec::new(),
             target: None,

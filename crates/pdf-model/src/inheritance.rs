@@ -183,14 +183,6 @@ pub(crate) struct Resolved {
     /// Shared with the parent's where the field states none of them, which is most fields of a
     /// hierarchy: a resolution then costs a reference count, not a copy (ADR 2448 section 5).
     entries: Arc<Dictionary>,
-    /// Table 194's and Table 199's triggers, each from the nearest dictionary of the chain whose
-    /// `/AA` states it, as written there.
-    ///
-    /// By trigger rather than by `/AA` whole, because a widget's `/AA` and its field's hold
-    /// different triggers — Table 194's for the annotation, Table 199's `/K`, `/F`, `/V` and `/C`
-    /// for the field — and the field's script is the one a widget that states only its own
-    /// triggers runs. Shared with the parent's where the field states no `/AA`.
-    actions: Arc<Dictionary>,
     /// Whether the field's chain is a cycle, which makes it no hierarchy.
     cyclic: bool,
 }
@@ -270,7 +262,6 @@ impl Inherited {
         for (id, dict) in path.into_iter().rev() {
             let resolved = Arc::new(Resolved {
                 entries: stated_over(document, &dict, &above.entries),
-                actions: actions_over(document, &dict, &above.actions),
                 cyclic: cyclic || above.cyclic,
             });
             if let Some(id) = id {
@@ -326,38 +317,10 @@ impl Inherited {
             .find_map(|dict| document.get_key(dict, key).as_name().cloned())
     }
 
-    /// The action the nearest dictionary of the chain whose `/AA` states `trigger` states for it,
-    /// as written there.
-    pub(crate) fn action(&self, document: &Document, trigger: &str) -> Option<Object> {
-        document
-            .get_key(&self.widget, "AA")
-            .as_dict()
-            .and_then(|additional| additional.get(trigger).cloned())
-            .or_else(|| self.above.actions.get(trigger).cloned())
-    }
-
     /// Whether the widget's `/Parent` chain is a cycle rather than a hierarchy.
     pub(crate) fn cyclic(&self) -> bool {
         self.above.cyclic
     }
-}
-
-/// The triggers `dict`'s `/AA` states over `above`'s. An `/AA` that is not a dictionary states
-/// none.
-fn actions_over(
-    document: &Document,
-    dict: &Dictionary,
-    above: &Arc<Dictionary>,
-) -> Arc<Dictionary> {
-    let stated = document.get_key(dict, "AA");
-    let Some(additional) = stated.as_dict() else {
-        return Arc::clone(above);
-    };
-    let mut actions = Dictionary::clone(above);
-    for (trigger, action) in additional.iter() {
-        actions.insert(trigger.clone(), action.clone());
-    }
-    Arc::new(actions)
 }
 
 /// Whether `value`, as written in a dictionary, states something: a null does not, and neither

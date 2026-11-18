@@ -198,7 +198,7 @@ impl ViewState {
                 self.report_each("the document's open action", result.report);
             }
         }
-        let ran = self.page_scripts(document, &table, page, PageTrigger::Open);
+        let ran = self.page_scripts(document, &table, page, PageTrigger::Open, true);
         handed = handed.saturating_add(ran.handed);
         self.after_scripts(
             document,
@@ -256,15 +256,16 @@ impl ViewState {
     /// and whether what a page draws may have changed ([`ScriptsRan`]).
     ///
     /// Table 197's `/PO` "shall be executed after the O action in the page's additional - actions
-    /// dictionary", so an open runs the page's script first and then each annotation's `/PO` and
-    /// `/PV`; its `/PC` "shall be executed before the C action", so a close runs each annotation's
-    /// `/PC` and `/PI` first. **The request a host raises as the page shown changes** — the
-    /// leaving page's close, then the arriving page's open — beside the non-script actions it
-    /// already performs; an annotation's four page events are run here rather than through
+    /// dictionary", so an open runs the page's script first and then each annotation's `/PO`;
+    /// its `/PC` "shall be executed before the C action", so a close runs each annotation's `/PC`
+    /// first. **The request a host raises as the page shown changes** — the leaving page's close,
+    /// then the arriving page's open — beside the non-script actions it already performs; an
+    /// annotation's `/PO` and `/PC` are run here rather than through
     /// [`Self::run_annotation_scripts`], so a host that raises them per annotation for their other
-    /// actions does not run their scripts twice (ADRs 1602, 1750). The page visible is the page
-    /// shown: Table 197 lets more than one page be visible, and a host that shows one page at a
-    /// time raises the pair with the open and the close, as every window here does.
+    /// actions does not run their scripts twice (ADRs 1602, 1750). `/PV` and `/PI` are not run
+    /// here: a page is visible while the window shows it, whether or not it is the page shown,
+    /// so a host raises them where its arrangement gains or loses a page, through
+    /// [`Self::run_annotation_scripts`] (ADR 2986).
     ///
     /// Before [`Self::run_open_scripts`] has run nothing is run: an open is the open sequence's,
     /// which runs the page shown when it runs, and a close says it was not run
@@ -297,8 +298,16 @@ impl ViewState {
         }
         // The page turned to or from, and no other (ADR 1653 section 4).
         let table = super::field_table_on_page(document, page);
-        let ran = self.page_scripts(document, &table, page, trigger);
+        let ran = self.page_scripts(document, &table, page, trigger, false);
         self.finish(document, &table, ran)
+    }
+
+    /// Whether the open sequence has run ([`Self::run_open_scripts`]): before it, a script a
+    /// host raises is reported and not run, and the page an open presents has its `/PV` run by
+    /// the sequence itself.
+    #[must_use]
+    pub fn scripts_opened(&self) -> bool {
+        self.scripting.opened
     }
 
     /// Runs one of Table 197's events' scripts on one annotation, and answers how many were handed
@@ -313,8 +322,9 @@ impl ViewState {
     /// **The request a host raises at a widget's pointer and focus events** — `/E`, `/X`, `/D`,
     /// `/U`, `/Fo`, `/Bl` — beside performing the same event's other actions (ADR 1750). Cheap
     /// where the chain holds no script, which is nearly every event a cursor crossing a page
-    /// raises: the field tree is walked only once a script is found. Table 197's four page events
-    /// are [`Self::run_page_scripts`]'s, and one raised here runs its scripts as any other does.
+    /// raises: the field tree is walked only once a script is found. `/PO` and `/PC` are
+    /// [`Self::run_page_scripts`]'s; `/PV` and `/PI` are a host's to raise here as its arrangement
+    /// gains and loses pages (ADR 2986).
     /// Before [`Self::run_open_scripts`] has run nothing is run, and a chain that holds scripts
     /// says so (`Self::before_open`).
     pub fn run_annotation_scripts(
@@ -775,6 +785,7 @@ impl ViewState {
         table: &BTreeMap<String, Vec<ObjectId>>,
         page: usize,
         trigger: PageTrigger,
+        visible: bool,
     ) -> Ran {
         let Some(found) = crate::page::Pages::new(document).get(page) else {
             return Ran::default();
@@ -832,7 +843,7 @@ impl ViewState {
             let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
                 continue;
             };
-            for each in annotation_triggers(trigger) {
+            for &each in annotation_triggers(trigger, visible) {
                 let Walked {
                     scripts, unread, ..
                 } = annotation_chain(document, &dictionary, each)
@@ -964,8 +975,8 @@ fn page_turn_scripts(document: &Document, page: usize, trigger: PageTrigger) -> 
         .into_iter()
         .filter_map(|annotation| document.get(annotation).as_dict().cloned())
         .flat_map(|dictionary| {
-            annotation_triggers(trigger).map(|each| {
-                annotation_chain(document, &dictionary, each)
+            annotation_triggers(trigger, false).iter().map(move |each| {
+                annotation_chain(document, &dictionary, *each)
                     .map_or(0, |entry| chain(document, &entry).held())
             })
         })
@@ -1067,16 +1078,19 @@ fn page_entry_scripts(document: &Document, page: &Dictionary, trigger: PageTrigg
         .unwrap_or_default()
 }
 
-/// Table 197's two events of each annotation that ride with one of Table 198's: an opened page is
-/// the page shown, so it is opened and becomes visible; a closed one is closed and is no longer
-/// visible (ADR 1750).
-fn annotation_triggers(trigger: PageTrigger) -> [AnnotationTrigger; 2] {
-    match trigger {
-        PageTrigger::Open => [AnnotationTrigger::PageOpen, AnnotationTrigger::PageVisible],
-        PageTrigger::Close => [
-            AnnotationTrigger::PageClose,
-            AnnotationTrigger::PageInvisible,
-        ],
+/// Which of Table 197's annotation events ride with one of Table 198's page events.
+///
+/// `/PO` with the page's `/O` and `/PC` with its `/C`, always. `/PV` and `/PI` are about the
+/// window rather than the current page — §12.6.3: "\[t]he PV and PI entries allow a distinction
+/// between pages that are open and pages that are visible" — so a page turn raises them where the
+/// arrangement changes and not here (ADR 2986 supersedes ADR 2814 section 3 on this point). The
+/// open sequence is the one exception, `visible` true: it is the first moment any script may run,
+/// and the page it presents became visible then.
+fn annotation_triggers(trigger: PageTrigger, visible: bool) -> &'static [AnnotationTrigger] {
+    match (trigger, visible) {
+        (PageTrigger::Open, true) => &[AnnotationTrigger::PageOpen, AnnotationTrigger::PageVisible],
+        (PageTrigger::Open, false) => &[AnnotationTrigger::PageOpen],
+        (PageTrigger::Close, _) => &[AnnotationTrigger::PageClose],
     }
 }
 

@@ -438,15 +438,15 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/annotation.rs, crates/viewer-core/src/viewer.rs
 - test files: crates/pdf-model/tests/annotation_border_audit.rs, crates/pdf-model/tests/annotation_output_flags_spec_audit.rs, crates/pdf-model/tests/annotation_view_matrix_spec_audit.rs, crates/pdf-model/tests/appearance_state_precedence_spec_audit.rs, crates/pdf-model/tests/freetext_cloud_border_spec_audit.rs?, crates/pdf-model/tests/indirect_annotation_values_spec_audit.rs, crates/pdf-model/tests/stored_annotation_blend_spec_audit.rs, crates/viewer-core/tests/unknown_annotation_pointer_spec_audit.rs
 
-- 2038-B68 | viewer-core,pdf-model | behavior-gap | open | pointer-driven annotation appearance state | 1 manifest failure
-- 2038-T25 | pdf-model | test-coverage-gap | open | test control: BS vs Border precedence
-- 2038-T26 | pdf-model | test-coverage-gap | open | test control: annotation BM
-- 2038-T68 | pdf-model | test-coverage-gap | open | test control: widget AS versus inherited V
-- 2038-T75 | pdf-model | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T86 | pdf-model | test-coverage-gap | open | test control: NoZoom/NoRotate extents
-- 2038-T87 | pdf-model | test-coverage-gap | open | test control: annotation flag print/hover policy
-- 2038-T140 | pdf-model | fixture-validity-strengthening | open | FreeText annotation fixtures
-- 2038-T143 | pdf-model | fixture-validity | open | FreeText annotation fixtures
+- 2038-B68 | viewer-core,pdf-model | behavior-gap | fixed (ADR 2982; unknown_annotation_pointer_spec_audit) | pointer-driven annotation appearance state | 1 manifest failure
+- 2038-T25 | pdf-model | test-coverage-gap | fixed (audit test annotation_border_audit passes; nothing remaining) | test control: BS vs Border precedence
+- 2038-T26 | pdf-model | test-coverage-gap | fixed (audit test stored_annotation_blend_spec_audit passes; nothing remaining) | test control: annotation BM
+- 2038-T68 | pdf-model | test-coverage-gap | fixed (audit test appearance_state_precedence_spec_audit passes; nothing remaining) | test control: widget AS versus inherited V
+- 2038-T75 | pdf-model | test-coverage-gap | fixed (audit test indirect_annotation_values_spec_audit passes; nothing remaining) | test control: indirect values need resolving at consumer
+- 2038-T86 | pdf-model | test-coverage-gap | fixed (audit test annotation_view_matrix_spec_audit passes; nothing remaining) | test control: NoZoom/NoRotate extents
+- 2038-T87 | pdf-model | test-coverage-gap | fixed (audit test annotation_output_flags_spec_audit passes; nothing remaining) | test control: annotation flag print/hover policy
+- 2038-T140 | pdf-model | fixture-validity-strengthening | fixed (audit fixtures in the FreeText callout tests pass; nothing remaining) | FreeText annotation fixtures
+- 2038-T143 | pdf-model | fixture-validity | fixed (audit fixtures in the FreeText tests pass; nothing remaining) | FreeText annotation fixtures
 
 ### G022 — FDF Encoding utf_8 ignored; FDF fixture noncanonical header; doc: FormsData Pages conflict comment; test control: FDF templates; test control: NeedAppearances save
 
@@ -454,11 +454,11 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/forms_data.rs
 - test files: crates/pdf-model/tests/fdf_template_file_spec_audit.rs, crates/pdf-model/tests/fdf_template_pixels_spec_audit.rs, crates/pdf-model/tests/fdf_utf8_import_spec_audit.rs, crates/pdf-model/tests/need_appearances_all_visible_widgets_spec_audit.rs?
 
-- 2038-B75 | pdf-model | behavior-gap | open | FDF Encoding utf_8 ignored | 3 manifest failures
-- 2038-T15 | pdf-model | test-coverage-gap | open | test control: FDF templates
-- 2038-T59 | pdf-model | fixture-evidence-boundary | open | FDF fixture noncanonical header
-- 2038-T117 | pdf-model | assertion-strengthening | open | test control: NeedAppearances save
-- 2038-D07 | doc,pdf-model | stale-diagnostic-description | open | doc: FormsData Pages conflict comment
+- 2038-B75 | pdf-model | behavior-gap | fixed (ADR 2983; fdf_utf8_import_spec_audit x3, forms_data::tests::utf_16_and_utf_8_read_unmarked_strings_in_their_own_forms) | FDF Encoding utf_8 ignored | 3 manifest failures
+- 2038-T15 | pdf-model | test-coverage-gap | fixed (audit tests fdf_template_pixels_spec_audit, fdf_template_file_spec_audit pass; Persistence and Rename=true stay documented departures) | test control: FDF templates
+- 2038-T59 | pdf-model | fixture-evidence-boundary | fixed (audit fixture is %FDF-1.2 with catalog /Version /1.4; passes) | FDF fixture noncanonical header
+- 2038-T117 | pdf-model | assertion-strengthening | fixed (audit test need_appearances_all_visible_widgets_spec_audit passes; nothing remaining) | test control: NeedAppearances save
+- 2038-D07 | doc,pdf-model | stale-diagnostic-description | fixed (ADR 2983: /Status beside /Pages is now named, so the comment is true; forms_data::tests::status_beside_pages_is_named) | doc: FormsData Pages conflict comment
 
 ### G023 — DPart fixtures noncanonical; DParts inventory comments stale; hard depth cap silently drops results
 
@@ -466,10 +466,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/document_part.rs
 - test files: crates/viewer-core/tests/dpart_depth_spec_audit.rs
 
-- 2038-B36 | pdf-model,viewer-core | incomplete-result-disclosure-gap | open | hard depth cap silently drops results | 1 manifest failure
-- 2038-T48 | pdf-model,viewer-core | fixture-and-route-evidence-gap | open | DPart fixtures noncanonical
-- 2038-D21 | pdf-model | source-errata-and-rationale-gap | open | DParts inventory comments stale
-- 2038-D25 | pdf-model | resource-limit-rationale-gap | open | hard depth cap silently drops results
+- 2038-B36 | pdf-model,viewer-core | incomplete-result-disclosure-gap | fixed (ADR 2984: no depth bound, cycles finite by the reference set; dpart_depth_spec_audit, document_part::tests::a_deep_chain_is_read_whole) | hard depth cap silently drops results | 1 manifest failure
+- 2038-T48 | pdf-model,viewer-core | fixture-and-route-evidence-gap | fixed (audit current-shape DPart and annotation click fixtures pass) | DPart fixtures noncanonical
+- 2038-D21 | pdf-model | source-errata-and-rationale-gap | fixed (ADR 2984: comments name Issue #612 flat /DParts as normative, nested arrays as the retired shape; doc/errata-read.md row untouched, a record) | DParts inventory comments stale
+- 2038-D25 | pdf-model | resource-limit-rationale-gap | fixed (ADR 2984: the depth bound and its cycle claim are gone) | hard depth cap silently drops results
 
 ### G024 — named destination lookup order; named destination name tree lookup; test control: indirect name and number trees
 
@@ -477,9 +477,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/destination.rs
 - test files: crates/pdf-model/tests/deep_name_tree_spec_audit.rs, crates/pdf-model/tests/deep_number_tree_spec_audit.rs, crates/viewer-core/tests/named_destination_tables_audit.rs
 
-- 2038-B08 | pdf-model | behavior-interpretation-mismatch | open | named destination lookup order | 1 manifest failure
-- 2038-T23 | pdf-model | test-coverage-gap | open | test control: indirect name and number trees
-- 2038-T149 | pdf-model | assertion-quality | open | named destination name tree lookup
+- 2038-B08 | pdf-model | behavior-interpretation-mismatch | fixed (ADR 2985 supersedes ADR 0054 on lookup order; named_destination_tables_audit) | named destination lookup order | 1 manifest failure
+- 2038-T23 | pdf-model | test-coverage-gap | fixed (audit tests deep_name_tree_spec_audit, deep_number_tree_spec_audit pass) | test control: indirect name and number trees
+- 2038-T149 | pdf-model | assertion-quality | fixed (strengthened named-destination and page-label tests pass) | named destination name tree lookup
 
 ### G025 — hard cap silently reports absent; reference ID-only matching policy doc; reference XObject print test gap
 
@@ -487,9 +487,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/reference.rs
 - test files: crates/pdf-model/tests/reference_page_label_limit_spec_audit.rs, crates/viewer-core/tests/reference_print_spec_audit.rs
 
-- 2038-B32 | pdf-model | limit-misreported-as-absence | open | hard cap silently reports absent | 1 manifest failure
-- 2038-T45 | viewer-core,pdf-model | public-integration-test-gap | open | reference XObject print test gap
-- 2038-D19 | pdf-model | source-policy-boundary | open | reference ID-only matching policy doc
+- 2038-B32 | pdf-model | limit-misreported-as-absence | fixed (§12.4.2 inverted per range: PageLabels::index_of, no page walk and no bound; reference_page_label_limit_spec_audit, page_label::tests::index_of_inverts_label_on_every_page) | hard cap silently reports absent | 1 manifest failure
+- 2038-T45 | viewer-core,pdf-model | public-integration-test-gap | fixed (audit test reference_print_spec_audit passes; pins a permitted product choice) | reference XObject print test gap
+- 2038-D19 | pdf-model | source-policy-boundary | fixed (reference.rs module doc: identifier-only matching is this project's policy (ADR 1101), the match sentence is §14.4's, first supplied candidate taken) | reference ID-only matching policy doc
 
 ### G026 — collection folder tree rows; collection sort direction array
 
@@ -497,9 +497,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/collection.rs
 - test files: crates/viewer-host/tests/collection_folder_tree_spec_audit.rs, crates/viewer-host/tests/collection_sort_date_spec_audit.rs
 
-- 2038-B76 | pdf-model | behavior-gap | open | collection sort direction array | 1 manifest failure
-- 2038-T164 | pdf-model | assertion-quality | open | collection sort direction array
-- 2038-T167 | pdf-model | assertion-quality | open | collection folder tree rows
+- 2038-B76 | pdf-model | behavior-gap | fixed (Table 156: a boolean /A is stored once per /S field, an array's missing entries default true; collection_sort_date_spec_audit, collection::tests::a_boolean_directs_every_field_and_a_short_array_only_its_own) | collection sort direction array | 1 manifest failure
+- 2038-T164 | pdf-model | assertion-quality | fixed (audit control test passes; its B76 witness now passes) | collection sort direction array
+- 2038-T167 | pdf-model | assertion-quality | fixed (audit test collection_folder_tree_spec_audit passes) | collection folder tree rows
 
 ### G027 — tiling pattern lattice spacing
 
@@ -507,8 +507,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/pattern/lattice.rs, crates/pdf-render/src/lattice.rs
 - test files: crates/pdf-model/tests/tiling.rs, crates/pdf-model/tests/tiling_signed_steps_spec_audit.rs
 
-- 2038-B72 | pdf-model,pdf-render | behavior-gap | open | tiling pattern lattice spacing | 1 manifest failure
-- 2038-T133 | pdf-model,pdf-render | assertion-strengthening | open | tiling pattern lattice spacing
+- 2038-B72 | pdf-model,pdf-render | behavior-gap | fixed (ADR 2987 amends ADR 1080: pdf_render::snap_steps where the matrix snap is refused; tiling::type_one_keeps_constant_pixel_spacing..., lattice::tests::a_step_on_a_device_axis_snaps_to_whole_pixels) | tiling pattern lattice spacing | 1 manifest failure
+- 2038-T133 | pdf-model,pdf-render | assertion-strengthening | fixed (audit test tiling_signed_steps_spec_audit passes) | tiling pattern lattice spacing
 
 ### G028 — page visibility script triggers; test control: indirect values need resolving at consumer
 
@@ -516,8 +516,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/view/script_sites.rs, crates/viewer-core/src/viewer/navigation.rs
 - test files: crates/viewer-core/tests/catalog_aa_indirect_reference_spec_audit.rs, crates/viewer-core/tests/page_visible_script_runner_spec_audit.rs
 
-- 2038-B78 | viewer-core,pdf-model | behavior-gap | open | page visibility script triggers | 3 manifest failures
-- 2038-T116 | pdf-model,viewer-core | assertion-strengthening | open | test control: indirect values need resolving at consumer
+- 2038-B78 | viewer-core,pdf-model | behavior-gap | fixed (ADR 2986 supersedes ADR 2814 section 3; page_visible_script_runner_spec_audit x3) | page visibility script triggers | 3 manifest failures
+- 2038-T116 | pdf-model,viewer-core | assertion-strengthening | fixed (audit test catalog_aa_indirect_reference_spec_audit passes) | test control: indirect values need resolving at consumer
 
 ### G029 — JP2 opacity channel counted as colour
 
@@ -525,7 +525,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/jpx.rs?
 - test files: crates/pdf-model/tests/jpx_ordinary_opacity_audit.rs
 
-- 2038-B14 | pdf-model | behavior-gap | open | JP2 opacity channel counted as colour | 1 manifest failure
+- 2038-B14 | pdf-model | behavior-gap | fixed (ISO/IEC 15444-1 I.5.3.6 Table I-16 kind 2: jpx::premultiplied_opacity_channel; jpx_ordinary_opacity_audit) | JP2 opacity channel counted as colour | 1 manifest failure
 
 ### G030 — degenerate tiling BBox dropped
 
@@ -533,7 +533,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/pattern/tiling.rs
 - test files: crates/pdf-model/tests/degenerate_tiling_bbox_clip_spec_audit.rs
 
-- 2038-B20 | pdf-model,render-raster | behavior-and-adr-mismatch | open | degenerate tiling BBox dropped | 1 manifest failure
+- 2038-B20 | pdf-model,render-raster | behavior-and-adr-mismatch | open (Table 74 NOTE 1 and §10.7.4: a zero-height /BBox must clip and still scan-convert one pixel; pdf-model keeps it unclipped because a zero-area clip removes everything on both backends. The fix is a degenerate-clip rule in render-cpu and render-raster, outside this group's pdf-model file; ADR 1080/tiling.rs comment unchanged) | degenerate tiling BBox dropped | 1 manifest failure
 
 ### G031 — page output intent replaced by catalog
 
@@ -541,7 +541,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/output_intent.rs
 - test files: crates/pdf-model/tests/output_intent_page_scope_spec_audit.rs
 
-- 2038-B33 | pdf-model | implementation-scope-gap | open | page output intent replaced by catalog | 2 manifest failures
+- 2038-B33 | pdf-model | implementation-scope-gap | fixed (§14.11.5 page-level precedence with Table 401's optional profile: output_intent::selected and in_force_on_pages no longer borrow the catalog's intent; output_intent_page_scope_spec_audit x2) | page output intent replaced by catalog | 2 manifest failures
 
 ### G032 — non-inheritable field keys read via parents
 
@@ -549,7 +549,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/aform/site.rs
 - test files: crates/pdf-model/tests/field_aa_noninheritance_spec_audit.rs
 
-- 2038-B62 | pdf-model | behavior-gap | open | non-inheritable field keys read via parents | 1 manifest failure
+- 2038-B62 | pdf-model | behavior-gap | fixed (Table 226 does not make /AA inheritable: aform::site::terminal_action reads the widget and its terminal field only; field_aa_noninheritance_spec_audit. Inherited::action removed from inheritance.rs, G019's file, as dead) | non-inheritable field keys read via parents | 1 manifest failure
 
 ### G033 — annex I version warning timing doc; classic conversion notes stale; general syntax note stale; interchange prepress notes stale; separation simulation ledger note stale; shading AntiAlias flag unread
 

@@ -203,9 +203,10 @@ pub(crate) fn hover_changes(
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
     let appearances = document.get_key(annotation, "AP");
-    let rollover = appearances
-        .as_dict()
-        .is_some_and(|appearances| !document.get_key(appearances, "R").is_null());
+    let rollover = has_handler(document, annotation)
+        && appearances
+            .as_dict()
+            .is_some_and(|appearances| !document.get_key(appearances, "R").is_null());
     rollover || toggles_no_view(document, annotation, view)
 }
 
@@ -380,6 +381,22 @@ const STANDARD_SUBTYPES: [&[u8]; 28] = [
     b"Watermark",
     b"Widget",
 ];
+
+/// Whether this reader has a handler for the annotation's subtype — §12.5.1's "annotation
+/// handler", which this reader provides for every type [`STANDARD_SUBTYPES`] names and for no
+/// other.
+///
+/// An annotation without one does not interact with the user, and §12.5.5's normal appearance
+/// "shall be used when the annotation is not interacting with the user": its `/R` and `/D` are
+/// appearances for interaction that has no handler to carry it, so only `/N` is drawn whatever
+/// the pointer does. §13.6.3.1's note on unknown 3D stream types states the same fallback — "PDF
+/// processors need to follow the approach of falling back to the normal appearance" (ADR 2982).
+fn has_handler(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|name| STANDARD_SUBTYPES.contains(&name.as_bytes()))
+}
 
 /// `/F` bit 1: render nothing for an unknown subtype with no handler.
 const FLAG_INVISIBLE: i64 = 1;
@@ -1492,6 +1509,8 @@ fn stored_appearance(
     };
     let key = match showing {
         crate::view::Appearance::Normal => "N",
+        // No handler, no interaction: see [`has_handler`].
+        _ if !has_handler(document, annotation) => "N",
         crate::view::Appearance::Rollover => "R",
         // Table 191's own override, which is the one place a mode decides *which stream*
         // rather than what is drawn over it — see [`down_overridden`].

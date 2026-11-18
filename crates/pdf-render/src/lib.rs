@@ -79,7 +79,7 @@ pub use group_cost::{
     MAX_GROUP_BLIT_PIXELS, check_group_blit, check_selected_blit, commands_blit_demand,
     group_blit_demand,
 };
-pub use lattice::{Lattice, MAX_DISTORTION, TilingType, snap_lattice};
+pub use lattice::{Lattice, MAX_DISTORTION, TilingType, snap_lattice, snap_steps};
 pub use medium::{
     Medium, SURROUND, crop_area, crop_pixels, crop_to_page, impose_on_medium, impose_within,
     medium_bytes, page_area,

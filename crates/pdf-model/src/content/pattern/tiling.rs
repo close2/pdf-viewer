@@ -210,6 +210,7 @@ impl Interpreter<'_> {
         // §8.7.2: the pattern matrix "maps the pattern's internal coordinate system to the
         // default coordinate system of the pattern's parent content stream", which `base` holds.
         let stated = crate::shading::matrix_of(self.document, dict, "Matrix").then(self.base);
+        let (to_page, step) = self.lattice(tiling_type, stated, step, cell_box);
 
         Some(Rc::new(Tiling {
             content,
@@ -217,7 +218,7 @@ impl Interpreter<'_> {
             source,
             step,
             bbox: cell_box,
-            to_page: self.lattice(tiling_type, stated, step, cell_box),
+            to_page,
             tint,
         }))
     }

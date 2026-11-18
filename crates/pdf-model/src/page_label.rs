@@ -59,6 +59,56 @@ impl Style {
             Self::Letters { upper } => letters(value, upper),
         }
     }
+
+    /// The value whose rendering is exactly `text`, if there is one.
+    ///
+    /// Read loosely and then checked by [`Self::render`], so that only this style's own spelling
+    /// of a value matches — `004`, `iiii` and `AB` are no page's label.
+    fn parse(self, text: &str) -> Option<u32> {
+        let value = match self {
+            Self::Decimal => text.parse().ok()?,
+            Self::Roman { .. } => {
+                text.chars()
+                    .rev()
+                    .try_fold((0_u32, 0_u32), |(sum, largest), numeral| {
+                        let amount = match numeral.to_ascii_lowercase() {
+                            'i' => 1,
+                            'v' => 5,
+                            'x' => 10,
+                            'l' => 50,
+                            'c' => 100,
+                            'd' => 500,
+                            'm' => 1000,
+                            _ => return None,
+                        };
+                        if amount < largest {
+                            Some((sum.checked_sub(amount)?, largest))
+                        } else {
+                            Some((sum.checked_add(amount)?, amount))
+                        }
+                    })?
+                    .0
+            }
+            Self::Letters { .. } => {
+                let first = text.chars().next();
+                match first {
+                    None => 0,
+                    Some(letter) if letter.is_ascii_alphabetic() => {
+                        let index =
+                            u32::from(letter.to_ascii_lowercase()).saturating_sub(u32::from('a'));
+                        let repeats = u32::try_from(text.chars().count()).ok()?;
+                        repeats
+                            .checked_sub(1)?
+                            .checked_mul(26)?
+                            .checked_add(index)?
+                            .checked_add(1)?
+                    }
+                    Some(_) => return None,
+                }
+            }
+        };
+        (self.render(value) == text).then_some(value)
+    }
 }
 
 /// Table 161's letters: `A` to `Z`, then `AA` to `ZZ`, then `AAA` and so on.
@@ -215,6 +265,37 @@ impl PageLabels {
         Some(label)
     }
 
+    /// The first page index of `pages` whose label is `label`, or `None` where none has it.
+    ///
+    /// The inverse of [`Self::label`], computed per range rather than by walking pages: a range's
+    /// pages carry its prefix followed by consecutive values of its style from `/St`, so a label
+    /// names at most one page of each range, and that page is found from the value alone. The
+    /// ranges are in page order, so the first range holding the label holds its first page.
+    #[must_use]
+    pub fn index_of(&self, label: &str, pages: usize) -> Option<usize> {
+        let pages = i64::try_from(pages).ok()?;
+        self.ranges.iter().enumerate().find_map(|(at, range)| {
+            let end = self
+                .ranges
+                .get(at.saturating_add(1))
+                .map_or(pages, |next| next.first.min(pages));
+            let rest = label.strip_prefix(range.prefix.as_str())?;
+            let index = match range.style {
+                // Every page of a range with no style is labelled by its prefix alone.
+                None => rest.is_empty().then_some(range.first)?,
+                Some(style) => {
+                    let value = style.parse(rest)?;
+                    range
+                        .first
+                        .checked_add(i64::from(value.checked_sub(range.start)?))?
+                }
+            };
+            (index >= range.first.max(0) && index < end)
+                .then(|| usize::try_from(index).ok())
+                .flatten()
+        })
+    }
+
     /// Whether the document states any labels at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -236,7 +317,52 @@ fn prefix(document: &Document, dict: &Dictionary) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Style, letters, roman};
+    use super::{PageLabels, Range, Style, letters, roman};
+
+    /// `index_of` is `label`'s inverse on every page, including the clause's own example's ranges,
+    /// a range with no style, a range with `/St`, and a label that ends past the document.
+    #[test]
+    fn index_of_inverts_label_on_every_page() {
+        let range = |first, style, prefix: &str, start| Range {
+            first,
+            style,
+            prefix: prefix.to_owned(),
+            start,
+        };
+        let labels = PageLabels {
+            ranges: vec![
+                range(0, Some(Style::Roman { upper: false }), "", 1),
+                range(4, Some(Style::Decimal), "", 1),
+                range(7, Some(Style::Decimal), "A-", 8),
+                range(40, None, "Index", 1),
+                range(42, Some(Style::Letters { upper: true }), "", 1),
+                range(5000, Some(Style::Roman { upper: true }), "", 1),
+            ],
+        };
+        let pages = 6000;
+        let mut found = std::collections::BTreeMap::new();
+        for index in 0..pages {
+            let label = labels.label(index).expect("every page is labelled");
+            found.entry(label).or_insert(index);
+        }
+        for (label, first) in &found {
+            assert_eq!(labels.index_of(label, pages), Some(*first), "{label}");
+        }
+        assert_eq!(labels.index_of("v", pages), None, "page 4 is labelled 1");
+        assert_eq!(
+            labels.index_of("004", pages),
+            None,
+            "not the decimal style's spelling"
+        );
+        assert_eq!(
+            labels.index_of("AB", pages),
+            None,
+            "not Table 161's letters"
+        );
+        assert_eq!(labels.index_of("A-7", pages), None, "below the range's /St");
+        assert_eq!(labels.index_of("MI", pages), None, "past the last page");
+        assert_eq!(labels.index_of("Index", pages), Some(40));
+    }
 
     /// The clause's own example: "a document with pages labelled i, ii, iii, iv, 1, 2, 3, A-8,
     /// A-9". The first four are what a *subtractive* Roman numeral gives; the additive form

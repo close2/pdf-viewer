@@ -35,14 +35,6 @@ use std::collections::BTreeSet;
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
-/// How far down the hierarchy [`first_page`] will descend.
-///
-/// §14.12.2 makes the structure a tree and a tree of any real document is a handful of levels
-/// deep; a chain longer than this is a cycle a malformed file wrote, and the bound is what stops
-/// following it. The `/Parent` links the clause requires are not followed at all, so a cycle
-/// through them cannot be reached from here.
-const MAX_DEPTH: usize = 64;
-
 /// Most `DPart` dictionaries enumerated from one document.
 ///
 /// §14.12.3 gives each page object to "one and only one `DPart` dictionary", so the leaves of a
@@ -51,6 +43,10 @@ const MAX_DEPTH: usize = 64;
 /// a budget rather than a limit read off a clause (`CLAUDE.md` principle 3, trap 38): a file
 /// describing more parts than this is describing something other than its own pages, and the walk
 /// answers with what it has rather than following it.
+///
+/// It is the walk's only budget. Depth is not one: §14.12.2's tree rules bound no chain's length,
+/// so a long chain is a deep hierarchy rather than a cycle, and a cycle is already finite through
+/// the set of references walked (ADR 2984).
 const MAX_PARTS: usize = 65_536;
 
 /// One `DPart` dictionary of §14.12.2's hierarchy, as [`hierarchy`] enumerates it.
@@ -154,8 +150,7 @@ impl Hierarchy {
 ///
 /// §14.12.2: "A child `DPart` dictionary shall not be referenced by more than one parent `DPart`
 /// dictionary", so a node reached twice is a malformed file and is not descended into twice. That
-/// set is what makes a cycle finite; `MAX_DEPTH` bounds a chain of dictionaries written inline
-/// rather than as references, and `MAX_PARTS` is the budget on the whole.
+/// set is what makes a cycle finite, and `MAX_PARTS` is the budget on the whole.
 #[must_use]
 pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
     let catalog = document.catalog().ok()?;
@@ -169,7 +164,15 @@ pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
     }
     let node = document.get_key(root, "DPartRootNode");
     if let Some(dict) = node.as_dict() {
-        collect(document, dict, 0, &mut seen, &mut parts);
+        walk(document, dict, &mut seen, |part, level| {
+            parts.push(Part {
+                dictionary: part.clone(),
+                start: reference(part.get("Start")),
+                end: reference(part.get("End")),
+                level,
+            });
+            None::<()>
+        });
     }
 
     let node_names = document
@@ -197,53 +200,64 @@ pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
     })
 }
 
-/// [`hierarchy`]'s depth-first walk, one node at a time.
-fn collect(
+/// The `DPart` dictionaries from `root` down, depth first and the root first — §14.12.3's order
+/// — handed to `visit` one at a time with their level, until it answers or [`MAX_PARTS`] nodes
+/// have been walked.
+///
+/// The walk keeps its own stack rather than recursing, so a hierarchy as deep as its file makes
+/// it costs memory in proportion to its nodes and no stack frames.
+///
+/// Errata Collection 3 Issue #612 rewrites Table 409's `/DParts` as an array that "shall be an
+/// array of indirect references to immediate descendant `DPart` dictionaries", replacing the array
+/// of arrays the printed table describes. A file written to the printed shape is still read:
+/// an element that is an array contributes its elements, which costs nothing and loses no file,
+/// because a `DPart` dictionary and an array of them are different types.
+///
+/// §14.12.2: "A child `DPart` dictionary shall not be referenced by more than one parent `DPart`
+/// dictionary." A reference already walked is that file, and stopping there is both the clause's
+/// answer and what makes a cycle finite; `seen` holds the references walked.
+fn walk<T>(
     document: &Document,
-    part: &Dictionary,
-    level: usize,
+    root: &Dictionary,
     seen: &mut BTreeSet<ObjectId>,
-    out: &mut Vec<Part>,
-) {
-    if level > MAX_DEPTH || out.len() >= MAX_PARTS {
-        return;
-    }
-    out.push(Part {
-        dictionary: part.clone(),
-        start: reference(part.get("Start")),
-        end: reference(part.get("End")),
-        level,
-    });
-
-    let children = document.get_key(part, "DParts");
-    let Some(rows) = children.as_array() else {
-        return;
-    };
-    for row in rows {
-        let row = document.resolve(row);
-        // Table 409 makes `/DParts` "[a]n array of arrays", each element of which is an array of
-        // references to the immediate descendants. A row that is not an array is a file writing
-        // one level's worth of children directly, which costs nothing to accept and loses no valid
-        // file — a `DPart` dictionary and an array of them are different types.
-        let candidates: Vec<Object> = match &row {
-            Object::Array(items) => items.clone(),
-            other => vec![other.clone()],
+    mut visit: impl FnMut(&Dictionary, usize) -> Option<T>,
+) -> Option<T> {
+    let mut stack = vec![(root.clone(), 0_usize)];
+    let mut walked = 0_usize;
+    while let Some((part, level)) = stack.pop() {
+        if walked >= MAX_PARTS {
+            return None;
+        }
+        walked = walked.saturating_add(1);
+        if let Some(found) = visit(&part, level) {
+            return Some(found);
+        }
+        let children = document.get_key(&part, "DParts");
+        let Some(rows) = children.as_array() else {
+            continue;
         };
-        for child in candidates {
-            // §14.12.2: "A child DPart dictionary shall not be referenced by more than one parent
-            // DPart dictionary." A reference already walked is that file, and stopping is both the
-            // clause's answer and what makes a cycle finite.
-            if let Object::Reference(id) = child
-                && !seen.insert(id)
-            {
-                continue;
-            }
-            let resolved = document.resolve(&child);
-            if let Some(dict) = resolved.as_dict() {
-                collect(document, dict, level.saturating_add(1), seen, out);
+        let mut below = Vec::new();
+        for row in rows {
+            // The element itself, unresolved, where it is not an array: its reference is what
+            // `seen` is keyed on.
+            let candidates: Vec<Object> = match document.resolve(row) {
+                Object::Array(items) => items.clone(),
+                _ => vec![row.clone()],
+            };
+            for child in candidates {
+                if let Object::Reference(id) = child
+                    && !seen.insert(id)
+                {
+                    continue;
+                }
+                if let Some(dict) = document.resolve(&child).as_dict() {
+                    below.push((dict.clone(), level.saturating_add(1)));
+                }
             }
         }
+        stack.extend(below.into_iter().rev());
     }
+    None
 }
 
 /// The object an entry refers to, for the entries Table 409 requires to be indirect.
@@ -272,47 +286,17 @@ fn reference(entry: Option<&Object>) -> Option<ObjectId> {
 /// descending to it is a reading of that sentence rather than a guess. A `GoToDp` naming a node
 /// would otherwise have nowhere to go, which the clause plainly does not intend.
 ///
-/// `/DParts` is "\[a]n array of arrays", so the first child is the first element of the first
-/// element — a shape a first implementation flattens by accident and which changes nothing here,
-/// since either reading reaches the same first leaf. It is written out because the *count* of
-/// children would differ.
+/// `/DParts` is the flat array of references Errata Collection 3 Issue #612 makes it, and the
+/// array of arrays the printed table describes is read too (`walk`).
 #[must_use]
 pub fn first_page(document: &Document, part: &Dictionary) -> Option<ObjectId> {
-    first_page_at(document, part, 0)
-}
-
-/// [`first_page`], carrying the depth that bounds it.
-fn first_page_at(document: &Document, part: &Dictionary, depth: usize) -> Option<ObjectId> {
-    if depth > MAX_DEPTH {
-        return None;
-    }
     // `/Start` "shall be an indirect reference to the page object", so the *reference* is what
-    // this answers: a resolved dictionary could not be looked up in the page tree.
-    if let Some(Object::Reference(id)) = part.get("Start") {
-        return Some(*id);
-    }
-
-    let children = document.get_key(part, "DParts");
-    let children = children.as_array()?;
-    for row in children {
-        let row = document.resolve(row);
-        // A row that is not an array is a file writing Table 409's entry in the shape a reader
-        // expects for one *level* down; taking it as a child directly costs nothing and loses
-        // no valid file, because a `DPart` dictionary and an array of them are different types.
-        let candidates: Vec<Object> = match &row {
-            Object::Array(items) => items.clone(),
-            other => vec![other.clone()],
-        };
-        for child in candidates {
-            let resolved = document.resolve(&child);
-            if let Some(dict) = resolved.as_dict()
-                && let Some(page) = first_page_at(document, dict, depth.saturating_add(1))
-            {
-                return Some(page);
-            }
-        }
-    }
-    None
+    // this answers: a resolved dictionary could not be looked up in the page tree. The first
+    // node in depth-first order that states one is the first leaf, since Table 409 gives a node
+    // either `/Start` or `/DParts` and never both.
+    walk(document, part, &mut BTreeSet::new(), |node, _| {
+        reference(node.get("Start"))
+    })
 }
 
 #[cfg(test)]
@@ -406,6 +390,44 @@ mod tests {
                 generation: 0
             }),
             "depth first: the first child's first child, not the first child with a /Start"
+        );
+    }
+
+    /// §14.12.2's tree rules bound no chain's length, so a hierarchy two hundred levels deep is
+    /// a valid file and is read whole: every node is listed and the root's first page is the
+    /// deepest leaf's `/Start`. The children are Issue #612's flat arrays of references.
+    #[test]
+    fn a_deep_chain_is_read_whole() {
+        const DEPTH: usize = 200;
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R /DPartRoot 4 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_owned(),
+            "<< /Type /DPartRoot /DPartRootNode 5 0 R >>".to_owned(),
+        ];
+        for level in 0..DEPTH {
+            objects.push(format!(
+                "<< /Type /DPart /DParts [{} 0 R] >>",
+                level.saturating_add(6)
+            ));
+        }
+        objects.push("<< /Type /DPart /Start 3 0 R >>".to_owned());
+        let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let document = document(&objects);
+        let parts = hierarchy(&document).expect("a hierarchy").parts;
+        assert_eq!(parts.len(), DEPTH.saturating_add(1));
+        assert_eq!(parts.last().map(|part| part.level), Some(DEPTH));
+        let root = document.get(ObjectId {
+            number: 5,
+            generation: 0,
+        });
+        let root = root.as_dict().expect("the root node");
+        assert_eq!(
+            first_page(&document, root),
+            Some(ObjectId {
+                number: 3,
+                generation: 0
+            })
         );
     }
 

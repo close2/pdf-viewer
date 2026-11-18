@@ -362,9 +362,10 @@ impl Viewer {
     ///
     /// **Each event's scripts run here too** (ADR 1752): a pointer's and a focus's through
     /// `run_annotation_scripts`, under the runner the reader's `Scripts` level supplied, before the
-    /// same chain's other actions — ADR 1602 keeps no order between the two. Table 197's four
-    /// page events are not run here: their scripts are [`Self::page_events`]'s, page and
+    /// same chain's other actions — ADR 1602 keeps no order between the two. Table 197's `/PO`
+    /// and `/PC` are not run here: their scripts are [`Self::page_events`]'s, page and
     /// annotations together, and the open sequence's at the first present (RFC 0008 section 6.5).
+    /// `/PV` and `/PI` are, as the arrangement changes (ADR 2986).
     ///
     /// `blurred_by` is how a `/Bl` among `raised` came about, where the caller knows: a press,
     /// which a pointer makes outside the widget that held the focus, or a tab. A hybrid form's
@@ -413,12 +414,21 @@ impl Viewer {
                 form_pointer(open, annotation, FormPointer::Click);
             }
             let scripted = match event {
+                // `/PV` and `/PI` are raised where the arrangement gains or loses a page, which
+                // is not where the current page turns, so their scripts run with them (ADR 2986);
+                // before the open sequence has run, the sequence itself runs the presented
+                // page's, and nothing is handed over here.
+                Trigger::PageVisible | Trigger::PageInvisible if !open.view.scripts_opened() => {
+                    runner
+                }
                 Trigger::Enter
                 | Trigger::Exit
                 | Trigger::Down
                 | Trigger::Up
                 | Trigger::Focus
-                | Trigger::Blur => {
+                | Trigger::Blur
+                | Trigger::PageVisible
+                | Trigger::PageInvisible => {
                     let ran = open
                         .view
                         .run_annotation_scripts(&open.document, annotation, event);
@@ -429,12 +439,9 @@ impl Viewer {
                     }
                     ran.answered()
                 }
-                // `page_events` hands these four to the runner with the page's own, whenever
+                // `page_events` hands these two to the runner with the page's own, whenever
                 // there is one, and the open sequence hands them over for the page an open shows.
-                Trigger::PageOpen
-                | Trigger::PageClose
-                | Trigger::PageVisible
-                | Trigger::PageInvisible => runner,
+                Trigger::PageOpen | Trigger::PageClose => runner,
             };
             let outcome = interact::trigger(open, annotation, event, at, scripted);
             self.apply(id, outcome, events);

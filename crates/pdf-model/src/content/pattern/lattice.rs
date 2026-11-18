@@ -162,18 +162,22 @@ impl Interpreter<'_> {
     /// magnification, and not only where the snap was taken: whether it is taken is itself a
     /// function of the magnification, so a page where it was declined would otherwise keep a list
     /// that a different magnification would have snapped. ADR 1080.
+    ///
+    /// The answer is the pattern matrix and the `(XStep, YStep)` the sites are placed by. Where
+    /// adjusting the matrix would distort the cell past Table 74's one device pixel, the steps are
+    /// adjusted instead and the matrix is the file's ([`pdf_render::snap_steps`]).
     pub(super) fn lattice(
         &mut self,
         tiling_type: Option<pdf_render::TilingType>,
         stated: Transform,
         step: (f32, f32),
         cell: Option<[f32; 4]>,
-    ) -> Transform {
+    ) -> (Transform, (f32, f32)) {
         if !tiling_type.is_some_and(pdf_render::TilingType::constant_spacing) {
-            return stated;
+            return (stated, step);
         }
         let Some(pixels_per_unit) = self.view.magnification() else {
-            return stated;
+            return (stated, step);
         };
         self.magnified_tiling = true;
         // What the distortion is measured across. Table 74 makes `/BBox` required and a pattern
@@ -185,7 +189,10 @@ impl Interpreter<'_> {
                 (corners[3] - corners[1]).abs(),
             )
         });
-        pdf_render::snap_lattice(stated, step, extent, pixels_per_unit)
-            .map_or(stated, |lattice| lattice.to_page)
+        if let Some(lattice) = pdf_render::snap_lattice(stated, step, extent, pixels_per_unit) {
+            return (lattice.to_page, step);
+        }
+        let step = pdf_render::snap_steps(stated, step, pixels_per_unit).unwrap_or(step);
+        (stated, step)
     }
 }

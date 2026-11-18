@@ -99,14 +99,30 @@ pub(crate) struct Selected {
 /// `doc/corpora`'s PDF 2.0 examples hold one; what the second home gives is that a document *can* say per page what its
 /// device colours mean, which is the construction `pdf_transform::merge` writes when two sources'
 /// catalog intents disagree.
+///
+/// **A page that states an output intent has one, profile or not.** Table 401 makes
+/// `/DestOutputProfile` optional where `/OutputConditionIdentifier` names a registered condition,
+/// so a page-level intent without a profile this tree can read is still the page's intent, and
+/// the catalog's — another press — is not borrowed in its place: the page draws through no
+/// intent's profile (`None`) and [`in_force_on_pages`] names the page's condition.
 pub(crate) fn selected(document: &Document, page: Option<&Dictionary>) -> Option<Selected> {
-    if let Some(page) = page
-        && let Some(selected) = first_usable(document, &document.get_key(page, "OutputIntents"))
-    {
-        return Some(selected);
+    if let Some(page) = page {
+        let own = document.get_key(page, "OutputIntents");
+        if first_intent(document, &own).is_some() {
+            return first_usable(document, &own);
+        }
     }
     let catalog = document.catalog().ok()?;
     first_usable(document, &document.get_key(&catalog, "OutputIntents"))
+}
+
+/// The first output intent dictionary of an array, whatever it states — what makes a page have a
+/// page-level output intent at all.
+fn first_intent(document: &Document, intents: &Object) -> Option<Dictionary> {
+    intents
+        .as_array()?
+        .iter()
+        .find_map(|intent| document.resolve(intent).as_dict().cloned())
 }
 
 /// What `DeviceGray` means on a page whose output intent in force is `selected`: the intent's
@@ -201,8 +217,13 @@ pub fn in_force_on_pages(document: &Document) -> Vec<OutputIntent> {
         let Some(page) = pages.get(index) else {
             continue;
         };
-        let own = first_usable(document, &document.get_key(&page.dict, "OutputIntents"))
-            .map(|selected| OutputIntent::named(document, &selected.dictionary));
+        // The page's own where it states one, read as [`selected`] reads it: the intent it is
+        // drawn through, or its first where it names no profile this tree reads.
+        let stated = document.get_key(&page.dict, "OutputIntents");
+        let own = first_usable(document, &stated)
+            .map(|selected| selected.dictionary)
+            .or_else(|| first_intent(document, &stated))
+            .map(|dictionary| OutputIntent::named(document, &dictionary));
         if let Some(intent) = own.or_else(|| catalog.clone())
             && !found.contains(&intent)
         {

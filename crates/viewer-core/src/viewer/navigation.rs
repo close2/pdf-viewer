@@ -428,12 +428,11 @@ impl Viewer {
     /// arriving at one is the page's `/O` then its annotations' `/PO` — which is the sequence
     /// below.
     ///
-    /// **`/PV` and `/PI` coincide with `/PO` and `/PC` here, and that is derived rather than
-    /// conceded.** §12.6.3 says why the pair exists: "\[t]he PV and PI entries allow a distinction
-    /// between pages that are open and pages that are visible. At any one time, while more than
-    /// one page may be visible, depending on the page layout." This viewer shows one page at a
-    /// time, so the two sets have one member each and they are the same member. A host that drew
-    /// a continuous tower of pages would separate them, and the place to do it is here.
+    /// **`/PV` and `/PI` are not `/PO` and `/PC`.** §12.6.3 says why the pair exists: "\[t]he PV
+    /// and PI entries allow a distinction between pages that are open and pages that are
+    /// visible." The current page is the one opened; the visible ones are what the arrangement
+    /// places, and [`Self::visibility_of`] raises the pair for those, actions and scripts alike
+    /// (ADR 2986).
     ///
     /// NOTE 1 is honoured by not consulting Table 167 at all: "\[f]or these trigger events, the
     /// values of the flags specified by the annotation's F entry … have no bearing on whether a
@@ -533,8 +532,8 @@ impl Viewer {
     /// two-page spread or a continuous column shows pages beside the current one, and a page that
     /// stays on the screen while another becomes current has neither become visible nor stopped
     /// being so. So these two are raised against what the arrangement places, apart from `/PO`
-    /// and `/PC`, which are the current page's (ADR 2814). Their scripts still ride with the
-    /// current page's open and close (`ViewState::run_page_scripts`).
+    /// and `/PC`, which are the current page's (ADR 2814), and their scripts run with them
+    /// (ADR 2986).
     pub(super) fn visibility(&mut self, id: DocumentId, events: &mut Vec<Event>) {
         if self.raising {
             return;

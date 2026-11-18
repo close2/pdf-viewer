@@ -391,8 +391,15 @@ pub enum Encoding {
     /// The table's default, and §7.9.2.2's own answer for a string with no marker.
     #[default]
     PdfDocEncoding,
-    /// `utf_8` or `utf_16`, which §7.9.2.2 already decodes from the string's own prefix.
-    Unicode,
+    /// `utf_8`: a string with no U+FEFF prefix is UTF-8 without one (ADR 2983).
+    Utf8,
+    /// `utf_16`: a string with no U+FEFF prefix is UTF-16 without a byte order mark, which is
+    /// read big-endian — the order §7.9.2.2.1 gives every UTF-16 text string, and the only one
+    /// a string carrying no mark can state (ADR 2983).
+    Utf16,
+    /// Strings already in §7.9.2.2's text-string form, as XFDF's reader builds them from its
+    /// UTF-8 file (XFDF section 5.5.2); no FDF file names this.
+    TextStrings,
     /// One of the table's four registered character sets — `Shift_JIS`, `BigFive`, `GBK`,
     /// `UHC` — named and not decoded.
     ///
@@ -408,7 +415,8 @@ impl Encoding {
     fn read(name: Option<&[u8]>) -> Self {
         match name {
             None | Some(b"PDFDocEncoding") => Self::PdfDocEncoding,
-            Some(b"utf_8" | b"utf_16") => Self::Unicode,
+            Some(b"utf_8") => Self::Utf8,
+            Some(b"utf_16") => Self::Utf16,
             Some(other) => Self::Registered(String::from_utf8_lossy(other).into_owned()),
         }
     }
@@ -416,17 +424,110 @@ impl Encoding {
     /// Decodes one of this file's strings, or says which character set it would take.
     ///
     /// The marker test is the clause's: a string beginning U+FEFF is a text string by
-    /// §7.9.2.2.1 and this entry does not reach it. Everything else takes `/Encoding`, whose
-    /// default and whose two Unicode values are all [`pdf_syntax::text_string()`] — which chooses
-    /// among exactly those three by the same prefix rule.
-    fn decode(&self, bytes: &[u8]) -> Result<String, &str> {
+    /// §7.9.2.2.1 and this entry does not reach it. Everything else takes `/Encoding`, which
+    /// applies to it "any FDF field value or option \[...] or field name that is a string and
+    /// does not begin with the Unicode prefix ZERO WIDTH NO-BREAK SPACE (U+FEFF)": its default
+    /// is [`pdf_syntax::text_string()`]'s own reading, and `utf_8` and `utf_16` read the bytes
+    /// as those forms.
+    fn decode(&self, bytes: &[u8]) -> Result<String, Refusal> {
         const UTF16BE_MARKER: [u8; 2] = [254, 255];
-        if let Self::Registered(charset) = self
-            && !bytes.starts_with(&UTF16BE_MARKER)
-        {
-            return Err(charset);
+        if bytes.starts_with(&UTF16BE_MARKER) {
+            return Ok(pdf_syntax::text_string(bytes));
         }
-        Ok(pdf_syntax::text_string(bytes))
+        match self {
+            Self::PdfDocEncoding | Self::TextStrings => Ok(pdf_syntax::text_string(bytes)),
+            Self::Utf8 => std::str::from_utf8(bytes)
+                .map(str::to_owned)
+                .map_err(|_| Refusal::Malformed),
+            Self::Utf16 => {
+                let (units, odd) = bytes.as_chunks::<2>();
+                if !odd.is_empty() {
+                    return Err(Refusal::Malformed);
+                }
+                char::decode_utf16(units.iter().map(|unit| u16::from_be_bytes(*unit)))
+                    .collect::<Result<String, _>>()
+                    .map_err(|_| Refusal::Malformed)
+            }
+            Self::Registered(_) => Err(Refusal::NoTable),
+        }
+    }
+
+    /// Whether a string this encoding decodes must be rewritten before anything else reads it.
+    ///
+    /// The value and the options travel on as the file's own objects, and everything downstream
+    /// reads a string through §7.9.2.2's text-string rule; under `utf_8` or `utf_16` the same
+    /// bytes mean something else, so the decoded text is carried as a text string instead.
+    fn transcodes(&self) -> bool {
+        matches!(self, Self::Utf8 | Self::Utf16)
+    }
+
+    /// One of this file's strings as a §7.9.2.2 text string — the bytes themselves where the
+    /// encoding is that rule already.
+    fn as_text_string(&self, bytes: &[u8]) -> Result<Object, Refusal> {
+        let text = self.decode(bytes)?;
+        if self.transcodes() {
+            Ok(Object::String(
+                pdf_syntax::text_string::encode_text_string(&text).into(),
+            ))
+        } else {
+            Ok(Object::String(bytes.to_vec().into()))
+        }
+    }
+}
+
+/// Why a string of an FDF file could not be read under its `/Encoding`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// One of Table 246's registered character sets, which this program carries no table for.
+    NoTable,
+    /// Bytes that are not the `utf_8` or `utf_16` form the file says they are.
+    Malformed,
+}
+
+/// The three entries of Table 249 a [`Refusal`] is named on.
+#[derive(Debug, Clone, Copy)]
+enum Entry {
+    /// `/T`.
+    Name,
+    /// `/V`.
+    Value,
+    /// `/RV`.
+    RichValue,
+}
+
+impl Refusal {
+    /// The sentence [`FdfField::owed`] carries for this refusal on `entry`.
+    fn sentence(self, entry: Entry) -> &'static str {
+        match (self, entry) {
+            (Self::NoTable, Entry::Name) => "/T in a character set this program has no table for",
+            (Self::NoTable, Entry::Value) => "/V in a character set this program has no table for",
+            (Self::NoTable, Entry::RichValue) => {
+                "/RV in a character set this program has no table for"
+            }
+            (Self::Malformed, Entry::Name) => "/T: bytes that are not the file's /Encoding",
+            (Self::Malformed, Entry::Value) => "/V: bytes that are not the file's /Encoding",
+            (Self::Malformed, Entry::RichValue) => "/RV: bytes that are not the file's /Encoding",
+        }
+    }
+}
+
+/// Table 249's `/V` as the field's value, its strings read under the file's `/Encoding`.
+///
+/// A multiple-selection choice's value is an array of its options' strings, and each is one "FDF
+/// field value" the entry governs.
+fn field_value(stated: &Object, encoding: &Encoding) -> Result<Option<Object>, Refusal> {
+    match stated {
+        Object::String(bytes) => encoding.as_text_string(bytes).map(Some),
+        Object::Array(items) if encoding.transcodes() => items
+            .iter()
+            .map(|item| match item {
+                Object::String(bytes) => encoding.as_text_string(bytes),
+                other => Ok(other.clone()),
+            })
+            .collect::<Result<Vec<Object>, Refusal>>()
+            .map(|items| Some(Object::Array(items))),
+        Object::Null => Ok(None),
+        other => Ok(Some(other.clone())),
     }
 }
 
@@ -727,6 +828,9 @@ impl FormsData {
         // clause telling it which to prefer, so both are read and the contradiction is named.
         if !pages.is_empty() && !fields.is_empty() {
             owed.push("/Fields and /Pages are both present, which Table 246 forbids");
+        }
+        if !pages.is_empty() && !document.get_key(&fdf, "Status").is_null() {
+            owed.push("/Status and /Pages are both present, which Table 246 forbids");
         }
 
         // Table 246 types `/F` as a "file specification", and §7.11.1 gives that two forms:
@@ -1186,10 +1290,10 @@ fn read_fields(
         // still listed, under the bytes read as though they were `PDFDocEncoding` — it will
         // match nothing, and saying *why* it matched nothing is what the entry on `owed` is for.
         let (partial, name_owed) = match document.get_key(field, "T").as_string() {
-            None => (None, false),
+            None => (None, None),
             Some(bytes) => match encoding.decode(bytes) {
-                Ok(text) => (Some(text).filter(|name| !name.is_empty()), false),
-                Err(_) => (Some(pdf_syntax::text_string(bytes)), true),
+                Ok(text) => (Some(text).filter(|name| !name.is_empty()), None),
+                Err(refusal) => (Some(pdf_syntax::text_string(bytes)), Some(refusal)),
             },
         };
         let name = match (&partial, prefix.is_empty()) {
@@ -1223,11 +1327,11 @@ fn read_field(
     field: &Dictionary,
     name: String,
     encoding: &Encoding,
-    name_owed: bool,
+    name_owed: Option<Refusal>,
 ) -> FdfField {
     let mut owed = Vec::new();
-    if name_owed {
-        owed.push("/T in a character set this program has no table for");
+    if let Some(refusal) = name_owed {
+        owed.push(refusal.sentence(Entry::Name));
     }
     let stated = document.get_key(field, "V");
     // The value is kept as the file's own object rather than as a decoded string, because
@@ -1236,14 +1340,10 @@ fn read_field(
     // case where those two answers *differ* is acted on: a registered character set, refused at
     // the value rather than at the file, because an FDF file may name `Shift_JIS` and carry a
     // check box whose value is a *name*, which no character set reaches.
-    let value = match &stated {
-        Object::String(bytes) if encoding.decode(bytes).is_err() => {
-            owed.push("/V in a character set this program has no table for");
-            None
-        }
-        Object::Null => None,
-        other => Some(other.clone()),
-    };
+    let value = field_value(&stated, encoding).unwrap_or_else(|refusal| {
+        owed.push(refusal.sentence(Entry::Value));
+        None
+    });
     // Table 249's `/AP`: "[a]n appearance dictionary specifying the appearance of a push-button
     // field", whose `/N`, `/R` and `/D` "shall all be streams" — streams that are objects of the
     // FDF file. [`carry`] is how they cross, so the entry is applied rather than named; what is
@@ -1308,13 +1408,10 @@ fn read_field(
     let stated_rich = document.get_key(field, "RV");
     let rich_value = match &stated_rich {
         Object::Null => None,
-        Object::String(bytes) => {
-            let decoded = encoding.decode(bytes).ok();
-            if decoded.is_none() {
-                owed.push("/RV in a character set this program has no table for");
-            }
-            decoded
-        }
+        Object::String(bytes) => encoding
+            .decode(bytes)
+            .map_err(|refusal| owed.push(refusal.sentence(Entry::RichValue)))
+            .ok(),
         other => {
             let text = crate::variable_text::value_text(document, other);
             if text.is_none() {
@@ -1749,6 +1846,55 @@ mod tests {
     }
 
     /// A PDF is not an FDF file, and Table 245's one required entry is what says so.
+    /// Table 246's `utf_16` names a form without its byte order mark, and the only order a
+    /// string without one can state is §7.9.2.2.1's big-endian one (ADR 2983); `utf_8` reads the
+    /// bytes as UTF-8. A string that is not the form named is named, never read as another.
+    #[test]
+    fn utf_16_and_utf_8_read_unmarked_strings_in_their_own_forms() {
+        let document = fdf("1 0 obj\n<< /FDF << /Encoding /utf_16 /Fields [\n\
+             << /T <006E00E4006D0065> /V <0076006100E4> >>\n\
+             << /T <006F00640064> /V <00> >>\n\
+             ] >> >>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.encoding, Encoding::Utf16);
+        assert_eq!(data.fields[0].name, "n\u{e4}me");
+        let value = data.fields[0].value.as_ref().expect("a value");
+        assert_eq!(
+            pdf_syntax::text_string(value.as_string().expect("a string")),
+            "va\u{e4}"
+        );
+        assert_eq!(data.fields[1].value, None);
+        assert_eq!(
+            data.fields[1].owed,
+            ["/V: bytes that are not the file's /Encoding"]
+        );
+
+        let document = fdf("1 0 obj\n<< /FDF << /Encoding /utf_8 /Fields [\n\
+             << /T <6EC3A46D65> /V <FF> >>\n\
+             ] >> >>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.fields[0].name, "n\u{e4}me");
+        assert_eq!(data.fields[0].value, None);
+        assert_eq!(
+            data.fields[0].owed,
+            ["/V: bytes that are not the file's /Encoding"]
+        );
+    }
+
+    /// Table 246's second exclusion: `/Status` "and the Pages entry shall not both be present".
+    /// Like the first, it is a writer's rule, so both are read and the contradiction is named.
+    #[test]
+    fn status_beside_pages_is_named() {
+        let document =
+            fdf("1 0 obj\n<< /FDF << /Status (done) /Pages [ << /Templates [] >> ] >> >>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.pages.len(), 1);
+        assert_eq!(
+            data.owed,
+            ["/Status and /Pages are both present, which Table 246 forbids"]
+        );
+    }
+
     #[test]
     fn a_file_with_no_fdf_dictionary_is_not_forms_data() {
         let document = fdf("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj");

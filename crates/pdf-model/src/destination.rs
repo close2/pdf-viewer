@@ -244,10 +244,11 @@ impl Destination {
     /// > alternatively be defined by the Dests entry in the document's name dictionary
     ///
     /// The clause pairs a *name* with the catalog's dictionary and a *string* with the name
-    /// tree, and NOTE 4 says a document "can contain both types". Both tables are asked here,
-    /// in the order the clause introduces them, because "alternatively" is a sentence about
-    /// where a document keeps its table rather than about which kind of object may be looked
-    /// up in it — and because the key is the same bytes either way.
+    /// tree, and NOTE 4 says a document "can contain both types". So the table paired with the
+    /// key's type is asked first, and a document holding the same key in both tables resolves a
+    /// string through its name tree and a name through its dictionary (ADR 2985). The other
+    /// table is asked only where the paired one has no entry, because the key is the same bytes
+    /// either way and no clause makes a destination kept in the other table unreachable.
     ///
     /// **The corpus says the clause's own pairing holds without exception**, which is worth
     /// recording as a measurement rather than an assumption: of the 106 named destinations
@@ -261,20 +262,28 @@ impl Destination {
     /// exactly what the lexer has already produced by the time an [`Object`] exists.
     fn named(document: &Document, key: &Key<'_>, depth: usize) -> Option<Self> {
         let catalog = document.catalog().ok()?;
-
-        if let Some(dests) = document.get_key(&catalog, "Dests").as_dict()
-            && let Some(value) = dests.get_by_name(&pdf_syntax::Name::new(key.bytes().to_vec()))
-        {
-            return Self::read_within(document, value, depth.saturating_add(1));
-        }
-
-        let names = document.get_key(&catalog, "Names");
-        let names = names.as_dict()?;
-        let root = document.get_key(names, "Dests");
-        let root = root.as_dict()?;
-        let value = tree::lookup(root, &tree::TreeKey::Name(key.bytes()), &|object| {
-            document.resolve(object)
-        })?;
+        let in_dictionary = || {
+            let dests = document.get_key(&catalog, "Dests");
+            dests
+                .as_dict()?
+                .get_by_name(&pdf_syntax::Name::new(key.bytes().to_vec()))
+                .cloned()
+        };
+        let in_tree = || {
+            let names = document.get_key(&catalog, "Names");
+            let root = document.get_key(names.as_dict()?, "Dests");
+            tree::lookup(
+                root.as_dict()?,
+                &tree::TreeKey::Name(key.bytes()),
+                &|object| document.resolve(object),
+            )
+        };
+        // The table the clause pairs with the key's own type first, the other only where that
+        // one has no entry (ADR 2985).
+        let value = match key {
+            Key::Name(_) => in_dictionary().or_else(in_tree),
+            Key::String(_) => in_tree().or_else(in_dictionary),
+        }?;
         Self::read_within(document, &value, depth.saturating_add(1))
     }
 

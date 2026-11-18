@@ -780,14 +780,13 @@ fn calculation_order(document: &Document) -> Vec<ObjectId> {
 
 /// Table 221's `/JS` of the ECMAScript action a field states for `trigger`, as text.
 ///
-/// The walk `site::of_widget` makes — the widget, then its `/Parent` chain, nearest first, the
-/// first `/AA` that states the trigger owning it — for the text that walk does not carry. `None`
+/// The lookup `site::of_widget` makes — the widget, then its terminal field, whose `/AA` is not
+/// inherited by anything below an enclosing field — for the text that lookup does not carry. `None`
 /// where the action is not ECMAScript, where Table 196's `/Next` makes the trigger more than this
 /// one action, or where the text cannot be read or is longer than [`MAX_SCRIPT_BYTES`]: each of
 /// those stays reported as Tier 0 reports it.
 fn supplied_script(document: &Document, widget: &Dictionary, trigger: Trigger) -> Option<String> {
-    let entry =
-        crate::inheritance::Inherited::of(document, widget).action(document, trigger.key())?;
+    let entry = site::terminal_action(document, widget, trigger.key())?;
     let Object::Dictionary(action) = document.resolve(&entry) else {
         return None;
     };

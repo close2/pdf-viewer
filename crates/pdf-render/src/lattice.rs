@@ -208,6 +208,48 @@ pub fn snap_lattice(
     })
 }
 
+/// Table 74's constant spacing taken by adjusting `/XStep` and `/YStep` alone, for a tiling whose
+/// [`snap_lattice`] would distort the cell past [`MAX_DISTORTION`].
+///
+/// The table's latitude names three things — small adjustments to `XStep`, to `YStep` and to the
+/// transformation matrix — and the matrix is only one of them. Rounding a step instead leaves
+/// the cell exactly as the file draws it, so it distorts nothing however wide the `/BBox`, and
+/// moves each site from its neighbour by less than half a device pixel per axis. A scalar step
+/// can put its vector on the grid only where the vector lies along a device axis, which is every
+/// pattern matrix that neither rotates by other than a quarter turn nor shears (ADR 2987); any
+/// other answers `None`, and the tiling is placed as the file states it.
+///
+/// The arguments are [`snap_lattice`]'s; the answer is the adjusted `(XStep, YStep)`.
+#[must_use]
+pub fn snap_steps(
+    to_page: Transform,
+    step: (f32, f32),
+    pixels_per_unit: f32,
+) -> Option<(f32, f32)> {
+    if !pixels_per_unit.is_finite() || pixels_per_unit <= 0.0 {
+        return None;
+    }
+    let axis = |along: f32, across: f32, step: f32| -> Option<f32> {
+        if !step.is_finite() || step.abs() <= 0.0 {
+            return None;
+        }
+        // The step vector in device pixels has one component on the axis it lies along and none
+        // across it; a vector with both is not on an axis and no scalar puts it on the grid.
+        if across.abs() > 0.0 {
+            return None;
+        }
+        let pixels = pixels_per_unit * along * step;
+        let whole = pixels.round();
+        if !pixels.is_finite() || whole.abs() <= 0.0 {
+            return None;
+        }
+        Some(step * whole / pixels)
+    };
+    let x = axis(to_page.a, to_page.b, step.0).or_else(|| axis(to_page.b, to_page.a, step.0))?;
+    let y = axis(to_page.d, to_page.c, step.1).or_else(|| axis(to_page.c, to_page.d, step.1))?;
+    Some((x, y))
+}
+
 /// How far the far corners of a cell move under a snap, in device pixels.
 ///
 /// The adjustment is linear in pattern space, so a point *p* moves by `(p.x/XStep)·Δu +
@@ -234,7 +276,27 @@ fn distortion_of(extent: (f32, f32), step: (f32, f32), moved: [f32; 4]) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{Lattice, MAX_DISTORTION, TilingType, snap_lattice};
+    use super::{Lattice, MAX_DISTORTION, TilingType, snap_lattice, snap_steps};
+
+    /// Table 74's small adjustments to `XStep` and `YStep`: a step on a device axis becomes a whole
+    /// number of pixels, a quarter-turn matrix is still on the axes, and a matrix that puts a step
+    /// across both axes cannot be met by a scalar step at all.
+    #[test]
+    fn a_step_on_a_device_axis_snaps_to_whole_pixels() {
+        let (x, y) = snap_steps(Transform::IDENTITY, (10.4, -10.6), 1.0).expect("on the axes");
+        assert!(
+            (x - 10.0).abs() < 1e-5 && (y + 11.0).abs() < 1e-5,
+            "{x} {y}"
+        );
+        let quarter = Transform::new(0.0, 2.0, -2.0, 0.0, 5.0, 5.0);
+        let (x, y) = snap_steps(quarter, (10.4, 10.4), 1.0).expect("a quarter turn");
+        assert!(
+            (2.0 * x - 21.0).abs() < 1e-4 && (2.0 * y - 21.0).abs() < 1e-4,
+            "{x} {y}"
+        );
+        let eighth = Transform::new(0.7, 0.7, -0.7, 0.7, 0.0, 0.0);
+        assert_eq!(snap_steps(eighth, (10.4, 10.4), 1.0), None);
+    }
     use crate::geom::Transform;
 
     /// Table 74's three codes, and everything else being nothing readable.

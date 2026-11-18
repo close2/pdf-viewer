@@ -3,11 +3,13 @@
 //!
 //! ISO 32000-2 §12.7.4.1 makes `/AA` an entry of the *field* dictionary — Table 226 gives a field
 //! an additional-actions dictionary defining its behaviour in response to trigger events — and a
-//! widget that is the only widget of its field is merged with it, so the entry is
-//! looked for on the widget and then up its `/Parent` chain, nearest first: the first dictionary
-//! whose `/AA` states the trigger is the field that owns the script. A widget's own `/AA` holds
-//! Table 197's pointer events as well, which is why the walk asks for the trigger's key rather
-//! than stopping at the first `/AA`.
+//! widget that is the only widget of its field is merged with it. `/AA` is not one of the
+//! entries Table 226 makes inheritable — it marks `FT`, `Ff`, `V` and `DV` so, and §12.7.4.3's
+//! Table 228 adds `DA` and `Q` — so the entry is
+//! the terminal field's own: the widget's where the widget is that field, and its `/Parent`'s
+//! where the widget is a kid of one. A widget's own `/AA` holds Table 197's pointer events as
+//! well, which is why the lookup asks for the trigger's key rather than stopping at the first
+//! `/AA` (`terminal_action`).
 //!
 //! §12.6.4.17's Table 221 says what the action carries: `/JS`, "\[a] text string or text stream
 //! containing the ECMAScript script to be executed". Both are read as §7.9.2.2's text string.
@@ -30,14 +32,37 @@ pub enum Site {
     NotRun(String),
 }
 
-/// The script a field states for `trigger`, read from a widget and its ancestors.
-///
-/// The chain is resolved once per field and followed to its top, or to where it returns to a
-/// field it has passed (ADR 2448).
+/// The script a field states for `trigger`, read from a widget and its terminal field.
 pub fn of_widget(document: &Document, widget: &Dictionary, trigger: Trigger) -> Site {
-    crate::inheritance::Inherited::of(document, widget)
-        .action(document, trigger.key())
+    terminal_action(document, widget, trigger.key())
         .map_or(Site::Absent, |entry| of_action(document, &entry, trigger))
+}
+
+/// The action the terminal field of `widget` states for `trigger` in its `/AA`, as written there.
+///
+/// The widget's own `/AA` first; then, where the widget is not itself the field — it states no
+/// `/T`, the one entry Table 226 gives a field and Table 168 does not give a widget — its
+/// `/Parent`, which is the field. No further: an enclosing field's `/AA` is that field's and is
+/// not inherited, because Table 226 does not make it inheritable.
+pub(crate) fn terminal_action(
+    document: &Document,
+    widget: &Dictionary,
+    trigger: &str,
+) -> Option<Object> {
+    let stated = |dict: &Dictionary| {
+        document
+            .get_key(dict, "AA")
+            .as_dict()
+            .and_then(|additional| additional.get(trigger).cloned())
+    };
+    if let Some(entry) = stated(widget) {
+        return Some(entry);
+    }
+    if !document.get_key(widget, "T").is_null() {
+        return None;
+    }
+    let parent = document.get_key(widget, "Parent");
+    stated(parent.as_dict()?)
 }
 
 /// The script a field dictionary states for `trigger` on that dictionary alone.

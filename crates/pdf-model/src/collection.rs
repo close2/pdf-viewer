@@ -192,26 +192,26 @@ impl FieldKind {
 pub struct Sort {
     /// `/S`, the field keys to sort by, in order — one name or an array of them.
     pub fields: Vec<String>,
-    /// `/A`, ascending or not, per field.
+    /// `/A`, ascending or not, per field: the entry at an index is the direction of the field
+    /// at the same index of [`Sort::fields`].
     ///
-    /// Table 156 allows a single boolean or an array, and [`Sort::ascending`] applies the
-    /// clause's own rule for a short array rather than storing a padded copy.
+    /// Table 156 allows a single boolean or an array, and the two say different things: the
+    /// boolean is the direction of every field, and an array gives each field its own, with a
+    /// missing entry ascending. So the boolean is stored once
+    /// per field when it is read, and [`Sort::ascending`] applies the clause's rule for a short
+    /// array.
     pub ascending: Vec<bool>,
 }
 
 impl Sort {
     /// Whether the field at `index` sorts ascending.
     ///
-    /// Table 156 makes `/A` "\[a] boolean or an array of booleans" and gives the default as
-    /// `true`; a single boolean applies to every field, and a shorter array leaves the rest at
-    /// the default.
+    /// Table 156 gives the default as `true`, and a field past the end of a shorter array takes
+    /// it: "\[i]f the number of entries in the A array is less than the number of entries in the
+    /// S array the missing entries in the A array shall be assumed to be true".
     #[must_use]
     pub fn ascending(&self, index: usize) -> bool {
-        match self.ascending.as_slice() {
-            [] => true,
-            [only] => *only,
-            many => many.get(index).copied().unwrap_or(true),
-        }
+        self.ascending.get(index).copied().unwrap_or(true)
     }
 }
 
@@ -751,7 +751,9 @@ fn sort(document: &Document, dict: &Dictionary) -> Option<Sort> {
         _ => Vec::new(),
     };
     let ascending = match document.get_key(sort, "A") {
-        Object::Boolean(value) => vec![value],
+        // "If the value is a boolean, it specifies whether the interactive PDF processor shall
+        // sort the items in the collection in ascending order": every field, so once per field.
+        Object::Boolean(value) => vec![value; fields.len().max(1)],
         Object::Array(items) => items
             .iter()
             .filter_map(|entry| match document.resolve(entry) {
@@ -1277,6 +1279,26 @@ mod tests {
     /// Three claims: `/A true` is "ordered numerically from smaller to larger", `/A false` is that
     /// reversed, and the file whose item states no value for the field sorts after both either
     /// way, because a direction a reader chose must not shuffle what the document did not state.
+    /// Table 156's two forms of `/A` say different things over two fields: the boolean is every
+    /// field's direction, and a one-entry array is the first field's, the second taking the
+    /// default `true` the clause assumes for a missing entry.
+    #[test]
+    fn a_boolean_directs_every_field_and_a_short_array_only_its_own() {
+        let directions = |a: &str| {
+            let document = document(&[&format!(
+                "<< /Type /Catalog /Collection << /Sort << /S [/x /y] /A {a} >> >> >>"
+            )]);
+            let catalog = document.catalog().expect("a catalog");
+            let collection = document.get_key(&catalog, "Collection");
+            let sort = super::sort(&document, collection.as_dict().expect("a collection"))
+                .expect("a /Sort");
+            [sort.ascending(0), sort.ascending(1)]
+        };
+        assert_eq!(directions("false"), [false, false]);
+        assert_eq!(directions("[false]"), [false, true]);
+        assert_eq!(directions("[false true false]"), [false, true]);
+    }
+
     #[test]
     fn a_collection_sorts_its_files_by_the_field_table_156_names() {
         let doc = |ascending: &str| {
@@ -1404,9 +1426,10 @@ mod tests {
         let sort = collection.sort.clone().expect("a /Sort");
         assert_eq!(sort.fields, ["date"]);
         assert!(!sort.ascending(0), "/A false is newest first for a date");
-        assert!(
-            !sort.ascending(1),
-            "one boolean applies to every field the array names"
+        assert_eq!(
+            sort.ascending,
+            [false],
+            "one boolean is the direction of every field /S names"
         );
 
         assert_eq!(

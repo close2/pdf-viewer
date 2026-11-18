@@ -37,26 +37,24 @@
 //! > been found. If only the first identifier matches, a different version of the correct PDF
 //! > file has been found.
 //!
-//! So the rule is the standard's and not this project's: the permanent string decides *which
-//! file*, and a difference in the changing string is "a different version of the correct PDF
-//! file" — §8.10.4.1's warning condition, and a thing to say rather than a thing to refuse.
+//! So the *match* is the standard's: the permanent string decides *which file*, and a difference
+//! in the changing string is "a different version of the correct PDF file" — §8.10.4.1's warning
+//! condition, and a thing to say rather than a thing to refuse.
 //!
-//! A reference stating no `/ID` therefore imports nothing. That is a deliberate refusal and it is
-//! said out loud wherever a host actually supplied files ([`Outcome::NotIdentified`]) — trap 5's
-//! rule, since the alternative is a reader that silently picks one of the files it was given.
+//! **Matching on the identifier alone is this project's policy, not the standard's.** Table 95
+//! makes `/F` the required entry and `/ID` an optional one that "improves a PDF processor's
+//! chances", and no clause forbids a processor from finding the target by its file
+//! specification; this one declines to, because principle 3 gives the renderer no filesystem and
+//! a name offered by a host is still a string the document chose (ADR 1101). A reference stating
+//! no `/ID` therefore imports nothing. That is a deliberate refusal and it is said out loud
+//! wherever a host actually supplied files ([`Outcome::NotIdentified`]) — trap 5's rule, since the
+//! alternative is a reader that silently picks one of the files it was given. Where several
+//! supplied files carry the permanent identifier, the first supplied is taken; the standard states
+//! no priority among candidates.
 
 use pdf_syntax::{Dictionary, Document, Object};
 
 use crate::file_spec::FileSpec;
-
-/// How many pages of a supplied document are walked to resolve Table 95's page *label*.
-///
-/// §12.4.2's labels are not indexed by value — [`crate::page_label::PageLabels`] answers
-/// index → label — so a label is resolved by walking. The bound is on the walk rather than on
-/// the document: a reference naming a label no early page carries falls back to the proxy, which
-/// is §8.10.4.1's own answer for content that is unavailable. It is far past any real document's
-/// front matter and exists so that one `Do` cannot cost a walk of a ten-thousand-page target.
-const MAX_LABELS_SEARCHED: usize = 4096;
 
 /// Table 95's `/Page`: "\[a] page index or page label … identifying the page of the target
 /// document containing the content to be imported".
@@ -320,10 +318,10 @@ fn page_index(document: &Document, page: &Designation) -> Option<usize> {
     let pages = crate::page::Pages::new(document);
     match page {
         Designation::Index(index) => (*index < pages.len()).then_some(*index),
+        // §12.4.2's labels are answered index → label; `index_of` inverts that per range, so a
+        // label is found on any page of the target without walking its pages.
         Designation::Label(label) => {
-            let labels = crate::page_label::PageLabels::read(document);
-            (0..pages.len().min(MAX_LABELS_SEARCHED))
-                .find(|index| labels.label(*index).as_deref() == Some(label.as_str()))
+            crate::page_label::PageLabels::read(document).index_of(label, pages.len())
         }
     }
 }

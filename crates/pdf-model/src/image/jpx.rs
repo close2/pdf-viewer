@@ -74,6 +74,7 @@ pub(super) fn decode_jpx(
             detail: "JPEG 2000 did not decode to component samples".to_owned(),
         });
     };
+    premultiplied_opacity_channel(&mut raster, &source.data);
 
     // §7.4.9: "Width and Height shall match the corresponding width and height values in
     // the JPEG 2000 data." The values *in the data* are what the codestream states, which
@@ -418,6 +419,42 @@ fn matte_alpha_on(
     matte
         .filter(|_| grid != stated)
         .map(|matte| alpha_on_grid(matte.alpha, stated, grid))
+}
+
+/// Takes the channel a JP2 file's `cdef` box states as premultiplied opacity for the raster's
+/// opacity channel, where the decoder counted it as colour.
+///
+/// ISO/IEC 15444-1 I.5.3.6 Table I-16 gives a channel three kinds: 0 colour, 1 opacity, and 2
+/// premultiplied opacity. All but the first are opacity, and §7.4.9 reads the data's opacity
+/// channel with Table 87's `/SMaskInData` deciding what is done with it — code 2 being the
+/// premultiplied one. The confined decoder recognises kind 1 alone, so a kind-2 channel arrives
+/// as one more colour component and the count §7.4.9 binds fails. Moved over only where the box
+/// names exactly one such channel, it is the last component, and no `cmap` box re-addresses the
+/// components (I.5.3.5), which is the layout the raster is in.
+fn premultiplied_opacity_channel(raster: &mut pdf_sandbox::Raster, data: &[u8]) {
+    const PREMULTIPLIED_OPACITY: u16 = 2;
+    if raster.has_opacity || raster.components < 2 {
+        return;
+    }
+    let Ok(headers) = crate::jpeg2000::Headers::parse(data) else {
+        return;
+    };
+    if headers.component_mapping {
+        return;
+    }
+    let mut opacity = headers
+        .channels
+        .iter()
+        .filter(|channel| channel.kind != crate::jpeg2000::Channel::COLOUR);
+    let (Some(only), None) = (opacity.next(), opacity.next()) else {
+        return;
+    };
+    if only.kind == PREMULTIPLIED_OPACITY
+        && only.channel == u16::from(raster.components.saturating_sub(1))
+    {
+        raster.components = raster.components.saturating_sub(1);
+        raster.has_opacity = true;
+    }
 }
 
 /// Reads a codestream's supposed opacity channel as colour where ISO 32000-2 §7.4.9 says to.
