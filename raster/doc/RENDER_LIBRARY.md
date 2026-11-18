@@ -545,7 +545,7 @@ caching clip masks viable at all. A clip that is an axis-aligned rectangle shoul
 R8 mask texture; it should become four floats and a comparison.
 
 We also know from ADR 0139 that an axis-aligned edge is exactly reproducible under a horizontal
-cut where an oblique edge and a curve are not — measured, in `render-cpu/tests/strip_cut_exactness.rs`
+cut where an oblique edge and a curve are not — measured, in `render-cpu/tests/all/strip_cut_exactness.rs`
 — which is a hint that the rectangle path can be made both faster *and* more exactly composable
 than the general one.
 
@@ -706,7 +706,7 @@ anyone's taste.
 | three of `tiny-skia`'s blend modes wrong; sixteen-mode scene | ADRs 0046, 0047 |
 | a failed frame reported as a drawn one | ADR 0125 |
 | CPU backend parallel, byte-identical; 5.9 / 10.1 ms | ADR 0139, `examples/strip_spans` |
-| axis-aligned edges survive a cut, oblique ones and curves do not | ADR 0139, `render-cpu/tests/strip_cut_exactness.rs` |
+| axis-aligned edges survive a cut, oblique ones and curves do not | ADR 0139, `render-cpu/tests/all/strip_cut_exactness.rs` |
 | the frame split of §6.1 | `render-gpu/examples/frame_split.rs`, this document |
 
 `doc/HANDOVER.md` is the state of play and carries the traps and habits these requirements came

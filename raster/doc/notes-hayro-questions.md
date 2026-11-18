@@ -92,7 +92,7 @@ subpath is a thing the contract says cannot arrive.
 half rather than leaving it to be inferred: if the caller stopped splitting, or if this
 side grew its own disc, a round-cap dot would be lost or doubled and no test either side
 had would see it. Their mirror test is
-`render-cpu/tests/degenerate_subpath.rs::a_single_point_closed_path_is_a_disc_under_round_caps`;
+`render-cpu/tests/all/degenerate_subpath.rs::a_single_point_closed_path_is_a_disc_under_round_caps`;
 ours is
 `degenerate_subpaths.rs::a_single_point_closed_path_draws_nothing_here_because_4_5_places_the_disc_upstream`,
 and the two are consistent because they are about different sides of one split.

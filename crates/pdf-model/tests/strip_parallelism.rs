@@ -1,6 +1,6 @@
 //! What a *real page* drawn in strips owes the page drawn in one piece.
 //!
-//! `render-cpu` has this property as a test already — `render-cpu/tests/strip_parallelism.rs`,
+//! `render-cpu` has this property as a test already — `render-cpu/tests/all/strip_parallelism.rs`,
 //! ADR 0139 — and that one draws the six `test-scenes` fixtures at every division and demands
 //! the bytes be equal. It passes while the property is false, because a fixture is a dozen
 //! shapes at round coordinates and the departure needs a

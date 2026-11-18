@@ -90,7 +90,7 @@ pub(crate) fn draw_sub_pixel_rule(
     // coverage its area implies; a rule that is exactly one pixel wide has no such line — it
     // spans two of them at a fractional offset — and snapping it onto one would be §10.7.5's
     // automatic stroke adjustment performed without `/SA`, which ADR 0208 forbids and
-    // `render-cpu/tests/zero_area_fill.rs` pins by making a `0 w` stroke and a zero-height fill
+    // `render-cpu/tests/all/zero_area_fill.rs` pins by making a `0 w` stroke and a zero-height fill
     // land in *different* places. The general construction below moves nothing.
     if style.width < one_pixel
         && style.dash.is_none()

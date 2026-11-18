@@ -2255,7 +2255,7 @@ fn shadow(u: f32, low: f32, high: f32) -> f32 {
 ///
 /// `pdf-model/tests/glyph_clip_direction.rs` is §9.3.6's scene for it — text rendering mode 7
 /// accumulates a glyph's outline into the clipping path, so a word set twice in one place is one
-/// path stating every outline twice — and `render-cpu/tests/overlapping_portions.rs` states the
+/// path stating every outline twice — and `render-cpu/tests/all/overlapping_portions.rs` states the
 /// closed form: two squares overlapping at a corner, under both rules.
 fn read_off(
     accumulator: &Accumulator<'_>,

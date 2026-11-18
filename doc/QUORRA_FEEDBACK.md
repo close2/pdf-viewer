@@ -5541,7 +5541,7 @@ vocabulary would take every later clause that needs a region wider than its own 
 
 **Reproducing it.** `cargo test -p render-raster --test clip_region_union_refusal` states the
 scene — a 30-unit square and a 55-unit rule across it, under `W n` — and asserts the refusal by
-name; `cargo test -p render-cpu --test zero_area_clip` draws the same geometry and measures the
+name; `cargo test -p render-cpu --test all zero_area_clip::` draws the same geometry and measures the
 union against the fill of the same path, which is the answer a `clip_union` would have to match.
 
 ## 52. Two thirds of a page turn are yours, measured stage by stage against a 120 Hz refresh — the CPU-lane encode of a first sight, and an image restaged per placement

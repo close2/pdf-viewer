@@ -43,10 +43,10 @@ Code: `crates/pdf-render/src/paint.rs`'s `paint_space` (item 8's condition, for 
 backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
 `crates/render-cpu/src/stroke.rs` (item 4's `draw_stroked_outline`),
 `crates/render-cpu/src/scan.rs` (item 4's composition),
-`crates/render-cpu/tests/clip_intersection.rs` (item 4's identity, for a fill and for a stroke) and
+`crates/render-cpu/tests/all/clip_intersection.rs` (item 4's identity, for a fill and for a stroke) and
 `crates/pdf-model/examples/coincident_edge_probe.rs` (item 4's instrument: one rectangle stated
 twice, eight ways, so that a composition still taking a product is a printed row) and
-`crates/render-cpu/tests/group_clip_intersection.rs` (item 4's gate for the group blit, which also
+`crates/render-cpu/tests/all/group_clip_intersection.rs` (item 4's gate for the group blit, which also
 pins that a group whose alpha is *not* its shape still gets the product),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
 `crates/render-raster/examples/sub_pixel_marks.rs` and
@@ -61,7 +61,7 @@ with a mark, and what a page's own marks are),
 `crates/pdf-render/src/edge.rs`'s `device_rectangles` and `DeviceRectangles::share_a_device_pixel`,
 `crates/render-cpu/src/fill.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact`,
 `fill_rectangles`, `intersected` and `mask_shared_rectangles`,
-`crates/render-cpu/tests/edge_coverage.rs` and
+`crates/render-cpu/tests/all/edge_coverage.rs` and
 `crates/pdf-model/examples/rectangular_path_census.rs` (item 7's remainder, its gate and its
 instrument),
 `crates/render-raster/examples/edge_coverage_ladder.rs` and
@@ -425,7 +425,7 @@ the mark is whole where the clip is not.
 - ~~**An image's edge**, which is `draw_pixmap`'s and is the library's own path.~~ **Paid, and the
   bullet was stale** (ADR 1348): `draw_image` fills its unit square through `scan::fill`, whose
   composable clip meets the mark's coverage by `min` like every fill's.
-  `render-cpu/tests/image_clip_intersection.rs` is the witness: an edge covering 0.502 of its column
+  `render-cpu/tests/all/image_clip_intersection.rs` is the witness: an edge covering 0.502 of its column
   reads 0.502 under a clip sharing it that cuts the image's other side, where a product reads 0.255.
 - **A group's raster, which ADR 0355 recorded as *not owed* and which is owed.** That ADR argued
   "what a group's buffer carries at a pixel is §11.4.5's group alpha rather than one mark's
@@ -827,7 +827,7 @@ question was which converter, not how many calls.
   measures the winding integral over each pixel exactly, and **for a path whose portions overlap
   too** (ADR 1341): a row where the winding leaves `0..=1` is measured as the filled set's own
   boundary, and a stroker's outline with a join or a second subpath is walked whole because a thin
-  one shows no sign of its overlap. `render-cpu/tests/overlapping_portions.rs` is two squares
+  one shows no sign of its overlap. `render-cpu/tests/all/overlapping_portions.rs` is two squares
   overlapping at a corner under both rules; `render-raster/examples/ink_ladder` reads
   `issue20232.pdf`, `issue6081.pdf` and `multiline.pdf` at their own 8× ink from 1× up. What is left
   is an overlap confined to pixels a path that is not an outline only partly covers, with no whole
@@ -1055,7 +1055,7 @@ rules, unioned before the chain intersects it.
 **There is no corpus witness and the census that says so is calibrated** (trap 13): `clip_region`
 is reached 38 267 times over the 965 first pages `raster_golden` draws and substitutes a region
 **0** times, so `raster_golden` is a control here and not a witness. The union's own evidence is
-`render-cpu/tests/zero_area_clip.rs`'s
+`render-cpu/tests/all/zero_area_clip.rs`'s
 `a_clip_that_encloses_an_area_and_rules_a_line_admits_the_union_of_both` — a square with a rule
 across it, under `W n` and `W* n`, held to the fill of the same path at two scales with every edge
 on a pixel boundary, and calibrated by planting the old drop, which admits 900 pixels where the fill

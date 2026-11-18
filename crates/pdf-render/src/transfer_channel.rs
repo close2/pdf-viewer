@@ -19,7 +19,7 @@
 //! through the page's default (§11.7.5.2's last sentence, and ADR 0570 for why a mark that is not
 //! fully opaque never chooses anywhere). The two orderings agree wherever an object covers a
 //! pixel completely and diverge at every antialiased edge, which is what ADR 1125 settled and what
-//! `render-cpu/tests/transfer_edge.rs` and `render-raster/tests/transfer_edge.rs` measure.
+//! `render-cpu/tests/all/transfer_edge.rs` and `render-raster/tests/transfer_edge.rs` measure.
 //!
 //! # What this module is
 //!

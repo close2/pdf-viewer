@@ -298,7 +298,7 @@ pattern's cell — decide which marks the first sentence hands a function to.
 
    **The design question is settled — ADR 1125.** The edge pixel is inside the object by the clause's own "nonzero object shape value",
    so it takes that object's function on the composited colour, applied where §11.7.5.3's NOTE puts
-   it — "only when all colour compositing has been completed". `render-cpu/tests/transfer_edge.rs`
+   it — "only when all colour compositing has been completed". `render-cpu/tests/all/transfer_edge.rs`
    is the CPU half of the fixture that stands in for the missing corpus witness — it measures the
    edge gap at half a unit under an inverting transfer, the interior where the two orderings agree,
    and a no-transfer control.

@@ -27,9 +27,12 @@ reads the section below it only where a line here sends it (ADR 1639).
    paraphrased; a `§` is ISO 32000-2's.
 3. **Tier 1 is every round's, scoped to what you touched**: `rustfmt --check --edition 2024` on
    your files; `cargo fmt --check -p <crate>`, `RUSTFLAGS="-D warnings" cargo clippy -p <crate>
-   --all-targets` and `cargo nextest run -p <crate>` for each crate you touched — the first two read
-   a file you added, a test file above all, which `rustfmt` on your edited files and `cargo test`
-   do not (`tools/round.sh` prints both); `cargo test -p conformance`; and
+   --all-targets` and `cargo nextest run -p <crate> --lib --bins --tests` for each crate you
+   touched — the first two read a file you added, a test file above all, which `rustfmt` on your
+   edited files and `cargo test` do not (`tools/round.sh` prints both). **The nextest line leaves
+   the examples out** (A876): it would build every example and run none, and Q876 §1 measured what
+   that costs `pdf-model`; `clippy --all-targets` still type-checks every example in the round,
+   and the post-merge train's `cargo nextest run --workspace` is where an example is linked. Then `cargo test -p conformance`; and
    `tools/state.sh --round <session> docs` where you touched a crate its section holds (ADR 1938).
    Tier 2 only for the subsystem the change reaches, by section 2's rule list and map, behind the
    lock and waited for as `doc/environment.md`'s rule block says (its first and fourth lines).

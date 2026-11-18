@@ -723,7 +723,7 @@ fn fill_as(
 /// buffer — and **the alternative is not "keep the quantum there", it is a broken clause**: a mark
 /// painted at its exact area under a region still measured to a quarter differs from the same mark
 /// unclipped by up to 26 levels of 255, where §10.7.4's own set identity `S ∩ C = S` says a clip
-/// containing a mark takes nothing from it. `render-cpu/tests/clip_intersection.rs` measures
+/// containing a mark takes nothing from it. `render-cpu/tests/all/clip_intersection.rs` measures
 /// exactly that and is what caught it.
 ///
 /// # A surface's edge is not a reason for a row to change
@@ -1380,7 +1380,7 @@ pub(crate) fn stroke(
 /// rectangular clip is scan-converted by the rule a rectangular fill is. **The two have to agree or
 /// the identity `S ∩ C = S` breaks**: a mark painted at its exact area under a region measured to a
 /// quarter is drawn at the quarter, which is 26 levels of 255 at a boundary pixel and is what
-/// `render-cpu/tests/clip_intersection.rs` measures. ADR 0476.
+/// `render-cpu/tests/all/clip_intersection.rs` measures. ADR 0476.
 ///
 /// [`Exact::Shared`] goes to [`mask_shared_rectangles`] instead, because a pixel two portions reach
 /// is covered by their *sum* and taking the larger of the two would understate it.

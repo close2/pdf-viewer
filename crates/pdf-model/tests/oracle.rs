@@ -1777,7 +1777,7 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 ///
 /// The level comes from the mask being quantised: `tiny_skia::Mask` holds one byte per pixel
 /// and a GPU texture holds no more, so `0.75` is stored as 191 of 255 and the interpolation
-/// that follows is done at that resolution. `render-cpu/tests/soft_mask.rs` pins the same
+/// that follows is done at that resolution. `render-cpu/tests/all/soft_mask.rs` pins the same
 /// arithmetic against the clause and allows exactly one level for it.
 ///
 /// It is listed rather than chased because the alternative is a mask raster of floats, which
@@ -1807,7 +1807,7 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// **Swept over all 256 mask values, the high-precision pipeline reproduces the closed form at
 /// every one of them and the low-precision one departs by up to two levels**, always towards
 /// the backdrop. `render-cpu`'s `HIGH_PRECISION_PIPELINE` asks for the first,
-/// `render-cpu/tests/soft_mask.rs` sweeps all 256 with no slack at all, and the page
+/// `render-cpu/tests/all/soft_mask.rs` sweeps all 256 with no slack at all, and the page
 /// agrees. It cost nothing: ISO 32000-2 page 101 is 2.1% *fewer* instructions, `alphatrans.pdf`
 /// 1.4% fewer, `firefox_logo.pdf` 0.6% more. ADR 0418.
 ///

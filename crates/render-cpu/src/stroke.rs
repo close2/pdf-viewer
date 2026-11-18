@@ -559,7 +559,7 @@ impl<'a> SolidOutline<'a> {
 /// `tiny_skia::PixmapMut::stroke_path`, which hands the finished mask to its own `fill_path` and
 /// multiplies. A boundary pixel covered `c` by the mark and `c` by a coincident clip was painted
 /// `c²` — `crates/pdf-model/examples/coincident_edge_probe` is the ladder and
-/// `render-cpu/tests/clip_intersection.rs` is the identity.
+/// `render-cpu/tests/all/clip_intersection.rs` is the identity.
 ///
 /// # Why it is not a second stroker
 ///

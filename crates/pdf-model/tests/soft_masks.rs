@@ -1,6 +1,6 @@
 //! A soft mask in the graphics state: ISO 32000-2 §11.5 and §11.6.5.1, from the file down.
 //!
-//! `render-cpu/tests/soft_mask.rs` checks the arithmetic a mask value produces once it
+//! `render-cpu/tests/all/soft_mask.rs` checks the arithmetic a mask value produces once it
 //! exists. This file checks the half above it — the dictionary, the group, and where the
 //! mask lands on the page — on documents written here rather than taken from a corpus, for
 //! trap 8's reason: the corpus can only exercise what somebody happened to write, and three

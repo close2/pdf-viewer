@@ -1421,7 +1421,7 @@ fn a_sub_pixel_dot_marks_the_devices_raster() {
 ///
 /// The scene pairs the empty clip with an ordinary one covering a quarter of the page, so
 /// that a backend which dropped *every* clipped command would pass the first half and fail
-/// the second. `render-cpu/tests/empty_clip.rs` pins the absolute answer, ink 0 against 2500;
+/// the second. `render-cpu/tests/all/empty_clip.rs` pins the absolute answer, ink 0 against 2500;
 /// this pins the two backends to the same one.
 #[test]
 fn cpu_and_gpu_agree_on_a_clip_that_admits_nothing() {

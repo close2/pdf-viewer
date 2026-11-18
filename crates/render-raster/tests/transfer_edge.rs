@@ -1,7 +1,7 @@
 //! §11.7.5.2 at an antialiased edge, measured on **both** backends: they draw the clause's value
 //! and they agree on it.
 //!
-//! `render-cpu/tests/transfer_edge.rs` is the other half. The point of the pair is `CLAUDE.md`
+//! `render-cpu/tests/all/transfer_edge.rs` is the other half. The point of the pair is `CLAUDE.md`
 //! principle 2: the two backends must agree, so the per-pixel transfer channel ADR 1125 designs
 //! had to land in both at once — and this file is what says it did. Both files measure the
 //! clause, which `pdf_render::resolve_transfers` carries out for both backends.

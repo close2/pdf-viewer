@@ -548,7 +548,7 @@ fn cpu_and_quorra_agree_on_a_radial_cone() {
 /// At two scales, because the grid is the device's: a backend resolving at a frozen grid
 /// draws the same wrong picture at every zoom, and the 4× run is where it parts from one
 /// that re-resolves — the exact values are pinned against the closed form in
-/// `render-cpu/tests/sampled_shading.rs`, so what this adds is the second construction.
+/// `render-cpu/tests/all/sampled_shading.rs`, so what this adds is the second construction.
 #[test]
 fn cpu_and_quorra_agree_on_a_sampled_shading() {
     let list = test_scenes::sampled_shading();

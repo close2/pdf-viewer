@@ -156,7 +156,7 @@ came out as one flat rectangle. Three things about how it survived: **no metric 
 CPU-vs-GPU comparison could not**, because both had it; and **every scene compared them with a
 gradient running along x**, where a y mirror is invisible.
 
-Guards: `render-cpu/tests/shading_placement.rs` and `image_placement.rs` at three scales, plus
+Guards: `render-cpu/tests/all/shading_placement.rs` and `image_placement.rs` at three scales, plus
 `headless_gpu.rs`'s vertical-gradient and image scenes. All confirmed to fail when the defects are
 reintroduced.
 
