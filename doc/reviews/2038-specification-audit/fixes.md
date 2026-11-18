@@ -1341,7 +1341,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: none located
 
-- 2038-D53 | viewer-ui | test-integration-residual | fixed (doc/todo/30 states that /HideWindowUI is checked only as Quorra.Chrome.Tests' state mapping and owes a probe line for StatusLine.Visibility and IsPaneToggleButtonVisible; no Windows run made) | Windows HideWindowUI tests lack control observation
+- 2038-D53 | viewer-ui | test-integration-residual | fixed (doc/todo/30 states that /HideWindowUI is checked only as Quorra.Chrome.Tests' state mapping; round 2086 wrote the probe line: WindowProbe.Controls in hosts/windows/Quorra.App/Probe.cs, called from MainWindow.ApplyChrome, logs the status line's Visibility and the navigation's IsPaneToggleButtonVisible as read back; not built or run here (no Windows toolchain); the CI step that opens a /HideWindowUI document and holds the line is still owed) | Windows HideWindowUI tests lack control observation
 
 ### G118 — outline item style rendering
 
@@ -1434,7 +1434,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0202-a-collection-is-how-a-document-arranges-its-files.md, doc/adr/0231-a-collection-opens-on-one-document-and-nobody-could-say-which.md
 - test files: none located
 
-- 2038-D02 | doc | interpretation-follow-up | open (ADR 3020 supersedes ADRs 0231/0202 on this point: the initial embedded document is presented by the GoToE route, not marked; the change is in viewer-core/viewer-host, held by round 2081) | doc: collection initial-document ADR wording
+- 2038-D02 | doc | interpretation-follow-up | fixed (ADR 3040 builds ADR 3020, which supersedes ADRs 0231/0202 on this point: viewer_core::interact::initial_document presents the named embedded PDF, or the first item in the panel's order, by the GoToE route with the container as its parent, and the panel answers with the container's collection and files; tests crates/viewer-core/tests/collection_initial_document.rs; ledger 12.3.5.1's note follows; round 2086) | doc: collection initial-document ADR wording
 
 ### G127 — doc: ADR0601 premise outdated
 
@@ -1498,7 +1498,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/1240 (FileSelect)?, doc/adr/1216
 - test files: none located
 
-- 2038-D55 | doc | decision-revisit | open (ADR 3021 §1: ADR 1216's read-at-commit rule stands; GTK and Qt call `edit_of` per change, so the read moves to their commit; viewer crates, after round 2081) | ADR FileSelect timing rationale stale
+- 2038-D55 | doc | decision-revisit | fixed (ADR 3041 builds ADR 3021 §1: edit_of removed, viewer_host::TypedPaths and commit_of read the file once at the commit in GTK, Qt and the platform layer, viewer-ui reads at Enter through commit_of, a refused read abandons the typing; tests viewer-host host_mappings::a_typed_path_is_read_once_at_its_commit, viewer-qt host::tests::file_select_reads, viewer-gtk controls::file_select_reads (Xvfb); viewer-ui counted only through commit_of, its App has no headless constructor; round 2086) | ADR FileSelect timing rationale stale
 
 ### G135 — archive dynamic-XFA rationale stale
 
@@ -1522,7 +1522,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/1190?
 - test files: none located
 
-- 2038-D59 | doc | decision-premise-qualification | open (ADR 3021 §2: by ADR 1190's own rule the confined window now owes `--restrictions=` for form fill and save; viewer-ui, after round 2081) | ADR premise expired by confined editing
+- 2038-D59 | doc | decision-premise-qualification | fixed (ADR 3042 builds ADR 3021 §2: quorra-confined takes --restrictions= and --ignore-restrictions, sends its worker Command::Restrict before the document and after a restart, Off by default, and puts an ask on its card; tests quorra-confined tests::the_worker_is_told_the_readers_restrictions, tests::a_restriction_at_ask_is_put_on_the_card; round 2086) | ADR premise expired by confined editing
 
 ### G138 — ledger row stale
 

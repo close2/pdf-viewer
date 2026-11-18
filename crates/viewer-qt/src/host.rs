@@ -201,6 +201,9 @@ pub struct Host {
     fields: Vec<FormField>,
     /// One entry per control, in the order the C++ side placed them.
     placed: Vec<Placement>,
+    /// The paths typed into §12.7.5.3's file-select controls since each one's commit, which is
+    /// where the file is read (ADR 1216, ADR 3041).
+    typed_paths: viewer_host::TypedPaths,
     /// §12.5.6.14's open windows, as `Query::Popups` last answered.
     ///
     /// Kept rather than asked for twice: `refresh` compares this against the new answer to decide
@@ -426,6 +429,7 @@ impl Host {
             trees: std::array::from_fn(|_| Vec::new()),
             fields: Vec::new(),
             placed: Vec::new(),
+            typed_paths: viewer_host::TypedPaths::default(),
             popups_shown: Vec::new(),
             under: viewer_host::Under::Nothing,
             keys_told: pdf_model::view::Keys::default(),

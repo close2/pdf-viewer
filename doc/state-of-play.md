@@ -372,7 +372,7 @@ whose contents shall be submitted as the field's value" and only a host has a fi
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
 is not the path a *document* wrote (ADR 1216), and which GTK and Qt offer a **native chooser**
 for, inside the widget's own §12.5.2 rectangle and behind the same policy function
-`viewer_host::form::edit_of` asks (ADR 1240); a person can **send a form** — §12.7.6.2's composed
+`viewer_host::commit_of` asks, and the file is read once, at the field's commit (ADRs 1240, 3041); a person can **send a form** — §12.7.6.2's composed
 request leaves from the host with `ureq` over `rustls`, never from the confined worker, at a level
 the restriction menu holds (`ask` until a person picks `refuse`, `warn` or `send`), and an FDF
 answer is imported into the form that sent it with its `/Status` shown while a PDF answer opens

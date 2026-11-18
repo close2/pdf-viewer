@@ -14,7 +14,7 @@
 //! **A commit is addressed the way the toolkit windows address it**: a field by §12.7.4.2's
 //! qualified name, a check box or radio button by its widget annotation, a layer by its group and
 //! an attachment by its `/EmbeddedFiles` key. Each goes through the decision every window takes —
-//! `viewer_host::form::edit_of` for §12.7.5.3's file-select field, `viewer_host::toggling` for
+//! `viewer_host::TypedPaths` for §12.7.5.3's file-select field, `viewer_host::toggling` for
 //! §12.7.5.2's two toggling kinds — so this window and the toolkits cannot answer one click two
 //! ways.
 
@@ -41,6 +41,9 @@ pub(super) struct Shown {
     /// The magnification at which every control on the page fits its `/Rect`, from what the
     /// caller last measured, where they do not fit now (ADR 2169).
     pub(super) fit: Option<f32>,
+    /// The paths typed into §12.7.5.3's file-select controls since each one's commit, which is
+    /// where the file is read (ADR 1216, ADR 3041).
+    typed_paths: viewer_host::TypedPaths,
 }
 
 impl Window {
@@ -86,19 +89,20 @@ impl Window {
         self.settle();
     }
 
-    /// A text control's or an editable combo box's text, as typed: §12.7.5.3's file-select field
-    /// takes the file the text names, which `viewer_host::form::edit_of` tells apart (ADR 1216),
-    /// and a refusal is said.
+    /// A text control's or an editable combo box's text, as typed. §12.7.5.3's file-select field
+    /// takes the file the text names at its commit rather than here, which
+    /// `viewer_host::TypedPaths` keeps the path for (ADR 1216, ADR 3041).
     ///
     /// # Errors
     ///
     /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
     pub fn set_field_text(&mut self, field: &str, text: String) -> Result<(), Status> {
         let kind = viewer_host::control_kind(&self.field(field)?.control);
-        match viewer_host::form::edit_of(Some(&kind), field, Entered::Text(text)) {
-            Ok(edit) => self.dispatch(Command::Edit(edit)),
-            Err(refusal) => self.say(&refusal),
-        }
+        let edit = self
+            .shown
+            .typed_paths
+            .typed(Some(&kind), field, Entered::Text(text));
+        self.dispatch(Command::Edit(edit));
         self.settle();
         Ok(())
     }
@@ -144,8 +148,21 @@ impl Window {
     }
 
     fn commit_field_by(&mut self, field: &str, by: viewer_core::Committing) -> Result<(), Status> {
-        let field = self.field(field)?.name.qualified.clone();
-        self.dispatch(Command::CommitField { field, by });
+        let found = self.field(field)?;
+        let kind = viewer_host::control_kind(&found.control);
+        // §12.7.5.3's file-select field: the file its typed path names is read here, once (ADR
+        // 3041), and a refusal abandons the typing rather than committing a path with nothing
+        // behind it.
+        let commit = self
+            .shown
+            .typed_paths
+            .commit(Some(&kind), &found.name.qualified, by);
+        if let Some(refusal) = &commit.refusal {
+            self.say(refusal);
+        }
+        for command in commit.commands {
+            self.dispatch(command);
+        }
         self.settle();
         Ok(())
     }
@@ -158,6 +175,7 @@ impl Window {
     /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
     pub fn cancel_field(&mut self, field: &str) -> Result<(), Status> {
         let field = self.field(field)?.name.qualified.clone();
+        self.shown.typed_paths.cancel(&field);
         self.dispatch(Command::CancelField { field });
         self.settle();
         Ok(())

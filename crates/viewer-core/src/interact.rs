@@ -317,6 +317,95 @@ pub(crate) fn open_action(open: &mut Open) -> Option<Outcome> {
     ))
 }
 
+/// §12.3.5.1's initial document, presented on the first open of a collection.
+///
+/// ISO 32000-2 §12.3.5.1, Table 153's `/D`:
+///
+/// > A string that identifies an entry in the EmbeddedFiles name tree, determining the document
+/// > that shall be initially presented in the user interface.
+///
+/// The clause's prose says what that document is: it "may be the container PDF or one of the
+/// embedded documents as specified by the D key". So an embedded one is *presented*, by the route
+/// a `GoToE` target already takes — [`Open::around_shared`], with the container kept one step back
+/// in [`Open::parents`] (ADR 2964) — and the panel answers with the container's collection around
+/// it (`viewer::answers::collection_frame`). "The first item from the list of files" is presented
+/// the same way, first in the order the panel lists them: Table 153's `/Sort` where it states one,
+/// the `/EmbeddedFiles` tree's own order where not (ADR 3040).
+///
+/// `None` where nothing is to be presented: a document that is not a collection, one reached
+/// through an action rather than opened (its parents are not empty), and the two outcomes whose
+/// answer is the container itself — `/D` absent or not a byte string, and an empty tree, whose
+/// "empty preview window" the panel draws. Where the named document cannot be presented — a stream
+/// that does not decode, a file that is not a PDF, a payload under a security handler this program
+/// does not have, which is §7.6.7's wrapper case — the container's pages stay and the outcome
+/// carries the sentence saying why (trap 5).
+pub(crate) fn initial_document(open: &Open) -> Option<Outcome> {
+    use pdf_model::collection::{Collection, Initial};
+
+    if !open.parents.is_empty() {
+        return None;
+    }
+    let collection = Collection::read(&open.document)?;
+    let attachments = open.view.attachments(&open.document);
+    let (name, first) = match collection.initial_document(&open.document) {
+        Initial::Container | Initial::Empty => return None,
+        Initial::Embedded(name) => (name, false),
+        Initial::FirstFile => {
+            let order =
+                pdf_model::collection::sorted_keys(&open.document, &collection, &attachments)
+                    .unwrap_or_default();
+            let first = order.into_iter().next().or_else(|| {
+                pdf_model::collection::embedded_file_keys(&open.document)
+                    .into_iter()
+                    .next()
+            })?;
+            (first, true)
+        }
+    };
+    let mut outcome = Outcome::default();
+    let which = if first {
+        format!("the first item of the collection, {name:?},")
+    } else {
+        format!("the collection's initial document {name:?}")
+    };
+    let mut cannot = |why: &str| {
+        outcome.notes.push(format!(
+            "§12.3.5.1 presents {which} first, and it cannot be presented: {why}; the container's \
+             own pages are shown"
+        ));
+    };
+    let Some(file) = attachments.iter().find(|file| file.name == name) else {
+        cannot("the /EmbeddedFiles entry has no embedded file stream");
+        return Some(outcome);
+    };
+    let Some(bytes) = open.document.decoded_stream_data(&file.stream) else {
+        cannot("its stream did not decode");
+        return Some(outcome);
+    };
+    // The container's bounds, for `pdf_model::action`'s reason about a child: a document reached
+    // inside a file is held to the bounds of the file a person opened.
+    let child = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+        Ok(child) => child,
+        Err(error) => {
+            cannot(&error.to_string());
+            return Some(outcome);
+        }
+    };
+    let mut replacement = Open::around_shared(Arc::new(child));
+    if replacement.page_count == 0 {
+        cannot("it has no pages");
+        return Some(outcome);
+    }
+    replacement.parents = vec![Arc::clone(&open.document)];
+    outcome.notes.push(format!(
+        "presenting {which} first, {} page(s), as §12.3.5.1's /D asks; the collection's panel \
+         lists the rest",
+        replacement.page_count
+    ));
+    outcome.replacement = Some(Box::new(replacement));
+    Some(outcome)
+}
+
 /// Whether a dictionary is one of §12.4.3's article threads.
 ///
 /// Table 162 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "\[a]n

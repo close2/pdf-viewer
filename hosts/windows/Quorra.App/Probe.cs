@@ -41,6 +41,7 @@ internal sealed class WindowProbe
     private readonly Action<string> log;
     private AppWindowPresenterKind? presenter;
     private string? pane;
+    private string? controls;
     private bool escaped;
     private bool waiting;
     private bool empty;
@@ -119,6 +120,21 @@ internal sealed class WindowProbe
         if (pane == now) return;
         pane = now;
         log($"probe: the pane is {now}");
+    }
+
+    /// <summary>
+    /// The status line's and the navigation's pane toggle as read back after a chrome record, said
+    /// where either changed: Table 147's /HideWindowUI, "[a] flag specifying whether to hide user
+    /// interface elements in the document's window", observed on the two controls ApplyChrome sets
+    /// rather than on the state Quorra.Chrome.Tests maps.
+    /// </summary>
+    internal void Controls(bool statusVisible, bool paneToggleVisible)
+    {
+        string now = $"the status line is {(statusVisible ? "visible" : "collapsed")}, " +
+            $"the pane toggle is {(paneToggleVisible ? "visible" : "hidden")}";
+        if (controls == now) return;
+        controls = now;
+        log($"probe: {now}");
     }
 
     /// <summary>

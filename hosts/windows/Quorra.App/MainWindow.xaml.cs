@@ -252,6 +252,7 @@ public sealed partial class MainWindow : Window
         Navigation.IsPaneToggleButtonVisible = shown.Navigation;
         panels.SetAvailable(shown.Panels, shown.PaneOpen, panel);
         probe?.Pane(Navigation.IsPaneOpen, PanelChoice.SelectedItem as string);
+        probe?.Controls(StatusLine.Visibility == Visibility.Visible, Navigation.IsPaneToggleButtonVisible);
     }
 
     // Table 29's FullScreen, "with no menu bar, window controls, or any other window visible": the

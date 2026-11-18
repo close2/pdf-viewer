@@ -182,7 +182,10 @@ pub use cursor::Under;
 pub use documents::{Arrivals, Arriving, Close, Documents, Named};
 pub use drawing::{DrawRequest, Drawing, Finished, Partial};
 pub use fit::ControlFit;
-pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
+pub use form::{
+    Clicked, Commit, ControlKind, Pressed, TypedPaths, clicked, commit_of, control_kind, pressed,
+    toggling,
+};
 pub use geometry::{bounds, covers};
 pub use gesture::{SmartZoom, pinch};
 pub use keys::{
@@ -209,8 +212,8 @@ pub use policy::{
     SEPARATIONS, SUBMISSIONS, SUBMIT_SCHEMES, Scripts, Sending, Settings, Submissions,
     TRUST_ANCHORS, TRUSTED_LISTS, URI_HANDLER, Unpacking, answered, asked_for, asked_to_fetch,
     asked_to_open, asked_to_open_embedded, asked_to_open_remote, asked_to_run_scripts,
-    asked_to_submit, audience, embedded_declined, embedded_documents, embedded_note, fetch_note,
-    guidelines_note, handed_media, import_is_fetched, link, links, may_choose_file,
+    asked_to_submit, audience, chosen_reads, embedded_declined, embedded_documents, embedded_note,
+    fetch_note, guidelines_note, handed_media, import_is_fetched, link, links, may_choose_file,
     may_fetch_import, may_open_extracted, may_open_uri, may_submit, may_write_extracted,
     offers_machine_fonts, open_chosen, open_uri, opening_embedded, opens_as_document, read_import,
     reference_files, refused, remote, remote_declined, remote_documents, remote_note,

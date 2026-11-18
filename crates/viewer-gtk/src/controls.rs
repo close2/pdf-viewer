@@ -128,16 +128,16 @@ pub(crate) fn build(
             max_len,
             // Table 231 bit 21 changes what the text *means* rather than what the control is: a
             // file-select control is an entry a person types a path into, and
-            // `viewer_host::form::edit_of` is where the path becomes a file (ADR 1216).
+            // `viewer_host::TypedPaths` reads the file at its commit (ADR 1216, ADR 3041).
             file_select,
         } => entry(
             field,
             (*multiline, *password, *max_len),
             // Table 231 bit 21 changes what the text *means* rather than what the control is: a
             // file-select control is an entry a person types a path into, and
-            // `viewer_host::form::edit_of` is where the path becomes a file (ADR 1216). What it
-            // adds to the control is a way to *choose* one, asked of the policy rather than of
-            // the flag, so that this window and `edit_of` cannot disagree (ADR 1240).
+            // `viewer_host::TypedPaths` reads the file at its commit (ADR 1216, ADR 3041). What
+            // it adds to the control is a way to *choose* one, asked of the policy rather than of
+            // the flag, so that this window and `commit_of` cannot disagree (ADR 1240).
             *file_select && viewer_host::may_choose_file(Some(&kind)).is_ok(),
             suppress,
             change,
@@ -351,7 +351,7 @@ fn entry(
     abandons_on_escape(&entry, &commits, change);
     holds_on_entering(&entry, &commits, change);
     if choose_a_file {
-        offer_a_chooser(&entry);
+        offer_a_chooser(&entry, &commits, change);
     }
     entry.upcast()
 }
@@ -451,9 +451,10 @@ fn holds_on_entering(
 ///
 /// Table 231 bit 21 makes the field's text "the pathname of a file whose contents shall be
 /// submitted as the value of the field", so the control is still an entry holding a path and the
-/// chooser only fills it in: the text changes, the signal the entry already has fires, and
-/// `viewer_host::form::edit_of` turns it into `Edit::ChooseFile` by the route a typed path
-/// already took (ADR 1216). Nothing about the edit is this function's.
+/// chooser only fills it in: the text changes and the signal the entry already has fires. A
+/// chooser's answer is a commit in itself, so the field is then committed, and
+/// `viewer_host::TypedPaths` reads the file there, by the route a typed path takes at its own
+/// commit (ADR 1216, ADR 3041). Nothing about the edit is this function's.
 ///
 /// **An icon on the entry rather than a button beside it**, and the reason is trap 19: the
 /// widget's rectangle is the *document*'s — §12.5.2's `/Rect` — so a second control next to it
@@ -461,7 +462,7 @@ fn holds_on_entering(
 ///
 /// A window that has not been realised yet has no toplevel to be modal against, which GTK
 /// permits: the dialogue is then a window of its own rather than a refusal.
-fn offer_a_chooser(entry: &gtk4::Entry) {
+fn offer_a_chooser(entry: &gtk4::Entry, field: &str, change: &Rc<dyn Fn(FieldChange)>) {
     entry.set_icon_from_icon_name(
         gtk4::EntryIconPosition::Secondary,
         Some("document-open-symbolic"),
@@ -471,6 +472,8 @@ fn offer_a_chooser(entry: &gtk4::Entry) {
         gtk4::EntryIconPosition::Secondary,
         Some("Choose the file this field submits"),
     );
+    let field = field.to_owned();
+    let change = Rc::clone(change);
     entry.connect_icon_release(move |entry, position| {
         if position != gtk4::EntryIconPosition::Secondary {
             return;
@@ -480,6 +483,8 @@ fn offer_a_chooser(entry: &gtk4::Entry) {
         dialog.set_modal(true);
         let parent = entry.root().and_downcast::<gtk4::Window>();
         let filled = entry.clone();
+        let field = field.clone();
+        let change = Rc::clone(&change);
         dialog.open(
             parent.as_ref(),
             gtk4::gio::Cancellable::NONE,
@@ -491,6 +496,10 @@ fn offer_a_chooser(entry: &gtk4::Entry) {
                     && let Some(path) = file.path()
                 {
                     filled.set_text(&path.to_string_lossy());
+                    change(FieldChange::Commit {
+                        field: field.clone(),
+                        enter: false,
+                    });
                 }
             },
         );
@@ -1129,6 +1138,8 @@ fn scroll_to_top_index(scroller: &gtk4::ScrolledWindow, top: usize, options: usi
     });
 }
 
+#[cfg(test)]
+mod file_select_reads;
 #[cfg(test)]
 mod max_len_audit;
 #[cfg(test)]

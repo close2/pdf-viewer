@@ -167,6 +167,14 @@ impl Host {
         (logical.is_finite() && logical > 0.0).then_some(logical)
     }
 
+    /// The control placed for `field`, where one is.
+    fn control_of(&self, field: &str) -> Option<viewer_host::ControlKind> {
+        self.placed
+            .iter()
+            .find(|placed| placed.key.0 == field)
+            .map(|placed| placed.kind.clone())
+    }
+
     /// What a control does when a person changes it.
     fn field_sink(&self) -> Rc<dyn Fn(FieldChange)> {
         let me = self.me.clone();
@@ -182,17 +190,11 @@ impl Host {
                         );
                     }
                     // §12.7.5.3's file-select control takes a *file* where every other text
-                    // field takes text, and `viewer_host::form::edit_of` is the one place the
-                    // three windows tell the two apart (ADR 1216).
-                    let control = host
-                        .placed
-                        .iter()
-                        .find(|placed| placed.key.0 == field)
-                        .map(|placed| placed.kind.clone());
-                    match viewer_host::form::edit_of(control.as_ref(), &field, value) {
-                        Ok(edit) => host.dispatch(Command::Edit(edit)),
-                        Err(refusal) => host.say(&refusal),
-                    }
+                    // field takes text, and it takes it at the commit below rather than here:
+                    // a read per keystroke is the one ADR 1216 rules out (ADR 3041).
+                    let control = host.control_of(&field);
+                    let edit = host.typed_paths.typed(control.as_ref(), &field, value);
+                    host.dispatch(Command::Edit(edit));
                 }
                 FieldChange::Commit { field, enter } => {
                     let by = if enter {
@@ -200,7 +202,14 @@ impl Host {
                     } else {
                         viewer_core::Committing::Unstated
                     };
-                    host.dispatch(Command::CommitField { field, by });
+                    let control = host.control_of(&field);
+                    let commit = host.typed_paths.commit(control.as_ref(), &field, by);
+                    if let Some(refusal) = &commit.refusal {
+                        host.say(refusal);
+                    }
+                    for command in commit.commands {
+                        host.dispatch(command);
+                    }
                     if enter {
                         // From an idle, as every focus move here is: GTK finishes its own handling
                         // of the key after this returns. The control losing the keyboard commits
@@ -217,6 +226,7 @@ impl Host {
                 // since nothing typed is left (ADR 2756).
                 FieldChange::ListShown { field } => host.list_shown(field),
                 FieldChange::Cancel { field } => {
+                    host.typed_paths.cancel(&field);
                     host.dispatch(Command::CancelField { field });
                     let page = host.ui.page_area.clone();
                     glib::idle_add_local_once(move || {

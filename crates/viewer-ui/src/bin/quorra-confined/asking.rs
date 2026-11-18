@@ -62,6 +62,14 @@ pub(crate) enum Asked {
         /// The URI, as the document named it.
         url: String,
     },
+    /// A document's restriction at `ask`: one of the operations `--restrictions=` set to ask
+    /// before it is performed, held by the worker until [`Command::Answer`] (ADR 3042).
+    Restricted {
+        /// The document whose restriction is asked about.
+        document: DocumentId,
+        /// The operation held.
+        operation: pdf_model::restriction::Operation,
+    },
 }
 
 /// A file a document named, supplied to the worker, until the worker says what became of it.
@@ -189,6 +197,16 @@ impl Host {
                 "note: {}",
                 viewer_host::remote_note(Purpose::LaunchDocument, &name, Some(why))
             ),
+            Asked::Restricted {
+                document,
+                operation,
+            } => {
+                eprintln!("note: {} ({why})", viewer_host::declined(operation));
+                self.dispatch(Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
         }
     }
 
@@ -255,6 +273,15 @@ impl Host {
                 "note: {}",
                 viewer_host::remote_declined(Purpose::LaunchDocument, &name)
             ),
+            Asked::Restricted {
+                document,
+                operation,
+            } => {
+                if !proceed {
+                    eprintln!("note: {}", viewer_host::declined(operation));
+                }
+                self.dispatch(Command::Answer { document, proceed });
+            }
         }
     }
 

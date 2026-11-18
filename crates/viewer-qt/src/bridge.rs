@@ -238,9 +238,10 @@ pub mod ffi {
         /// Whether this control offers a **file chooser**: Table 231 bit 21.
         ///
         /// `viewer_host::may_choose_file`'s answer rather than the flag itself, so that the
-        /// window offering the chooser and `viewer_host::form::edit_of`, which reads what comes
+        /// window offering the chooser and `viewer_host::form::commit_of`, which reads what comes
         /// back, cannot disagree about which fields take a file. What the chooser does is fill
-        /// the entry in; the edit is the one a typed path already made (ADR 1240).
+        /// the entry in and commit it; the edit is the one a typed path makes at its commit (ADR
+        /// 1240, ADR 3041).
         choose_file: bool,
     }
 

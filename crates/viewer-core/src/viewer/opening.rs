@@ -299,6 +299,18 @@ impl Viewer {
             self.apply(id, outcome, events);
             self.raising = raising;
         }
+        // §12.3.5.1's initial document, after the open action, which is the container's own and
+        // is performed when the container is opened; a chain that already went to another
+        // document leaves nothing to present (ADR 3040).
+        if let Some(outcome) = self
+            .documents
+            .get(&id)
+            .and_then(crate::interact::initial_document)
+        {
+            let raising = std::mem::replace(&mut self.raising, true);
+            self.apply(id, outcome, events);
+            self.raising = raising;
+        }
         self.page_events(id, None, events);
         // Annex O's `search`, if the fragment asked for one. The plan is made and no page
         // has been read: this event is what tells a host there is something to pump, and

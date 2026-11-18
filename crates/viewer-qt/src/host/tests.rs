@@ -3,6 +3,7 @@
 
 mod choice_commit_audit;
 mod ef_host_route;
+mod file_select_reads;
 mod print_defaults_spec_audit;
 
 use super::forms::describe_kind;

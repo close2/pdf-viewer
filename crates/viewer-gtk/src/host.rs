@@ -356,6 +356,9 @@ pub struct Host {
     previews: Rc<RefCell<panel::Previews<gtk4::gdk::MemoryTexture>>>,
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
+    /// The paths typed into §12.7.5.3's file-select controls since each one's commit, which is
+    /// where the file is read (ADR 1216, ADR 3041).
+    typed_paths: viewer_host::TypedPaths,
     /// The field whose drop-down list the core granted and this window is displaying: its
     /// popover's showing is then the display rather than a person asking for one (ADR 2791).
     list_granted: Option<String>,
@@ -502,6 +505,7 @@ impl Host {
                 miniatures: Rc::new(RefCell::new(Miniatures::new())),
                 previews: Rc::new(RefCell::new(panel::Previews::new())),
                 placed: Vec::new(),
+                typed_paths: viewer_host::TypedPaths::default(),
                 list_granted: None,
                 popups: Vec::new(),
                 popups_shown: Vec::new(),

@@ -63,7 +63,16 @@ impl Host {
         } else {
             viewer_core::Committing::Unstated
         };
-        self.dispatch(Command::CommitField { field, by });
+        // §12.7.5.3's file-select control: the file its typed path names is read here, once,
+        // rather than per keystroke (ADR 1216, ADR 3041).
+        let kind = placed.kind.clone();
+        let commit = self.typed_paths.commit(Some(&kind), &field, by);
+        if let Some(refusal) = &commit.refusal {
+            self.say(refusal);
+        }
+        for command in commit.commands {
+            self.dispatch(command);
+        }
     }
 
     /// Escape in a line edit: what was typed into its field is abandoned, XFA 3.3 page 402's
@@ -73,6 +82,7 @@ impl Host {
             return;
         };
         let field = placed.name.qualified.clone();
+        self.typed_paths.cancel(&field);
         self.dispatch(Command::CancelField { field });
     }
 
@@ -118,13 +128,13 @@ impl Host {
         };
         let field = placed.name.qualified.clone();
         // §12.7.5.3's file-select control takes a *file* where every other text field takes text,
-        // and `viewer_host::form::edit_of` is the one place the three windows tell the two apart
-        // (ADR 1216).
+        // and it takes it at `commit_control` rather than here: a read per keystroke is the one
+        // ADR 1216 rules out (ADR 3041).
         let kind = placed.kind.clone();
-        match viewer_host::form::edit_of(Some(&kind), &field, Entered::Text(value.to_owned())) {
-            Ok(edit) => self.dispatch(Command::Edit(edit)),
-            Err(refusal) => self.say(&refusal),
-        }
+        let edit = self
+            .typed_paths
+            .typed(Some(&kind), &field, Entered::Text(value.to_owned()));
+        self.dispatch(Command::Edit(edit));
     }
 
     /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, committed at once where

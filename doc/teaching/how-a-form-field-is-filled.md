@@ -196,8 +196,9 @@ There are two shapes of window, and the difference is who draws the field.
 are six `Edit::SetField` commands, each carrying everything the field now says
 (`typing.rs::spliced` in `quorra`; each toolkit's changed signal in the others), because the core
 decides how much of a value a widget accepts (stage 3) and a key would leave that to the host.
-`crates/viewer-host/src/form.rs::edit_of` is the one place that tells a file-select field's
-pathname from ordinary text (ADR 1216). **The end of the typing is its own message**,
+A file-select field's pathname is ordinary text while it is typed, and
+`crates/viewer-host/src/form.rs::commit_of` reads the file it names once, at the commit (ADRs 1216,
+3041). **The end of the typing is its own message**,
 `Command::CommitField`: Enter in a single-line field, a toolkit control losing the keyboard, and —
 for object 6, whose Enter is a line break — the Tab that moves §12.5.1's focus on (ADR 1592).
 
@@ -207,7 +208,7 @@ flowchart TD
     QUO["quorra: the field takes the key first<br/>viewer-ui/src/bin/quorra/window.rs, typing.rs<br/>ADR 0526"]
     TK["GTK and Qt: a toolkit control has the keyboard<br/>viewer-gtk/src/controls.rs, crates/viewer-qt/cpp/window.cpp<br/>ADR 0244, ADR 0245"]
     KIND["which control a field is<br/>viewer-host/src/form.rs::control_kind<br/>clause 12.7.5"]
-    EDIT["the whole value as an edit<br/>viewer-host/src/form.rs::edit_of<br/>ADR 1216"]
+    EDIT["the whole value as an edit<br/>viewer-host/src/form.rs::TypedPaths<br/>ADR 1216, ADR 3041"]
     SET["Command::Edit, Edit::SetField"]
     TAB["Tab: Command::Focused<br/>clause 12.5.1"]
     COMMIT["Enter in one line, or the control left: Command::CommitField<br/>Table 231 bit 13, ADR 1592"]

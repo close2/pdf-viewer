@@ -32,12 +32,13 @@ impl Host {
     /// reads only the file's descriptor and the worker's frames (trap 83 is about the other side).
     /// The first `Resize` after the join then goes straight to the page's marks.
     pub(crate) fn anticipate(&mut self) {
-        let (path, faces, canceller, trace, reader) = (
+        let (path, faces, canceller, trace, reader, restrict) = (
             self.path.clone(),
             self.faces,
             self.canceller.clone(),
             self.trace,
             self.reader.clone(),
+            self.restrict(),
         );
         self.opening = Some(viewer_host::Loading::start_reporting(move |progress| {
             let starting = Instant::now();
@@ -72,7 +73,7 @@ impl Host {
             for refusal in &supply.refused {
                 eprintln!("note: {refusal}");
             }
-            for command in supply.commands.iter().chain([&OVERSIZE]) {
+            for command in supply.commands.iter().chain([&restrict, &OVERSIZE]) {
                 events.extend(confined.handle(command).map_err(|e| e.to_string())?);
             }
             events.extend(
@@ -88,6 +89,18 @@ impl Host {
             trace.say(Topic::Launch, format_args!("document opened in the worker"));
             Ok(Opened { confined, events })
         }));
+    }
+
+    /// The reader's levels for a document's restrictions, as the worker is told them before its
+    /// document: `Command::Restrict` for the whole window, so the worker answers form filling,
+    /// saving, selection and copying as the other windows' viewers do.
+    ///
+    /// ADR 1190's rule is that "a host owes the control for an operation exactly when it can
+    /// perform that operation", and this window fills, commits and saves forms (ADRs 1592, 1987),
+    /// so it owes the reader the levels. `Off` is the default, the reader-favouring end
+    /// (`CLAUDE.md` principle 3), so a reader who sets nothing is refused nothing (ADR 3042).
+    pub(crate) const fn restrict(&self) -> Command {
+        Command::Restrict(viewer_core::RestrictionScope::Window(self.restrictions))
     }
 
     /// The worker is gone or unusable; every later command is declined with this sentence.
@@ -211,12 +224,13 @@ impl Host {
                 });
             }
             // The new worker is a new viewer, so it is told again what the first one was told.
+            let restrict = host.restrict();
             for command in host
                 .reader
                 .commands()
                 .commands
                 .into_iter()
-                .chain([OVERSIZE])
+                .chain([restrict, OVERSIZE])
             {
                 host.dispatch(command);
             }

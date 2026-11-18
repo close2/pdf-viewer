@@ -100,7 +100,8 @@ second would first have to decide whether two documents share one worker's confi
   `QFileDialog` behind a trailing `QAction`, both inside the widget's own §12.5.2 rectangle;
   `quorra` takes the pathname the clause already makes the field's text, typed. Which controls may
   have one is `viewer_host::policy::may_choose_file`, asked where the affordance is offered and by
-  `form::edit_of` when a path comes back, so the four levels attach in one place (ADRs 1216, 1240).
+  `form::commit_of` when the field is committed, so the four levels attach in one place (ADRs 1216,
+  1240, 3041).
 
 **The criterion for what is taken first** (ADR 0509) outlives any list: what a *reader* can do with
 a document and cannot do here; then what costs no new message; then what makes the level-hosts
@@ -290,11 +291,12 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   own `AppWindow` and page area (`Probe.cs`), and the job's Table 147 step opens a page stating
   `/FitWindow`, `/CenterWindow` and `/NonFullScreenPageMode` and a deck stating `/PageMode
   /FullScreen`, presses Escape once a page is drawn full screen, and holds each line to a sentence of
-  Table 147 (ADR 2436). §12.2 moves to `implemented` on that step's first green run. Table 29's
-  `/HideWindowUI` is checked only as a state mapping (`Quorra.Chrome.Tests`): no run observes the
-  status line's `Visibility` or the navigation's `IsPaneToggleButtonVisible` that
-  `MainWindow.ApplyChrome` sets, and the probe reads the pane, the presenter and the placement. A
-  probe line for the two controls, and a document stating `/HideWindowUI` in that step, are owed.
+  Table 147 (ADR 2436). §12.2 moves to `implemented` on that step's first green run. Table 147's
+  `/HideWindowUI` is checked as a state mapping (`Quorra.Chrome.Tests`), and the probe now writes a
+  line for the two controls `MainWindow.ApplyChrome` sets, the status line's `Visibility` and the
+  navigation's `IsPaneToggleButtonVisible`, as read back (`WindowProbe.Controls`).
+  No run has written it yet: a document stating `/HideWindowUI` in that step, and the step holding
+  the line, are owed.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

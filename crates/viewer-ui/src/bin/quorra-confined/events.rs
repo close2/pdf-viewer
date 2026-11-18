@@ -239,10 +239,9 @@ impl Host {
                     eprintln!("refused by the document's restrictions: {note}");
                 }
             }
-            // The other two of `CLAUDE.md`'s four levels (ADR 0814). This window sets no level,
-            // so each operation stands at the default, `off`, and neither arrives; both are
-            // answered all the same, in the direction that obeys, so that a level added to this
-            // window later cannot behave like another one in silence.
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814), at the levels
+            // `--restrictions=` set (ADR 3042): a refusal is said, and a warning is said after the
+            // operation it was about.
             Event::Warned { notes, .. } => {
                 eprintln!("note: {}", viewer_host::warned(&notes));
             }
@@ -262,20 +261,21 @@ impl Host {
                     );
                 }
             }
-            // And the third, for the reason the arms above give. Two of this window's operations
-            // can be restricted — a click that toggles a check box fills a field, and one on a
-            // rendition hands its clip over (ADR 1987) — but it sets no level, so both stand at
-            // `off` and no question arrives. The other three windows put the question on a
-            // dialogue of their own (ADR 1145); what this one owes is that a level never behaves
-            // like another in silence, which `viewer_host::unanswerable` is the sentence for.
+            // The third: an operation `--restrictions=` set to ask about, put on the window's
+            // card as the other windows put it on a dialogue of their own (ADRs 1145, 3042).
             Event::Asking {
-                document, notes, ..
+                document,
+                operation,
+                notes,
             } => {
-                eprintln!("note: {}", viewer_host::unanswerable(&notes));
-                self.dispatch(Command::Answer {
-                    document,
-                    proceed: false,
-                });
+                let words = viewer_host::asked(operation, &notes);
+                self.put_the_question(
+                    crate::asking::Asked::Restricted {
+                        document,
+                        operation,
+                    },
+                    &words,
+                );
             }
             // RFC 0008 section 6.3's question cannot arrive: this window is pinned to `off` and
             // hands its worker no runner. Answered `no` where it does, for the arm above's reason

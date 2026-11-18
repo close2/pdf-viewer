@@ -3237,8 +3237,9 @@ void MainWindow::rebuildControls()
             commitsWhenFinished(entry, index);
             // ISO 32000-2 12.7.5.3, Table 231 bit 21: the text "represents the pathname of a
             // file whose contents shall be submitted as the value of the field". So the control
-            // stays an entry holding a path, and this only fills it in — the edit is the one a
-            // typed path already makes, through viewer_host::form::edit_of. An action inside the
+            // stays an entry holding a path, and this only fills it in and commits it: a
+            // chooser's answer is a commit in itself, and the file is read at the commit as a
+            // typed path's is (viewer_host::TypedPaths, ADR 3041). An action inside the
             // line edit rather than a button beside it, because the widget's rectangle is the
             // document's own (12.5.2) and a second control would be this window resizing what
             // the file sized.
@@ -3257,6 +3258,7 @@ void MainWindow::rebuildControls()
                     }
                     entry->setText(chosen);
                     Q_EMIT entry->textEdited(chosen);
+                    Q_EMIT entry->editingFinished();
                 });
             }
             widget = entry;

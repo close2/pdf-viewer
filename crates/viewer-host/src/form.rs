@@ -54,9 +54,8 @@ pub enum ControlKind {
         /// The flag makes the entry's text "the pathname of a file whose contents shall be
         /// submitted as the field's value", which is why it reaches a host at all: only a host
         /// has a filesystem, so only a host can turn that pathname into the contents. What one
-        /// sends for such a control is [`viewer_core::Edit::ChooseFile`] rather than
-        /// [`viewer_core::Edit::SetField`], and [`edit_of`] is that decision written once
-        /// (ADR 1216).
+        /// sends for such a control at its commit is [`viewer_core::Edit::ChooseFile`], and
+        /// [`commit_of`] is that decision written once (ADR 1216, ADR 3041).
         file_select: bool,
     },
     /// §12.7.5.2.3's check box — a `GtkCheckButton` or a `QCheckBox`.
@@ -223,58 +222,152 @@ fn entry_of(text: TextControl) -> ControlKind {
     }
 }
 
-/// What a person's change to one control means, as a [`viewer_core::Edit`].
-///
-/// Ordinary fields take the value as it stands, which is [`viewer_core::Edit::SetField`].
-/// §12.7.5.3's file-select control does not:
+/// What finishing with a control adds before its commit: §12.7.5.3's file, read once.
 ///
 /// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select control.
 /// > In this case, the field's text represents the pathname of a file whose contents shall be
 /// > submitted as the field's value
 ///
-/// — so the text is a *path*, the contents behind it are what §12.7.6.2 submits, and a host is the
-/// only party with a filesystem to read them. [`crate::policy::read_chosen`] is that read, and
-/// this is the one place the two verbs are told apart so that three windows cannot disagree about
-/// which one a person's typing means (ADR 1216).
+/// The contents behind the path are what §12.7.6.2 submits, and a host is the only party with a
+/// filesystem to read them. The clause does not say when; ADR 1216 does — "once, when the person
+/// finishes with the field. Not per keystroke" — so while a person types, the path is ordinary
+/// text sent as [`viewer_core::Edit::SetField`], and this is where it becomes a file (ADR 3041).
+/// [`TypedPaths`] holds what was typed between the two, for a window whose commit does not carry
+/// the text.
 ///
-/// **A cleared file-select control is an ordinary clear**: §12.7.6.3's own words for a value that
-/// is gone are "its V entry shall be removed", and there is no path to read behind nothing.
+/// `Some` only for a file-select control whose `pathname` is not empty — a
+/// [`viewer_core::Edit::ChooseFile`] carrying the file [`crate::policy::read_chosen`] read. `None`
+/// for every other control, whose value its typing already sent, and for an emptied file-select
+/// control: §12.7.6.3's own words for a value that is gone are "its V entry shall be removed", and
+/// there is no path to read behind nothing.
 ///
-/// `control` is `None` for a caller that has no control to hand — an assistive interface reaching
-/// a field by name — and then the value is taken as it stands, which is what every field but this
-/// one does anyway.
+/// A chooser's answer is a commit in itself: a window that filled the control from one commits it
+/// at once (ADR 3041).
 ///
 /// # Errors
 ///
 /// [`crate::policy::read_chosen`]'s refusal, worded for a person. A path that could not be read is
-/// a file-select control with nothing behind it, and taking the path as ordinary text would put
-/// the wrong value under the right name (trap 5).
-pub fn edit_of(
+/// a file-select control with nothing behind it, and committing the path as ordinary text would put
+/// the wrong value under the right name (trap 5), so a window that is refused abandons the typing
+/// instead of committing it.
+pub fn commit_of(
     control: Option<&ControlKind>,
     field: &str,
-    value: viewer_core::Entered,
-) -> Result<viewer_core::Edit, String> {
+    pathname: &str,
+) -> Result<Option<viewer_core::Edit>, String> {
     // Table 231 bit 21 is asked through `may_choose_file` rather than matched here, so that the
     // window offering the chooser and this, which reads what came back, cannot disagree about
     // which fields take a file (ADR 1240).
-    if let viewer_core::Entered::Text(pathname) = &value
-        && crate::policy::may_choose_file(control).is_ok()
-    {
-        let bytes = crate::policy::read_chosen(pathname)?;
-        return Ok(viewer_core::Edit::ChooseFile {
-            field: field.to_owned(),
-            pathname: pathname.clone(),
-            bytes: bytes.into(),
-            // Table 44's `/Subtype` is what an embedded file states and a path on a filesystem
-            // states nothing: HTML 4.01 section 17.13.4.2's own fallback is applied by
-            // `pdf_model::submission` rather than guessed at from an extension here.
-            mime: None,
-        });
+    if pathname.is_empty() || crate::policy::may_choose_file(control).is_err() {
+        return Ok(None);
     }
-    Ok(viewer_core::Edit::SetField {
+    let bytes = crate::policy::read_chosen(pathname)?;
+    Ok(Some(viewer_core::Edit::ChooseFile {
         field: field.to_owned(),
-        value,
-    })
+        pathname: pathname.to_owned(),
+        bytes: bytes.into(),
+        // Table 44's `/Subtype` is what an embedded file states and a path on a filesystem
+        // states nothing: HTML 4.01 section 17.13.4.2's own fallback is applied by
+        // `pdf_model::submission` rather than guessed at from an extension here.
+        mime: None,
+    }))
+}
+
+/// The paths typed into file-select controls since each one's last commit, for a window whose
+/// commit names the field and not its text.
+///
+/// GTK's `FieldChange::Commit`, Qt's `editingFinished` and the platform layer's commit each say
+/// *which* field was finished with; the text was handed over keystroke by keystroke before it.
+/// This keeps the last of those per field so that [`Self::commit`] can read the file once, at the
+/// moment ADR 1216 names, and the three windows cannot come to keep it three ways (ADR 3041).
+#[derive(Debug, Default)]
+pub struct TypedPaths {
+    typed: std::collections::BTreeMap<String, String>,
+}
+
+/// What a window sends when a person finishes with a control: [`TypedPaths::commit`]'s answer.
+#[derive(Debug)]
+pub struct Commit {
+    /// The commands, in order: the chosen file where there is one, then the commit — or, where
+    /// the file could not be read, the abandonment of the typing.
+    pub commands: Vec<viewer_core::Command>,
+    /// [`crate::policy::read_chosen`]'s refusal, for the window to say.
+    pub refusal: Option<String>,
+}
+
+impl TypedPaths {
+    /// A person's change to a control: the value as it stands, which is what every field takes
+    /// while it is typed into, with a file-select control's path kept for its commit.
+    ///
+    /// `control` is `None` for a caller that has no control to hand — an assistive interface
+    /// reaching a field by name — and then nothing is kept, because nothing will be committed as a
+    /// control.
+    #[must_use = "the edit is what the window sends"]
+    pub fn typed(
+        &mut self,
+        control: Option<&ControlKind>,
+        field: &str,
+        value: viewer_core::Entered,
+    ) -> viewer_core::Edit {
+        if crate::policy::may_choose_file(control).is_ok() {
+            match &value {
+                viewer_core::Entered::Text(path) => {
+                    self.typed.insert(field.to_owned(), path.clone());
+                }
+                _ => {
+                    self.typed.remove(field);
+                }
+            }
+        }
+        viewer_core::Edit::SetField {
+            field: field.to_owned(),
+            value,
+        }
+    }
+
+    /// A person finished with the control: the file its typed path names, read once, then the
+    /// commit `by` says.
+    ///
+    /// A control nothing was typed into since its last commit reads nothing, so a focus that
+    /// leaves twice reads at most once.
+    pub fn commit(
+        &mut self,
+        control: Option<&ControlKind>,
+        field: &str,
+        by: viewer_core::Committing,
+    ) -> Commit {
+        let commit = viewer_core::Command::CommitField {
+            field: field.to_owned(),
+            by,
+        };
+        let Some(path) = self.typed.remove(field) else {
+            return Commit {
+                commands: vec![commit],
+                refusal: None,
+            };
+        };
+        match commit_of(control, field, &path) {
+            Ok(chosen) => Commit {
+                commands: chosen
+                    .map(viewer_core::Command::Edit)
+                    .into_iter()
+                    .chain([commit])
+                    .collect(),
+                refusal: None,
+            },
+            Err(refusal) => Commit {
+                commands: vec![viewer_core::Command::CancelField {
+                    field: field.to_owned(),
+                }],
+                refusal: Some(refusal),
+            },
+        }
+    }
+
+    /// Escape: what was typed is abandoned, and with it the path it spelled (ADR 2756).
+    pub fn cancel(&mut self, field: &str) {
+        self.typed.remove(field);
+    }
 }
 
 /// §12.7.5.4's choice field, which Table 233 bit 18 splits into two controls.

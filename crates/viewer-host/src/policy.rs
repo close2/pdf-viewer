@@ -415,14 +415,14 @@ pub const CHOSEN_FILE_LIMIT: u64 = 64 * 1024 * 1024;
 ///
 /// So the chooser is offered for that flag and for nothing else: a pathname under a field that
 /// does not carry it would be the wrong value under the right name, which is the same sentence
-/// [`crate::form::edit_of`] already refuses on (trap 5). Every other text field takes text, and
+/// [`crate::form::commit_of`] already refuses on (trap 5). Every other text field takes text, and
 /// putting a chooser on one would be this program deciding what a document's field is for.
 ///
 /// **The gate is a function rather than a condition at each call site**, for the reason
 /// [`read_chosen`] records and `doc/todo/38` needs: the policy is asked once, in a place a host
 /// can supply, so the *ask* and *warn* levels attach here and nowhere else. It is asked twice on
 /// one path and deliberately — once by a window deciding whether to offer the affordance at all,
-/// and once by [`crate::form::edit_of`] when a path comes back — because a window that offered a
+/// and once by [`crate::form::commit_of`] when the field is committed — because a window that offered a
 /// chooser it would then refuse has asked a person for something it will not use (ADR 1240).
 ///
 /// # Errors
@@ -467,6 +467,7 @@ pub fn may_choose_file(control: Option<&crate::form::ControlKind>) -> Result<(),
 /// The sentence to say to the person: the path names nothing, names something that is not a file,
 /// names one this process may not read, or names one over [`CHOSEN_FILE_LIMIT`].
 pub fn read_chosen(pathname: &str) -> Result<Vec<u8>, String> {
+    CHOSEN_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if pathname.is_empty() {
         return Err("no file is named, so there is nothing to submit for this field".to_owned());
     }
@@ -485,6 +486,21 @@ pub fn read_chosen(pathname: &str) -> Result<Vec<u8>, String> {
         ));
     }
     std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+/// How many times this process has asked [`read_chosen`] for a file, refusals included.
+static CHOSEN_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many times this process has asked [`read_chosen`] for a file, a refusal counting as one.
+///
+/// ADR 1216's rule is one read per field a person finishes with, never one per keystroke, and
+/// ADR 3021 §1 found two windows breaking it with nothing to show it: each refused prefix was
+/// said, and each prefix that happened to name a file was read in silence. This is the count a
+/// window's test reads to hold the rule, and it is a process's because the read is the
+/// filesystem's, whichever window asked for it.
+#[must_use]
+pub fn chosen_reads() -> usize {
+    CHOSEN_READS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The document a **person** chose or named, held open where the core reads it.

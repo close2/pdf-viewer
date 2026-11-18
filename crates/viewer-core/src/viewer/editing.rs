@@ -220,7 +220,10 @@ impl Viewer {
             });
             return;
         };
-        hand_over(id, asked, &open.document, &file, fragment, events);
+        // The file's stream is the container's where the panel lists a collection around the
+        // document shown, and it decodes under the container's own security handler (ADR 3040).
+        let holder = super::answers::collection_frame(open).unwrap_or(&open.document);
+        hand_over(id, asked, holder, &file, fragment, events);
     }
 
     /// Resolves one edit, asks the policy once, and does what the verdict says.

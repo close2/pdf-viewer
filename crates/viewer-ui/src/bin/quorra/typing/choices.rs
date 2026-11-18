@@ -260,26 +260,35 @@ impl App {
     /// Reads §12.7.5.3's file-select control's file, where the field being left is one.
     ///
     /// Does nothing at all for every other field: its value is already in the log, put there by
-    /// the keystrokes that typed it. `viewer_host::form::edit_of` is the decision, shared with the
-    /// two native hosts so that three windows agree about what a person's typing into such a
-    /// field means (ADR 1216).
-    pub(super) fn commit_chosen_file(&mut self, aim: &Aim, value: &str) {
-        let Aim::Field(field) = aim else { return };
+    /// the keystrokes that typed it. `viewer_host::form::commit_of` is the decision, shared with
+    /// the native hosts so that every window agrees about what a person's typing into such a field
+    /// means and when its file is read (ADR 1216, ADR 3041).
+    ///
+    /// `false` where the file could not be read: the refusal is said, and the caller abandons the
+    /// typing rather than committing a path with nothing behind it (trap 5).
+    pub(super) fn commit_chosen_file(&mut self, aim: &Aim, value: &str) -> bool {
+        let Aim::Field(field) = aim else { return true };
         let Answer::Fields(fields) = self.viewer.query(Query::Fields) else {
-            return;
+            return true;
         };
         let Some(kind) = fields
             .iter()
             .find(|one| one.name.qualified == *field)
             .map(|one| control_kind(&one.control))
         else {
-            return;
+            return true;
         };
-        match viewer_host::form::edit_of(Some(&kind), field, Entered::Text(value.to_owned())) {
-            Ok(edit @ Edit::ChooseFile { .. }) => self.dispatch(Command::Edit(edit)),
+        match viewer_host::commit_of(Some(&kind), field, value) {
+            Ok(Some(edit)) => {
+                self.dispatch(Command::Edit(edit));
+                true
+            }
             // An ordinary field, whose value every keystroke has already sent.
-            Ok(_) => {}
-            Err(refusal) => println!("note: {refusal}"),
+            Ok(None) => true,
+            Err(refusal) => {
+                println!("note: {refusal}");
+                false
+            }
         }
     }
 }

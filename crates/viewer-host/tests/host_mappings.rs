@@ -1197,7 +1197,8 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
     );
 }
 
-/// §12.7.5.3's file-select control turns a person's text into a *file*, and no other field does.
+/// §12.7.5.3's file-select control turns a person's text into a *file* at its commit, and no other
+/// field does.
 ///
 /// Table 231 bit 21:
 ///
@@ -1205,8 +1206,8 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
 /// > In this case, the field's text represents the pathname of a file whose contents shall be
 /// > submitted as the field's value
 ///
-/// So the same keystrokes mean two different verbs depending on one flag, and this is the one
-/// place the three windows decide which (ADR 1216).
+/// So the same text means two different things depending on one flag, and this is the one place
+/// the windows decide which (ADR 1216); the file is read when the field is committed (ADR 3041).
 #[test]
 fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
     let entry = |file_select| ControlKind::Entry {
@@ -1215,34 +1216,26 @@ fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
         max_len: None,
         file_select,
     };
-    let written = std::env::temp_dir().join("quorra-1189-file-select.txt");
+    let written = std::env::temp_dir().join(format!(
+        "quorra-1189-file-select-{}.txt",
+        std::process::id()
+    ));
     std::fs::write(&written, b"one,two\n").expect("the test writes its own file");
     let path = written.to_string_lossy().into_owned();
 
     // The flag clear: the text is §7.9.2.2's text string and nothing is opened.
     assert_eq!(
-        viewer_host::form::edit_of(
-            Some(&entry(false)),
-            "plain",
-            viewer_core::Entered::Text(path.clone())
-        ),
-        Ok(viewer_core::Edit::SetField {
-            field: "plain".to_owned(),
-            value: viewer_core::Entered::Text(path.clone()),
-        })
+        viewer_host::commit_of(Some(&entry(false)), "plain", &path),
+        Ok(None)
     );
 
     // The flag set: the pathname stays the field's text and the contents come with it.
-    let Ok(viewer_core::Edit::ChooseFile {
+    let Ok(Some(viewer_core::Edit::ChooseFile {
         field,
         pathname,
         bytes,
         mime,
-    }) = viewer_host::form::edit_of(
-        Some(&entry(true)),
-        "upload",
-        viewer_core::Entered::Text(path.clone()),
-    )
+    })) = viewer_host::commit_of(Some(&entry(true)), "upload", &path)
     else {
         panic!("a file-select control takes a file");
     };
@@ -1256,19 +1249,16 @@ fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
     // §12.7.6.3's own words for a value that is gone are "its V entry shall be removed", and
     // there is no path to read behind nothing.
     assert_eq!(
-        viewer_host::form::edit_of(Some(&entry(true)), "upload", viewer_core::Entered::Cleared),
-        Ok(viewer_core::Edit::SetField {
-            field: "upload".to_owned(),
-            value: viewer_core::Entered::Cleared,
-        })
+        viewer_host::commit_of(Some(&entry(true)), "upload", ""),
+        Ok(None)
     );
 
     // A path that names nothing is a file-select control with nothing behind it, said rather than
     // taken as ordinary text — which would be the wrong value under the right name (trap 5).
-    let refused = viewer_host::form::edit_of(
+    let refused = viewer_host::commit_of(
         Some(&entry(true)),
         "upload",
-        viewer_core::Entered::Text(format!("{path}.no-such-file")),
+        &format!("{path}.no-such-file"),
     );
     assert!(
         refused.is_err_and(|said| said.contains("cannot read")),
@@ -1277,12 +1267,105 @@ fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
     let _ = std::fs::remove_file(&written);
 }
 
+/// A typed path is read once, at the commit, and never per keystroke (ADR 1216, ADR 3041).
+///
+/// No clause times the read — §12.7.5.3 says only that the text "represents the pathname of a
+/// file whose contents shall be submitted" — so the rule is ADR 1216's: "once, when the person
+/// finishes with the field. Not per keystroke". GTK, Qt and the platform layer each hand their
+/// keystrokes and their commit to [`viewer_host::TypedPaths`], so this is the count all three
+/// make; a refused read abandons the typing instead of committing the path (trap 5).
+#[test]
+fn a_typed_path_is_read_once_at_its_commit() {
+    let control = ControlKind::Entry {
+        multiline: false,
+        password: false,
+        max_len: None,
+        file_select: true,
+    };
+    let written =
+        std::env::temp_dir().join(format!("quorra-3041-typed-{}.txt", std::process::id()));
+    std::fs::write(&written, b"typed").expect("the test writes its own file");
+    let path = written.to_string_lossy().into_owned();
+    let mut paths = viewer_host::TypedPaths::default();
+    let before = viewer_host::chosen_reads();
+    for end in 1..=path.len() {
+        let Some(prefix) = path.get(..end) else {
+            continue;
+        };
+        let edit = paths.typed(
+            Some(&control),
+            "upload",
+            viewer_core::Entered::Text(prefix.to_owned()),
+        );
+        assert!(
+            matches!(edit, viewer_core::Edit::SetField { .. }),
+            "a keystroke is text: {edit:?}"
+        );
+    }
+    assert_eq!(
+        viewer_host::chosen_reads(),
+        before,
+        "no keystroke reads a file"
+    );
+
+    let commit = paths.commit(Some(&control), "upload", viewer_core::Committing::Enter);
+    assert_eq!(
+        viewer_host::chosen_reads(),
+        before.saturating_add(1),
+        "the commit reads once"
+    );
+    assert_eq!(commit.refusal, None);
+    assert!(
+        matches!(
+            commit.commands.as_slice(),
+            [
+                Command::Edit(viewer_core::Edit::ChooseFile { .. }),
+                Command::CommitField { .. }
+            ]
+        ),
+        "the file, then the commit: {:?}",
+        commit.commands
+    );
+
+    // A second commit — the keyboard leaving after Enter — finds nothing typed and reads nothing.
+    let again = paths.commit(Some(&control), "upload", viewer_core::Committing::Unstated);
+    assert_eq!(viewer_host::chosen_reads(), before.saturating_add(1));
+    assert!(matches!(
+        again.commands.as_slice(),
+        [Command::CommitField { .. }]
+    ));
+
+    // A path that names nothing is said, and the typing is abandoned rather than committed.
+    let _ = paths.typed(
+        Some(&control),
+        "upload",
+        viewer_core::Entered::Text(format!("{path}.gone")),
+    );
+    let refused = paths.commit(Some(&control), "upload", viewer_core::Committing::Enter);
+    assert!(refused.refusal.is_some());
+    assert!(matches!(
+        refused.commands.as_slice(),
+        [Command::CancelField { .. }]
+    ));
+
+    // Escape forgets the path, so the commit after it reads nothing.
+    let _ = paths.typed(
+        Some(&control),
+        "upload",
+        viewer_core::Entered::Text(path.clone()),
+    );
+    paths.cancel("upload");
+    let _ = paths.commit(Some(&control), "upload", viewer_core::Committing::Unstated);
+    assert_eq!(viewer_host::chosen_reads(), before.saturating_add(2));
+    let _ = std::fs::remove_file(&written);
+}
+
 /// Which controls a window may put a **file chooser** on, asked in one place.
 ///
 /// Table 231 bit 21 is the whole condition — a file-select control's text "represents the
 /// pathname of a file whose contents shall be submitted as the field's value" — and the gate is a
 /// function rather than a condition in each window so that the window offering the chooser and
-/// `edit_of`, which reads what comes back, cannot disagree. Every other control is refused with a
+/// `commit_of`, which reads what comes back, cannot disagree. Every other control is refused with a
 /// sentence rather than silently given no affordance, because a person who expected a chooser is
 /// owed the reason there is none (trap 5, ADR 1240).
 ///
@@ -1314,19 +1397,9 @@ fn only_a_file_select_control_offers_a_chooser() {
     }
 
     // A widget no control was built for is not a file-select control either, and the answer has
-    // to be the same as `edit_of`'s for the same argument — which is what this gate exists for.
+    // to be the same as `commit_of`'s for the same argument — which is what this gate exists for.
     assert!(viewer_host::may_choose_file(None).is_err());
-    assert_eq!(
-        viewer_host::form::edit_of(
-            None,
-            "unbuilt",
-            viewer_core::Entered::Text("/etc".to_owned())
-        ),
-        Ok(viewer_core::Edit::SetField {
-            field: "unbuilt".to_owned(),
-            value: viewer_core::Entered::Text("/etc".to_owned()),
-        })
-    );
+    assert_eq!(viewer_host::commit_of(None, "unbuilt", "/etc"), Ok(None));
 }
 
 /// Table 153's two drawable views are two presentations of one collection, and they differ.

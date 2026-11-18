@@ -304,24 +304,54 @@ fn print_page(open: &Open, index: usize, sheet: crate::Sheet) -> Option<crate::P
 /// entry in the `EmbeddedFiles` name tree" and that tree is the document's — a panel holding the
 /// collection dictionary has no way to tell a `/D` naming a file from a `/D` naming nothing.
 /// [`Answer::Collection`] carries both halves for that reason.
+///
+/// A document presented inside a collection answers with the container's: see
+/// [`collection_frame`].
 fn collection(open: &Open) -> Answer<'static> {
-    pdf_model::collection::Collection::read(&open.document).map_or(Answer::None, |collection| {
-        let initial = collection.initial_document(&open.document);
+    match collection_frame(open) {
+        Some(container) => collection_of(container, &pdf_model::attachment::attachments(container)),
+        None => collection_of(&open.document, &open.view.attachments(&open.document)),
+    }
+}
+
+/// [`collection`] for one document and the attachments its panel lists.
+fn collection_of(
+    document: &pdf_syntax::Document,
+    attachments: &[pdf_model::attachment::Attachment],
+) -> Answer<'static> {
+    pdf_model::collection::Collection::read(document).map_or(Answer::None, |collection| {
+        let initial = collection.initial_document(document);
         // Table 153's `/Sort` is a `shall` about the order rows stand in, and the values it
         // orders by need both the document and the attachments — so it is resolved once here
         // rather than by each panel that draws the list (ADR 1168).
-        let order = pdf_model::collection::sorted_keys(
-            &open.document,
-            &collection,
-            &open.view.attachments(&open.document),
-        )
-        .unwrap_or_default();
+        let order = pdf_model::collection::sorted_keys(document, &collection, attachments)
+            .unwrap_or_default();
         Answer::Collection {
             collection,
             initial,
             order,
         }
     })
+}
+
+/// The collection a document is presented inside, where it is one: the root of its parents, when
+/// that root holds a `/Collection` and the document itself holds none.
+///
+/// §12.3.5.1 presents an embedded document *in the user interface of the collection* — the
+/// container "may be the container PDF or one of the embedded documents" that is presented, and
+/// the panel goes on listing the collection's files around it. So for such a document the panel's
+/// three answers are the container's: [`Query::Collection`], [`Query::Attachments`] and the file a
+/// row extracts (ADR 3040). A document that is a collection itself answers for itself.
+pub(super) fn collection_frame(open: &Open) -> Option<&Arc<pdf_syntax::Document>> {
+    let container = open.parents.first()?;
+    (!holds_collection(&open.document) && holds_collection(container)).then_some(container)
+}
+
+/// Whether the catalog states §12.3.5's `/Collection`: one lookup, for the panel's every answer.
+fn holds_collection(document: &pdf_syntax::Document) -> bool {
+    document
+        .catalog()
+        .is_ok_and(|catalog| catalog.get("Collection").is_some())
 }
 
 /// §12.4.2's label for a page, where the document states one — an empty one included.
@@ -452,6 +482,10 @@ fn build_layers(
 /// `attachment::attachments` and [`attached_files`] both do it. [`crate::Command::Extract`] looks a name
 /// up in this same list, so every file the panel shows comes out by its name.
 pub(super) fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Attachment> {
+    // A document presented inside a collection lists the collection's files (ADR 3040).
+    if let Some(container) = collection_frame(open) {
+        return pdf_model::attachment::attachments(container);
+    }
     let mut out = open.view.attachments(&open.document);
     let Some(page) = open.page(open.page_index) else {
         return out;

@@ -130,14 +130,20 @@ impl App {
     /// filesystem read per character would be this host opening a file sixty times a second (ADR
     /// 1216) — and Escape, which abandons the typing, chooses none (ADR 2756).
     pub(super) fn commit_on_enter(&mut self, aim: Aim, current: &str) -> bool {
-        self.commit_chosen_file(&aim, current);
+        let read = self.commit_chosen_file(&aim, current);
         let Aim::Field(field) = aim else {
             return false;
         };
         self.typing = None;
-        self.dispatch(Command::CommitField {
-            field,
-            by: viewer_core::Committing::Enter,
+        // A path that named no readable file abandons the typing, which is Escape's command:
+        // committing it would put the wrong value under the right name (trap 5, ADR 3041).
+        self.dispatch(if read {
+            Command::CommitField {
+                field,
+                by: viewer_core::Committing::Enter,
+            }
+        } else {
+            Command::CancelField { field }
         });
         println!("note: the keyboard is back on the page");
         self.redraw();

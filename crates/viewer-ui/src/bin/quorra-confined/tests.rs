@@ -551,3 +551,56 @@ fn saved_event_with_directory_at_destination_does_not_damage_source() {
     );
     std::fs::remove_dir_all(&directory).expect("remove temporary directory");
 }
+
+/// ADR 1190's rule — a host owes the control for an operation exactly when it can perform it —
+/// applied to a window that fills, commits and saves forms: the reader's levels reach the worker
+/// as `Command::Restrict` before its document, `Off` where none was typed (ADR 3042).
+#[test]
+fn the_worker_is_told_the_readers_restrictions() {
+    let mut host = a_host();
+    let viewer_core::Command::Restrict(viewer_core::RestrictionScope::Window(policy)) =
+        host.restrict()
+    else {
+        panic!("the window's restrictions cross as Command::Restrict");
+    };
+    assert_eq!(
+        policy,
+        viewer_core::RestrictionPolicy::default(),
+        "the reader-favouring default, `off`"
+    );
+    let asked = viewer_core::RestrictionPolicy::default().with(
+        pdf_model::restriction::Operation::FillInForm,
+        viewer_core::RestrictionLevel::Ask,
+    );
+    host.restrictions = asked;
+    let viewer_core::Command::Restrict(viewer_core::RestrictionScope::Window(policy)) =
+        host.restrict()
+    else {
+        panic!("the window's restrictions cross as Command::Restrict");
+    };
+    assert_eq!(policy, asked, "the level the reader typed");
+    assert!(
+        crate::arguments::CARRIED.contains(&viewer_host::RESTRICTIONS)
+            && crate::arguments::CARRIED.contains(&viewer_host::IGNORE_RESTRICTIONS),
+        "the command line takes the two words rather than refusing them"
+    );
+}
+
+/// A restriction at `ask` is put on the window's card, and Enter answers it (ADR 3042).
+#[test]
+fn a_restriction_at_ask_is_put_on_the_card() {
+    let mut host = a_host();
+    host.event(Event::Asking {
+        document: DocumentId(0),
+        operation: pdf_model::restriction::Operation::FillInForm,
+        notes: vec!["the document asks that its form not be filled in".to_owned()],
+    });
+    assert!(host.question.shown, "the question is up");
+    assert!(matches!(
+        host.asked,
+        Some(crate::asking::Asked::Restricted { .. })
+    ));
+    host.press(&Key::Named(NamedKey::Enter));
+    assert!(!host.question.shown, "the card came down");
+    assert!(host.asked.is_none(), "and nothing is still asked");
+}

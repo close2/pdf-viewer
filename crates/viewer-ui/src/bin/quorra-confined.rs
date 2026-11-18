@@ -283,6 +283,10 @@ struct Host {
     /// replaces a dead one is a new viewer, and one that lost the anchors would judge a signature
     /// differently after a crash (ADR 1580).
     reader: viewer_host::ReaderWords,
+    /// The levels of a document's restrictions the reader set with `--restrictions=` or
+    /// `--ignore-restrictions`, `Off` for every operation where they set none. Kept for
+    /// [`Self::reader`]'s reason: every worker is told them before its document (ADR 3042).
+    restrictions: viewer_core::RestrictionPolicy,
     /// §12.7.4.2's qualified name of the text field the keyboard is in, or nothing (ADR 1592).
     typing: Option<String>,
     /// The modifiers held: Shift turns §12.5.1's Tab round, and Control makes S the save.
@@ -382,6 +386,7 @@ impl Host {
             resume: None,
             faces,
             reader: viewer_host::ReaderWords::default(),
+            restrictions: viewer_core::RestrictionPolicy::default(),
             typing: None,
             modifiers: winit::keyboard::ModifiersState::empty(),
             measuring: viewer_host::Measuring::default(),
@@ -673,6 +678,7 @@ fn main() {
         processor,
         faces,
         reader,
+        restrictions,
         links,
         remote_documents,
         submissions,
@@ -680,6 +686,7 @@ fn main() {
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
     host.reader = reader;
+    host.restrictions = restrictions;
     host.links = links;
     host.remote_documents = remote_documents;
     host.submissions = submissions;
