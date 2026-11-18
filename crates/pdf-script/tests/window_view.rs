@@ -69,8 +69,7 @@ fn opened(document: &Document, window: Option<WindowView>) -> ViewState {
 /// What `Out` shows.
 fn out(view: &ViewState, document: &Document) -> String {
     view.field_value(document, "Out")
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 /// What the script reads is what the host told.
@@ -139,7 +138,7 @@ fn a_value_that_names_nothing_drawable_changes_nothing_and_is_said() {
     );
     let mut view = opened(&document, None);
     assert_eq!(out(&view, &document), "undefined|NoVary|SinglePage");
-    assert!(view.take_view_requests().is_empty());
+    assert_eq!(view.take_view_requests(), [] as [ViewChange; 0]);
     let said = view
         .script_reports()
         .iter()

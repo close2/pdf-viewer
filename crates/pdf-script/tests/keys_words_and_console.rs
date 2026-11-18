@@ -83,8 +83,7 @@ fn press(view: &mut ViewState, document: &Document) -> String {
     let ran = view.run_annotation_scripts(document, field, Trigger::Up);
     assert_eq!(ran.handed, 1, "{:?}", view.script_reports());
     view.field_value(document, "Out")
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 #[test]
@@ -285,8 +284,7 @@ fn a_rich_text_field_s_keystroke_reads_its_value_as_spans_and_its_change_as_one(
     view.set_field(&document, "Out", &Entered::Text("Hello bolder".to_owned()));
     let logged = view
         .field_value(&document, "Log")
-        .map(|shown| shown.text)
-        .unwrap_or_default();
+        .map_or_default(|shown| shown.text);
     assert!(
         logged.starts_with("Hello :400|bold:700") && logged.ends_with("#1Hello bolder"),
         "{logged:?} {:?}",

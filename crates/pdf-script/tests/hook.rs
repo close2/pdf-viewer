@@ -265,8 +265,7 @@ mod engine {
     /// The text a field holds now.
     fn value(view: &ViewState, document: &Document, name: &str) -> String {
         view.field_value(document, name)
-            .map(|shown| shown.text)
-            .unwrap_or_default()
+            .map_or_default(|shown| shown.text)
     }
 
     /// The object identity of object `number`.

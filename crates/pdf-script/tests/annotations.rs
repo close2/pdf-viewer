@@ -314,7 +314,7 @@ fn a_stopped_run_leaves_the_annotations_as_they_were() {
         None,
     ));
     assert!(matches!(ran.ending, Ending::Exceeded(_)), "{ran:?}");
-    assert!(ran.edits.is_empty());
+    assert_eq!(ran.edits, [] as [ScriptEdit; 0]);
     let (_, after) = value(
         &mut realm,
         "event.value = String(this.getAnnot(0, 'note-10').hidden);",

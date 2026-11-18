@@ -467,11 +467,6 @@ mod tests {
     /// A point of a turned page's box read back to default user space lands on the corner it was
     /// turned from, at every quarter turn.
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "every coordinate is a whole number, exact in a double, and turning one only \
-                  moves and negates it"
-    )]
     fn a_rotated_point_is_read_back_to_where_the_page_states_it() {
         let media = [0.0, 0.0, 612.0, 792.0];
         let crop = [10.0, 36.0, 600.0, 780.0];
@@ -488,11 +483,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "every corner is a whole number, exact in a double, and turning one only moves \
-                  and negates it"
-    )]
     fn a_quarter_turned_letter_page_is_as_wide_as_it_is_shown() {
         let letter = [0.0, 0.0, 612.0, 792.0];
         assert_eq!(rotated(letter, letter, 0), letter);

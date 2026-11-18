@@ -100,8 +100,7 @@ fn opened(document: &Document) -> ViewState {
 /// What a field shows, as text.
 fn value(view: &ViewState, document: &Document, name: &str) -> String {
     view.field_value(document, name)
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 #[test]
@@ -431,8 +430,7 @@ fn set_items_rewrites_opt_for_the_realm_the_control_a_choice_and_the_save() {
     let options: Vec<String> = saved
         .get_key(&field, "Opt")
         .as_array()
-        .map(|items| items.iter().map(text).collect())
-        .unwrap_or_default();
+        .map_or_default(|items| items.iter().map(text).collect());
     assert_eq!(options, ["1/One", "Two", "Green"]);
 }
 

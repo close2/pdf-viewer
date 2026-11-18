@@ -824,10 +824,12 @@ fn unhex(digits: &str) -> Option<Vec<u8>> {
         return None;
     }
     digits
-        .chunks_exact(2)
-        .map(|pair| {
-            let high = char::from(pair[0]).to_digit(16)?;
-            let low = char::from(pair[1]).to_digit(16)?;
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[high, low]| {
+            let high = char::from(high).to_digit(16)?;
+            let low = char::from(low).to_digit(16)?;
             u8::try_from(high << 4 | low).ok()
         })
         .collect()
@@ -841,8 +843,7 @@ fn utf16(bytes: &[u8]) -> String {
         [0xFE, 0xFF, rest @ ..] => (false, rest),
         _ => (false, bytes),
     };
-    let units = body.chunks_exact(2).map(|pair| {
-        let pair = [pair[0], pair[1]];
+    let units = body.as_chunks::<2>().0.iter().map(|&pair| {
         if little {
             u16::from_le_bytes(pair)
         } else {

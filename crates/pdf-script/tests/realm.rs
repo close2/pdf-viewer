@@ -277,7 +277,7 @@ fn a_value_that_is_no_display_constant_is_refused_by_name() {
         r#"try { this.getField("Total").display = 9; } catch (e) { console.println(e.name); }"#,
     );
     assert_eq!(ran.log, vec!["NotAllowedError".to_owned()]);
-    assert!(ran.edits.is_empty());
+    assert_eq!(ran.edits, [] as [ScriptEdit; 0]);
     let refusal = ran.refusals.first().expect("the refusal");
     assert_eq!(refusal.member, "Field.display=");
     assert!(matches!(refusal.kind, RefusalKind::Unreachable(_)));
@@ -297,7 +297,7 @@ fn a_keystroke_script_changes_its_own_field_through_the_event_only() {
         ran.refusals.first().map(|refusal| refusal.member.as_str()),
         Some("Field.value=")
     );
-    assert!(ran.edits.is_empty());
+    assert_eq!(ran.edits, [] as [ScriptEdit; 0]);
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn a_stopped_run_hands_back_no_edit_and_leaves_the_realm_as_it_was() {
         r#"this.getField("Line.1").value = 9; while (true) {}"#,
     );
     assert!(matches!(ran.ending, Ending::Exceeded(_)), "{ran:?}");
-    assert!(ran.edits.is_empty());
+    assert_eq!(ran.edits, [] as [ScriptEdit; 0]);
     let after = calculate(
         &mut realm,
         r#"event.value = this.getField("Line.1").value;"#,

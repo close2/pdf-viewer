@@ -71,8 +71,7 @@ fn opened(document: &Document) -> ViewState {
 /// What a field shows, as text.
 fn value(view: &ViewState, document: &Document, name: &str) -> String {
     view.field_value(document, name)
-        .map(|shown| shown.text)
-        .unwrap_or_default()
+        .map_or_default(|shown| shown.text)
 }
 
 /// Which of Table 234's `/Opt` entries the list box `Colour` selects, as a host's control reads it.

@@ -295,8 +295,7 @@ fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
         engine: Engine::new(Budget::FIELD_EVENT),
         document: path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+            .map_or_default(|name| name.to_string_lossy().into_owned()),
         print_throws,
     })));
     view.run_open_scripts(&document, 0);
@@ -669,8 +668,7 @@ fn a_realm_s_heap_is_measured_for_one_document() {
         capturing
             .requests
             .lock()
-            .map(|requests| requests.clone())
-            .unwrap_or_default()
+            .map_or_default(|requests| requests.clone())
     };
     let script_bytes: usize = requests.iter().map(|request| request.script.len()).sum();
     let (_, before) = resident();
