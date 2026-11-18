@@ -1401,11 +1401,11 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/errata-read.md
 - test files: none located
 
-- 2038-D01 | doc | citation-drift | open | doc: EC3 renumbering errata
-- 2038-D11 | doc | source-provenance-gap | open | doc: errata-read #309 description
-- 2038-D65 | doc | source-crosswalk-citation | open | audit note citation error
-- 2038-D66 | doc | audit-source-correction | open | audit note citation error
-- 2038-D67 | doc | documentation-gap | open | audit note citation error
+- 2038-D01 | doc | citation-drift | argued (citation drift only: §12.3.6's and §14.7.5.1.1's ledger notes and `doc/errata-read.md` already record #477's and #452's renumbering, and the tree cites the published numbers by standing decision; nothing to change) | doc: EC3 renumbering errata
+- 2038-D11 | doc | source-provenance-gap | fixed (`doc/errata-read.md`'s #309 row now says the amendment strikes the NChannel condition on `None` and adds the producer's `shall not` on page 220; §8.6.6.5's ledger note already did) | doc: errata-read #309 description
+- 2038-D65 | doc | source-crosswalk-citation | fixed (`doc/errata-read.md`'s #322 row names Table 35, the caption on physical pages 129–130) | audit note citation error
+- 2038-D66 | doc | audit-source-correction | fixed (the misattribution was the audit's own earlier note and is in no project file; #10's should→shall in Table 5's /F cell is now recorded in §7.3.8.2's ledger note as a writer's rule) | audit note citation error
+- 2038-D67 | doc | documentation-gap | fixed (`doc/errata-read.md`'s #618 row says Table 199's triggers run in the confined script worker at the reader's `Scripts` level, ADRs 1904, 1579, 1603) | audit note citation error
 
 ### G124 — doc: MissingWidth ledger explanation; doc: inline image dimension rounding; doc: ledger test reference missing; doc: ledger text-state rows stale; doc: stroke adjustment ledger prose
 
@@ -1413,11 +1413,11 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/conformance/ledger.toml
 - test files: crates/viewer-core/tests/annex_o_open_parameters_audit.rs
 
-- 2038-D06 | doc | stale-ledger-policy-description | open | doc: inline image dimension rounding
-- 2038-D09 | doc | stale-ledger-description-and-evidence-links | open | doc: ledger text-state rows stale
-- 2038-D10 | doc | ledger-erratum-qualification-gap | open | doc: MissingWidth ledger explanation
-- 2038-D13 | doc | ledger-description-drift | open | doc: stroke adjustment ledger prose
-- 2038-D14 | doc,viewer-core | ledger-test-reference-gap | open | doc: ledger test reference missing
+- 2038-D06 | doc | stale-ledger-policy-description | fixed (§8.9.7's ledger note says the nearest integer, ties away from zero, ADR 0912, and names `inline_images.rs::a_fractional_dimension_names_the_nearest_integer_rather_than_the_truncated_one`) | doc: inline image dimension rounding
+- 2038-D09 | doc | stale-ledger-description-and-evidence-links | fixed (§9.3.2's note describes the writing-mode-1 branch of `placement::advance_step`; §9.3.2, §9.4.1 and §9.4.2 link the focused vertical, q/Q and positioning tests) | doc: ledger text-state rows stale
+- 2038-D10 | doc | ledger-erratum-qualification-gap | fixed (§9.8.1's note records EC3 #453's rewrite of the /MissingWidth qualification as producer advice with an implementation-dependent result; `doc/errata-read.md`'s #453 row moved to §9.8.1 Table 120 and quotes the caret) | doc: MissingWidth ledger explanation
+- 2038-D13 | doc | ledger-description-drift | fixed (§10.7's family note: §10.7.5 implemented on A714, ADRs 2530/2553; §10.7.1's NOTE licenses none of the departures, ADR 1560; the tiny-skia overflow rests on §7.3.3) | doc: stroke adjustment ledger prose
+- 2038-D14 | doc,viewer-core | ledger-test-reference-gap | fixed (O.2.2's row links `annex_o_open_parameters_audit.rs::fragment_search_word_list_selects_earliest_text_occurrence`) | doc: ledger test reference missing
 
 ### G125 — errata inventory mislocates entries; errata per-issue indexes omit grouped markers
 
@@ -1425,8 +1425,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/reviews/2038-specification-audit/?
 - test files: none located
 
-- 2038-D46 | doc | errata-inventory-gap | open | errata per-issue indexes omit grouped markers
-- 2038-D50 | doc | stale-source-and-consumer-rationale | open | errata inventory mislocates entries
+- 2038-D46 | doc | errata-inventory-gap | argued (the two inventories that omit #48, #71, #288 and #336 are the audit's own historical shards, which stay as written; the audit's `shards/errata_disposition_crosswalk_current/crosswalk.json` holds all 360; no project file claims a per-issue index) | errata per-issue indexes omit grouped markers
+- 2038-D50 | doc | stale-source-and-consumer-rationale | fixed (`doc/errata-read.md`'s #218 row moved to §12.8.6 Table 263 and names the three readers of the UR reference array: `signature::usage_rights`, `revision::against_usage_rights`, `writing::withdrawn_usage_rights`) | errata inventory mislocates entries
 
 ### G126 — doc: collection initial-document ADR wording
 
@@ -1434,7 +1434,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0202-a-collection-is-how-a-document-arranges-its-files.md, doc/adr/0231-a-collection-opens-on-one-document-and-nobody-could-say-which.md
 - test files: none located
 
-- 2038-D02 | doc | interpretation-follow-up | open | doc: collection initial-document ADR wording
+- 2038-D02 | doc | interpretation-follow-up | open (ADR 3020 supersedes ADRs 0231/0202 on this point: the initial embedded document is presented by the GoToE route, not marked; the change is in viewer-core/viewer-host, held by round 2081) | doc: collection initial-document ADR wording
 
 ### G127 — doc: ADR0601 premise outdated
 
@@ -1442,7 +1442,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0601-two-accepted-errata-that-cannot-both-be-applied.md
 - test files: none located
 
-- 2038-D03 | doc | decision-premise-correction | open | doc: ADR0601 premise outdated
+- 2038-D03 | doc | decision-premise-correction | fixed (ADR 3018 §1: #432 was closed as #593's duplicate and #593 completed on 2025-11-10; §12.4.2's ledger note and `doc/errata-read.md` record no conflict; `page_label::letters`'s doc comment is G063's file, round 2079's, and is left for after that merge) | doc: ADR0601 premise outdated
 
 ### G128 — doc: ADR2811 PLRM bitshift overstated
 
@@ -1450,7 +1450,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/2811-bitshift-shifts-zeros-in-from-either-end.md
 - test files: none located
 
-- 2038-D04 | doc | decision-premise-qualification | open | doc: ADR2811 PLRM bitshift overstated
+- 2038-D04 | doc | decision-premise-qualification | fixed (ADR 3019 §1; `function.rs`'s `Operator::Bitshift` comment and `Value::Integer` doc call i32 this evaluator's width) | doc: ADR2811 PLRM bitshift overstated
 
 ### G129 — doc: Ink appearance EC3#444
 
@@ -1458,7 +1458,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/annotations.rs?, doc/conformance/ledger.toml
 - test files: crates/pdf-model/tests/ink_annotation_spec_audit.rs
 
-- 2038-D12 | doc,pdf-model | source-ledger-rationale-gap | open | doc: Ink appearance EC3#444
+- 2038-D12 | doc,pdf-model | source-ledger-rationale-gap | fixed (EC3 #444's caret on page 510: `appearance.rs`'s `ink` and `path_segments` docs, §12.5.6.13's ledger note and `doc/errata-read.md`'s #444 row state Path-over-InkList as the amended table's rule) | doc: Ink appearance EC3#444
 
 ### G130 — Table 285 BU/MH EC3 redirect conflict
 
@@ -1466,7 +1466,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/todo/ (media data BU ADR)?
 - test files: none located
 
-- 2038-D44 | doc | source-inconsistency | open | Table 285 BU/MH EC3 redirect conflict
+- 2038-D44 | doc | source-inconsistency | fixed (ADR 3018 §2: the overlay contradicts pdf-issues #179's own resolution; §13.2.4.2's note and a new `doc/errata-read.md` row record it; `media.rs` reads the data's MH and BE by Table 287) | Table 285 BU/MH EC3 redirect conflict
 
 ### G131 — historical errata synopsis mislocates correction
 
@@ -1474,7 +1474,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/errata ADR for #193?
 - test files: none located
 
-- 2038-D47 | doc | source-description-error | open | historical errata synopsis mislocates correction
+- 2038-D47 | doc | source-description-error | fixed (`doc/errata-read.md`'s #193 row is §7.2.2's two strikes and caret, including the unconditional binary transport; §7.2.2's ledger note records it) | historical errata synopsis mislocates correction
 
 ### G132 — ADR cites deleted object-zero prohibition
 
@@ -1482,7 +1482,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr (incremental free-entry rationale)?
 - test files: none located
 
-- 2038-D48 | doc | superseded-design-rationale | open | ADR cites deleted object-zero prohibition
+- 2038-D48 | doc | superseded-design-rationale | fixed (ADR 3018 §3: `write::incremental_update_freeing`'s doc comment and §7.5.4's note stand the detached free entry on its own reason; `doc/errata-read.md`'s #147 row says so) | ADR cites deleted object-zero prohibition
 
 ### G133 — ledger keeps deleted EC3 prohibition
 
@@ -1490,7 +1490,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/conformance ledger rows 12.5.1/12.5.6.18?
 - test files: none located
 
-- 2038-D49 | doc | stale-ledger-source | open | ledger keeps deleted EC3 prohibition
+- 2038-D49 | doc | stale-ledger-source | fixed (§12.5.1's note no longer quotes the struck sentence; the two test comments that did, `pdf-model/tests/annotations.rs` and `pdf-transform/tests/archive.rs`, are corrected) | ledger keeps deleted EC3 prohibition
 
 ### G134 — ADR FileSelect timing rationale stale
 
@@ -1498,7 +1498,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/1240 (FileSelect)?, doc/adr/1216
 - test files: none located
 
-- 2038-D55 | doc | decision-revisit | open | ADR FileSelect timing rationale stale
+- 2038-D55 | doc | decision-revisit | open (ADR 3021 §1: ADR 1216's read-at-commit rule stands; GTK and Qt call `edit_of` per change, so the read moves to their commit; viewer crates, after round 2081) | ADR FileSelect timing rationale stale
 
 ### G135 — archive dynamic-XFA rationale stale
 
@@ -1506,7 +1506,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr (archive dynamic XFA)?
 - test files: none located
 
-- 2038-D57 | doc | decision-revisit | open | archive dynamic-XFA rationale stale
+- 2038-D57 | doc | decision-revisit | argued (ADR 3022: the stop's subject is whether the held pages are kept, which is Table 29's /NeedsRendering's; `archive::sites::xfa_form_is_dynamic`'s comments corrected) | archive dynamic-XFA rationale stale
 
 ### G136 — ADR interval argument unproven
 
@@ -1514,7 +1514,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0030 (raster)?
 - test files: none located
 
-- 2038-D58 | doc | decision-rationale-qualification | open | ADR interval argument unproven
+- 2038-D58 | doc | decision-rationale-qualification | fixed (ADR 3019 §2: raster ADR 0030's 'never further from the truth' withdrawn; idempotence and the upper bound kept) | ADR interval argument unproven
 
 ### G137 — ADR premise expired by confined editing
 
@@ -1522,7 +1522,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/1190?
 - test files: none located
 
-- 2038-D59 | doc | decision-premise-qualification | open | ADR premise expired by confined editing
+- 2038-D59 | doc | decision-premise-qualification | open (ADR 3021 §2: by ADR 1190's own rule the confined window now owes `--restrictions=` for form fill and save; viewer-ui, after round 2081) | ADR premise expired by confined editing
 
 ### G138 — ledger row stale
 
@@ -1530,7 +1530,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/ledger row 7.7.2/12.6.3?
 - test files: none located
 
-- 2038-D60 | doc | ledger-narrative-drift | open | ledger row stale
+- 2038-D60 | doc | ledger-narrative-drift | fixed (§7.7.2's note: catalog /AA read by `script_sites::document_entry` at the `Scripts` level, ADR 1904; /NeedsRendering read by `pdf_model::xfa` and the archive; thirty read and two decided) | ledger row stale
 
 ### G139 — degenerate shading geometry painting
 
@@ -1538,7 +1538,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/2356-the-oracle-draws-its-own-ramps-at-each-pixels-t-as-the-level-nearest-the-ramps-colour.md
 - test files: none located
 
-- 2038-D61 | doc | decision-qualification | open | degenerate shading geometry painting
+- 2038-D61 | doc | decision-qualification | fixed (ADR 3008, round 2080, makes `Shading::paints_nothing` the one predicate; ADR 3019 §3 supersedes ADR 2356's native fallback and qualifies ADR 0171's a = 0 case) | degenerate shading geometry painting
 
 ### G140 — Type3 font glyph handling
 
@@ -1546,7 +1546,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0914-a-type-3-font-matrix-written-to-two-decimal-places.md
 - test files: none located
 
-- 2038-D62 | doc | decision-qualification | open | Type3 font glyph handling
+- 2038-D62 | doc | decision-qualification | fixed (ADR 3019 §4: `type3.rs`'s docs, its `UninvertibleFontMatrix` message and §9.6.4's ledger note call the matrix noninvertible and the refusal a choice) | Type3 font glyph handling
 
 ### G141 — ADR table citation error
 
@@ -1554,7 +1554,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0473-the-clock-two-windows-did-not-have.md
 - test files: none located
 
-- 2038-D63 | doc | documentation-gap | open | ADR table citation error
+- 2038-D63 | doc | documentation-gap | fixed (ADR 3018 §4: a page's /Dur is Table 31's; no other file repeats ADR 0473's locator) | ADR table citation error
 
 ### G142 — tiling pattern lattice spacing
 
@@ -1562,7 +1562,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/1080-a-tiling-lattice-is-snapped-where-a-device-pixel-is-stated.md
 - test files: none located
 
-- 2038-D64 | doc | decision-qualification | open | tiling pattern lattice spacing
+- 2038-D64 | doc | decision-qualification | fixed (ADR 2987 amends ADR 1080, B72; ADR 3019 §5 cross-references it) | tiling pattern lattice spacing
 
 ### G143 — audit review artifact integrity
 
@@ -1570,7 +1570,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/reviews/2038-specification-audit.md?
 - test files: none located
 
-- 2038-D68 | doc | documentation-gap | open | audit review artifact integrity
+- 2038-D68 | doc | documentation-gap | argued (re-verified: all 946 JSON files under the review directory decode with duplicate keys rejected, zero failures; the n-up correction is the review's own line 557; no file is wrong) | audit review artifact integrity
 
 ## Failures with no finding
 

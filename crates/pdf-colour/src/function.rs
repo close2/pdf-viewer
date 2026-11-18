@@ -1438,13 +1438,14 @@ pub enum Value {
     /// An integer, which is what `idiv`, `mod`, `bitshift` and the bitwise operators are on.
     ///
     /// Held as `i32`, which is a width ISO 32000-2 does not state and this project therefore
-    /// had to choose. ADR 0369 chose the answers that do *not* depend on one — `bitshift` fills
-    /// from the sign rather than from a register's left edge — and those are unchanged at any
-    /// width. What the choice decides is where an integer stops being one: a sum past 2³¹ becomes
-    /// a real here rather than wrapping, which is the same direction the `f32` stack always went
-    /// and is nearer to Annex C's "Integer values (such as object numbers) can often be expressed
-    /// within 32 bits" than a 64-bit register would be. It also keeps a [`Value`] in eight bytes,
-    /// which ADR 0371 measured: the operand stack is copied once per device pixel of a shading.
+    /// had to choose; PLRM3's 32 bits are the typical limit of one family of implementations
+    /// rather than a requirement (ADR 3019). The choice decides the exact results of
+    /// `bitshift` at the sign bit and past 31 places, and where an integer stops being one: a
+    /// sum past 2³¹ becomes a real here rather than wrapping, which is the same direction the
+    /// `f32` stack always went and is nearer to Annex C's "Integer values (such as object
+    /// numbers) can often be expressed within 32 bits" than a 64-bit register would be. It also
+    /// keeps a [`Value`] in eight bytes, which ADR 0371 measured: the operand stack is copied
+    /// once per device pixel of a shading.
     Integer(i32),
     /// A real number, which every input is and most arithmetic produces.
     Real(f32),
@@ -3216,10 +3217,12 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // Reference, third edition, defines `bitshift` as a shift of int1's binary representation
         // in which the bits shifted out are lost and the bits shifted in are zero, in either
         // direction, warning that the result is arithmetically correct only for a positive int1.
-        // Its Appendix B fixes the integer as 32-bit two's complement, which is [`Value`]'s
-        // `i32`. So a right shift is the logical one: `-8 -1 bitshift` is `2147483644`, and a
-        // shift by 32 bits or more in either direction leaves only zeros (ADR 2811, which
-        // supersedes ADR 0369's and ADR 0371's sign-preserving choice).
+        // So a right shift is the logical one, which holds at any width (ADR 2811, which
+        // supersedes ADR 0369's and ADR 0371's sign-preserving choice). The width is this
+        // evaluator's: PLRM3's Appendix B gives 32-bit two's complement as the typical limit of
+        // Adobe's implementations on 32-bit machines rather than a rule for every one, and
+        // [`Value`]'s `i32` is the choice, so `-8 -1 bitshift` being `2147483644` and a shift by
+        // 32 bits or more leaving only zeros are answers at that width (ADR 3019).
         Operator::Bitshift => binary(stack, |value, shift| {
             let (value, shift) = (value.integer(), shift.integer());
             // The two's-complement bits of `value`, reinterpreted rather than converted.

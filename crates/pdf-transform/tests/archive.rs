@@ -10094,9 +10094,9 @@ fn an_annotation_the_removal_takes_away_is_not_owed_an_appearance() {
     // preparation asked §12.5.6.18 for artwork it does not state and refused the whole document
     // over an annotation it was about to delete.
     //
-    // §12.5.6.18 is why no appearance could be constructed for it either way: "If AP is not
-    // present, the screen annotation shall not have a default visual appearance and shall not be
-    // printed."
+    // No appearance could be constructed for it either way: §12.5.6.18 states no artwork for a
+    // screen annotation once Errata Collection 3's Issue #42 strikes the sentence about one
+    // without an `/AP`, and puts nothing in its place (ADR 2818 section 7).
     let source = a_sound_annotation("Screen", None);
     let target = Target::Four(Flavour::Plain);
     let subtype_row = "annotations/subtype-defined-in-iso-32000-2";

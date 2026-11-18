@@ -251,10 +251,12 @@ pub fn incremental_update(
 /// unchanged in the PDF file, but shall be marked as deleted by means of their cross-reference
 /// entries" — and §7.5.4 gives a cross-reference section two ways to hold a free entry. The
 /// first is the linked list headed by object 0, which a deletion "shall be added to" with its
-/// generation "incremented by 1". **An update cannot use it**: §7.5.4's own NOTE 3 says that
-/// "cross reference subsections of incremental updates can never have an object number of
-/// zero", so the head of the list is not an entry this section may rewrite, and an entry chained
-/// to a head that does not name it is not in the list. The second way is the one written here:
+/// generation "incremented by 1". An update may use either: Errata Collection 3's Issue #147
+/// strikes the closing sentence of §7.5.4's NOTE 3, which had said an update's subsections never
+/// start at object number zero, and makes a subsection's first object number non-negative. The
+/// second way is the one written here, because it states the freed entries and nothing else,
+/// where the first would restate object 0 and thread the new entries into a list whose earlier
+/// links stand in sections this update does not rewrite (ADR 3018):
 ///
 /// > Using the second mechanism, the table may contain other free entries that link back to
 /// > object number 0 and have a generation number of 65,535, even though these entries are not in

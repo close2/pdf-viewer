@@ -1073,15 +1073,10 @@ fn every_annotation_type_table_171_defines_is_answered_by_its_own_clause() {
 /// A screen annotation with no `/AP` draws nothing and reports nothing, and one with an `/AP`
 /// draws it.
 ///
-/// §12.5.6.18, in the prose after Table 190 rather than in the table:
-///
-/// > If AP is not present, the screen annotation shall not have a default visual appearance and
-/// > shall not be printed.
-///
-/// So the absence is the clause's own answer and there is no shortfall to name. Reporting "its
-/// clause states no geometry" here would be a claim about a clause that states one — trap 11,
-/// and the correction §12.5.6.11's caret and §12.5.6.23's redaction each took out of
-/// `crate::appearance::construct`'s catch-all. ADR 0901.
+/// §12.5.6.18 states no artwork for a screen annotation: Errata Collection 3's Issue #42 strikes
+/// the prose sentence after Table 190 that gave one without an `/AP` no default appearance, and
+/// puts nothing in its place. So drawing nothing is this reader's choice, and the absence is
+/// not a shortfall to name (ADR 0901 as qualified by ADR 2818 section 7).
 ///
 /// **Both halves are asserted because only the pair discriminates**: an implementation that
 /// dropped every `Screen` annotation outright would pass the first assertion alone, and the

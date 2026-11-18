@@ -2595,12 +2595,10 @@ impl Quad {
 /// digitiser's own samples would be this module inventing smoothing the document did not ask
 /// for.
 ///
-/// A `/Path` (PDF 2.0) is drawn in preference to `/InkList`, and **that is a choice rather
-/// than Table 185's rule**: §12.5.6.9's Table 181 makes `/Vertices` "(Required unless a Path
-/// key is present, in which case it shall be ignored)" and Table 185 states no such ordering
-/// for `/InkList`, which it simply marks "(Required)". A file writing both describes one
-/// scribble twice, so the entry that can carry curves wins and the page is not marked twice.
-/// `an_ink_annotations_path_is_drawn_and_outranks_its_ink_list` is where that is recorded.
+/// A `/Path` (PDF 2.0) is drawn in place of `/InkList`, which is Table 185's rule as Errata
+/// Collection 3 amends it: Issue #444 writes *Shall be ignored if Path is present.* after
+/// `/InkList`'s "(Required)", the rule §12.5.6.9's Table 181 already states for `/Vertices`.
+/// `an_ink_annotations_path_is_drawn_and_outranks_its_ink_list` holds it.
 fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     // §12.5.6.2: `/C` is a group attribute.
     let shared = crate::markup::group_source(document, annotation);
@@ -6680,9 +6678,8 @@ enum Segment {
 /// (m, l or c). ... The first array shall be of length 2 and specifies the operand of a moveto
 /// operator ... Subsequent arrays of length 2 specify the operands of lineto operators. Arrays
 /// of length 6 specify the operands for curveto operators." A `/Path` supersedes §12.5.6.9's
-/// `/Vertices`, which Table 181 says "shall be ignored" where it is present — and it is drawn
-/// ahead of §12.5.6.13's `/InkList` too, which **Table 185 does not say**: see [`ink`] for why
-/// that one is this crate's choice rather than a rule.
+/// `/Vertices`, which Table 181 says "shall be ignored" where it is present — and §12.5.6.13's
+/// `/InkList` likewise, by Errata Collection 3's Issue #444 to Table 185 (see [`ink`]).
 ///
 /// `None` where there is no `/Path`; a refusal where there is one and it does not begin with a
 /// move or holds an array of some other length.
