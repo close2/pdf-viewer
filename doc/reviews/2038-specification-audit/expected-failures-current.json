@@ -167,43 +167,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core::initial_open_order_spec_audit",
-   "test": "catalog_open_action_precedes_initial_page_and_annotation_open_actions",
-   "finding": "2038-B22",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::cross_document_destination_view_spec_audit",
-   "test": "a_remote_goto_applies_the_explicit_destination_view_in_the_target",
-   "finding": "2038-B23",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::cross_document_destination_view_spec_audit",
-   "test": "an_embedded_goto_applies_the_explicit_destination_view_in_the_target",
-   "finding": "2038-B23",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::headless",
-   "test": "an_open_action_states_where_to_look_at_the_page_and_how_large",
-   "finding": "2038-B24",
-   "log": "broad.log",
-   "qualification": "FitRrecommendedcenteringunderEC3#536SHOULD; notmandatoryISOviolation."
-  },
-  {
-   "binary": "viewer-core::headless",
-   "test": "fit_b_centers_its_content_box_in_the_unused_vertical_dimension",
-   "finding": "2038-B24",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::headless",
-   "test": "fit_b_centers_its_content_box_in_the_unused_horizontal_dimension",
-   "finding": "2038-B24",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-model::icc_alternate_range_spec_audit",
    "test": "unsupported_icc2_profile_clamps_to_icc_range_before_wider_alternate",
    "finding": "2038-B25",
@@ -342,18 +305,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core::requirements_version_spec_audit",
-   "test": "a_requirement_minimum_version_affects_the_public_unmet_report",
-   "finding": "2038-B38",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::requirements_version_spec_audit",
-   "test": "requirement_versions_reach_the_enabled_processing_policy",
-   "finding": "2038-B38",
-   "log": "broad.log"
-  },
-  {
    "binary": "render-cpu::transparent_degenerate_spec_audit",
    "test": "a_degenerate_subpath_does_not_composite_twice_with_the_same_stroke_object",
    "finding": "2038-B39",
@@ -390,12 +341,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core",
-   "test": "notes::timestamp_revocation_spec_audit::a_known_key_compromise_on_the_timestamp_path_does_not_set_best_signature_time",
-   "finding": "2038-B41",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-signature",
    "test": "revision::tests::field_mdp_signed_name_spec_audit::a_fieldmdp_selection_keeps_the_signed_field_identity_across_a_rename",
    "finding": "2038-B42",
@@ -409,12 +354,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core::current_crl_report_spec_audit",
-   "test": "signed_crl_not_yet_current_at_host_time_cannot_support_local_validity",
-   "finding": "2038-B44",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-colour::calculator_functions_spec_audit",
    "test": "type4_null_separates_operands_and_operators_like_the_other_five_white_spaces",
    "finding": "2038-B45",
@@ -424,12 +363,6 @@
    "binary": "pdf-transform::archive_external_components_spec_audit",
    "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
    "finding": "2038-B46",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::historical_ocsp_report_spec_audit",
-   "test": "an_ocsp_response_produced_before_the_trusted_past_time_cannot_support_the_path",
-   "finding": "2038-B47",
    "log": "broad.log"
   },
   {
@@ -448,12 +381,6 @@
    "binary": "pdf-model::truetype_standard_fill_spec_audit",
    "test": "explicit_macexpert_base_without_differences_fills_remaining_slot_from_standard",
    "finding": "2038-B50",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::optional_content_visible_pages_spec_audit",
-   "test": "visible_pages_includes_every_page_in_the_current_arrangement",
-   "finding": "2038-B51",
    "log": "broad.log"
   },
   {
@@ -524,18 +451,6 @@
    "log": "gpu.log"
   },
   {
-   "binary": "pdf-model::tm_coordinate_name_spec_audit",
-   "test": "nonterminal_mapping_is_not_inherited_by_a_terminal_field_or_its_widget",
-   "finding": "2038-B60",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::tm_html_export_spec_audit",
-   "test": "html_export_uses_mapping_name_while_field_selection_uses_field_identity",
-   "finding": "2038-B61",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-model::field_aa_noninheritance_spec_audit",
    "test": "a_nonterminal_field_aa_is_not_inherited_by_its_terminal_descendant",
    "finding": "2038-B62",
@@ -563,18 +478,6 @@
    "binary": "pdf-model::choice_locality_spec_audit",
    "test": "choice_opt_stays_with_the_dictionary_that_states_it",
    "finding": "2038-B65",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::empty_fields_array_presence_spec_audit",
-   "test": "submit_fields_presence_survives_selection_and_other_flag_rules",
-   "finding": "2038-B66",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::empty_fields_array_presence_spec_audit",
-   "test": "reset_fields_presence_distinguishes_no_selection_from_reset_all",
-   "finding": "2038-B66",
    "log": "broad.log"
   },
   {
@@ -647,18 +550,6 @@
    "binary": "viewer-core::image_xobject_measurement_spec_audit",
    "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
    "finding": "2038-B73",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::embedded_parent_relative_spec_audit",
-   "test": "a_gotoe_from_a_child_can_name_its_parent_as_the_target",
-   "finding": "2038-B74",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::embedded_parent_relative_spec_audit",
-   "test": "a_gotoe_walk_can_end_back_at_its_starting_parent",
-   "finding": "2038-B74",
    "log": "broad.log"
   },
   {

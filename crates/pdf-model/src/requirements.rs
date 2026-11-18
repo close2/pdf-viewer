@@ -98,6 +98,39 @@ pub struct Requirement {
     pub penalty: u8,
 }
 
+impl Requirement {
+    /// Why this program cannot meet this requirement, where it cannot.
+    ///
+    /// [`Kind::unmet`]'s answer about the feature, and then Table 273's `/V` about its version,
+    /// ISO 32000-2 §12.11.1:
+    ///
+    /// > The minimum version level of support needed to satisfy the requirement.
+    ///
+    /// The value "shall represent the PDF version" unless Table 275 says otherwise, and it says
+    /// so for `U3D` and `PRC` alone, whose `/V` is the version of that format; neither is a
+    /// feature this program meets in the first place. A PDF version past
+    /// [`pdf_syntax::Version::SUPPORTED`], the version this reader implements, is a minimum it
+    /// does not reach (ADR 2966). A name that is not §12.11.4's dotted number — the extensions
+    /// dictionary's prefix, which [`Requirement::version`] keeps — states no version to compare,
+    /// and the requirement is judged by its feature alone.
+    #[must_use]
+    pub fn unmet(&self) -> Option<&'static str> {
+        self.kind.unmet().or_else(|| {
+            if matches!(self.kind, Kind::U3d | Kind::Prc) {
+                return None;
+            }
+            self.version
+                .as_deref()
+                .and_then(|version| pdf_syntax::Version::parse(version.as_bytes()))
+                .filter(|version| *version > pdf_syntax::Version::SUPPORTED)
+                .map(|_| {
+                    "the minimum PDF version Table 273's /V states is later than the one this \
+                     reader implements (§12.11.4)"
+                })
+        })
+    }
+}
+
 /// Table 275's requirement types.
 ///
 /// The table is closed as of PDF 2.0 and open in principle — "\[a]dditional requirement types,
@@ -439,7 +472,6 @@ pub fn unmet(document: &Document) -> Vec<(Requirement, &'static str)> {
         .into_iter()
         .filter_map(|requirement| {
             requirement
-                .kind
                 .unmet()
                 .map(|reason| (requirement.clone(), reason))
         })

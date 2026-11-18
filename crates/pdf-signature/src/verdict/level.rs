@@ -269,7 +269,7 @@ pub fn determine(valid: &Valid, asked: &Asked<'_, '_>) -> Option<Level> {
         // REQ-4.2-03 c) ii): a freshness of zero against the best signature time.
         revocation_issuance: Issuance {
             fresh_after: Some(when.at()),
-            issued_from: None,
+            ..Issuance::default()
         },
         ..PathInputs::default()
     };

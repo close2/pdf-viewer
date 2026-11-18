@@ -96,7 +96,8 @@ impl Open {
                 self.zoom = Zoom::Scale(fitted(viewport.1, fit_height) / scale);
             }
             View::FitR { rect } => {
-                let (width, height) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
+                let box_ = self.fit_r_box(rect);
+                let (width, height) = (box_.max.x - box_.min.x, box_.max.y - box_.min.y);
                 // Table 149 says "magnified just enough to fit *the rectangle*", so a rectangle
                 // with no extent in one direction states no magnification in it and the other
                 // one decides alone. Neither: the file has stated a point, and the zoom stands.
@@ -126,8 +127,10 @@ impl Open {
             // page within the window" — the whole page is in view, so there is nothing to
             // scroll to and the top-left corner is the answer in both directions.
             View::Fit => Some(((0.0, size.height), (true, true))),
+            // Table 149's `/FitB`: "use the smaller of the two, centring the bounding box within
+            // the window in the other dimension" (ADR 2964).
             View::FitB => Some(content.map_or(((0.0, size.height), (true, true)), |box_| {
-                ((box_.min.x, box_.max.y), (true, true))
+                (centred_corner(box_, viewport, magnification), (true, true))
             })),
             View::Xyz { left, top, .. } => self.user_corner((left, top), current, size.height),
             View::FitH { top } | View::FitBH { top } => {
@@ -136,12 +139,14 @@ impl Open {
             View::FitV { left } | View::FitBV { left } => {
                 self.user_corner((left, None), current, size.height)
             }
-            // Table 149 puts the rectangle's own corner at the window's.
-            View::FitR { rect } => self.user_corner(
-                (Some(rect[0].min(rect[2])), Some(rect[1].max(rect[3]))),
-                current,
-                size.height,
-            ),
+            // Table 149's `/FitR`: "If the required horizontal and vertical magnification
+            // factors are different, use the smaller of the two, centring the rectangle within
+            // the window in the other dimension." The rectangle is carried into the display list's
+            // space first, because the window's horizontal is the *shown* page's (ADR 2964).
+            View::FitR { rect } => Some((
+                centred_corner(self.fit_r_box(rect), viewport, magnification),
+                (true, true),
+            )),
         };
         if let Some((point, decided)) = corner {
             self.scroll_to(point, decided, magnification, size.height);
@@ -202,6 +207,20 @@ impl Open {
         Some((point, (left.is_some(), top.is_some())))
     }
 
+    /// Table 149's `/FitR` rectangle, stated in default user space, as the box it covers in the
+    /// display list's space (§7.7.3.3's rotation, the crop box's origin, `/UserUnit`).
+    fn fit_r_box(&self, rect: [f32; 4]) -> Rect {
+        let corners = [(rect[0], rect[1]), (rect[2], rect[3])].map(|(x, y)| {
+            self.shown_page()
+                .map_or((x, y), |page| pdf_model::content::page_space_at(page, x, y))
+        });
+        let (a, b) = (corners[0], corners[1]);
+        Rect {
+            min: pdf_render::Point::new(a.0.min(b.0), a.1.min(b.1)),
+            max: pdf_render::Point::new(a.0.max(b.0), a.1.max(b.1)),
+        }
+    }
+
     /// Puts a point of the display list's space at the window's top-left corner, in each
     /// direction `decided` names.
     fn scroll_to(
@@ -220,4 +239,25 @@ impl Open {
             self.scroll.1 = ((page_height - y) * magnification).max(0.0);
         }
     }
+}
+
+/// The point of the display list's space at the window's top-left corner that puts `box_` in the
+/// middle of the window in each direction it leaves room in.
+///
+/// Table 149's `/FitR` and `/FitB` fit the box by the smaller of two magnifications and centre
+/// it "within the window in the other dimension"; in the dimension the magnification came from,
+/// the spare room is nothing and the box's own edge is the corner.
+fn centred_corner(box_: Rect, viewport: (u32, u32), magnification: f32) -> (f32, f32) {
+    let spare = |extent: u32, covered: f32| {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a viewport dimension is a few thousand pixels, exact in an f32"
+        )]
+        let window = extent as f32 / magnification;
+        (window - covered).max(0.0) / 2.0
+    };
+    (
+        box_.min.x - spare(viewport.0, box_.max.x - box_.min.x),
+        box_.max.y + spare(viewport.1, box_.max.y - box_.min.y),
+    )
 }

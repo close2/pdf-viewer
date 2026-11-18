@@ -268,6 +268,12 @@ pub(crate) struct Open {
     /// re-derived: `pdf_model::action::MAX_TARGET_DEPTH` bounded the path when the action was
     /// read, and the limits the target's children are decoded under are this document's.
     pub(crate) resuming: Option<EmbeddedGoTo>,
+    /// The documents this one was taken out of by §12.6.4.4's embedded go-to, root first.
+    ///
+    /// Table 205's `/R /P` names "the parent of the current document", and an embedded file's
+    /// parent is the file it came out of — which nothing in the child's own bytes says. So the
+    /// parents are kept here, empty for a document a person or a host opened (ADR 2964).
+    pub(crate) parents: Vec<Arc<Document>>,
     /// §12.6.4.3's remote go-to, suspended at Table 203's `/F` until the document arrives.
     ///
     /// The whole action rather than its destination, for `resuming`'s reason: both of the
@@ -1002,7 +1008,11 @@ impl Open {
     /// was never a file: it comes out of §7.11.4's embedded file stream inside the document
     /// already open, and everything below it is the same.
     pub(crate) fn around(document: Document) -> Self {
-        let document = Arc::new(document);
+        Self::around_shared(Arc::new(document))
+    }
+
+    /// [`Self::around`], for a document already shared — a parent §12.6.4.4's walk returned to.
+    pub(crate) fn around_shared(document: Arc<Document>) -> Self {
         let pages = Pages::new(&document);
         let page_count = pages.len();
         // Read here, unlike the outline, because the opening announcement names page one by its
@@ -1060,6 +1070,7 @@ impl Open {
             focus: None,
             importing: None,
             resuming: None,
+            parents: Vec::new(),
             opening: None,
             threading: None,
             asking: None,

@@ -59,7 +59,7 @@ fn reset(document: &Document, view: &mut ViewState) {
     view.perform(
         document,
         &pdf_model::action::Action::ResetForm(pdf_model::action::ResetForm {
-            fields: Vec::new(),
+            fields: None,
             exclude: false,
         }),
     );

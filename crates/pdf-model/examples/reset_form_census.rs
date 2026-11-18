@@ -65,10 +65,10 @@ fn main() {
             };
             actions = actions.saturating_add(1);
             here = here.saturating_add(1);
-            if reset.fields.is_empty() {
+            if reset.fields.is_none() {
                 without_fields = without_fields.saturating_add(1);
             }
-            for target in &reset.fields {
+            for target in reset.fields.iter().flatten() {
                 match target {
                     ResetTarget::Name(_) => by_name = by_name.saturating_add(1),
                     ResetTarget::Field(field) => {

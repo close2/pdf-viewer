@@ -768,7 +768,9 @@ pub enum Command {
     /// open running it: *when opened* is not *before the first frame*, so the sequence costs page
     /// one nothing (ADR 1602, RFC 0008 section 6.6). It runs once a document; a second message for
     /// the same document does nothing. What the sequence says arrives as [`crate::Event::Reported`]
-    /// — with no runner supplied, that no document-level script ran.
+    /// — with no runner supplied, that no document-level script ran. A document holding a
+    /// `PAdES` signature is verified here too, §12.8.3.4.5's open, and its report arrives as
+    /// [`Command::Report`]'s does (ADR 2969).
     Presented,
     /// Activate an object the host is showing outside the page — §12.3.3's outline item.
     ///

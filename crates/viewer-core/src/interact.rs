@@ -9,6 +9,8 @@
 //! a filesystem or a clock: what the caller must do about the result is an [`Outcome`], and the
 //! two things this program cannot do itself — resolve a URI, read a file — leave as requests.
 
+use std::sync::Arc;
+
 use pdf_model::Pages;
 use pdf_model::action::{
     Action, EmbeddedGoTo, ImportData, RemoteAct, RemoteGoTo, TargetRoot, ThreadJump, Trigger,
@@ -279,7 +281,8 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     perform(open, &actions, destination, None, None, "this item")
 }
 
-/// Performs the catalog's `/OpenAction` where it is an action, at the first present.
+/// Performs the catalog's `/OpenAction` where it is an action, at the open and before page one's
+/// `/O`.
 ///
 /// ISO 32000-2 §7.7.2 Table 29: "A value specifying a destination that shall be displayed or an
 /// action that shall be performed when the document is opened." The destination half — an array,
@@ -287,7 +290,8 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
 /// (`Open::around`), and the chain's ECMAScript actions are the open sequence's
 /// (`ViewState::run_open_scripts`), which reports them where they do not run. Everything else in
 /// the chain is performed here, as a link's chain is at a click, so a `/Named /LastPage` opens the
-/// document on its last page (ADR 2814). `None` where the entry is not an action, or the action
+/// document on its last page (ADR 2814); Table 197 puts it before the page's and its annotations' open
+/// actions (ADR 2964). `None` where the entry is not an action, or the action
 /// is the go-to already shown and nothing follows it.
 pub(crate) fn open_action(open: &mut Open) -> Option<Outcome> {
     let catalog = open.document.catalog().ok()?;
@@ -1084,8 +1088,10 @@ fn open_embedded(open: &mut Open, target: &EmbeddedGoTo, outcome: &mut Outcome) 
         }
         return;
     }
-    let opened = match target.target_in(&open.document) {
-        Ok(opened) => opened,
+    let mut source = open.parents.clone();
+    source.push(Arc::clone(&open.document));
+    let lineage = match target.target_in(&source) {
+        Ok(lineage) => lineage,
         Err(error) => {
             outcome
                 .notes
@@ -1093,7 +1099,7 @@ fn open_embedded(open: &mut Open, target: &EmbeddedGoTo, outcome: &mut Outcome) 
             return;
         }
     };
-    jump_into(target, opened, outcome);
+    jump_into(target, lineage, &source, outcome);
 }
 
 /// §12.6.4.4's walk resumed against the root document Table 204's `/F` named.
@@ -1125,7 +1131,7 @@ pub(crate) fn resume_root(open: &mut Open, bytes: &[u8]) -> Outcome {
         }
     };
     match target.target_from_root(root) {
-        Ok(opened) => jump_into(&target, opened, &mut outcome),
+        Ok(lineage) => jump_into(&target, lineage, &[], &mut outcome),
         Err(error) => outcome
             .notes
             .push(format!("this link declines — GoToE: {error}")),
@@ -1371,13 +1377,23 @@ pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Resul
     let page_index = remote
         .page_in(&replacement.document, &pages)
         .filter(|index| *index < replacement.page_count);
-    drop(pages);
     let Some(page_index) = page_index else {
         return Err(format!(
             "this link declines — {act}: {name} holds no page this action names"
         ));
     };
+    // Table 203's `/D` is "\[t]he destination to jump to", and a destination is a page *and*
+    // Table 149's view of it — so the view is applied where `/D` is what named the page, and not
+    // where `/SD`'s element took precedence over it (ADR 2964).
+    let view =
+        pdf_model::destination::Destination::read(&replacement.document, &remote.destination)
+            .filter(|destination| {
+                destination.page_index_in_target(&replacement.document, &pages) == Some(page_index)
+            })
+            .map(|destination| destination.view);
+    drop(pages);
     replacement.page_index = page_index;
+    replacement.pending_views = view.into_iter().collect();
     Ok(format!(
         "opened {name}, {} page(s), at page {}",
         replacement.page_count,
@@ -1701,32 +1717,68 @@ fn say_declined(open: &mut Open, file: &str, outcome: &mut Outcome) {
 }
 
 /// Shows the document a completed walk ended in, at the destination the action names inside it.
-fn jump_into(target: &EmbeddedGoTo, opened: Document, outcome: &mut Outcome) {
-    let mut replacement = Open::around(opened);
+///
+/// `lineage` is [`EmbeddedGoTo::target_in`]'s answer: the target last and its parents before it.
+/// `source` is the lineage the walk started from, the document showing last, and empty where the
+/// walk started from a root a host supplied. A walk that ended in the document showing is a jump
+/// within it, and one that ended in one of its parents shows that parent again — the document it
+/// was, kept, rather than a copy (ADR 2964).
+fn jump_into(
+    target: &EmbeddedGoTo,
+    mut lineage: Vec<Arc<Document>>,
+    source: &[Arc<Document>],
+    outcome: &mut Outcome,
+) {
+    let Some(arrived) = lineage.pop() else {
+        return;
+    };
+    // The destination is read in the *target*, because a named one is looked up in the target's
+    // own tables and §12.3.2.2 makes an explicit one's first element a page number there rather
+    // than a reference here. Table 204's `/D` is "\[t]he destination in the target to jump to":
+    // its page and Table 149's view of it, so the view is the one the target opens to.
+    let place = |document: &Document, page_count: usize| {
+        let pages = Pages::new(document);
+        pdf_model::destination::Destination::read(document, &target.destination).and_then(
+            |destination| {
+                destination
+                    .page_index_in_target(document, &pages)
+                    .filter(|index| *index < page_count)
+                    .map(|index| (index, destination.view))
+            },
+        )
+    };
+    if source
+        .last()
+        .is_some_and(|current| Arc::ptr_eq(&arrived, current))
+    {
+        let page_count = Pages::new(&arrived).len();
+        let (index, view) = place(&arrived, page_count).unzip();
+        outcome.target = Some(index.unwrap_or(0));
+        outcome.view = view;
+        return;
+    }
+    let returned = source.iter().any(|known| Arc::ptr_eq(known, &arrived));
+    let mut replacement = Open::around_shared(arrived);
     if replacement.page_count == 0 {
         outcome
             .notes
             .push("this link declines — GoToE: the embedded document has no pages".to_owned());
         return;
     }
-    // The destination is read in the *target*, because a named one is looked up in the target's
-    // own tables and §12.3.2.2 makes an explicit one's first element a page number there rather
-    // than a reference here.
-    let pages = Pages::new(&replacement.document);
-    let page_index =
-        pdf_model::destination::Destination::read(&replacement.document, &target.destination)
-            .and_then(|destination| destination.page_index_in_target(&replacement.document, &pages))
-            .filter(|index| *index < replacement.page_count)
-            .unwrap_or(0);
-    drop(pages);
+    let placed = place(&replacement.document, replacement.page_count);
+    let page_index = placed.as_ref().map_or(0, |(index, _)| *index);
     replacement.page_index = page_index;
+    replacement.pending_views = placed.map(|(_, view)| view).into_iter().collect();
+    replacement.parents = lineage;
     // Table 204's `/NewWindow`, on `resume_remote`'s argument one clause over — and this is the
     // entry of the two that states the `true` case with a `should` rather than with nothing.
     outcome.beside = target.new_window == Some(true);
-    outcome.notes.push(format!(
-        "opened an embedded document, {} page(s), at page {}",
-        replacement.page_count,
-        page_index.saturating_add(1)
-    ));
+    if !returned {
+        outcome.notes.push(format!(
+            "opened an embedded document, {} page(s), at page {}",
+            replacement.page_count,
+            page_index.saturating_add(1)
+        ));
+    }
     outcome.replacement = Some(Box::new(replacement));
 }

@@ -576,6 +576,15 @@ fn pdf_date(moment: crate::aform::DateTime, fields: usize) -> Option<String> {
     Some(format!("D:{stated}"))
 }
 
+/// An entry with the name an HTML form carries for it: Table 226's `/TM` where its field states
+/// one, §12.7.4.2's fully qualified name where it does not.
+struct Exported<'a> {
+    /// The name written.
+    name: String,
+    /// The entry, whose own name is still the one reports use.
+    entry: &'a Entry,
+}
+
 /// §12.7.6.2's "HTML Form format (described in the HTML 4.01 Specification)", composed.
 ///
 /// A function of its own rather than a branch, because that specification's section 17.13.4 gives
@@ -611,6 +620,22 @@ fn html_body(
         .submit_coordinates()
         .then(|| coordinates(document, table, click, owed))
         .flatten();
+    // Table 226's `/TM`, "\[t]he mapping name that shall be used when exporting interactive form
+    // field data from the document": the name an HTML form carries where the field states one.
+    // The field is still *selected* by §12.7.4.2's name, which is what Table 239's `/Fields`
+    // speaks (ADR 2965).
+    let exported: Vec<Exported<'_>> = entries
+        .iter()
+        .map(|entry| Exported {
+            name: table
+                .get(&entry.name)
+                .and_then(|widgets| widgets.first())
+                .and_then(|widget| document.get(*widget).as_dict().cloned())
+                .and_then(|widget| mapping_name(document, &widget))
+                .unwrap_or_else(|| entry.name.clone()),
+            entry,
+        })
+        .collect();
     // §12.7.5.3: "For fields submitted in HTML Form format, the submission shall use the
     // MIME content type multipart / form-data, as described in Internet RFC 2045." The
     // condition is a file-select control being in the submission, not its file being
@@ -629,7 +654,7 @@ fn html_body(
                     .to_owned(),
             );
         }
-        let (boundary, body) = multipart(document, entries, placed.as_ref(), owed)?;
+        let (boundary, body) = multipart(document, &exported, placed.as_ref(), owed)?;
         (
             action.url.clone(),
             Method::Post,
@@ -637,7 +662,7 @@ fn html_body(
             format!("multipart/form-data; boundary={boundary}"),
         )
     } else {
-        let mut query = urlencoded(document, entries, owed);
+        let mut query = urlencoded(document, &exported, owed);
         if let Some(placed) = &placed {
             if !query.is_empty() {
                 query.push('&');
@@ -840,7 +865,7 @@ fn chosen(
             continue;
         }
         if matches!(field.kind, Some(FieldKind::Button { toggling: false })) {
-            if !action.fields.is_empty() && format == Format::Fdf {
+            if action.fields.is_some() && format == Format::Fdf {
                 owed.push(format!(
                     "push-button {name}: its submitted value would be its /AP appearance \
                      streams, which are this document's objects and are not carried into an FDF"
@@ -1100,15 +1125,14 @@ fn selected_names(
     action: &SubmitForm,
     table: &BTreeMap<String, Vec<ObjectId>>,
 ) -> Vec<String> {
-    if action.fields.is_empty() {
+    let Some(fields) = &action.fields else {
         return table.keys().cloned().collect();
-    }
+    };
     let by_widget: BTreeMap<ObjectId, &str> = table
         .iter()
         .flat_map(|(name, widgets)| widgets.iter().map(move |widget| (*widget, name.as_str())))
         .collect();
-    let named: BTreeSet<&str> = action
-        .fields
+    let named: BTreeSet<&str> = fields
         .iter()
         .flat_map(|target| match target {
             ResetTarget::Field(id) => widgets_under(document, *id)
@@ -2053,9 +2077,9 @@ fn embedded_file_dictionary(size: usize, media_type: &str) -> Dictionary {
 /// nothing about it, and the specification it names states the encoding of a *control* without
 /// saying what a control with several chosen values contributes; repeating the name is the only
 /// shape the encoding above leaves available, since it has no syntax for a list.
-fn urlencoded(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> String {
+fn urlencoded(document: &Document, entries: &[Exported<'_>], owed: &mut Vec<String>) -> String {
     let mut out = String::new();
-    for entry in entries {
+    for Exported { name, entry } in entries {
         let values: Vec<Vec<u8>> = match &entry.value {
             None => vec![Vec::new()],
             Some(Object::Array(items)) => items
@@ -2080,7 +2104,7 @@ fn urlencoded(document: &Document, entries: &[Entry], owed: &mut Vec<String>) ->
             if !out.is_empty() {
                 out.push('&');
             }
-            escape(entry.name.as_bytes(), &mut out);
+            escape(name.as_bytes(), &mut out);
             out.push('=');
             escape(&value, &mut out);
         }
@@ -2150,13 +2174,13 @@ const MAX_BOUNDARY_TRIES: u32 = 1024;
 /// would try.
 fn multipart(
     document: &Document,
-    entries: &[Entry],
+    entries: &[Exported<'_>],
     placed: Option<&Placed>,
     owed: &mut Vec<String>,
 ) -> Result<(String, Vec<u8>), Refusal> {
     let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
-    for entry in entries {
-        let Some(name) = header_quoted(&entry.name) else {
+    for Exported { name, entry } in entries {
+        let Some(name) = header_quoted(name) else {
             owed.push(format!(
                 "field {}: its name holds a line break, which no part header can carry, so the \
                  field is left out of the multipart body rather than renamed",
@@ -2347,7 +2371,7 @@ fn coordinates(
     )]
     let (across, down) = (across as i64, down as i64);
 
-    // The field's mapping name, up §12.7.4.1's inheritance: Table 226 makes `/TM` inheritable.
+    // The terminal field's mapping name, which Table 226 does not make inheritable.
     let widget = click.widget;
     let field_name = widget.and_then(|widget| {
         table
@@ -2393,15 +2417,28 @@ struct Placed {
 }
 
 /// Table 226's `/TM`, "\[t]he mapping name that shall be used when exporting interactive form
-/// field data from the document", from the nearest dictionary up the `/Parent` chain that states
-/// it.
+/// field data from the document", as the terminal field `widget` belongs to states it.
+///
+/// **Not inherited.** Table 226 marks the entries a field takes from its parent — `/FT`, `/Ff`,
+/// `/V`, `/DV` "inheritable" — and `/TM` is not among them, so a mapping name above the
+/// terminal field names a non-terminal field's export and nobody else's (§12.7.4.1, ADR 2965).
+/// The terminal field is the widget itself where §12.7.4.1's two dictionaries "may be merged
+/// into a single dictionary containing entries that pertain to both a field and an annotation",
+/// which a `/T` on the widget shows, and the widget's `/Parent` where it is a kid of its field.
 fn mapping_name(document: &Document, widget: &Dictionary) -> Option<String> {
-    crate::inheritance::ancestors(document, widget.clone()).find_map(|(_, dict)| {
-        match document.get_key(&dict, "TM") {
-            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
-            _ => None,
-        }
-    })
+    let field = if widget.get("T").is_none() {
+        document
+            .get_key(widget, "Parent")
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| widget.clone())
+    } else {
+        widget.clone()
+    };
+    match document.get_key(&field, "TM") {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    }
 }
 
 /// The URL with the query appended, for an HTTP GET.

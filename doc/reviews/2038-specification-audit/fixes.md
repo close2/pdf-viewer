@@ -1175,20 +1175,20 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/action.rs, crates/pdf-model/src/submission.rs, crates/viewer-core/src/interact.rs, crates/viewer-core/src/open.rs
 - test files: crates/pdf-model/tests/empty_fields_array_presence_spec_audit.rs, crates/pdf-model/tests/tm_coordinate_name_spec_audit.rs, crates/pdf-model/tests/tm_html_export_spec_audit.rs, crates/viewer-core/tests/action_triggers_spec_audit.rs?, crates/viewer-core/tests/cross_document_destination_view_spec_audit.rs, crates/viewer-core/tests/embedded_parent_relative_spec_audit.rs, crates/viewer-core/tests/initial_open_order_spec_audit.rs, crates/viewer-core/tests/next_repeated_and_cycle_spec_audit.rs, crates/viewer-core/tests/remote_named_destinations_spec_audit.rs, crates/viewer-core/tests/rendition_preconditions_spec_audit.rs, crates/viewer-core/tests/text_markup_popup_spec_audit.rs, crates/viewer-core/tests/uri_ismap_click_spec_audit.rs, crates/viewer-core/tests/uri_ismap_outline_spec_audit.rs
 
-- 2038-B22 | viewer-core | behavior-mismatch | open | initial open actions run in wrong order | 1 manifest failure
-- 2038-B23 | viewer-core | behavior-mismatch | open | remote destination view not applied | 2 manifest failures
-- 2038-B49 | viewer-core,pdf-model | rendition-script-priority | open | rendition script ignored | 1 manifest failure
-- 2038-B60 | pdf-model | behavior-gap | open | non-inheritable field keys read via parents | 1 manifest failure
-- 2038-B61 | pdf-model | behavior-gap | open | non-inheritable field keys read via parents | 1 manifest failure
-- 2038-B66 | pdf-model | behavior-gap | open | empty Fields array presence lost | 2 manifest failures
-- 2038-B74 | pdf-model,viewer-core | behavior-gap | open | GoToE parent target walk | 2 manifest failures
-- 2038-T13 | viewer-core | test-coverage-gap | open | test control: text-markup popup
-- 2038-T28 | viewer-core | test-coverage-gap | open | test control: action Next cycle
-- 2038-T29 | viewer-core | test-coverage-gap | open | test control: URI IsMap
-- 2038-T118 | pdf-model | assertion-strengthening | open | page open action trigger URI resolution
-- 2038-T158 | viewer-core | assertion-quality | open | remote destination resolution
-- 2038-T159 | pdf-model,viewer-core | assertion-quality | open | GoToE parent target walk
-- 2038-T162 | viewer-core | assertion-quality | open | URI action IsMap
+- 2038-B22 | viewer-core | behavior-mismatch | fixed (ADR 2964; initial_open_order_spec_audit: the open action is performed in `Viewer::process` before page one's /O) | initial open actions run in wrong order | 1 manifest failure
+- 2038-B23 | viewer-core | behavior-mismatch | fixed (ADR 2964; cross_document_destination_view_spec_audit ×2: `place_remote` and `jump_into` keep /D's Table 149 view) | remote destination view not applied | 2 manifest failures
+- 2038-B49 | viewer-core,pdf-model | rendition-script-priority | open (G028 owns crates/pdf-model/src/view/script_sites.rs: a rendition's /JS must stand as a script slot where `annotation_chain` matches `read`'s list, with `view::scripts::read_script` reading it and viewer-core `handed_over` dropping /OP where it ran; built and withdrawn in round 2073) | rendition script ignored | 1 manifest failure
+- 2038-B60 | pdf-model | behavior-gap | fixed (ADR 2965; tm_coordinate_name_spec_audit: `submission::mapping_name` reads the terminal field only) | non-inheritable field keys read via parents | 1 manifest failure
+- 2038-B61 | pdf-model | behavior-gap | fixed (ADR 2965; tm_html_export_spec_audit: the HTML Form body writes /TM) | non-inheritable field keys read via parents | 1 manifest failure
+- 2038-B66 | pdf-model | behavior-gap | fixed (ADR 2965; empty_fields_array_presence_spec_audit ×2: `fields: Option<Vec<ResetTarget>>`; the type change edits the literal in inherited_reset_defaults_audit.rs to `fields: None`) | empty Fields array presence lost | 2 manifest failures
+- 2038-B74 | pdf-model,viewer-core | behavior-gap | fixed (ADR 2964; embedded_parent_relative_spec_audit ×2: `EmbeddedGoTo::target_in` walks a lineage, `Open::parents`) | GoToE parent target walk | 2 manifest failures
+- 2038-T13 | viewer-core | test-coverage-gap | fixed (text_markup_popup_spec_audit, plant-checked: dropping `interact::activate_object`'s popup route fails it; it does not pin `popup::opens_a_window`, whose explicit-/Popup case it bypasses) | test control: text-markup popup
+- 2038-T28 | viewer-core | test-coverage-gap | fixed (next_repeated_and_cycle_spec_audit, plant-checked: keeping every seen object in `script_sites::walk` fails it) | test control: action Next cycle
+- 2038-T29 | viewer-core | test-coverage-gap | fixed (uri_ismap_click_spec_audit ×2, plant-checked: `Uri::at_position` ignoring /IsMap fails both) | test control: URI IsMap
+- 2038-T118 | pdf-model | assertion-strengthening | fixed (page_aa_indirect_reference_spec_audit, plant-checked: an unresolved indirect page /AA fails it) | page open action trigger URI resolution
+- 2038-T158 | viewer-core | assertion-quality | fixed (remote_named_destinations_spec_audit, plant-checked: `RemoteGoTo::page_in` declining a Name or string /D fails it) | remote destination resolution
+- 2038-T159 | pdf-model,viewer-core | assertion-quality | fixed (attachment_child_route_spec_audit, plant-checked: an off-by-one /A in `attached_file` fails it) | GoToE parent target walk
+- 2038-T162 | viewer-core | assertion-quality | fixed (uri_ismap_outline_spec_audit, plant-checked: coordinates appended to the outline's URI fail it) | URI action IsMap
 
 ### G101 — revocation time basis misapplied
 
@@ -1196,10 +1196,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-signature/src/revocation.rs, crates/pdf-signature/src/timestamp.rs
 - test files: crates/viewer-core/tests/current_crl_report_spec_audit.rs, crates/viewer-core/tests/historical_ocsp_report_spec_audit.rs
 
-- 2038-B41 | viewer-core,pdf-signature | timestamp-time-selection | open | revocation time basis misapplied | 1 manifest failure
-- 2038-B44 | viewer-core,pdf-signature | current-crl-applicability | open | revocation time basis misapplied | 1 manifest failure
-- 2038-B47 | viewer-core,pdf-signature | historical-ocsp-applicability | open | revocation time basis misapplied | 1 manifest failure
-- 2038-D36 | viewer-core,pdf-signature | qualified-static-timing-gap | open | revocation time basis misapplied
+- 2038-B41 | viewer-core,pdf-signature | timestamp-time-selection | fixed (ADR 2968; notes::timestamp_revocation_spec_audit: `signature_timestamps_instant` declines a compromised or earlier-revoked TSA path) | revocation time basis misapplied | 1 manifest failure
+- 2038-B44 | viewer-core,pdf-signature | current-crl-applicability | fixed (ADR 2968; current_crl_report_spec_audit: `Basis::CurrentTime` adds thisUpdate's end) | revocation time basis misapplied | 1 manifest failure
+- 2038-B47 | viewer-core,pdf-signature | historical-ocsp-applicability | fixed (ADR 2968; historical_ocsp_report_spec_audit: `Basis::PastTime` adds the producedAt condition) | revocation time basis misapplied | 1 manifest failure
+- 2038-D36 | viewer-core,pdf-signature | qualified-static-timing-gap | fixed (ADR 2968: `revocation::Basis` and `notes::trust_as_of` state the two clauses' windows) | revocation time basis misapplied
 
 ### G102 — image XObject measure ignored by query; measurement number formatting; measurement numeric test gap
 
@@ -1207,9 +1207,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/measurement.rs, crates/viewer-core/src/viewer/geometry.rs
 - test files: crates/viewer-core/tests/image_xobject_measurement_spec_audit.rs, crates/viewer-core/tests/measurement_format_spec_audit.rs, crates/viewer-core/tests/measurement_numeric_spec_audit.rs
 
-- 2038-B73 | viewer-core,pdf-model | behavior | open | image XObject measure ignored by query | 1 manifest failure
-- 2038-T52 | viewer-core,pdf-model | assertion-coverage-gap | open | measurement numeric test gap
-- 2038-T153 | viewer-core,pdf-model | assertion-quality | open | measurement number formatting
+- 2038-B73 | viewer-core,pdf-model | behavior | open (needs the content interpreter to report each image XObject's placement and /Measure as a viewport: crates/pdf-model/src/content/xobject.rs, unowned, and a display-list item carries no source object; not started in round 2073) | image XObject measure ignored by query | 1 manifest failure
+- 2038-T52 | viewer-core,pdf-model | assertion-coverage-gap | fixed (measurement_numeric_spec_audit, plant-checked: `traced` taking the last point's viewport fails it; its viewports do not overlap, so /VP's last-containing order is not pinned) | measurement numeric test gap
+- 2038-T153 | viewer-core,pdf-model | assertion-quality | fixed (measurement_format_spec_audit, plant-checked: a literal '.' for /RD fails it) | measurement number formatting
 
 ### G103 — requirements minimum version ignored; requirements processing user-override doc
 
@@ -1217,8 +1217,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/requirements.rs, crates/viewer-core/src/notes.rs
 - test files: crates/viewer-core/tests/requirements_version_spec_audit.rs
 
-- 2038-B38 | viewer-core,pdf-model | ignored-minimum-requirement-version | open | requirements minimum version ignored | 2 manifest failures
-- 2038-D27 | viewer-core | policy-source-distinction | open | requirements processing user-override doc
+- 2038-B38 | viewer-core,pdf-model | ignored-minimum-requirement-version | fixed (ADR 2966; requirements_version_spec_audit ×2: `Requirement::unmet` compares a PDF /V with `Version::SUPPORTED`) | requirements minimum version ignored | 2 manifest failures
+- 2038-D27 | viewer-core | policy-source-distinction | fixed (ADR 2966: notes.rs says the processing level decides the total's consequence, never which requirements count) | requirements processing user-override doc
 
 ### G104 — signature verification deferred on open
 
@@ -1226,7 +1226,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/open/deferred.rs, crates/viewer-core/src/viewer/opening.rs
 - test files: none located
 
-- 2038-B17 | viewer-core | static-behavior-gap | open | signature verification deferred on open
+- 2038-B17 | viewer-core | static-behavior-gap | fixed (ADR 2969; pades_signature_verified_at_open: the first `Command::Presented` of a PAdES-signed document reports its verification) | signature verification deferred on open
 
 ### G105 — remote destination view not applied
 
@@ -1234,7 +1234,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/open/destinations.rs
 - test files: crates/viewer-core/tests/headless.rs
 
-- 2038-B24 | viewer-core | behavior-mismatch-and-wrong-existing-oracle | open | remote destination view not applied | 3 manifest failures
+- 2038-B24 | viewer-core | behavior-mismatch-and-wrong-existing-oracle | fixed (ADR 2964; headless ×3: `centred_corner` for /FitR and /FitB) | remote destination view not applied | 3 manifest failures
 
 ### G106 — VisiblePages considers one page
 
@@ -1242,7 +1242,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/viewer/answers.rs
 - test files: crates/viewer-core/tests/optional_content_visible_pages_spec_audit.rs
 
-- 2038-B51 | viewer-core,pdf-model | visible-pages-layer-filter | open | VisiblePages considers one page | 1 manifest failure
+- 2038-B51 | viewer-core,pdf-model | visible-pages-layer-filter | fixed (ADR 2967; optional_content_visible_pages_spec_audit: `layers` unions every placed page) | VisiblePages considers one page | 1 manifest failure
 
 ### G107 — rendition preconditions doc stale
 
@@ -1250,7 +1250,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/view/actions.rs?
 - test files: none located
 
-- 2038-D40 | viewer-core,pdf-model | stale-screen-rendition-scope | open | rendition preconditions doc stale
+- 2038-D40 | viewer-core,pdf-model | stale-screen-rendition-scope | fixed (ADR 2964: §12.5.6.18's ledger note says the /P bullet is executed by `Rendition::unplaced`) | rendition preconditions doc stale
 
 ### G108 — test control: omitted Dur
 
@@ -1258,7 +1258,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/presentation.rs?
 - test files: crates/viewer-core/tests/omitted_page_duration_spec_audit.rs
 
-- 2038-T21 | viewer-core | test-coverage-gap | open | test control: omitted Dur
+- 2038-T21 | viewer-core | test-coverage-gap | fixed (omitted_page_duration_spec_audit, plant-checked: an absent /Dur read as 0 fails it) | test control: omitted Dur
 
 ### G109 — test control: Annex O URI and highlight geometry
 
@@ -1266,7 +1266,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/select.rs?
 - test files: crates/viewer-core/tests/annex_o_coordinate_policy_spec_audit.rs, crates/viewer-core/tests/annex_o_structure_uri_spec_audit.rs
 
-- 2038-T38 | viewer-core | public-integration-test-gap | open | test control: Annex O URI and highlight geometry
+- 2038-T38 | viewer-core | public-integration-test-gap | fixed (annex_o_structure_uri_spec_audit and annex_o_coordinate_policy_spec_audit, plant-checked: no percent-decoding fails the first, a highlight skipping the page transform the second) | test control: Annex O URI and highlight geometry
 
 ### G110 — test control: open-event missing-object notes
 
@@ -1274,7 +1274,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/viewer-core/src/lib.rs?
 - test files: crates/viewer-core/tests/initial_open_order_spec_audit.rs
 
-- 2038-T84 | viewer-core | test-coverage-gap | open | test control: open-event missing-object notes
+- 2038-T84 | viewer-core | test-coverage-gap | fixed (objects_not_understood::opening_an_unhandled_object_reports_it_to_the_host_before_render_ready, plant-checked at `install`'s page report; the open's own Reported blocks in `process` are not pinned by it) | test control: open-event missing-object notes
 
 
 ## viewer-host

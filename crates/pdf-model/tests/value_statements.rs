@@ -86,7 +86,7 @@ fn drawn(document: &Document, view: &ViewState) -> (String, Vec<String>) {
 /// Table 241 with no `/Fields`: "all fields in the document's interactive form are reset".
 fn reset_everything() -> Action {
     Action::ResetForm(ResetForm {
-        fields: Vec::new(),
+        fields: None,
         exclude: false,
     })
 }
@@ -122,7 +122,9 @@ fn a_reset_naming_the_field_after_typing_draws_the_default_value() {
     view.perform(
         &document,
         &Action::ResetForm(ResetForm {
-            fields: vec![pdf_model::action::ResetTarget::Name("name".to_owned())],
+            fields: Some(vec![pdf_model::action::ResetTarget::Name(
+                "name".to_owned(),
+            )]),
             exclude: false,
         }),
     );
@@ -206,7 +208,9 @@ fn a_reset_that_changes_no_value_writes_nothing() {
     view.perform(
         &document,
         &Action::ResetForm(ResetForm {
-            fields: vec![pdf_model::action::ResetTarget::Name("name".to_owned())],
+            fields: Some(vec![pdf_model::action::ResetTarget::Name(
+                "name".to_owned(),
+            )]),
             exclude: false,
         }),
     );

@@ -1433,6 +1433,37 @@ pub struct Issuance {
     /// TR 102 272 clause 6.8's caution period, before whose end revocation status information is
     /// not to be used.
     pub issued_from: Option<Instant>,
+    /// Which of §12.8.3.4.7's and §12.8.3.4.8's checks the material answers, where the caller
+    /// knows: the two clauses state different windows for the same lists and responses (ADR 2968).
+    pub basis: Basis,
+}
+
+/// The instant a `PAdES` signature's path is checked at, as ISO 32000-2 sorts it.
+///
+/// §12.8.3.4.7 and §12.8.3.4.8 each state when a CRL or an OCSP response "is appropriate", and the
+/// two statements differ in the end of the window they fix. Where neither clause is the caller's,
+/// [`Self::Unstated`] keeps ETSI EN 319 102-1 clause 5.2.5's one comparison against the material's
+/// own next update (ADR 1067).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Basis {
+    /// Neither clause's: a path checked for some other reason, or at an instant a document
+    /// timestamp established, which §12.8.5 addresses.
+    #[default]
+    Unstated,
+    /// §12.8.3.4.7, the signature verified "at the current UTC time":
+    ///
+    /// > When CRLs are being used, a CRL is appropriate only if the current UTC time is included
+    /// > within the time period delimited by the thisUpdate and the nextUpdate fields of the CRL
+    /// > being used.
+    ///
+    /// So a list whose `thisUpdate` is later than the instant asked about is not yet current.
+    CurrentTime,
+    /// §12.8.3.4.8, the signature verified "at the UTC time in the past indicated in" its
+    /// signature timestamp attribute. Of an OCSP response, the second of two conditions:
+    ///
+    /// > the time indicated in the producedAt field from the OCSP response is located after the
+    /// > UTC time in the past.
+    PastTime,
 }
 
 impl Issuance {
@@ -1608,6 +1639,10 @@ fn from_list(
     // 5.1.2.5 requires a conforming issuer to state one, and says the behaviour without it "is not
     // specified by this profile" — so an absent `nextUpdate` is undetermined rather than eternal.
     issuance.admits(list.this_update)?;
+    // §12.8.3.4.7's window has two ends at the current time, and `thisUpdate` is the first.
+    if issuance.basis == Basis::CurrentTime && at.unix_seconds() < list.this_update.unix_seconds() {
+        return Err(Undetermined::Stale);
+    }
     if issuance.fresh_after.is_some() {
         return Ok(Some(Revocation::Good {
             from: Evidence::CertificateRevocationList,
@@ -1679,6 +1714,13 @@ fn from_response(
             //   the instant it was made is the only end this reader can state, and a question put
             //   before it is not one this response answers.
             issuance.admits(single.this_update)?;
+            // §12.8.3.4.8: at a time in the past, a response is appropriate only where its
+            // `producedAt` "is located after the UTC time in the past".
+            if issuance.basis == Basis::PastTime
+                && response.produced_at.unix_seconds() <= at.unix_seconds()
+            {
+                return Err(Undetermined::Stale);
+            }
             match single.next_update {
                 // EN 319 102-1 clause 5.2.5.4 step 1: a stated maximum freshness is the test.
                 _ if issuance.fresh_after.is_some() => {}

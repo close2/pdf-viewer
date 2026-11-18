@@ -666,16 +666,20 @@ impl Viewer {
                 }
             }
             Command::Presented => {
-                let Some(id) = self.focused else { return };
                 let Some(open) = self.focused_mut() else {
                     return;
                 };
                 let first = !open.presented;
+                // Table 29's `/OpenAction` was performed at the open, before the first page's
+                // `/O` (ADR 2964); its scripts are the open sequence's.
                 open_sequence(open);
-                // Table 29's `/OpenAction` is performed "when the document is opened", after the
-                // open sequence's scripts and with the first frame already shown (ADR 2814).
-                if first && let Some(outcome) = interact::open_action(open) {
-                    self.apply(id, outcome, events);
+                // §12.8.3.4.5: "when the user opens a signed document or requests verification of
+                // these signatures present in the PDF, a PDF processor, as the verifier, shall
+                // perform the following steps". The open's verification is the document's
+                // report, raised once the first frame is on the screen so that page one waits
+                // for no digest (ADR 2969).
+                if first && open.holds_pades_signature() {
+                    self.report_the_document(events);
                 }
             }
             Command::SetGroup { group, on } => {

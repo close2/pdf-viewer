@@ -193,7 +193,7 @@ impl Submit {
             }),
             _ => FormBody::Action(SubmitForm {
                 url,
-                fields: Vec::new(),
+                fields: None,
                 flags: SubmitFlags(flags | INCLUDE_NO_VALUE_FIELDS),
                 charset: None,
             }),

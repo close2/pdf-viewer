@@ -211,7 +211,9 @@ pub(crate) fn about(
     // trust what they are looking at. What §12.11.6 asks a processor to do about the total is a
     // level this reader sets — `restriction::Operation::Process`, `off` by default — and these
     // lines are said whatever it is, because naming what could not be promised is a report about
-    // the file rather than an obedience to it (ADR 1167). No corpus document states any of this.
+    // the file rather than an obedience to it (ADR 1167). The level decides what is done with the
+    // total, never which requirements count: each is judged by its feature and by Table 273's
+    // `/V`, the minimum PDF version it needs (`Requirement::unmet`, ADR 2966).
     let unmet = pdf_model::requirements::unmet(document);
     for (requirement, reason) in &unmet {
         notes.push(format!(
@@ -1006,7 +1008,25 @@ fn signature_timestamps_instant(
         material,
         pdf_signature::timestamp::AskedAt::TheCallersInstant(now),
     )? {
-        pdf_signature::timestamp::Time::Established { at, .. } => Some(at),
+        // §12.8.3.4.8's three cases on the timestamping unit's path: nothing revoked, and the
+        // time "can be considered as reliable"; revoked for "keyCompromise" or "cACompromise" or
+        // with no reason, and it "cannot be used"; revoked for any other reason, and it is usable
+        // "only if the time of the revocation of that timestamping unit's certificate occurred
+        // after the UTC time included in the timestamp token" (ADR 2968).
+        pdf_signature::timestamp::Time::Established { at, revocation, .. } => {
+            use pdf_signature::revocation::{Revocation, RevocationReason};
+            match revocation {
+                Revocation::Revoked {
+                    reason:
+                        None | Some(RevocationReason::KeyCompromise | RevocationReason::CaCompromise),
+                    ..
+                } => None,
+                Revocation::Revoked { at: revoked, .. } => {
+                    (revoked.unix_seconds() > at.unix_seconds()).then_some(at)
+                }
+                _ => Some(at),
+            }
+        }
         // Every other answer, including one a later build adds: an instant is established or it is
         // not, and a variant this build has no name for is not a reason to believe a `genTime`.
         _ => None,
@@ -2646,7 +2666,7 @@ fn listed_or_local(
             .filter_map(|der| pdf_signature::x509::parse(der).ok())
             .collect();
         let anchors = pdf_signature::trust::TrustAnchors::of(&parsed);
-        let trust = signature.trust(&anchors, asked.material, asked.when.at());
+        let trust = trust_as_of(signature, &anchors, asked);
         let verdict = match Anchored::listed(&trust, listing) {
             Some(anchored) => Verdict::reached(
                 &integrity,
@@ -2670,7 +2690,7 @@ fn listed_or_local(
         }
         listed.get_or_insert(verdict);
     }
-    let trust = signature.trust(asked.anchors, asked.material, asked.when.at());
+    let trust = trust_as_of(signature, asked.anchors, asked);
     let local = Verdict::of(
         &integrity,
         authenticity,
@@ -2683,6 +2703,40 @@ fn listed_or_local(
         Some(listed) if local.valid().is_none() => listed,
         _ => local,
     }
+}
+
+/// The signer's path, checked at the best signature time under the clause that time falls in.
+///
+/// §12.8.3.4.7 is the check at the reader's clock and §12.8.3.4.8 the check at the instant the
+/// signature's own timestamp attribute established, and each states its own window on the
+/// revocation material (`pdf_signature::revocation::Basis`). A document timestamp's instant is
+/// §12.8.5's, which states neither window, and keeps the one both share (ADR 2968).
+fn trust_as_of(
+    signature: &pdf_signature::signature::Signature,
+    anchors: &pdf_signature::trust::TrustAnchors<'_>,
+    asked: &Asked<'_>,
+) -> pdf_signature::trust::Trust {
+    use pdf_signature::revocation::{Basis, Issuance};
+    use pdf_signature::verdict::Proof;
+    let basis = match asked.when.proof() {
+        Proof::NothingButTheReadersClock => Basis::CurrentTime,
+        Proof::ThisSignaturesTimestampAttribute => Basis::PastTime,
+        // §12.8.5's document timestamp, and any proof a later build names.
+        _ => Basis::Unstated,
+    };
+    signature.trust_under(
+        anchors,
+        asked.material,
+        asked.when.at(),
+        pdf_signature::trust::Purpose::Unstated,
+        &pdf_signature::trust::PathInputs {
+            revocation_issuance: Issuance {
+                basis,
+                ..Issuance::default()
+            },
+            ..pdf_signature::trust::PathInputs::default()
+        },
+    )
 }
 
 /// What the signer's certificate states under ETSI EN 319 412-5, named by the statements' own

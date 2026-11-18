@@ -141,11 +141,10 @@ impl ViewState {
         table: &BTreeMap<String, Vec<ObjectId>>,
         action: &ResetForm,
     ) -> BTreeSet<ObjectId> {
-        if action.fields.is_empty() {
+        let Some(fields) = &action.fields else {
             return table.values().flatten().copied().collect();
-        }
-        let named: BTreeSet<ObjectId> = action
-            .fields
+        };
+        let named: BTreeSet<ObjectId> = fields
             .iter()
             .flat_map(|target| match target {
                 ResetTarget::Field(id) => widgets_under(document, *id),

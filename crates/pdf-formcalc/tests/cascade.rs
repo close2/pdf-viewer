@@ -1047,7 +1047,7 @@ fn a_click_event_that_submits_holds_the_submit_for_the_host_in_the_format_it_nam
         };
         assert_eq!(action.url, "https://example.invalid/form");
         assert_eq!(action.flags.0, bits(&[bit, 2]), "{format}");
-        assert!(action.fields.is_empty());
+        assert!(action.fields.is_none());
         assert_eq!(submit.clicked, Some((name("Send"), None)));
         assert!(submit.owed.is_empty(), "{format}: {:?}", submit.owed);
     }

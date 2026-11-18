@@ -349,11 +349,11 @@ pub(super) fn label(open: &Open, index: usize) -> Option<String> {
 /// > VisiblePages Display only those groups in the Order array that are referenced by one or
 /// > more visible pages.
 ///
-/// This window shows one page at a time, so "one or more visible pages" is the page it is
-/// showing — the same derivation §12.6.3's `/PV` and `/PO` take (ADR 0164). `pdf_model` supplies
-/// the half
-/// that is about the file, `groups_referenced_by`, and this supplies the half that is about the
-/// window. One corpus document states the entry (`visibility_expressions.pdf`, on a scan of every
+/// "One or more visible pages" are the pages the window's arrangement shows — every page of a
+/// two-page or continuous layout that is on the screen, as Table 197's `/PV` takes them (ADR
+/// 2814, ADR 2967).
+/// `pdf_model` supplies the half that is about the file, `groups_referenced_by`, and this
+/// supplies the half that is about the window. One corpus document states the entry (`visibility_expressions.pdf`, on a scan of every
 /// uncompressed `/ListMode` in all 974), and it states `VisiblePages`.
 ///
 /// A collection whose children all disappear disappears with them: §8.11.4.3 makes a label
@@ -364,9 +364,16 @@ fn layers(open: &Open) -> Vec<Layer> {
     };
     let shown = match content.list_mode() {
         ListMode::AllPages => None,
-        ListMode::VisiblePages => open
-            .shown_page()
-            .map(|page| pdf_model::optional_content::groups_referenced_by(&open.document, page)),
+        // Every page placed on the screen; where nothing is placed yet no page is known to be
+        // visible, and every group is listed until one is.
+        ListMode::VisiblePages => (!open.on_screen.is_empty()).then(|| {
+            open.on_screen
+                .iter()
+                .flat_map(|shown| {
+                    pdf_model::optional_content::groups_referenced_by(&open.document, &shown.object)
+                })
+                .collect()
+        }),
     };
     build_layers(open, content, content.presentation(), shown.as_ref())
 }

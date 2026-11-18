@@ -309,7 +309,7 @@ fn a_reset_after_an_import_takes_the_documents_own_default() {
 
     // Table 241 with no `/Fields`: "all fields in the document's interactive form are reset".
     let reset = pdf_model::action::Action::ResetForm(pdf_model::action::ResetForm {
-        fields: Vec::new(),
+        fields: None,
         exclude: false,
     });
     view.perform(&document, &reset);

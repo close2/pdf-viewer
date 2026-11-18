@@ -54,7 +54,10 @@ impl ViewState {
                 ),
                 ScriptEdit::Reset { fields } => {
                     let action = ResetForm {
-                        fields: fields.iter().cloned().map(ResetTarget::Name).collect(),
+                        // `this.resetForm()` with no names is every field, which is Table
+                        // 241's absent `/Fields`.
+                        fields: (!fields.is_empty())
+                            .then(|| fields.iter().cloned().map(ResetTarget::Name).collect()),
                         exclude: false,
                     };
                     self.reset_form(document, &action);

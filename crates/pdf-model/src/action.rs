@@ -79,6 +79,7 @@
 //! array that names one action twice performs it twice (ADR 2814).
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
@@ -501,12 +502,14 @@ impl Named {
 /// reset, exactly as it holds the annotations a hide action touched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResetForm {
-    /// Table 241's `/Fields`, in whichever of its two forms each element takes.
+    /// Table 241's `/Fields`, in whichever of its two forms each element takes, and `None`
+    /// where the entry is absent.
     ///
-    /// Empty means the entry was absent, which the table makes decisive: "\[i]f this entry is
-    /// omitted, the Include/Exclude flag shall be ignored; all fields in the document's
-    /// interactive form are reset."
-    pub fields: Vec<ResetTarget>,
+    /// Absent and empty are two answers, and the table makes the first decisive: "\[i]f this
+    /// entry is omitted, the Include/Exclude flag shall be ignored; all fields in the document's
+    /// interactive form are reset." An empty array is an include list naming nothing, which
+    /// resets nothing, or an exclude list sparing nothing, which resets everything (ADR 2965).
+    pub fields: Option<Vec<ResetTarget>>,
     /// Table 242's bit 1: whether `/Fields` says which to reset or which to *spare*.
     ///
     /// §12.7.6.3's Table 242 gives it both readings: clear, and the array "specifies which
@@ -553,11 +556,12 @@ pub struct SubmitForm {
     /// The same two spellings as Table 241's, word for word — "\[e]ach element of the array
     /// shall be either an indirect reference to a field dictionary or (PDF 1.3) a text string
     /// representing the fully qualified name of a field. Elements of both kinds may be mixed
-    /// in the same array" — so it is [`ResetTarget`] here too. Empty means the entry was
+    /// in the same array" — so it is [`ResetTarget`] here too. `None` means the entry was
     /// absent: "\[i]f this entry is omitted, the Include/Exclude flag shall be ignored, and all
     /// fields in the document's interactive form shall be submitted except those whose
-    /// `NoExport` flag … is set".
-    pub fields: Vec<ResetTarget>,
+    /// `NoExport` flag … is set". An empty array is a list, and selects by the flag as any list
+    /// does (ADR 2965).
+    pub fields: Option<Vec<ResetTarget>>,
     /// Table 239's `/Flags`, "\[a] set of flags specifying various characteristics of the
     /// action". Default value 0.
     pub flags: SubmitFlags,
@@ -994,30 +998,35 @@ pub enum TargetError {
 }
 
 impl EmbeddedGoTo {
-    /// Opens the document Table 205's path leads to, starting from `source`.
+    /// Walks Table 205's path from the source document, and answers the target with its ancestry.
+    ///
+    /// `lineage` is the source and the documents it was reached through, **root first and the
+    /// source last**: an embedded file's parent is the file it was taken out of, so a document
+    /// this program opened out of another one knows its parent only because whoever opened it
+    /// kept it. The answer has the same shape — the target last, its parents before it — and its
+    /// last element may be one of `lineage`'s own, which is a walk that ended where it began or
+    /// at one of the source's ancestors (Table 205's `/R /P`, "the target is the parent of the
+    /// current document"). [`Arc::ptr_eq`] tells which.
     ///
     /// The path is walked one step at a time and the *current document* is what each step is
     /// relative to, which is the clause's own model: "\[a]s the hierarchy is navigated, each
     /// intermediate target shall be referred to as the current document. Initially, the source
-    /// is the current document."
-    ///
-    /// A `/R /P` step pops back to the document the walk descended from, which is the only
-    /// parent this program can have: an embedded file's parent is the file it was taken out of,
-    /// and the document a person opened has no parent inside itself. That is
-    /// [`TargetError::NoParent`], and it is the sibling case of §12.6.4.4's EXAMPLE — `/R /P`
-    /// then `/R /C` — being performable only from a document that is already a child.
+    /// is the current document." A `/R /P` from the root this reader opened is
+    /// [`TargetError::NoParent`]; §12.6.4.4's EXAMPLE — `/R /P` then `/R /C` — is performable from
+    /// any document opened out of another (ADR 2964).
     ///
     /// # Errors
     ///
-    /// Every one of [`TargetError`]'s cases, each naming what the file asked for.
-    pub fn target_in(&self, source: &Document) -> Result<Document, TargetError> {
+    /// Every one of [`TargetError`]'s cases, each naming what the file asked for;
+    /// [`TargetError::NoParent`] also where `lineage` is empty.
+    pub fn target_in(&self, lineage: &[Arc<Document>]) -> Result<Vec<Arc<Document>>, TargetError> {
         if let Some(root) = &self.root {
             return Err(TargetError::AnotherRoot(root.name().to_owned()));
         }
         if self.path.is_empty() {
             return Err(TargetError::NoPath);
         }
-        self.walk(source)
+        self.walk(lineage.to_vec())
     }
 
     /// Resumes the walk against the root document Table 204's `/F` named, once it has arrived.
@@ -1038,49 +1047,52 @@ impl EmbeddedGoTo {
     /// An empty path is Table 204's own case rather than an error here — "\[o]ptional if F is
     /// present; otherwise required", and the clause's EXAMPLE object 5 is exactly it, a "\[l]ink
     /// from an embedded file to a normal file" with an `/F` and no `/T`. The root that arrived
-    /// *is* the target.
+    /// *is* the target. The answer is [`Self::target_in`]'s: the target last, its parents before
+    /// it, the root first.
     ///
     /// # Errors
     ///
     /// The path's own cases from [`TargetError`]; never [`TargetError::AnotherRoot`], which is
     /// about not having got here.
-    pub fn target_from_root(&self, root: Document) -> Result<Document, TargetError> {
-        if self.path.is_empty() {
-            return Ok(root);
-        }
-        self.walk(&root)
+    pub fn target_from_root(&self, root: Document) -> Result<Vec<Arc<Document>>, TargetError> {
+        self.walk(vec![Arc::new(root)])
     }
 
-    /// Table 205's path, walked from whichever document is the first current one.
-    fn walk(&self, start: &Document) -> Result<Document, TargetError> {
-        // The documents descended into, in order. The current document is the last of these, or
-        // `start` where none has been opened yet — which is what makes a `Parent` step a pop
-        // and makes the cycle §12.6.4.4's NOTE warns about impossible: the path is a finite list
-        // read once, and each step opens at most one document.
-        let mut descended: Vec<Document> = Vec::new();
+    /// Table 205's path, walked from the last document of `lineage`.
+    fn walk(&self, mut lineage: Vec<Arc<Document>>) -> Result<Vec<Arc<Document>>, TargetError> {
+        // The current document is the last of `lineage`, which makes a `Parent` step a pop and
+        // makes the cycle §12.6.4.4's NOTE warns about impossible: the path is a finite list
+        // read once, and each step opens at most one document. A pop never empties the list:
+        // the root this reader opened has no parent.
         for step in &self.path {
-            let current = descended.last().unwrap_or(start);
+            let Some(current) = lineage.last().map(Arc::clone) else {
+                return Err(TargetError::NoParent);
+            };
             match step {
                 TargetStep::Parent => {
-                    if descended.pop().is_none() {
+                    if lineage.len() < 2 {
                         return Err(TargetError::NoParent);
                     }
+                    lineage.pop();
                 }
                 TargetStep::NamedChild(name) => {
-                    let attachment = crate::attachment::attachments(current)
+                    let attachment = crate::attachment::attachments(&current)
                         .into_iter()
                         .find(|attachment| attachment.name == *name)
                         .ok_or_else(|| TargetError::NoSuchChild(name.clone()))?;
-                    descended.push(open_embedded(current, &attachment)?);
+                    lineage.push(Arc::new(open_embedded(&current, &attachment)?));
                 }
                 TargetStep::AttachedChild { page, annotation } => {
-                    let attachment = attached_file(current, page, annotation)
+                    let attachment = attached_file(&current, page, annotation)
                         .ok_or(TargetError::NoSuchAttachment)?;
-                    descended.push(open_embedded(current, &attachment)?);
+                    lineage.push(Arc::new(open_embedded(&current, &attachment)?));
                 }
             }
         }
-        descended.pop().ok_or(TargetError::NoParent)
+        if lineage.is_empty() {
+            return Err(TargetError::NoParent);
+        }
+        Ok(lineage)
     }
 }
 
@@ -1753,28 +1765,33 @@ fn submit_form(document: &Document, dict: &Dictionary) -> Option<Action> {
 }
 
 /// The `/Fields` array Tables 239 and 241 both state, in both of its spellings.
-fn field_targets(document: &Document, dict: &Dictionary) -> Vec<ResetTarget> {
+///
+/// `None` where the entry is absent, which both tables make the every-field case. An entry that is
+/// not an array is not the array either table types it as, and is read as absent.
+fn field_targets(document: &Document, dict: &Dictionary) -> Option<Vec<ResetTarget>> {
     match document.get_key(dict, "Fields") {
-        Object::Array(items) => items
-            .iter()
-            .filter_map(|item| match item {
-                // A reference is the field itself, so it is *not* resolved here: what the array
-                // states is an identity, and turning it into a set of widgets is the performing
-                // half's job (`crate::view::widgets_under`). **The analogy to §12.6.4.11's hide
-                // action stops at the syntax**, and this comment claimed it did not: Table 214's
-                // `/T` names an *annotation*, so there the identity in the file is the thing to
-                // act on, while Table 241 names a *field*, which §12.7.4.1 merges with a widget
-                // only when it has exactly one.
-                Object::Reference(id) => Some(ResetTarget::Field(*id)),
-                other => match document.resolve(other) {
-                    Object::String(bytes) => {
-                        Some(ResetTarget::Name(pdf_syntax::text_string(&bytes)))
-                    }
-                    _ => None,
-                },
-            })
-            .collect(),
-        _ => Vec::new(),
+        Object::Array(items) => Some(
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    // A reference is the field itself, so it is *not* resolved here: what the array
+                    // states is an identity, and turning it into a set of widgets is the performing
+                    // half's job (`crate::view::widgets_under`). **The analogy to §12.6.4.11's hide
+                    // action stops at the syntax**, and this comment claimed it did not: Table 214's
+                    // `/T` names an *annotation*, so there the identity in the file is the thing to
+                    // act on, while Table 241 names a *field*, which §12.7.4.1 merges with a widget
+                    // only when it has exactly one.
+                    Object::Reference(id) => Some(ResetTarget::Field(*id)),
+                    other => match document.resolve(other) {
+                        Object::String(bytes) => {
+                            Some(ResetTarget::Name(pdf_syntax::text_string(&bytes)))
+                        }
+                        _ => None,
+                    },
+                })
+                .collect(),
+        ),
+        _ => None,
     }
 }
 
@@ -2501,10 +2518,10 @@ mod tests {
         assert_eq!(submit.url, "https://example.invalid/");
         assert_eq!(
             submit.fields,
-            vec![
+            Some(vec![
                 ResetTarget::Name("name".to_owned()),
                 ResetTarget::Field(id(2))
-            ],
+            ]),
             "Table 239's two spellings, mixed in one array"
         );
         // 5 is bits 1 and 3: Include/Exclude and ExportFormat, numbered "starting with 1
@@ -2765,7 +2782,7 @@ mod tests {
 
         let refusal = |entries: &str| {
             let (target, document) = action(entries);
-            target.target_in(&document).err()
+            target.target_in(&[std::sync::Arc::new(document)]).err()
         };
 
         assert_eq!(

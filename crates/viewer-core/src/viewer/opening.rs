@@ -237,8 +237,10 @@ impl Viewer {
             // **What the document says about *itself* is not here, and that is principle 2.**
             // `notes::about` answers clauses about the file, and §12.8's answer reads and
             // digests the signed byte ranges — on a signed document that is the whole file, and
-            // none of it draws a page. `Command::Report` is what asks for it, and `Open::about`
-            // is what makes asking twice cost once. ADR 1044.
+            // none of it draws a page. `Command::Report` is what asks for it, and the first
+            // `Command::Presented` of a document holding a PAdES signature, which §12.8.3.4.5
+            // verifies at its open (ADR 2969); `Open::about` is what makes asking twice cost
+            // once. ADR 1044.
             (open.page_count, crate::notes::losses(open))
         }) else {
             return;
@@ -281,12 +283,22 @@ impl Viewer {
             self.extract(&file.name, Extraction::Fragment, file.fragment, events);
         }
         self.announce_page_reading(false, events);
-        // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
-        // and `Open::around` has already applied that entry's destination — the page it
-        // names is `open.page_index` and its view is waiting in `pending_views` — so the
-        // first page's events are raised here, in the clause's order. An `/OpenAction`
-        // that is an action rather than a destination is still not *performed*; that is
-        // §12.6.4's row and not this one's, and it changes nothing about this ordering.
+        // Table 29's `/OpenAction` is performed "when the document is opened", and Table 198's
+        // `/O` and Table 197's `/PO` come after it: `/PO` is performed "after … the OpenAction
+        // entry in the document Catalog". `Open::around` has already applied the entry's
+        // destination — the page it names is `open.page_index` and its view waits in
+        // `pending_views` — and the rest of its chain is performed here, before the first page's
+        // own events (ADR 2964). A turn the chain makes raises nothing of its own: the page it
+        // reaches is the one opened, and its events are the ones raised next.
+        if let Some(outcome) = self
+            .documents
+            .get_mut(&id)
+            .and_then(crate::interact::open_action)
+        {
+            let raising = std::mem::replace(&mut self.raising, true);
+            self.apply(id, outcome, events);
+            self.raising = raising;
+        }
         self.page_events(id, None, events);
         // Annex O's `search`, if the fragment asked for one. The plan is made and no page
         // has been read: this event is what tells a host there is something to pump, and

@@ -14,6 +14,18 @@ use pdf_syntax::ObjectId;
 use super::{Open, Preparation, Prepared};
 
 impl Open {
+    /// Whether the document holds a `PAdES` signature, §12.8.3.4.5's `ETSI.CAdES.detached`.
+    ///
+    /// The clause's steps are owed "when the user opens a signed document or requests
+    /// verification of these signatures", so a document that holds one is verified at its open
+    /// and not only when a host asks for its report. The question reads the signature fields and
+    /// digests nothing (ADR 2969).
+    pub(crate) fn holds_pades_signature(&self) -> bool {
+        pdf_signature::signature::signatures(&self.document)
+            .iter()
+            .any(|signature| signature.sub_filter.as_deref() == Some("ETSI.CAdES.detached"))
+    }
+
     /// §12.3.3's outline, read now if nothing has read it yet.
     ///
     /// The first use pays for it, on whichever thread asks; [`crate::Preparation`] is how a host

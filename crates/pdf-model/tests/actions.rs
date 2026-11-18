@@ -452,8 +452,17 @@ fn an_embedded_go_to_opens_the_document_inside_this_one() {
     assert_eq!(first.root, None, "the target shares this document's root");
     assert_eq!(first.new_window, Some(true));
 
-    let opened = first.target_in(&document).expect("the target opens");
-    let pages = pdf_model::Pages::new(&opened);
+    let document = std::sync::Arc::new(document);
+    let lineage = first
+        .target_in(&[std::sync::Arc::clone(&document)])
+        .expect("the target opens");
+    assert_eq!(
+        lineage.len(),
+        2,
+        "the target, after the document it came out of"
+    );
+    let opened = lineage.last().expect("the target is last");
+    let pages = pdf_model::Pages::new(opened);
     assert!(pages.len() > 1, "the embedded document has pages");
 
     // §12.3.2.2's integer form: the destination names a page *number* in the target, and every
@@ -461,8 +470,8 @@ fn an_embedded_go_to_opens_the_document_inside_this_one() {
     let mut indices: Vec<usize> = actions
         .iter()
         .filter_map(|action| {
-            pdf_model::destination::Destination::read(&opened, &action.destination)?
-                .page_index_in_target(&opened, &pages)
+            pdf_model::destination::Destination::read(opened, &action.destination)?
+                .page_index_in_target(opened, &pages)
         })
         .collect();
     indices.sort_unstable();
@@ -869,7 +878,7 @@ fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
     );
     assert_eq!(one.path, [TargetStep::NamedChild("child.pdf".to_owned())]);
     assert_eq!(
-        one.target_in(&source_document).err(),
+        one.target_in(&[std::sync::Arc::new(source_document)]).err(),
         Some(TargetError::AnotherRoot("target.pdf".to_owned())),
         "walked from the source there is no such root, and it is named"
     );
@@ -877,7 +886,8 @@ fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
     let opened = one
         .target_from_root(Document::open(embedding("child.pdf", &child)).expect("opens"))
         .expect("the child of the supplied root opens");
-    assert_eq!(pdf_model::Pages::new(&opened).len(), 1, "the child's page");
+    let opened = opened.last().expect("the target is last");
+    assert_eq!(pdf_model::Pages::new(opened).len(), 1, "the child's page");
 
     // Two steps, into a document embedded inside the supplied root's own embedded file.
     let (two, _) = action("/T << /R /C /N (child.pdf) /T << /R /C /N (grandchild.pdf) >> >>");
@@ -891,12 +901,14 @@ fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
     let deep = two
         .target_from_root(Document::open(embedding("child.pdf", &child)).expect("opens"))
         .expect("the grandchild opens");
-    let pages = pdf_model::Pages::new(&deep);
+    assert_eq!(deep.len(), 3, "the root, the child and the grandchild");
+    let deep = deep.last().expect("the target is last");
+    let pages = pdf_model::Pages::new(deep);
     assert_eq!(pages.len(), 3, "the grandchild's pages, not the child's");
     // §12.3.2.2's explicit form, read in the *target*: "[t]he first page shall be numbered 0".
     assert_eq!(
-        pdf_model::destination::Destination::read(&deep, &two.destination)
-            .and_then(|destination| destination.page_index_in_target(&deep, &pages)),
+        pdf_model::destination::Destination::read(deep, &two.destination)
+            .and_then(|destination| destination.page_index_in_target(deep, &pages)),
         Some(1),
         "the destination is resolved against the document the walk ended in"
     );
@@ -907,8 +919,9 @@ fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
     let itself = none
         .target_from_root(root)
         .expect("the root that arrived is the target");
+    let itself = itself.last().expect("the target is last");
     assert_eq!(
-        pdf_model::Pages::new(&itself).len(),
+        pdf_model::Pages::new(itself).len(),
         1,
         "the root document itself, which has one page"
     );

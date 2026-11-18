@@ -847,7 +847,7 @@ fn a_zero_freshness_on_the_path_admits_only_material_issued_after_the_instant() 
         let inputs = PathInputs {
             revocation_issuance: Issuance {
                 fresh_after,
-                issued_from: None,
+                ..Issuance::default()
             },
             ..PathInputs::default()
         };
