@@ -348,8 +348,9 @@ fn drawn(bytes: &[u8]) -> (Vec<Drawn>, bool) {
 }
 
 /// ADR 2807: under every loss withheld, as `as-shown` withholds `machine-face`, the font goes in
-/// with the face the window drew — a `CIDFontType2` over a `/FontFile2`, its `/CIDToGIDMap` a
-/// stream naming a glyph for CIDs 843 and 845 — loses nothing, is not settled by the second pass,
+/// with the face the window drew — for a TrueType face a `CIDFontType2` over a `/FontFile2`, its
+/// `/CIDToGIDMap` a stream naming a glyph for CIDs 843 and 845; for a CFF face a `CIDFontType0`
+/// over a `/FontFile3` — loses nothing, is not settled by the second pass,
 /// conforms, and draws each shown code's outline at its advance as the window drew it. The plant:
 /// a map that sends either CID to another glyph draws another outline, and the assertion on the
 /// outlines fails.
@@ -398,35 +399,50 @@ fn a_collections_font_the_window_drew_from_a_machines_face_is_embedded_with_that
             .as_dict()
             .cloned()
             .expect("the descendant");
-        assert_eq!(
-            held.get_key(&descendant, "Subtype")
-                .as_name()
-                .map(|name| name.as_bytes().to_vec()),
-            Some(b"CIDFontType2".to_vec()),
-            "{target}: Table 124 puts a TrueType program beneath a CIDFontType2"
-        );
+        let subtype = held
+            .get_key(&descendant, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec());
         let descriptor = held
             .get_key(&descendant, "FontDescriptor")
             .as_dict()
             .cloned()
             .expect("its descriptor");
-        assert!(
-            matches!(
-                held.get_key(&descriptor, "FontFile2"),
-                pdf_syntax::Object::Stream(_)
-            ),
-            "{target}: the program is under /FontFile2"
-        );
-        let pdf_syntax::Object::Stream(map) = held.get_key(&descendant, "CIDToGIDMap") else {
-            panic!("{target}: Table 115's /CIDToGIDMap is a stream");
-        };
-        let map = held.decoded_stream_data(&map).expect("the map decodes");
-        for cid in [843_usize, 845] {
-            let glyph = u16::from_be_bytes([map[2 * cid], map[2 * cid + 1]]);
-            assert_ne!(
-                glyph, 0,
-                "{target}: CID {cid} reaches a glyph of the program"
+        // Table 124 files the program by its own format: a TrueType face goes beneath a
+        // `CIDFontType2` under `/FontFile2`, and a CFF-flavoured face (a machine's Noto CJK,
+        // ADR 3066) beneath a `CIDFontType0` under `/FontFile3`.
+        if subtype.as_deref() == Some(b"CIDFontType0".as_slice()) {
+            assert!(
+                matches!(
+                    held.get_key(&descriptor, "FontFile3"),
+                    pdf_syntax::Object::Stream(_)
+                ),
+                "{target}: a CFF program is under /FontFile3"
             );
+        } else {
+            assert_eq!(
+                subtype,
+                Some(b"CIDFontType2".to_vec()),
+                "{target}: Table 124 puts a TrueType program beneath a CIDFontType2"
+            );
+            assert!(
+                matches!(
+                    held.get_key(&descriptor, "FontFile2"),
+                    pdf_syntax::Object::Stream(_)
+                ),
+                "{target}: the program is under /FontFile2"
+            );
+            let pdf_syntax::Object::Stream(map) = held.get_key(&descendant, "CIDToGIDMap") else {
+                panic!("{target}: Table 115's /CIDToGIDMap is a stream");
+            };
+            let map = held.decoded_stream_data(&map).expect("the map decodes");
+            for cid in [843_usize, 845] {
+                let glyph = u16::from_be_bytes([map[2 * cid], map[2 * cid + 1]]);
+                assert_ne!(
+                    glyph, 0,
+                    "{target}: CID {cid} reaches a glyph of the program"
+                );
+            }
         }
         let (after, substituted_after) = drawn(&output);
         assert!(!substituted_after, "{target}: drawn from its own program");
