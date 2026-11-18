@@ -196,6 +196,18 @@ fn written_name(name: &Object) -> String {
 /// The requirement [`defaults`] answers.
 const TYPE_SITE: &str = "graphics/halftone-type-is-one-or-five";
 
+/// The requirement whose rewrite removes a halftone's transfer function under
+/// [`super::Loss::TransferFunction`], part 2's; ISO 19005-4's erratum 314 withdraws it from part 4.
+const TRANSFER_SITE: &str = "graphics/halftone-transfer-function-only-where-required";
+
+/// Why a halftone of another type that carries a transfer function is not replaced.
+const TRANSFER_NOT_KEPT: &str = "a halftone of a type other than 1 or 5 in this file carries a \
+     transfer function, which decides the colour its marks are drawn in on a screen as well as on \
+     a press; writing the graphics state's halftone Default would remove that colour mapping \
+     under an authorisation for the screen alone, and this target has no transfer function \
+     requirement whose own authorisation could cover it, so the halftone is not replaced \
+     (doc/adr/2998)";
+
 /// The requirement [`phases`] answers, part 2's.
 const PHASE_SITE: &str = "graphics/no-halftone-phase-in-a-graphics-state";
 
@@ -272,10 +284,46 @@ pub(super) fn defaults(document: &Document, input: &pdf_archive::Report) -> Resu
             }
         }
     }
+    // The transfer functions the replaced halftones carry go with them, so each must be one the
+    // transfer requirement's own rewrite removes under its own authorisation; that requirement
+    // names the graphics state whose `HT` carries one, which is each state written here
+    // (ADR 2998).
+    let removed_elsewhere = complete_findings(input, TRANSFER_SITE).unwrap_or_default();
+    for id in &states {
+        let object = document.get(*id);
+        let dict = match &object {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        let carried = match document.get_key(dict, "HT") {
+            Object::Dictionary(halftone) => carries_transfer(document, &halftone),
+            Object::Stream(halftone) => carries_transfer(document, &halftone.dict),
+            _ => false,
+        };
+        if carried && !removed_elsewhere.contains(id) {
+            return Err(Because::NotBuiltYet(TRANSFER_NOT_KEPT));
+        }
+    }
     Ok(Sites {
         at: states,
         ..Sites::default()
     })
+}
+
+/// Whether a halftone states a `TransferFunction` other than `Identity`.
+///
+/// ISO 32000-2 Tables 128 to 131 (§10.6.5.2 to §10.6.5.5) give each halftone type other than 5 a
+/// `TransferFunction` "which overrides the current transfer function in the graphics state for
+/// the same component" (Table 129's words for type 6; Tables 130 and 131 say "shall override"),
+/// so on a screen too it decides the colour a mark is drawn in (§10.5), and replacing
+/// the halftone that carries it changes what a page shows.
+fn carries_transfer(document: &Document, halftone: &pdf_syntax::object::Dictionary) -> bool {
+    match document.get_key(halftone, "TransferFunction") {
+        Object::Null => false,
+        Object::Name(name) => name.as_bytes() != b"Identity",
+        _ => true,
+    }
 }
 
 /// Every graphics state stating `HTP`, whose entry goes (`doc/adr/2035`).

@@ -176,8 +176,25 @@ impl Walk<'_> {
     }
 
     /// Whether an annotation's own dictionary puts transparency in the graphics state.
+    ///
+    /// `BM` always does. `CA` does only where the annotation has no appearance stream, because
+    /// ISO 32000-2 §12.5.2, Table 166, says of it:
+    ///
+    /// > The specified value shall not be used if the annotation has an appearance stream (12.5.5,
+    /// > "Appearance streams"); in that case, the appearance stream shall specify any
+    /// > transparency.
+    ///
+    /// and the appearance streams are walked as content of their own below (ADR 2994).
     fn annotation_is_transparent(&self, annotation: &Dictionary) -> bool {
-        blends(self.document, annotation) || below_one(&self.document.get_key(annotation, "CA"))
+        if blends(self.document, annotation) {
+            return true;
+        }
+        let has_appearance = self
+            .document
+            .get_key(annotation, "AP")
+            .as_dict()
+            .is_some_and(|appearances| !self.document.get_key(appearances, "N").is_null());
+        !has_appearance && below_one(&self.document.get_key(annotation, "CA"))
     }
 
     /// One `/AP` entry, which is either the stream itself or a dictionary of appearance states.

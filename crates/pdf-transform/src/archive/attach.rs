@@ -436,8 +436,9 @@ pub(super) fn filed_as(stem: &str, at: ObjectId, extension: &str) -> String {
 /// streams in the order the array states them, end to end, and nothing between them: the first
 /// opens the document element and the last closes it.
 ///
-/// `None` where the entry is neither shape or where a stream will not decode — there is then no
-/// resource to keep, and the caller refuses by name rather than attaching part of one.
+/// `None` where the entry is neither shape, where an array is not wholly pairs of a string and a
+/// stream, or where a stream will not decode — there is then no whole resource to keep, and the
+/// caller refuses by name rather than attaching part of one (ADR 2997).
 pub(super) fn xfa_resource(document: &Document, form: &Dictionary) -> Option<Vec<u8>> {
     let entry = document.get_key(form, "XFA");
     if let Some(stream) = entry.as_stream() {
@@ -446,13 +447,19 @@ pub(super) fn xfa_resource(document: &Document, form: &Dictionary) -> Option<Vec
             .map(|bytes| bytes.to_vec());
     }
     let packets = entry.as_array()?;
+    if packets.is_empty() || !packets.len().is_multiple_of(2) {
+        return None;
+    }
     let mut out = Vec::new();
-    for item in packets {
-        let resolved = document.resolve(item);
-        let Some(stream) = resolved.as_stream() else {
-            continue;
+    for pair in packets.chunks_exact(2) {
+        let [name, packet] = pair else {
+            return None;
         };
-        out.extend_from_slice(&document.decoded_stream_data(stream)?);
+        if !matches!(document.resolve(name), Object::String(_)) {
+            return None;
+        }
+        let packet = document.resolve(packet);
+        out.extend_from_slice(&document.decoded_stream_data(packet.as_stream()?)?);
     }
     (!out.is_empty()).then_some(out)
 }

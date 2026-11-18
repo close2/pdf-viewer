@@ -4858,14 +4858,25 @@ fn a_transparent_page_has_a_blending_space(exam: &Examination<'_>, findings: &mu
     if document_intent(document).present() {
         return;
     }
-    for page in transparent_pages_without_a_blending_space(exam) {
+    for (page, seen) in transparent_pages_without_a_blending_space(exam) {
         findings.record(
             Where::page(page).named("Group"),
-            "the page contains transparency, the file states no PDF/A output intent, and the \
-             page states no Group whose attribute dictionary names a CS to blend in",
+            if seen {
+                "the page contains transparency, the file states no PDF/A output intent, and the \
+                 page states no Group whose attribute dictionary names a CS to blend in"
+            } else {
+                UNSURVEYED_TRANSPARENCY
+            },
         );
     }
 }
+
+/// What a page the content walk stopped short of is reported with, where the requirement turns on
+/// whether it contains transparency (ADR 2994).
+const UNSURVEYED_TRANSPARENCY: &str = "the content walk stopped at one of its bounds before it \
+     had read everything, so whether this page contains transparency is not known; the file \
+     states no PDF/A output intent and the page no Group whose attribute dictionary names a CS \
+     to blend in, so the requirement is not shown to be met";
 
 /// ISO 19005-4 section 6.2.9, second paragraph.
 fn a_transparent_page_has_a_blending_space_or_an_output_intent(
@@ -4877,15 +4888,19 @@ fn a_transparent_page_has_a_blending_space_or_an_output_intent(
         return;
     }
     let pages = page_intents(document);
-    for page in transparent_pages_without_a_blending_space(exam) {
+    for (page, seen) in transparent_pages_without_a_blending_space(exam) {
         if pages.get(page).is_some_and(|intent| intent.present()) {
             continue;
         }
         findings.record(
             Where::page(page).named("Group"),
-            "the page contains transparency, the document states no PDF/A output intent, and \
-             the page states neither one of its own nor a Group whose attribute dictionary \
-             names a CS to blend in",
+            if seen {
+                "the page contains transparency, the document states no PDF/A output intent, and \
+                 the page states neither one of its own nor a Group whose attribute dictionary \
+                 names a CS to blend in"
+            } else {
+                UNSURVEYED_TRANSPARENCY
+            },
         );
     }
 }
@@ -4896,15 +4911,27 @@ fn a_transparent_page_has_a_blending_space_or_an_output_intent(
 /// and its attribute dictionary is asked for a `CS`. A page that states a group of some other
 /// subtype with a `CS` is not reported here, because the sentence this implements does not
 /// mention `S` at all and inventing the condition could only manufacture failures.
-fn transparent_pages_without_a_blending_space(exam: &Examination<'_>) -> Vec<usize> {
+///
+/// Each page comes with whether the walk *saw* transparency on it. **A walk one of its bounds
+/// stopped answers for no page it did not see as transparent**: Annex Q's population is every
+/// element the page paints, and a page whose content was not all read may hold one, so such a
+/// page is returned with `false` rather than passed over — a requirement that turns on it is then
+/// not reported met on evidence the walk never gathered (ADR 2994).
+fn transparent_pages_without_a_blending_space(exam: &Examination<'_>) -> Vec<(usize, bool)> {
     let document = exam.document;
     let survey = exam.survey();
     let pages = Pages::new(document).every();
     (0..survey.pages())
-        .filter(|index| survey.page_is_transparent(*index))
-        .filter(|index| {
+        .filter_map(|index| {
+            if survey.page_is_transparent(index) {
+                Some((index, true))
+            } else {
+                survey.stopped_short().then_some((index, false))
+            }
+        })
+        .filter(|&(index, _)| {
             pages
-                .get(*index)
+                .get(index)
                 .and_then(Option::as_ref)
                 .is_none_or(|page| {
                     document

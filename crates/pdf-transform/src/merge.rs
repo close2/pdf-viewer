@@ -2837,9 +2837,11 @@ fn merge_name_trees(
 /// §14.10.1 records the database in two structures, "\[t]he Web Capture information dictionary"
 /// and "\[t]he Web Capture content database", and the first is the catalog's `/SpiderInfo`, which
 /// `NOT_CARRIED` leaves behind — so carrying these trees would write half of a structure the
-/// clause states whole. The family is "deprecated with PDF 2.0", and §3.15 makes that "a part of
-/// ISO 32000 that should not be written into a PDF 2.0 document". So neither tree crosses a
-/// merge or a split, and each is named where a source states one (ADR 1461).
+/// clause states whole, and that is why neither tree crosses a merge or a split, whatever the
+/// output's version, and each is named where a source states one (ADR 1461). For a PDF 2.0
+/// output a second reason adds to it: the family is "deprecated with PDF 2.0", and §3.15 makes
+/// that "a part of ISO 32000 that should not be written into a PDF 2.0 document"; an output of an
+/// earlier version is left without the trees for the first reason alone.
 pub(crate) fn is_web_capture(category: &str) -> bool {
     matches!(category, "IDS" | "URLS")
 }

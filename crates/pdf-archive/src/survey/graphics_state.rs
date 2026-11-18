@@ -35,6 +35,15 @@ impl Walk<'_> {
     ///
     /// The soft-mask *image* an image's `/SMask` names stays outside the walk, for the reason the
     /// module comment gives.
+    ///
+    /// **What the walk finds inside the group does not make the page transparent.** Annex Q.2's
+    /// population is "each graphical element to be rendered on the page", and the group is not
+    /// rendered on the page: it is evaluated for the elements painted while the mask is in force.
+    /// Each of those is transparent by Q.2's first condition, an `SMask` entry whose value is a
+    /// dictionary, which [`Self::transparency`] records in the state they are painted
+    /// under; so a page that paints under the mask is found transparent there, and a page that
+    /// sets a mask and paints nothing under it has no element involved in transparency
+    /// (ADR 2994).
     fn soft_mask(&mut self, dict: &Dictionary, context: &Context<'_>) {
         let mask = self.document.get_key(dict, "SMask");
         let Some(mask) = mask.as_dict() else {
@@ -44,6 +53,7 @@ impl Walk<'_> {
         let Object::Stream(stream) = self.document.get_key(mask, "G") else {
             return;
         };
+        let already = self.survey.transparent.contains(&context.page);
         self.form(
             &stream,
             group,
@@ -53,6 +63,9 @@ impl Walk<'_> {
             Via::SoftMask,
             false,
         );
+        if !already {
+            self.survey.transparent.remove(&context.page);
+        }
     }
 
     /// ISO 32000-2 §8.4.5, Table 58's `OP`, `op` and `OPM`, as a `gs` operator sets them.

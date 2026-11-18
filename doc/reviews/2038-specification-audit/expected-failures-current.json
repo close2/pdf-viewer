@@ -34,51 +34,9 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-model::inherited_reset_defaults_audit",
-   "test": "reset_saves_each_terminal_fields_effective_default",
-   "finding": "2038-B13",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-signature::docmdp_dts_carveout",
-   "test": "valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout",
-   "finding": "2038-B18",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
    "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
    "finding": "2038-B20",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-archive::transparency_detection_spec_audit",
-   "test": "annotation_ca_does_not_override_an_explicit_opaque_appearance",
-   "finding": "2038-B35",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-archive::incomplete_transparency_spec_audit",
-   "test": "pdf_a2_stopped_depth_is_not_certified_met",
-   "finding": "2038-B37",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-archive::incomplete_transparency_spec_audit",
-   "test": "pdf_a4_stopped_depth_is_not_certified_met",
-   "finding": "2038-B37",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-archive::incomplete_transparency_spec_audit",
-   "test": "pdf_a2_stopped_stream_count_is_not_certified_met",
-   "finding": "2038-B37",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-archive::incomplete_transparency_spec_audit",
-   "test": "pdf_a4_stopped_stream_count_is_not_certified_met",
-   "finding": "2038-B37",
    "log": "broad.log"
   },
   {
@@ -112,19 +70,6 @@
    "log": "gpu.log"
   },
   {
-   "binary": "pdf-model::usage_rights_annotation_save_spec_audit",
-   "test": "annotation_save_withdraws_usage_rights_when_creation_is_not_granted",
-   "finding": "2038-B40",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-signature",
-   "test": "revision::tests::field_mdp_signed_name_spec_audit::a_fieldmdp_selection_keeps_the_signed_field_identity_across_a_rename",
-   "finding": "2038-B42",
-   "log": "broad.log",
-   "disposition": "Unresolved interpretation/policy probe; not a confirmed mandatory ISO defect."
-  },
-  {
    "binary": "viewer-accessibility::interleaved_struct_content_spec_audit",
    "test": "accesskit_preserves_interleaving_of_parent_content_and_child_elements",
    "finding": "2038-B43",
@@ -142,18 +87,6 @@
    "finding": "2038-B52",
    "log": "engine.log",
    "requires": "pdf-script/engine"
-  },
-  {
-   "binary": "pdf-transform::warichu_split_spec_audit",
-   "test": "each_page_split_keeps_empty_warichu_boundary_elements",
-   "finding": "2038-B56",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-transform::archive",
-   "test": "xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet",
-   "finding": "2038-B58",
-   "log": "broad.log"
   },
   {
    "binary": "render-raster::near_similarity_stroke_spec_audit",
@@ -183,12 +116,6 @@
    "binary": "viewer-core::image_xobject_measurement_spec_audit",
    "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
    "finding": "2038-B73",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-transform::archive",
-   "test": "threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four",
-   "finding": "2038-B77",
    "log": "broad.log"
   }
  ],

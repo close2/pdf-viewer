@@ -967,12 +967,12 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/view/writing.rs, crates/pdf-signature/src/revision.rs
 - test files: crates/pdf-model/tests/forms_data.rs, crates/pdf-model/tests/inherited_reset_defaults_audit.rs, crates/pdf-model/tests/signature_field_lock_spec_audit.rs, crates/pdf-model/tests/usage_rights_annotation_save_spec_audit.rs, crates/pdf-signature/src/revision.rs?, crates/pdf-signature/tests/docmdp_dts_carveout.rs, crates/viewer-core/tests/headless.rs?
 
-- 2038-B13 | pdf-model | behavior-gap | open | field reset overwrites shared ancestor V | 1 manifest failure
-- 2038-B18 | pdf-signature | behavior-gap | open | DocMDP timestamp-only revision unclassified | 1 manifest failure
-- 2038-B40 | pdf-model,pdf-signature | adopted-policy-regression | open | usage rights retained past granted rights | 1 manifest failure
-- 2038-B42 | pdf-signature | unresolved-comparison-policy | open | field rename after signing misclassified | 1 manifest failure
-- 2038-T41 | pdf-signature,pdf-model | test-fixture-validity-gap | open | signed-field lock fixtures invalid
-- 2038-T67 | pdf-signature,viewer-core | test-coverage-gap | open | incremental signed writer test gap
+- 2038-B13 | pdf-model | behavior-gap | fixed (ADR 2995; `writing::holder` stops at the terminal field's `/T`; inherited_reset_defaults_audit passes) | field reset overwrites shared ancestor V | 1 manifest failure
+- 2038-B18 | pdf-signature | behavior-gap | fixed (ADR 2996; a timestamp's field, widget, `/Fields`, `/Annots` and `/SigFlags` registration is validation material; docmdp_dts_carveout passes, its page-change control still refused) | DocMDP timestamp-only revision unclassified | 1 manifest failure
+- 2038-B40 | pdf-model,pdf-signature | adopted-policy-regression | fixed (ADR 2995, amends ADR 0159; a save asks `/Annots /Create` and `/Modify` for what it writes; usage_rights_annotation_save_spec_audit passes) | usage rights retained past granted rights | 1 manifest failure
+- 2038-B42 | pdf-signature | unresolved-comparison-policy | fixed (ADR 2996, amends ADR 1096; a field is in a Table 259 selection under its signed name or its current one; field_mdp_signed_name_spec_audit passes) | field rename after signing misclassified | 1 manifest failure
+- 2038-T41 | pdf-signature,pdf-model | test-fixture-validity-gap | fixed (genuinely signed All, Exclude and `/P` witnesses from the audit's generator; pdf-model `signed_field_lock_shapes`, three tests) | signed-field lock fixtures invalid
+- 2038-T67 | pdf-signature,viewer-core | test-coverage-gap | fixed (the audit's `signed_incremental_save_spec_audit` closes it and passes; nothing remains) | incremental signed writer test gap
 
 
 ## pdf-transform
@@ -983,8 +983,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/archive/attach.rs
 - test files: crates/pdf-transform/tests/archive.rs?
 
-- 2038-B58 | pdf-transform | malformed-input-integrity | open | archive XFA packets non-stream silently dropped | 1 manifest failure
-- 2038-T112 | pdf-transform | test-assurance-gap | open | test control: XFA attachment
+- 2038-B58 | pdf-transform | malformed-input-integrity | fixed (ADR 2997; Annex K's packets read as string-and-stream pairs, else refused by name; the archive test passes) | archive XFA packets non-stream silently dropped | 1 manifest failure
+- 2038-T112 | pdf-transform | test-assurance-gap | fixed (the audit's strengthened test passes; its malformed-array remainder is B58's test) | test control: XFA attachment
 
 ### G081 — PDF/A halftone transfer loss
 
@@ -992,8 +992,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/archive/halftones.rs, crates/pdf-transform/src/archive/rewrite/values.rs
 - test files: crates/pdf-transform/tests/archive.rs
 
-- 2038-B77 | pdf-transform | behavior-gap | open | PDF/A halftone transfer loss | 1 manifest failure
-- 2038-T168 | pdf-transform | assertion-quality | open | PDF/A halftone transfer loss
+- 2038-B77 | pdf-transform | behavior-gap | fixed (ADR 2998, amends ADR 2034; a threshold halftone carrying a transfer function is refused unless the transfer row removes it; the part 4 test passes by refusal) | PDF/A halftone transfer loss | 1 manifest failure
+- 2038-T168 | pdf-transform | assertion-quality | fixed (the part 2 control passes with ADR 2998's refusal in place) | PDF/A halftone transfer loss
 
 ### G082 — hard cap silently merges
 
@@ -1001,7 +1001,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/archive/external.rs
 - test files: crates/pdf-transform/tests/archive_external_components_spec_audit.rs
 
-- 2038-B46 | pdf-transform | file-specification-component-limit | open | hard cap silently merges | 1 manifest failure
+- 2038-B46 | pdf-transform | file-specification-component-limit | open (the merge is `pdf_model::file_spec::MAX_COMPONENTS` in `crates/pdf-model/src/file_spec.rs`, G049's file, held by round 2077; the fix is to stop merging the tail past 256, after that round merges) | hard cap silently merges | 1 manifest failure
 
 ### G083 — split drops contentless structure elements
 
@@ -1009,7 +1009,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/structure/hierarchy.rs
 - test files: crates/pdf-transform/tests/warichu_split_spec_audit.rs
 
-- 2038-B56 | pdf-transform | behavior-gap | open | split drops contentless structure elements | 1 manifest failure
+- 2038-B56 | pdf-transform | behavior-gap | fixed (ADR 2999; a contentless element is kept in place where its parent is; warichu_split_spec_audit passes) | split drops contentless structure elements | 1 manifest failure
 
 ### G084 — apply_protected silently ignores protection under archive; test control: protection reaches outputs
 
@@ -1017,8 +1017,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/lib.rs
 - test files: crates/pdf-transform/tests/protect_dispatch_spec_audit.rs
 
-- 2038-T109 | pdf-transform | test-assurance-gap | open | test control: protection reaches outputs
-- 2038-D56 | pdf-transform | api-contract-gap | open | apply_protected silently ignores protection under archive
+- 2038-T109 | pdf-transform | test-assurance-gap | fixed (the audit's `protect_dispatch_spec_audit` passes; D56's refusal has its own test) | test control: protection reaches outputs
+- 2038-D56 | pdf-transform | api-contract-gap | fixed (ADR 2997; `apply_protected` refuses protection for any verb but the five that write a whole file; archive `an_archive_given_output_protection_is_refused_rather_than_written_plain`) | apply_protected silently ignores protection under archive
 
 ### G085 — web capture omission test doc
 
@@ -1026,7 +1026,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/archive/mod.rs?
 - test files: crates/pdf-transform/tests/split.rs?
 
-- 2038-D32 | pdf-transform | qualified-writer-rationale | open | web capture omission test doc
+- 2038-D32 | pdf-transform | qualified-writer-rationale | fixed (`merge::is_web_capture`'s comment gives the half-structure reason for every version and §3.15 as PDF 2.0's added one; the audit corrected the two test comments) | web capture omission test doc
 
 ### G086 — date writer shares parser with test oracle
 
@@ -1034,7 +1034,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/update.rs
 - test files: crates/pdf-transform/tests/date_spec_audit.rs
 
-- 2038-T01 | pdf-transform | test-oracle-gap | open | date writer shares parser with test oracle
+- 2038-T01 | pdf-transform | test-oracle-gap | fixed (pdf-transform `date_grammar`: §7.9.4 read without `Date::parse`, applied to every date the writer emits) | date writer shares parser with test oracle
 
 ### G087 — archive embedding filter parameters
 
@@ -1042,7 +1042,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/attachments.rs?
 - test files: crates/pdf-transform/tests/archive.rs?
 
-- 2038-T154 | pdf-transform | assertion-quality | open | archive embedding filter parameters
+- 2038-T154 | pdf-transform | assertion-quality | fixed (the audit's archive test closes it and passes) | archive embedding filter parameters
 
 
 ## pdf-archive
@@ -1053,10 +1053,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-archive/src/survey.rs
 - test files: crates/pdf-archive/tests/incomplete_transparency_spec_audit.rs, crates/pdf-archive/tests/transparency_detection_spec_audit.rs, crates/pdf-archive/tests/transparency_resources_spec_audit.rs
 
-- 2038-B35 | pdf-archive | implementation-detection-gap | open | transparency survey over-counts | 1 manifest failure
-- 2038-B37 | pdf-archive | false-validation-result | open | incomplete survey yields Met | 4 manifest failures
-- 2038-T50 | pdf-archive | assertion-coverage-gap | open | transparency survey test gap
-- 2038-D24 | pdf-archive | provisional-source-interpretation | open | transparency survey over-counts
+- 2038-B35 | pdf-archive | implementation-detection-gap | fixed (ADR 2994; Table 166's `/CA` counts only without an appearance stream; transparency_detection_spec_audit passes) | transparency survey over-counts | 1 manifest failure
+- 2038-B37 | pdf-archive | false-validation-result | fixed (ADR 2994; a stopped walk reports the pages it did not see as transparent; incomplete_transparency_spec_audit's four pass) | incomplete survey yields Met | 4 manifest failures
+- 2038-T50 | pdf-archive | assertion-coverage-gap | fixed (the audit's `transparency_resources_spec_audit` closes it and passes) | transparency survey test gap
+- 2038-D24 | pdf-archive | provisional-source-interpretation | fixed (ADR 2994; Annex Q.2 counts elements rendered on the page, so a soft mask's group walked at `gs` no longer marks the page; an element painted under the mask still does; pdf-archive `soft_mask_population`, two tests) | transparency survey over-counts
 
 ### G089 — archive witness gate skips missing named files
 
@@ -1064,7 +1064,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-archive/tests/witnesses.rs
 
-- 2038-D52 | pdf-archive | fixture-policy-hardening | open | archive witness gate skips missing named files
+- 2038-D52 | pdf-archive | fixture-policy-hardening | fixed (the audit's gate change; `witnesses.rs`'s module comment states the present policy) | archive witness gate skips missing named files
 
 ### G090 — test claims too strong
 
@@ -1072,7 +1072,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-archive/src/lib.rs?
 - test files: crates/pdf-archive/tests/verdict.rs?
 
-- 2038-T110 | pdf-archive | test-assurance-gap | open | test claims too strong
+- 2038-T110 | pdf-archive | test-assurance-gap | fixed (the audit's restricted-source test closes it and passes) | test claims too strong
 
 
 ## pdf-ccitt
@@ -1083,7 +1083,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-ccitt/src/lib.rs?
 - test files: crates/pdf-model/tests/ccitt_eob_rows_spec_audit.rs
 
-- 2038-T152 | pdf-ccitt,pdf-model | assertion-quality | open | CCITT EndOfBlock rows
+- 2038-T152 | pdf-ccitt,pdf-model | assertion-quality | fixed (the audit's `ccitt_eob_rows_spec_audit` closes it and passes) | CCITT EndOfBlock rows
 
 
 ## render-cpu

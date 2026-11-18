@@ -1431,10 +1431,17 @@ pub fn apply(
 /// and this is about what the *output* will assert over its next one. It sits beside
 /// [`Source`], which is where §7.6.4.1's other password already lives.
 ///
+/// **The protection applies to the verbs that write a whole file through the serializer** —
+/// split, merge, pages, optimize and redact. Any other verb given one is refused rather than run
+/// without it, because a caller that asked for an encrypted output and received a plain one has
+/// been told nothing: `archive` writes a PDF/A file, whose trailer ISO 19005's
+/// `file-structure/no-encryption` forbids to state `/Encrypt`, and the rest write images,
+/// listings or an appended update, none of which an encryption dictionary belongs in.
+///
 /// # Errors
 ///
 /// [`apply`]'s, plus a [`Refusal::Assembly`] naming §7.6.4 where a password or a randomness
-/// source refuses.
+/// source refuses, or where `protect` is given to a verb that writes no protected file.
 pub fn apply_protected(
     plan: &Plan,
     sources: &[&Source],
@@ -1443,6 +1450,19 @@ pub fn apply_protected(
     budget: &Budget,
     protect: Option<&Protect>,
 ) -> Result<Report, Refusal> {
+    if protect.is_some()
+        && !matches!(
+            plan,
+            Plan::Split(_) | Plan::Merge(_) | Plan::Pages(_) | Plan::Optimize(_) | Plan::Redact(_)
+        )
+    {
+        return Err(Refusal::Assembly(
+            "§7.6.4's protection applies to split, merge, pages, optimize and redact, the verbs \
+             that write a whole file; this verb writes no file an encryption dictionary belongs \
+             in (an archive's PDF/A output may state no /Encrypt)"
+                .to_owned(),
+        ));
+    }
     run_plan(plan, sources, sinks, *policy, budget, protect)
 }
 

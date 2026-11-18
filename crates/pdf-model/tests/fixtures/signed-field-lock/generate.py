@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate a valid CAdES PDF signature fixture plus an unsigned field control.
+"""Generate valid CAdES PDF signature fixtures, one per Table 236 lock shape, plus an unsigned
+field control.
 
 The private key and certificate are fresh test-only credentials written under the output
 directory. Regeneration is semantically equivalent but not byte-identical (CMS signingTime).
@@ -19,7 +20,16 @@ def run(*args: str) -> None:
     subprocess.run(args, check=True)
 
 
-def document(signed: bool) -> bytearray:
+# Table 236's three /Action values, and /P beside an Include list: the output name, then the lock.
+LOCKS = [
+    ("signed-lock.pdf", "<< /Type /SigFieldLock /Action /Include /Fields [(name)] >>"),
+    ("signed-lock-all.pdf", "<< /Type /SigFieldLock /Action /All >>"),
+    ("signed-lock-exclude.pdf", "<< /Type /SigFieldLock /Action /Exclude /Fields [(name)] >>"),
+    ("signed-lock-p.pdf", "<< /Type /SigFieldLock /Action /Include /Fields [(name)] /P 1 >>"),
+]
+
+
+def document(signed: bool, lock: str = LOCKS[0][1]) -> bytearray:
     value = "/V 4 0 R " if signed else ""
     appearance = b"q 0 g 0 0 100 20 re f Q\n"
     bodies = [
@@ -30,7 +40,7 @@ def document(signed: bool) -> bytearray:
         f"<< /Type /Annot /Subtype /Widget /FT /Sig /T (signature) {value}/Lock 8 0 R /Rect [0 0 0 0] /F 4 /P 3 0 R /AP << /N 9 0 R >> >>",
         "<< /Type /Annot /Subtype /Widget /FT /Btn /T (name) /V /Off /AS /Off /Rect [10 10 110 30] /F 4 /P 3 0 R /AP << /N << /Off 10 0 R /On 9 0 R >> >> >>",
         "<< /Type /Annot /Subtype /Widget /FT /Btn /T (other) /V /Off /AS /Off /Rect [10 50 110 70] /F 4 /P 3 0 R /AP << /N << /Off 10 0 R /On 9 0 R >> >> >>",
-        "<< /Type /SigFieldLock /Action /Include /Fields [(name)] >>",
+        lock,
         f"<< /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 100 20] /Resources << >> /Length {len(appearance)} >>\nstream\n{appearance.decode()}endstream",
         "<< /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 100 20] /Resources << >> /Length 0 >>\nstream\nendstream",
     ]
@@ -64,13 +74,8 @@ def document(signed: bool) -> bytearray:
     return data
 
 
-def main() -> None:
-    run("openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", "-days", "3650",
-        "-subj", "/CN=Quorra Form Lock Fixture/O=Quorra Test Only", "-addext", "basicConstraints=critical,CA:FALSE",
-        "-addext", "keyUsage=critical,digitalSignature", "-keyout", str(OUT / "test-only-key.pem"),
-        "-out", str(OUT / "test-only-cert.pem"))
-    run("openssl", "x509", "-in", str(OUT / "test-only-cert.pem"), "-outform", "DER", "-out", str(OUT / "test-only-cert.der"))
-    pdf = document(True)
+def sign(name: str, lock: str) -> None:
+    pdf = document(True, lock)
     value_start = pdf.index(b"/Contents <") + len(b"/Contents ")
     value_end = pdf.index(b">", value_start) + 1
     unsigned_bytes = bytes(pdf[:value_start] + pdf[value_end:])
@@ -81,12 +86,22 @@ def main() -> None:
     capacity = value_end - value_start - 2
     assert len(signature) <= capacity
     pdf[value_start + 1 : value_end - 1] = signature + b"0" * (capacity - len(signature))
-    (OUT / "signed-lock.pdf").write_bytes(pdf)
-    unsigned = document(False)
-    (OUT / "unsigned-lock.pdf").write_bytes(unsigned)
+    (OUT / name).write_bytes(pdf)
     run("openssl", "cms", "-verify", "-binary", "-inform", "DER", "-in", str(OUT / "signature.der"),
         "-content", str(OUT / "cades-signed-content.bin"), "-CAfile", str(OUT / "test-only-cert.pem"), "-out", "/dev/null")
-    run("qpdf", "--check", str(OUT / "signed-lock.pdf"))
+    run("qpdf", "--check", str(OUT / name))
+
+
+def main() -> None:
+    run("openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", "-days", "3650",
+        "-subj", "/CN=Quorra Form Lock Fixture/O=Quorra Test Only", "-addext", "basicConstraints=critical,CA:FALSE",
+        "-addext", "keyUsage=critical,digitalSignature", "-keyout", str(OUT / "test-only-key.pem"),
+        "-out", str(OUT / "test-only-cert.pem"))
+    run("openssl", "x509", "-in", str(OUT / "test-only-cert.pem"), "-outform", "DER", "-out", str(OUT / "test-only-cert.der"))
+    for name, lock in LOCKS:
+        sign(name, lock)
+    unsigned = document(False)
+    (OUT / "unsigned-lock.pdf").write_bytes(unsigned)
     run("qpdf", "--check", str(OUT / "unsigned-lock.pdf"))
     run("openssl", "x509", "-in", str(OUT / "test-only-cert.pem"), "-noout", "-dates", "-subject")
     (OUT / "test-only-key.pem").unlink(missing_ok=True)

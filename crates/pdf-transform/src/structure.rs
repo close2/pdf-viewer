@@ -217,6 +217,8 @@ struct Element {
 enum Outcome {
     /// A kept child.
     Kept(Child),
+    /// A child element stating no children, kept where its parent is, with its `/ID` if any.
+    Contentless(ObjectId, Option<Object>),
     /// A content item on a page the output does not hold.
     DroppedItem,
     /// A marked-content item with no `/Pg` anywhere to place it on.

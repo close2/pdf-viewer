@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use pdf_signature::signature::Operation;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::fields::{field_name_of, named_field, state_name, toggles};
@@ -199,7 +200,8 @@ impl ViewState {
             update.owe_appearances(document);
         }
         if !update.is_empty()
-            && let Some((id, catalog)) = withdrawn_usage_rights(document, &update)
+            && let Some((id, catalog)) =
+                withdrawn_usage_rights(document, &update, &self.annotation_operations())
         {
             update.put(id, Object::Dictionary(catalog));
         }
@@ -315,6 +317,20 @@ impl ViewState {
         (unkept, resource.before_save(&fields))
     }
 
+    /// Table 258's `/Annots` operations a save of this log carries out: `Create` where a person
+    /// added an annotation and `Modify` where one retyped an annotation the file states, for
+    /// [`withdrawn_usage_rights`] to ask of a usage rights signature.
+    fn annotation_operations(&self) -> Vec<Operation> {
+        let mut operations = Vec::new();
+        if !self.added.is_empty() {
+            operations.push(Operation::AnnotationCreated);
+        }
+        if !self.retyped.is_empty() {
+            operations.push(Operation::AnnotationModified);
+        }
+        operations
+    }
+
     /// Writes §12.7.6.3's reset onto the fields it reached and nothing has replaced since.
     ///
     /// > Upon invocation of a reset-form action, an interactive PDF processor shall reset selected
@@ -354,6 +370,14 @@ impl ViewState {
                 }
                 Some(object) => {
                     field.insert(Name::new(&b"V"[..]), object.clone());
+                }
+                // The field states no `/V` of its own, so the value it shows is a nonterminal
+                // ancestor's, and removing that entry is the only removal the sentence can mean.
+                None if document.get_key(&field, "V").is_null() => {
+                    if let Some((owner, mut stated)) = value_owner(document, id, field.clone()) {
+                        stated.remove("V");
+                        update.put(owner, Object::Dictionary(stated));
+                    }
                 }
                 None => {
                     field.remove("V");
@@ -1336,12 +1360,17 @@ impl Update {
 
 /// The object a widget's value belongs on, walking §12.7.4.1's `/Parent` chain.
 ///
-/// Two stopping conditions, in this order. A dictionary that already states a `/V` is the one
-/// whose value the inheritance is reading, so replacing it is replacing what the widget shows. A
-/// dictionary that states a `/FT` is the *field* — Table 226 makes the type an entry of the
-/// field rather than of its widgets — and where nothing in the chain has a value yet, the field
-/// is where one belongs: writing it onto one widget of a field with several would leave the
-/// others reading the old inheritance.
+/// Three stopping conditions, whichever the walk meets first. A dictionary that already states a
+/// `/V` is the one whose value the inheritance is reading, so replacing it is replacing what the
+/// widget shows. A dictionary that states a `/T` is the widget's own *terminal field*: §12.7.4.1
+/// gives a field its value and lets its kids that are widgets inherit it, so the first partial
+/// name on the chain is the field the value is the value of, and a `/V` stated above it belongs to
+/// a nonterminal field whose other terminal fields inherit it too — writing one field's value there
+/// would rewrite its siblings' (ISO 32000-2 Table 226, `/V` and `/DV`; ADR 2995). A dictionary that states a
+/// `/FT` is the field where a chain names no partial name — Table 226 makes the type an entry of
+/// the field rather than of its widgets — and where nothing in the chain has a value yet, the field
+/// is where one belongs: writing it onto one widget of a field with several would leave the others
+/// reading the old inheritance.
 ///
 /// The chain is followed to its top, which §12.7.4.1 asks; one that returns to a field it has
 /// passed stops where the cycle is found, at the last object the walk reached (ADR 2448).
@@ -1353,13 +1382,32 @@ fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId,
         let Some(id) = id else {
             break;
         };
-        let stops = !document.get_key(&current, "V").is_null() || current.get("FT").is_some();
+        let stops = !document.get_key(&current, "V").is_null()
+            || current.get("T").is_some()
+            || current.get("FT").is_some();
         last = (id, current);
         if stops {
             break;
         }
     }
     last
+}
+
+/// The nearest object on §12.7.4.1's `/Parent` chain, from `field` upwards, that states the `/V`
+/// the field inherits, or `None` where no object on the chain states one.
+fn value_owner(
+    document: &Document,
+    field: ObjectId,
+    dict: Dictionary,
+) -> Option<(ObjectId, Dictionary)> {
+    let fetch = |id: ObjectId| document.get(id).as_dict().cloned();
+    for (id, current) in Ancestors::from((Some(field), dict), fetch) {
+        if !document.get_key(&current, "V").is_null() {
+            // A parent written inside its child has no object the removal could be written onto.
+            return id.map(|id| (id, current));
+        }
+    }
+    None
 }
 
 /// §12.8.2.3's withdrawal: the object to rewrite so that `/UR3` is gone, if it has to go.
@@ -1369,10 +1417,13 @@ fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId,
 /// > PDF.
 ///
 /// A `should`, and the only clause in §12.8 that binds this program because it *writes* rather
-/// than because it reads. What it modifies is a form field's value and then the file itself, so
-/// the two rights to check are Table 258's `/Form /FillIn` and `/Document /FullSave`; where
-/// either is withheld, the signature stops applying to the file this program is about to
-/// produce, and leaving it there would leave a statement about bytes nobody signed.
+/// than because it reads. What it modifies is a form field's value, the annotations a person
+/// added or retyped, and then the file itself, so the rights to check are Table 258's
+/// `/Form /FillIn` and `/Document /FullSave`, and `/Annots /Create` and `/Annots /Modify` for
+/// each of the two annotation operations the save carries out (`annotations`, from
+/// [`ViewState::annotation_operations`]); where any is withheld, the signature stops applying to
+/// the file this program is about to produce, and leaving it there would leave a statement about
+/// bytes nobody signed (ADR 2995).
 ///
 /// # What "remove that signature" is, in a file that may only be appended to
 ///
@@ -1398,12 +1449,21 @@ fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId,
 /// Nothing this program can do to a corpus document exceeds its rights, and this function
 /// returns `None` for all four. It is written because the
 /// clause is, not because a file asked — trap 11's discipline with the answer the other way up.
-/// ADR 0159.
-fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(ObjectId, Dictionary)> {
+/// ADR 0159, and ADR 2995 for the annotation rights.
+fn withdrawn_usage_rights(
+    document: &Document,
+    update: &Update,
+    annotations: &[Operation],
+) -> Option<(ObjectId, Dictionary)> {
     use pdf_signature::signature::Right;
 
     let rights = pdf_signature::signature::permissions(document).usage_rights?;
-    if rights.grants(Right::FillInForm) && rights.grants(Right::FullSave) {
+    if rights.grants(Right::FillInForm)
+        && rights.grants(Right::FullSave)
+        && annotations
+            .iter()
+            .all(|operation| rights.permits(*operation))
+    {
         return None;
     }
     // As the update has it, where an earlier rewrite — §7.11.4's tree holder — replaced it: two

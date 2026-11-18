@@ -8,6 +8,18 @@ use pdf_syntax::object::{Dictionary, Object, ObjectId};
 use super::{Carry, Child, Element, Host, MAX_DEPTH, Outcome, children_of};
 use crate::Refusal;
 
+/// What [`Carry::keep`] found one element to reach.
+#[derive(Debug, PartialEq)]
+enum Reach {
+    /// A page the output holds, through the element's own content or a descendant's.
+    Page,
+    /// Nothing, because the element states no children at all; it carries its `/ID`, if any,
+    /// for the parent that keeps it.
+    Contentless(Option<Object>),
+    /// No page the output holds.
+    Nothing,
+}
+
 impl Carry {
     /// Walks one source's hierarchy from the structure tree root, keeping what reaches a page.
     ///
@@ -36,7 +48,7 @@ impl Carry {
                 self.dropped = self.dropped.saturating_add(1);
                 continue;
             };
-            if self.keep(host, at, id, None, carried, &mut seen, 0)? {
+            if self.keep(host, at, id, None, carried, &mut seen, 0)? == Reach::Page {
                 self.tops.push((at, id));
             }
         }
@@ -48,6 +60,13 @@ impl Carry {
     /// Depth-first and bottom-up, because an element is kept for its descendants as much as for
     /// its own content: §14.7.2 makes `/K` "\[t]he children of this structure element", and an
     /// ancestor of a kept child is what holds it in the hierarchy.
+    ///
+    /// **An element with no children at all goes where its parent goes.** Table 355 makes `/K`
+    /// optional, so an element may state no content and be on no page, and the hierarchy around
+    /// it can still require it: Table 369 has a `Warichu` hold `WP`, `WT`, `WP` in that order,
+    /// where a `WP` holding no punctuation is still the boundary the sequence names. Such an
+    /// element is [`Reach::Contentless`], and its parent keeps it, in its place among the kept
+    /// children, whenever something else keeps the parent (ADR 2999).
     ///
     /// # Errors
     ///
@@ -66,16 +85,16 @@ impl Carry {
         carried: &BTreeMap<ObjectId, ObjectId>,
         seen: &mut BTreeSet<ObjectId>,
         depth: usize,
-    ) -> Result<bool, Refusal> {
+    ) -> Result<Reach, Refusal> {
         if depth >= MAX_DEPTH || !seen.insert(id) {
-            return Ok(false);
+            return Ok(Reach::Nothing);
         }
         let (children, own_page, stated_page, identifier) = {
             let Some(document) = host.source(at) else {
-                return Ok(false);
+                return Ok(Reach::Nothing);
             };
             let Object::Dictionary(element) = document.get(id) else {
-                return Ok(false);
+                return Ok(Reach::Nothing);
             };
             // Table 355's `/Pg`: "( Optional; required if K is an integer object or an array
             // containing integer objects; shall be an indirect reference ) A page object
@@ -90,8 +109,13 @@ impl Carry {
             };
             (children, own, stated, identifier)
         };
+        if children.is_empty() && parent.is_some() {
+            return Ok(Reach::Contentless(identifier));
+        }
 
         let mut kept: Vec<Child> = Vec::new();
+        // The contentless children, by their position in `kept`, decided once the rest is.
+        let mut contentless: Vec<(usize, ObjectId, Option<Object>)> = Vec::new();
         for child in &children {
             match self.child(
                 host,
@@ -105,6 +129,9 @@ impl Carry {
                 depth,
             )? {
                 Outcome::Kept(child) => kept.push(child),
+                Outcome::Contentless(element, identifier) => {
+                    contentless.push((kept.len(), element, identifier));
+                }
                 Outcome::DroppedItem => {
                     self.dropped_items = self.dropped_items.saturating_add(1);
                 }
@@ -118,9 +145,27 @@ impl Carry {
         if kept.is_empty() {
             // The element reaches no page the output holds. It is *blocked* rather than merely
             // skipped, so that a `/Ref` or an attribute naming it cannot drag its subtree in.
+            for (_, element, _) in &contentless {
+                host.block_object(at, *element);
+                self.dropped = self.dropped.saturating_add(1);
+            }
             host.block_object(at, id);
             self.dropped = self.dropped.saturating_add(1);
-            return Ok(false);
+            return Ok(Reach::Nothing);
+        }
+        // Inserted from the last, so that each position still counts the children before it.
+        for (position, element, identifier) in contentless.into_iter().rev() {
+            if let Some(Object::String(bytes)) = identifier {
+                self.ids.entry(bytes.to_vec()).or_insert((at, element));
+            }
+            self.elements.push(Element {
+                at,
+                source: element,
+                parent: Some(id),
+                children: Vec::new(),
+                page: None,
+            });
+            kept.insert(position, Child::Element(element));
         }
         // Table 355's `/ID`: "The string shall be unique among all elements in the document's
         // structure hierarchy." Recorded here, checked once the whole hierarchy is decided, so
@@ -135,7 +180,7 @@ impl Carry {
             children: kept,
             page: own_page.and_then(|page| carried.get(&page).copied()),
         });
-        Ok(true)
+        Ok(Reach::Page)
     }
 
     /// What one child of an element turned out to be.
@@ -201,19 +246,23 @@ impl Carry {
                             self.dropped = self.dropped.saturating_add(1);
                             return Ok(Outcome::Dropped);
                         };
-                        if self.keep(
-                            host,
-                            at,
-                            id,
-                            Some(parent),
-                            carried,
-                            seen,
-                            depth.saturating_add(1),
-                        )? {
-                            Ok(Outcome::Kept(Child::Element(id)))
-                        } else {
-                            Ok(Outcome::Dropped)
-                        }
+                        Ok(
+                            match self.keep(
+                                host,
+                                at,
+                                id,
+                                Some(parent),
+                                carried,
+                                seen,
+                                depth.saturating_add(1),
+                            )? {
+                                Reach::Page => Outcome::Kept(Child::Element(id)),
+                                Reach::Contentless(identifier) => {
+                                    Outcome::Contentless(id, identifier)
+                                }
+                                Reach::Nothing => Outcome::Dropped,
+                            },
+                        )
                     }
                 }
             }

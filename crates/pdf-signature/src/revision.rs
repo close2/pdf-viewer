@@ -359,7 +359,9 @@ pub enum Kind {
     Annotation,
     /// An appearance stream belonging to an annotation this update created, changed or removed.
     AnnotationAppearance,
-    /// §12.8.4's validation material, or §12.8.5's document timestamp.
+    /// §12.8.4's validation material, or §12.8.5's document timestamp with the registration it
+    /// needs: the signature field whose value it is, that field's place in the form's `/Fields`
+    /// and its page's `/Annots`, and the catalog's `/DSS` entry.
     ///
     /// What Table 257 carves out of the question entirely, *when a whole update holds nothing
     /// else*: "\[c]hanges to a PDF that are incremental updates which include only the data
@@ -1192,9 +1194,17 @@ impl Comparison {
             let (field, included) = match self.subjects.get(&number) {
                 None => (None, Included::Excluded),
                 Some(Subject::Unnamed) => (None, Included::Undecided),
-                Some(Subject::Field { name, under }) => {
+                Some(Subject::Field {
+                    name,
+                    signed_name,
+                    under,
+                }) => {
                     if whole_form || under.contains(&data.number) {
-                        let included = if transform.selection.covers(name) {
+                        let covered = transform.selection.covers(name)
+                            || signed_name
+                                .as_deref()
+                                .is_some_and(|signed| transform.selection.covers(signed));
+                        let included = if covered {
                             Included::Covered
                         } else {
                             Included::Outside
@@ -1363,6 +1373,7 @@ fn classify(
     BTreeMap<Exercise, Objects>,
 ) {
     let material = validation_material(current);
+    let timestamps = timestamp_fields(current, touched);
     // Read out of the **signed** revision, which is the whole of what makes the answer mean
     // anything: a template the update itself added is not one the signer put out of the page
     // tree's reach, so instantiating "it" would be a page composed after signing.
@@ -1393,7 +1404,14 @@ fn classify(
         };
         let offset = placement(current.xref(), number).map(|(at, _)| at);
         let (kind, exercise) = classify_one(
-            signed, current, number, bucket, &material, tables, offset, &templates,
+            signed,
+            current,
+            number,
+            bucket,
+            (&material, &timestamps),
+            tables,
+            offset,
+            &templates,
         );
         if let Some(dict) = dictionary_of(&held.get(held.defined_id(number))) {
             let owned = appearances(held, &dict);
@@ -1591,7 +1609,7 @@ fn classify_one(
     current: &Document,
     number: u32,
     bucket: Bucket,
-    material: &BTreeSet<u32>,
+    (material, timestamps): (&BTreeSet<u32>, &BTreeSet<u32>),
     tables: &BTreeSet<usize>,
     offset: Option<usize>,
     templates: &[Vec<u8>],
@@ -1611,7 +1629,11 @@ fn classify_one(
     {
         return (Kind::CrossReferenceStream, Exercise::Nothing);
     }
-    if material.contains(&number) || name(&dict, "Type").as_deref() == Some("DocTimeStamp") {
+    let timestamp = bucket != Bucket::Removed && timestamps.contains(&number);
+    if material.contains(&number)
+        || timestamp
+        || name(&dict, "Type").as_deref() == Some("DocTimeStamp")
+    {
         // **The two tables part company here.** Table 257 carves a DSS or document-timestamp
         // update out of the question entirely; Table 258 states no such carve-out and names no
         // right that covers one, so the same object is disregarded there and refused here.
@@ -1632,9 +1654,7 @@ fn classify_one(
             }
             let was = dictionary_of(&before).unwrap_or_default();
             let moved = changed_keys(&was, &dict);
-            if moved.len() == 1 && moved.contains(b"DSS".as_slice()) {
-                // §12.8.4.3: the store "shall be the value of a DSS key in the document catalog
-                // dictionary", so the catalog gaining one is part of adding the store.
+            if registers_material(current, &was, &dict, &moved, timestamps) {
                 return (Kind::ValidationMaterial, Exercise::Unrecognised);
             }
             if let Some(field) = field {
@@ -1705,6 +1725,111 @@ fn classify_one(
     }
 }
 
+/// The signature fields of the current revision whose value is §12.8.5's document timestamp,
+/// and their widgets, among the objects an update touched.
+///
+/// §12.8.1 states where such a dictionary lives: "The timestamp signature dictionary of a document
+/// timestamp signature shall be the value of a signature field". So the field, and the widget
+/// annotation through which §12.7.5.5 places a signature field on a page, are data necessary to
+/// add the timestamp, as the timestamp dictionary itself is.
+fn timestamp_fields(current: &Document, touched: &[(u32, Bucket)]) -> BTreeSet<u32> {
+    let holds_timestamp = |dict: &Dictionary| {
+        let value = current.get_key(dict, "V");
+        value
+            .as_dict()
+            .is_some_and(|value| name(value, "Type").as_deref() == Some("DocTimeStamp"))
+    };
+    let mut found = BTreeSet::new();
+    for &(number, bucket) in touched {
+        if bucket == Bucket::Removed {
+            continue;
+        }
+        let Some(dict) = dictionary_of(&current.get(current.defined_id(number))) else {
+            continue;
+        };
+        if field_type(current, &dict).as_deref() != Some("Sig") {
+            continue;
+        }
+        // A widget kid states no `/V`; §12.7.4.1 makes it its field's, one `/Parent` up.
+        let parent = current.get_key(&dict, "Parent");
+        if holds_timestamp(&dict) || parent.as_dict().is_some_and(&holds_timestamp) {
+            found.insert(number);
+        }
+    }
+    found
+}
+
+/// Whether a redefined dictionary changed only to register §12.8.4.3's store or §12.8.5's
+/// timestamps: the catalog gaining `/DSS`, and an array of fields or of annotations that kept
+/// every member it had and gained only timestamp fields.
+///
+/// §12.8.4.3: the store "shall be the value of a DSS key in the document catalog dictionary", so
+/// the catalog gaining one is part of adding the store. A timestamp is the value of a signature
+/// field (§12.8.1), a field is part of the form only if `/Fields` reaches it (§12.7.3, Table 224),
+/// and its widget is on its page only if the page's `/Annots` names it (Table 31), so those two
+/// arrays gaining it are part of adding the timestamp too. Table 224's `/SigFlags`, whose flags
+/// Table 225 lists, describes the form's signature fields, so it may move beside `/Fields`.
+/// Anything else that moved is a change (ADR 2996).
+fn registers_material(
+    current: &Document,
+    was: &Dictionary,
+    now: &Dictionary,
+    moved: &BTreeSet<Vec<u8>>,
+    timestamps: &BTreeSet<u32>,
+) -> bool {
+    if moved.is_empty() {
+        return false;
+    }
+    let only_gains_timestamps = |key: &str, before: &Dictionary, after: &Dictionary| {
+        let members = |dict: &Dictionary| -> Option<Vec<u32>> {
+            match current.get_key(dict, key) {
+                Object::Null => Some(Vec::new()),
+                Object::Array(items) => items
+                    .iter()
+                    .map(|item| match item {
+                        Object::Reference(id) => Some(id.number),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => None,
+            }
+        };
+        let (Some(before), Some(after)) = (members(before), members(after)) else {
+            return false;
+        };
+        let kept: Vec<u32> = after
+            .iter()
+            .copied()
+            .filter(|number| !timestamps.contains(number))
+            .collect();
+        kept == before && after.len() > before.len()
+    };
+    let is_form = now.get("Fields").is_some();
+    moved.iter().all(|key| match key.as_slice() {
+        b"DSS" => true,
+        b"Annots" => only_gains_timestamps("Annots", was, now),
+        b"Fields" => only_gains_timestamps("Fields", was, now),
+        b"SigFlags" => is_form,
+        // The interactive form dictionary written inside the catalog.
+        b"AcroForm" => {
+            let (Some(before), Some(after)) = (
+                current.get_key(was, "AcroForm").as_dict().cloned(),
+                current.get_key(now, "AcroForm").as_dict().cloned(),
+            ) else {
+                return false;
+            };
+            let inner = changed_keys(&before, &after);
+            !inner.is_empty()
+                && inner.iter().all(|key| match key.as_slice() {
+                    b"Fields" => only_gains_timestamps("Fields", &before, &after),
+                    b"SigFlags" => true,
+                    _ => false,
+                })
+        }
+        _ => false,
+    })
+}
+
 /// Every object number the current catalog's `/DSS` reaches, and the store itself.
 ///
 /// Each of Table 261's three arrays is "An array of indirect reference to streams", and a VRI
@@ -1762,6 +1887,12 @@ enum Subject {
         /// The fully qualified name, "formed by appending the child field's partial name to the
         /// parent's fully qualified name, separated by a PERIOD (2Eh)".
         name: String,
+        /// The name the signed revision gave the same object, where an update renamed it.
+        ///
+        /// Table 259's `/Fields` was signed against the names the signer saw, and a rename does
+        /// not take a field out of what the signer locked: an object is in a selection if either
+        /// name is (ADR 2996).
+        signed_name: Option<String>,
         /// The field objects it sits under, itself first and then each ancestor.
         ///
         /// Table 256's `/Data` may name a field rather than the whole form, and this is what says
@@ -1776,7 +1907,7 @@ enum Subject {
 ///
 /// Entries already present are kept, so a caller walking the current state first and the signed
 /// one after it gets each field named as it is named *now* and still hears about a field the
-/// update removed.
+/// update removed; a field the update renamed keeps its signed name beside the current one.
 fn field_subjects(document: &Document, into: &mut BTreeMap<u32, Subject>) {
     let Ok(catalog) = document.catalog() else {
         return;
@@ -1792,6 +1923,25 @@ fn field_subjects(document: &Document, into: &mut BTreeMap<u32, Subject>) {
     let mut seen = BTreeSet::new();
     for field in &fields {
         walk_field_subjects(document, field, None, &[], into, &mut seen, 0);
+    }
+}
+
+/// Records `subject` for `number`, or, where an earlier walk named the object differently, the
+/// second walk's name as [`Subject::Field::signed_name`].
+fn record(into: &mut BTreeMap<u32, Subject>, number: u32, subject: &Subject) {
+    match (into.get_mut(&number), subject) {
+        (None, _) => {
+            into.insert(number, subject.clone());
+        }
+        (
+            Some(Subject::Field {
+                name, signed_name, ..
+            }),
+            Subject::Field { name: signed, .. },
+        ) if name != signed && signed_name.is_none() => {
+            *signed_name = Some(signed.clone());
+        }
+        _ => {}
     }
 }
 
@@ -1845,17 +1995,18 @@ fn walk_field_subjects(
     let subject = match &name {
         Some(name) => Subject::Field {
             name: name.clone(),
+            signed_name: None,
             under: under.clone(),
         },
         None => Subject::Unnamed,
     };
     if let Some(id) = field.as_reference() {
-        into.entry(id.number).or_insert_with(|| subject.clone());
+        record(into, id.number, &subject);
         // Table 166's `/AP` belongs to the field the way `/V` does — it is what §12.7.4.3 has the
         // processor construct *for* a value — so an appearance stream rewritten by an update is a
         // change to the field it draws, and a transform naming that field reaches it.
         for appearance in appearances(document, dict) {
-            into.entry(appearance).or_insert_with(|| subject.clone());
+            record(into, appearance, &subject);
         }
     }
     if let Some(kids) = document

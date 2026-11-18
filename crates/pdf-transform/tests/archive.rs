@@ -17327,3 +17327,35 @@ fn threshold_transfer_under_pdf_a_two_requires_separate_loss_authorisation() {
         }
     }
 }
+
+/// `apply_protected` refuses an archive given output protection rather than writing a plain
+/// file: ISO 19005's `file-structure/no-encryption` keeps `/Encrypt` out of the PDF/A output, and
+/// a caller that asked for protection and received none would have been told nothing.
+#[test]
+fn an_archive_given_output_protection_is_refused_rather_than_written_plain() {
+    let plan = plan_from("", Target::Four(Flavour::Plain));
+    let sinks = MemorySinks::new();
+    let source = Source::new(Conforming::default().build());
+    let protect = pdf_transform::Protect {
+        user_password: pdf_transform::Secret::from("reader".to_owned()),
+        owner_password: pdf_transform::Secret::from("owner".to_owned()),
+        access: pdf_transform::Access::ALL,
+        encrypt_metadata: true,
+    };
+    let refused = pdf_transform::apply_protected(
+        &Plan::Archive(plan.clone()),
+        &[&source],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+        Some(&protect),
+    );
+    assert!(
+        matches!(&refused, Err(pdf_transform::Refusal::Assembly(reason)) if reason.contains("§7.6.4")),
+        "{refused:?}"
+    );
+    assert!(sinks.into_outputs().is_empty(), "nothing is written");
+    // The control: the same plan with no protection converts.
+    let (_, output) = convert_with_plan(&Conforming::default().build(), &plan);
+    assert!(output.is_some(), "the unprotected archive is written");
+}
