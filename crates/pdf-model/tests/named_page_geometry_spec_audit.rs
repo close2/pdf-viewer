@@ -35,7 +35,7 @@ fn target_pdf() -> Vec<u8> {
         "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
         "<< /Type /Annot /Subtype /Widget /Rect [40 40 140 140] /F 4 /FT /Btn /Ff 65536 /T (press) /AP << /N 8 0 R >> >>".to_owned(),
         "null".to_owned(),
-        "<< /Type /Font /Subtype /Type1 /BaseFont /InheritedOnlyetica /Encoding /WinAnsiEncoding >>".to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_owned(),
         "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> /Length 0 >>\nstream\n\nendstream".to_owned(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 120 120] /CropBox [0 0 100 100] /Rotate 90 /Group << /S /Transparency /CS /DeviceRGB /I true >> /Contents 10 0 R >>".to_owned(),
         format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),

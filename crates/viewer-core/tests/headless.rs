@@ -39,11 +39,52 @@ fn specification_bytes() -> Vec<u8> {
 }
 
 /// A corpus document's bytes, or `None` when the submodule is not checked out.
+///
+/// A file missing from a corpus that is checked out panics rather than skipping: a test that
+/// names a file the corpus does not hold would otherwise pass without asserting anything.
 fn corpus_bytes(name: &str) -> Option<Vec<u8>> {
-    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../doc/pdf.js/test/pdfs")
-        .join(name);
-    std::fs::read(path).ok()
+    let root: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+    if !root.is_dir() {
+        return None;
+    }
+    let path = root.join(name);
+    Some(std::fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "the corpus is present but {} is missing: {error}",
+            path.display()
+        )
+    }))
+}
+
+/// A one-page PDF with exact offsets whose page draws `content`.
+fn page_with_content(content: &str) -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_owned(),
+        format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+    ];
+    let mut pdf = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (number, object) in (1..).zip(&objects) {
+        offsets.push(pdf.len());
+        write!(pdf, "{number} 0 obj\n{object}\nendobj\n").expect("String write");
+    }
+    let xref = pdf.len();
+    let size = objects.len().saturating_add(1);
+    write!(pdf, "xref\n0 {size}\n0000000000 65535 f \n").expect("String write");
+    for offset in offsets {
+        writeln!(pdf, "{offset:010} 00000 n ").expect("String write");
+    }
+    write!(
+        pdf,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    )
+    .expect("String write");
+    pdf.into_bytes()
 }
 
 /// The document every test here opens, unless it says otherwise.
@@ -837,13 +878,11 @@ fn a_rebuild_says_what_it_recovered_from_an_object_stream() {
 
 #[test]
 fn a_page_that_could_not_be_drawn_whole_says_so() {
-    // Trap 5's channel, end to end. `issue1155.pdf` is one of the corpus documents whose first
-    // page this program cannot draw entirely, and the point of the test is that the host is
-    // *told* rather than handed a page that looks finished.
-    let Some(bytes) = corpus_bytes("issue1155.pdf") else {
-        eprintln!("skipped: doc/pdf.js is not checked out");
-        return;
-    };
+    // Trap 5's channel, end to end. The page's content stream ends in an operator Table 50 does
+    // not list, outside any `BX`/`EX` section, so this program cannot draw the page entirely,
+    // and the point of the test is that the host is *told* rather than handed a page that looks
+    // finished. Built here, so that it runs on every checkout.
+    let bytes = page_with_content("0 0 10 10 re f 17 futureOp");
     let mut viewer = Viewer::new(800, 1000, 1.0);
     let events: Vec<_> = viewer
         .handle(Command::Open {

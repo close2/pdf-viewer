@@ -43,12 +43,6 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-/// How many components a file specification string may hold.
-///
-/// A path is not a data structure a document should be able to make arbitrarily large; the
-/// bound is far past any real one and exists because the split is linear in the string.
-const MAX_COMPONENTS: usize = 256;
-
 /// §7.11.3's `/FS`, "\[t]he name of the file system that shall be used to interpret this file
 /// specification".
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -321,6 +315,12 @@ impl FileSpec {
     /// with no `/F` at all. An *empty component* is not the same thing and is kept: "\[a]ny of
     /// the components may be empty", and an absolute specification's leading SOLIDUS produces
     /// one.
+    ///
+    /// Every SOLIDUS divides, however many the string holds: a count cap would have to merge
+    /// the tail into its last component, which names a file the producer did not write. The
+    /// cost is bounded without one, because the string is already held and its length is the
+    /// parser's `max_string_len` at most; each component adds one empty `Vec` (no allocation
+    /// until a byte arrives) to bytes the string already counts (ADR 3001).
     #[must_use]
     pub fn components(&self) -> Vec<Vec<u8>> {
         if self.system == FileSystem::Url {
@@ -350,7 +350,7 @@ impl FileSpec {
             }
             match byte {
                 b'\\' => escaped = true,
-                b'/' if components.len() < MAX_COMPONENTS => components.push(Vec::new()),
+                b'/' => components.push(Vec::new()),
                 other => {
                     if let Some(last) = components.last_mut() {
                         last.push(other);
@@ -705,6 +705,14 @@ mod tests {
     }
 
     /// §7.11.5's URL form is not a path, and none of the path rules reach it.
+    /// §7.11.2.1 divides at every SOLIDUS, so a path of a thousand components keeps a thousand
+    /// and the last is not a merge of the tail (ADR 3001).
+    #[test]
+    fn every_separator_divides_however_many_the_string_holds() {
+        let path = vec!["x"; 1000].join("/");
+        assert_eq!(spec(&path).components(), vec![b"x".to_vec(); 1000]);
+    }
+
     #[test]
     fn a_url_specification_is_not_split_into_components() {
         let url = FileSpec {

@@ -25,6 +25,7 @@
               pass by doing nothing"
 )]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use pdf_model::content::{Placed, interpret};
@@ -41,12 +42,42 @@ fn committed(name: &str) -> Document {
     Document::open(bytes).unwrap()
 }
 
-/// A corpus document, or `None` when the submodule is not checked out.
-fn corpus(name: &str) -> Option<Document> {
-    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../doc/pdf.js/test/pdfs")
-        .join(name);
-    Document::open(std::fs::read(path).ok()?).ok()
+/// One letter-size page whose only content is a line of text in the standard 14 Helvetica under
+/// Table 104's mode 3, "Neither fill nor stroke text (invisible)", which is what an OCR layer under
+/// a scanned page is.
+fn invisible_text_page() -> Vec<u8> {
+    let content = "BT /F1 12 Tf 3 Tr 72 700 Td (Scanned words) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+            .to_owned(),
+        format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_owned(),
+    ];
+    let mut pdf = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (number, object) in (1..).zip(&objects) {
+        offsets.push(pdf.len());
+        write!(pdf, "{number} 0 obj\n{object}\nendobj\n").expect("String write");
+    }
+    let xref = pdf.len();
+    let size = objects.len().saturating_add(1);
+    write!(pdf, "xref\n0 {size}\n0000000000 65535 f \n").expect("String write");
+    for offset in offsets {
+        writeln!(pdf, "{offset:010} 00000 n ").expect("String write");
+    }
+    write!(
+        pdf,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    )
+    .expect("String write");
+    pdf.into_bytes()
 }
 
 /// Interprets a page of a document.
@@ -185,11 +216,10 @@ fn a_glyphs_box_is_as_wide_as_its_advance_and_as_tall_as_the_font() {
 #[test]
 fn invisible_text_is_placed_too() {
     // Rendering mode 3 draws nothing, and an OCR layer under a scanned page is nothing but mode
-    // 3 — which is the text a person most wants to select. `issue1155.pdf` is such a page.
-    let Some(document) = corpus("issue1155.pdf") else {
-        eprintln!("skipped: doc/pdf.js is not checked out");
-        return;
-    };
+    // 3 — which is the text a person most wants to select. The page is built here rather than
+    // taken from a corpus, so the test runs on every checkout and cannot pass by finding no file.
+    let document = Document::open(invisible_text_page()).expect("the fixture opens");
+    assert!(!document.was_recovered(), "the fixture's offsets are exact");
     let interpretation = page(&document, 0);
     assert!(
         !interpretation.text.is_empty(),

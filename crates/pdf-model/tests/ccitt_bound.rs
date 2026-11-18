@@ -155,6 +155,11 @@ fn scan_line(raster: &pdf_render::Raster, row: u32) -> u8 {
 /// entry at its default the number 2 has no power at all, and all four lines the data carries are
 /// drawn. It is stated here rather than assumed because the other test's whole meaning is the
 /// difference between the two.
+///
+/// What it does not prove is the other half of the sentence it rests on: the data stops at its
+/// fourth line with no end-of-block pattern, so the filter ends where the image's `/Height` does
+/// and no marker is consumed. That a stated end-of-block pattern is read as the end of the data
+/// is `ccitt_eob_rows_spec_audit`'s, whose Group 4 data ends in EOFB.
 #[test]
 fn end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image() {
     let (raster, said) = interpret(page_with_ccitt_image(

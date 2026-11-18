@@ -740,7 +740,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/jpeg2000.rs?
 - test files: crates/pdf-model/tests/jpx_ordinary_opacity_audit.rs?
 
-- 2038-D20 | pdf-model | effective-source-and-test-scope | open | EC3 enum19 JPX doc
+- 2038-D20 | pdf-model | effective-source-and-test-scope | fixed (jpx.rs `JPX_ENUMERATED_DRAWN`'s doc separates §7.4.9's producer sentence, which excludes 19 from image data, from the reader's, which T.801's baseline 19 stays under; 7.4.9's note says the departure is from the reader's sentence (A348)) | EC3 enum19 JPX doc
 
 ### G052 — degenerate stroke caps composited separately
 
@@ -748,7 +748,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/adr/0420-the-mark-a-placement-took-after-the-alpha-survived.md
 - test files: none located
 
-- 2038-D29 | pdf-model,render-cpu | decision-counterexample | open | degenerate stroke caps composited separately
+- 2038-D29 | pdf-model,render-cpu | decision-counterexample | fixed (ADR 3000 supersedes ADR 0420 §5's sentence that the stroke was already one transparent object; the code change is G092's B39) | degenerate stroke caps composited separately
 
 ### G053 — test gates pass after skipping absent corpus file
 
@@ -756,7 +756,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/fixed_documents.rs?
 
-- 2038-D45 | pdf-model | assertion-execution-gap | open | test gates pass after skipping absent corpus file
+- 2038-D45 | pdf-model | assertion-execution-gap | fixed (both tests named issue1155.pdf, which pdf.js does not hold, and returned early: text_layer invisible_text_is_placed_too and viewer-core headless a_page_that_could_not_be_drawn_whole_says_so now build their page, and both files' corpus helpers panic on a file missing from a present corpus) | test gates pass after skipping absent corpus file
 
 ### G054 — fixed-document gate stale font expectations
 
@@ -764,7 +764,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/fixed_documents.rs
 
-- 2038-D51 | pdf-model | stale-test-expectation | open | fixed-document gate stale font expectations | 1 manifest failure; passes on this VM only because its row is skipped (corpus batch5 absent, Q882)
+- 2038-D51 | pdf-model | stale-test-expectation | fixed (doc/checks/fixed-documents.toml's PDFIUM-407-0 row: ADR 2870's substitute-face report replaces `Text { operations: 197 }`, ink 13.633..15.633 around the measured 14.633; the ignored gate passes on this VM, where batch5 is now present) | fixed-document gate stale font expectations | 1 manifest failure; passes on this VM only because its row is skipped (corpus batch5 absent, Q882)
 
 ### G055 — test control: JBIG2 filter chain
 
@@ -772,7 +772,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/jbig2.rs?
 - test files: crates/pdf-model/tests/jbig2_filter_chain_audit.rs
 
-- 2038-T05 | pdf-model | test-coverage-gap | open | test control: JBIG2 filter chain
+- 2038-T05 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: jbig2_filter_chain_audit (DecodeParms read at index 0) fails on a plant of the defect and passes restored) | test control: JBIG2 filter chain
 
 ### G056 — test control: CCITT EndOfBlock
 
@@ -780,7 +780,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/ccitt.rs?
 - test files: crates/pdf-model/tests/ccitt_eob_rows_spec_audit.rs
 
-- 2038-T06 | pdf-model,pdf-ccitt | test-claim-qualification | open | test control: CCITT EndOfBlock
+- 2038-T06 | pdf-model,pdf-ccitt | test-claim-qualification | fixed (ccitt_bound's end_of_block_true test now says its data has no end-of-block pattern, so it proves /Rows has no power and not that a marker is consumed; ccitt_eob_rows_spec_audit's EOFB data carries that half) | test control: CCITT EndOfBlock
 
 ### G057 — test control: BG/UCR transfer
 
@@ -788,7 +788,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/convert.rs?
 - test files: crates/pdf-model/tests/black_generation_transfer_audit.rs
 
-- 2038-T08 | pdf-model | test-coverage-gap | open | test control: BG/UCR transfer
+- 2038-T08 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: black_generation_transfer_audit negative UCR (UCR floored at zero) fails on a plant of the defect and passes restored) | test control: BG/UCR transfer
 
 ### G058 — test fixture misstated stream lengths
 
@@ -796,7 +796,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/contents_entry.rs, crates/pdf-model/tests/damaged_page_dictionaries.rs
 
-- 2038-T103 | pdf-model | fixture-isolation-gap | open | test fixture misstated stream lengths
+- 2038-T103 | pdf-model | fixture-isolation-gap | fixed (the audit's exact lengths stand; damaged_page_dictionaries' second-door test now renders the narrated blue rectangle. was_recovered stays an xref guard: pdf-syntax states no stream-length-recovery query to assert) | test fixture misstated stream lengths
 
 ### G059 — test fixture ICC header not conforming
 
@@ -804,7 +804,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/rendering_intent.rs?
 
-- 2038-T107 | pdf-model | fixture-validity-gap | open | test fixture ICC header not conforming
+- 2038-T107 | pdf-model | fixture-validity-gap | fixed (plant-checked in round 2079: gray_display_intents_spec_audit (the `ri` operand ignored) fails on a plant of the defect and passes restored) | test fixture ICC header not conforming
 
 ### G060 — test control: unreadable font program fallback
 
@@ -812,7 +812,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/loading.rs?
 - test files: crates/pdf-model/tests/unreadable_program_fallback_control_audit.rs
 
-- 2038-T11 | pdf-model | test-coverage-gap | open | test control: unreadable font program fallback
+- 2038-T11 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: unreadable_program_fallback_control_audit (substitute withheld) fails on a plant of the defect and passes restored) | test control: unreadable font program fallback
 
 ### G061 — test control: named page geometry
 
@@ -820,7 +820,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/named_pages.rs?
 - test files: crates/pdf-model/tests/named_page_geometry_spec_audit.rs?
 
-- 2038-T113 | pdf-model,viewer-core | test-assurance-gap | open | test control: named page geometry
+- 2038-T113 | pdf-model,viewer-core | test-assurance-gap | fixed (the fixture's /BaseFont /InheritedOnlyetica, a renaming accident, is /Helvetica again, standard 14 so Table 109 asks no /Widths; named_page_geometry_spec_audit passes; owner audit file edited under A868) | test control: named page geometry
 
 ### G062 — field Q quadding precedence
 
@@ -828,7 +828,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/variable_text.rs
 - test files: crates/pdf-model/tests/quadding_field_tree_precedence_spec_audit.rs
 
-- 2038-T120 | pdf-model | assertion-strengthening | open | field Q quadding precedence
+- 2038-T120 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2079: quadding_field_tree_precedence_spec_audit (source order reversed) fails on a plant of the defect and passes restored) | field Q quadding precedence
 
 ### G063 — page label missing style
 
@@ -836,7 +836,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/page_label.rs
 - test files: crates/pdf-model/tests/page_label_missing_style_spec_audit.rs
 
-- 2038-T125 | pdf-model | assertion-strengthening | open | page label missing style
+- 2038-T125 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2079: page_label_missing_style_spec_audit (absent /S read as decimal) fails on a plant of the defect and passes restored) | page label missing style
 
 ### G064 — FreeText cloud and Link border defaults
 
@@ -844,7 +844,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/cloud.rs
 - test files: crates/pdf-model/tests/freetext_cloud_border_spec_audit.rs
 
-- 2038-T136 | pdf-model | assertion-strengthening | open | FreeText cloud and Link border defaults
+- 2038-T136 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2079: freetext_cloud_border_spec_audit (cloud drawn without /BS) and link_default_border_spec_audit (absent /Border width 0) fails on a plant of the defect and passes restored) | FreeText cloud and Link border defaults
 
 ### G065 — popup parent metadata
 
@@ -852,7 +852,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/popup.rs
 - test files: crates/viewer-core/tests/text_markup_popup_spec_audit.rs
 
-- 2038-T142 | pdf-model | assertion-strengthening | open | popup parent metadata
+- 2038-T142 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2079: viewer-core text_markup_popup_spec_audit (popup's own entries read) fails on a plant of the defect and passes restored) | popup parent metadata
 
 ### G066 — trailer Info metadata
 
@@ -860,7 +860,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/metadata.rs
 - test files: crates/pdf-model/tests/direct_info_spec_audit.rs
 
-- 2038-T144 | pdf-model | coverage-gap | open | trailer Info metadata
+- 2038-T144 | pdf-model | coverage-gap | fixed (plant-checked in round 2079: direct_info_spec_audit (direct /Info ignored) fails on a plant of the defect and passes restored) | trailer Info metadata
 
 ### G067 — DCT image decoding
 
@@ -868,7 +868,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/dct.rs
 - test files: crates/pdf-model/tests/colour_transform.rs?
 
-- 2038-T156 | pdf-model | assertion-quality | open | DCT image decoding
+- 2038-T156 | pdf-model | assertion-quality | fixed (plant-checked in round 2079: colour_transform a_one_component_frame_ignores_the_entry (grey samples off by one in decode_jpeg); the two-component qualification stands as the audit wrote it fails on a plant of the defect and passes restored) | DCT image decoding
 
 ### G068 — compatibility section nesting
 
@@ -876,7 +876,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/run.rs?
 - test files: crates/pdf-model/tests/compatibility_operator_pixels_spec_audit.rs
 
-- 2038-T160 | pdf-model | assertion-quality | open | compatibility section nesting
+- 2038-T160 | pdf-model | assertion-quality | fixed (plant-checked in round 2079: compatibility_operator_pixels_spec_audit restoring_graphics_state_does_not_restore_compatibility_section_depth (`Q` closing the section) fails on a plant of the defect and passes restored) | compatibility section nesting
 
 ### G069 — test control: CIDToGIDMap
 
@@ -884,7 +884,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/composite.rs?
 - test files: crates/pdf-model/tests/cid_map_stream_spec_audit.rs
 
-- 2038-T17 | pdf-model,pdf-font | test-coverage-gap | open | test control: CIDToGIDMap
+- 2038-T17 | pdf-model,pdf-font | test-coverage-gap | fixed (plant-checked in round 2079: cid_map_stream_spec_audit (little-endian map) fails on a plant of the defect and passes restored) | test control: CIDToGIDMap
 
 ### G070 — soft mask Matte decode
 
@@ -892,7 +892,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image/soft_mask.rs
 - test files: crates/pdf-model/tests/matte_after_decode_spec_audit.rs
 
-- 2038-T170 | pdf-model | assertion-quality | open | soft mask Matte decode
+- 2038-T170 | pdf-model | assertion-quality | fixed (plant-checked in round 2079: matte_after_decode_spec_audit (Matte inverted on the raw sample) fails on a plant of the defect and passes restored) | soft mask Matte decode
 
 ### G071 — test oracle: viewer preference defaults
 
@@ -900,7 +900,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/viewer_preferences.rs?
 - test files: crates/pdf-model/tests/viewer_preference_defaults_spec_audit.rs
 
-- 2038-T24 | pdf-model | weak-test-oracle | open | test oracle: viewer preference defaults
+- 2038-T24 | pdf-model | weak-test-oracle | fixed (plant-checked in round 2079: viewer_preference_defaults_spec_audit (HideToolbar default true) fails on a plant of the defect and passes restored) | test oracle: viewer preference defaults
 
 ### G072 — test control: DeviceRGB reset
 
@@ -908,7 +908,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/device_rgb_reset_spec_audit.rs
 
-- 2038-T27 | pdf-model | test-coverage-gap | open | test control: DeviceRGB reset
+- 2038-T27 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: device_rgb_reset_spec_audit (DeviceRGB initial colour 1 1 1) fails on a plant of the defect and passes restored) | test control: DeviceRGB reset
 
 ### G073 — test control: cm composition
 
@@ -916,7 +916,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/coordinate_graphics_state_spec_audit.rs
 
-- 2038-T32 | pdf-model | test-coverage-gap | open | test control: cm composition
+- 2038-T32 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: coordinate_graphics_state_spec_audit (cm composed in reverse order) fails on a plant of the defect and passes restored) | test control: cm composition
 
 ### G074 — test assertion: robustness q/Q in path
 
@@ -924,7 +924,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/pdf-model/tests/graphics_stack_paths_audit.rs
 
-- 2038-T33 | pdf-model | assertion-scope-correction | open | test assertion: robustness q/Q in path
+- 2038-T33 | pdf-model | assertion-scope-correction | fixed (graphics_stack_paths_audit's comment, the audit's own, says the mid-path q/Q case is robustness policy under §8.2 Figure 9, not a conformance result; nothing remaining) | test assertion: robustness q/Q in path
 
 ### G075 — test weakness: halftone transfer override
 
@@ -932,7 +932,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/ext_gstate.rs?
 - test files: crates/pdf-model/tests/halftone_transfer_public_spec_audit.rs
 
-- 2038-T35 | pdf-model | public-consumer-test-gap | open | test weakness: halftone transfer override
+- 2038-T35 | pdf-model | public-consumer-test-gap | fixed (plant-checked in round 2079: halftone_transfer_public_spec_audit, all four tests (stated transfer over the halftone's; TR before TR2; slots shifted by one) fails on a plant of the defect and passes restored) | test weakness: halftone transfer override
 
 ### G076 — model-only routes lack consumer tests
 
@@ -940,7 +940,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/annotation_state.rs?
 - test files: crates/viewer-core/tests/headless.rs
 
-- 2038-T46 | pdf-model,viewer-core | public-integration-test-gap | open | model-only routes lack consumer tests
+- 2038-T46 | pdf-model,viewer-core | public-integration-test-gap | fixed (plant-checked in round 2079: annotation_state_model_defaults_spec_audit, viewer-core goto_dp_node_spec_audit, thread_bead_index_spec_audit and transition_action_spec_audit (each on its own plant) fails on a plant of the defect and passes restored) | model-only routes lack consumer tests
 
 ### G077 — test control: indirect values need resolving at consumer
 
@@ -948,7 +948,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/attachments.rs?
 - test files: crates/pdf-model/tests/indirect_file_parameters_spec_audit.rs
 
-- 2038-T88 | pdf-model | test-coverage-gap | open | test control: indirect values need resolving at consumer
+- 2038-T88 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: indirect_file_parameters_spec_audit (/Size not resolved) fails on a plant of the defect and passes restored) | test control: indirect values need resolving at consumer
 
 ### G078 — test control: inline image filter chain
 
@@ -956,7 +956,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/inline_image.rs?
 - test files: crates/pdf-model/tests/inline_filter_chain_spec_audit.rs
 
-- 2038-T92 | pdf-model | test-coverage-gap | open | test control: inline image filter chain
+- 2038-T92 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2079: inline_filter_chain_spec_audit (filter-derived extent ignored) fails on a plant of the defect and passes restored) | test control: inline image filter chain
 
 
 ## pdf-signature
@@ -1001,7 +1001,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-transform/src/archive/external.rs
 - test files: crates/pdf-transform/tests/archive_external_components_spec_audit.rs
 
-- 2038-B46 | pdf-transform | file-specification-component-limit | open (the merge is `pdf_model::file_spec::MAX_COMPONENTS` in `crates/pdf-model/src/file_spec.rs`, G049's file, held by round 2077; the fix is to stop merging the tail past 256, after that round merges) | hard cap silently merges | 1 manifest failure
+- 2038-B46 | pdf-transform | file-specification-component-limit | fixed (ADR 3001: file_spec.rs divides at every SOLIDUS, MAX_COMPONENTS removed; archive_external_components_spec_audit passes; file_spec every_separator_divides_however_many_the_string_holds) | hard cap silently merges | 1 manifest failure
 
 ### G083 — split drops contentless structure elements
 
@@ -1579,7 +1579,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
   simple font with no /Widths as laid out by this viewer's choice (ISO 32000-2 Table 109 requires /Widths outside
   the standard 14), and the fixture's InheritedOnly font has none, so `is_complete()` is false. The fixture is
   invalid for the point it tests; the round that takes G061 gives the font /Widths (A868), not the code a change.
-  Status: open.
+  Status: fixed in round 2079 (G061): the fixture's /BaseFont /InheritedOnlyetica was a renaming accident of
+  /Helvetica, standard 14, for which Table 109 asks no /Widths; restored, and the test passes.
 
 ## Conformance gates the merged audit files fail
 

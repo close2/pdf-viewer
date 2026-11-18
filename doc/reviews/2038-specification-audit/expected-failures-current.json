@@ -40,12 +40,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-transform::archive_external_components_spec_audit",
-   "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
-   "finding": "2038-B46",
-   "log": "broad.log"
-  },
-  {
    "binary": "viewer-core::image_xobject_measurement_spec_audit",
    "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
    "finding": "2038-B73",
@@ -60,17 +54,9 @@
    "log": "ignored.log",
    "requires": "explicit ignored gate",
    "disposition": "stale-test-expectation",
-   "passes_by": "no commit: the test skips the row loudly because corpus-cache/tika-issue-tracker/batch5 is absent on this VM (Q882), so its PDFIUM-407-0.pdf row is not observed; no main commit after b901326c changes doc/checks/fixed-documents.toml. Not a fix: the stale expectation stands until the corpus arrives."
+   "passes_by": "round 2079 (G054): batch5 is present on this VM again, and the PDFIUM-407-0.pdf row of doc/checks/fixed-documents.toml now states ADR 2870's substitute-face report and the ink it draws; the ignored gate passes with the row observed."
   }
  ],
  "not_in_manifest": [
-  {
-   "binary": "pdf-model::named_page_geometry_spec_audit",
-   "test": "apref_page_rotation_crop_and_inherited_resources_reach_the_widget_pixels",
-   "finding": null,
-   "log": "broad.log",
-   "broken_by": "c77df9e2 (A font that states no widths is laid out by the standard it resembles, and says so)",
-   "cause": "the audit fixture names a non-standard font InheritedOnly with no /Widths, which ISO 32000-2 Table 109 requires outside the standard 14; since c77df9e2 the interpretation reports that layout as this viewer's, so the test's is_complete() assertion fails. The fixture is invalid for the point it tests; the remedy is a fixture with /Widths (A868 lets audit tests change), not a production change."
-  }
  ]
 }

@@ -57,7 +57,8 @@
 
 #![expect(
     clippy::expect_used,
-    reason = "test code: a malformed fixture should fail loudly"
+    clippy::arithmetic_side_effects,
+    reason = "test code: a malformed fixture should fail loudly, and the raster arithmetic is on a 200x100 page"
 )]
 
 use pdf_syntax::{Document, ObjectId};
@@ -106,6 +107,29 @@ fn pages_of(bytes: Vec<u8>) -> (usize, Option<[f32; 4]>, Option<usize>) {
             .and_then(|page| page.damaged_dictionary.as_ref())
             .map(|damage| damage.entries),
     )
+}
+
+/// The colour at the middle of object 3's rectangle when the first page is drawn at scale 1.
+///
+/// The rectangle is `10 10 100 50 re` on a 200 by 100 page, so its middle is (60, 35) in user
+/// space and row 65 of the raster, which counts down from the top.
+fn colour_inside_the_rectangle(bytes: Vec<u8>) -> [u8; 3] {
+    use pdf_render::{Rasterizer as _, TargetSpec};
+    let document = Document::open(bytes).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let target = TargetSpec::for_page(&interpretation.display_list, 1.0, 1 << 30)
+        .expect("a 200x100 page is a valid target");
+    let raster = render_cpu::CpuRasterizer::new()
+        .rasterize(&interpretation.display_list, target)
+        .expect("the display list holds nothing the CPU backend refuses");
+    let row = usize::try_from(raster.width).expect("a width fits") * 65;
+    let at = (row + 60) * 4;
+    raster
+        .data
+        .get(at..at + 3)
+        .and_then(|pixel| pixel.try_into().ok())
+        .expect("the point is on the raster")
 }
 
 /// The control: an intact object under a tree that reaches it is the page, undamaged.
@@ -203,6 +227,14 @@ fn a_prefix_the_tree_names_is_a_page_where_it_states_an_entry_only_a_page_carrie
         damage,
         Some(2),
         "/Parent and /Contents were whole; /CropBox and the /Type after it are not here"
+    );
+    assert_eq!(
+        colour_inside_the_rectangle(document(
+            "2 0 R",
+            "/Parent 1 0 R /Contents 3 0 R /CropBox [0 0 200 >] /Type /Page",
+        )),
+        [0, 0, 255],
+        "the recovered page draws object 3's blue rectangle"
     );
 }
 

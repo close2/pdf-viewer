@@ -863,8 +863,20 @@ struct JpxColourChoice<'a> {
 /// ([`SYCC`], ADR 2863), and is listed here for the one codestream Annex C does not describe —
 /// three components of differing depths — which the codec's matrix draws. Two more T.801 Table
 /// M.25 lists are drawn by this crate, from the held PIMA 7667 (A348): e-sRGB ([`E_SRGB`]) and
-/// e-sYCC ([`E_SYCC`]), which [`jpx_drawn`] reads. CIE Jab (19) depends on the unheld CIE Publication 131, whose
-/// purchase the owner declines, and takes §7.4.9's fallback (ADRs 1383, 2187, 2292).
+/// e-sYCC ([`E_SYCC`]), which [`jpx_drawn`] reads.
+///
+/// CIE Jab (19) is not drawn, and two sentences of §7.4.9 bear on it separately. One binds the
+/// producer: data used in image `XObject`s
+///
+/// > shall be limited to the JPX baseline set of features, except for enumerated colour space 19
+/// > (CIEJab).
+///
+/// so a file that states 19 is not a conforming one. The other binds this reader, and the
+/// producer's exclusion does not lift it: "PDF processors shall support the JPX baseline set of
+/// enumerated colour spaces", and T.801's baseline includes 19. Drawing it depends on the unheld
+/// CIE Publication 131, whose purchase the owner declines (A348), so 19 takes §7.4.9's fallback
+/// as a declared departure from the reader's sentence, not as an inference from the producer's
+/// (ADRs 1383, 2187, 2292).
 const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
 
 /// T.801 Table M.25's 20, e-sRGB, which it hands to PIMA 7667.
