@@ -66,7 +66,8 @@ pub(crate) fn brush(
     // the answer and it is a *fill*'s door, so a shading arriving here with one is a stroke —
     // and refusing it loudly keeps the shortfall a report rather than a silently missing wash,
     // exactly as `render_cpu::shading::shader` does. A shading stating `/AntiAlias` is filtered
-    // by the same raster and refused here alike (ADR 3024).
+    // by the same raster (ADR 3024), which a stroke takes before it asks here (ADR 3074), and is
+    // refused here alike.
     if shading.is_rastered() {
         return None;
     }

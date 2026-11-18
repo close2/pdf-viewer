@@ -2469,29 +2469,49 @@ fn an_anti_aliased_function_based_step_is_filtered_by_its_producer() {
     );
 }
 
-/// A stroke is drawn with the backend's own gradient, not through the raster the filter is
-/// applied in, so a stroking pattern whose shading asks for the filter is named rather than drawn
-/// unfiltered in silence (trap 5) — and a fill, which is filtered, owes nothing.
+/// §8.7.4.1 lets a shading pattern paint a stroke as it paints a fill — "a PDF content stream may
+/// use it with painting operators such as f (fill), S (stroke), Tj (show text), or Do (paint
+/// external object) with an image mask" — and Table 77's filter is of "the shading function",
+/// whichever operator paints it. So a stroking pattern's `/AntiAlias` reaches the display list,
+/// owes no report (`render` asserts the interpretation complete), and a stroke wide enough to
+/// cover the step is filtered there exactly as the fill is; without the entry the step stays hard
+/// (ADR 3074).
 #[test]
-fn a_stroking_patterns_anti_alias_is_reported_and_a_fills_is_not() {
-    let axial = format!(
-        "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10.5 0 90.5 0] /AntiAlias true \
-         /Function {STITCHED_STEP} >>"
-    );
-    let reported = |content: &str| {
-        let bytes = pdf_with(&axial, content);
-        let document = Document::open(bytes).expect("the fixture is a valid PDF");
-        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
+fn a_stroking_patterns_anti_alias_is_filtered_as_a_fills_is() {
+    let axial = |entry: &str| {
+        format!(
+            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10.5 0 90.5 0] \
+             /Extend [true true] {entry} /Function {STITCHED_STEP} >>"
+        )
     };
-    let stroked = reported("/Pattern CS /P0 SCN 4 w 20 20 m 80 80 l S");
+    let stroke = "/Pattern CS /P0 SCN 20 w 0 50 m 100 50 l S";
+
+    let document = Document::open(pdf_with(&axial("/AntiAlias true"), stroke))
+        .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let flagged: Vec<bool> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Stroke {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => Some(shading.anti_alias),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flagged, [true], "the stroke's shading keeps the flag");
+
+    let [black, edge, white] =
+        across_the_step(&render(pdf_with(&axial("/AntiAlias true"), stroke)));
     assert!(
-        stroked.contains("ShadingAntiAlias") && stroked.contains("/P0"),
-        "a stroke's unfiltered shading is named with its pattern: {stroked}"
+        (96..=160).contains(&edge) && black <= 2 && white >= 253,
+        "the stroked step's pixel is filtered and its neighbours are not: {black} {edge} {white}"
     );
-    let filled = reported(FILL_THE_PAGE);
+    let [black, edge, white] = across_the_step(&render(pdf_with(&axial(""), stroke)));
     assert!(
-        !filled.contains("ShadingAntiAlias"),
-        "a fill is filtered, so nothing is owed: {filled}"
+        (edge <= 2 || edge >= 253) && black <= 2 && white >= 253,
+        "without the flag the stroked step's pixel takes one side: {black} {edge} {white}"
     );
 }

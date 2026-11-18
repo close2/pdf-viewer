@@ -1783,6 +1783,68 @@ pub const ANTI_ALIAS_EDGES: [[(u32, u32); 3]; 3] = [
 /// A type 1 shading is filtered by its producer upstream, and `pdf-model`'s tests hold it.
 #[must_use]
 pub fn shading_anti_alias(anti_alias: bool) -> DisplayList {
+    shading_anti_alias_painted(anti_alias, Mark::Fill)
+}
+
+/// [`shading_anti_alias`]'s three shadings painted by **strokes** — ISO 32000-2 §8.7.4.1 lets a
+/// shading pattern paint "with painting operators such as f (fill), S (stroke)", and Table 77's
+/// filter is of "the shading function" whichever paints it (ADR 3074).
+///
+/// Each stroke is a horizontal line twenty units wide through the row of [`ANTI_ALIAS_EDGES`],
+/// spanning the same columns as the fill's rectangle, so the step's pixel and its two neighbours
+/// lie well inside the stroke and away from its caps: a backend that strokes a flagged shading
+/// with its own gradient or mesh paint shows the hard edge there.
+#[must_use]
+pub fn shading_anti_alias_stroked(anti_alias: bool) -> DisplayList {
+    shading_anti_alias_painted(anti_alias, Mark::Stroke)
+}
+
+/// Which painting operator [`shading_anti_alias_painted`] paints its shadings with.
+#[derive(Debug, Clone, Copy)]
+enum Mark {
+    /// `f`: the rectangle the shading covers is filled.
+    Fill,
+    /// `S`: a twenty-unit line through the middle of that rectangle is stroked.
+    Stroke,
+}
+
+impl Mark {
+    /// The command that paints `paint` over the rectangle `(left, bottom, right, top)` by this mark.
+    fn painting(self, (left, bottom, right, top): (f32, f32, f32, f32), paint: Paint) -> Command {
+        match self {
+            Self::Fill => Command::Fill {
+                path: Arc::new(rect(left, bottom, right, top)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            },
+            Self::Stroke => {
+                // Page y = 100.5 is the row of `ANTI_ALIAS_EDGES`, the radial's centre.
+                let mut line = Path::new();
+                line.push(PathCommand::MoveTo(Point::new(left, 100.5)));
+                line.push(PathCommand::LineTo(Point::new(right, 100.5)));
+                Command::Stroke {
+                    path: Arc::new(line),
+                    transform: Transform::IDENTITY,
+                    stroke: Stroke {
+                        width: 20.0,
+                        ..Stroke::default()
+                    },
+                    paint,
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                }
+            }
+        }
+    }
+}
+
+/// The scene of [`shading_anti_alias`] and [`shading_anti_alias_stroked`], painted by `mark`.
+fn shading_anti_alias_painted(anti_alias: bool, mark: Mark) -> DisplayList {
     let mut list = DisplayList::new(Size::new(200.0, 200.0));
     // Black up to the middle of the parameter, white after it: a Type 3 stitching of two constant
     // pieces, as a ramp.
@@ -1806,25 +1868,19 @@ pub fn shading_anti_alias(anti_alias: bool) -> DisplayList {
             },
         ]),
     };
-    let mut fill = |path: Path, kind: pdf_render::ShadingKind| {
-        list.push(Command::Fill {
-            path: Arc::new(path),
+    let mut shade = |(left, bottom, right, top): (f32, f32, f32, f32),
+                     kind: pdf_render::ShadingKind| {
+        let paint = Paint::Shading(Arc::new(pdf_render::Shading {
+            kind: Arc::new(kind),
             transform: Transform::IDENTITY,
-            fill_rule: FillRule::NonZero,
-            paint: Paint::Shading(Arc::new(pdf_render::Shading {
-                kind: Arc::new(kind),
-                transform: Transform::IDENTITY,
-                background: None,
-                anti_alias,
-            })),
-            clip: None,
-            mask: None,
-            blend: BlendMode::Normal,
-        });
+            background: None,
+            anti_alias,
+        }));
+        list.push(mark.painting((left, bottom, right, top), paint));
     };
 
-    fill(
-        rect(10.0, 20.0, 70.0, 180.0),
+    shade(
+        (10.0, 20.0, 70.0, 180.0),
         pdf_render::ShadingKind::Axial {
             start: Point::new(10.5, 0.0),
             end: Point::new(70.5, 0.0),
@@ -1832,8 +1888,8 @@ pub fn shading_anti_alias(anti_alias: bool) -> DisplayList {
             extend: (true, true),
         },
     );
-    fill(
-        rect(95.0, 65.0, 166.0, 136.0),
+    shade(
+        (95.0, 65.0, 166.0, 136.0),
         pdf_render::ShadingKind::Radial {
             start: Point::new(130.5, 100.5),
             start_radius: 0.0,
@@ -1844,8 +1900,8 @@ pub fn shading_anti_alias(anti_alias: bool) -> DisplayList {
         },
     );
     let corner = |x: f32, y: f32| Point::new(x, y);
-    fill(
-        rect(165.0, 20.0, 196.0, 180.0),
+    shade(
+        (165.0, 20.0, 196.0, 180.0),
         pdf_render::ShadingKind::Mesh {
             triangles: Arc::from(vec![
                 pdf_render::Triangle {

@@ -395,10 +395,11 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    /// The brush one of a stroke's marks is painted with: an opaque axial or radial ramp's own
-    /// levels where [`crate::shading::ramp_shader`] draws the paint, one cell per device pixel over
-    /// every pixel `ink` says the mark can reach (ADRs 2356, 2404), and [`CpuRasterizer::paint`]'s
-    /// brush otherwise.
+    /// The brush one of a stroke's marks is painted with: a filtered shading's raster where
+    /// [`crate::shading::raster_shader`] draws it (ADR 3074), an opaque axial or radial ramp's own
+    /// levels where [`crate::shading::ramp_shader`] draws the paint, each one cell per device pixel
+    /// over every pixel `ink` says the mark can reach (ADRs 2356, 2404), and
+    /// [`CpuRasterizer::paint`]'s brush otherwise.
     ///
     /// `ink` is asked only of a shading, because a solid paint has no cells to bound and a stroke's
     /// extent walks its path. `levels` holds the ramp's cells and `scratch` a sampled shading's,
@@ -414,6 +415,28 @@ impl CpuRasterizer {
             &'a mut Option<tiny_skia::Pixmap>,
         ),
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
+        // Table 77's `/AntiAlias` asks for the shading function filtered whichever operator
+        // paints it, and the stroke takes the raster a fill takes, over its own ink (ADR 3074).
+        // A raster that reaches no pixel of this surface is a stroke that paints nothing here.
+        if let Paint::Shading(shading) = paint
+            && shading.is_rastered()
+        {
+            let raster = ink().and_then(|extent| {
+                crate::shading::raster_shader(
+                    shading,
+                    extent,
+                    (
+                        to_device.placed(transform),
+                        to_device.placed(Transform::IDENTITY),
+                    ),
+                    target,
+                    levels,
+                )
+            });
+            let shader =
+                raster.unwrap_or(tiny_skia::Shader::SolidColor(tiny_skia::Color::TRANSPARENT));
+            return Ok(self.brush(shader, blend));
+        }
         let ramp = match paint {
             Paint::Shading(shading) => ink().and_then(|extent| {
                 crate::shading::ramp_shader(

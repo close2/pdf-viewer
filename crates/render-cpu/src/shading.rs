@@ -74,8 +74,8 @@ pub(crate) fn shader<'a>(
     // pattern's pad the grid's own edge. [`fill_with_background`] is the answer, and it is a
     // *fill*'s door — so a shading arriving here with one is a stroke, and refusing it loudly
     // is what keeps the shortfall a report rather than a picture missing its wash (trap 5). A
-    // shading stating `/AntiAlias` is filtered by the same raster and refused here alike
-    // (ADR 3024).
+    // shading stating `/AntiAlias` is filtered by the same raster (ADR 3024), which a stroke takes
+    // through [`raster_shader`] before it asks here (ADR 3074), and is refused here alike.
     if shading.is_rastered() {
         return None;
     }
@@ -253,6 +253,67 @@ pub(crate) fn ramp_shader<'a>(
         scratch.insert(pixmap).as_ref(),
         tiny_skia::SpreadMode::Pad,
         // One cell per device pixel, placed at whole pixels: no sample is interpolated.
+        tiny_skia::FilterQuality::Nearest,
+        1.0,
+        crate::convert::transform(onto_surface.then(onto_path)),
+    ))
+}
+
+/// The brush a stroke's marks are painted with where the shading is drawn through
+/// [`pdf_render::ShadingRaster`] ([`Shading::is_rastered`]) — the raster a fill of the same shading
+/// takes in [`fill_with_background`], built over the pixels the [`Extent`] says the marks can reach
+/// rather than over a filled path's (ADR 3074).
+///
+/// ISO 32000-2 §8.7.4.1 lets a shading pattern paint "with painting operators such as f (fill), S
+/// (stroke)", and Table 77's `/AntiAlias` asks "to filter the shading function", whichever operator
+/// paints it. So the raster is the one filter ADR 3024 states, and only its *region* is the
+/// stroke's: a pixel is the shading's mean over its sixteen sub-pixel samples, and the stroke's
+/// coverage, its marks and its bands stay the converters' — exactly what [`ramp_shader`]'s cells
+/// leave them, and positioned the same way.
+///
+/// `None` where the extent covers no pixel of this surface, where the raster is empty, or where the
+/// placement has no inverse: the marks then reach nothing the shading would paint.
+pub(crate) fn raster_shader<'a>(
+    shading: &Shading,
+    extent: Extent<'_>,
+    (shape, onto_page): (Placed, Placed),
+    target: (u32, u32),
+    scratch: &'a mut Option<tiny_skia::Pixmap>,
+) -> Option<tiny_skia::Shader<'a>> {
+    let page = OnSurface::page(onto_page);
+    let (left, top, right, bottom) = match extent {
+        Extent::Filled(path) => page.bounds(path, shape, target)?,
+        Extent::Stroked { ink, reach } => page.bounds_of_ink(ink, reach, target)?,
+    };
+    // A sampled shading's cells are cropped to the target they are handed, so it keeps the
+    // surface's grid, as [`fill_with_background`] keeps it; the extent is moved onto that grid.
+    let (grid, within) = if matches!(shading.kind.as_ref(), ShadingKind::Sampled { .. }) {
+        let (x, y) = onto_page.corner;
+        (
+            OnSurface::of(onto_page.at),
+            (
+                left.saturating_sub(x),
+                top.saturating_sub(y),
+                right.saturating_sub(x),
+                bottom.saturating_sub(y),
+            ),
+        )
+    } else {
+        (page, (left, top, right, bottom))
+    };
+    let raster = pdf_render::ShadingRaster::build(shading, grid.matrix, within, target)?;
+    let samples = premultiplied(&raster.image)?;
+    let (x, y) = grid.onto_surface(raster.left, raster.top);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a device pixel index is far below f32's exact integer limit"
+    )]
+    let onto_surface = Transform::translate(x as f32, y as f32);
+    let onto_path = shape.at.invert()?;
+    Some(tiny_skia::Pattern::new(
+        scratch.insert(samples).as_ref(),
+        tiny_skia::SpreadMode::Pad,
+        // One sample per device pixel, placed at whole pixels: no sample is interpolated.
         tiny_skia::FilterQuality::Nearest,
         1.0,
         crate::convert::transform(onto_surface.then(onto_path)),
@@ -862,6 +923,27 @@ pub(crate) fn fill_radial(
     true
 }
 
+/// `image` as a `tiny-skia` pixmap: those are premultiplied and `Image` is straight alpha, the same
+/// boundary conversion `CpuRasterizer::draw_image` makes. `None` for an image of no pixels.
+fn premultiplied(image: &pdf_render::Image) -> Option<tiny_skia::Pixmap> {
+    let mut samples = tiny_skia::Pixmap::new(image.width, image.height)?;
+    for (target, source) in samples
+        .pixels_mut()
+        .iter_mut()
+        .zip(image.data.as_chunks::<4>().0)
+    {
+        let alpha = source[3];
+        *target = tiny_skia::PremultipliedColorU8::from_rgba(
+            crate::compose::premultiply(source[0], alpha),
+            crate::compose::premultiply(source[1], alpha),
+            crate::compose::premultiply(source[2], alpha),
+            alpha,
+        )
+        .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
+    }
+    Some(samples)
+}
+
 /// Draws a device-resolution raster through a shape, at whole device pixels.
 ///
 /// Shared by [`fill_mesh`] and [`fill_radial`] because the two differ only in what fills the
@@ -883,25 +965,9 @@ fn fill_with_raster(
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
-    let Some(mut samples) = tiny_skia::Pixmap::new(image.width, image.height) else {
+    let Some(samples) = premultiplied(image) else {
         return;
     };
-    // `tiny-skia` pixmaps are premultiplied and `Image` is straight alpha, the same boundary
-    // conversion `CpuRasterizer::draw_image` makes.
-    for (target, source) in samples
-        .pixels_mut()
-        .iter_mut()
-        .zip(image.data.as_chunks::<4>().0)
-    {
-        let alpha = source[3];
-        *target = tiny_skia::PremultipliedColorU8::from_rgba(
-            crate::compose::premultiply(source[0], alpha),
-            crate::compose::premultiply(source[1], alpha),
-            crate::compose::premultiply(source[2], alpha),
-            alpha,
-        )
-        .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
-    }
 
     let paint = tiny_skia::Paint {
         shader: tiny_skia::Pattern::new(

@@ -94,14 +94,14 @@ impl Encoder<'_> {
         &mut self,
         shading: &Shading,
     ) -> Result<ShadedPaint, QuorraRasterError> {
-        // A fill carrying Table 77's `/Background` took [`Encoder::background_raster`]'s door
-        // before reaching here, so what is left is a *stroke* — whose outline is not the shape
-        // this encoder is handed. Refused rather than drawn without its wash, which keeps the
-        // shortfall the report `pdf_model` already raises instead of a quiet difference. A
-        // shading stating `/AntiAlias` takes the same door for the same reason (ADR 3024).
+        // A fill carrying Table 77's `/Background` or `/AntiAlias`, and a stroke carrying the
+        // second, took [`Encoder::background_raster`]'s door before reaching here (ADRs 3024,
+        // 3074), so what is left is a stroke washed with a `/Background`, which `pdf_model` drops
+        // and reports. Refused rather than drawn without its wash should one arrive, which keeps
+        // the shortfall a refusal instead of a quiet difference.
         if shading.is_rastered() {
             return Err(QuorraRasterError::Unsupported(
-                "a stroking shading pattern's /Background or /AntiAlias (§8.7.4.3)".to_owned(),
+                "a stroking shading pattern's /Background (§8.7.4.3)".to_owned(),
             ));
         }
         let kind = match shading.kind.as_ref() {
@@ -445,7 +445,7 @@ impl Encoder<'_> {
     ///
     /// `Ok(None)` is a shape covering no device pixel, and the caller draws nothing — the same
     /// answer [`Encoder::mesh`] gives an empty mesh, and not a refusal.
-    pub(super) fn background_raster(
+    pub(crate) fn background_raster(
         &mut self,
         shading: &Shading,
         within: (u32, u32, u32, u32),

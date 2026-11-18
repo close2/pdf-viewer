@@ -53,20 +53,6 @@ pub(super) fn shading_with_alpha(shading: &Arc<Shading>, alpha: f32) -> Arc<Shad
 }
 
 impl Interpreter<'_> {
-    /// Names a stroking pattern whose shading states §8.7.4.3 Table 77's `/AntiAlias true` over
-    /// a function, which [`Self::build_shading`] has drawn unfiltered; quiet for a fill, which is
-    /// filtered, and for a shading with no function to filter (trap 11).
-    pub(super) fn note_unfiltered(&mut self, label: &str, definition: &ShadingDefinition) {
-        if definition.paints_background {
-            return;
-        }
-        if crate::shading::filters(self.document, &definition.object) {
-            self.note(Unsupported::ShadingAntiAlias {
-                detail: format!("/{label} states /AntiAlias true"),
-            });
-        }
-    }
-
     /// Names a `/Background` this mark will not paint, and stays quiet about one it will.
     ///
     /// Two cases reach here, and the report's condition is exactly those two (trap 11):
@@ -161,12 +147,12 @@ impl Interpreter<'_> {
         if definition.paints_background {
             return Ok(shading);
         }
-        // A stroke: Table 77's wash and ADR 3024's filter are both a fill's (see
-        // [`Unsupported::ShadingAntiAlias`]), and the stroke draws the shading unwashed and
-        // unfiltered — the second named where the pattern is resolved.
+        // A stroke: Table 77's wash is a fill's here ([`Unsupported::ShadingBackground`]), so
+        // the stroke draws the shading unwashed. Its `/AntiAlias` is kept: Table 77's filter is
+        // of "the shading function", whichever mark paints it, and every backend strokes a
+        // flagged shading through the same raster a fill takes (ADR 3074).
         Ok(Shading {
             background: None,
-            anti_alias: false,
             ..shading
         })
     }

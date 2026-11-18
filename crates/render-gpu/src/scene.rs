@@ -395,7 +395,7 @@ fn from_bez_path(elements: impl Iterator<Item = kurbo::PathEl>) -> Path {
 fn encode_stroke(
     scene: &mut vello::Scene,
     path: &Path,
-    spaces: Spaces,
+    (spaces, target): (Spaces, TargetSpec),
     s: &Stroke,
     to_path: Transform,
     paint: &Paint,
@@ -403,7 +403,7 @@ fn encode_stroke(
 ) -> Result<(), GpuRasterError> {
     let at = spaces.at;
     let layer = compose.layer(blend);
-    let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
+    let (brush, brush_at, rastered) = stroke_brush(paint, spaces.page_to_path)?;
     let width = s.device_width(to_path);
 
     // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
@@ -498,6 +498,22 @@ fn encode_stroke(
     if compose == Compose::Knockout {
         knock_out(scene, at, peniko::Fill::NonZero, &outline(&shape, &dots));
     }
+    // ISO 32000-2 §8.7.4.1 lets a shading pattern paint "with painting operators such as f
+    // (fill), S (stroke)", and Table 77's `/AntiAlias` asks "to filter the shading function"
+    // whichever paints it (ADR 3074).
+    if let Paint::Shading(shading) = paint
+        && rastered
+    {
+        let rest = outline(&shape, &kurbo::BezPath::new());
+        stroke_filtered(
+            scene,
+            shading,
+            (rest, dots, coverage),
+            (spaces, target),
+            layer,
+        );
+        return Ok(());
+    }
     if let Some(mode) = layer {
         scene.push_layer(
             peniko::Fill::NonZero,
@@ -512,6 +528,61 @@ fn encode_stroke(
         draw(scene);
     }
     Ok(())
+}
+
+/// [`brush_for`]'s brush for a stroke, and whether the stroke is drawn without it: Table 77's
+/// `/AntiAlias` is drawn through the raster a fill takes (ADR 3074), and asking for a brush would
+/// refuse the paint, so such a stroke has a brush it never uses.
+fn stroke_brush(
+    paint: &Paint,
+    page_to_path: Transform,
+) -> Result<(peniko::Brush, Option<kurbo::Affine>, bool), GpuRasterError> {
+    if matches!(paint, Paint::Shading(shading) if shading.is_rastered()) {
+        return Ok((peniko::Brush::Solid(peniko::Color::TRANSPARENT), None, true));
+    }
+    let (brush, at) = brush_for(paint, page_to_path)?;
+    Ok((brush, at, false))
+}
+
+/// Draws a shading that states Table 77's `/AntiAlias` through a stroke: the raster a fill draws
+/// ([`crate::shading::fill_with_background`], ADR 3024), inside a layer clipped to each of
+/// `regions` at its alpha, as [`encode_fill`] draws it inside the filled shape (ADR 3074).
+///
+/// The regions are the stroke's outline `rest` and its `dots`: their union as one layer, so
+/// §11.6.2 composites the object once, or — where the dots carry part of their `coverage` in their
+/// alpha — the outline and then the dots at that alpha, the separate draw [`encode_stroke`] takes
+/// for them. `layer` is the stroke's blend, source-over where it has none.
+fn stroke_filtered(
+    scene: &mut vello::Scene,
+    shading: &pdf_render::Shading,
+    (mut rest, dots, coverage): (kurbo::BezPath, kurbo::BezPath, f32),
+    (spaces, target): (Spaces, TargetSpec),
+    layer: Option<peniko::BlendMode>,
+) {
+    let mode = layer.unwrap_or(peniko::BlendMode::new(
+        peniko::Mix::Normal,
+        peniko::Compose::SrcOver,
+    ));
+    let regions = if coverage >= 1.0 {
+        rest.extend(dots);
+        [(rest, 1.0), (kurbo::BezPath::new(), 1.0)]
+    } else {
+        [(rest, 1.0), (dots, coverage)]
+    };
+    for (region, alpha) in regions {
+        if region.is_empty() {
+            continue;
+        }
+        scene.push_layer(peniko::Fill::NonZero, mode, alpha, spaces.at, &region);
+        crate::shading::fill_with_background(
+            scene,
+            shading,
+            spaces.to_device,
+            device_bounds(&region, spaces.at, target),
+            target,
+        );
+        scene.pop_layer();
+    }
 }
 
 /// Whether drawing a stroke's portions one after another composites them exactly as drawing their
@@ -911,7 +982,7 @@ fn encode(
                     encode_stroke(
                         scene,
                         path,
-                        spaces,
+                        (spaces, spec.target),
                         s,
                         transform.then(to_device),
                         paint,

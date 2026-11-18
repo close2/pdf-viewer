@@ -816,8 +816,8 @@ fn anti_alias(document: &Document, dict: &Dictionary) -> bool {
 }
 
 /// Whether the shading `object` asks for §8.7.4.3 Table 77's filter over a function it has — the
-/// condition a built shading's [`Shading::anti_alias`] holds, read from the dictionary for a
-/// caller that has to report a filter it did not apply.
+/// condition a built shading's [`Shading::anti_alias`] holds, read from the dictionary without
+/// building the shading.
 ///
 /// > ( Optional ) A flag indicating whether to filter the shading function to prevent aliasing
 /// > artifacts.

@@ -1142,8 +1142,7 @@ fn not_drawn_whole(report: &Unsupported) -> &'static str {
         } => NOT_DRAWN_PAST_A_BOUND,
         Unsupported::Image { .. }
         | Unsupported::Shading { .. }
-        | Unsupported::ShadingBackground { .. }
-        | Unsupported::ShadingAntiAlias { .. } => NOT_DRAWN_AN_IMAGE_OR_SHADING,
+        | Unsupported::ShadingBackground { .. } => NOT_DRAWN_AN_IMAGE_OR_SHADING,
         Unsupported::Content {
             issue:
                 ContentIssue::Undecodable { .. }

@@ -626,6 +626,37 @@ fn quorra_filters_a_shading_that_asks_for_anti_aliasing() {
     );
 }
 
+/// The same filter where the shadings paint strokes, which §8.7.4.1 lets a shading pattern paint as
+/// it paints fills (ADR 3074): the step's pixel inside each stroke is grey on this device, and the
+/// stroked page agrees with the oracle. Stroking a flagged shading with raster's own gradient or
+/// mesh paint leaves the step's pixel black or white and fails.
+#[test]
+fn quorra_filters_a_stroke_whose_shading_asks_for_anti_aliasing() {
+    let mut backend = raster();
+    let list = test_scenes::shading_anti_alias_stroked(true);
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let ours = backend.rasterize(&list, target).expect("draws");
+    let red = |(column, row): (u32, u32)| {
+        ours.data[((row as usize) * (ours.width as usize) + column as usize) * 4]
+    };
+    for [edge, black, white] in test_scenes::ANTI_ALIAS_EDGES {
+        let value = red(edge);
+        assert!(
+            (96..=160).contains(&value),
+            "{edge:?} straddles the step inside the stroke and is filtered: {value}"
+        );
+        assert!(
+            red(black) <= 2 && red(white) >= 253,
+            "{black:?} and {white:?}"
+        );
+    }
+    assert_within(
+        "stroked shading anti-alias",
+        compare("stroked shading anti-alias", &list),
+        0.06,
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_curves() {
     // As with strokes: curves are boundary-dominated fixtures.

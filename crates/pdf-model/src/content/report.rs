@@ -39,18 +39,6 @@ pub enum Unsupported {
         /// The pattern resource name, and how many components the entry states.
         detail: String,
     },
-    /// A stroking shading pattern stated §8.7.4.3 Table 77's `/AntiAlias true`, and the stroke
-    /// was drawn without the filter.
-    ///
-    /// The entry is "\[a] flag indicating whether to filter the shading function to prevent
-    /// aliasing artifacts", and the filter (ADR 3024) is applied where a shading is drawn through
-    /// `pdf_render::ShadingRaster` — a *fill*'s door, since its raster is confined to the shape
-    /// being filled. A stroke's outline is not that shape, so the stroke keeps the backend's own
-    /// gradient and this says that the function was sampled once a pixel rather than filtered.
-    ShadingAntiAlias {
-        /// The pattern resource name.
-        detail: String,
-    },
     /// An operator this interpreter does not implement.
     Operator {
         /// The operator, as written.

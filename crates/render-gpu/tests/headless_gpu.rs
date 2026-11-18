@@ -1026,6 +1026,40 @@ fn the_gpu_filters_a_shading_that_asks_for_anti_aliasing() {
     }
 }
 
+/// The same filter where the shadings paint strokes, which §8.7.4.1 lets a shading pattern paint as
+/// it paints fills (ADR 3074): the step's pixel inside each stroke is grey on Vello, and the
+/// stroked page agrees with the oracle. Handing a flagged shading to a Vello brush refuses the
+/// paint, and drawing it unfiltered leaves the step's pixel black or white; either fails.
+#[test]
+fn the_gpu_filters_a_stroke_whose_shading_asks_for_anti_aliasing() {
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
+    let mut backend = gpu();
+    let list = test_scenes::shading_anti_alias_stroked(true);
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let ours = backend.rasterize(&list, target).expect("supported");
+    let red = |(column, row): (u32, u32)| {
+        ours.data[((row as usize) * (ours.width as usize) + column as usize) * 4]
+    };
+    for [edge, black, white] in test_scenes::ANTI_ALIAS_EDGES {
+        let value = red(edge);
+        assert!(
+            (96..=160).contains(&value),
+            "{edge:?} straddles the step inside the stroke and is filtered: {value}"
+        );
+        assert!(
+            red(black) <= 2 && red(white) >= 253,
+            "{black:?} and {white:?}"
+        );
+    }
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    assert_within_tolerance(
+        "stroked shading anti-alias",
+        raster_compare::compare(&cpu, &ours).expect("same size"),
+    );
+}
+
 /// A mesh, which neither rasteriser can shade natively and which both therefore draw as the
 /// one raster `pdf_render::MeshRaster` builds.
 ///

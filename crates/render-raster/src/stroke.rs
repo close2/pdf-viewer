@@ -62,7 +62,7 @@ pub(crate) fn encode(
     let path = fitted_path.as_ref().unwrap_or(path);
     let s = fitted.as_ref().map_or(s, |fit| &fit.stroke);
     let mask = enc.mask_id(builder, mask)?;
-    let Some(raster_paint) = raster_paint(enc, paint)? else {
+    let Some(raster_paint) = raster_paint(enc, paint, (path, transform, s))? else {
         return Ok(()); // nothing visible to paint with
     };
 
@@ -624,10 +624,25 @@ fn is_view_free_line(
 /// `None` is a shading whose raster is empty, which marks nothing on the sibling backends either
 /// — see `crate::scene::ShadedPaint`. A sampled shading and every other paint are refused by
 /// name, so the frame goes to the CPU backend rather than being drawn with the wrong colour.
+///
+/// A shading stating Table 77's `/AntiAlias` is the one stroking paint that is not this device's
+/// own: §8.7.4.1 lets a shading pattern paint "with painting operators such as f (fill), S
+/// (stroke)", and the table asks "to filter the shading function" whichever paints it. So it is
+/// the raster a fill takes ([`Encoder::background_raster`], ADR 3024), built over the pixels the
+/// stroke can reach ([`ink_pixels`]) and drawn through the stroke as the mesh paint is (ADR 3074).
 fn raster_paint(
     enc: &mut Encoder<'_>,
     paint: &Paint,
+    (path, transform, s): (&Path, Transform, &Stroke),
 ) -> Result<Option<raster_scene::Paint>, QuorraRasterError> {
+    if let Paint::Shading(shading) = paint
+        && shading.is_rastered()
+    {
+        let within = ink_pixels(enc, path, transform, s);
+        return Ok(enc
+            .background_raster(shading, within)?
+            .map(raster_scene::Paint::Mesh));
+    }
     Ok(Some(match paint {
         Paint::Solid(c) => raster_scene::Paint::Solid(colour(*c)),
         Paint::Shading(shading) => match enc.shading_paint(shading)? {
@@ -643,6 +658,49 @@ fn raster_paint(
             return Err(QuorraRasterError::Unsupported(format!("paint {other:?}")));
         }
     }))
+}
+
+/// The device pixels a stroke's marks can paint, as `(left, top, right, bottom)` clamped to the
+/// target: `render-cpu`'s ink extent, for the same marks (ADR 2404). `pdf_render::stroked_bounds`
+/// bounds the outline at the stated width term by term (§8.4.3), and the marks drawn one device
+/// pixel wide — §8.4.3.2's zero width, §10.7.4's enlargement — reach half that pixel along the
+/// path, `√2` halves at a projecting square cap's corner (§8.4.3.3) and the mitre limit's halves
+/// at a mitre's tip (§8.4.3.5); a pixel whose centre lies half a pixel past that is still painted.
+/// The whole target where the path names no point.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "each cast is between a device pixel index and its coordinate, clamped to the \
+              target's extent"
+)]
+fn ink_pixels(
+    enc: &Encoder<'_>,
+    path: &Path,
+    transform: Transform,
+    s: &Stroke,
+) -> (u32, u32, u32, u32) {
+    /// A projecting square cap's far corner sits `√2` half-widths from the endpoint.
+    const SQUARE_CAP_CORNER: f32 = std::f32::consts::SQRT_2;
+    let target = enc.target();
+    let (width, height) = (target.width as f32, target.height as f32);
+    let Some(ink) = pdf_render::stroked_bounds(path, s, transform.then(target.transform)) else {
+        return (0, 0, target.width, target.height);
+    };
+    let half_widths = match s.join {
+        LineJoin::Miter => s.miter_limit.max(SQUARE_CAP_CORNER),
+        LineJoin::Round | LineJoin::Bevel => SQUARE_CAP_CORNER,
+    };
+    let reach = 0.5 + half_widths / 2.0;
+    // `max` before `min`, so a coordinate that is not a number lands on the target's edge and
+    // the extent is empty rather than the whole target.
+    let clamp = |at: f32, high: f32| at.max(0.0).min(high) as u32;
+    (
+        clamp((ink.min.x - reach).floor(), width),
+        clamp((ink.min.y - reach).floor(), height),
+        clamp((ink.max.x + reach).ceil(), width),
+        clamp((ink.max.y + reach).ceil(), height),
+    )
 }
 
 /// How far this stroke's marks reach, in the path's own page space, or `None` where they can
