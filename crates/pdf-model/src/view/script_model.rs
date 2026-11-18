@@ -1421,6 +1421,14 @@ impl Overrides {
             _ => None,
         })
     }
+
+    /// The `required` a script set on the whole field, if it set one.
+    pub(super) fn required(&self) -> Option<bool> {
+        self.set.iter().find_map(|property| match property {
+            Property::Required(flag) => Some(*flag),
+            _ => None,
+        })
+    }
 }
 
 /// `app.beep`'s sound type: Adobe's "app methods" page numbers five, 0 to 4, with 4 the default.

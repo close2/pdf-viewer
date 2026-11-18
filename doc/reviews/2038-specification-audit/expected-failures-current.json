@@ -10,24 +10,6 @@
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
  "failures": [
   {
-   "binary": "pdf-model::text_strings_spec_audit",
-   "test": "an_alternate_description_language_escape_overrides_the_property_language",
-   "finding": "2038-B01",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::text_strings_spec_audit",
-   "test": "an_expansion_language_escape_overrides_the_property_language",
-   "finding": "2038-B02",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::structure_limit_reporting_audit",
-   "test": "a_deep_hierarchy_is_either_read_whole_or_reported_truncated",
-   "finding": "2038-B04",
-   "log": "broad.log"
-  },
-  {
    "binary": "viewer-host::collection_schema_cells_audit",
    "test": "details_view_presents_the_ci_text_value",
    "finding": "2038-B05",
@@ -49,24 +31,6 @@
    "binary": "viewer-host::collection_schema_cells_audit",
    "test": "details_view_presents_the_ci_numeric_value",
    "finding": "2038-B05",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::structure_limit_reporting_audit",
-   "test": "a_large_k_array_is_either_read_whole_or_reported_truncated",
-   "finding": "2038-B03",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::headless",
-   "test": "structure_actualtext_replaces_two_owned_content_items_once",
-   "finding": "2038-B12",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::headless",
-   "test": "structure_actualtext_replaces_content_enclosed_in_descendant_elements",
-   "finding": "2038-B12",
    "log": "broad.log"
   },
   {
@@ -112,12 +76,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-model::page_geometry",
-   "test": "a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
-   "finding": "2038-B19",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
    "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
    "finding": "2038-B20",
@@ -130,12 +88,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core::duplicate_choice_labels_spec_audit",
-   "test": "duplicate_labels_keep_both_array_selected_indices",
-   "finding": "2038-B26",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-model::tounicode_keeps_source_code_length_spec_audit",
    "test": "to_unicode_distinguishes_equal_values_at_different_source_code_lengths",
    "finding": "2038-B27",
@@ -145,66 +97,6 @@
    "binary": "pdf-model::tounicode_bfrange_sequence_destinations_spec_audit",
    "test": "sequential_multiscalar_bfrange_increments_destination_string_last_byte",
    "finding": "2038-B28",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::print_field_consumer_spec_audit",
-   "test": "flattened_field_role_is_not_lost_before_the_accessibility_consumer",
-   "finding": "2038-B29",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::print_field_consumer_spec_audit",
-   "test": "flattened_field_checked_state_is_not_lost_before_the_accessibility_consumer",
-   "finding": "2038-B29",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::print_field_consumer_spec_audit",
-   "test": "flattened_field_description_is_not_lost_before_the_accessibility_consumer",
-   "finding": "2038-B29",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::accessibility",
-   "test": "an_empty_language_identifier_explicitly_states_unknown",
-   "finding": "2038-B30",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::accessibility",
-   "test": "an_explicitly_unknown_language_shadows_outer_and_ancestral_languages_then_resumes",
-   "finding": "2038-B30",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::structure_phrase_language_spec_audit",
-   "test": "structure_alt_escape_overrides_ancestral_language",
-   "finding": "2038-B31",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::structure_phrase_language_spec_audit",
-   "test": "structure_expansion_escape_overrides_ancestral_language",
-   "finding": "2038-B31",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::empty_actualtext_spec_audit",
-   "test": "empty_span_property_actualtext_suppresses_only_discretionary_hyphen",
-   "finding": "2038-B34",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::empty_actualtext_spec_audit",
-   "test": "empty_artifact_property_actualtext_suppresses_only_discretionary_hyphen",
-   "finding": "2038-B34",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::empty_actualtext_spec_audit",
-   "test": "empty_structure_actualtext_suppresses_only_discretionary_hyphen",
-   "finding": "2038-B34",
    "log": "broad.log"
   },
   {
@@ -293,12 +185,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-model::deep_page_tree_order_spec_audit",
-   "test": "valid_depth_65_tree_keeps_kids_order_and_corresponding_page_content",
-   "finding": "2038-B48",
-   "log": "broad.log"
-  },
-  {
    "binary": "viewer-core::rendition_preconditions_spec_audit",
    "test": "an_enabled_runner_executes_the_rendition_script_and_does_not_use_op_as_fallback",
    "finding": "2038-B49",
@@ -316,12 +202,6 @@
    "finding": "2038-B52",
    "log": "engine.log",
    "requires": "pdf-script/engine"
-  },
-  {
-   "binary": "viewer-core::table_header_conflicting_scope_spec_audit",
-   "test": "conflicting_scope_with_headers_does_not_terminate_the_adopted_column_search",
-   "finding": "2038-B53",
-   "log": "broad.log"
   },
   {
    "binary": "pdf-transform::warichu_split_spec_audit",
@@ -346,72 +226,6 @@
    "test": "a_pdf_stroke_under_near_similarity_keeps_its_horizontal_width",
    "finding": "2038-B59",
    "log": "gpu.log"
-  },
-  {
-   "binary": "pdf-model::rich_text_default_style_noninheritance_spec_audit",
-   "test": "nonterminal_default_style_does_not_leak_into_a_terminal_variable_text_field",
-   "finding": "2038-B63",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::choice_locality_spec_audit",
-   "test": "top_index_is_taken_from_terminal_through_widget_but_not_from_nonterminal_ancestor",
-   "finding": "2038-B64",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::choice_locality_spec_audit",
-   "test": "selected_index_is_unchanged_by_nonterminal_ancestor_i_and_terminal_i_remains_local",
-   "finding": "2038-B64",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::choice_locality_spec_audit",
-   "test": "choice_opt_stays_with_the_dictionary_that_states_it",
-   "finding": "2038-B65",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::max_len_live_property_spec_audit",
-   "test": "a_reduced_live_char_limit_applies_to_a_later_value_edit",
-   "finding": "2038-B67",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::max_len_live_property_spec_audit",
-   "test": "a_raised_live_char_limit_applies_to_a_later_value_edit",
-   "finding": "2038-B67",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::max_len_live_property_spec_audit",
-   "test": "an_open_script_lowering_char_limit_applies_to_later_public_input",
-   "finding": "2038-B67",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::max_len_live_property_spec_audit",
-   "test": "an_open_script_raising_char_limit_applies_to_later_public_input",
-   "finding": "2038-B67",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::live_field_flags_spec_audit",
-   "test": "live_required_override_reaches_the_form_description",
-   "finding": "2038-B69",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::live_field_flags_spec_audit",
-   "test": "submit_required_diagnostic_uses_the_live_flag_value",
-   "finding": "2038-B69",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::live_field_flags_spec_audit",
-   "test": "live_readonly_override_is_described_and_blocks_user_editing",
-   "finding": "2038-B69",
-   "log": "broad.log"
   },
   {
    "binary": "pdf-model::degenerate_shading_geometry_spec_audit",

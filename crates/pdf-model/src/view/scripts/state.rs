@@ -112,11 +112,32 @@ impl ViewState {
 
     /// Whether a script has set this field read-only (`Some(true)`), writable (`Some(false)`), or
     /// neither.
-    pub(in crate::view) fn script_read_only(&self, name: &str) -> Option<bool> {
+    pub(crate) fn script_read_only(&self, name: &str) -> Option<bool> {
         self.scripting
             .overrides
             .get(name)
             .and_then(Overrides::read_only)
+    }
+
+    /// Whether a script has set this field required (`Some(true)`), optional (`Some(false)`), or
+    /// neither: Table 227 bit 2 as the document's own script left it, which the form's
+    /// description and a submission's bit-2 check read over the file's flag (ADR 2980).
+    pub(crate) fn script_required(&self, name: &str) -> Option<bool> {
+        self.scripting
+            .overrides
+            .get(name)
+            .and_then(Overrides::required)
+    }
+
+    /// The `charLimit` a script last set on this widget, if any: Table 232's `/MaxLen` as the
+    /// document's own script left it, which a later value is held to (ADR 2980).
+    pub(crate) fn script_char_limit(&self, widget: ObjectId) -> Option<u32> {
+        self.scripting.drawn.get(&widget).and_then(|held| {
+            held.iter().rev().find_map(|property| match property {
+                Property::CharLimit(limit) => Some(*limit),
+                _ => None,
+            })
+        })
     }
 
     /// Records that a save has written everything this view state holds: what `this.dirty` is

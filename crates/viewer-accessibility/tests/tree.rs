@@ -39,6 +39,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         bounds: None,
         allocation: None,
         artifact: None,
+        print_field: None,
         control: None,
         value: None,
         value_lines: Vec::new(),

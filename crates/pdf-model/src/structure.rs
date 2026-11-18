@@ -139,6 +139,16 @@ impl ParentTree {
             .cloned()
     }
 
+    /// The identity of the structure element a marked-content identifier belongs to, where the
+    /// parent tree names it by reference — which §14.7.5.4 requires of a content stream's
+    /// entry: "an array of indirect references to the sequences' parent structure elements".
+    /// A direct dictionary has none.
+    #[must_use]
+    pub fn element_id(&self, mcid: i64) -> Option<ObjectId> {
+        let index = usize::try_from(mcid).ok()?;
+        self.entries.get(index)?.as_reference()
+    }
+
     /// Whether this page names any structure at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -613,12 +623,27 @@ impl Tree {
         document: &Document,
         element: Option<&Dictionary>,
     ) -> Vec<(Child, Option<ObjectId>)> {
+        self.bounded_children(document, element).0
+    }
+
+    /// [`Self::identified_children`], and whether `MAX_CHILDREN` cut the `/K` array short.
+    ///
+    /// The cut is answered beside the children so that [`Self::walk`] can report it as
+    /// [`Reading::truncated`]: §14.7.2 sets no limit on an element's fan-out, so a reading that
+    /// stopped at this reader's bound is a prefix of the tree and has to say so.
+    pub(super) fn bounded_children(
+        &self,
+        document: &Document,
+        element: Option<&Dictionary>,
+    ) -> (Vec<(Child, Option<ObjectId>)>, bool) {
         let node = element.unwrap_or(&self.root);
         let page = node.get("Pg").and_then(Object::as_reference);
         let kids = document.get_key(node, "K");
         let mut out = Vec::new();
+        let mut cut = false;
         match &kids {
             Object::Array(items) => {
+                cut = items.len() > MAX_CHILDREN;
                 for item in items.iter().take(MAX_CHILDREN) {
                     if let Some(child) = Self::child(document, item, page) {
                         out.push((child, item.as_reference()));
@@ -631,7 +656,7 @@ impl Tree {
                 }
             }
         }
-        out
+        (out, cut)
     }
 }
 
@@ -1621,9 +1646,16 @@ impl TableStack {
                 }
                 continue;
             }
-            after_a_header = true;
             // "either Both or Row/Column" — the axis being built, or a header that describes both.
-            if (other.scope == axis || other.scope == HeaderScope::Both) && seen.insert(found) {
+            // Errata Collection 3's Issue #200 adds the other half: a header whose scope conflicts
+            // with the direction of the search — a `Row` header met while searching up a column
+            // — neither terminates the search nor joins the list, whatever its `/Headers` says,
+            // so it is stepped over as a gap is (ADR 2977).
+            if other.scope != axis && other.scope != HeaderScope::Both {
+                continue;
+            }
+            after_a_header = true;
+            if seen.insert(found) {
                 out.push(found);
             }
             if let Some(ids) = &other.stated {
@@ -3430,18 +3462,66 @@ pub fn expansion(document: &Document, element: &Dictionary) -> Option<String> {
 /// So the walk goes up `/P` until an element states one, the chain ends, or `MAX_ANCESTRY` is
 /// reached. `None` means no element in the chain said anything, which leaves the document
 /// catalog's default in force.
+///
+/// `Some("")` is an element that states the empty identifier, which §14.9.2.2 makes a statement
+/// of its own: the identifier "shall either be the empty text string, to indicate that the
+/// language is unknown, or a Language-Tag". It is a present entry, so it ends the inheritance
+/// walk exactly as a tag does, and the language it puts in force is *unknown* rather than an
+/// ancestor's or the catalog's (ADR 2976).
 #[must_use]
 pub fn language(document: &Document, element: &Dictionary) -> Option<String> {
+    enclosing(document, element, None).language
+}
+
+/// What a structure element and its ancestors state over one content item, in one walk up `/P`.
+///
+/// Two of §14.9's entries reach a content item from *above* its own element, by two different
+/// rules, and both are read here so that the chain is followed once per marked-content sequence:
+///
+/// - `/Lang` by inheritance — §14.9.2.3: an element without one "shall inherit its language from
+///   any parent element that has one" — so the **nearest** statement wins;
+/// - `/ActualText` by enclosure — §14.9.4: the replacement text applies to "the content enclosed
+///   by the structure element", and an element encloses its descendants' content — so the
+///   **outermost** statement wins, because its replacement covers the inner one's content too.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Enclosing {
+    /// The nearest `/Lang`, with `Some("")` for a stated unknown language (see [`language`]).
+    pub(crate) language: Option<String>,
+    /// The outermost `/ActualText`, as the string object the file wrote, with the element
+    /// stating it where that element is an indirect object — the identity that lets a page
+    /// substitute it once however many of the element's content items it meets.
+    pub(crate) actual_text: Option<(Option<ObjectId>, std::sync::Arc<[u8]>)>,
+}
+
+/// Walks from `element` (whose own identity is `id`, where known) up `/P` for [`Enclosing`].
+///
+/// Bounded by `MAX_ANCESTRY`, for the reason given there.
+pub(crate) fn enclosing(
+    document: &Document,
+    element: &Dictionary,
+    id: Option<ObjectId>,
+) -> Enclosing {
+    let mut found = Enclosing::default();
     let mut current = element.clone();
+    let mut current_id = id;
     for _ in 0..MAX_ANCESTRY {
-        if let Some(tag) = text_entry(document, &current, "Lang") {
-            return Some(tag);
+        if found.language.is_none()
+            && let Object::String(bytes) = document.get_key(&current, "Lang")
+        {
+            found.language = Some(pdf_syntax::text_string(&bytes));
+        }
+        if let Object::String(bytes) = document.get_key(&current, "ActualText") {
+            found.actual_text = Some((current_id, bytes));
         }
         // The structure tree root is the one parent that is not an element, and it states no
         // language of its own — §14.9.2.3 puts the document's default in the catalog instead.
-        current = document.get_key(&current, "P").as_dict()?.clone();
+        current_id = current.get("P").and_then(Object::as_reference);
+        let Some(parent) = document.get_key(&current, "P").as_dict().cloned() else {
+            break;
+        };
+        current = parent;
     }
-    None
+    found
 }
 
 /// A text-string entry on a structure element, decoded and with an empty value discarded.

@@ -289,7 +289,12 @@ impl ViewState {
         ));
         let entry = Entry {
             value: match widgets.first() {
-                Some(widget) => crate::view::fields::held_to_max_len(document, *widget, written),
+                Some(widget) => crate::view::fields::held_to_max_len(
+                    document,
+                    *widget,
+                    self.script_char_limit(*widget),
+                    written,
+                ),
                 None => written,
             },
             indices: None,

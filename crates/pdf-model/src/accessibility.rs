@@ -63,7 +63,16 @@ pub struct Described {
     /// inherits. The enclosing sequences and the document's default are applied by
     /// [`speech`], because they are properties of the surrounding text rather than of this
     /// sequence.
+    ///
+    /// `Some("")` is §14.9.2.2's empty identifier, "to indicate that the language is unknown":
+    /// a statement, which shadows every enclosing language for what this sequence encloses,
+    /// where `None` states nothing and leaves the enclosing language in force (ADR 2976).
     pub language: Option<String>,
+    /// The languages §7.9.2.2.2's escape sequences state inside the phrase this sequence is
+    /// spoken as — `/Alt`'s, or `/E`'s where `/Alt` is absent — each with the byte offset in the
+    /// phrase from which it governs, "overriding the prevailing Lang entry"; empty where the
+    /// phrase states none.
+    pub phrase_languages: Vec<(usize, String)>,
 }
 
 impl Described {
@@ -90,9 +99,9 @@ pub struct Spoken {
     /// The language it is in — §14.9.2.2's identifier, or `None` where the document states
     /// none anywhere in the hierarchy.
     ///
-    /// The clause admits one more answer this type does not distinguish: "the empty text
-    /// string, to indicate that the language is unknown". An empty `/Lang` is read as no
-    /// statement, which is what it means.
+    /// §14.9.2.2's "empty text string, to indicate that the language is unknown" also arrives as
+    /// `None`: where a sequence states it, it has already shadowed every enclosing language
+    /// (see [`Described::language`]), so what is left is the same answer — no language.
     pub language: Option<String>,
 }
 
@@ -182,7 +191,20 @@ fn emit(
         let inner = item.language.as_deref().or(language);
         if let Some(phrase) = item.phrase() {
             push_break(runs);
-            push(phrase, inner, runs);
+            // §7.9.2.2.2: an escape's language overrides the prevailing one from where it
+            // stands to the next escape or the phrase's end.
+            let mut said = 0;
+            let mut speaking = inner;
+            for (offset, escaped) in &item.phrase_languages {
+                push(
+                    phrase.get(said..*offset).unwrap_or_default(),
+                    speaking,
+                    runs,
+                );
+                said = *offset;
+                speaking = Some(escaped.as_str());
+            }
+            push(phrase.get(said..).unwrap_or_default(), speaking, runs);
             push_break(runs);
         } else if depth < MAX_NESTING {
             emit(
@@ -208,6 +230,8 @@ fn push(text: &str, language: Option<&str>, runs: &mut Vec<Spoken>) {
     if text.is_empty() {
         return;
     }
+    // §14.9.2.2's stated unknown language reaches a text-to-speech engine as no language.
+    let language = language.filter(|tag| !tag.is_empty());
     if let Some(last) = runs.last_mut()
         && last.language.as_deref() == language
     {
@@ -246,6 +270,7 @@ mod tests {
             alt: Some(text.to_owned()),
             expansion: None,
             language: None,
+            phrase_languages: Vec::new(),
         }
     }
 
@@ -263,12 +288,14 @@ mod tests {
                 alt: None,
                 expansion: Some("Doctor".to_owned()),
                 language: None,
+                phrase_languages: Vec::new(),
             },
             Described {
                 range: 36..39,
                 alt: None,
                 expansion: Some("Drive".to_owned()),
                 language: None,
+                phrase_languages: Vec::new(),
             },
         ];
         let spoken = speech(text, &described, None);
@@ -310,6 +337,7 @@ mod tests {
                 alt: None,
                 expansion: Some("ampere".to_owned()),
                 language: None,
+                phrase_languages: Vec::new(),
             },
         ];
         let spoken = speech(text, &described, None);
@@ -328,6 +356,7 @@ mod tests {
             alt: None,
             expansion: None,
             language: Some("es-MX".to_owned()),
+            phrase_languages: Vec::new(),
         }];
         let spoken = speech(text, &described, Some("en-US"));
         assert_eq!(
@@ -360,12 +389,14 @@ mod tests {
                 alt: None,
                 expansion: None,
                 language: Some("es-MX".to_owned()),
+                phrase_languages: Vec::new(),
             },
             Described {
                 range: 16..36,
                 alt: None,
                 expansion: None,
                 language: Some("en-US".to_owned()),
+                phrase_languages: Vec::new(),
             },
         ];
         let spoken = speech(text, &described, None);
@@ -403,5 +434,33 @@ mod tests {
     fn a_range_outside_the_text_governs_nothing() {
         let spoken = speech("abc", &[alt(2..99, "gone")], None);
         assert_eq!(spoken.first().map(|run| run.text.as_str()), Some("abc"));
+    }
+
+    /// §7.9.2.2.2: an escape in a phrase overrides the prevailing language from where it stands,
+    /// so a description that changes language mid-string is spoken as two runs, the first in the
+    /// sequence's own language.
+    #[test]
+    fn a_phrase_changes_language_where_its_escape_stands() {
+        let mut described = alt(0..1, "uno dos");
+        described.language = Some("en".to_owned());
+        described.phrase_languages = vec![(4, "es".to_owned())];
+        let spoken = speech("x", &[described], Some("de"));
+        let runs: Vec<_> = spoken
+            .iter()
+            .map(|run| (run.text.trim(), run.language.as_deref()))
+            .collect();
+        assert_eq!(runs, [("uno", Some("en")), ("dos", Some("es"))]);
+    }
+
+    /// §14.9.2.2's empty identifier shadows the enclosing language and is spoken as none.
+    #[test]
+    fn an_unknown_language_shadows_the_default() {
+        let mut described = alt(0..1, "quoi");
+        described.language = Some(String::new());
+        let spoken = speech("x", &[described], Some("fr"));
+        assert!(
+            spoken.iter().all(|run| run.language.is_none()),
+            "{spoken:?}"
+        );
     }
 }

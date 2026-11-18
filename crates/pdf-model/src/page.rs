@@ -23,9 +23,15 @@ use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
 
 /// Deepest page-tree nesting that will be followed.
 ///
-/// Real trees are shallow — a balanced tree over a hundred thousand pages is about six
-/// levels — so anything approaching this is malformed or hostile.
-const MAX_TREE_DEPTH: usize = 64;
+/// A balanced tree over a hundred thousand pages is about six levels, but §7.7.3.1 lets a
+/// producer use "any form of tree structure", and a tree that hangs each node under the last is
+/// as valid as a balanced one and as deep as the document is long — so depth is no sign of a
+/// malformed file, and this bound is a resource bound and not a validity test (ADR 2981). It is
+/// set where the walks' recursion stays well inside a test thread's two-megabyte stack (the
+/// `a_thousand_level_tree_keeps_its_order` test walks one at that depth) and far past any tree a
+/// producer writes on purpose. A tree deeper than this is not read as though it had fewer pages:
+/// the lookups fall back to the declarations' scan, and [`Pages::found_by_scanning`] says so.
+const MAX_TREE_DEPTH: usize = 1024;
 
 /// Most nodes visited while looking for one page.
 ///
@@ -39,15 +45,17 @@ const MAX_NODES_VISITED: usize = 1 << 20;
 /// met again beneath itself is a cycle, which stands for no pages. Walked as though it were one
 /// more subtree it branched at every level it was named, until `MAX_NODES_VISITED`: two nodes of
 /// one file that named themselves and each other counted 449 367 pages, and every lookup among
-/// them cost a million visits (ADR 1496). The path is what tells the two apart, and it is at most
-/// `MAX_TREE_DEPTH` long, so asking it is a constant. A node named twice by *different* parents —
+/// them cost a million visits (ADR 1496). The path is what tells the two apart, and it is a set
+/// of at most `MAX_TREE_DEPTH` identities, so asking it costs a lookup. A node named twice by *different* parents —
 /// a DAG rather than a cycle — is still walked twice, under the visit bound.
 #[derive(Debug, Default)]
 struct Walk {
     /// Nodes visited, against `MAX_NODES_VISITED`.
     visited: usize,
-    /// The identities of the nodes above the one being walked, root first.
-    path: Vec<ObjectId>,
+    /// The identities of the nodes above the one being walked — a set, so that asking whether a
+    /// kid is one of them costs a lookup rather than a pass over a path up to `MAX_TREE_DEPTH`
+    /// long for every kid visited.
+    path: BTreeSet<ObjectId>,
     /// Each resource dictionary this walk has resolved through a reference, by the object it is.
     ///
     /// §7.8.3 lets many pages name one resource dictionary by reference, and resolving it hands
@@ -96,8 +104,8 @@ impl Walk {
 
     /// Steps back out from beneath `node`, as [`Self::enter`] stepped in.
     fn leave(&mut self, node: Node<'_>) {
-        if node.id().is_some() {
-            self.path.pop();
+        if let Some(id) = node.id() {
+            self.path.remove(&id);
         }
     }
 }
@@ -1784,6 +1792,34 @@ fn every_leaf(
     found
 }
 
+/// §14.11.2.1's intersection of a boundary with the media box, empty where they do not meet.
+///
+/// An empty intersection is kept as a rectangle of no area at the corner where the two boxes
+/// come nearest — a clip to it draws nothing, and [`shown_area`] tells it from a box.
+fn within_medium(stated: [f32; 4], media_box: [f32; 4]) -> [f32; 4] {
+    let x0 = stated[0].max(media_box[0]);
+    let y0 = stated[1].max(media_box[1]);
+    let x1 = stated[2].min(media_box[2]);
+    let y1 = stated[3].min(media_box[3]);
+    if has_area([x0, y0, x1, y1]) {
+        [x0, y0, x1, y1]
+    } else {
+        let (x, y) = (x0.min(x1), y0.min(y1));
+        [x, y, x, y]
+    }
+}
+
+/// A boundary as an area to show a page at: the box itself, or `fallback` where the box is
+/// empty, because a page shown at no size is not a page shown (see `build_page`).
+fn shown_area(exact: [f32; 4], fallback: [f32; 4]) -> [f32; 4] {
+    if has_area(exact) { exact } else { fallback }
+}
+
+/// Whether a normalised rectangle encloses any area.
+fn has_area(rect: [f32; 4]) -> bool {
+    rect[2] > rect[0] && rect[3] > rect[1]
+}
+
 /// Assembles a page from its dictionary and the attributes it inherited.
 fn build_page(
     document: &Document,
@@ -1805,23 +1841,21 @@ fn build_page(
     };
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
-    // The crop box is intersected with the media box, as the specification requires: a
-    // crop box larger than the medium does not enlarge the page.
-    let crop_box = inherited.crop_box.map_or(media_box, |crop| {
-        [
-            crop[0].max(media_box[0]),
-            crop[1].max(media_box[1]),
-            crop[2].min(media_box[2]),
-            crop[3].min(media_box[3]),
-        ]
-    });
-    // An empty intersection means the crop box is nonsense; fall back rather than render
-    // nothing.
-    let crop_box = if crop_box[2] > crop_box[0] && crop_box[3] > crop_box[1] {
-        crop_box
-    } else {
-        media_box
-    };
+    // §14.11.2.1: "If the bounds of the crop, trim, bleed or art box extends outside of the
+    // bounds of the media box, a processor shall treat the box as its intersection with the
+    // media box." The clause states no exception for an intersection that is empty, so a box
+    // wholly outside the medium is an empty box and *clips* everything (ADR 2981). What it
+    // cannot do is be the *area* a page is shown at, which has to have a size: there the
+    // stated box gives way to the medium, and since the clip is still the empty box the page
+    // shows nothing, which is what the clause makes of it.
+    //
+    // A stated box with no area of its own — `[0 0 0 0]` is the form damaged files write — is no
+    // rectangle the clause could intersect, and is read as absent, as it always was.
+    let crop_exact = inherited
+        .crop_box
+        .filter(|crop| has_area(*crop))
+        .map_or(media_box, |crop| within_medium(crop, media_box));
+    let crop_box = shown_area(crop_exact, media_box);
 
     // §14.11.2.1's other three boxes, each defaulting to the crop box and each intersected
     // with the medium by the clause's own rule. None of the three is inheritable — Table 31
@@ -1829,36 +1863,39 @@ fn build_page(
     // "attributes that are not explicitly identified in the table as inheritable shall not
     // be inherited" — so they are read from the page object alone.
     let production_box = |key: &str| {
-        rectangle(document, &document.get_key(dict, key)).map_or(crop_box, |stated| {
-            let clipped = [
-                stated[0].max(media_box[0]),
-                stated[1].max(media_box[1]),
-                stated[2].min(media_box[2]),
-                stated[3].min(media_box[3]),
-            ];
-            if clipped[2] > clipped[0] && clipped[3] > clipped[1] {
-                clipped
-            } else {
-                crop_box
-            }
-        })
+        rectangle(document, &document.get_key(dict, key))
+            .filter(|stated| has_area(*stated))
+            .map_or(crop_exact, |stated| within_medium(stated, media_box))
     };
-    let bleed_box = production_box("BleedBox");
-    let trim_box = production_box("TrimBox");
-    let art_box = production_box("ArtBox");
+    let bleed_exact = production_box("BleedBox");
+    let trim_exact = production_box("TrimBox");
+    let art_exact = production_box("ArtBox");
+    let (bleed_box, trim_box, art_box) = (
+        shown_area(bleed_exact, crop_box),
+        shown_area(trim_exact, crop_box),
+        shown_area(art_exact, crop_box),
+    );
 
     // §12.2's four boundary entries, which name boundaries rather than stating them. All four
     // are `CropBox` for every document that says nothing, so each is the crop box in every
-    // corpus document and the rest of this crate reads `display_box` regardless.
-    let pick = |boundary| match boundary {
+    // corpus document and the rest of this crate reads `display_box` regardless. An area is
+    // the shown box; a clip is the exact one, empty where the clause makes it empty.
+    let area = |boundary| match boundary {
         Boundary::Media => media_box,
         Boundary::Crop => crop_box,
         Boundary::Bleed => bleed_box,
         Boundary::Trim => trim_box,
         Boundary::Art => art_box,
     };
-    let (display_box, clip_box) = (pick(boundaries.view.0), pick(boundaries.view.1));
-    let (print_box, print_clip_box) = (pick(boundaries.print.0), pick(boundaries.print.1));
+    let clip = |boundary| match boundary {
+        Boundary::Media => media_box,
+        Boundary::Crop => crop_exact,
+        Boundary::Bleed => bleed_exact,
+        Boundary::Trim => trim_exact,
+        Boundary::Art => art_exact,
+    };
+    let (display_box, clip_box) = (area(boundaries.view.0), clip(boundaries.view.1));
+    let (print_box, print_clip_box) = (area(boundaries.print.0), clip(boundaries.print.1));
 
     // Rotation must be a multiple of 90. Negative and out-of-range values occur, so the
     // value is normalised rather than trusted.

@@ -1,10 +1,7 @@
 //! Table 352 and §14.6.2 named property lists reach §14.9.4 replacement text.
 //! An indirect property value is stored outside the content stream, through Resources/Properties.
 
-#![expect(
-    clippy::arithmetic_side_effects,
-    reason = "small exact-xref fixture"
-)]
+#![expect(clippy::arithmetic_side_effects, reason = "small exact-xref fixture")]
 
 use pdf_syntax::Document;
 use std::fmt::Write as _;

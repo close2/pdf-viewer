@@ -121,10 +121,17 @@ impl Tree {
         out: &mut Walk,
         seen: &mut BTreeSet<ObjectId>,
     ) {
+        let (children, cut) = self.bounded_children(document, element);
+        // Both bounds are this reader's, not §14.7.2's, which sets none: an element at the
+        // depth bound that still has children, or a `/K` array longer than `MAX_CHILDREN`,
+        // leaves a prefix of the tree, and the walk says so.
+        if cut || (depth >= MAX_DEPTH && !children.is_empty()) {
+            out.truncated = true;
+        }
         if depth >= MAX_DEPTH {
             return;
         }
-        for (child, id) in self.identified_children(document, element) {
+        for (child, id) in children {
             if out.items.len() >= MAX_ELEMENTS {
                 out.truncated = true;
                 return;

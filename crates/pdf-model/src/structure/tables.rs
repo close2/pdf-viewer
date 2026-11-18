@@ -335,10 +335,16 @@ impl Tree {
     /// > attributes" control the interpretation of the L element as it relates to other L elements
     /// > that are not its immediate parent.
     ///
-    /// which is why they are read here and `/ListNumbering` — the numbering scheme whose labels are
-    /// already on the page as `Lbl` elements — is not. Without them a listener is told a fresh list
-    /// where the document said the items carry on from one it has already heard, and the numbering
+    /// which is why they are read here. Without them a listener is told a fresh list where the
+    /// document said the items carry on from one it has already heard, and the numbering
     /// restarting is exactly what makes that confusing rather than merely incomplete.
+    ///
+    /// Table 382's third entry, `/ListNumbering`, states two things, and neither is read here. Its
+    /// numbering system is how the `Lbl` elements' content was generated, and those labels are
+    /// already on the page as content. Its classification — `Ordered`, `Unordered`, `Description`,
+    /// or a scheme that implies one — is a separate fact about the list, which a platform's list
+    /// role could carry; this reader does not carry it to a host, and that is a gap in what it
+    /// offers rather than a reading that the clause asks nothing of a reader.
     ///
     /// # What states a continuation
     ///

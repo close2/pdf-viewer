@@ -114,11 +114,12 @@ impl Interpreter<'_> {
             mcid,
             // §14.9.4's replacement text, which belongs to *extraction* and not to
             // drawing: the marks are unchanged and what a reader copies is not.
+            actual_text_owner: actual_text.as_ref().and_then(|(_, owner)| *owner),
             actual_text_languages: actual_text
                 .as_ref()
-                .map(|(_, languages)| languages.clone())
+                .map(|((_, languages), _)| languages.clone())
                 .unwrap_or_default(),
-            actual_text: actual_text.map(|(text, _)| text),
+            actual_text: actual_text.map(|((text, _), _)| text),
             described,
             artifact,
             reversed,
@@ -151,9 +152,17 @@ impl Interpreter<'_> {
             // read back is discarded and the stated text stands in its place.
             let replaced_here = section.actual_text.is_some();
             let mut replacement_languages = Vec::new();
+            // §14.9.4 substitutes a structure element's `/ActualText` for the whole of the
+            // content the element encloses, so where the element owns several content items
+            // the first one met carries the replacement and the rest are replaced by nothing
+            // rather than repeating it (ADR 2976).
+            let repeated = section
+                .actual_text_owner
+                .is_some_and(|owner| !self.replaced_elements.insert(owner));
             if let Some(replacement) = section.actual_text
                 && section.starts_at <= self.text.len()
             {
+                let replacement = if repeated { String::new() } else { replacement };
                 self.cut_replaced(section.starts_at, &replacement);
                 // "If each of two (or more) consecutive structure or marked-content
                 // sequences has an ActualText entry, they shall be treated as if no
@@ -188,11 +197,20 @@ impl Interpreter<'_> {
             // rather than applied to it: they are what the page is *spoken* as,
             // and the text a person copies is unchanged by either.
             if let Some(described) = section.described {
+                // `Described::phrase` speaks `/Alt` over `/E`, so the languages its escapes
+                // state are the chosen string's.
+                let phrase_languages = described
+                    .alt
+                    .as_ref()
+                    .or(described.expansion.as_ref())
+                    .map(|(_, languages)| languages.clone())
+                    .unwrap_or_default();
                 self.described.push(crate::accessibility::Described {
                     range: section.starts_at..self.text.len(),
-                    alt: described.alt,
-                    expansion: described.expansion,
+                    alt: described.alt.map(|(text, _)| text),
+                    expansion: described.expansion.map(|(text, _)| text),
                     language: described.language,
+                    phrase_languages,
                 });
             }
             // After the section's own description, so that a run its replacement text states a
@@ -261,6 +279,7 @@ fn language_runs(
                 alt: None,
                 expansion: None,
                 language: Some(language.clone()),
+                phrase_languages: Vec::new(),
             }
         })
         .collect()

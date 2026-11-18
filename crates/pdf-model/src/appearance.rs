@@ -1695,19 +1695,22 @@ fn option_entry(option: &crate::form::Choice) -> Object {
     }
 }
 
-/// The widget dictionary a reading of Table 234's `/Opt` takes: as a script's properties leave
-/// it where a script rewrote the options ([`with_scripted`]), and as the file states it otherwise
-/// (ADR 1737). What a host's control lists, what a person's choice by index selects and what a
-/// realm is told read the options here, so all three read the list the page draws.
+/// The widget dictionary a reading of Table 234's `/Opt` or Table 232's `/MaxLen` takes: as a
+/// script's properties leave it where a script rewrote the options or the character limit
+/// ([`with_scripted`]), and as the file states it otherwise (ADRs 1737, 2980). What a host's
+/// control lists and how long its text may be, what a person's choice by index selects and what
+/// a realm is told read the entries here, so all of them read what the page draws.
 pub(crate) fn with_rewritten_options<'a>(
     document: &Document,
     annotation: &'a Dictionary,
     scripted: &[crate::view::Property],
 ) -> std::borrow::Cow<'a, Dictionary> {
-    if scripted
-        .iter()
-        .any(|property| matches!(property, crate::view::Property::Options(_)))
-    {
+    if scripted.iter().any(|property| {
+        matches!(
+            property,
+            crate::view::Property::Options(_) | crate::view::Property::CharLimit(_)
+        )
+    }) {
         std::borrow::Cow::Owned(with_scripted(document, annotation, scripted))
     } else {
         std::borrow::Cow::Borrowed(annotation)

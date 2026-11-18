@@ -49,8 +49,8 @@ use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
 use pdf_model::popup::Comment;
 use pdf_model::structure::{
-    Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope, Nonstandard,
-    StandardType, TextDecoration, TextPosition,
+    Artifact, ArtifactKind, BlockProgression, CellPlacement, Checked, FieldRole, HeaderScope,
+    Nonstandard, PrintField, StandardType, TextDecoration, TextPosition,
 };
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
@@ -1952,6 +1952,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             bounds,
             allocation,
             artifact,
+            print_field,
             control,
             value,
             value_lines,
@@ -2017,6 +2018,8 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         // kind of artifact it is, which decides what §14.8.2.2.1's text-to-speech engine does
         // about it.
         encode_artifact(writer, artifact.as_ref());
+        // Table 383's attributes of a non-interactive form field (§14.8.5.6).
+        encode_print_field(writer, print_field.as_ref());
         // Whether the element encloses content this program refused to draw, which is the one
         // thing a host cannot join for itself: it has `Query::Reports` per page and this tree per
         // element, and the join runs through §14.7.5.2's identifiers, which do not cross.
@@ -2110,6 +2113,7 @@ pub(super) fn decode_accessibility(
             drawn: reader.option_rect("a node's drawn extent")?,
             allocation: reader.option_rect("a node's allocation rectangle")?,
             artifact: decode_artifact(reader)?,
+            print_field: decode_print_field(reader)?,
             enclosed_a_refusal: reader.bool("a node's refusal flag")?,
             control: decode_optional_control(reader)?,
             value: decode_shown(reader)?,
@@ -2343,6 +2347,61 @@ fn encode_artifact(writer: &mut Writer, artifact: Option<&Artifact>) {
     for edge in artifact.attached {
         writer.bool(edge);
     }
+}
+
+/// Table 383's three entries: the role as one byte (`0` where none is stated), the state as one
+/// byte, and the alternate name.
+fn encode_print_field(writer: &mut Writer, field: Option<&PrintField>) {
+    let Some(field) = field else {
+        writer.bool(false);
+        return;
+    };
+    let role = match field.role {
+        None => 0,
+        Some(FieldRole::RadioButton) => 1,
+        Some(FieldRole::CheckBox) => 2,
+        Some(FieldRole::PushButton) => 3,
+        Some(FieldRole::TextValue) => 4,
+        Some(FieldRole::ListBox) => 5,
+    };
+    let checked = match field.checked {
+        Checked::On => 0,
+        Checked::Off => 1,
+        Checked::Neutral => 2,
+    };
+    writer
+        .bool(true)
+        .u8(role)
+        .u8(checked)
+        .option_str(field.description.as_deref());
+}
+
+/// Reads what [`encode_print_field`] wrote, refusing a role or a state this build does not define.
+fn decode_print_field(reader: &mut Reader<'_>) -> Result<Option<PrintField>, ProtocolError> {
+    if !reader.bool("a node's print-field attributes")? {
+        return Ok(None);
+    }
+    let role = match reader.u8("a print field's role")? {
+        0 => None,
+        1 => Some(FieldRole::RadioButton),
+        2 => Some(FieldRole::CheckBox),
+        3 => Some(FieldRole::PushButton),
+        4 => Some(FieldRole::TextValue),
+        5 => Some(FieldRole::ListBox),
+        value => return Err(unrecognised("a print field's role", value)),
+    };
+    let checked = match reader.u8("a print field's state")? {
+        0 => Checked::On,
+        1 => Checked::Off,
+        2 => Checked::Neutral,
+        value => return Err(unrecognised("a print field's state", value)),
+    };
+    let description = reader.option_string("a print field's alternate name")?;
+    Ok(Some(PrintField {
+        role,
+        checked,
+        description,
+    }))
 }
 
 /// §14.8.2.2's artifact types, as one byte. `0` is an artifact that states no type.

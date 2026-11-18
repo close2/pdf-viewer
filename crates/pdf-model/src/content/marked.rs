@@ -37,6 +37,10 @@ pub(super) struct Marked {
     /// The languages §7.9.2.2.2's escape sequences state inside [`Self::actual_text`], each with
     /// the byte offset in it from which the language governs; empty where it states none.
     pub(super) actual_text_languages: Vec<(usize, String)>,
+    /// The structure element whose `/ActualText` [`Self::actual_text`] is, where it came from
+    /// one that is an indirect object: §14.9.4 substitutes for the content the element
+    /// encloses, once, so the second of its content items a page meets is replaced by nothing.
+    pub(super) actual_text_owner: Option<ObjectId>,
     /// §14.9.3's `/Alt` and §14.9.5's `/E`, which replace what it is *spoken* as, and
     /// §14.9.2's `/Lang`, which says in what language.
     ///
@@ -133,11 +137,12 @@ pub(super) struct Closed {
 /// §14.9's three spoken-form entries as one section states them.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Accessible {
-    /// §14.9.3's `/Alt`.
-    pub(super) alt: Option<String>,
-    /// §14.9.5's `/E`.
-    pub(super) expansion: Option<String>,
-    /// §14.9.2's `/Lang`, already resolved through a structure element's ancestry.
+    /// §14.9.3's `/Alt`, with the languages its §7.9.2.2.2 escapes state.
+    pub(super) alt: Option<Replacement>,
+    /// §14.9.5's `/E`, with the languages its §7.9.2.2.2 escapes state.
+    pub(super) expansion: Option<Replacement>,
+    /// §14.9.2's `/Lang`, already resolved through a structure element's ancestry; `Some("")`
+    /// is §14.9.2.2's stated unknown language.
     pub(super) language: Option<String>,
 }
 
@@ -445,32 +450,45 @@ impl Interpreter<'_> {
         &self,
         resources: &Dictionary,
         operand: Option<&Object>,
-    ) -> (Option<Replacement>, Option<Accessible>) {
+    ) -> (Option<(Replacement, Option<ObjectId>)>, Option<Accessible>) {
         let Some(list) = self.property_list(resources, operand) else {
             return (None, None);
         };
         // §7.9.2.2.2: a Unicode text string may carry "an escape sequence using a language tag
-        // indicating the language of the text and overriding the prevailing Lang entry", so the
-        // replacement text keeps the languages its escapes state beside the text they leave.
+        // indicating the language of the text and overriding the prevailing Lang entry", so each
+        // substituted string keeps the languages its escapes state beside the text they leave —
+        // `/ActualText`'s for extraction and speech, `/Alt`'s and `/E`'s for speech (ADR 2976).
+        let decoded = |bytes: &[u8]| {
+            (
+                pdf_syntax::text_string(bytes),
+                pdf_syntax::text_string_languages(bytes),
+            )
+        };
+        // §14.9.4 makes `/ActualText` replacement *character content*, and the empty string is
+        // a present value replacing the content with nothing — the clause's own way to drop a
+        // discretionary hyphen — so it is kept, unlike an absent entry (ADR 2976).
         let replacement = |value: Object| match value {
-            Object::String(bytes) => {
-                let text = pdf_syntax::text_string(&bytes);
-                (!text.is_empty()).then(|| (text, pdf_syntax::text_string_languages(&bytes)))
-            }
+            Object::String(bytes) => Some(decoded(&bytes)),
             _ => None,
         };
-        let stated = |key: &str| match self.document.get_key(&list, key) {
-            Object::String(bytes) => {
-                let text = pdf_syntax::text_string(&bytes);
-                (!text.is_empty()).then_some(text)
-            }
+        // An empty `/Alt` or `/E` states no phrase, and is read as none: speaking nothing in
+        // place of an item is not what either clause describes.
+        let phrase = |value: Object| match value {
+            Object::String(bytes) => Some(decoded(&bytes)).filter(|(text, _)| !text.is_empty()),
             _ => None,
         };
-        let mut actual_text = replacement(self.document.get_key(&list, "ActualText"));
+        // §14.9.2.2: the empty identifier is a statement — "the language is unknown" — so it
+        // is kept as `Some("")`, which shadows every enclosing language (ADR 2976).
+        let language = |value: Object| match value {
+            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
+        };
+        let mut actual_text =
+            replacement(self.document.get_key(&list, "ActualText")).map(|text| (text, None));
         let mut described = Accessible {
-            alt: stated("Alt"),
-            expansion: stated("E"),
-            language: stated("Lang"),
+            alt: phrase(self.document.get_key(&list, "Alt")),
+            expansion: phrase(self.document.get_key(&list, "E")),
+            language: language(self.document.get_key(&list, "Lang")),
         };
 
         // The structure element supplies only what the property list did not state, and is
@@ -484,19 +502,23 @@ impl Interpreter<'_> {
             && let Some(element) = self.structure.element(self.document, mcid)
         {
             let document = self.document;
-            actual_text =
-                actual_text.or_else(|| replacement(document.get_key(&element, "ActualText")));
-            described.alt = described
-                .alt
-                .or_else(|| crate::structure::alternate_description(document, &element));
-            described.expansion = described
-                .expansion
-                .or_else(|| crate::structure::expansion(document, &element));
-            // The one of the four that is inherited: §14.9.2.3 has an element take its
-            // language from "any parent element that has one".
-            described.language = described
-                .language
-                .or_else(|| crate::structure::language(document, &element));
+            // `/Lang` is inherited from the nearest ancestor that states one (§14.9.2.3), and
+            // `/ActualText` covers everything its element encloses (§14.9.4), so both are read
+            // in one walk up `/P` — see `structure::Enclosing`.
+            let enclosing =
+                crate::structure::enclosing(document, &element, self.structure.element_id(mcid));
+            if actual_text.is_none() {
+                actual_text = enclosing
+                    .actual_text
+                    .map(|(owner, bytes)| (decoded(&bytes), owner));
+            }
+            if described.alt.is_none() {
+                described.alt = phrase(document.get_key(&element, "Alt"));
+            }
+            if described.expansion.is_none() {
+                described.expansion = phrase(document.get_key(&element, "E"));
+            }
+            described.language = described.language.or(enclosing.language);
         }
         (actual_text, described.or_nothing())
     }

@@ -37,11 +37,41 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 /// The last five are not designated inheritable, and are read up the chain because a widget that
 /// is not merged with its field holds none of them itself: Table 231's `/TI` and `/I`, which a
 /// choice field states, the `/Kids` §12.7.5.2.4 reads a radio button's set from, and Table 228's
-/// `/RV` and `/DS`, which the field's variable text states. A reader that asks [`Inherited`] for an
+/// `/RV` and `/DS`, which the field's variable text states — and those four, with a choice field's
+/// `/Opt`, only as far as the terminal field (`LOCAL_TO_THE_TERMINAL_FIELD`). A reader that asks [`Inherited`] for an
 /// entry missing here is told only what the widget itself states.
 pub(crate) const READ_UP_THE_CHAIN: [&str; 13] = [
     "FT", "Ff", "V", "DV", "DA", "Q", "MaxLen", "Opt", "TI", "I", "Kids", "RV", "DS",
 ];
+
+/// The entries of [`READ_UP_THE_CHAIN`] that §12.7.4.1 does not let a field take from its
+/// ancestors: Table 228's `/DS` and `/RV` and Table 234's `/TI` and `/I` carry no "inheritable"
+/// in their rows, and §12.7.4.1 gives a field its parent's value only for the attributes so
+/// designated: "Such inheritable attributes shall be designated as such". They are read up the
+/// chain only as far as the terminal
+/// field — the widget's own dictionary, and where the widget is not merged with its field, the
+/// field above it — and never from a field above that (ADR 2979).
+const LOCAL_TO_THE_TERMINAL_FIELD: [&str; 4] = ["TI", "I", "RV", "DS"];
+
+/// Whether `key` stays with the field that states it, for a field whose type is `field_type`.
+///
+/// `/Opt` is two entries under one name: Table 230's check-box and radio-button `/Opt` is
+/// "(Optional; inheritable; PDF 1.4)", and Table 234's choice-field `/Opt` is "(Optional)" with no
+/// inheritance — "If this entry is not present, no choices should be presented to the user".
+fn is_local(key: &str, field_type: Option<&[u8]>) -> bool {
+    LOCAL_TO_THE_TERMINAL_FIELD.contains(&key) || (key == "Opt" && field_type == Some(b"Ch"))
+}
+
+/// The resolved `/FT` of a dictionary over what its ancestors resolve to.
+fn field_type(document: &Document, dict: &Dictionary, above: &Dictionary) -> Option<Vec<u8>> {
+    let own = document.get_key(dict, "FT");
+    let value = if own.is_null() {
+        document.get_key(above, "FT")
+    } else {
+        own
+    };
+    value.as_name().map(|name| name.as_bytes().to_vec())
+}
 
 /// How a walk up a `/Parent` chain ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +253,10 @@ pub(crate) struct Inherited {
     widget: Dictionary,
     /// What its chain above it resolves to.
     above: Arc<Resolved>,
+    /// [`Resolved::entries`] of `above` as this widget may read them: the same dictionary, or
+    /// for a widget merged with its terminal field, a copy without the entries that stay with
+    /// the field above it (`LOCAL_TO_THE_TERMINAL_FIELD`).
+    entries: Arc<Dictionary>,
 }
 
 impl Inherited {
@@ -234,6 +268,7 @@ impl Inherited {
         let Some(start) = parent_of(widget, &fetch) else {
             return Self {
                 widget: widget.clone(),
+                entries: Arc::clone(&memo.root.entries),
                 above: Arc::clone(&memo.root),
             };
         };
@@ -280,16 +315,18 @@ impl Inherited {
                 resolved.insert(id, entry);
             }
         }
+        let entries = readable_above(document, widget, &above.entries);
         Self {
             widget: widget.clone(),
             above,
+            entries,
         }
     }
 
     /// The two dictionaries a reader looks through, nearest first: the widget's own, then what
     /// its chain resolves to. Only [`READ_UP_THE_CHAIN`]'s entries are in the second.
     pub(crate) fn chain(&self) -> [&Dictionary; 2] {
-        [&self.widget, &self.above.entries]
+        [&self.widget, &self.entries]
     }
 
     /// `key`'s nearest stated value, references resolved, or `Null` where nothing states it.
@@ -334,6 +371,37 @@ fn states(document: &Document, value: &Object) -> bool {
     }
 }
 
+/// What a widget reads of the entries resolved above it.
+///
+/// A widget that is not merged with its field has its terminal field directly above it, and every
+/// entry resolved there is that field's to give. A widget that *is* its terminal field — the
+/// dictionary a §12.7.4.1 field and its §12.5.6.19 widget share when "a field has only a single
+/// associated widget annotation" — has a non-terminal field above it, whose entries that are not
+/// inherited are not this field's. The dictionary is taken to be merged where it states `/T`,
+/// Table 226's partial field name, which a widget that is only an annotation does not have.
+fn readable_above(
+    document: &Document,
+    widget: &Dictionary,
+    above: &Arc<Dictionary>,
+) -> Arc<Dictionary> {
+    if widget.get("T").is_none() {
+        return Arc::clone(above);
+    }
+    let kind = field_type(document, widget, above);
+    let unshared: Vec<&str> = READ_UP_THE_CHAIN
+        .into_iter()
+        .filter(|key| is_local(key, kind.as_deref()) && above.get(key).is_some())
+        .collect();
+    if unshared.is_empty() {
+        return Arc::clone(above);
+    }
+    let mut entries = Dictionary::clone(above);
+    for key in unshared {
+        entries.remove(key);
+    }
+    Arc::new(entries)
+}
+
 /// `dict`'s stated entries of [`READ_UP_THE_CHAIN`] over `above`'s.
 fn stated_over(document: &Document, dict: &Dictionary, above: &Arc<Dictionary>) -> Arc<Dictionary> {
     let own: Vec<(&str, &Object)> = READ_UP_THE_CHAIN
@@ -341,10 +409,21 @@ fn stated_over(document: &Document, dict: &Dictionary, above: &Arc<Dictionary>) 
         .filter_map(|key| Some((key, dict.get(key)?)))
         .filter(|(_, value)| states(document, value))
         .collect();
-    if own.is_empty() {
+    // What the parent resolved of an entry that is not inherited is the parent's own, and is
+    // not this field's to take (`LOCAL_TO_THE_TERMINAL_FIELD`).
+    let kind = field_type(document, dict, above);
+    let unshared: Vec<&str> = READ_UP_THE_CHAIN
+        .into_iter()
+        .filter(|key| is_local(key, kind.as_deref()) && above.get(key).is_some())
+        .filter(|key| own.iter().all(|(stated, _)| stated != key))
+        .collect();
+    if own.is_empty() && unshared.is_empty() {
         return Arc::clone(above);
     }
     let mut entries = Dictionary::clone(above);
+    for key in unshared {
+        entries.remove(key);
+    }
     for (key, value) in own {
         entries.insert(Name::new(key.as_bytes().to_vec()), value.clone());
     }

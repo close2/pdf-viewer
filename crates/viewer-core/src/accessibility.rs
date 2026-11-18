@@ -352,6 +352,16 @@ pub struct AccessibilityNode {
     /// that states no attributes, which §14.8.2.2.2 calls a generic artifact and is not the same
     /// statement as `None`.
     pub artifact: Option<Artifact>,
+    /// §14.8.5.6's `PrintField` attributes, Table 383, for a `Form` element that states them:
+    /// what a non-interactive form field *was* — its role, whether it was checked, and its
+    /// alternate name.
+    ///
+    /// Carried as the attributes rather than as a [`Self::control`], because the clause is about
+    /// fields that "were then converted into non-interactive PDF files, or … designed to be
+    /// printed out and filled in manually": there is no widget to act on, and a host offering
+    /// one would invent an action the document does not have. A host maps them to its
+    /// platform's read-only form roles (ADR 2978). `None` for every other element.
+    pub print_field: Option<pdf_model::structure::PrintField>,
     /// Where the element's content **turned out to be**, in the same device pixels
     /// [`Self::quads`] are in: `[x0, y0, x1, y1]`.
     ///
@@ -667,6 +677,7 @@ impl AccessibilityNode {
             bounds: None,
             allocation: None,
             artifact: None,
+            print_field: None,
             drawn: None,
             enclosed_a_refusal: false,
             control: None,
@@ -802,6 +813,8 @@ pub(crate) struct Gathered {
     pub(crate) allocation: Option<[f32; 4]>,
     /// Table 385's artifact attributes for an `Artifact` element, where the element is one.
     pub(crate) artifact: Option<Artifact>,
+    /// Table 383's attributes for a `Form` element, where it states them.
+    pub(crate) print_field: Option<pdf_model::structure::PrintField>,
     /// §14.8.4.8.3's header cells, as indices into this list — **before** [`prune`] moves them.
     ///
     /// Filled after the walk rather than during it, because Table 384's `/Headers` names cells by
@@ -1008,6 +1021,7 @@ fn spoken(text: &str, described: &[Described], spans: &[(usize, usize)]) -> Stri
                 alt: item.alt.clone(),
                 expansion: item.expansion.clone(),
                 language: item.language.clone(),
+                phrase_languages: item.phrase_languages.clone(),
             })
             .collect();
         for run in pdf_model::accessibility::speech(slice, &within, None) {
@@ -1070,9 +1084,12 @@ fn walk(
                     reached.insert(id);
                 }
                 // §14.9.2.3's hierarchy: the innermost stated `/Lang` wins, and an element that
-                // states none inherits what encloses it.
+                // states none inherits what encloses it. §14.9.2.2's empty identifier is a
+                // statement — the language is unknown — so it is kept, as `Some("")`, and
+                // shadows the enclosing language for this element and its descendants
+                // (ADR 2976); a node reports it as no language.
                 let language =
-                    text_entry(document, &dict, "Lang").or_else(|| language.map(str::to_owned));
+                    language_entry(document, &dict).or_else(|| language.map(str::to_owned));
                 // §14.7.3's role map, which is a `shall` on whoever reads a structure type and
                 // not a courtesy: "[a] structure type shall always be mapped to its corresponding
                 // name in the role map, if there is one, even if the original name is one of the
@@ -1116,8 +1133,22 @@ fn walk(
                     );
                     continue;
                 }
-                let phrase =
-                    text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
+                // §7.9.2.2.2: an escape at the start of the phrase states its language,
+                // "overriding the prevailing Lang entry", so a substituted node is in that
+                // language; the element's descendants still inherit the element's own
+                // (ADR 2976).
+                let (phrase, phrase_language) = match phrase_entry(document, &dict, "Alt")
+                    .or_else(|| phrase_entry(document, &dict, "E"))
+                {
+                    Some((text, languages)) => (
+                        Some(text),
+                        languages
+                            .into_iter()
+                            .find(|(offset, _)| *offset == 0)
+                            .map(|(_, tag)| tag),
+                    ),
+                    None => (None, None),
+                };
                 let index = out.len();
                 // Table 384's two spoken entries, each behind the standard type its own sentence
                 // conditions it on — "[t]his entry shall only be used within Table structure
@@ -1137,6 +1168,13 @@ fn walk(
                 // asked under, applied here where the role is in hand rather than in the reader.
                 let artifact =
                     (kind == Some(StandardType::Artifact)).then(|| tree.artifact(document, &dict));
+                // §14.8.5.6: the attributes govern "Form structure elements for non-interactive
+                // form fields", so they are read on a `Form` and nowhere else.
+                let print_field = if kind == Some(StandardType::Form) {
+                    tree.print_field(document, &dict)
+                } else {
+                    None
+                };
                 let summary = (kind == Some(StandardType::Table))
                     .then(|| tree.table_summary(document, &dict))
                     .flatten();
@@ -1165,7 +1203,7 @@ fn walk(
                         objects: Vec::new(),
                         phrase,
                         title,
-                        language: language.clone(),
+                        language: phrase_language.or_else(|| language.clone()),
                         header_scope,
                         cell,
                         summary,
@@ -1173,6 +1211,7 @@ fn walk(
                         bounds,
                         allocation,
                         artifact,
+                        print_field,
                         headers: Vec::new(),
                         continues_a_list,
                         continued_from: None,
@@ -1370,6 +1409,24 @@ fn header_scope(
     (cell, scope)
 }
 
+/// An element's `/Lang`, with §14.9.2.2's empty identifier kept as the statement it is.
+fn language_entry(document: &Document, dict: &Dictionary) -> Option<String> {
+    let value = document.get_key(dict, "Lang");
+    Some(pdf_syntax::text_string::text_string(value.as_string()?))
+}
+
+/// A non-empty `/Alt` or `/E`, decoded, with the languages its §7.9.2.2.2 escapes state.
+fn phrase_entry(
+    document: &Document,
+    dict: &Dictionary,
+    key: &str,
+) -> Option<(String, Vec<(usize, String)>)> {
+    let value = document.get_key(dict, key);
+    let bytes = value.as_string()?;
+    let text = pdf_syntax::text_string::text_string(bytes);
+    (!text.is_empty()).then(|| (text, pdf_syntax::text_string_languages(bytes)))
+}
+
 /// A text-string entry, decoded through §7.9.2.2's rules.
 fn text_entry(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
     let value = document.get_key(dict, key);
@@ -1411,9 +1468,12 @@ fn names_object(object: ObjectId, parent: Option<usize>, out: &mut [(Option<usiz
 ///   this element shall be measured relative to the shifted baseline" of the parent — so a
 ///   child's height off the line is the sum of the shifts above it.
 ///
-/// What is summed is the chain of **inline-level** elements, reset at every other kind: a block
-/// moves its whole line with it and leaves nothing on that line for its text to be raised above,
-/// and the inline elements inside it are measured from where it put them. **A `Figure`, `Form` or
+/// What is summed is the chain of **inline-level** elements, reset at every other kind. The reset
+/// is this reader's mapping and not the clause's applicability: Table 377 lets `/BaselineShift`
+/// stand on a block-level element too, where it moves the block's lines with it. What a host is
+/// told is [`TextPosition`]'s `Sup` and `Sub`, and a paragraph moved as a whole is not
+/// superscript text, so a block's shift is not passed on as one, and the inline elements inside
+/// it are measured from where it put them (ADR 2384). **A `Figure`, `Form` or
 /// `Formula` resets it too**, because §14.8.5.4.6 gives their shift another meaning: "the value of
 /// its `BaselineShift` attribute shall be used to determine the position of its after edge relative
 /// to the text baseline" — where an inline illustration's bottom sits, which is not a subscript
@@ -1607,7 +1667,9 @@ pub(crate) fn finish(
         name,
         titled,
         substituted,
-        language: referenced_language(&gathered.objects, page.languages).or(gathered.language),
+        language: referenced_language(&gathered.objects, page.languages)
+            .or(gathered.language)
+            .filter(|tag| !tag.is_empty()),
         quads: all,
         header_scope: gathered.header_scope,
         cell: gathered.cell,
@@ -1618,6 +1680,7 @@ pub(crate) fn finish(
         // that one and both are stated in default user space.
         allocation: gathered.allocation.and_then(&place),
         artifact: gathered.artifact,
+        print_field: gathered.print_field,
         control: gathered
             .objects
             .iter()
@@ -1986,6 +2049,7 @@ mod tests {
             bounds: None,
             allocation: None,
             artifact: None,
+            print_field: None,
             control: None,
             value: None,
             value_lines: Vec::new(),

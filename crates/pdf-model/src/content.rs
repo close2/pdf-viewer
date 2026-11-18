@@ -1520,6 +1520,11 @@ impl<'a> Interpreter<'a> {
         reason = "the inputs `interpret_into` threads here, one parameter each; a struct for them \
                   would name the same eight things once more"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line per field of the interpreter, as `checkpoint` has: a field added is a \
+                  line added here, and a `..` would take the starting value from no one's decision"
+    )]
     fn for_page(
         document: &'a Document,
         page: &'a Page,
@@ -1572,6 +1577,7 @@ impl<'a> Interpreter<'a> {
             references,
             text: String::new(),
             described: Vec::new(),
+            replaced_elements: BTreeSet::new(),
             artifacts: Vec::new(),
             marked: Vec::new(),
             stream: ContentStream::Page,
@@ -1732,6 +1738,7 @@ impl<'a> Interpreter<'a> {
             list_budget,
             text,
             described,
+            replaced_elements,
             artifacts,
             marked,
             structural_annotations,
@@ -1786,6 +1793,7 @@ impl<'a> Interpreter<'a> {
             list_budget: *list_budget,
             text: text.clone(),
             described: described.clone(),
+            replaced_elements: replaced_elements.clone(),
             artifacts: artifacts.clone(),
             marked: marked.clone(),
             structural_annotations: structural_annotations.clone(),
@@ -1837,6 +1845,7 @@ impl<'a> Interpreter<'a> {
             list_budget,
             text,
             described,
+            replaced_elements,
             artifacts,
             marked,
             structural_annotations,
@@ -1880,6 +1889,7 @@ impl<'a> Interpreter<'a> {
         self.list_budget = list_budget;
         self.text = text;
         self.described = described;
+        self.replaced_elements = replaced_elements;
         self.artifacts = artifacts;
         self.marked = marked;
         self.structural_annotations = structural_annotations;
@@ -1963,6 +1973,8 @@ struct Checkpoint {
     text: String,
     /// See [`Interpretation::described`].
     described: Vec<crate::accessibility::Described>,
+    /// See [`Interpreter::replaced_elements`].
+    replaced_elements: BTreeSet<ObjectId>,
     /// See [`Interpretation::artifacts`].
     artifacts: Vec<ArtifactSpan>,
     /// See [`Interpretation::marked`].
@@ -2976,6 +2988,9 @@ struct Interpreter<'a> {
     text: String,
     /// §14.9's accessibility spans over [`Self::text`], pushed as each section closes.
     described: Vec<crate::accessibility::Described>,
+    /// The structure elements whose `/ActualText` this page's readback already carries, so that
+    /// §14.9.4's substitution for an element's enclosed content is made once.
+    replaced_elements: BTreeSet<ObjectId>,
     /// §14.8.2.2's artifact spans, in the order their sections closed.
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.

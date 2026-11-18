@@ -96,7 +96,12 @@ impl ViewState {
         self.forget_statements(&table, &replaced);
         for (widget, import) in &matched {
             let mut import = import.clone();
-            import.value = held_to_max_len(document, *widget, import.value.take());
+            import.value = held_to_max_len(
+                document,
+                *widget,
+                self.script_char_limit(*widget),
+                import.value.take(),
+            );
             named.resolve(document, *widget, &mut import, &mut outcome, &mut awaiting);
             self.import_options(document, *widget, import.options.as_deref());
             self.imported.insert(*widget, import);
@@ -312,7 +317,12 @@ impl ViewState {
                         .into(),
                     ));
                     match taking.first() {
-                        Some(widget) => held_to_max_len(document, *widget, typed),
+                        Some(widget) => held_to_max_len(
+                            document,
+                            *widget,
+                            self.script_char_limit(*widget),
+                            typed,
+                        ),
                         None => typed,
                     }
                 },
@@ -797,9 +807,13 @@ pub(super) fn state_name(value: &Object) -> Object {
 /// it binds only Table 226's `/FT /Tx`: a choice field's `/V` names an option, which a cut would
 /// turn into a value no option states. A value that is no text string — a rich-text stream, a
 /// name — is left whole, since only a text string is counted in characters.
+///
+/// `live` is a `charLimit` the document's own script set on the widget, which is what the entry
+/// says now: a later value is held to it rather than to the file's `/MaxLen` (ADR 2980).
 pub(super) fn held_to_max_len(
     document: &Document,
     widget: ObjectId,
+    live: Option<u32>,
     value: Option<Object>,
 ) -> Option<Object> {
     let Some(Object::String(bytes)) = &value else {
@@ -813,8 +827,9 @@ pub(super) fn held_to_max_len(
     let is_text = inherited
         .name(document, "FT")
         .is_some_and(|kind| kind.as_bytes() == b"Tx");
-    let Some(limit) = inherited
-        .integer(document, "MaxLen")
+    let Some(limit) = live
+        .map(i64::from)
+        .or_else(|| inherited.integer(document, "MaxLen"))
         .filter(|_| is_text)
         .and_then(|limit| usize::try_from(limit).ok())
     else {

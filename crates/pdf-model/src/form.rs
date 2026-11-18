@@ -511,8 +511,14 @@ fn read(
             .map_or(qualified, |(_, last)| last)
             .to_owned(),
         value: appearance::field_text_value(document, dict, view.annotation(first).value),
-        read_only: field.flags & appearance::FLAG_READ_ONLY != 0,
-        required: field.flags & appearance::FLAG_REQUIRED != 0,
+        // Table 227's bits 1 and 2 as the document's own script last set them, over the file's
+        // (ADR 2980): a host told the stored flag would offer an edit `set_field` then refuses.
+        read_only: view
+            .script_read_only(qualified)
+            .unwrap_or(field.flags & appearance::FLAG_READ_ONLY != 0),
+        required: view
+            .script_required(qualified)
+            .unwrap_or(field.flags & appearance::FLAG_REQUIRED != 0),
         no_export: field.flags & appearance::FLAG_NO_EXPORT != 0,
         widgets: widgets
             .iter()
@@ -759,13 +765,16 @@ pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -
             .filter(|(_, option)| option.label == *label)
             .map(|(index, _)| index)
             .collect();
-        // The tie the clause names `/I` for, and the only case it is allowed to decide.
+        // The tie the clause names `/I` for, and the only case it is allowed to decide. Each
+        // value takes an occurrence no earlier value took, so a `/V` naming one label twice
+        // selects both of the items `/I` identifies rather than one of them twice (ADR 2979).
+        let unchosen = |index: &usize| !out.contains(index);
         let chosen = if matches.len() > 1 {
             matches
                 .iter()
                 .copied()
-                .find(|index| indices.contains(index))
-                .or_else(|| matches.first().copied())
+                .find(|index| indices.contains(index) && unchosen(index))
+                .or_else(|| matches.iter().copied().find(unchosen))
         } else {
             matches.first().copied()
         };

@@ -57,10 +57,14 @@ use crate::object::{Dictionary, Object};
 
 /// How deep a tree will be followed.
 ///
-/// A balanced tree over any collection a PDF can hold is far shallower than this; a file
-/// claiming otherwise has a cycle or is trying to make the reader walk forever. The visited
-/// set below catches a cycle directly, so this is the second line of defence rather than the
-/// only one — the same arrangement `xref.rs` uses for the `/Prev` chain.
+/// A resource bound, and not a test of validity: §7.9.6's node forms admit an intermediate node
+/// with a single kid, so a valid tree can be as deep as it has entries, though a balanced tree
+/// over any collection a PDF can hold is far shallower than this. The visited set below catches
+/// a cycle directly, so for a cycle this is the second line of defence — the same arrangement
+/// `xref.rs` uses for the `/Prev` chain — and for a valid tree deeper than this it is a cut:
+/// [`lookup`] answers what lies below it as absent and the pair collectors return the entries
+/// above it, which no caller can tell from a tree that holds no more (ADR 2981, Annex C's
+/// informative limits being the standard's only word on any such bound).
 const MAX_DEPTH: usize = 64;
 
 /// A key in either kind of tree.

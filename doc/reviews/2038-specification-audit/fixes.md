@@ -375,29 +375,29 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/accessibility.rs, crates/pdf-model/src/content/marked.rs, crates/pdf-model/src/content/run/marked_ops.rs, crates/pdf-model/src/structure.rs, crates/pdf-model/src/structure/attributes.rs, crates/pdf-model/src/structure/logical.rs, crates/viewer-core/src/accessibility.rs
 - test files: crates/pdf-model/tests/accessibility.rs, crates/pdf-model/tests/empty_actualtext_spec_audit.rs, crates/pdf-model/tests/missing_attribute_class_spec_audit.rs, crates/pdf-model/tests/named_property_actualtext_spec_audit.rs, crates/pdf-model/tests/structure_attribute_stream_audit.rs, crates/pdf-model/tests/structure_limit_reporting_audit.rs, crates/pdf-model/tests/structure_objr_page_spec_audit.rs, crates/pdf-model/tests/text_strings_spec_audit.rs, crates/pdf-model/tests/writing_mode_edges_spec_audit.rs, crates/viewer-accessibility/tests/tree.rs, crates/viewer-core/tests/headless.rs, crates/viewer-core/tests/lang_hex_consumer_spec_audit.rs, crates/viewer-core/tests/print_field_consumer_spec_audit.rs, crates/viewer-core/tests/structure_phrase_language_spec_audit.rs, crates/viewer-core/tests/table_header_conflicting_scope_spec_audit.rs
 
-- 2038-B01 | pdf-model | behavior-gap | open | Unicode language escape ignored for property Lang | 1 manifest failure
-- 2038-B02 | pdf-model | behavior-gap | open | Unicode language escape ignored for property Lang | 1 manifest failure
-- 2038-B03 | pdf-model | behavior-gap | open | structure traversal bounds truncate silently | 1 manifest failure
-- 2038-B04 | pdf-model | behavior-gap | open | structure traversal bounds truncate silently | 1 manifest failure
-- 2038-B12 | pdf-model | behavior-gap | open | ActualText per-MCID vs element | 2 manifest failures
-- 2038-B29 | viewer-core,pdf-model | implementation-consumer-gap | open | flattened form attributes not reaching accessibility | 3 manifest failures
-- 2038-B30 | pdf-model | behavior-and-incorrect-test-oracle | open | empty Lang treated as absent | 2 manifest failures
-- 2038-B31 | viewer-core,pdf-model | implementation-consumer-gap | open | Alt/E language escapes not applied | 2 manifest failures
-- 2038-B34 | pdf-model | implementation-empty-value-gap | open | empty value treated as absent | 3 manifest failures
-- 2038-B53 | viewer-core,pdf-model | adopted-algorithm-recommendation-gap | open | table header search stops at conflicting scope | 1 manifest failure
-- 2038-T03 | pdf-model | stale-decision-residual | open | ActualText multi-language runs (ADR2812)
-- 2038-T04 | pdf-model | test-coverage-gap | open | test control: stream-valued structure attributes
-- 2038-T10 | pdf-model,viewer-core | test-coverage-gap | open | ActualText per-MCID vs element
-- 2038-T43 | pdf-model,viewer-core | public-integration-and-fixture-gap | open | language precedence test gap
-- 2038-T51 | viewer-accessibility,viewer-core | assertion-coverage-gap | open | writing mode direction test gap
-- 2038-T80 | pdf-model | test-coverage-gap | open | test control: absent attribute classes
-- 2038-T93 | viewer-core | test-coverage-gap | open | test control: hex Lang values
-- 2038-T155 | pdf-model | assertion-quality | open | ActualText from property resource
-- 2038-T163 | pdf-model | assertion-quality | open | structure tree K child reading
-- 2038-T166 | pdf-model | assertion-quality | open | structure tree K child reading
-- 2038-T172 | pdf-model | assertion-quality | open | structure tree K child reading
-- 2038-D17 | viewer-accessibility,pdf-model | source-interpretation-residual | open | ListNumbering rationale doc
-- 2038-D33 | viewer-accessibility,pdf-model | representation-policy-boundary | open | BaselineShift reset at blocks doc
+- 2038-B01 | pdf-model | behavior-gap | fixed (ADR 2976; text_strings_spec_audit::an_alternate_description_language_escape_overrides_the_property_language, accessibility.rs::a_phrase_changes_language_where_its_escape_stands) | Unicode language escape ignored for property Lang | 1 manifest failure
+- 2038-B02 | pdf-model | behavior-gap | fixed (ADR 2976; text_strings_spec_audit::an_expansion_language_escape_overrides_the_property_language) | Unicode language escape ignored for property Lang | 1 manifest failure
+- 2038-B03 | pdf-model | behavior-gap | fixed (ADR 2981; structure_limit_reporting_audit::a_large_k_array_is_either_read_whole_or_reported_truncated) | structure traversal bounds truncate silently | 1 manifest failure
+- 2038-B04 | pdf-model | behavior-gap | fixed (ADR 2981; structure_limit_reporting_audit::a_deep_hierarchy_is_either_read_whole_or_reported_truncated) | structure traversal bounds truncate silently | 1 manifest failure
+- 2038-B12 | pdf-model | behavior-gap | fixed (ADR 2976; headless::structure_actualtext_replaces_two_owned_content_items_once, ::structure_actualtext_replaces_content_enclosed_in_descendant_elements) | ActualText per-MCID vs element | 2 manifest failures
+- 2038-B29 | viewer-core,pdf-model | implementation-consumer-gap | fixed (ADR 2978; print_field_consumer_spec_audit, three tests; AccessibilityNode::print_field crosses the confined protocol, panel_answers round trip) | flattened form attributes not reaching accessibility | 3 manifest failures
+- 2038-B30 | pdf-model | behavior-and-incorrect-test-oracle | fixed (ADR 2976; accessibility::an_empty_language_identifier_explicitly_states_unknown, ::an_explicitly_unknown_language_shadows_outer_and_ancestral_languages_then_resumes, accessibility.rs::an_unknown_language_shadows_the_default) | empty Lang treated as absent | 2 manifest failures
+- 2038-B31 | viewer-core,pdf-model | implementation-consumer-gap | fixed (ADR 2976; structure_phrase_language_spec_audit, two tests) | Alt/E language escapes not applied | 2 manifest failures
+- 2038-B34 | pdf-model | implementation-empty-value-gap | fixed (ADR 2976; empty_actualtext_spec_audit, three tests; empty /Alt and /E stay no phrase, not adjudicated by the finding) | empty value treated as absent | 3 manifest failures
+- 2038-B53 | viewer-core,pdf-model | adopted-algorithm-recommendation-gap | fixed (ADR 2977, EC3 #200; table_header_conflicting_scope_spec_audit::conflicting_scope_with_headers_does_not_terminate_the_adopted_column_search) | table header search stops at conflicting scope | 1 manifest failure
+- 2038-T03 | pdf-model | stale-decision-residual | fixed (ADR 2976 supersedes ADR 2812 §2's last sentence; text_strings_spec_audit's ActualText runs, accessibility.rs::a_phrase_changes_language_where_its_escape_stands) | ActualText multi-language runs (ADR2812)
+- 2038-T04 | pdf-model | test-coverage-gap | fixed (the audit's structure_attribute_stream_audit passes; nothing remaining) | test control: stream-valued structure attributes
+- 2038-T10 | pdf-model,viewer-core | test-coverage-gap | fixed (the audit's tests pass; the cross-item case is B12's, now held by headless's two tests) | ActualText per-MCID vs element
+- 2038-T43 | pdf-model,viewer-core | public-integration-and-fixture-gap | fixed (the audit's fixtures pass; accessibility::an_explicitly_unknown_language_shadows_outer_and_ancestral_languages_then_resumes adds the empty-identifier case) | language precedence test gap
+- 2038-T51 | viewer-accessibility,viewer-core | assertion-coverage-gap | fixed (the audit's writing-mode tests pass; nothing remaining) | writing mode direction test gap
+- 2038-T80 | pdf-model | test-coverage-gap | fixed (missing_attribute_class_spec_audit passes; nothing remaining) | test control: absent attribute classes
+- 2038-T93 | viewer-core | test-coverage-gap | fixed (the audit's hex /Lang tests pass; nothing remaining) | test control: hex Lang values
+- 2038-T155 | pdf-model | assertion-quality | fixed (named_property_actualtext_spec_audit passes; rustfmt applied to it, A868/A875) | ActualText from property resource
+- 2038-T163 | pdf-model | assertion-quality | fixed (the audit's K-child test passes; nothing remaining) | structure tree K child reading
+- 2038-T166 | pdf-model | assertion-quality | fixed (structure_objr_page tests pass; nothing remaining) | structure tree K child reading
+- 2038-T172 | pdf-model | assertion-quality | fixed (the repaired fixtures pass; nothing remaining) | structure tree K child reading
+- 2038-D17 | viewer-accessibility,pdf-model | source-interpretation-residual | fixed (pdf-model structure/tables.rs: ListNumbering's classification named as a fact this reader does not carry) | ListNumbering rationale doc
+- 2038-D33 | viewer-accessibility,pdf-model | representation-policy-boundary | fixed (viewer-core accessibility.rs `Inline`: the block reset is a mapping choice, Table 377's applicability stated apart; ADR 2384 kept) | BaselineShift reset at blocks doc
 
 ### G018 — FDF script callback order; choice selection keyed by display label; live field property not reaching later edits
 
@@ -405,10 +405,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/view/fields.rs, crates/pdf-model/src/view/script_model.rs
 - test files: crates/pdf-model/tests/live_field_flags_spec_audit.rs, crates/pdf-model/tests/max_len_live_property_spec_audit.rs, crates/viewer-core/tests/duplicate_choice_labels_spec_audit.rs, crates/viewer-core/tests/fdf_script_order_audit.rs
 
-- 2038-B26 | pdf-model,viewer-core | behavior-defect | open | choice selection keyed by display label | 1 manifest failure
-- 2038-B67 | pdf-model | behavior-gap | open | live field property not reaching later edits | 4 manifest failures
-- 2038-B69 | pdf-model | behavior-gap | open | live field property not reaching later edits | 3 manifest failures
-- 2038-T02 | viewer-core,pdf-model | test-order-gap | open | FDF script callback order
+- 2038-B26 | pdf-model,viewer-core | behavior-defect | fixed (ADR 2979; duplicate_choice_labels_spec_audit::duplicate_labels_keep_both_array_selected_indices) | choice selection keyed by display label | 1 manifest failure
+- 2038-B67 | pdf-model | behavior-gap | fixed (ADR 2980; max_len_live_property_spec_audit, four tests) | live field property not reaching later edits | 4 manifest failures
+- 2038-B69 | pdf-model | behavior-gap | fixed (ADR 2980; live_field_flags_spec_audit, three tests) | live field property not reaching later edits | 3 manifest failures
+- 2038-T02 | viewer-core,pdf-model | test-order-gap | fixed (fdf_script_order_audit passes; usage-rights readiness stays unobservable, ADR 2816 §5 unchanged) | FDF script callback order
 
 ### G019 — field attribute read up chain though not inheritable
 
@@ -416,9 +416,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/form.rs, crates/pdf-model/src/inheritance.rs, crates/pdf-model/src/rich_text.rs
 - test files: crates/pdf-model/tests/choice_locality_spec_audit.rs, crates/pdf-model/tests/rich_text_default_style_noninheritance_spec_audit.rs
 
-- 2038-B63 | pdf-model | behavior-gap | open | field attribute read up chain though not inheritable | 1 manifest failure
-- 2038-B64 | pdf-model | behavior-gap | open | field attribute read up chain though not inheritable | 2 manifest failures
-- 2038-B65 | pdf-model | qualified-behavior-gap | open | field attribute read up chain though not inheritable | 1 manifest failure
+- 2038-B63 | pdf-model | behavior-gap | fixed (ADR 2979; rich_text_default_style_noninheritance_spec_audit) | field attribute read up chain though not inheritable | 1 manifest failure
+- 2038-B64 | pdf-model | behavior-gap | fixed (ADR 2979; choice_locality_spec_audit, two tests) | field attribute read up chain though not inheritable | 2 manifest failures
+- 2038-B65 | pdf-model | qualified-behavior-gap | fixed (ADR 2979; choice_locality_spec_audit::choice_opt_stays_with_the_dictionary_that_states_it) | field attribute read up chain though not inheritable | 1 manifest failure
 
 ### G020 — disjoint page boundary falls back to larger box; hard depth cap silently drops results; test control: destination XYZ geometry; test oracle: page boundary defaults
 
@@ -426,11 +426,11 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/page.rs
 - test files: crates/pdf-model/tests/deep_page_tree_order_spec_audit.rs, crates/pdf-model/tests/named_page_geometry_spec_audit.rs, crates/pdf-model/tests/page_geometry.rs
 
-- 2038-B19 | pdf-model | behavior-decision-mismatch | open | disjoint page boundary falls back to larger box | 1 manifest failure
-- 2038-B48 | pdf-model | page-order-after-depth-limit | open | hard depth cap silently drops results | 1 manifest failure
-- 2038-T14 | pdf-model | test-oracle-and-coverage-gap | open | test oracle: page boundary defaults
-- 2038-T70 | pdf-model,viewer-core | test-coverage-gap | open | test control: destination XYZ geometry
-- 2038-D41 | pdf-model,pdf-syntax | tree-limit-contract-and-comment | open | hard depth cap silently drops results
+- 2038-B19 | pdf-model | behavior-decision-mismatch | fixed (ADR 2981; page_geometry::a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium) | disjoint page boundary falls back to larger box | 1 manifest failure
+- 2038-B48 | pdf-model | page-order-after-depth-limit | fixed (ADR 2981; deep_page_tree_order_spec_audit::valid_depth_65_tree_keeps_kids_order_and_corresponding_page_content, deep_page_tree.rs, three tests) | hard depth cap silently drops results | 1 manifest failure
+- 2038-T14 | pdf-model | test-oracle-and-coverage-gap | fixed (page_geometry's literal-oracle tests pass; the policy controls are as the finding leaves them) | test oracle: page boundary defaults
+- 2038-T70 | pdf-model,viewer-core | test-coverage-gap | fixed (the audit's XYZ geometry controls pass; scroll-bound policy not adjudicated) | test control: destination XYZ geometry
+- 2038-D41 | pdf-model,pdf-syntax | tree-limit-contract-and-comment | fixed (ADR 2981; pdf-syntax tree.rs MAX_DEPTH comment and page.rs MAX_TREE_DEPTH comment) | hard depth cap silently drops results
 
 ### G021 — FreeText annotation fixtures; pointer-driven annotation appearance state; test control: BS vs Border precedence; test control: NoZoom/NoRotate extents; test control: annotation BM; test control: annotation flag print/hover policy; test control: indirect values need resolving at consumer; test control: widget AS versus inherited V
 

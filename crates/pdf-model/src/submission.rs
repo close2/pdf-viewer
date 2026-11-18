@@ -908,7 +908,11 @@ fn chosen(
             // to abandon the submission, and a refusal a host cannot turn into a question is
             // what `CLAUDE.md` principle 3 warns against — `viewer_host::policy::may_submit` is
             // where a reader decides, and it decides better told (ADR 1198).
-            if field.flags & FLAG_REQUIRED != 0 {
+            // The flag as the document's own script last set it, over the file's (ADR 2980).
+            let required = view
+                .script_required(name)
+                .unwrap_or(field.flags & FLAG_REQUIRED != 0);
+            if required {
                 owed.push(format!(
                     "field {name}: Table 227 bit 2 makes it Required, so it shall have a value \
                      at the time it is exported, and it has none"

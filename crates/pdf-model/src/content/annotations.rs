@@ -241,6 +241,7 @@ impl Interpreter<'_> {
             alt: Some(text),
             expansion: None,
             language: None,
+            phrase_languages: pdf_syntax::text_string_languages(&bytes),
         });
     }
 
