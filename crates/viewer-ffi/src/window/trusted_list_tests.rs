@@ -17,6 +17,9 @@ use viewer_host::{ActLevel, Key, Modifiers, Submissions};
 
 use super::{ActKind, OwedKind, Window};
 
+#[path = "../../../../tools/conformance/test-support/signed_under_a_policy.rs"]
+mod signed_under_a_policy;
+
 /// One empty page, `held_tests`' fixture.
 fn document(path: &Path) {
     let objects = [
@@ -70,11 +73,21 @@ fn configured(name: &str, lotl: &str) -> PathBuf {
 
 /// A window on one empty page whose reader named `directory` with `--trusted-lists`, at `level`.
 fn window(name: &str, directory: Option<&Path>, level: Submissions) -> (Window, PathBuf) {
+    window_on(name, directory, level, document)
+}
+
+/// [`window`] on the document `write` puts at the path it is given.
+fn window_on(
+    name: &str,
+    directory: Option<&Path>,
+    level: Submissions,
+    write: fn(&Path),
+) -> (Window, PathBuf) {
     let path = std::env::temp_dir().join(format!(
         "quorra-trusted-lists-{}-{name}.pdf",
         std::process::id()
     ));
-    document(&path);
+    write(&path);
     let mut words = viewer_host::policy::Words::default();
     if let Some(directory) = directory {
         words
@@ -264,5 +277,72 @@ fn send_fetches_without_asking() {
         said.iter().any(|line| line.contains("answered 404")),
         "{said:?}"
     );
+    std::fs::remove_file(&path).expect("the fixture is removed");
+}
+
+/// The signed document `signed_under_a_policy` generates.
+fn signed(path: &Path) {
+    std::fs::write(path, signed_under_a_policy::document()).expect("fixture");
+}
+
+/// **A signed document's policy reference reaches the refresh through Shift + T** (ADR 2936,
+/// ETSI TS 119 172-2 clause 4.22.2.1 b)): with the policy's copy bound, `ask` names the list the
+/// policy references in its question, and the yes starts the refresh saying it fetches that one
+/// list besides the Member States'. The calibration is the same document before its copy is bound,
+/// whose question names no reference: only a bound policy is anybody's agreement.
+#[test]
+fn a_bound_policy_s_reference_goes_with_shift_t_to_the_refresh() {
+    let directory = configured("referenced", "http://127.0.0.1:9/never-asked.xml");
+    let (mut window, path) = window_on("referenced", Some(&directory), Submissions::Ask, signed);
+    // The page is read on a thread of its own after the resize, and the report has nothing to say
+    // about the file until it is in, so the window is ticked as a caller's timer would tick it.
+    for _ in 0..400 {
+        window.tick();
+        let read = window
+            .state
+            .viewer
+            .handle(viewer_core::Command::Report)
+            .any(|event| matches!(event, viewer_core::Event::SignaturePoliciesPublished { .. }));
+        if read {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    // The window's own report, once the read is in, asks whether to fetch the policy the signature
+    // names, and Shift + T is declined while that question waits; the person answers it no.
+    let _ = window.answer(false);
+    let _ = owed(&mut window);
+    press(&mut window);
+    let (said, asked) = owed(&mut window);
+    assert_eq!(asked.len(), 1, "{said:?}");
+    assert!(
+        !asked[0].contains(signed_under_a_policy::REFERENCE),
+        "an unbound policy is nobody's agreement: {asked:?}"
+    );
+    window.answer(false).expect("a question was waiting");
+    let _ = owed(&mut window);
+
+    let document = window.state.documents.focused();
+    assert_eq!(
+        signed_under_a_policy::bind(&mut window.state.viewer, document),
+        1,
+        "the signature publishes its policy"
+    );
+    press(&mut window);
+    let (_, asked) = owed(&mut window);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].contains(signed_under_a_policy::REFERENCE),
+        "the question names the referenced list: {asked:?}"
+    );
+    window.answer(true).expect("a question was waiting");
+    let (said, _) = owed(&mut window);
+    assert!(
+        said.iter()
+            .any(|line| line.starts_with("trusted lists: fetching")
+                && line.contains("the 1 list(s) a signature policy references")),
+        "{said:?}"
+    );
+    let _ = refreshed(&mut window);
     std::fs::remove_file(&path).expect("the fixture is removed");
 }

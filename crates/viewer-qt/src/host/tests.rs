@@ -5,6 +5,7 @@ mod choice_commit_audit;
 mod ef_host_route;
 mod file_select_reads;
 mod print_defaults_spec_audit;
+mod trusted_lists_shift_t;
 
 use super::forms::describe_kind;
 use super::panels::{flatten, pages_panel_index};

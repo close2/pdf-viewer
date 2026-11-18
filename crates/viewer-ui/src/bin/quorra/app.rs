@@ -754,6 +754,227 @@ pub(crate) struct App {
     pub(crate) preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
 }
 
+/// What the launch path hands the window it builds: the command line's answers, the policy the
+/// reader set, and the work already under way on other threads when the window is made.
+///
+/// One value rather than twenty arguments, so that [`App::new`] is the one place a window's state
+/// starts, for the launch path and for a test that drives the window without a display alike.
+pub(crate) struct Launching {
+    /// The document the launch is for.
+    pub(crate) path: PathBuf,
+    /// The command line's later documents, opened beside the first once page one is shown.
+    pub(crate) also: Vec<viewer_host::Named>,
+    /// Annex O's fragment the command line named.
+    pub(crate) fragment: Option<String>,
+    /// What the run traces.
+    pub(crate) trace: Trace,
+    /// Whether the processor draws every frame (`--cpu`).
+    pub(crate) processor: bool,
+    /// [`App::proxy_pages`]' value.
+    pub(crate) proxy_pages: usize,
+    /// [`App::supersample`]'s value.
+    pub(crate) supersample: u32,
+    /// [`App::coverage`]'s value.
+    pub(crate) coverage: crate::arguments::CoverageChoice,
+    /// [`App::backend`]'s value.
+    pub(crate) backend: Option<Backend>,
+    /// [`App::backend_asked_for`]'s value.
+    pub(crate) backend_asked_for: bool,
+    /// The restriction levels the reader set, which the menu edits.
+    pub(crate) standing: viewer_host::Restrictions,
+    /// [`App::links`]' value.
+    pub(crate) links: viewer_host::Links,
+    /// [`App::remote_documents`]' value.
+    pub(crate) remote_documents: viewer_host::RemoteDocuments,
+    /// [`App::archive`]'s value.
+    pub(crate) archive: Option<viewer_core::Archiving>,
+    /// [`App::trusting`]'s value.
+    pub(crate) trusting: viewer_host::Trusting,
+    /// [`App::separations`]' value.
+    pub(crate) separations: bool,
+    /// The panel's fonts, where they loaded.
+    pub(crate) chrome: Option<Chrome>,
+    /// The thread opening the document, which the window joins when it has a size to give it.
+    pub(crate) opening: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
+    /// Page one's drawing while it is read.
+    pub(crate) ahead: Option<viewer_host::Ahead>,
+    /// The thread loading the graphics driver, where the device is to draw.
+    pub(crate) instancing: Option<std::thread::JoinHandle<raster_gpu::LaunchInstance>>,
+    /// The launch's clock.
+    pub(crate) launch: Launch,
+}
+
+impl App {
+    /// The window's state before the window exists, from what the launch path gathered.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one field per line of the window's state, each with the reason for its first value"
+    )]
+    pub(crate) fn new(launching: Launching) -> Self {
+        let Launching {
+            path,
+            also,
+            fragment,
+            trace,
+            processor,
+            proxy_pages,
+            supersample,
+            coverage,
+            backend,
+            backend_asked_for,
+            standing,
+            links,
+            remote_documents,
+            archive,
+            trusting,
+            separations,
+            chrome,
+            opening,
+            ahead,
+            instancing,
+            launch,
+        } = launching;
+        Self {
+            // No viewport until the window exists. The core renders nothing into one with no
+            // extent, which is exactly right: there is nothing to render into yet.
+            viewer: Viewer::new(0, 0, 1.0),
+            // One document, and the strip draws nothing at all for one — the launch path opens
+            // exactly the one document it always has, under exactly the name it always had.
+            documents: viewer_host::Documents::new(
+                crate::DOCUMENT,
+                viewer_host::documents::label(std::path::Path::new(&path)),
+            ),
+            // The command line's later documents wait here until page one is on the screen
+            // (`CLAUDE.md` section 2): each goes behind the first, which is the one this launch is for.
+            arrivals: {
+                let mut arrivals = viewer_host::Arrivals::new();
+                for named in also {
+                    arrivals.wait(named, true);
+                }
+                arrivals
+            },
+            arrival_due: false,
+            opener: FindBar::default(),
+            lists_due: false,
+            launched: false,
+            strip: viewer_ui::chrome::DocumentStrip::default(),
+            leaving: false,
+            previews: viewer_host::panel::Previews::new(),
+            title: path.to_string_lossy().into_owned(),
+            path: PathBuf::from(&path),
+            fragment,
+            // §12.7.6.4's import-data action names a file, and this is the only place that name is
+            // allowed to mean anything: a *sibling of the document being shown*. See `supply`.
+            directory: std::path::Path::new(&path)
+                .parent()
+                .map(std::path::Path::to_path_buf),
+            caption: String::new(),
+            still_drawing: None,
+            on_the_processor: None,
+            drawn_so_far: None,
+            measuring: viewer_host::Measuring::default(),
+            measured: String::new(),
+            requests: Vec::new(),
+            unacknowledged: Vec::new(),
+            presented: None,
+            presentation: None,
+            effect: None,
+            occluded: false,
+            hidden: false,
+            // Table 147's and Table 29's own defaults — a window showing all of its chrome — replaced
+            // by whatever the catalog states the moment the document opens (`App::obey_page_mode`).
+            presenting: viewer_host::Presenting::default(),
+            // Table 29's own default, replaced by whatever the catalog states the moment the document
+            // opens (`App::obey_page_mode`).
+            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
+            arming: None,
+            trace,
+            processor,
+            proxy_pages,
+            supersample,
+            coverage,
+            lane: None,
+            atlas_saw: Vec::new(),
+            backend,
+            backend_asked_for,
+            cursor: (0.0, 0.0),
+            dragging: false,
+            control: false,
+            shift: false,
+            zoom_carry: viewer_host::ZoomWheel::default(),
+            smart_zoom: viewer_host::SmartZoom::default(),
+            dirty: false,
+            asking: viewer_host::Asking::new(),
+            report_due: viewer_host::report::Due::default(),
+            catalog_due: false,
+            password: viewer_ui::chrome::PasswordCard::default(),
+            question: viewer_ui::chrome::QuestionCard::default(),
+            menu: viewer_ui::chrome::RestrictionsCard::default(),
+            restrictions: standing,
+            links,
+            remote_documents,
+            submitter: viewer_host::submit::Submitter::new(),
+            archive,
+            archive_card: viewer_ui::chrome::ArchiveCard::default(),
+            kept: viewer_host::password::Kept::new(),
+            converter: viewer_host::archiving::Converter::new(),
+            trusting,
+            refresher: viewer_host::trusted_list_fetch::Refresher::new(),
+            asked: None,
+            held: std::collections::VecDeque::new(),
+            script_wait: None,
+            script_ticker: viewer_host::script_timers::Ticker::default(),
+            refused: viewer_ui::chrome::Refusal::default(),
+            locked: None,
+            drawn_without_a_page: false,
+            chrome,
+            panel: Sidebar::default(),
+            about: About::default(),
+            find: FindBar::default(),
+            pages_left: 0,
+            searched_at: None,
+            outline: pdf_model::outline::Outline::default(),
+            attachments: Vec::new(),
+            external_files: Vec::new(),
+            articles: Vec::new(),
+            collection: None,
+            typing: None,
+            choosing: None,
+            list_asked: None,
+            clipboard: String::new(),
+            // Connects to nothing here, which is `CLAUDE.md`'s second principle: a clipboard is not
+            // needed to show page one, so the session is not asked for one until somebody copies.
+            platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
+            drawing: None,
+            printing: false,
+            separations,
+            guidelines: false,
+            pages: viewer_host::Miniatures::new(),
+            page_count: 0,
+            information: pdf_model::metadata::Information::default(),
+            metadata: None,
+            state: None,
+            opening,
+            ahead,
+            turning: None,
+            behind_the_turn: std::collections::VecDeque::new(),
+            read_shown: false,
+            loading: None,
+            instancing,
+            launch,
+            frames: FrameLog::default(),
+            stale: crate::stale::Stale::default(),
+            // Replaced with the surface's own rate the moment there is a window; `doc/todo/36`'s
+            // floor until then, which is what a program with no display to ask presents at.
+            cadence: crate::cadence::Cadence::default(),
+            accessibility: None,
+            spoken: None,
+            waker: None,
+            preparing: None,
+        }
+    }
+}
+
 impl App {
     /// The window's extent in device pixels and its scale factor, once there is a window.
     pub(crate) fn window(&self) -> Option<(u32, u32, f32)> {

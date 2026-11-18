@@ -1179,6 +1179,10 @@ impl App {
 const BAR_CELLS: usize = 20;
 
 #[cfg(test)]
+#[path = "window/headless.rs"]
+mod headless;
+
+#[cfg(test)]
 mod tests {
     use super::{modifiers_held, press};
     use winit::keyboard::{Key, NamedKey};

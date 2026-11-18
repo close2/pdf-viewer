@@ -78,6 +78,9 @@ sha2.workspace = true
 # starts `pdf-script-worker` at the open sequence's first trigger, after the first frame — taken
 # without its `engine` feature, as a window takes it (ADR 1620).
 pdf-script-worker.workspace = true
+# `tools/conformance/test-support/signed_under_a_policy.rs`, which the window's Shift + T test
+# includes, states the policy's digest with the crate the core verifies it with (ADR 3062).
+pdf-signature.workspace = true
 
 # `tests/launch_path.rs` takes each row's memory high-water in a child whose transparent huge
 # pages are off, so that the figure is what the program touched and not which of its buffers the

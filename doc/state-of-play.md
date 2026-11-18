@@ -942,7 +942,8 @@ chrome, so `Command::Present` is a statement only a host can make (ADR 0316).
 [`doc/ui-boundary.md`](ui-boundary.md) holds the consumers' account and the test a message has to
 pass.
 
-- **`viewer-ui`'s winit window**, and a **headless test harness** (`crates/viewer-core/tests/headless.rs`).
+- **`viewer-ui`'s winit window**, made by `App::new` and driven without a display by its own tests
+  (`quorra/window/headless.rs`, ADR 3062), and a **headless test harness** (`crates/viewer-core/tests/headless.rs`).
 - **`viewer-confined`'s `pdf-view-worker`** — a `Viewer` and `render-cpu` behind seccomp-BPF,
   Landlock and an address-space ceiling, with `viewer_confined::Confined` speaking
   `Command`/`Event` and `Query`/`Reply` to it over a pipe: principle 3's other half, beside the

@@ -278,8 +278,14 @@ impl Interpreter<'_> {
     }
 
     /// Keeps an image's or a form's own `/Measure` with where its bounds were drawn
-    /// ([`crate::measurement::MeasuredXObject`]), up to the bound a page's `/VP` has.
-    fn note_measured(&mut self, dict: &Dictionary, transform: Transform, bounds: [f32; 4]) {
+    /// ([`crate::measurement::MeasuredXObject`]), up to the bound a page's `/VP` has: a `Do`'s
+    /// and an annotation's appearance stream's alike, the second being a form too (§12.5.5).
+    pub(super) fn note_measured(
+        &mut self,
+        dict: &Dictionary,
+        transform: Transform,
+        bounds: [f32; 4],
+    ) {
         if self.measured_xobjects.len() >= crate::measurement::MAX_VIEWPORTS {
             return;
         }

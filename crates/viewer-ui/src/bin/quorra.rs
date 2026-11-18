@@ -117,18 +117,16 @@ mod typing;
 #[path = "quorra/window.rs"]
 mod window;
 
-use std::path::PathBuf;
-
 use viewer_core::{Command, DocumentId, Event, PageTarget, RestrictionPolicy, Viewer};
 // The device renderer and the stand-in policy are `viewer-device`'s, named here so that every
 // module of this window reaches them as `crate::renderer` and `crate::stale` (ADR 2052).
 use viewer_device::{renderer, stale};
-use viewer_ui::chrome::{About, Chrome, FindBar, Sidebar};
+use viewer_ui::chrome::Chrome;
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use crate::app::App;
+use crate::app::{App, Launching};
 use crate::arguments::{Arguments, arguments, spawn_instancing};
-use crate::timing::{FrameLog, Launch};
+use crate::timing::Launch;
 
 /// The third-party notices this binary is obliged to carry, printed by `--licences`.
 ///
@@ -285,10 +283,6 @@ pub(crate) fn drawing_ahead() -> viewer_host::Ahead {
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the launch path, in launch order: a split would scatter the sequence whose ordering is the whole of CLAUDE.md's startup rule"
-)]
 fn main() {
     let mut launch = Launch::new();
     let Arguments {
@@ -395,144 +389,29 @@ fn main() {
     };
     launch.mark("chrome fonts");
 
-    let mut app = App {
-        // No viewport until the window exists. The core renders nothing into one with no
-        // extent, which is exactly right: there is nothing to render into yet.
-        viewer: Viewer::new(0, 0, 1.0),
-        // One document, and the strip draws nothing at all for one — the launch path opens
-        // exactly the one document it always has, under exactly the name it always had.
-        documents: viewer_host::Documents::new(
-            DOCUMENT,
-            viewer_host::documents::label(std::path::Path::new(&path)),
-        ),
-        // The command line's later documents wait here until page one is on the screen
-        // (`CLAUDE.md` section 2): each goes behind the first, which is the one this launch is for.
-        arrivals: {
-            let mut arrivals = viewer_host::Arrivals::new();
-            for named in also {
-                arrivals.wait(named, true);
-            }
-            arrivals
-        },
-        arrival_due: false,
-        opener: FindBar::default(),
-        lists_due: false,
-        launched: false,
-        strip: viewer_ui::chrome::DocumentStrip::default(),
-        leaving: false,
-        previews: viewer_host::panel::Previews::new(),
-        title: path.to_string_lossy().into_owned(),
-        path: PathBuf::from(&path),
+    let mut app = App::new(Launching {
+        path,
+        also,
         fragment,
-        // §12.7.6.4's import-data action names a file, and this is the only place that name is
-        // allowed to mean anything: a *sibling of the document being shown*. See `supply`.
-        directory: std::path::Path::new(&path)
-            .parent()
-            .map(std::path::Path::to_path_buf),
-        caption: String::new(),
-        still_drawing: None,
-        on_the_processor: None,
-        drawn_so_far: None,
-        measuring: viewer_host::Measuring::default(),
-        measured: String::new(),
-        requests: Vec::new(),
-        unacknowledged: Vec::new(),
-        presented: None,
-        presentation: None,
-        effect: None,
-        occluded: false,
-        hidden: false,
-        // Table 147's and Table 29's own defaults — a window showing all of its chrome — replaced
-        // by whatever the catalog states the moment the document opens (`App::obey_page_mode`).
-        presenting: viewer_host::Presenting::default(),
-        // Table 29's own default, replaced by whatever the catalog states the moment the document
-        // opens (`App::obey_page_mode`).
-        layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
-        arming: None,
         trace,
         processor,
         proxy_pages,
         supersample,
         coverage,
-        lane: None,
-        atlas_saw: Vec::new(),
         backend,
         backend_asked_for,
-        cursor: (0.0, 0.0),
-        dragging: false,
-        control: false,
-        shift: false,
-        zoom_carry: viewer_host::ZoomWheel::default(),
-        smart_zoom: viewer_host::SmartZoom::default(),
-        dirty: false,
-        asking: viewer_host::Asking::new(),
-        report_due: viewer_host::report::Due::default(),
-        catalog_due: false,
-        password: viewer_ui::chrome::PasswordCard::default(),
-        question: viewer_ui::chrome::QuestionCard::default(),
-        menu: viewer_ui::chrome::RestrictionsCard::default(),
-        restrictions: standing,
+        standing,
         links,
         remote_documents,
-        submitter: viewer_host::submit::Submitter::new(),
         archive,
-        archive_card: viewer_ui::chrome::ArchiveCard::default(),
-        kept: viewer_host::password::Kept::new(),
-        converter: viewer_host::archiving::Converter::new(),
         trusting,
-        refresher: viewer_host::trusted_list_fetch::Refresher::new(),
-        asked: None,
-        held: std::collections::VecDeque::new(),
-        script_wait: None,
-        script_ticker: viewer_host::script_timers::Ticker::default(),
-        refused: viewer_ui::chrome::Refusal::default(),
-        locked: None,
-        drawn_without_a_page: false,
-        chrome,
-        panel: Sidebar::default(),
-        about: About::default(),
-        find: FindBar::default(),
-        pages_left: 0,
-        searched_at: None,
-        outline: pdf_model::outline::Outline::default(),
-        attachments: Vec::new(),
-        external_files: Vec::new(),
-        articles: Vec::new(),
-        collection: None,
-        typing: None,
-        choosing: None,
-        list_asked: None,
-        clipboard: String::new(),
-        // Connects to nothing here, which is `CLAUDE.md`'s second principle: a clipboard is not
-        // needed to show page one, so the session is not asked for one until somebody copies.
-        platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
-        drawing: None,
-        printing: false,
         separations,
-        guidelines: false,
-        pages: viewer_host::Miniatures::new(),
-        page_count: 0,
-        information: pdf_model::metadata::Information::default(),
-        metadata: None,
-        state: None,
+        chrome,
         opening: Some(opening),
         ahead,
-        turning: None,
-        behind_the_turn: std::collections::VecDeque::new(),
-        read_shown: false,
-        loading: None,
         instancing,
         launch,
-        frames: FrameLog::default(),
-        stale: stale::Stale::default(),
-        // Replaced with the surface's own rate the moment there is a window; `doc/todo/36`'s
-        // floor until then, which is what a program with no display to ask presents at.
-        cadence: cadence::Cadence::default(),
-        accessibility: None,
-        spoken: None,
-        waker: None,
-        preparing: None,
-    };
+    });
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
     // The proxy is the only way into this loop from another thread: the accessibility bridge, the

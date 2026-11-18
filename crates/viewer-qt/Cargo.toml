@@ -49,6 +49,9 @@ cxx-qt-build.workspace = true
 # `tests/launch_path.rs` prints each launch figure beside its band and the distance to its nearer
 # edge, in the shape every other band in this tree prints (ADR 2125).
 gate-ratchet.workspace = true
+# `tools/conformance/test-support/signed_under_a_policy.rs`, which the host's Shift + T test
+# includes, states the policy's digest with the crate the core verifies it with (ADR 3062).
+pdf-signature.workspace = true
 
 [lints]
 workspace = true

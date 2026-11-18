@@ -183,6 +183,9 @@ impl Interpreter<'_> {
                 // is still in default user space and can undo what the page does to it.
                 self.view_dependent |= adjust.view_dependent;
                 let base = adjust.transform.then(base);
+                // Before the drawing, as a `Do` notes its form before running it: a form the
+                // appearance draws is inside it, and is met first in the reverse search (ADR 3030).
+                self.note_measured_appearance(&appearance, base);
                 self.draw_appearance(&appearance, base, &page.resources);
                 self.describe_annotation(dict, before);
                 // §14.7.5.3: an annotation is one of the two kinds of content item, and Table 359
@@ -309,6 +312,23 @@ impl Interpreter<'_> {
                     blend: BlendMode::Difference,
                 });
             }
+        }
+    }
+
+    /// §12.5.5: "Each appearance stream is a form `XObject`", so Table 95's `/Measure` applies to
+    /// a stored appearance as to a form a `Do` draws, and Table 269's unit square maps to its
+    /// bounds where §12.5.5's algorithm put them: `/BBox` through `AA` and `base`, the transform
+    /// [`Self::draw_appearance`] draws it with (ADR 3061). A construction states no measure, having
+    /// no dictionary of the file's.
+    fn note_measured_appearance(
+        &mut self,
+        appearance: &crate::annotation::Appearance,
+        base: Transform,
+    ) {
+        if let (crate::annotation::Content::Stored(stream), Some(bbox)) =
+            (&appearance.content, appearance.bbox)
+        {
+            self.note_measured(&stream.dict, appearance.transform.then(base), bbox);
         }
     }
 
