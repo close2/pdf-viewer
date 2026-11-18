@@ -48,6 +48,22 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant unmaintained (merged into zbus 6), via accesskit_unix
     "RUSTSEC-2026-0371", # zbus_names unmaintained (merged into zbus 6), via accesskit_unix
     "RUSTSEC-2026-0372", # zvariant_derive unmaintained (merged into zbus 6), via accesskit_unix
+
+    # `chrono` reaches the tree only through `rxing` 0.9.4, a dev-dependency of `xfa-barcode`: the
+    # independent decoder every barcode symbol is read back by in that crate's tests (ADRs 2877,
+    # 2900). `cargo tree -i chrono --target all -e normal,build,dev` finds no other route, so no code
+    # a user runs contains it (ADR 3071). The advisory is `informational = "unmaintained"`: no
+    # vulnerability, no patched version. No feature removes it — every `rxing` release from 0.8.3 to
+    # 0.9.4 takes `chrono` as a required dependency, for a result's timestamp — and no other
+    # pure-Rust decoder reads PDF417, so changing decoders would drop that symbology's oracle.
+    #
+    # What the ignore costs: a fault later found in `chrono` is not fixed upstream, and the test
+    # binaries of one crate carry it; they parse only the symbols this tree's own encoder wrote. A
+    # *vulnerability* advisory against `chrono` carries its own identifier and still fails this job.
+    #
+    # Revisit when an `rxing` release drops `chrono` or makes it optional: `cargo deny` then reports
+    # this line as `advisory-not-detected`, and it goes with the `rxing` bump.
+    "RUSTSEC-2026-0543", # chrono unmaintained, via rxing (dev-dependency of xfa-barcode)
 ]
 
 [licenses]
