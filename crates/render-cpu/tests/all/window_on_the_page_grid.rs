@@ -572,6 +572,7 @@ fn a_window_s_shading_drawn_as_a_raster_is_the_page_s() {
                 fill_rule: FillRule::NonZero,
                 paint: Paint::Shading(Arc::new(Shading {
                     background,
+                    anti_alias: false,
                     kind: Arc::new(kind),
                     transform: Transform::IDENTITY,
                 })),
@@ -796,6 +797,7 @@ fn a_window_s_mesh_is_the_page_s() {
             fill_rule: FillRule::NonZero,
             paint: Paint::Shading(Arc::new(Shading {
                 background: None,
+                anti_alias: false,
                 kind: Arc::new(ShadingKind::Mesh {
                     triangles: triangles.into(),
                     patches: None,

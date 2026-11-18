@@ -557,7 +557,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/ledger-and-claims.md?
 - test files: crates/pdf-transform/tests/annex_i_insert_version.rs?
 
-- 2038-D15 | render-cpu | source-interpretation-residual | owner (Q899; the 8.7.4.3 note now says the reading of a true `/AntiAlias` is open) | shading AntiAlias flag unread
+- 2038-D15 | render-cpu | source-interpretation-residual | fixed (A899, ADR 3024; a true `/AntiAlias` is a 4 × 4 box over the pixel on all three backends; shadings::an_anti_aliased_stitched_step_is_filtered_and_an_unflagged_one_is_not, anti_aliased_shading, quorra_filters_a_shading_that_asks_for_anti_aliasing and the_gpu_filters_a_shading_that_asks_for_anti_aliasing pass) | shading AntiAlias flag unread
 - 2038-D22 | viewer-core,pdf-transform | ledger-evidence-wording-gap | fixed (I.2's note: the warning comes in the report hosts ask for after the first frame, ADR 1044; viewer-core notes.rs module doc corrected) | annex I version warning timing doc
 - 2038-D30 | pdf-model | contradictory-ledger-rationale | fixed (10.8.3's note says what is built; the partial-status reasoning and the row's history removed) | separation simulation ledger note stale
 - 2038-D34 | pdf-model | stale-ledger-rationale | fixed (7.1's note no longer says §7.11 and §7.12 are unread) | general syntax note stale

@@ -106,9 +106,10 @@ impl Encoder<'_> {
         // evaluated into one device-resolution raster by `pdf_render::ShadingRaster` and drawn
         // through raster's mesh paint, which is precisely "an RGBA raster already at device
         // resolution, placed at (left, top)". Identical bytes to the sibling backends, and the
-        // door is asked before the cone's because it holds for every shading kind.
+        // door is asked before the cone's because it holds for every shading kind. Table 77's
+        // `/AntiAlias` takes it too: that raster is where ADR 3024's filter is applied.
         if let Paint::Shading(shading) = paint
-            && shading.background.is_some()
+            && shading.is_rastered()
         {
             let within = self.device_pixels(shape, transform);
             let Some(id) = self.background_raster(shading, within)? else {

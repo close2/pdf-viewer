@@ -114,6 +114,7 @@ fn square() -> Arc<Path> {
 fn gradient() -> Paint {
     Paint::Shading(Arc::new(Shading {
         background: None,
+        anti_alias: false,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, 0.0),
             end: Point::new(1.0, 0.0),

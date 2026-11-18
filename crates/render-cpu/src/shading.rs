@@ -73,8 +73,10 @@ pub(crate) fn shader<'a>(
     // `tiny-skia` shader can say so: a gradient's spread modes pad, repeat or reflect, and a
     // pattern's pad the grid's own edge. [`fill_with_background`] is the answer, and it is a
     // *fill*'s door — so a shading arriving here with one is a stroke, and refusing it loudly
-    // is what keeps the shortfall a report rather than a picture missing its wash (trap 5).
-    if shading.background.is_some() {
+    // is what keeps the shortfall a report rather than a picture missing its wash (trap 5). A
+    // shading stating `/AntiAlias` is filtered by the same raster and refused here alike
+    // (ADR 3024).
+    if shading.is_rastered() {
         return None;
     }
 
@@ -202,7 +204,7 @@ pub(crate) fn ramp_shader<'a>(
     target: (u32, u32),
     scratch: &'a mut Option<tiny_skia::Pixmap>,
 ) -> Option<tiny_skia::Shader<'a>> {
-    if shading.background.is_some() {
+    if shading.is_rastered() {
         return None;
     }
     let sweep = Sweep::of(shading)?;

@@ -152,6 +152,7 @@ fn zooming_resolves_the_shading_again_without_rebuilding_the_list() {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: DeferredColours::new(Arc::clone(&source) as Arc<dyn ColoursAtDeviceScale>),
@@ -265,6 +266,7 @@ fn a_cell_holds_the_level_nearest_the_producers_own_value() {
             fill_rule: FillRule::NonZero,
             paint: Paint::Shading(Arc::new(Shading {
                 background: None,
+                anti_alias: false,
                 kind: Arc::new(ShadingKind::Sampled {
                     domain: [0.0, 1.0, 0.0, 1.0],
                     source: DeferredColours::new(

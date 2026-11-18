@@ -65,8 +65,9 @@ pub(crate) fn brush(
     // `peniko::Extend` cannot say: it pads, repeats or reflects. [`fill_with_background`] is
     // the answer and it is a *fill*'s door, so a shading arriving here with one is a stroke —
     // and refusing it loudly keeps the shortfall a report rather than a silently missing wash,
-    // exactly as `render_cpu::shading::shader` does.
-    if shading.background.is_some() {
+    // exactly as `render_cpu::shading::shader` does. A shading stating `/AntiAlias` is filtered
+    // by the same raster and refused here alike (ADR 3024).
+    if shading.is_rastered() {
         return None;
     }
     let gradient = match shading.kind.as_ref() {

@@ -82,9 +82,48 @@ pub struct Shading {
     /// interpreter sets this where a `/PatternType 2` pattern is resolved and nowhere else,
     /// and [`Shading::painting_bounds`] is unaffected by it.
     pub background: Option<Color>,
+    /// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias`, true where the shading has a function to
+    /// filter: types 1, 2 and 3, and a mesh whose corners carry a parametric value.
+    ///
+    /// > ( Optional ) A flag indicating whether to filter the shading function to prevent
+    /// > aliasing artifacts.
+    ///
+    /// The entry names no filter, so the filter is a choice and ADR 3024 records it: each device
+    /// pixel is the mean of the shading at a [`FILTER_SAMPLES`] × [`FILTER_SAMPLES`] lattice of
+    /// sub-pixel centres — a box over the pixel's footprint, carried into shading space by the
+    /// inverse of the drawing transform. [`ShadingRaster`] draws it, because every backend
+    /// already draws that raster for `/Background`, and the filter is then one function rather
+    /// than three that could disagree (trap 2).
+    ///
+    /// A type 1 shading's colours are made upstream on a lattice the device chooses, so its
+    /// producer evaluates the same sub-pixel lattice over each lattice cell and the raster reads
+    /// the filtered cells as it reads any other.
+    pub anti_alias: bool,
 }
 
+/// How many sub-pixel samples [`ShadingRaster`] takes along each device axis of a pixel whose
+/// shading states `/AntiAlias true` (ISO 32000-2 §8.7.4.3 Table 77), and how many a type 1
+/// shading's producer takes along each axis of a lattice cell.
+///
+/// Four, so sixteen samples per pixel: a step in the function then lands in one of seventeen
+/// levels of the edge pixel, which is finer than the 8-bit channel can show only at its
+/// steepest — and sixteen evaluations is the most this costs, paid only by a shading that asked.
+/// ADR 3024 has the choice and its price.
+pub const FILTER_SAMPLES: u8 = 4;
+
 impl Shading {
+    /// Whether a fill of this shading is drawn through [`ShadingRaster`] rather than through a
+    /// backend's own gradient: where it states Table 77's `/Background` or its `/AntiAlias`
+    /// (ISO 32000-2 §8.7.4.3).
+    ///
+    /// Asked here once so that the three backends take the same door for the same shading — no
+    /// gradient library pads with a colour of the shading's choosing or filters a function over
+    /// a pixel's footprint, and one raster answers both (ADRs 0529 and 3024).
+    #[must_use]
+    pub fn is_rastered(&self) -> bool {
+        self.background.is_some() || self.anti_alias
+    }
+
     /// Whether this shading's own geometry paints nothing at all, which ISO 32000-2 states for
     /// two degenerate `/Coords`, whatever `/Extend` says.
     ///
@@ -376,6 +415,7 @@ impl Shading {
             // wash inside the group that operation paints — so it is mapped with everything
             // else the shading answers rather than exempted from it.
             background: self.background.as_ref().map(map),
+            anti_alias: self.anti_alias,
         }
     }
 
@@ -1734,15 +1774,17 @@ pub struct ShadingRaster {
 }
 
 impl ShadingRaster {
-    /// Rasterises `shading` over the device pixels of `within`, washed with its `/Background`.
+    /// Rasterises `shading` over the device pixels of `within`, washed with its `/Background`
+    /// and filtered where it states `/AntiAlias true` ([`Shading::anti_alias`]).
     ///
     /// `page_to_device` maps page space onto the target and `target` is that target's extent;
     /// `within` is the region worth evaluating, in device pixels as
     /// `(left, top, right, bottom)` — the caller's shape bounds intersected with the target,
     /// because Table 77's wash covers "the area to be painted" and that area is the path.
     ///
-    /// Returns `None` where the shading states no background — a `sh`, or any shading not used
-    /// as a pattern — where the region is empty, or where the placement cannot be inverted.
+    /// Returns `None` where the shading states neither a background nor a filter — the
+    /// backends draw such a shading their own way — where the region is empty, or where the
+    /// placement cannot be inverted.
     #[must_use]
     pub fn build(
         shading: &Shading,
@@ -1750,111 +1792,38 @@ impl ShadingRaster {
         within: (u32, u32, u32, u32),
         target: (u32, u32),
     ) -> Option<Self> {
-        let background = shading.background?;
         let (left, top, right, bottom) = within;
         let (span, rows) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
         if span == 0 || rows == 0 {
             return None;
         }
-        let to_device = shading.transform.then(page_to_device);
-        let to_shading = to_device.invert()?;
-
         // §11.6.7's first act: the group is filled with the background, and the shading is
-        // painted into it afterwards.
-        let mut data = vec![
-            0u8;
-            (span as usize)
-                .saturating_mul(rows as usize)
-                .saturating_mul(4)
-        ];
-        for pixel in data.as_chunks_mut::<4>().0 {
-            write_colour(pixel, background);
-        }
-
-        match shading.kind.as_ref() {
-            ShadingKind::Axial {
-                start,
-                end,
-                ramp,
-                extend,
-            } => {
-                // §8.7.4.5.3 reads the colour from the point's projection onto the axis, and
-                // an axis of zero length has no projection to take — so nothing is inside the
-                // shading's bounds and the whole region stays the background.
-                let (dx, dy) = (end.x - start.x, end.y - start.y);
-                let length = dx.mul_add(dx, dy * dy);
-                if length > 0.0 {
-                    paint_pixels(&mut data, (left, top, span), to_shading, |point| {
-                        let along = (point.x - start.x).mul_add(dx, (point.y - start.y) * dy);
-                        admitted(along / length, *extend).map(|t| ramp.colour_at(t))
-                    });
-                }
-            }
-            ShadingKind::Radial {
-                start,
-                start_radius,
-                end,
-                end_radius,
-                ramp,
-                extend,
-            } => {
-                paint_pixels(&mut data, (left, top, span), to_shading, |point| {
-                    // §8.7.4.5.4's greatest admissible blend circle, or no circle at all —
-                    // which is precisely a point outside the shading's bounds.
-                    blend_parameter(point, *start, *start_radius, *end, *end_radius, *extend)
-                        .map(|s| ramp.colour_at(s.clamp(0.0, 1.0)))
-                });
-            }
-            ShadingKind::Sampled { domain, .. } => {
-                let grid = shading.sampled_at(page_to_device, target)?;
-                let to_grid = grid.onto_shading().invert()?;
-                // Table 78's order is [x min x max y min y max] and a file may write either
-                // bound first, so the rectangle is taken by extent rather than by position.
-                let [x0, x1, y0, y1] = *domain;
-                let (xs, ys) = ((x0.min(x1), x0.max(x1)), (y0.min(y1), y0.max(y1)));
-                paint_pixels(&mut data, (left, top, span), to_shading, |point| {
-                    // §8.7.4.5.2: points that "fall outside this transformed domain rectangle
-                    // shall be painted with the shading's background colour".
-                    if point.x < xs.0 || point.x > xs.1 || point.y < ys.0 || point.y > ys.1 {
-                        return None;
-                    }
-                    let cell = to_grid.apply(point);
-                    Some(sample_grid(&grid, cell.x, cell.y))
-                });
-            }
-            ShadingKind::Mesh {
-                triangles,
-                patches,
-                ramp,
-            } => {
-                // The mesh's own rasterisation, over this region rather than over the mesh's
-                // bounding box: every pixel no triangle covers keeps the background it was
-                // filled with, which is the whole difference the entry makes.
-                let drawn = match patches {
-                    Some(mesh) => std::borrow::Cow::Owned(mesh.tessellate(to_device)),
-                    None => std::borrow::Cow::Borrowed(&**triangles),
-                };
-                if ramp.is_none()
-                    && drawn
-                        .iter()
-                        .any(|triangle| matches!(triangle.corners, Corners::Parameters(_)))
-                {
-                    return None;
-                }
-                // One band over the whole raster: this path paints a background wash under a
-                // region a caller already bounded, and dividing it would wake threads for a
-                // loop [`MeshRaster::build`]'s own floor is the measurement for.
-                let mut band = Band::whole(&mut data, rows);
-                let placed = Placed::new(left, top, span, rows);
-                for triangle in drawn.iter() {
-                    Triangle {
-                        points: triangle.points.map(|point| to_device.apply(point)),
-                        corners: triangle.corners,
-                    }
-                    .paint(&mut band, ramp.as_ref(), placed);
-                }
-            }
-        }
+        // painted into it afterwards. A filtered shading that states none starts transparent,
+        // which is what its own geometry leaves wherever it paints nothing.
+        let wash = match (shading.background, shading.anti_alias) {
+            (Some(background), _) => background,
+            (None, true) => Color::TRANSPARENT,
+            (None, false) => return None,
+        };
+        let to_device = shading.transform.then(page_to_device);
+        let region = Placed::new(left, top, span, rows);
+        // A type 1 shading's producer filtered its own lattice (`FILTER_SAMPLES`), so reading
+        // that lattice at sub-pixel centres as well would filter it twice.
+        let data = if shading.anti_alias
+            && !matches!(shading.kind.as_ref(), ShadingKind::Sampled { .. })
+        {
+            let scale = f32::from(FILTER_SAMPLES);
+            let painter = Painter::new(
+                shading,
+                to_device.then(Transform::scale(scale, scale)),
+                (page_to_device, target),
+            )?;
+            filtered(&painter, wash, region)
+        } else {
+            let mut data = washed(wash, span, rows);
+            Painter::new(shading, to_device, (page_to_device, target))?.paint(&mut data, region);
+            data
+        };
 
         Some(Self {
             left: i32::try_from(left).ok()?,
@@ -1888,6 +1857,260 @@ fn write_colour(pixel: &mut [u8], colour: Color) {
         .zip([colour.r, colour.g, colour.b, colour.a])
     {
         *slot = (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+}
+
+/// A buffer of `span` × `rows` straight-alpha pixels, each `wash`.
+fn washed(wash: Color, span: u32, rows: u32) -> Vec<u8> {
+    let mut data = vec![
+        0u8;
+        (span as usize)
+            .saturating_mul(rows as usize)
+            .saturating_mul(4)
+    ];
+    for pixel in data.as_chunks_mut::<4>().0 {
+        write_colour(pixel, wash);
+    }
+    data
+}
+
+/// A shading's colour at each pixel of a region, prepared once so that [`ShadingRaster`] can ask
+/// it for the region whole or for one band of a finer lattice after another.
+enum Painter<'a> {
+    /// Types 1, 2 and 3: a colour, or none, at each point of the shading's own space.
+    Pointwise {
+        /// Carries a device point into the shading's own coordinates.
+        to_shading: Transform,
+        /// The shading's answer there; `None` leaves the wash.
+        colour_at: Box<dyn Fn(Point) -> Option<Color> + Send + Sync + 'a>,
+    },
+    /// Types 4 to 7, whose triangles are already in device coordinates.
+    Mesh {
+        /// The triangles, in the file's order (§8.7.4.5.5's overlap rule).
+        triangles: Vec<Triangle>,
+        /// The function a parametric corner is read through.
+        ramp: Option<&'a Ramp>,
+    },
+}
+
+impl<'a> Painter<'a> {
+    /// Prepares `shading` under `to_device`; `page` is the page-to-device map and the target's
+    /// extent, which a type 1 shading's lattice is chosen for.
+    ///
+    /// `None` where the placement cannot be inverted, a type 1 lattice cannot be made, or a
+    /// mesh's parametric corners have no function to read them through.
+    fn new(
+        shading: &'a Shading,
+        to_device: Transform,
+        (page_to_device, target): (Transform, (u32, u32)),
+    ) -> Option<Self> {
+        let to_shading = to_device.invert()?;
+        let colour_at: Box<dyn Fn(Point) -> Option<Color> + Send + Sync + 'a> =
+            match shading.kind.as_ref() {
+                ShadingKind::Axial {
+                    start,
+                    end,
+                    ramp,
+                    extend,
+                } => {
+                    // §8.7.4.5.3 reads the colour from the point's projection onto the axis,
+                    // and an axis of zero length has no projection to take — so nothing is
+                    // inside the shading's bounds and the whole region keeps the wash.
+                    let (dx, dy) = (end.x - start.x, end.y - start.y);
+                    let length = dx.mul_add(dx, dy * dy);
+                    Box::new(move |point: Point| {
+                        if length <= 0.0 {
+                            return None;
+                        }
+                        let along = (point.x - start.x).mul_add(dx, (point.y - start.y) * dy);
+                        admitted(along / length, *extend).map(|t| ramp.colour_at(t))
+                    })
+                }
+                ShadingKind::Radial {
+                    start,
+                    start_radius,
+                    end,
+                    end_radius,
+                    ramp,
+                    extend,
+                } => Box::new(move |point: Point| {
+                    // §8.7.4.5.4's greatest admissible blend circle, or no circle at all —
+                    // which is precisely a point outside the shading's bounds.
+                    blend_parameter(point, *start, *start_radius, *end, *end_radius, *extend)
+                        .map(|s| ramp.colour_at(s.clamp(0.0, 1.0)))
+                }),
+                ShadingKind::Sampled { domain, .. } => {
+                    let grid = shading.sampled_at(page_to_device, target)?;
+                    let to_grid = grid.onto_shading().invert()?;
+                    // Table 78's order is [x min x max y min y max] and a file may write either
+                    // bound first, so the rectangle is taken by extent rather than by position.
+                    let [x0, x1, y0, y1] = *domain;
+                    let (xs, ys) = ((x0.min(x1), x0.max(x1)), (y0.min(y1), y0.max(y1)));
+                    Box::new(move |point: Point| {
+                        // §8.7.4.5.2: points that "fall outside this transformed domain
+                        // rectangle shall be painted with the shading's background colour".
+                        if point.x < xs.0 || point.x > xs.1 || point.y < ys.0 || point.y > ys.1 {
+                            return None;
+                        }
+                        let cell = to_grid.apply(point);
+                        Some(sample_grid(&grid, cell.x, cell.y))
+                    })
+                }
+                ShadingKind::Mesh {
+                    triangles,
+                    patches,
+                    ramp,
+                } => {
+                    // The mesh's own rasterisation, over this region rather than over the mesh's
+                    // bounding box: every pixel no triangle covers keeps the wash it was filled
+                    // with, which is the whole difference the background makes.
+                    let drawn = match patches {
+                        Some(mesh) => std::borrow::Cow::Owned(mesh.tessellate(to_device)),
+                        None => std::borrow::Cow::Borrowed(&**triangles),
+                    };
+                    if ramp.is_none()
+                        && drawn
+                            .iter()
+                            .any(|triangle| matches!(triangle.corners, Corners::Parameters(_)))
+                    {
+                        return None;
+                    }
+                    return Some(Self::Mesh {
+                        triangles: drawn
+                            .iter()
+                            .map(|triangle| Triangle {
+                                points: triangle.points.map(|point| to_device.apply(point)),
+                                corners: triangle.corners,
+                            })
+                            .collect(),
+                        ramp: ramp.as_ref(),
+                    });
+                }
+            };
+        Some(Self::Pointwise {
+            to_shading,
+            colour_at,
+        })
+    }
+
+    /// Paints the region `placed` names into `data`, whose first pixel is its `(left, top)`.
+    fn paint(&self, data: &mut [u8], placed: Placed) {
+        match self {
+            Self::Pointwise {
+                to_shading,
+                colour_at,
+            } => paint_pixels(
+                data,
+                (placed.left, placed.top, placed.span),
+                *to_shading,
+                colour_at,
+            ),
+            Self::Mesh { triangles, ramp } => {
+                // One band over the whole buffer: this path paints a region a caller already
+                // bounded, and dividing it would wake threads for a loop
+                // [`MeshRaster::build`]'s own floor is the measurement for.
+                let mut band = Band::whole(data, placed.rows);
+                for triangle in triangles {
+                    triangle.paint(&mut band, *ramp, placed);
+                }
+            }
+        }
+    }
+}
+
+/// Device rows one band of a filtered raster holds, so that the finer lattice is
+/// `FILTER_SAMPLES`² times one band rather than the whole region — a page-sized region at
+/// sixteen samples a pixel would otherwise ask for a quarter of a gigabyte at once.
+const FILTER_ROWS: u32 = 16;
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias`, under ADR 3024's filter: `painter` was prepared
+/// on a lattice [`FILTER_SAMPLES`] times finer than the device along each axis, and each device
+/// pixel of `region` is the mean of the [`FILTER_SAMPLES`]² sub-pixel centres it holds.
+///
+/// The mean is taken of premultiplied colour, so a sample the shading leaves transparent
+/// lightens a pixel's coverage rather than darkening its colour.
+fn filtered(painter: &Painter<'_>, wash: Color, region: Placed) -> Vec<u8> {
+    let n = u32::from(FILTER_SAMPLES);
+    let Placed {
+        left,
+        top,
+        span,
+        rows,
+    } = region;
+    let row_bytes = (span as usize).saturating_mul(4);
+    let mut data = vec![0u8; row_bytes.saturating_mul(rows as usize)];
+    let band = |(index, out): (usize, &mut [u8])| {
+        let first = top.saturating_add(
+            u32::try_from(index)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(FILTER_ROWS),
+        );
+        let lines = u32::try_from(out.len().checked_div(row_bytes).unwrap_or(0)).unwrap_or(0);
+        let fine = Placed::new(
+            left.saturating_mul(n),
+            first.saturating_mul(n),
+            span.saturating_mul(n),
+            lines.saturating_mul(n),
+        );
+        let mut samples = washed(wash, fine.span, fine.rows);
+        painter.paint(&mut samples, fine);
+        box_down(&samples, out, span);
+    };
+    let chunk = row_bytes.saturating_mul(FILTER_ROWS as usize).max(1);
+    // The parallel floor is [`MeshRaster`]'s, counted in samples: below it the pool's wake-up
+    // costs more than the loop.
+    let samples = u64::from(span)
+        .saturating_mul(u64::from(rows))
+        .saturating_mul(u64::from(n.saturating_mul(n)));
+    if samples < MESH_PARALLEL_FLOOR {
+        data.chunks_mut(chunk).enumerate().for_each(band);
+    } else {
+        data.par_chunks_mut(chunk).enumerate().for_each(band);
+    }
+    data
+}
+
+/// Averages each [`FILTER_SAMPLES`]² block of `samples` — straight-alpha pixels,
+/// `span × FILTER_SAMPLES` to a row — into one pixel of `out`, `span` to a row.
+fn box_down(samples: &[u8], out: &mut [u8], span: u32) {
+    let n = usize::from(FILTER_SAMPLES);
+    let span = span as usize;
+    let fine_row = span.saturating_mul(n).saturating_mul(4);
+    let weight = 1.0 / f32::from(FILTER_SAMPLES).powi(2);
+    for (row, line) in out
+        .chunks_exact_mut(span.saturating_mul(4).max(1))
+        .enumerate()
+    {
+        for (column, pixel) in line.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let mut sum = [0.0f32; 4];
+            for sub_row in 0..n {
+                let start = (row.saturating_mul(n).saturating_add(sub_row))
+                    .saturating_mul(fine_row)
+                    .saturating_add(column.saturating_mul(n).saturating_mul(4));
+                let block = samples
+                    .get(start..start.saturating_add(n.saturating_mul(4)))
+                    .unwrap_or_default();
+                for sample in block.as_chunks::<4>().0 {
+                    let alpha = f32::from(sample[3]) / 255.0;
+                    sum[0] += f32::from(sample[0]) / 255.0 * alpha;
+                    sum[1] += f32::from(sample[1]) / 255.0 * alpha;
+                    sum[2] += f32::from(sample[2]) / 255.0 * alpha;
+                    sum[3] += alpha;
+                }
+            }
+            let alpha = sum[3] * weight;
+            let colour = if sum[3] > 0.0 {
+                Color {
+                    r: sum[0] / sum[3],
+                    g: sum[1] / sum[3],
+                    b: sum[2] / sum[3],
+                    a: alpha,
+                }
+            } else {
+                Color::TRANSPARENT
+            };
+            write_colour(pixel, colour);
+        }
     }
 }
 
@@ -3582,5 +3805,114 @@ mod tests {
             .filter(|(walked, divided)| walked != divided)
             .count();
         assert_eq!(differing, 0, "bands changed the picture");
+    }
+
+    /// Black to the middle of the parameter, white after: a stitching of two constant pieces.
+    fn step() -> Ramp {
+        let stop = |at: f32, colour: Color| Stop { at, colour };
+        Ramp {
+            stops: Arc::from(vec![
+                stop(0.0, Color::BLACK),
+                stop(0.5, Color::BLACK),
+                stop(0.5, Color::WHITE),
+                stop(1.0, Color::WHITE),
+            ]),
+        }
+    }
+
+    /// The red channel of each pixel of row `row` of a raster.
+    fn reds(raster: &super::ShadingRaster, row: u32) -> Vec<u8> {
+        let width = raster.image.width as usize;
+        raster
+            .image
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .skip((row as usize).saturating_mul(width))
+            .take(width)
+            .map(|pixel| pixel[0])
+            .collect()
+    }
+
+    /// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias` under ADR 3024's filter: a step through a pixel's
+    /// centre leaves eight of its sixteen sub-pixel samples on each side, so the pixel is the mean
+    /// of black and white, and its neighbours — a whole pixel away — are untouched. Without the
+    /// flag and without a background the shading is not this raster's at all.
+    #[test]
+    fn an_anti_aliased_axial_step_is_the_mean_of_its_sub_pixel_samples() {
+        let mut shading = super::Shading {
+            kind: Arc::new(super::ShadingKind::Axial {
+                start: Point::new(0.5, 0.0),
+                end: Point::new(8.5, 0.0),
+                ramp: step(),
+                extend: (true, true),
+            }),
+            transform: Transform::IDENTITY,
+            background: None,
+            anti_alias: true,
+        };
+        let raster =
+            super::ShadingRaster::build(&shading, Transform::IDENTITY, (0, 0, 9, 2), (9, 2))
+                .expect("a filtered shading is drawn through the raster");
+        assert_eq!(reds(&raster, 1), [0, 0, 0, 0, 128, 255, 255, 255, 255]);
+        shading.anti_alias = false;
+        assert!(
+            super::ShadingRaster::build(&shading, Transform::IDENTITY, (0, 0, 9, 2), (9, 2))
+                .is_none(),
+            "a shading with neither entry keeps the backend's own gradient"
+        );
+    }
+
+    /// The same filter over a mesh whose corners carry §8.7.4.5.5's parametric value: the function
+    /// is read through the ramp at each sub-pixel sample, and the mesh's own edge — inside the
+    /// region here — is a coverage the filter averages too.
+    #[test]
+    fn an_anti_aliased_parametric_mesh_is_filtered_and_one_with_a_background_is_not() {
+        let corner = |x: f32, y: f32| Point::new(x, y);
+        let kind = Arc::new(super::ShadingKind::Mesh {
+            triangles: Arc::from(vec![
+                Triangle {
+                    points: [corner(0.5, 0.0), corner(8.5, 0.0), corner(8.5, 4.0)],
+                    corners: Corners::Parameters([0.0, 1.0, 1.0]),
+                },
+                Triangle {
+                    points: [corner(0.5, 0.0), corner(8.5, 4.0), corner(0.5, 4.0)],
+                    corners: Corners::Parameters([0.0, 1.0, 0.0]),
+                },
+            ]),
+            patches: None,
+            ramp: Some(step()),
+        });
+        let filtered = super::Shading {
+            kind: Arc::clone(&kind),
+            transform: Transform::IDENTITY,
+            background: None,
+            anti_alias: true,
+        };
+        let raster =
+            super::ShadingRaster::build(&filtered, Transform::IDENTITY, (0, 0, 10, 4), (10, 4))
+                .expect("drawn");
+        let row = reds(&raster, 2);
+        assert_eq!(&row[1..9], [0, 0, 0, 128, 255, 255, 255, 255]);
+        // Column 0 is half inside the mesh: black, at half coverage; column 9 is outside it.
+        let pixels = raster.image.data.as_chunks::<4>().0;
+        let alpha = |column: usize| pixels[column.saturating_add(20)][3];
+        assert_eq!((alpha(0), alpha(4), alpha(9)), (128, 255, 0));
+
+        let washed = super::Shading {
+            kind,
+            transform: Transform::IDENTITY,
+            background: Some(Color::WHITE),
+            anti_alias: false,
+        };
+        let raster =
+            super::ShadingRaster::build(&washed, Transform::IDENTITY, (0, 0, 10, 4), (10, 4))
+                .expect("drawn");
+        let centre = reds(&raster, 2)[4];
+        assert!(
+            centre == 0 || centre == 255,
+            "unfiltered, the step's pixel takes one side: {centre}"
+        );
     }
 }

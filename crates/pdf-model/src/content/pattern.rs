@@ -481,6 +481,7 @@ impl Interpreter<'_> {
         match self.build_shading(&definition, &built) {
             Ok(shading) => {
                 self.note_unpainted_background(&label, &definition.object, shading.background);
+                self.note_unfiltered(&label, &definition);
                 Some(PatternPaint::Shading(Rc::new(ShadingPattern {
                     shading: Arc::new(shading),
                     // Stated "in the shading's target coordinate space", which for a pattern is

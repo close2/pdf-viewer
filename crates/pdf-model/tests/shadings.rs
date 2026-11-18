@@ -2364,3 +2364,134 @@ fn a_lattice_mesh_preserves_all_rows_columns_and_vertex_colours() {
         assert_eq!(matches, 1, "one triangle for {expected_triangle:?}");
     }
 }
+
+/// A black-to-white step at the middle of the parameter: ISO 32000-2 §7.10.4's type 3 stitching
+/// of two constant type 2 pieces.
+const STITCHED_STEP: &str = "<< /FunctionType 3 /Domain [0 1] /Bounds [0.5] /Encode [0 1 0 1] \
+                             /Functions [<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0] \
+                             /C1 [0 0 0] /N 1 >> << /FunctionType 2 /Domain [0 1] \
+                             /C0 [1 1 1] /C1 [1 1 1] /N 1 >>] >>";
+
+/// The red channel of the step's own pixel and of the pixels one either side of it, on row 50.
+fn across_the_step(raster: &pdf_render::Raster) -> [u8; 3] {
+    [49, 50, 51].map(|x| pixel(raster, x, 50).0)
+}
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias`, from the dictionary to the pixel.
+///
+/// > ( Optional ) A flag indicating whether to filter the shading function to prevent aliasing
+/// > artifacts.
+///
+/// An axial shading whose stitched function steps at the middle of an axis from x = 10.5 to
+/// x = 90.5, so the step passes through the centre of device column 50. Sampled once a pixel,
+/// the column takes one side; under ADR 3024's filter it is the mean of sixteen sub-pixel samples,
+/// eight on each side. Both the pattern fill and `sh` take the filter, and without the entry —
+/// Table 77's "Default value: false" — the step stays hard.
+#[test]
+fn an_anti_aliased_stitched_step_is_filtered_and_an_unflagged_one_is_not() {
+    let axial = |entry: &str| {
+        format!(
+            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10.5 0 90.5 0] \
+             /Extend [true true] {entry} /Function {STITCHED_STEP} >>"
+        )
+    };
+    for content in [FILL_THE_PAGE, "/Sh0 sh"] {
+        let [black, edge, white] =
+            across_the_step(&render(pdf_with(&axial("/AntiAlias true"), content)));
+        assert!(
+            (96..=160).contains(&edge) && black <= 2 && white >= 253,
+            "{content}: the step's pixel is filtered and its neighbours are not: \
+             {black} {edge} {white}"
+        );
+        let [black, edge, white] = across_the_step(&render(pdf_with(&axial(""), content)));
+        assert!(
+            (edge <= 2 || edge >= 253) && black <= 2 && white >= 253,
+            "{content}: without the flag the step's pixel takes one side: {black} {edge} {white}"
+        );
+    }
+}
+
+/// The same filter on a §8.7.4.5.2 function-based shading, whose colours are made upstream on a
+/// lattice of device pixels: its producer evaluates the sub-pixel lattice of each cell and
+/// averages it, and the shading carries no device program — a device evaluating one would sample
+/// each pixel once.
+///
+/// The type 4 function steps at x = 0.505 of a unit domain spread across 100 pixels, which is
+/// the centre of column 50.
+#[test]
+fn an_anti_aliased_function_based_step_is_filtered_by_its_producer() {
+    let function = "{ pop 0.505 ge { 1 1 1 } { 0 0 0 } ifelse }";
+    let shading = |entry: &str| {
+        format!(
+            "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+             /Matrix [100 0 0 100 0 0] {entry} /Function 7 0 R >>"
+        )
+    };
+    let extra = format!(
+        "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{function}\nendstream\nendobj\n",
+        function.len()
+    );
+    let filtered = pdf_with_extra(&shading("/AntiAlias true"), "/Sh0 sh", &extra);
+
+    let document = Document::open(filtered.clone()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let shadings: Vec<&Shading> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Fill {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => Some(&**shading),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !shadings.is_empty()
+            && shadings
+                .iter()
+                .all(|shading| shading.anti_alias && shading.device_program().is_none()),
+        "the flag reaches the shading and the program is withheld: {shadings:?}"
+    );
+
+    let [black, edge, white] = across_the_step(&render(filtered));
+    assert!(
+        (96..=160).contains(&edge) && black <= 2 && white >= 253,
+        "the step's cell is the mean of its sub-cells: {black} {edge} {white}"
+    );
+    let [black, edge, white] =
+        across_the_step(&render(pdf_with_extra(&shading(""), "/Sh0 sh", &extra)));
+    assert!(
+        (edge <= 2 || edge >= 253) && black <= 2 && white >= 253,
+        "without the flag the cell is the function at its centre: {black} {edge} {white}"
+    );
+}
+
+/// A stroke is drawn with the backend's own gradient, not through the raster the filter is
+/// applied in, so a stroking pattern whose shading asks for the filter is named rather than drawn
+/// unfiltered in silence (trap 5) — and a fill, which is filtered, owes nothing.
+#[test]
+fn a_stroking_patterns_anti_alias_is_reported_and_a_fills_is_not() {
+    let axial = format!(
+        "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10.5 0 90.5 0] /AntiAlias true \
+         /Function {STITCHED_STEP} >>"
+    );
+    let reported = |content: &str| {
+        let bytes = pdf_with(&axial, content);
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
+    };
+    let stroked = reported("/Pattern CS /P0 SCN 4 w 20 20 m 80 80 l S");
+    assert!(
+        stroked.contains("ShadingAntiAlias") && stroked.contains("/P0"),
+        "a stroke's unfiltered shading is named with its pattern: {stroked}"
+    );
+    let filled = reported(FILL_THE_PAGE);
+    assert!(
+        !filled.contains("ShadingAntiAlias"),
+        "a fill is filtered, so nothing is owed: {filled}"
+    );
+}

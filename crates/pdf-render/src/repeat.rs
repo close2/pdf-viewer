@@ -458,6 +458,7 @@ impl Displaced<'_> {
                         // Table 77's wash is a *colour*, so the lattice step moves the
                         // geometry that decides where it applies and never the colour itself.
                         background: shading.background,
+                        anti_alias: shading.anti_alias,
                     });
                 }
                 self.refer(clip, mask)?;
@@ -1091,6 +1092,7 @@ mod repetition {
     fn gradient() -> Shading {
         Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(1.0, 0.0),

@@ -351,6 +351,9 @@ struct Built {
     /// shading's own space, so §10.7.3's resolution and the [`Conversion`] this table is keyed
     /// by decide it exactly as they decide the ramp's.
     background: Option<Color>,
+    /// Table 77's `/AntiAlias`, where the shading has a function to filter
+    /// ([`Shading::anti_alias`]).
+    anti_alias: bool,
     /// [`crate::mesh::MAX_TRIANGLES`] stopped this mesh's stream part-way.
     ///
     /// Remembered with the colours because it is a property of the object and of this
@@ -427,6 +430,7 @@ impl Cache {
                     kind: Arc::clone(&built.kind),
                     transform: built.own.then(transform),
                     background: built.background,
+                    anti_alias: built.anti_alias,
                 },
                 truncated: built.truncated,
                 coarse: built.coarse,
@@ -454,6 +458,7 @@ impl Cache {
                 kind: built.kind,
                 transform: built.own.then(transform),
                 background: built.background,
+                anti_alias: built.anti_alias,
             },
             truncated: built.truncated,
             coarse: built.coarse,
@@ -584,6 +589,7 @@ pub fn build(
             kind: built.kind,
             transform: built.own.then(transform),
             background: built.background,
+            anti_alias: built.anti_alias,
         },
         truncated: built.truncated,
         coarse: built.coarse,
@@ -648,7 +654,14 @@ fn kind_of(
         // being carried separately, so the display list needs only one transform per
         // shading.
         1 => (
-            function_based(document, &dict, &space, colouring, functions)?,
+            function_based(
+                document,
+                &dict,
+                &space,
+                colouring,
+                functions,
+                anti_alias(document, &dict),
+            )?,
             matrix_of(document, &dict, "Matrix"),
         ),
         2 => (
@@ -670,10 +683,19 @@ fn kind_of(
         other => return Err(ShadingError::UnsupportedType { kind: other }),
     };
 
+    // Table 77's flag asks to "filter the shading function", so it means something wherever
+    // the colours are a function's: every type 1, 2 and 3, and a mesh only where its corners
+    // carry §8.7.4.5.5's parametric value. A mesh whose corners carry colours has no function,
+    // and its Gouraud interpolation is linear between them — there is nothing to filter.
+    let filters = match &kind {
+        ShadingKind::Mesh { ramp, .. } => ramp.is_some(),
+        _ => true,
+    };
     Ok(Built {
         kind: Arc::new(kind),
         own,
         background: background_of(document, &dict, &space, colouring),
+        anti_alias: filters && anti_alias(document, &dict),
         truncated,
         coarse,
     })
@@ -786,6 +808,33 @@ fn extend(document: &Document, dict: &Dictionary) -> (bool, bool) {
             .is_some_and(|item| matches!(item, Object::Boolean(true)))
     };
     (at(0), at(1))
+}
+
+/// Reads ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias`, whose "Default value: false".
+fn anti_alias(document: &Document, dict: &Dictionary) -> bool {
+    matches!(document.get_key(dict, "AntiAlias"), Object::Boolean(true))
+}
+
+/// Whether the shading `object` asks for §8.7.4.3 Table 77's filter over a function it has — the
+/// condition a built shading's [`Shading::anti_alias`] holds, read from the dictionary for a
+/// caller that has to report a filter it did not apply.
+///
+/// > ( Optional ) A flag indicating whether to filter the shading function to prevent aliasing
+/// > artifacts.
+///
+/// Types 1, 2 and 3 always have a function; a mesh (types 4 to 7) has one only where it states
+/// `/Function` (Tables 82 to 84).
+#[must_use]
+pub fn filters(document: &Document, object: &Object) -> bool {
+    let Some(dict) = dictionary_of(document, object) else {
+        return false;
+    };
+    anti_alias(document, &dict)
+        && match document.get_key(&dict, "ShadingType").as_integer() {
+            Some(1..=3) => true,
+            Some(4..=7) => !matches!(document.get_key(&dict, "Function"), Object::Null),
+            _ => false,
+        }
 }
 
 /// Reads `/Domain`, which defaults to the unit interval.
@@ -1017,6 +1066,7 @@ fn function_based(
     space: &ColourSpace,
     colouring: Colouring<'_>,
     parsed: &mut Parsed,
+    filtered: bool,
 ) -> Result<ShadingKind, ShadingError> {
     let functions = parsed.group(document, dict)?;
     if functions.is_empty() {
@@ -1047,7 +1097,14 @@ fn function_based(
     // device evaluating it produces the colour and nothing else. That is the whole of what is
     // asked of it: §10.5's function is applied to the finished pixel by the display list's
     // transfer channel, not to the colours a shading makes (see [`Colouring`]).
-    let program = device_program(&functions, space, colouring.into, rectangle);
+    //
+    // A device evaluating the program samples each pixel once, at its centre; a shading that
+    // asks for Table 77's filter is given the lattice instead, which [`FunctionColours`] filters.
+    let program = if filtered {
+        None
+    } else {
+        device_program(&functions, space, colouring.into, rectangle)
+    };
 
     Ok(ShadingKind::Sampled {
         domain: rectangle,
@@ -1057,6 +1114,7 @@ fn function_based(
             into: colouring.into.clone(),
             domain: rectangle,
             opaque,
+            filtered,
         })),
         program,
     })
@@ -1149,6 +1207,11 @@ struct FunctionColours {
     domain: [f32; 4],
     /// Whether every colour the space can produce is opaque; see `function_based`.
     opaque: bool,
+    /// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias true`: each cell is the mean of the function
+    /// at a [`pdf_render::FILTER_SAMPLES`]² lattice of centres inside it rather than its value
+    /// at the cell's own centre — ADR 3024's filter, over the footprint of a lattice the device
+    /// chose to be its pixels ([`pdf_render::Grid::for_placement`]).
+    filtered: bool,
 }
 
 impl std::fmt::Debug for FunctionColours {
@@ -1286,8 +1349,12 @@ impl FunctionColours {
             .origin
             .1
             .saturating_add(u32::try_from(row).unwrap_or(u32::MAX));
-        let y = y0 + centre(row, block.lattice.height) * (y1 - y0);
         let mut scratch = Components::default();
+        if self.filtered {
+            self.filtered_row(row, block, out, &mut scratch);
+            return;
+        }
+        let y = y0 + centre(row, block.lattice.height) * (y1 - y0);
         for (column, cell) in out.iter_mut().enumerate() {
             let column = block
                 .origin
@@ -1301,6 +1368,60 @@ impl FunctionColours {
                 &self.into,
                 &mut scratch,
             );
+        }
+    }
+
+    /// [`Self::row`] under ADR 3024's filter: each cell the mean of the function at the centres
+    /// of a [`pdf_render::FILTER_SAMPLES`]² lattice of sub-cells, the box over the cell's
+    /// footprint that `pdf_render::ShadingRaster` takes over a device pixel for the other kinds.
+    ///
+    /// The mean is of the converted colour, as the device's would be: the filter is applied to
+    /// what the pixel shows, and a function whose components are not the device's would
+    /// otherwise be averaged in a space the pixel never holds.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "cell and sub-cell indices are bounded by MAX_FUNCTION_CELLS times \
+                  FILTER_SAMPLES, far inside f32's exact integer range"
+    )]
+    fn filtered_row(&self, row: u32, block: Block, out: &mut [Color], scratch: &mut Components) {
+        let [x0, x1, y0, y1] = self.domain;
+        let n = u32::from(pdf_render::FILTER_SAMPLES);
+        // The sub-cell's centre, as a fraction of the domain: cell `index` of `cells` divided
+        // `n` ways, and the centre of its `sub`th part.
+        let at = |index: u32, sub: u32, cells: u32| -> f32 {
+            let fine = index.saturating_mul(n).saturating_add(sub);
+            (2.0 * fine as f32 + 1.0) / (2.0 * cells.max(1).saturating_mul(n) as f32)
+        };
+        let weight = 1.0 / n.saturating_mul(n) as f32;
+        for (column, cell) in out.iter_mut().enumerate() {
+            let column = block
+                .origin
+                .0
+                .saturating_add(u32::try_from(column).unwrap_or(u32::MAX));
+            let mut sum = Color::TRANSPARENT;
+            for sub_y in 0..n {
+                let y = y0 + at(row, sub_y, block.lattice.height) * (y1 - y0);
+                for sub_x in 0..n {
+                    let x = x0 + at(column, sub_x, block.lattice.width) * (x1 - x0);
+                    let colour =
+                        colour_into(&self.functions, &[x, y], &self.space, &self.into, scratch);
+                    // Premultiplied, so that a translucent sample weighs by what it covers.
+                    sum.r += colour.r * colour.a;
+                    sum.g += colour.g * colour.a;
+                    sum.b += colour.b * colour.a;
+                    sum.a += colour.a;
+                }
+            }
+            *cell = if sum.a > 0.0 {
+                Color {
+                    r: sum.r / sum.a,
+                    g: sum.g / sum.a,
+                    b: sum.b / sum.a,
+                    a: sum.a * weight,
+                }
+            } else {
+                Color::TRANSPARENT
+            };
         }
     }
 }
@@ -1618,5 +1739,44 @@ mod tests {
         assert_eq!(shaded.shading, fresh.shading);
         assert!(cache.functions.groups.is_empty());
         assert_eq!(cache.functions.held, 0);
+    }
+
+    /// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias` asks to "filter the shading function", so
+    /// [`super::filters`] holds where it is true over a function — every type 2, and a mesh only
+    /// where it states `/Function` — and not where it is false, absent or over a mesh of colours.
+    #[test]
+    fn anti_alias_asks_for_a_filter_only_where_there_is_a_function_to_filter() {
+        let axial = |entry: &str| {
+            format!(
+                "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 1 0] {entry} \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 1 1] /N 1 >> >>"
+            )
+        };
+        let mesh = |entry: &str| {
+            format!(
+                "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+                 /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 1 0 1 0 1] /AntiAlias true \
+                 {entry} /Length 0 >>\nstream\n\nendstream"
+            )
+        };
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        for (number, body) in [
+            axial("/AntiAlias true"),
+            axial(""),
+            axial("/AntiAlias false"),
+            mesh("/Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 1 1] /N 1 >>"),
+            mesh(""),
+        ]
+        .iter()
+        .enumerate()
+        {
+            bytes.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", number + 1).as_bytes());
+        }
+        bytes.extend_from_slice(b"trailer\n<< /Root 9 0 R >>\n");
+        let document = Document::open(bytes).expect("the fixture opens");
+        let asked: Vec<bool> = (1..=5)
+            .map(|number| super::filters(&document, &reference(number)))
+            .collect();
+        assert_eq!(asked, [true, false, false, true, false]);
     }
 }

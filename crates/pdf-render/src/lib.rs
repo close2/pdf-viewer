@@ -100,10 +100,10 @@ pub use separation::{
     resolve_over_device as resolve_separation_over_device,
 };
 pub use shading::{
-    ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MAX_PATCH_GRID_CELLS,
-    MAX_PATCH_TRIANGLES, MeshRaster, Patch, PatchCorners, PatchGrid, PatchMesh, Radial,
-    RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, SurfacePatch, Triangle,
-    blend_parameter,
+    ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, FILTER_SAMPLES,
+    MAX_PATCH_GRID_CELLS, MAX_PATCH_TRIANGLES, MeshRaster, Patch, PatchCorners, PatchGrid,
+    PatchMesh, Radial, RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, SurfacePatch,
+    Triangle, blend_parameter,
 };
 pub use soft_mask::{BlackHalf, Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{

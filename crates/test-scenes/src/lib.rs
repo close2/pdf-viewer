@@ -1307,6 +1307,7 @@ pub fn radial_cone() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Radial {
                 start: Point::new(150.0, 100.0),
                 start_radius: 25.0,
@@ -1427,6 +1428,7 @@ pub fn patch_mesh() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Mesh {
                 triangles: Arc::from(Vec::new()),
                 patches: Some(pdf_render::PatchMesh {
@@ -1578,6 +1580,7 @@ pub fn sampled_shading() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
@@ -1643,6 +1646,7 @@ pub fn shading_background() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Axial {
                 start: Point::new(33.5, 10.0),
                 end: Point::new(66.0, 10.0),
@@ -1666,6 +1670,7 @@ pub fn shading_background() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Radial {
                 start: Point::new(147.5, 52.5),
                 start_radius: 0.0,
@@ -1692,6 +1697,7 @@ pub fn shading_background() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Mesh {
                 triangles: Arc::from(vec![
                     pdf_render::Triangle {
@@ -1731,6 +1737,7 @@ pub fn shading_background() -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
+            anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
@@ -1743,6 +1750,125 @@ pub fn shading_background() -> DisplayList {
         blend: BlendMode::Normal,
     });
 
+    list
+}
+
+/// Device pixels of [`shading_anti_alias`] at scale 1, as `(column, row)`: for each of its three
+/// shadings, the pixel whose centre the function's step passes through, then the pixels one
+/// either side of it.
+///
+/// Unfiltered, the edge pixel takes one side's colour; under ISO 32000-2 §8.7.4.3 Table 77's
+/// `/AntiAlias true` and ADR 3024's filter it is the mean of sixteen sub-pixel samples, eight on
+/// each side, so it is the grey between. Its neighbours are a whole pixel from the step and stay
+/// black and white either way.
+pub const ANTI_ALIAS_EDGES: [[(u32, u32); 3]; 3] = [
+    // Axial: the step at page x = 40.5, every row alike.
+    [(40, 99), (39, 99), (41, 99)],
+    // Radial: the circle of radius 15 about (130.5, 100.5), on the row through its centre.
+    [(145, 99), (144, 99), (146, 99)],
+    // Mesh: the parametric step at page x = 180.5.
+    [(180, 99), (179, 99), (181, 99)],
+];
+
+/// Three shadings whose functions step from black to white, with `/AntiAlias` as `anti_alias`
+/// says — ISO 32000-2 §8.7.4.3 Table 77: "A flag indicating whether to filter the shading
+/// function to prevent aliasing artifacts".
+///
+/// Each step passes through the centre of a device pixel ([`ANTI_ALIAS_EDGES`]), which is the
+/// position where sampling the function once a pixel and filtering it differ most: the unfiltered
+/// pixel takes one side, the filtered one half of each. The three are the kinds a backend's
+/// gradient or mesh would otherwise draw — an axial, a radial and a mesh whose corners carry
+/// §8.7.4.5.5's parametric value — so a backend that drew any of them its own way rather than
+/// through [`pdf_render::ShadingRaster`] (ADR 3024) shows a hard edge where the filter puts grey.
+/// A type 1 shading is filtered by its producer upstream, and `pdf-model`'s tests hold it.
+#[must_use]
+pub fn shading_anti_alias(anti_alias: bool) -> DisplayList {
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    // Black up to the middle of the parameter, white after it: a Type 3 stitching of two constant
+    // pieces, as a ramp.
+    let step = || pdf_render::Ramp {
+        stops: Arc::from(vec![
+            pdf_render::Stop {
+                at: 0.0,
+                colour: Color::BLACK,
+            },
+            pdf_render::Stop {
+                at: 0.5,
+                colour: Color::BLACK,
+            },
+            pdf_render::Stop {
+                at: 0.5,
+                colour: Color::WHITE,
+            },
+            pdf_render::Stop {
+                at: 1.0,
+                colour: Color::WHITE,
+            },
+        ]),
+    };
+    let mut fill = |path: Path, kind: pdf_render::ShadingKind| {
+        list.push(Command::Fill {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Shading(Arc::new(pdf_render::Shading {
+                kind: Arc::new(kind),
+                transform: Transform::IDENTITY,
+                background: None,
+                anti_alias,
+            })),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+    };
+
+    fill(
+        rect(10.0, 20.0, 70.0, 180.0),
+        pdf_render::ShadingKind::Axial {
+            start: Point::new(10.5, 0.0),
+            end: Point::new(70.5, 0.0),
+            ramp: step(),
+            extend: (true, true),
+        },
+    );
+    fill(
+        rect(95.0, 65.0, 166.0, 136.0),
+        pdf_render::ShadingKind::Radial {
+            start: Point::new(130.5, 100.5),
+            start_radius: 0.0,
+            end: Point::new(130.5, 100.5),
+            end_radius: 30.0,
+            ramp: step(),
+            extend: (false, true),
+        },
+    );
+    let corner = |x: f32, y: f32| Point::new(x, y);
+    fill(
+        rect(165.0, 20.0, 196.0, 180.0),
+        pdf_render::ShadingKind::Mesh {
+            triangles: Arc::from(vec![
+                pdf_render::Triangle {
+                    points: [
+                        corner(165.5, 20.0),
+                        corner(195.5, 20.0),
+                        corner(195.5, 180.0),
+                    ],
+                    corners: pdf_render::Corners::Parameters([0.0, 1.0, 1.0]),
+                },
+                pdf_render::Triangle {
+                    points: [
+                        corner(165.5, 20.0),
+                        corner(195.5, 180.0),
+                        corner(165.5, 180.0),
+                    ],
+                    corners: pdf_render::Corners::Parameters([0.0, 1.0, 0.0]),
+                },
+            ]),
+            patches: None,
+            ramp: Some(step()),
+        },
+    );
     list
 }
 

@@ -107,6 +107,7 @@ fn scene(axis: (f64, f64), extend: (bool, bool)) -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, axis.0 as f32),
                 end: Point::new(0.0, axis.1 as f32),

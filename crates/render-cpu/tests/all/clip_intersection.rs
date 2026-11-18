@@ -88,6 +88,7 @@ fn gradient() -> Paint {
         // §8.7.4.3's wash is not what these scenes are about: they state the clip's arithmetic,
         // and a background would put a second colour under every assertion here.
         background: None,
+        anti_alias: false,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, MARK.1),
             end: Point::new(0.0, MARK.3),
@@ -182,6 +183,7 @@ fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
             fill_rule: FillRule::NonZero,
             paint: Paint::Shading(Arc::new(Shading {
                 background: None,
+                anti_alias: false,
                 kind: Arc::new(ShadingKind::Axial {
                     start: Point::new(0.0, MASK_GROUP.1),
                     end: Point::new(0.0, MASK_GROUP.3),

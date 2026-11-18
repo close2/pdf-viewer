@@ -49,7 +49,9 @@ impl CpuRasterizer {
         // The shape's edge is measured on the page's grid and written at the surface's corner,
         // as every other fill's is (ADR 2148).
         let at = to_device.placed(transform);
-        if shading.background.is_some() {
+        // Table 77's `/Background` and `/AntiAlias` are both answered by one shared raster
+        // (`pdf_render::Shading::is_rastered`, ADRs 0529 and 3024).
+        if shading.is_rastered() {
             shading::fill_with_background(
                 pixmap,
                 path,

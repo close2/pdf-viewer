@@ -199,6 +199,7 @@ fn an_opaque_ramp_is_the_level_nearest_its_colour() {
         ] {
             let paint = Paint::Shading(Arc::new(Shading {
                 background: None,
+                anti_alias: false,
                 kind: Arc::new(kind),
                 transform: Transform::IDENTITY,
             }));
@@ -223,6 +224,7 @@ fn a_ramps_cell_is_its_colour_at_the_pixels_own_t() {
     let (from, to) = (Color::rgb(0.1, 0.2, 0.3), Color::rgb(0.9, 0.6, 0.7));
     let paint = Paint::Shading(Arc::new(Shading {
         background: None,
+        anti_alias: false,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, 0.0),
             end: Point::new(40.0, 0.0),
@@ -284,6 +286,7 @@ fn an_opaque_ramp_on_a_stroke_is_the_level_nearest_its_colour() {
         ] {
             let paint = Paint::Shading(Arc::new(Shading {
                 background: None,
+                anti_alias: false,
                 kind: Arc::new(kind),
                 transform: Transform::IDENTITY,
             }));
@@ -314,6 +317,7 @@ fn a_stroked_ramps_cell_is_its_colour_at_a_mitres_tip() {
     let (from, to) = (Color::rgb(0.1, 0.1, 0.1), Color::rgb(0.9, 0.9, 0.9));
     let paint = Paint::Shading(Arc::new(Shading {
         background: None,
+        anti_alias: false,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, 0.0),
             end: Point::new(0.0, 40.0),

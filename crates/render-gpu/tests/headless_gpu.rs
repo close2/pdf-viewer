@@ -746,6 +746,7 @@ fn shaded_page(kind: pdf_render::ShadingKind) -> pdf_render::DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(std::sync::Arc::new(Shading {
             background: None,
+            anti_alias: false,
             kind: std::sync::Arc::new(kind),
             transform: Transform::IDENTITY,
         })),
@@ -981,6 +982,48 @@ fn cpu_and_gpu_agree_on_a_shadings_background() {
         (0, true, 255),
         "outside the band the wash paints: {pixel:?}"
     );
+}
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias` (ADR 3024): a step through a pixel's centre is
+/// grey on Vello where the shading asks for the filter, and the filtered page agrees with the
+/// oracle. Handing a filtered shading to a Vello gradient — ignoring the flag — leaves the step's
+/// pixel black or white and fails.
+#[test]
+fn the_gpu_filters_a_shading_that_asks_for_anti_aliasing() {
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
+    let mut backend = gpu();
+    for anti_alias in [true, false] {
+        let list = test_scenes::shading_anti_alias(anti_alias);
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let ours = backend.rasterize(&list, target).expect("supported");
+        let red = |(column, row): (u32, u32)| {
+            ours.data[((row as usize) * (ours.width as usize) + column as usize) * 4]
+        };
+        for [edge, black, white] in test_scenes::ANTI_ALIAS_EDGES {
+            let value = red(edge);
+            // Unfiltered, the step's pixel is this device's own gradient, whose table of stops
+            // may round a step through a pixel centre either way; only the filter is asserted.
+            if anti_alias {
+                assert!(
+                    (96..=160).contains(&value),
+                    "{edge:?} straddles the step and is filtered: {value}"
+                );
+            }
+            assert!(
+                red(black) <= 2 && red(white) >= 253,
+                "{black:?} and {white:?}"
+            );
+        }
+        if anti_alias {
+            let cpu = CpuRasterizer::new()
+                .rasterize(&list, target)
+                .expect("supported");
+            assert_within_tolerance(
+                "shading anti-alias",
+                raster_compare::compare(&cpu, &ours).expect("same size"),
+            );
+        }
+    }
 }
 
 /// A mesh, which neither rasteriser can shade natively and which both therefore draw as the
@@ -1866,6 +1909,7 @@ fn stripe_column(axis: (f32, f32), extend: (bool, bool)) -> pdf_render::DisplayL
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(std::sync::Arc::new(Shading {
             background: None,
+            anti_alias: false,
             kind: std::sync::Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, axis.0),
                 end: Point::new(0.0, axis.1),

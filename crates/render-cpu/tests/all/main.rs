@@ -14,6 +14,7 @@
 mod a_level_where_the_paint_is_the_pixel;
 mod abutting_rectangles;
 mod anisotropic_sub_pixel_stroke;
+mod anti_aliased_shading;
 mod basic_composite_partial_alpha_spec_audit;
 mod clip_bands;
 mod clip_intersection;

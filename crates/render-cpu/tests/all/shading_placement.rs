@@ -105,6 +105,7 @@ fn vertical_gradient(path_space: Transform) -> DisplayList {
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
             background: None,
+            anti_alias: false,
             kind: Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, PAGE),

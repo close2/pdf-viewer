@@ -578,6 +578,7 @@ fn write_tables(writer: &mut Writer, tables: &Tables) -> Result<(), Uncodable> {
                 writer.u8(0);
             }
         }
+        writer.bool(shading.anti_alias);
     }
     Ok(())
 }
@@ -1250,8 +1251,8 @@ mod least {
     pub(super) const SAMPLES: usize = 8;
     /// A shading kind: a tag and the smallest body any of them has.
     pub(super) const KIND: usize = 1 + 8;
-    /// A shading: a kind index, a transform and a presence byte.
-    pub(super) const SHADING: usize = 4 + 24 + 1;
+    /// A shading: a kind index, a transform, a presence byte and `/AntiAlias`'s byte.
+    pub(super) const SHADING: usize = 4 + 24 + 1 + 1;
     /// A clip: a step count, a transform, a fill rule and a presence byte.
     pub(super) const CLIP: usize = 8 + 24 + 1 + 1;
     /// A soft mask: a kind tag, a transfer presence byte and a command count.
@@ -1326,6 +1327,7 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
                 } else {
                     None
                 },
+                anti_alias: reader.bool("a shading's /AntiAlias")?,
             }))
         },
     )?;
@@ -2403,11 +2405,14 @@ mod tests {
             kind: Arc::clone(&kind),
             transform: Transform::translate(3.0, 4.0),
             background: Some(Color::rgba(1.0, 0.0, 0.0, 0.25)),
+            // Table 77's flag crosses the boundary with the shading it belongs to (ADR 3024).
+            anti_alias: true,
         });
         let second = Arc::new(Shading {
             kind,
             transform: Transform::IDENTITY,
             background: None,
+            anti_alias: false,
         });
         let mesh = Arc::new(Shading {
             kind: Arc::new(ShadingKind::Mesh {
@@ -2434,6 +2439,7 @@ mod tests {
             }),
             transform: Transform::IDENTITY,
             background: None,
+            anti_alias: false,
         });
         // §8.7.4.5.7's patches, which cross as patches rather than as a tessellation this side
         // chose (ADR 1217): all three corner kinds, because the tag between them is a branch of
@@ -2488,6 +2494,7 @@ mod tests {
             }),
             transform: Transform::translate(1.5, 2.5),
             background: None,
+            anti_alias: false,
         });
         let radial = Arc::new(Shading {
             kind: Arc::new(ShadingKind::Radial {
@@ -2500,6 +2507,7 @@ mod tests {
             }),
             transform: Transform::scale(0.5, 0.5),
             background: None,
+            anti_alias: false,
         });
 
         let path = a_path();
@@ -3041,6 +3049,7 @@ mod tests {
                     kind: Arc::clone(&kind),
                     transform: Transform::translate(at as f32, 0.0),
                     background: None,
+                    anti_alias: false,
                 })),
                 clip: None,
                 mask: None,
@@ -3069,6 +3078,7 @@ mod tests {
                     kind: Arc::new((*shading.kind).clone()),
                     transform: shading.transform,
                     background: None,
+                    anti_alias: false,
                 })),
                 clip: None,
                 mask: None,
@@ -3110,6 +3120,7 @@ mod tests {
                 }),
                 transform: Transform::IDENTITY,
                 background: None,
+                anti_alias: false,
             })),
             clip: None,
             mask: None,

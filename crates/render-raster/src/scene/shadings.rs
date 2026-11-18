@@ -97,10 +97,11 @@ impl Encoder<'_> {
         // A fill carrying Table 77's `/Background` took [`Encoder::background_raster`]'s door
         // before reaching here, so what is left is a *stroke* — whose outline is not the shape
         // this encoder is handed. Refused rather than drawn without its wash, which keeps the
-        // shortfall the report `pdf_model` already raises instead of a quiet difference.
-        if shading.background.is_some() {
+        // shortfall the report `pdf_model` already raises instead of a quiet difference. A
+        // shading stating `/AntiAlias` takes the same door for the same reason (ADR 3024).
+        if shading.is_rastered() {
             return Err(QuorraRasterError::Unsupported(
-                "a stroking shading pattern's /Background (§8.7.4.3)".to_owned(),
+                "a stroking shading pattern's /Background or /AntiAlias (§8.7.4.3)".to_owned(),
             ));
         }
         let kind = match shading.kind.as_ref() {

@@ -684,6 +684,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::ThisReader,
             "Table 77's /Background, unpainted around the shading",
         ),
+        Unsupported::ShadingAntiAlias { .. } => (
+            Whose::ThisReader,
+            "Table 77's /AntiAlias, unfiltered on a stroke",
+        ),
         // **The mechanism's wording is the claim, and it is checkable.** This variant's own doc
         // comment says "[a]n operator this interpreter does not implement", which would be this
         // reader's — so the class rests on every operator the standard defines being implemented,

@@ -589,6 +589,43 @@ fn cpu_and_quorra_agree_on_a_shadings_background() {
     );
 }
 
+/// ISO 32000-2 §8.7.4.3 Table 77's `/AntiAlias` (ADR 3024): a step through a pixel's centre is
+/// grey on this device where the shading asks for the filter, and the filtered page agrees with
+/// the oracle. Drawing a filtered shading with raster's own gradient or mesh paint — ignoring the
+/// flag — leaves the step's pixel black or white and fails.
+#[test]
+fn quorra_filters_a_shading_that_asks_for_anti_aliasing() {
+    let mut backend = raster();
+    for anti_alias in [true, false] {
+        let list = test_scenes::shading_anti_alias(anti_alias);
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let ours = backend.rasterize(&list, target).expect("draws");
+        let red = |(column, row): (u32, u32)| {
+            ours.data[((row as usize) * (ours.width as usize) + column as usize) * 4]
+        };
+        for [edge, black, white] in test_scenes::ANTI_ALIAS_EDGES {
+            let value = red(edge);
+            // Unfiltered, the step's pixel is this device's own gradient, whose table of stops
+            // may round a step through a pixel centre either way; only the filter is asserted.
+            if anti_alias {
+                assert!(
+                    (96..=160).contains(&value),
+                    "{edge:?} straddles the step and is filtered: {value}"
+                );
+            }
+            assert!(
+                red(black) <= 2 && red(white) >= 253,
+                "{black:?} and {white:?}"
+            );
+        }
+    }
+    assert_within(
+        "shading anti-alias",
+        compare("shading anti-alias", &test_scenes::shading_anti_alias(true)),
+        0.06,
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_curves() {
     // As with strokes: curves are boundary-dominated fixtures.

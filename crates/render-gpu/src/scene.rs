@@ -624,9 +624,9 @@ fn encode_fill(
     // own bounds, which no `peniko::Extend` expresses. §11.6.7 makes the wash and the shading
     // one painting operation, so both are evaluated into one raster and drawn inside a layer
     // clipped to the shape. Asked before the two kind-specific doors because it holds for every
-    // kind.
+    // kind. `/AntiAlias` takes the same door: the raster is where ADR 3024's filter is applied.
     if let Paint::Shading(shading) = paint
-        && shading.background.is_some()
+        && shading.is_rastered()
     {
         let mode = layer.unwrap_or(peniko::BlendMode::new(
             peniko::Mix::Normal,

@@ -53,6 +53,11 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "a shading pattern's background colour was not painted around it, so less was \
              painted than asked for: {detail}"
         ),
+        // Drawn, unfiltered: the stroke is on the page, sampled once a pixel (§8.7.4.3).
+        Unsupported::ShadingAntiAlias { detail } => format!(
+            "a stroking shading pattern asked for its function to be filtered and was drawn \
+             without the filter: {detail}"
+        ),
         Unsupported::Operator { operator } => {
             format!("the operator {operator} is not implemented")
         }

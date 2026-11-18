@@ -200,6 +200,8 @@ impl Interpreter<'_> {
                 // ng geometry, disregarding the Background entry". `shading::Cache` is keyed
                 // by the object and one object can be both a pattern's shading and an `sh`'s,
                 // so the entry is resolved once where the colour space is and dropped here.
+                // `/AntiAlias` is not so confined: Table 77 states it of the shading, and the
+                // filter applies to `sh` as to a pattern (ADR 3024).
                 let shading = Shading {
                     background: None,
                     ..shading
