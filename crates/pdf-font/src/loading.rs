@@ -156,6 +156,8 @@ pub(crate) enum CodeMapping {
         /// the reader loses the shape, which is what `Form::Unsupplied` says and what
         /// `LoadedFont::unsupplied_vertical_form` counts (ADR 0764).
         downward: Option<Box<Downward>>,
+        /// The faces borrowed for characters the font's own face does not draw (ADR 3067).
+        borrowing: Box<Borrowing>,
     },
     /// A font whose program this crate refused, carrying only what the *document* states.
     ///
@@ -524,6 +526,9 @@ enum Face {
     Own,
     /// The face one of `/FD`'s classes chose, indexed as the file states them.
     Class(usize),
+    /// A face borrowed for a character the chosen face does not draw, indexed in the order
+    /// [`Borrowing`] first held it (ADR 3067).
+    Borrowed(usize),
 }
 
 /// A glyph index together with the face it indexes.
@@ -557,6 +562,110 @@ struct ClassFace {
     downward: Option<Box<Downward>>,
 }
 
+/// The faces a substituted composite font borrows, one character at a time, for what the face it
+/// was given does not draw.
+///
+/// ISO 32000-2 §9.10.2 is what a substituted composite font's codes mean, and what they mean is
+/// characters: the font's face is chosen for the collection's script sample
+/// ([`composite_substitute`]), and that choice is about the script, not about what the page shows.
+/// A Japanese font that shows "This Message can be toggled." through `UniJIS-UTF16-H` asks for
+/// Latin characters, and a face chosen for kana and kanji may draw none of them. **A face that
+/// draws none of the characters shown is not a substitute for them**, so each character the
+/// chosen face does not map is asked for again on its own, by the same description — the same
+/// request and style, [`substitute::installed_covering_styled`]'s same walk — and drawn from the
+/// face that answers. The answer is a function of the character and the machine alone, so two
+/// pages asking in either order are drawn alike.
+pub(crate) struct Borrowing {
+    /// The description the font's own face was found by.
+    request: substitute::Request,
+    /// The style it was ranked by.
+    style: substitute::Style,
+    /// Every character asked so far and the face that answered it, and the faces themselves.
+    held: std::sync::RwLock<Borrowed>,
+}
+
+/// [`Borrowing`]'s memo: the answer per character, and each face once.
+#[derive(Default)]
+struct Borrowed {
+    by_character: BTreeMap<char, Option<usize>>,
+    faces: Vec<Arc<ClassFace>>,
+}
+
+impl std::fmt::Debug for Borrowing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let faces = self.held.read().map_or(0, |held| held.faces.len());
+        f.debug_struct("Borrowing")
+            .field("request", &self.request)
+            .field("faces", &faces)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Borrowing {
+    /// Nothing borrowed yet, for a font found by `request` in `style`.
+    pub(crate) fn new(request: substitute::Request, style: substitute::Style) -> Self {
+        Self {
+            request,
+            style,
+            held: std::sync::RwLock::new(Borrowed::default()),
+        }
+    }
+
+    /// The face this machine offers for `character` alone, and its index among those borrowed.
+    ///
+    /// `downward` is the font's own vertical route, read again from the borrowed face's tables. A
+    /// face that answers twice is held once: the walk hands back one program per face, and the
+    /// resource port's answers are compared by their bytes.
+    fn face_for(
+        &self,
+        character: char,
+        downward: Option<&Downward>,
+    ) -> Option<(usize, Arc<ClassFace>)> {
+        let found = |held: &Borrowed, index: Option<usize>| {
+            index.and_then(|index| Some((index, Arc::clone(held.faces.get(index)?))))
+        };
+        if let Ok(held) = self.held.read()
+            && let Some(&index) = held.by_character.get(&character)
+        {
+            return found(&held, index);
+        }
+        // Searched outside the lock: the search reads files, and the answer does not depend on
+        // what another thread asked meanwhile.
+        let data = substitute::installed_covering_styled(self.request, self.style, &[character]);
+        let face = data.and_then(|data| {
+            let (_, units_per_em) = parsed_program(Program::Sfnt, &data, "").ok()?;
+            let downward = downward.and_then(|downward| downward.for_face(&data));
+            Some(ClassFace {
+                data,
+                units_per_em,
+                downward,
+            })
+        });
+        let mut held = self
+            .held
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let index = face.map(|face| {
+            held.faces
+                .iter()
+                .position(|known| known.data == face.data)
+                .unwrap_or_else(|| {
+                    let index = held.faces.len();
+                    held.faces.push(Arc::new(face));
+                    index
+                })
+        });
+        held.by_character.insert(character, index);
+        found(&held, index)
+    }
+
+    /// The borrowed face at `index`, as [`Face::Borrowed`] names it.
+    fn face(&self, index: usize) -> Option<Arc<ClassFace>> {
+        let held = self.held.read().ok()?;
+        held.faces.get(index).map(Arc::clone)
+    }
+}
+
 /// The machine face a composite font with no embedded program is drawn from, with the request it
 /// was found by.
 ///
@@ -572,7 +681,7 @@ fn composite_substitute(
     document: &Document,
     descendant: &Dictionary,
     descriptor: Option<&Dictionary>,
-) -> (substitute::Request, Option<Arc<[u8]>>) {
+) -> (substitute::Request, substitute::Style, Option<Arc<[u8]>>) {
     let request = substitute::Request::derive(document, descendant, descriptor);
     // Characters the collection's own script requires, so that a face is chosen by what it can
     // *draw* and not only by the family a descriptor implies; among the faces that draw as much,
@@ -580,7 +689,7 @@ fn composite_substitute(
     let wanted = script_sample(document, descendant);
     let style = substitute::Style::derive(document, descendant, descriptor);
     let found = substitute::installed_covering_styled(request, style, wanted);
-    (request, found)
+    (request, style, found)
 }
 
 /// The pairs Adobe published for the face a simple font's `/BaseFont` names, where it is one of
@@ -614,8 +723,8 @@ fn published_pairs(document: &Document, dict: &Dictionary) -> Option<crate::pair
 ///
 /// One `Request` and one catalogue search per class, for a font that states the entry at all.
 /// The corpus's `/FD` dictionaries name exactly one class each, and the search is the same one
-/// the font's own face already paid for and is memoised on the characters asked for
-/// (`substitute::covering_path`).
+/// the font's own face already paid for, answered from the catalogue's repertoires read once
+/// (`substitute::covering_face`, ADR 3066).
 fn class_faces(
     document: &Document,
     descendant: &Dictionary,

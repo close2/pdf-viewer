@@ -4,8 +4,8 @@
 //! `LoadedFont::load` in the parent module picks the route; the two readers are here.
 
 use super::{
-    CodeMapping, CodeSet, DEFAULT_CID_WIDTH, FontError, LoadedFont, both_symbol_flags, class_faces,
-    composite_substitute, encoding_name, parsed_program, published_pairs, to_unicode,
+    Borrowing, CodeMapping, CodeSet, DEFAULT_CID_WIDTH, FontError, LoadedFont, both_symbol_flags,
+    class_faces, composite_substitute, encoding_name, parsed_program, published_pairs, to_unicode,
     type1_code_to_glyph, with_readable_font_dicts,
 };
 use crate::cff::CodeToGlyph;
@@ -229,7 +229,7 @@ impl LoadedFont {
             return true;
         }
         composite_substitute(document, &descendant, descriptor)
-            .1
+            .2
             .is_some()
     }
 
@@ -279,7 +279,7 @@ impl LoadedFont {
         let to_unicode = to_unicode(document, dict);
         let collection = collection_table(document, &descendant);
 
-        let (data, program, substituted) = match embedded {
+        let (data, program, substituted, asked) = match embedded {
             Err(FontError::NotEmbedded { .. }) => {
                 // A CID is meaningless outside the font that defined it — it is an index into
                 // that font's glyphs, not a character — so a substitute can only be reached
@@ -334,7 +334,9 @@ impl LoadedFont {
                         ),
                     });
                 }
-                let (request, found) = composite_substitute(document, &descendant, descriptor);
+                let (request, style, found) =
+                    composite_substitute(document, &descendant, descriptor);
+
                 let data = found.ok_or_else(|| FontError::NoSubstitute {
                     name: name.to_owned(),
                     reason: format!(
@@ -344,9 +346,9 @@ impl LoadedFont {
                         request.family
                     ),
                 })?;
-                (data, Program::Sfnt, true)
+                (data, Program::Sfnt, true, Some((request, style)))
             }
-            Ok(Embedded { data, program }) => (data, program, false),
+            Ok(Embedded { data, program }) => (data, program, false, None),
             Err(other) => return Err(other),
         };
         let (data, font_dicts) = with_readable_font_dicts(data, program);
@@ -357,7 +359,7 @@ impl LoadedFont {
 
         let (class_of, classes) = class_faces(document, &descendant, substituted, vertical, name);
 
-        let mapping = if substituted {
+        let mapping = if let Some((request, style)) = asked {
             // What reaches a substituted composite font's glyphs is §9.10.2's first and third
             // methods, and the font with neither is refused above — beside the machine's own
             // search rather than after it, so that the file's fault is named by the file's
@@ -367,6 +369,7 @@ impl LoadedFont {
                 // §9.7.5.1's NOTE: a vertical `CMap` names *different CIDs*, so a substituted
                 // face has to be asked for a different glyph too.
                 downward: Downward::read(document, &descendant, &data, vertical),
+                borrowing: Box::new(Borrowing::new(request, style)),
             }
         } else {
             CodeMapping::Composite {

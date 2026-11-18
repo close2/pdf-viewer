@@ -3,8 +3,9 @@
 
 use super::{ClassFace, CodeMapping, Face, LoadedFont, Placed};
 use crate::cmap::{CMap, Code};
-use crate::vertical::{Form, VerticalForms};
+use crate::vertical::{Downward, Form, VerticalForms};
 use skrifa::{FontRef, MetadataProvider};
+use std::sync::Arc;
 
 impl LoadedFont {
     /// The glyph classes ISO 32000-2 §9.8.3.3's `/FD` named and this reader declined to apply,
@@ -120,7 +121,12 @@ impl LoadedFont {
     /// code §9.10.2 gives no character or the face has no glyph for — that second silence is
     /// [`Self::uncovered_character`]'s and is deliberately not this one's.
     pub(super) fn substituted_glyph(&self, code: Code) -> Option<(char, Placed, Form)> {
-        let CodeMapping::Substituted { cmap, downward } = &self.mapping else {
+        let CodeMapping::Substituted {
+            cmap,
+            downward,
+            borrowing,
+        } = &self.mapping
+        else {
             return None;
         };
         let character = self.substituted_character(cmap, code)?;
@@ -133,13 +139,50 @@ impl LoadedFont {
             Some((index, class)) => (Face::Class(index), &class.data, &class.downward),
             None => (Face::Own, &self.data, downward),
         };
+        let form_in = |downward: Option<&Downward>, glyph: u16| {
+            downward.map_or(Form::Upright, |downward| {
+                cmap.cid(code)
+                    .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
+            })
+        };
         let font = FontRef::new(data).ok()?;
+        if let Some(glyph) = font.charmap().map(character) {
+            let glyph = u16::try_from(glyph.to_u32()).ok()?;
+            return Some((
+                character,
+                Placed { face, glyph },
+                form_in(downward.as_deref(), glyph),
+            ));
+        }
+        // §9.10.2 made the code this character, and the face chosen for the script does not draw
+        // it: the face this machine offers for the character itself does (ADR 3067).
+        let (index, borrowed) = borrowing.face_for(character, self.own_downward())?;
+        let font = FontRef::new(&borrowed.data).ok()?;
         let glyph = u16::try_from(font.charmap().map(character)?.to_u32()).ok()?;
-        let form = downward.as_ref().map_or(Form::Upright, |downward| {
-            cmap.cid(code)
-                .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
-        });
-        Some((character, Placed { face, glyph }, form))
+        Some((
+            character,
+            Placed {
+                face: Face::Borrowed(index),
+                glyph,
+            },
+            form_in(borrowed.downward.as_deref(), glyph),
+        ))
+    }
+
+    /// The font's own vertical route, which a borrowed face reads again from its own tables.
+    fn own_downward(&self) -> Option<&Downward> {
+        match &self.mapping {
+            CodeMapping::Substituted { downward, .. } => downward.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The face [`Face::Borrowed`] names, for the outline reader.
+    pub(super) fn borrowed_face(&self, index: usize) -> Option<Arc<ClassFace>> {
+        match &self.mapping {
+            CodeMapping::Substituted { borrowing, .. } => borrowing.face(index),
+            _ => None,
+        }
     }
 
     /// §9.8.3.3's class face for a character, where one of `/FD`'s classes holds it.
@@ -277,7 +320,10 @@ impl LoadedFont {
     /// [`FontError`]: crate::FontError
     #[must_use]
     pub fn uncovered_character(&self, code: Code) -> Option<char> {
-        let CodeMapping::Substituted { cmap, .. } = &self.mapping else {
+        let CodeMapping::Substituted {
+            cmap, borrowing, ..
+        } = &self.mapping
+        else {
             return None;
         };
         let character = self.substituted_character(cmap, code)?;
@@ -288,7 +334,11 @@ impl LoadedFont {
             None => &self.data,
         };
         let font = FontRef::new(data).ok()?;
-        font.charmap().map(character).is_none().then_some(character)
+        // And where that face does not, the face borrowed for the character alone (ADR 3067):
+        // the character is uncovered only where this machine offers no face that draws it.
+        let drawn = font.charmap().map(character).is_some()
+            || borrowing.face_for(character, self.own_downward()).is_some();
+        (!drawn).then_some(character)
     }
 }
 

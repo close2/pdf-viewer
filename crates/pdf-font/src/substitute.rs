@@ -861,7 +861,7 @@ static PREFERENCES: &[(Family, &[&str])] = &[
 /// `NimbusSans` are three of its members; `NotoSansMono-Regular` is not a member of `NotoSans`,
 /// because `mono` names another design rather than a weight, a slope or a width. A file whose
 /// name carries nothing after the family is a member — how most families name their upright
-/// regular. What a member *is* comes from its own tables ([`FaceStyle::read`]); the words decide
+/// regular. What a member *is* comes from its own tables ([`FaceStyle::of`]); the words decide
 /// only which files are the family.
 fn names_a_style(mut rest: &str) -> bool {
     /// The weight, slope and width words a file name spells a style in, longest first so that
@@ -924,13 +924,19 @@ struct FaceStyle {
 
 impl FaceStyle {
     /// Reads a face's statement of its style, or `None` for bytes that are not an `sfnt`.
+    #[cfg(test)]
+    fn read(bytes: &[u8]) -> Option<Self> {
+        Some(Self::of(&skrifa::FontRef::new(bytes).ok()?))
+    }
+
+    /// A face's statement of its style, read from a face already opened — one of a collection's
+    /// as well as a file's only one.
     ///
     /// A face without an `OS/2` table (an old Macintosh `TrueType`) is read through `skrifa`'s
     /// attributes, which fall back to the `head` table's style bits.
-    fn read(bytes: &[u8]) -> Option<Self> {
+    fn of(font: &skrifa::FontRef<'_>) -> Self {
         use read_fonts::TableProvider;
-        let font = skrifa::FontRef::new(bytes).ok()?;
-        let attributes = skrifa::MetadataProvider::attributes(&font);
+        let attributes = skrifa::MetadataProvider::attributes(font);
         let fixed_pitch = font.post().is_ok_and(|post| post.is_fixed_pitch() != 0);
         let os2 = font.os2().ok();
         let serif = os2.as_ref().and_then(|os2| {
@@ -962,13 +968,13 @@ impl FaceStyle {
         let width = os2
             .as_ref()
             .map_or(Style::NORMAL_WIDTH, |os2| os2.us_width_class().clamp(1, 9));
-        Some(Self {
+        Self {
             weight,
             italic: !matches!(attributes.style, skrifa::attribute::Style::Normal),
             width,
             fixed_pitch,
             serif,
-        })
+        }
     }
 
     /// How far this face is from `style`, as a key that sorts the nearest first: the weight, then
@@ -1019,25 +1025,27 @@ type Distance = (u16, bool, bool, u16);
 /// [`read_cached`], where the pages that use it find it.
 static STYLES: OnceLock<RwLock<Vec<StyleRead>>> = OnceLock::new();
 
-/// One file's style, or `None` where it is not a face this crate reads.
-type StyleRead = (PathBuf, Option<FaceStyle>);
+/// One face's style, or `None` where it is not a face this crate reads.
+type StyleRead = (MachineFace, Option<FaceStyle>);
 
-/// The style a file states, read and remembered.
-fn style_of(path: &Path) -> Option<FaceStyle> {
+/// The style a face states, read and remembered.
+fn style_of(face: &MachineFace) -> Option<FaceStyle> {
     let memo = STYLES.get_or_init(|| RwLock::new(Vec::new()));
     if let Ok(held) = memo.read()
-        && let Some((_, style)) = held.iter().find(|(cached, _)| cached == path)
+        && let Some((_, style)) = held.iter().find(|(cached, _)| cached == face)
     {
         return *style;
     }
     if !machine_fonts() {
         return None;
     }
-    let style = std::fs::read(path)
-        .ok()
-        .and_then(|bytes| FaceStyle::read(&bytes));
+    let style = std::fs::read(&face.path).ok().and_then(|bytes| {
+        skrifa::FontRef::from_index(&bytes, face.index)
+            .ok()
+            .map(|font| FaceStyle::of(&font))
+    });
     if let Ok(mut held) = memo.write() {
-        held.push((path.to_path_buf(), style));
+        held.push((face.clone(), style));
     }
     style
 }
@@ -1052,9 +1060,47 @@ fn style_of(path: &Path) -> Option<FaceStyle> {
 /// which is why it is worth the extra field.
 #[derive(Debug)]
 struct Candidate {
-    path: PathBuf,
+    face: MachineFace,
     /// The file stem, lowercased with punctuation removed.
     stem: String,
+}
+
+/// One face this machine offers: the file that holds it, and which of the file's faces it is.
+///
+/// A file is one face, except a `TrueType` or `OpenType` Collection (`.ttc`, `.otc`), which is a
+/// `ttcf` header over several faces sharing their tables (ISO/IEC 14496-22 section 4.6). A face is
+/// therefore addressed by the pair, and `index` is zero for every file that is not a collection.
+/// What a face *is* to the rest of the program is its program alone: `read_cached` copies a
+/// collection's face out into a standalone `sfnt` ([`crate::collection::extract_at`]), so the
+/// index stops at the file and nothing downstream carries it (ADR 3066).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MachineFace {
+    /// The file the face is in.
+    pub path: PathBuf,
+    /// The face's index within a collection, and zero for a file that holds one face.
+    pub index: u32,
+}
+
+/// Bounds the faces read out of one collection's header, which states its own count as a `u32`.
+///
+/// The largest collections installed anywhere hold a few dozen faces (Noto CJK's hold ten); a
+/// header claiming more is malformed or hostile, and its first faces are still offered.
+const MAX_FACES_PER_FILE: u32 = 64;
+
+/// How many faces a font file holds, read from its first twelve bytes.
+///
+/// A collection's header is the tag `ttcf`, two `u16` version numbers and a `u32` count
+/// (ISO/IEC 14496-22 section 4.6.1); every other file holds one face. Only the header is read,
+/// because the walk that asks this opens every font file on the machine and has no use yet for the
+/// rest.
+fn faces_in(path: &Path) -> u32 {
+    use std::io::Read as _;
+    let mut header = [0_u8; 12];
+    let read = std::fs::File::open(path).and_then(|mut file| file.read_exact(&mut header));
+    if read.is_err() || &header[..4] != b"ttcf" {
+        return 1;
+    }
+    u32::from_be_bytes([header[8], header[9], header[10], header[11]]).min(MAX_FACES_PER_FILE)
 }
 
 /// Every font file this machine offers, discovered once and kept.
@@ -1064,8 +1110,8 @@ struct Candidate {
 /// missing fonts — the common case — never pays for it at all.
 static CATALOGUE: OnceLock<Vec<Candidate>> = OnceLock::new();
 
-/// A font file's bytes, kept so two fonts resolving to one file read it once.
-type Loaded = (PathBuf, Arc<[u8]>);
+/// A face's program, kept so two fonts resolving to one face read it once.
+type Loaded = (MachineFace, Arc<[u8]>);
 
 /// Font programs already read.
 static LOADED: OnceLock<RwLock<Vec<Loaded>>> = OnceLock::new();
@@ -1190,7 +1236,17 @@ fn catalogue() -> &'static [Candidate] {
                                 .file_stem()
                                 .and_then(|stem| stem.to_str())
                                 .map_or_default(normalise);
-                            found.push(Candidate { path, stem });
+                            // Every face of a collection is a candidate of its own; a file whose
+                            // header states none offers none.
+                            for index in 0..faces_in(&path) {
+                                found.push(Candidate {
+                                    face: MachineFace {
+                                        path: path.clone(),
+                                        index,
+                                    },
+                                    stem: stem.clone(),
+                                });
+                            }
                         }
                     }
                     _ => {}
@@ -1207,7 +1263,7 @@ fn catalogue() -> &'static [Candidate] {
         for dir in font_directories() {
             walk(&dir, MAX_DEPTH, &mut found);
         }
-        found.sort_by(|a, b| a.path.cmp(&b.path));
+        found.sort_by(|a, b| a.face.cmp(&b.face));
         found
     })
 }
@@ -1325,8 +1381,8 @@ fn installed_accepted(
 
     // Not this one is not the end of it: the same family's next name may still answer, which is
     // why the walk is a list and the accept is a filter over it.
-    for path in preferred_paths(request, style) {
-        if let Some(bytes) = read_cached(path)
+    for face in preferred_faces(request, style) {
+        if let Some(bytes) = read_cached(face)
             && accept(&bytes)
         {
             return Some(bytes);
@@ -1337,7 +1393,7 @@ fn installed_accepted(
 
 /// How many candidates a confined caller may ask its broker for before it gives up.
 ///
-/// [`preferred_paths`] is [`PREFERENCES`]'s families and each family's members, so its length is
+/// [`preferred_faces`] is [`PREFERENCES`]'s families and each family's members, so its length is
 /// bounded by that table and the machine's catalogue and is well under this for every family
 /// installed here. The constant is a bound on *round trips* rather than a policy about faces: a
 /// broker that answered every `skip` would otherwise be able to keep a worker asking.
@@ -1361,7 +1417,7 @@ pub(crate) const MAX_OFFERS: u32 = 64;
 /// order and a third needs it **as paths**: [`machine_face`] is what a broker answers a confined
 /// worker's description with, and a broker matching in some other order would be a second matcher
 /// for the confined side to disagree with the unconfined one about.
-fn preferred_paths(request: Request, style: Style) -> impl Iterator<Item = &'static Path> {
+fn preferred_faces(request: Request, style: Style) -> impl Iterator<Item = &'static MachineFace> {
     let families = PREFERENCES
         .iter()
         .find(|(family, _)| *family == request.family)
@@ -1372,20 +1428,23 @@ fn preferred_paths(request: Request, style: Style) -> impl Iterator<Item = &'sta
 }
 
 /// One family's members on this machine, nearest `style` first.
-fn family_members(family: &str, style: Style) -> Vec<&'static Path> {
+fn family_members(family: &str, style: Style) -> Vec<&'static MachineFace> {
     let family = normalise(family);
-    let mut stems: Vec<&str> = Vec::new();
-    let mut members: Vec<(Distance, &'static Path)> = Vec::new();
+    // A stem and a face index: one file found twice is one member, and a collection's faces are
+    // members each.
+    let mut stems: Vec<(&str, u32)> = Vec::new();
+    let mut members: Vec<(Distance, &'static MachineFace)> = Vec::new();
     for candidate in catalogue() {
         let Some(rest) = candidate.stem.strip_prefix(&family) else {
             continue;
         };
-        if !names_a_style(rest) || stems.contains(&candidate.stem.as_str()) {
+        let key = (candidate.stem.as_str(), candidate.face.index);
+        if !names_a_style(rest) || stems.contains(&key) {
             continue;
         }
-        stems.push(&candidate.stem);
-        if let Some(face) = style_of(&candidate.path) {
-            members.push((face.distance(style), candidate.path.as_path()));
+        stems.push(key);
+        if let Some(face) = style_of(&candidate.face) {
+            members.push((face.distance(style), &candidate.face));
         }
     }
     // A stable sort over the catalogue's path order, so that two members equally near are taken in
@@ -1394,7 +1453,7 @@ fn family_members(family: &str, style: Style) -> Vec<&'static Path> {
     members.into_iter().map(|(_, path)| path).collect()
 }
 
-/// The face this machine offers for a description, as a path a broker can open.
+/// The face this machine offers for a description, as a file a broker can open and the face in it.
 ///
 /// **This is the resource port's matcher, and it is the same walk everything else here uses.**
 /// `crate::provider::open_a_face` is a decode, this call, and a `File::open`; there is no second
@@ -1409,14 +1468,17 @@ fn family_members(family: &str, style: Style) -> Vec<&'static Path> {
 /// substitute characters and nothing else), and [`installed_covering_embeddable`] reads on past
 /// one this program may not write (ADR 2548).
 #[must_use]
-pub fn machine_face(request: Request, style: Style, wanted: &[char], skip: u32) -> Option<PathBuf> {
+pub fn machine_face(
+    request: Request,
+    style: Style,
+    wanted: &[char],
+    skip: u32,
+) -> Option<MachineFace> {
     let index = usize::try_from(skip).ok()?;
     if wanted.is_empty() {
-        return preferred_paths(request, style)
-            .nth(index)
-            .map(Path::to_path_buf);
+        return preferred_faces(request, style).nth(index).cloned();
     }
-    covering_paths(request, style, wanted).nth(index)
+    covering_faces(request, style, wanted).nth(index)
 }
 
 /// The best face this machine offers that can draw `wanted`, in the style its request's two
@@ -1463,7 +1525,7 @@ fn first_embeddable(candidates: impl Iterator<Item = Arc<[u8]>>) -> Option<Arc<[
         .find(|bytes| crate::embed::may_be_embedded(bytes))
 }
 
-/// The covering face [`covering_paths`] ranks `skip`th, read — through the resource port where
+/// The covering face [`covering_faces`] ranks `skip`th, read — through the resource port where
 /// this process may not read a font file, whose broker walks the same list ([`machine_face`]).
 fn covering_candidate(
     request: Request,
@@ -1476,9 +1538,9 @@ fn covering_candidate(
         return covers(&bytes, wanted).then_some(bytes);
     }
     let index = usize::try_from(skip).ok()?;
-    covering_paths(request, style, wanted)
+    covering_faces(request, style, wanted)
         .nth(index)
-        .and_then(|path| read_cached(&path))
+        .and_then(|face| read_cached(&face))
 }
 
 /// The best face this machine offers that can draw `wanted`, or `None` — the one covering search,
@@ -1529,14 +1591,14 @@ pub fn installed_covering_styled(
         return installed_styled(request, style);
     }
     // The port, for a process that cannot read a font file: the description that crosses carries
-    // the characters and the style, so the broker runs `covering_path` — this function's own
+    // the characters and the style, so the broker runs `covering_face` — this function's own
     // search — in the process that has the filesystem. The answer is checked here anyway, because
     // a broker is a peer and a face that does not cover is worse than the compiled-in one.
     if !machine_fonts() {
         let (bytes, _name) = crate::provider::offered(request, style, wanted, 0)?;
         return covers(&bytes, wanted).then_some(bytes);
     }
-    covering_path(request, style, wanted).and_then(|path| read_cached(&path))
+    covering_face(request, style, wanted).and_then(|face| read_cached(&face))
 }
 
 /// Whether a face found earlier answers every one of `wanted`: the test [`installed_covering`] keeps
@@ -1559,53 +1621,53 @@ fn covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
     wanted.iter().all(|c| charmap.map(*c).is_some())
 }
 
-/// [`installed_covering_styled`]'s search, answering the path rather than the bytes.
+/// [`installed_covering_styled`]'s search, answering the face rather than its bytes.
 ///
-/// Split out because [`machine_face`] answers a broker with a path to open, and a broker that
+/// Split out because [`machine_face`] answers a broker with a file to open, and a broker that
 /// searched differently would be a second matcher.
-fn covering_path(request: Request, style: Style, wanted: &[char]) -> Option<PathBuf> {
-    covering_paths(request, style, wanted).next()
+fn covering_face(request: Request, style: Style, wanted: &[char]) -> Option<MachineFace> {
+    covering_faces(request, style, wanted).next()
 }
 
 /// Every face covering `wanted`, best first: the family's preference list in `style`'s order, each
 /// kept only if it covers, then the catalogue's qualifying faces in [`ranked_covering`]'s order,
-/// each path once.
+/// each face once.
 ///
-/// Lazy, so the first answer costs what [`covering_path`] always did — the catalogue is walked
-/// only once no preferred face covers — and a caller reading on past it pays for each face it
-/// reads ([`installed_covering_embeddable`] bounds that).
-fn covering_paths(
+/// Lazy, so the first answer costs what [`covering_face`] always did — the catalogue's repertoires
+/// are consulted only once no preferred face covers — and a caller reading on past it pays for
+/// each face it reads ([`installed_covering_embeddable`] bounds that).
+fn covering_faces(
     request: Request,
     style: Style,
     wanted: &[char],
-) -> impl Iterator<Item = PathBuf> + '_ {
-    let preferred = preferred_paths(request, style)
-        .filter(move |path| read_cached(path).is_some_and(|bytes| covers(&bytes, wanted)))
-        .map(Path::to_path_buf);
+) -> impl Iterator<Item = MachineFace> + '_ {
+    let preferred = preferred_faces(request, style)
+        .filter(move |face| read_cached(face).is_some_and(|bytes| covers(&bytes, wanted)))
+        .cloned();
     let ranked = std::iter::once(()).flat_map(move |()| {
         let faces = qualifying(wanted);
         ranked_covering(&faces, request, style)
             .into_iter()
-            .map(Path::to_path_buf)
+            .cloned()
             .collect::<Vec<_>>()
     });
-    let mut seen: Vec<PathBuf> = Vec::new();
-    preferred.chain(ranked).filter(move |path| {
-        if seen.contains(path) {
+    let mut seen: Vec<MachineFace> = Vec::new();
+    preferred.chain(ranked).filter(move |face| {
+        if seen.contains(face) {
             return false;
         }
-        seen.push(path.clone());
+        seen.push(face.clone());
         true
     })
 }
 
 /// The catalogue faces stating every character, in the order [`installed_covering_styled`] takes
 /// them: the widest repertoire, and among the widest the nearest style, then the request's generic
-/// family. The first in the catalogue's path order wins a tie, so one machine answers alike on
-/// every run.
-fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<&Path> {
+/// family. The first in the catalogue's order — by path, then by a collection's face index — wins
+/// a tie, so one machine answers alike on every run.
+fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<&MachineFace> {
     let mut ranked: Vec<&Qualifying> = faces.iter().collect();
-    // Stable, which is what keeps a tie in path order.
+    // Stable, which is what keeps a tie in the catalogue's order.
     ranked.sort_by_key(|(_, mappings, face)| {
         (
             std::cmp::Reverse(*mappings),
@@ -1613,67 +1675,137 @@ fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<
             face.other_family(request.family),
         )
     });
-    ranked
-        .into_iter()
-        .map(|(path, _, _)| path.as_path())
+    ranked.into_iter().map(|(face, _, _)| face).collect()
+}
+
+/// One face that states every character of a set: the face, its `cmap`'s size, and its style.
+type Qualifying = (MachineFace, usize, FaceStyle);
+
+/// What one catalogue face states about itself, read once: which characters its `cmap` maps, as
+/// ascending inclusive ranges of scalar values, how many it maps, and its style.
+struct Repertoire {
+    face: MachineFace,
+    ranges: Vec<(u32, u32)>,
+    mappings: usize,
+    style: FaceStyle,
+}
+
+impl Repertoire {
+    /// Whether the face maps `character`.
+    fn maps(&self, character: char) -> bool {
+        let value = u32::from(character);
+        let at = self.ranges.partition_point(|&(_, last)| last < value);
+        self.ranges
+            .get(at)
+            .is_some_and(|&(first, _)| first <= value)
+    }
+}
+
+/// Every catalogue face's repertoire, read once per process.
+///
+/// **An index rather than a search, because a substituted composite font asks one character at a
+/// time.** A face is chosen for the collection's script sample, and every character the page shows
+/// that the face does not draw is asked for again on its own (ADR 3067); a search that read the
+/// catalogue for each question cost what reading every font file costs — 215 ms on a machine with
+/// 1 400 faces — per distinct character. Read once, the catalogue is a few ranges per face (a CJK
+/// face's `cmap` is a few thousand runs, the ten faces of a collection the same again each), and
+/// every later question is a binary search per face.
+///
+/// Read straight from the filesystem rather than through `read_cached`, and each file once however
+/// many faces it holds: caching every face the index reads would hold the machine's entire font
+/// collection in memory to answer questions about its `cmap`s.
+static REPERTOIRES: OnceLock<Vec<Repertoire>> = OnceLock::new();
+
+/// The catalogue's repertoires, read on the first question.
+fn repertoires() -> &'static [Repertoire] {
+    if !machine_fonts() {
+        return &[];
+    }
+    REPERTOIRES.get_or_init(|| {
+        let mut found = Vec::new();
+        let mut file: Option<(&Path, Vec<u8>)> = None;
+        for candidate in catalogue() {
+            let face = &candidate.face;
+            if file.as_ref().is_none_or(|(path, _)| *path != face.path) {
+                file = std::fs::read(&face.path)
+                    .ok()
+                    .map(|bytes| (face.path.as_path(), bytes));
+            }
+            let Some((_, bytes)) = &file else {
+                continue;
+            };
+            let Ok(font) = skrifa::FontRef::from_index(bytes, face.index) else {
+                continue;
+            };
+            let mut values: Vec<u32> = skrifa::MetadataProvider::charmap(&font)
+                .mappings()
+                .map(|(value, _)| value)
+                .collect();
+            values.sort_unstable();
+            values.dedup();
+            let mut ranges: Vec<(u32, u32)> = Vec::new();
+            for value in &values {
+                match ranges.last_mut() {
+                    Some((_, last)) if last.checked_add(1) == Some(*value) => *last = *value,
+                    _ => ranges.push((*value, *value)),
+                }
+            }
+            found.push(Repertoire {
+                face: face.clone(),
+                ranges,
+                mappings: values.len(),
+                style: FaceStyle::of(&font),
+            });
+        }
+        found
+    })
+}
+
+/// The catalogue's faces that state every one of `wanted`.
+///
+/// What a face maps does not depend on the style, so the repertoires are read once and every
+/// question — a document's three Japanese fonts in three weights, or one font's characters asked
+/// one by one — is answered from them.
+fn qualifying(wanted: &[char]) -> Vec<Qualifying> {
+    repertoires()
+        .iter()
+        .filter(|repertoire| wanted.iter().all(|&c| repertoire.maps(c)))
+        .map(|repertoire| {
+            (
+                repertoire.face.clone(),
+                repertoire.mappings,
+                repertoire.style,
+            )
+        })
         .collect()
 }
 
-/// One face that states every character of a set: its file, its `cmap`'s size, and its style.
-type Qualifying = (PathBuf, usize, FaceStyle);
-
-/// The catalogue's faces that state every one of `wanted`, remembered by the characters.
+/// Face `index` of a font file's bytes, as one font program.
 ///
-/// Memoised on the characters alone, because the search is the expensive part — it reads font
-/// files until it has read them all, 215 ms the first time on this machine's 1 400 faces — and
-/// what it finds does not depend on the style: a document with three Japanese fonts in three
-/// weights walks the catalogue once and ranks its answer three times.
-///
-/// Read straight from the filesystem rather than through `read_cached`: the search touches most of
-/// the catalogue, and caching every face it rejects would hold the machine's entire font collection
-/// in memory to answer one question. Only the winner is read again through the cache, where the
-/// pages that use it will find it.
-fn qualifying(wanted: &[char]) -> Vec<Qualifying> {
-    let key: Vec<char> = wanted.to_vec();
-    let memo = COVERING.get_or_init(|| RwLock::new(Vec::new()));
-    if let Ok(held) = memo.read()
-        && let Some((_, found)) = held.iter().find(|(cached, _)| *cached == key)
-    {
-        return found.clone();
+/// A file that is not a collection is its own face zero and is answered as it was read; any other
+/// index of it is no face. The broker answers through this too ([`crate::provider::open_a_face`]),
+/// so the bytes a confined worker is handed are the bytes an unconfined process would have drawn
+/// from.
+pub(crate) fn face_program(file: Vec<u8>, index: u32) -> Option<Vec<u8>> {
+    if file.starts_with(b"ttcf") {
+        return crate::collection::extract_at(&file, index);
     }
-    let found: Vec<Qualifying> = catalogue()
-        .iter()
-        .filter_map(|candidate| {
-            let bytes: Arc<[u8]> = std::fs::read(&candidate.path).ok()?.into();
-            if !covers(&bytes, wanted) {
-                return None;
-            }
-            let font = skrifa::FontRef::new(&bytes).ok()?;
-            let mappings = skrifa::MetadataProvider::charmap(&font).mappings().count();
-            Some((candidate.path.clone(), mappings, FaceStyle::read(&bytes)?))
-        })
-        .collect();
-    if let Ok(mut held) = memo.write() {
-        held.push((key, found.clone()));
-    }
-    found
+    (index == 0).then_some(file)
 }
 
-/// One remembered answer to [`qualifying`]'s catalogue search.
-type Covering = (Vec<char>, Vec<Qualifying>);
-
-/// Answers to [`qualifying`]'s catalogue search, by the characters asked for.
-static COVERING: OnceLock<RwLock<Vec<Covering>>> = OnceLock::new();
-
-/// Reads a font file, reusing the bytes if they have been read already.
-fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
+/// Reads a face's program, reusing the bytes if they have been read already.
+///
+/// A collection's face is copied out as a standalone `sfnt` here, once, so that what every caller
+/// holds is one font program: the bytes a page draws from, a broker hands over and an archive
+/// embeds under Table 124's `/FontFile2` (which a collection is not) are the same (ADR 3066).
+fn read_cached(face: &MachineFace) -> Option<Arc<[u8]>> {
     let cache = LOADED.get_or_init(|| RwLock::new(Vec::new()));
 
     // A path already read is answered from memory whatever the switch says; a path that is not
     // is a file, and [`no_machine_fonts`] is the statement that this process may not open one.
 
     if let Ok(loaded) = cache.read()
-        && let Some((_, bytes)) = loaded.iter().find(|(cached, _)| cached == path)
+        && let Some((_, bytes)) = loaded.iter().find(|(cached, _)| cached == face)
     {
         return Some(Arc::clone(bytes));
     }
@@ -1681,9 +1813,9 @@ fn read_cached(path: &Path) -> Option<Arc<[u8]>> {
     if !machine_fonts() {
         return None;
     }
-    let bytes: Arc<[u8]> = std::fs::read(path).ok()?.into();
+    let bytes: Arc<[u8]> = face_program(std::fs::read(&face.path).ok()?, face.index)?.into();
     if let Ok(mut loaded) = cache.write() {
-        loaded.push((path.to_path_buf(), Arc::clone(&bytes)));
+        loaded.push((face.clone(), Arc::clone(&bytes)));
     }
     Some(bytes)
 }
@@ -1700,6 +1832,14 @@ mod tests {
         first_embeddable, language, names_a_style, ranked_covering, strip_subset_prefix,
         weight_from_stem,
     };
+
+    /// A file's only face, by a name that need not exist: what the ranking tests rank.
+    fn at(name: &str) -> super::MachineFace {
+        super::MachineFace {
+            path: PathBuf::from(name),
+            index: 0,
+        }
+    }
 
     /// A font dictionary carrying the entries a case needs and nothing else.
     fn font(entries: &[(&str, &str)]) -> Dictionary {
@@ -1888,10 +2028,7 @@ mod tests {
                     .stem
                     .strip_prefix(&super::normalise(name))
                     .is_some_and(names_a_style)
-            }) && std::fs::read(&candidate.path)
-                .ok()
-                .and_then(|bytes| FaceStyle::read(&bytes))
-                .is_some_and(&test)
+            }) && super::style_of(&candidate.face).is_some_and(&test)
         })
     }
 
@@ -2067,23 +2204,23 @@ mod tests {
         };
         let bold = Style::of(request);
         let faces = vec![
-            (PathBuf::from("narrow-bold"), 300, face(700, false)),
-            (PathBuf::from("wide-regular"), 30_000, face(400, false)),
+            (at("narrow-bold"), 300, face(700, false)),
+            (at("wide-regular"), 30_000, face(400, false)),
         ];
         assert_eq!(
             ranked_covering(&faces, request, bold).first().copied(),
-            Some(PathBuf::from("wide-regular").as_path())
+            Some(&at("wide-regular"))
         );
         let family = vec![
-            (PathBuf::from("light"), 1250, face(300, false)),
-            (PathBuf::from("regular"), 1250, face(400, false)),
-            (PathBuf::from("bold-italic"), 1250, face(700, true)),
-            (PathBuf::from("bold"), 1250, face(700, false)),
-            (PathBuf::from("black"), 1250, face(900, false)),
+            (at("light"), 1250, face(300, false)),
+            (at("regular"), 1250, face(400, false)),
+            (at("bold-italic"), 1250, face(700, true)),
+            (at("bold"), 1250, face(700, false)),
+            (at("black"), 1250, face(900, false)),
         ];
         assert_eq!(
             ranked_covering(&family, request, bold).first().copied(),
-            Some(PathBuf::from("bold").as_path())
+            Some(&at("bold"))
         );
         let regular = Style::of(Request {
             bold: false,
@@ -2091,7 +2228,7 @@ mod tests {
         });
         assert_eq!(
             ranked_covering(&family, request, regular).first().copied(),
-            Some(PathBuf::from("regular").as_path())
+            Some(&at("regular"))
         );
     }
     /// The table directory of a face carrying `glyf` outlines and an `OS/2` whose `fsType` is
@@ -2149,6 +2286,104 @@ mod tests {
         assert!(
             first_embeddable(last).is_some(),
             "the eighth candidate is still read"
+        );
+    }
+
+    /// Liberation Sans Regular and Bold as one `TrueType` Collection: a `ttcf` header, two table
+    /// directories whose offsets count from the start of the file, and each face's tables.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "offsets into a fixture of two faces of a few hundred kilobytes"
+    )]
+    fn collection() -> Vec<u8> {
+        let faces: [&[u8]; 2] = [
+            include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf"),
+            include_bytes!("../../../data/standard-fonts/LiberationSans-Bold.ttf"),
+        ];
+        let tables: Vec<Vec<(read_fonts::types::Tag, Vec<u8>)>> = faces
+            .iter()
+            .map(|face| {
+                let font = read_fonts::FontRef::new(face).expect("Liberation reads");
+                font.table_directory()
+                    .table_records()
+                    .iter()
+                    .filter_map(|record| {
+                        let data = font.table_data(record.tag())?;
+                        Some((record.tag(), data.as_bytes().to_vec()))
+                    })
+                    .collect()
+            })
+            .collect();
+        let header = 12 + 4 * tables.len();
+        let directories: Vec<usize> = tables.iter().map(|face| 12 + 16 * face.len()).collect();
+        let mut out = b"ttcf".to_vec();
+        out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        out.extend_from_slice(&u32::try_from(tables.len()).expect("two").to_be_bytes());
+        let mut at = header;
+        for length in &directories {
+            out.extend_from_slice(&u32::try_from(at).expect("small").to_be_bytes());
+            at += length;
+        }
+        let mut body = Vec::new();
+        for face in &tables {
+            out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+            out.extend_from_slice(&u16::try_from(face.len()).expect("few").to_be_bytes());
+            out.extend_from_slice(&[0; 6]);
+            for (tag, data) in face {
+                out.extend_from_slice(&tag.to_be_bytes());
+                out.extend_from_slice(&0_u32.to_be_bytes());
+                out.extend_from_slice(
+                    &u32::try_from(at + body.len()).expect("small").to_be_bytes(),
+                );
+                out.extend_from_slice(&u32::try_from(data.len()).expect("small").to_be_bytes());
+                body.extend_from_slice(data);
+                while body.len() % 4 != 0 {
+                    body.push(0);
+                }
+            }
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// Every face of a collection is a face of its own, read at its own index (ADR 3066).
+    ///
+    /// `fonts-noto-cjk` installs four collections and no single-face file, and a reader that
+    /// opened a collection as one font refused all four: the faces this machine offered for
+    /// Japanese were then Droid Sans Fallback's alone. **Calibrated** (trap 13): with
+    /// `collection::extract_at` reading face zero whatever the index, face one comes back
+    /// regular and the first assertion fails; with `faces_in` answering one for every file, the
+    /// last one does.
+    #[test]
+    fn each_face_of_a_collection_is_read_at_its_own_index() {
+        let file = collection();
+        let weight = |index: u32| {
+            super::face_program(file.clone(), index)
+                .and_then(|program| FaceStyle::read(&program))
+                .map(|style| style.weight)
+        };
+        assert_eq!(weight(1), Some(700), "face one is Liberation Sans Bold");
+        assert_eq!(weight(0), Some(400), "face zero is Liberation Sans Regular");
+        assert_eq!(weight(2), None, "a collection of two has no face two");
+
+        let single = include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
+        assert_eq!(
+            super::face_program(single.to_vec(), 0).as_deref(),
+            Some(single.as_slice()),
+            "a file of one face is its own face zero, as read"
+        );
+        assert_eq!(super::face_program(single.to_vec(), 1), None);
+
+        let place =
+            std::env::temp_dir().join(format!("pdf-font-collection-{}", std::process::id()));
+        std::fs::create_dir_all(&place).expect("a temporary directory");
+        let path = place.join("two.ttc");
+        std::fs::write(&path, &file).expect("the collection is written");
+        let counted = super::faces_in(&path);
+        std::fs::remove_dir_all(&place).expect("the temporary directory is removed");
+        assert_eq!(
+            counted, 2,
+            "the catalogue offers both faces of the collection"
         );
     }
 }

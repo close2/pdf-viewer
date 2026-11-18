@@ -134,12 +134,22 @@ impl LoadedFont {
         // §9.8.3.3's class face is a second face with its own em square, and it is always an
         // `sfnt`: `substitute::installed_covering` is the only thing that chose it and this
         // machine's catalogue admits no other container.
+        let borrowed;
         let class = match face {
             Face::Own => None,
             Face::Class(index) => match self.classes.get(index) {
                 Some(Some(class)) => Some(class),
                 _ => return Ok(None),
             },
+            // A face borrowed for a character the chosen one does not draw is an `sfnt` for the
+            // same reason (ADR 3067).
+            Face::Borrowed(index) => {
+                borrowed = self.borrowed_face(index);
+                match &borrowed {
+                    Some(face) => Some(face.as_ref()),
+                    None => return Ok(None),
+                }
+            }
         };
         let data = class.map_or(&self.data, |class| &class.data);
         let units_per_em = class.map_or(self.units_per_em, |class| class.units_per_em);

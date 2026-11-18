@@ -131,6 +131,18 @@ impl Downward {
         }))
     }
 
+    /// The same route for a second face: the collection's statement is the font's, and the
+    /// face's own `vert` and `vrt2` are read from `data` (a face borrowed for characters the
+    /// font's own face does not draw, ADR 3067). `None` for bytes that are not an `sfnt`.
+    pub(crate) fn for_face(&self, data: &[u8]) -> Option<Box<Self>> {
+        let font = FontRef::new(data).ok()?;
+        Some(Box::new(Self {
+            registry: self.registry.clone(),
+            ordering: self.ordering.clone(),
+            forms: VerticalForms::read(&font),
+        }))
+    }
+
     /// What this face can do with the form the producer's CID names.
     ///
     /// `character` and `glyph` are what the horizontal route already produced — §9.10.2's third

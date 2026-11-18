@@ -102,10 +102,12 @@ type Offered = (Vec<u8>, Option<(Arc<[u8]>, String)>);
 /// **Bounded by the description rather than by a ceiling**, which is why there is no eviction: a
 /// key is a family (five), a style (nine weights, two slopes, nine widths — `substitute::Style`
 /// reads a `/FontWeight` as the nearest of Table 120's hundreds), a `skip` under
-/// `substitute::MAX_OFFERS`, and the characters a registered character collection samples. A
-/// document cannot invent a key outside that set, so what this holds is at most the machine's
-/// faces for the families a document names — the same population `substitute::LOADED` holds in a
-/// process that reads them itself.
+/// `substitute::MAX_OFFERS`, and either the characters a registered character collection samples
+/// or one character a substituted composite font shows and its face does not draw (ADR 3067).
+/// The keys are small, and the programs are held once each however many keys answered them: an
+/// answer whose bytes equal one already held is kept as that one, so what this holds is at most
+/// the machine's faces for the families a document names — the same population
+/// `substitute::LOADED` holds in a process that reads them itself.
 static OFFERS: OnceLock<RwLock<Vec<Offered>>> = OnceLock::new();
 
 /// Arms this process to ask its broker for faces it cannot look up itself.
@@ -159,13 +161,21 @@ pub fn offered(
     }
 
     let ask = ASK.get()?;
-    let answer = ask(&asked).and_then(|(identity, program)| {
-        let name = decode_identity(&identity)?;
-        Some((Arc::<[u8]>::from(program), name))
+    let answer =
+        ask(&asked).and_then(|(identity, program)| Some((program, decode_identity(&identity)?)));
+    let Ok(mut held) = memo.write() else {
+        return answer.map(|(program, name)| (Arc::<[u8]>::from(program), name));
+    };
+    // The same face answering another key is held once.
+    let answer = answer.map(|(program, name)| {
+        let known = held
+            .iter()
+            .filter_map(|(_, known)| known.as_ref())
+            .find(|(bytes, _)| **bytes == *program)
+            .map(|(bytes, _)| Arc::clone(bytes));
+        (known.unwrap_or_else(|| Arc::from(program)), name)
     });
-    if let Ok(mut held) = memo.write() {
-        held.push((asked, answer.clone()));
-    }
+    held.push((asked, answer.clone()));
     answer
 }
 
@@ -182,11 +192,19 @@ pub fn offered(
 #[must_use]
 pub fn open_a_face(request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let (request, style, wanted, skip) = decode_styled_request(request)?;
-    let path = crate::substitute::machine_face(request, style, &wanted, skip)?;
-    let content = std::fs::read(&path).ok()?;
-    let name = path
+    let face = crate::substitute::machine_face(request, style, &wanted, skip)?;
+    // The face itself crosses, never the file: a collection's face is copied out here, so the
+    // worker holds one font program and has no index to be told (ADR 3066).
+    let content = crate::substitute::face_program(std::fs::read(&face.path).ok()?, face.index)?;
+    let file = face
+        .path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let name = if face.index == 0 {
+        file
+    } else {
+        format!("{file}, face {}", face.index)
+    };
     Some((encode_identity(&name), content))
 }
 

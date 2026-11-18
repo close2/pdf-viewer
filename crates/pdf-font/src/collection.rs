@@ -73,6 +73,20 @@ pub fn extract_named(data: &[u8], wanted: &str) -> Option<Vec<u8>> {
     rebuild(&face_named(&collection, wanted)?)
 }
 
+/// Extracts face `index` of a `TrueType` Collection, as a standalone `sfnt`.
+///
+/// The machine's own collections are addressed by index rather than by name: nothing in a
+/// document names a face of a file it does not hold, and the catalogue that chose the face read it
+/// at this index (`crate::substitute::MachineFace`, ADR 3066). `None` where `data` is not a
+/// collection or holds no face at `index`.
+#[must_use]
+pub fn extract_at(data: &[u8], index: u32) -> Option<Vec<u8>> {
+    let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
+        return None;
+    };
+    rebuild(&collection.get(index).ok()?)
+}
+
 /// The face of `collection` whose PostScript name is the one `wanted` states.
 fn face_named<'a>(collection: &read_fonts::CollectionRef<'a>, wanted: &str) -> Option<FontRef<'a>> {
     collection
