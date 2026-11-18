@@ -34,7 +34,8 @@
 //! level, and its refusal here is what is said where no runner was handed it (ADRs 1752, 1904);
 //! `GoTo3DView` and `RichMediaExecute` are clause 13's 3D and multimedia, excluded by `CLAUDE.md`'s
 //! closed list; `Rendition` is read, because the entry admits §13.2.2's viability and the hand-off
-//! of the clip it names, and only its playing stays excluded (ADR 1960). Each keeps its own name in
+//! of the clip it names, and only its playing stays excluded (ADR 1960); its `/JS` goes to the
+//! same runner as `JavaScript`'s, with `/OP` the fallback where there is none (ADR 2988). Each keeps its own name in
 //! the refusal so that a caller can say which, rather than "an action".
 //!
 //! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**, which
@@ -186,6 +187,10 @@ pub struct Rendition {
     pub annotation: Option<ObjectId>,
     /// Table 218's `/R`, unresolved: [`crate::media::judge`] walks it.
     pub rendition: Object,
+    /// Whether Table 218's `/JS` is present. Where it is, `/OP` is the fallback for a processor
+    /// that cannot run scripts, and the script is handed to the runner a host supplies wherever
+    /// there is one (ADR 2988).
+    pub script: bool,
 }
 
 /// Table 218's `/OP`, the five values and what is left when there is none.
@@ -214,9 +219,11 @@ pub enum RenditionOperation {
 /// > fallback that shall be executed if the interactive PDF processor is unable to execute
 /// > ECMAScripts.
 ///
-/// No script runner in this tree is handed a rendition's `/JS` — the runner takes §12.6.4.17's
-/// actions and the triggers of §12.6.3 (ADR 1904) — so `/OP` is what is executed wherever it is
-/// present, and a `/JS` alone is [`RenditionOperation::None`], said by whoever performs it.
+/// Table 218's `/JS` is "an ECMAScript script that shall be executed when the action is
+/// triggered", so the view state hands it to the runner at the same trigger as a §12.6.4.17
+/// action's (`crate::view`'s script sites), and `/OP` is performed only where no runner is
+/// supplied, which is when this processor cannot run scripts (ADR 2988). A `/JS` alone is
+/// [`RenditionOperation::None`], said by whoever performs it where nothing runs it.
 fn rendition(document: &Document, dict: &Dictionary) -> Action {
     let operation = match document.get_key(dict, "OP").as_integer() {
         Some(0 | 4) => RenditionOperation::Play,
@@ -229,6 +236,7 @@ fn rendition(document: &Document, dict: &Dictionary) -> Action {
         operation,
         annotation: dict.get("AN").and_then(Object::as_reference),
         rendition: dict.get("R").cloned().unwrap_or(Object::Null),
+        script: dict.get("JS").is_some(),
     })
 }
 

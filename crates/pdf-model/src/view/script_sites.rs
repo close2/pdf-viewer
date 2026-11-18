@@ -302,6 +302,14 @@ impl ViewState {
         self.finish(document, &table, ran)
     }
 
+    /// Whether a host has supplied a runner for scripts: where one has, a rendition action's
+    /// `/JS` is handed to it and its `/OP`, Table 218's fallback for a processor that cannot run
+    /// scripts, is not performed (ADR 2988).
+    #[must_use]
+    pub fn runs_scripts(&self) -> bool {
+        self.runner.0.is_some()
+    }
+
     /// Whether the open sequence has run ([`Self::run_open_scripts`]): before it, a script a
     /// host raises is reported and not run, and the page an open presents has its `/PV` run by
     /// the sequence itself.
@@ -371,9 +379,7 @@ impl ViewState {
     ) -> (ScriptsRan, Vec<super::Request>) {
         // What the scripts do not interleave with is performed after them: either there are no
         // scripts to run, or the chain cannot be matched against the list.
-        let after = |state: &mut Self| {
-            actions.map_or_else(Vec::new, |actions| state.perform_all(document, actions))
-        };
+        let after = |state: &mut Self| state.perform_beside_scripts(document, actions);
         if self.runner.0.is_none() {
             return (ScriptsRan::default(), after(self));
         }
@@ -418,7 +424,9 @@ impl ViewState {
             };
             return (ran, after(self));
         }
-        // The place of each ECMAScript action in `actions`, matched one for one with `slots`.
+        // The place of each ECMAScript action in `actions`, matched one for one with `slots`: a
+        // §12.6.4.17 action, which `crate::action` reads as its refusal, and a rendition stating
+        // a `/JS`, whose `/OP` is not performed where its script stands.
         let places: Vec<usize> = actions.map_or_else(Vec::new, |actions| {
             actions
                 .iter()
@@ -426,6 +434,7 @@ impl ViewState {
                 .filter(|(_, action)| {
                     matches!(action, crate::action::Action::Refused(why)
                         if why.starts_with("JavaScript:"))
+                        || is_script_rendition(action)
                 })
                 .map(|(place, _)| place)
                 .collect()
@@ -463,6 +472,28 @@ impl ViewState {
         };
         ran.said = ran.said.saturating_add(said);
         (self.finish(document, &table, ran), requests)
+    }
+
+    /// [`Self::perform_all`] of a chain whose scripts are run apart from it. Where a runner is
+    /// supplied, a rendition stating `/JS` is not performed: its `/OP` is Table 218's fallback for
+    /// a processor that cannot run scripts (ADR 2988).
+    fn perform_beside_scripts(
+        &mut self,
+        document: &Document,
+        actions: Option<&[crate::action::Action]>,
+    ) -> Vec<super::Request> {
+        let Some(actions) = actions else {
+            return Vec::new();
+        };
+        if self.runner.0.is_none() {
+            return self.perform_all(document, actions);
+        }
+        let kept: Vec<crate::action::Action> = actions
+            .iter()
+            .filter(|action| !is_script_rendition(action))
+            .cloned()
+            .collect();
+        self.perform_all(document, &kept)
     }
 
     /// Runs the ECMAScript actions of outline item `item`'s Table 151 `/A` chain, in §12.6.2's
@@ -930,6 +961,12 @@ impl ViewState {
             self.recalculate_scripts(document, table, "");
         }
     }
+}
+
+/// Whether `action` is a rendition action stating Table 218's `/JS`, which the walk counts as an
+/// ECMAScript action (`super::scripts::read_script`).
+fn is_script_rendition(action: &crate::action::Action) -> bool {
+    matches!(action, crate::action::Action::Rendition(rendition) if rendition.script)
 }
 
 /// The zero-based page an annotation is on, `this.pageNum` at its events: the page Table 166's

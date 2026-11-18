@@ -137,12 +137,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "viewer-core::rendition_preconditions_spec_audit",
-   "test": "an_enabled_runner_executes_the_rendition_script_and_does_not_use_op_as_fallback",
-   "finding": "2038-B49",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-script::matrix2d_reference_spec_audit",
    "test": "matrix2d_constructor_and_reference_methods_are_available_to_a_document_realm",
    "finding": "2038-B52",

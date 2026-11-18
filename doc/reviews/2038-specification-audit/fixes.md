@@ -557,12 +557,12 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: doc/ledger-and-claims.md?
 - test files: crates/pdf-transform/tests/annex_i_insert_version.rs?
 
-- 2038-D15 | render-cpu | source-interpretation-residual | open | shading AntiAlias flag unread
-- 2038-D22 | viewer-core,pdf-transform | ledger-evidence-wording-gap | open | annex I version warning timing doc
-- 2038-D30 | pdf-model | contradictory-ledger-rationale | open | separation simulation ledger note stale
-- 2038-D34 | pdf-model | stale-ledger-rationale | open | general syntax note stale
-- 2038-D38 | pdf-model | aggregate-rationale-drift | open | classic conversion notes stale
-- 2038-D39 | pdf-model | stale-aggregate-scope | open | interchange prepress notes stale
+- 2038-D15 | render-cpu | source-interpretation-residual | owner (Q899; the 8.7.4.3 note now says the reading of a true `/AntiAlias` is open) | shading AntiAlias flag unread
+- 2038-D22 | viewer-core,pdf-transform | ledger-evidence-wording-gap | fixed (I.2's note: the warning comes in the report hosts ask for after the first frame, ADR 1044; viewer-core notes.rs module doc corrected) | annex I version warning timing doc
+- 2038-D30 | pdf-model | contradictory-ledger-rationale | fixed (10.8.3's note says what is built; the partial-status reasoning and the row's history removed) | separation simulation ledger note stale
+- 2038-D34 | pdf-model | stale-ledger-rationale | fixed (7.1's note no longer says §7.11 and §7.12 are unread) | general syntax note stale
+- 2038-D38 | pdf-model | aggregate-rationale-drift | fixed (10.4 and 10.4.2 notes name ADR 1207's explicit BG/UCR branch, which supersedes ADR 1069) | classic conversion notes stale
+- 2038-D39 | pdf-model | stale-aggregate-scope | fixed (14.1 and 14.11 notes match their children's statuses) | interchange prepress notes stale
 
 ### G034 — glyph clip pixel test gap; test control: composite font literal escapes; test control: multibyte word spacing, vertical TJ; test oracle too weak or vacuous; text leading and spacing persistence; text stream decoding test gap
 
@@ -570,12 +570,12 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/text.rs
 - test files: crates/pdf-model/tests/composite_literal_escape_spec_audit.rs, crates/pdf-model/tests/text_clip_pixels_spec_audit.rs, crates/pdf-model/tests/text_positioning_audit.rs, crates/pdf-model/tests/text_state.rs, crates/pdf-model/tests/text_state_vertical_spec_audit.rs, crates/pdf-model/tests/text_strings_spec_audit.rs
 
-- 2038-T22 | pdf-model | test-coverage-gap | open | test control: multibyte word spacing, vertical TJ
-- 2038-T56 | pdf-model | assertion-coverage-gap | open | text stream decoding test gap
-- 2038-T58 | pdf-model | assertion-coverage-gap | open | glyph clip pixel test gap
-- 2038-T79 | pdf-model | test-coverage-gap | open | test control: composite font literal escapes
-- 2038-T100 | pdf-model | test-oracle-gap | open | test oracle too weak or vacuous
-- 2038-T146 | pdf-model | coverage-gap | open | text leading and spacing persistence
+- 2038-T22 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: text_state_vertical_spec_audit (word spacing on code length; vertical TJ) fails on a plant of the defect and passes restored) | test control: multibyte word spacing, vertical TJ
+- 2038-T56 | pdf-model | assertion-coverage-gap | fixed (plant-checked in round 2077: text_strings_spec_audit filtered UTF-8 stream fails on a plant of the defect and passes restored) | text stream decoding test gap
+- 2038-T58 | pdf-model | assertion-coverage-gap | fixed (plant-checked in round 2077: text_clip_pixels_spec_audit fails on a plant of the defect and passes restored) | glyph clip pixel test gap
+- 2038-T79 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: composite_literal_escape_spec_audit fails on a plant of the defect and passes restored) | test control: composite font literal escapes
+- 2038-T100 | pdf-model | test-oracle-gap | fixed (the audit's zero-TJ plant fails the new delta assertion; text_state::horizontal_scaling_reaches_a_tj_adjustment passes) | test oracle too weak or vacuous
+- 2038-T146 | pdf-model | coverage-gap | fixed (plant-checked in round 2077: text_positioning_audit TD leading and double-quote spacing fails on a plant of the defect and passes restored) | text leading and spacing persistence
 
 ### G035 — annotation rollover down appearance defaults; appearance fallback comment stale; test control: Stamp and Caret supplied appearance; widget border background colours
 
@@ -583,10 +583,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/appearance.rs
 - test files: crates/pdf-model/tests/appearance_state_precedence_spec_audit.rs, crates/pdf-model/tests/markup_stored_appearance_spec_audit.rs, crates/pdf-model/tests/widget_annotation_spec_audit.rs
 
-- 2038-T34 | pdf-model | test-coverage-gap | open | test control: Stamp and Caret supplied appearance
-- 2038-T124 | pdf-model | assertion-strengthening | open | annotation rollover down appearance defaults
-- 2038-T161 | pdf-model | assertion-quality | open | widget border background colours
-- 2038-D35 | pdf-model | stale-scope-comment | open | appearance fallback comment stale
+- 2038-T34 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: markup_stored_appearance_spec_audit Stamp and Caret fails on a plant of the defect and passes restored) | test control: Stamp and Caret supplied appearance
+- 2038-T124 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: annotation_appearance_audit explicit rollover fails on a plant of the defect and passes restored) | annotation rollover down appearance defaults
+- 2038-T161 | pdf-model | assertion-quality | fixed (plant-checked in round 2077: widget_annotation_spec_audit border and background fails on a plant of the defect and passes restored) | widget border background colours
+- 2038-D35 | pdf-model | stale-scope-comment | fixed (appearance.rs: the 3D/RichMedia arm's comment says §12.5.6.25's row takes §13.6.2's and §13.7.2.1's implemented status, ADR 1946) | appearance fallback comment stale
 
 ### G036 — Type3 font glyph handling; test control: d1 ExtGState restoration; type3 d1 image test gap; type3 fixture validity
 
@@ -594,10 +594,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/type3.rs
 - test files: crates/pdf-model/tests/type3.rs
 
-- 2038-T12 | pdf-model | test-coverage-gap | open | test control: d1 ExtGState restoration
-- 2038-T40 | pdf-model | test-fixture-validity-gap | open | type3 fixture validity
-- 2038-T64 | pdf-model | passing-regression | open | type3 d1 image test gap
-- 2038-T131 | pdf-model | assertion-strengthening | open | Type3 font glyph handling
+- 2038-T12 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: type3_shape_state_restoration fails on a plant of the defect and passes restored) | test control: d1 ExtGState restoration
+- 2038-T40 | pdf-model | test-fixture-validity-gap | fixed (the audit corrected the Type 3 fixtures' extents and labelled the named-Encoding tolerance; type3 passes. Its remaining MMType1 instance is a Type 1 coverage gap outside this group) | type3 fixture validity
+- 2038-T64 | pdf-model | passing-regression | fixed (plant-checked in round 2077: type3_image_restrictions fails on a plant of the defect and passes restored) | type3 d1 image test gap
+- 2038-T131 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: type3 missing glyph fails on a plant of the defect and passes restored) | Type3 font glyph handling
 
 ### G037 — test control: indirect values need resolving at consumer; test control: mesh shading topology
 
@@ -605,10 +605,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/shading.rs?
 - test files: crates/pdf-model/tests/indirect_shading_values_spec_audit.rs, crates/pdf-model/tests/type4_edge_flags_spec_audit.rs, crates/pdf-model/tests/type5_function_spec_audit.rs
 
-- 2038-T81 | pdf-model | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T96 | pdf-model | test-coverage-gap | open | test control: mesh shading topology
-- 2038-T97 | pdf-model | test-coverage-gap | open | test control: mesh shading topology
-- 2038-T98 | pdf-model | test-coverage-gap | open | test control: mesh shading topology
+- 2038-T81 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: indirect_shading_values_spec_audit fails on a plant of the defect and passes restored) | test control: indirect values need resolving at consumer
+- 2038-T96 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: type4_edge_flags_spec_audit fails on a plant of the defect and passes restored) | test control: mesh shading topology
+- 2038-T97 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: shadings lattice rows fails on a plant of the defect and passes restored) | test control: mesh shading topology
+- 2038-T98 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: type5_function_spec_audit fails on a plant of the defect and passes restored) | test control: mesh shading topology
 
 ### G038 — media software identifier scope doc; rich media fixtures partial; test control: media data BU judge
 
@@ -616,9 +616,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/media.rs?
 - test files: crates/pdf-model/tests/media_viability.rs, crates/viewer-core/tests/rich_media_assets.rs
 
-- 2038-T55 | viewer-core,pdf-model | fixture-evidence-boundary | open | rich media fixtures partial
-- 2038-T82 | pdf-model | test-coverage-gap | open | test control: media data BU judge
-- 2038-D31 | pdf-model | scoped-implementation-boundary | open | media software identifier scope doc
+- 2038-T55 | viewer-core,pdf-model | fixture-evidence-boundary | fixed (the audit's module doc in rich_media_assets.rs states the fixture's consumer-only scope; nothing remaining) | rich media fixtures partial
+- 2038-T82 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: media_viability BU (MH half planted) fails on a plant of the defect and passes restored) | test control: media data BU judge
+- 2038-D31 | pdf-model | scoped-implementation-boundary | fixed (13.2.7.4 and 13.2.7.4.4 notes say the status certifies the nameless-software decisions only: URI, OS and range comparisons are not built, owed once a host names its player) | media software identifier scope doc
 
 ### G039 — compatibility section test gap; contents array q/Q test gap; contents array token split comment
 
@@ -626,9 +626,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/reader.rs?
 - test files: crates/pdf-model/tests/compatibility_operator_pixels_spec_audit.rs, crates/pdf-model/tests/contents_q_stack_cross_part_spec_audit.rs
 
-- 2038-T47 | pdf-model | assertion-coverage-gap | open | compatibility section test gap
-- 2038-T63 | pdf-model | passing-regression | open | contents array q/Q test gap
-- 2038-D37 | pdf-model | source-comment-inaccuracy | open | contents array token split comment
+- 2038-T47 | pdf-model | assertion-coverage-gap | fixed (plant-checked in round 2077: compatibility_operator_pixels_spec_audit fails on a plant of the defect and passes restored) | compatibility section test gap
+- 2038-T63 | pdf-model | passing-regression | fixed (plant-checked in round 2077: contents_q_stack_cross_part_spec_audit fails on a plant of the defect and passes restored) | contents array q/Q test gap
+- 2038-D37 | pdf-model | source-comment-inaccuracy | fixed (page.rs `content`'s doc quotes Table 31: parts divide only at token boundaries, and the newline is the stated white space) | contents array token split comment
 
 ### G040 — image Decode defaults; test control: predictor with image bit depth; test oracle too weak or vacuous
 
@@ -636,9 +636,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/image.rs?
 - test files: crates/pdf-model/tests/devicen_decode_defaults_spec_audit.rs, crates/pdf-model/tests/indexed_rounding_initial_spec_audit.rs, crates/pdf-model/tests/predictor_image_bpc_spec_audit.rs
 
-- 2038-T94 | pdf-model | test-coverage-gap | open | test control: predictor with image bit depth
-- 2038-T101 | pdf-model | test-oracle-gap | open | test oracle too weak or vacuous
-- 2038-T150 | pdf-model | coverage-gap | open | image Decode defaults
+- 2038-T94 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: predictor_image_bpc_spec_audit fails on a plant of the defect and passes restored) | test control: predictor with image bit depth
+- 2038-T101 | pdf-model | test-oracle-gap | fixed (the audit's index-minus-one plant fails the 256-index assertion; indexed_rounding_initial_spec_audit passes) | test oracle too weak or vacuous
+- 2038-T150 | pdf-model | coverage-gap | fixed (plant-checked in round 2077: devicen_decode_defaults_spec_audit and the inline D test fails on a plant of the defect and passes restored) | image Decode defaults
 
 ### G041 — test control: ExtGState Font; test control: UseBlackPtComp state; test control: indirect values need resolving at consumer
 
@@ -646,9 +646,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/graphics_state.rs?
 - test files: crates/pdf-model/tests/extgstate_font_valid_consumer_spec_audit.rs, crates/pdf-model/tests/indirect_extgstate_values_spec_audit.rs, crates/pdf-model/tests/rendering_intent.rs?
 
-- 2038-T77 | pdf-model | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T95 | pdf-model | test-coverage-gap | open | test control: UseBlackPtComp state
-- 2038-T115 | pdf-model | assertion-strengthening | open | test control: ExtGState Font
+- 2038-T77 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: indirect_extgstate_values_spec_audit fails on a plant of the defect and passes restored) | test control: indirect values need resolving at consumer
+- 2038-T95 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: rendering_intent UseBlackPtComp fails on a plant of the defect and passes restored) | test control: UseBlackPtComp state
+- 2038-T115 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: extgstate_font_valid_consumer_spec_audit fails on a plant of the defect and passes restored) | test control: ExtGState Font
 
 ### G042 — alpha group/transfer pixel controls; soft mask graphics state restoration; soft mask group colour space
 
@@ -656,9 +656,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/soft_mask.rs
 - test files: crates/pdf-model/tests/coordinate_graphics_state_spec_audit.rs, crates/pdf-model/tests/soft_masks.rs
 
-- 2038-T60 | pdf-model | strengthened-public-assertions | open | alpha group/transfer pixel controls
-- 2038-T122 | pdf-model | assertion-strengthening | open | soft mask graphics state restoration
-- 2038-T135 | pdf-model | assertion-strengthening | open | soft mask group colour space
+- 2038-T60 | pdf-model | strengthened-public-assertions | fixed (plant-checked in round 2077: soft_masks Alpha transfer and empty group fails on a plant of the defect and passes restored) | alpha group/transfer pixel controls
+- 2038-T122 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: soft_masks none_removes_the_mask fails on a plant of the defect and passes restored) | soft mask graphics state restoration
+- 2038-T135 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: soft_masks inherited group space fails on a plant of the defect and passes restored) | soft mask group colour space
 
 ### G043 — audit fixture producer validity; embedded file stream selection; test control: associated files in content
 
@@ -666,9 +666,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/attachment.rs
 - test files: crates/pdf-model/tests/associated_file_examples_audit.rs, crates/pdf-model/tests/collections.rs?, crates/pdf-model/tests/uf_embedded_stream_selection_spec_audit.rs
 
-- 2038-T19 | pdf-model | test-coverage-gap | open | test control: associated files in content
-- 2038-T132 | pdf-model | assertion-strengthening | open | embedded file stream selection
-- 2038-T147 | pdf-model | fixture-validity | open | audit fixture producer validity
+- 2038-T19 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: nested_mcaf_spec_audit form, Type 3, tiling fails on a plant of the defect and passes restored) | test control: associated files in content
+- 2038-T132 | pdf-model | assertion-strengthening | fixed (plant-checked in round 2077: uf_embedded_stream_selection_spec_audit fails on a plant of the defect and passes restored) | embedded file stream selection
+- 2038-T147 | pdf-model | fixture-validity | fixed (the audit's fixture repairs stand; the four collection and two image failures it kept are other findings' manifest entries) | audit fixture producer validity
 
 ### G044 — shading pattern matrix and stream; type1 shading public raster test gap
 
@@ -676,9 +676,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/pattern/shading.rs
 - test files: crates/pdf-model/tests/shading_pattern_matrix_spec_audit.rs, crates/pdf-model/tests/shading_pattern_stream_spec_audit.rs, crates/pdf-model/tests/shadings.rs
 
-- 2038-T39 | pdf-model,render-raster | public-integration-test-gap | open | type1 shading public raster test gap
-- 2038-T165 | pdf-model | assertion-quality | open | shading pattern matrix and stream
-- 2038-T169 | pdf-model | assertion-quality | open | shading pattern matrix and stream
+- 2038-T39 | pdf-model,render-raster | public-integration-test-gap | fixed (plant-checked in round 2077: shadings Type 1 matrix/domain (CPU half) fails on a plant of the defect and passes restored) | type1 shading public raster test gap
+- 2038-T165 | pdf-model | assertion-quality | fixed (plant-checked in round 2077: shading_pattern_matrix_spec_audit fails on a plant of the defect and passes restored) | shading pattern matrix and stream
+- 2038-T169 | pdf-model | assertion-quality | fixed (plant-checked in round 2077: shading_pattern_stream_spec_audit fails on a plant of the defect and passes restored) | shading pattern matrix and stream
 
 ### G045 — grid-fault API without viewer call site; test control: artifact reporting
 
@@ -686,8 +686,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/report.rs, crates/viewer-core/src/report.rs?
 - test files: crates/pdf-model/tests/artifact_reporting_audit.rs, crates/pdf-model/tests/function_faults.rs
 
-- 2038-T07 | pdf-model | test-coverage-gap | open | test control: artifact reporting
-- 2038-D05 | doc,pdf-model,viewer-core | acknowledged-integration-limit | open | grid-fault API without viewer call site
+- 2038-T07 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: artifact_reporting_audit fails on a plant of the defect and passes restored) | test control: artifact reporting
+- 2038-D05 | doc,pdf-model,viewer-core | acknowledged-integration-limit | fixed (premise no longer holds: ADR 2946's `said_after_drawing` in viewer-core/src/viewer/opening.rs is the viewer call site of `Interpretation::after_drawing`; viewer-core tests/function_faults_after_drawing.rs; GPU readback is ADR 2940's) | grid-fault API without viewer call site
 
 ### G046 — test oracle independent of production helper
 
@@ -695,8 +695,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-colour/src/lib.rs?
 - test files: crates/pdf-model/tests/calrgb_literal_samples_spec_audit.rs, crates/pdf-model/tests/spot_press.rs?
 
-- 2038-T85 | pdf-model,pdf-colour | test-oracle-improvement | open | test oracle independent of production helper
-- 2038-T102 | pdf-model | test-oracle-gap | open | test oracle independent of production helper
+- 2038-T85 | pdf-model,pdf-colour | test-oracle-improvement | fixed (the audit's zero-transfer plant fails the CalRGB literal pixels; calrgb_literal_samples_spec_audit passes) | test oracle independent of production helper
+- 2038-T102 | pdf-model | test-oracle-gap | fixed (plant-checked in round 2077: transparency_groups three press routes, literal pixels fails on a plant of the defect and passes restored) | test oracle independent of production helper
 
 ### G047 — fractional alpha compositing test gap; test control: transparency group reuse
 
@@ -704,8 +704,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/transparency.rs?
 - test files: crates/pdf-model/tests/transparency_groups.rs, crates/pdf-model/tests/transparency_repeated_group_spec_audit.rs
 
-- 2038-T44 | pdf-model,render-raster | independent-numeric-oracle-gap | open | fractional alpha compositing test gap
-- 2038-T105 | pdf-model | test-coverage-gap | open | test control: transparency group reuse
+- 2038-T44 | pdf-model,render-raster | independent-numeric-oracle-gap | fixed (plant-checked in round 2077: render-cpu basic_composite_partial_alpha_spec_audit (Color mode planted) fails on a plant of the defect and passes restored) | fractional alpha compositing test gap
+- 2038-T105 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: transparency_groups and transparency_repeated_group_spec_audit fails on a plant of the defect and passes restored) | test control: transparency group reuse
 
 ### G048 — OC language precedence test gap; optional content recommendation AND
 
@@ -713,8 +713,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/optional_content.rs
 - test files: crates/pdf-model/tests/optional_content.rs, crates/pdf-model/tests/optional_content_nested_spec_audit.rs?
 
-- 2038-T66 | pdf-model | test-coverage-gap | open | OC language precedence test gap
-- 2038-T123 | pdf-model | assertion-strengthening | open | optional content recommendation AND
+- 2038-T66 | pdf-model | test-coverage-gap | fixed (plant-checked in round 2077: optional_content exact-match language (partial-tie half not planted) fails on a plant of the defect and passes restored) | OC language precedence test gap
+- 2038-T123 | pdf-model | assertion-strengthening | fixed (the audit's last-writer-wins plant fails the AND assertion in optional_content.rs, which passes) | optional content recommendation AND
 
 ### G049 — embedded file checksum test gap; embedded file description reading
 
@@ -722,8 +722,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/file_spec.rs
 - test files: crates/pdf-model/tests/embedded_files_spec_audit.rs?, crates/pdf-model/tests/embedded_flate_checksum_spec_audit.rs
 
-- 2038-T62 | pdf-model | passing-regression | open | embedded file checksum test gap
-- 2038-T148 | pdf-model | fixture-validity-and-assertion-quality | open | embedded file description reading
+- 2038-T62 | pdf-model | passing-regression | fixed (plant-checked in round 2077: embedded_flate_checksum_spec_audit fails on a plant of the defect and passes restored) | embedded file checksum test gap
+- 2038-T148 | pdf-model | fixture-validity-and-assertion-quality | fixed (the audit's six fixture repairs and description assertions stand; its four failures are other findings' manifest entries) | embedded file description reading
 
 ### G050 — cmyk image overprint test gap; group overprint OPM
 
@@ -731,8 +731,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/overprint.rs
 - test files: crates/pdf-model/tests/cmyk_image_overprint_spec_audit.rs, crates/pdf-model/tests/overprint_group_row_spec_audit.rs
 
-- 2038-T57 | pdf-model | assertion-coverage-gap | open | cmyk image overprint test gap
-- 2038-T171 | pdf-model | assertion-quality | open | group overprint OPM
+- 2038-T57 | pdf-model | assertion-coverage-gap | fixed (plant-checked in round 2077: cmyk_image_overprint_spec_audit fails on a plant of the defect and passes restored) | cmyk image overprint test gap
+- 2038-T171 | pdf-model | assertion-quality | fixed (plant-checked in round 2077: overprint_group_row_spec_audit fails on a plant of the defect and passes restored) | group overprint OPM
 
 ### G051 — EC3 enum19 JPX doc
 
@@ -1177,7 +1177,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 
 - 2038-B22 | viewer-core | behavior-mismatch | fixed (ADR 2964; initial_open_order_spec_audit: the open action is performed in `Viewer::process` before page one's /O) | initial open actions run in wrong order | 1 manifest failure
 - 2038-B23 | viewer-core | behavior-mismatch | fixed (ADR 2964; cross_document_destination_view_spec_audit ×2: `place_remote` and `jump_into` keep /D's Table 149 view) | remote destination view not applied | 2 manifest failures
-- 2038-B49 | viewer-core,pdf-model | rendition-script-priority | open (G028 owns crates/pdf-model/src/view/script_sites.rs: a rendition's /JS must stand as a script slot where `annotation_chain` matches `read`'s list, with `view::scripts::read_script` reading it and viewer-core `handed_over` dropping /OP where it ran; built and withdrawn in round 2073) | rendition script ignored | 1 manifest failure
+- 2038-B49 | viewer-core,pdf-model | rendition-script-priority | fixed (ADR 2988; rendition_preconditions_spec_audit, rendition_scripts; round 2077) | rendition script ignored | 1 manifest failure
 - 2038-B60 | pdf-model | behavior-gap | fixed (ADR 2965; tm_coordinate_name_spec_audit: `submission::mapping_name` reads the terminal field only) | non-inheritable field keys read via parents | 1 manifest failure
 - 2038-B61 | pdf-model | behavior-gap | fixed (ADR 2965; tm_html_export_spec_audit: the HTML Form body writes /TM) | non-inheritable field keys read via parents | 1 manifest failure
 - 2038-B66 | pdf-model | behavior-gap | fixed (ADR 2965; empty_fields_array_presence_spec_audit ×2: `fields: Option<Vec<ResetTarget>>`; the type change edits the literal in inherited_reset_defaults_audit.rs to `fields: None`) | empty Fields array presence lost | 2 manifest failures
@@ -1207,7 +1207,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/measurement.rs, crates/viewer-core/src/viewer/geometry.rs
 - test files: crates/viewer-core/tests/image_xobject_measurement_spec_audit.rs, crates/viewer-core/tests/measurement_format_spec_audit.rs, crates/viewer-core/tests/measurement_numeric_spec_audit.rs
 
-- 2038-B73 | viewer-core,pdf-model | behavior | open (needs the content interpreter to report each image XObject's placement and /Measure as a viewport: crates/pdf-model/src/content/xobject.rs, unowned, and a display-list item carries no source object; not started in round 2073) | image XObject measure ignored by query | 1 manifest failure
+- 2038-B73 | viewer-core,pdf-model | behavior | open (not reached in rounds 2073, 2076 and 2077. What it needs: Table 269's /LPTS unit square "is mapped to the rectangular bounds of the ... image XObject", which is the image's own unit square, so the CTM at its `Do` is the mapping; the interpreter reports each image XObject's CTM and /Measure (crates/pdf-model/src/content/xobject.rs), the viewer keeps them with the interpreted page, and viewer-core `geometry::measured` and `located::locate` read them beside the page's /VP, with /PCSM's "XObject position coordinates" taken in image space) | image XObject measure ignored by query | 1 manifest failure
 - 2038-T52 | viewer-core,pdf-model | assertion-coverage-gap | fixed (measurement_numeric_spec_audit, plant-checked: `traced` taking the last point's viewport fails it; its viewports do not overlap, so /VP's last-containing order is not pinned) | measurement numeric test gap
 - 2038-T153 | viewer-core,pdf-model | assertion-quality | fixed (measurement_format_spec_audit, plant-checked: a literal '.' for /RD fails it) | measurement number formatting
 

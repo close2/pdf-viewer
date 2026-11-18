@@ -823,14 +823,20 @@ pub(super) enum ScriptText {
 /// Table 221's `/JS` of one action dictionary: its text, or why an ECMAScript action's text is not
 /// run (ADR 1950).
 ///
+/// A rendition action's Table 218 `/JS` is read the same way: "an ECMAScript script that shall be
+/// executed when the action is triggered", of the same type, so a rendition stating one is an
+/// ECMAScript action at every site that runs scripts, and one stating none is not (ADR 2988).
+///
 /// "A text string or text stream containing the ECMAScript script to be executed": §7.9.2.2's text
 /// string either way, read through the same decoding a text string always takes. A script past
 /// [`MAX_SCRIPT_BYTES`] is not decoded, and the phrase gives its length, so that the one sentence
 /// saying it was not run states the bound and not some other reason (trap 5).
 pub(super) fn read_script(document: &Document, action: &Dictionary) -> ScriptText {
-    if !matches!(document.get_key(action, "S"), Object::Name(ref name) if name.as_bytes() == b"JavaScript")
-    {
-        return ScriptText::NotScript;
+    match document.get_key(action, "S") {
+        Object::Name(ref name) if name.as_bytes() == b"JavaScript" => {}
+        Object::Name(ref name) if name.as_bytes() == b"Rendition" && action.get("JS").is_some() => {
+        }
+        _ => return ScriptText::NotScript,
     }
     let unreadable = || {
         ScriptText::Unread(String::from(

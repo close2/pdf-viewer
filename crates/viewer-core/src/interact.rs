@@ -154,7 +154,7 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
     if ran.is_some_and(|ran| ran.changed) {
         open.stale();
     }
-    let actions = handed_over(actions, scripted);
+    let actions = handed_over(actions, scripted, open.view.runs_scripts());
     resolve(
         open,
         &actions,
@@ -274,7 +274,7 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     if ran.changed {
         open.stale();
     }
-    let actions = handed_over(actions, ran.answered());
+    let actions = handed_over(actions, ran.answered(), open.view.runs_scripts());
     // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.
@@ -303,7 +303,7 @@ pub(crate) fn open_action(open: &mut Open) -> Option<Outcome> {
     if matches!(actions.first(), Some(Action::GoTo(_))) {
         actions.remove(0);
     }
-    let actions = handed_over(actions, true);
+    let actions = handed_over(actions, true, open.view.runs_scripts());
     if actions.is_empty() {
         return None;
     }
@@ -386,6 +386,7 @@ pub(crate) fn trigger(
     let actions = handed_over(
         pdf_model::action::for_annotation(&open.document, dict, event),
         scripted,
+        open.view.runs_scripts(),
     );
     if actions.is_empty() {
         return Outcome::default();
@@ -438,6 +439,7 @@ pub(crate) fn page_trigger(
     let actions = handed_over(
         pdf_model::action::for_page(&open.document, page, event),
         scripted,
+        open.view.runs_scripts(),
     );
     if actions.is_empty() {
         return Outcome::default();
@@ -520,13 +522,19 @@ fn rendered(
 /// said beside a script that ran would tell the reader the opposite of what happened. With no
 /// runner the refusal stays, and it is the one sentence saying the script was not run (trap 5).
 /// `Action::Refused` names its type before its colon, which is how the module's own tests read it.
-fn handed_over(actions: Vec<Action>, scripted: bool) -> Vec<Action> {
-    if !scripted {
-        return actions;
-    }
+///
+/// A rendition action stating Table 218's `/JS` is dropped wherever a runner is supplied (`runs`),
+/// whether or not this event's scripts were answered: its script goes to that runner, and its
+/// `/OP` is Table 218's fallback for a processor that cannot run scripts, which one holding a
+/// runner is not (ADR 2988).
+fn handed_over(actions: Vec<Action>, scripted: bool, runs: bool) -> Vec<Action> {
     actions
         .into_iter()
-        .filter(|action| !matches!(action, Action::Refused(why) if why.starts_with("JavaScript:")))
+        .filter(|action| match action {
+            Action::Refused(why) => !(scripted && why.starts_with("JavaScript:")),
+            Action::Rendition(rendition) => !(runs && rendition.script),
+            _ => true,
+        })
         .collect()
 }
 

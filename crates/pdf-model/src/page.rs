@@ -691,13 +691,17 @@ impl Page {
 
     /// Returns the content streams for this page, concatenated and decoded.
     ///
-    /// `/Contents` may be one stream or an array of them, and the specification says an
-    /// array is to be treated as a single stream with the parts joined — a token may even
-    /// be split across the boundary, so joining before interpretation is required rather
-    /// than merely convenient.
+    /// `/Contents` may be one stream or an array of them. ISO 32000-2 §7.7.3.3, Table 31:
     ///
-    /// A newline is inserted between parts, since a producer that relied on the split as a
-    /// token boundary would otherwise have two operators run together.
+    /// > If the value is an array, the effect shall be as if all of the streams in the array
+    /// > were concatenated with at least one white-space character added between the streams'
+    /// > data, in order, to form a single stream.
+    ///
+    /// The same entry says the division "may occur only at the boundaries between lexical
+    /// tokens", so no token is split across two parts; what joining keeps whole is everything
+    /// else — an operator's operands in one part and the operator in the next, a `q` in one part
+    /// and its `Q` in another. The white space is a newline, so that a part ending in a token and
+    /// the next starting with one are never run together.
     ///
     /// Equivalent to [`Self::content_with_report`], discarding the report. Prefer that one
     /// anywhere the result reaches a user: a part that does not decode contributes nothing,

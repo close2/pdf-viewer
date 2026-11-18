@@ -4,9 +4,10 @@
 //! §7.11.4's embedded files, §14.13.2's associated files that are *not* embedded, §7.5's
 //! recovered cross-reference table, §7.7.3's page tree recovered by scanning, Annex I's version,
 //! Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
-//! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
-//! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
-//! part of the page's own report.
+//! claims about the *file*, and a person deciding whether to trust what they are looking at needs
+//! them whatever page is in front. That is why they are a [`crate::Event::Reported`] with no page
+//! rather than part of the page's own report, answered when a host sends
+//! [`crate::Command::Report`] once the document's first frame is on its screen (ADR 1044).
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 

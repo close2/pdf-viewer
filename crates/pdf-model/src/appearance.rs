@@ -68,7 +68,7 @@
 //! - `3D` and `RichMedia` are the same shape inside principle 5's clause 13 exclusion: §13.6.2
 //!   and §13.7.2 each require the annotation to "provide an appearance stream in its AP entry",
 //!   and what the inactive state displays *is* that stream. Without it there is only artwork a
-//!   media engine renders.
+//!   media engine renders, and rendering it stays excluded (ADR 1946).
 //! - `Watermark` is refused for a reason of its own, and it is not "no geometry" — `construct`'s
 //!   arm carries the reading: §12.5.6.22's Table 194 states a transformation of the annotation
 //!   rectangle, which is where an appearance goes rather than what it contains. `Movie` is drawn
@@ -718,8 +718,10 @@ pub(crate) fn construct(
         // shows before it is activated: "Inactive (the default initial state): the annotation
         // displays the annotation's normal appearance". So the stream is not one of two ways to
         // draw these; it is the *only* thing a processor that does not render the artwork can
-        // show, and the artwork is clause 13, which principle 5 excludes. §12.5.6.25 is the
-        // §12.5.6 subclause that hands both over, and its ledger row is `out-of-scope`.
+        // show, and rendering the artwork is clause 13's, which principle 5 excludes. §12.5.6.25
+        // is the §12.5.6 subclause that hands both over; it states no requirement of its own and
+        // its ledger row takes the status of §13.6.2 and §13.7.2.1, `implemented` for the normal
+        // appearance (ADR 1946).
         b"3D" | b"RichMedia" => Err(Refusal::NotDerivable(
             "its clause requires the appearance stream for the annotation's inactive state, and \
              the artwork behind it is clause 13's",
