@@ -17184,6 +17184,11 @@ mod type3_width_as_drawn;
 // description given a procedure painting nothing (ADR 2918).
 #[path = "archive/type3_glyphs.rs"]
 mod type3_glyphs;
+// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a CFF-flavoured OpenType
+// program under a simple TrueType dictionary retyped as the Type1 font naming each code's glyph
+// (ADR 3078).
+#[path = "archive/truetype_over_cff.rs"]
+mod truetype_over_cff;
 
 // The preserve remedy promises the original resource atomically, including for malformed input.
 // This is a repository integrity contract, not a valid-PDF conformance requirement.

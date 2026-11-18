@@ -1481,7 +1481,7 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   result the proof finds drawn differently.
 
 #### `fonts/font-programs-filed-by-their-format`
-ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADR 2307)
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADRs 2307, 3078)
 
 - **Mitigation** — the clause's "as defined in" section 9.9 files each program's format under a key
   (ISO 32000-2 Table 124) and a `/FontFile3` under a name (Table 125), by the font's dictionary. A
@@ -1499,11 +1499,17 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   0 left to a `notdefrange` onto CID 0, and `/W` states each glyph's width as the advance its codes
   had — read for every code through `pdf_font::LoadedFont`, so the re-keyed font is the page as it
   was drawn. The `CMap` states the descendant's own `CIDSystemInfo`, which ISO 19005-2 section
-  6.2.11.3.1 holds a non-identity `CMap` to.
-- **Refused, by name**: a program no row admits under its dictionary — a `glyf` program under
-  `CIDFontType0` — since a true filing would need the dictionary's subtype changed and with it how a
-  CID selects a glyph, and a CFF-flavoured `OTTO` program under `/FontFile2` in a `TrueType`
-  dictionary (`issue215`), which Table 124 admits only under `Type1` and `CIDFontType0`; a
+  6.2.11.3.1 holds a non-identity `CMap` to. **A name-keyed CFF-flavoured `OTTO` program under a
+  simple `TrueType` dictionary** retypes the dictionary to `Type1` and moves the program to
+  `/FontFile3` `/OpenType` (ADR 3078): §9.9.1 selects such a program's glyphs under `Type1` by
+  §9.6.5.2's names, so a new `/Differences` gives every code the charset name of the glyph this
+  reader drew it with over `/BaseEncoding /StandardEncoding`, and the retyped font is loaded again
+  and compared code by code for glyph and advance before anything is written.
+- **Refused, by name**: a program no row admits under its dictionary — a Type 1 program under
+  `CIDFontType0` (`issue11740_reduced`) — since a true filing would need the program's format
+  changed; a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
+  (`issue215`, whose `/Differences` names glyphs outside the Adobe Glyph List), whose rewrites would
+  write it as a TrueType font again, until the retyping ends those rows; a
   CFF-flavoured program under a `CIDFontType2` stating no map, or a CID-keyed one, whose CIDs nothing
   says selected the glyphs `CIDFontType0` would give them; a stream-mapped one whose re-keying would
   move something, each by its sentence — an encoding other than the two identities, a `/W2`, a
@@ -1532,7 +1538,10 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   byte-identical to the source's at 100 dpi and at 360, veraPDF 1.30.3 passing all six outputs,
   every code of the two-byte codespace drawing the source's glyph, advance and outline
   (`archive_corpus`'s `a_refiled_composite_font_draws_every_code_as_its_source_did`);
-  `issue9949`, `issue11740_reduced` and `issue215` are refused.
+  `issue11740_reduced` and `issue215` are refused; ADR 3078's fixture (`pdf-model`'s synthetic
+  `cff.otf` under a `TrueType` dictionary) converts at 2b and 4 under `as-shown` and
+  `as-if-printed`, its page byte-identical to the source's at 300 dpi, veraPDF 1.30.3 passing all
+  four outputs.
 
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`

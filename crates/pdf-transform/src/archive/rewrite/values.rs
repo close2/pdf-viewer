@@ -123,7 +123,9 @@ impl Rewriter<'_> {
 
     /// Writes a `CIDFontType2` dictionary whose `Identity` map makes each CID its glyph's index
     /// over a name-keyed CFF program as the `CIDFontType0` that selects the same glyphs, and
-    /// removes the `/CIDToGIDMap` Table 115 gives a Type 2 `CIDFont` alone (ADR 2326).
+    /// removes the `/CIDToGIDMap` Table 115 gives a Type 2 `CIDFont` alone (ADR 2326); and a
+    /// simple `TrueType` dictionary over such a program as the `Type1` font whose encoding names
+    /// the glyph each code drew (ADR 3078).
     ///
     /// A font dictionary is never a descriptor, so an object is one or the other of the two
     /// edits [`Self::refile_font_program`] makes.
@@ -134,6 +136,10 @@ impl Rewriter<'_> {
         {
             if refiled.to_type2.contains(&id) {
                 as_cid_font_type2(out);
+                return true;
+            }
+            if let Some(encoding) = refiled.to_type1.get(&id) {
+                super::super::font_files::as_type1(out, encoding.clone());
                 return true;
             }
             if refiled.to_type2_within.contains(&id)

@@ -186,6 +186,27 @@ pub fn glyph_count(program: &[u8], format: Format) -> Option<u16> {
     }
 }
 
+/// The glyph name each glyph of an OpenType program's name-keyed `CFF ` table is selected by.
+///
+/// ISO 32000-2 §9.9.1 sends a `Type1` font dictionary over such a program through §9.6.5.2, which
+/// looks a code's glyph name up in the CFF charset. A glyph is listed under a name only where that
+/// lookup answers it: a charset naming two glyphs alike answers the first, so the second is
+/// reached by no name and is left out. `None` where the program carries no `CFF ` table this crate
+/// reads, or a CID-keyed one, whose charset names no glyph.
+#[must_use]
+pub fn wrapped_cff_glyph_names(program: &[u8]) -> Option<std::collections::BTreeMap<u16, String>> {
+    match cff::CodeToGlyph::read(crate::sfnt::table(program, *b"CFF ")?).ok()? {
+        cff::CodeToGlyph::Named(keyed) => Some(
+            keyed
+                .by_name
+                .iter()
+                .map(|(name, glyph)| (*glyph, name.as_ref().to_owned()))
+                .collect(),
+        ),
+        cff::CodeToGlyph::Keyed { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Keying, cff_keying, glyph_count, sfnt_tables, without_tables};

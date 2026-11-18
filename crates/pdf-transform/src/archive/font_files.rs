@@ -15,9 +15,16 @@
 //! which restates the name alone; failing that, a `/FontFile3` row, which moves the stream to that
 //! key and drops the three lengths a compact program does not state. Moving a program the other
 //! way would need lengths this conversion does not compute, and where no row admits the pairing —
-//! a CFF-flavoured OpenType program under a simple `TrueType` dictionary is the corpus's case — no
-//! filing is true of it, and making one true would change the dictionary's subtype and with it how
-//! a code selects a glyph, so the document is refused by that sentence (ADR 2307).
+//! a Type 1 program under a `CIDFontType0` dictionary is the corpus's case — no filing is true of
+//! it, and making one true would change the program's format, so the document is refused by that
+//! sentence (ADR 2307).
+//!
+//! **A CFF-flavoured OpenType program under a simple `TrueType` dictionary is the `Type1` font
+//! that names each code's glyph** (ADR 3078). Table 124 admits a name-keyed one under `Type1`,
+//! where §9.9.1 selects its glyphs by §9.6.5.2's names rather than §9.6.5.4's `cmap`, so the
+//! dictionary is retyped with an encoding giving every code the charset name of the glyph this
+//! reader drew it with, proved by loading the retyped font and comparing each code
+//! ([`type1_names`]); the program moves to the `/FontFile3` `/OpenType` row.
 //!
 //! **A `glyf` program under a `CIDFontType0` dictionary is the `CIDFontType2` that selects the same
 //! glyphs** (ADR 2716). §9.7.4.2 states how a Type 0 `CIDFont` selects a glyph of a CFF program
@@ -61,6 +68,9 @@
 //! whose faces carries that name is refused by a sentence of its own (ADR 2343).
 
 mod glyph_indices;
+mod type1_names;
+
+pub(in crate::archive) use type1_names::as_type1;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -77,10 +87,17 @@ const REQUIREMENT: &str = "fonts/font-programs-filed-by-their-format";
 
 /// Why a program no row admits keeps its refusal.
 const NO_ROW: &str = "a font program is in a format ISO 32000-2's Table 124 admits under no key \
-     in the dictionary that names it - a CFF-flavoured OpenType program under a simple TrueType \
-     dictionary, for one. No filing is true of it, and making one true would change the font \
-     dictionary's subtype and with it how a code selects a glyph (sections 9.6.5 and 9.7.4.2), \
-     which is a reinterpretation this conversion does not make";
+     in the dictionary that names it - a Type 1 program under a CIDFontType0 dictionary, for one. \
+     No filing is true of it, and making one true would change the program's format or the \
+     font dictionary's subtype and with it how a code selects a glyph (sections 9.6.5 and \
+     9.7.4.2), which is a reinterpretation this conversion does not make";
+
+/// Why a `TrueType` font over a CFF-flavoured program that a TrueType row also binds keeps its
+/// refusal.
+const A_TRUETYPE_ROW_TOO: &str = "a simple TrueType font over a CFF-flavoured OpenType program \
+     would be written as the Type1 font Table 124 admits it under, and a requirement ISO 19005 \
+     states of TrueType fonts alone also failed at it, whose own rewrite would write the font as \
+     a TrueType font again; ending that requirement by the retyping is not built";
 
 /// Why a `glyf` program under a `CIDFontType0` whose `/CIDToGIDMap` names something other than
 /// `Identity` keeps its refusal.
@@ -144,6 +161,9 @@ pub(super) struct Refiled {
     /// The `CIDFontType0` dictionaries over a `glyf` program that become `CIDFontType2`, each
     /// stating the `/CIDToGIDMap` this reader selected glyphs by (ADR 2716).
     pub(super) to_type2: BTreeSet<ObjectId>,
+    /// The simple `TrueType` dictionaries over a name-keyed CFF-flavoured OpenType program that
+    /// become `Type1`, each with the `/Encoding` naming the glyph every code drew (ADR 3078).
+    pub(super) to_type1: BTreeMap<ObjectId, Object>,
     /// The `Type0` fonts whose descendant, written directly inside their `/DescendantFonts`,
     /// becomes `CIDFontType2` in the same way.
     pub(super) to_type2_within: BTreeSet<ObjectId>,
@@ -209,6 +229,9 @@ enum Retyping {
     GlyphIndices,
     /// A `CIDFontType0` over a `glyf` program becomes `CIDFontType2`, its map kept (ADR 2716).
     ToType2,
+    /// A simple `TrueType` over a name-keyed CFF program becomes `Type1`, each code named by the
+    /// glyph it drew (ADR 3078).
+    ToType1,
 }
 
 /// The rows a program takes under `holder`, and whether its dictionary becomes `CIDFontType0`
@@ -236,10 +259,15 @@ fn rows_for(holder: &Holder, program: &[u8]) -> Result<(Vec<Table124Row>, Retypi
             .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
         return Ok((rows, Retyping::ToType2));
     }
+    let by_name = tables.as_ref().and_then(|tables| tables.cff) == Some(Keying::ByName);
+    if rows.is_empty() && holder.subtype == "TrueType" && wrapped_cff && by_name {
+        let rows =
+            pdf_archive::table_124_rows("Type1", program).ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+        return Ok((rows, Retyping::ToType1));
+    }
     if !rows.is_empty() || holder.subtype != "CIDFontType2" || !wrapped_cff {
         return Ok((rows, Retyping::None));
     }
-    let by_name = tables.and_then(|tables| tables.cff) == Some(Keying::ByName);
     let retyping = match (holder.map, by_name) {
         (CidMap::Identity, true) => Retyping::SameCids,
         (CidMap::Stream, true) => Retyping::GlyphIndices,
@@ -314,7 +342,7 @@ pub(super) fn refiled(
         let mut chosen: Option<Table124Row> = None;
         for holder in naming {
             let (rows, retyping) = rows_for(holder, program)?;
-            retype(&mut out, holder, retyping, document, program, spare)?;
+            retype(&mut out, holder, retyping, document, input, program, spare)?;
             let row = rows
                 .iter()
                 .find(|row| row.key == holder.key)
@@ -359,6 +387,27 @@ pub(super) fn refiled(
     Ok(out)
 }
 
+/// Whether a requirement ISO 19005 states of TrueType fonts alone failed at `font`, or past the
+/// objects its findings could name.
+///
+/// Those rows' own rewrites write the font's encoding and its program's `cmap` as a `TrueType`
+/// font's, which the retyping to `Type1` replaces; a font both would write keeps the refusal
+/// until the retyping answers the rows it ends (ADR 3078).
+fn bound_by_a_truetype_row(input: &pdf_archive::Report, font: ObjectId) -> bool {
+    let rows = super::fonts::TRUETYPE_CMAP_ROWS
+        .iter()
+        .chain(super::fonts::TRUETYPE_ENCODING_ROWS.iter());
+    let rows: BTreeSet<&str> = rows.copied().collect();
+    input
+        .failures()
+        .filter(|judgement| rows.contains(judgement.id))
+        .any(|judgement| {
+            judgement.named.objects().contains(&font)
+                || judgement.named.cut_short()
+                || judgement.named.elsewhere()
+        })
+}
+
 /// Records the dictionary a retyping rewrites, and for a stream map the widths and encodings that
 /// re-key its CIDs.
 fn retype(
@@ -366,6 +415,7 @@ fn retype(
     holder: &Holder,
     retyping: Retyping,
     document: &Document,
+    input: &pdf_archive::Report,
     program: &[u8],
     spare: &mut Spare,
 ) -> Result<(), Because> {
@@ -377,6 +427,15 @@ fn retype(
                 (None, Some(type0)) => out.to_type2_within.insert(type0),
                 (None, None) => return Err(Because::NotBuiltYet(NO_DICTIONARY)),
             };
+        }
+        Retyping::ToType1 => {
+            let font = holder.font.ok_or(Because::NotBuiltYet(NO_DICTIONARY))?;
+            if bound_by_a_truetype_row(input, font) {
+                return Err(Because::NotBuiltYet(A_TRUETYPE_ROW_TOO));
+            }
+            if let std::collections::btree_map::Entry::Vacant(entry) = out.to_type1.entry(font) {
+                entry.insert(type1_names::encoding(document, font, program)?);
+            }
         }
         Retyping::SameCids | Retyping::GlyphIndices => {
             let font = holder.font.ok_or(Because::NotBuiltYet(NO_DICTIONARY))?;
@@ -653,13 +712,13 @@ mod tests {
 
     #[test]
     fn a_program_no_row_admits_keeps_its_refusal() {
-        // No row admits a CFF-flavoured OpenType program under a simple `TrueType` dictionary:
-        // Table 124 gives it to `Type1` and `CIDFontType0` alone.
+        // No row admits a Type 1 program under a `CIDFontType0` dictionary: Table 124 gives that
+        // dictionary a compact or an OpenType program alone, and the program is neither.
         let document = a_program_under(
-            "TrueType",
-            "FontFile2",
+            "CIDFontType0",
+            "FontFile",
             "",
-            &a_name_keyed_open_type_program(),
+            b"%!PS-AdobeFont-1.0: F 001.000\n",
         );
         let input = pdf_archive::check(&document, Target::Four(Flavour::Plain));
         assert!(
