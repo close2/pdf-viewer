@@ -32,12 +32,18 @@ directory `lgc-pack/` holding those files, which is what CI publishes beside the
 4. Each charstring states its own width as its first operand and calls no subroutine, so the width
    the converter restates is the one a reader of the program finds (ADR 2642).
 
+Noto Sans Mono is published in no italic, so its two oblique faces are this script's: the upright
+instance's outlines slanted by 12 degrees, the `ItalicAngle` `data/standard-fonts/afm/Courier-Oblique.afm`
+and `Courier-BoldOblique.afm` state for the standard fixed-pitch obliques, each point moved right by
+its height times the angle's tangent and every advance kept (ADR 3048).
+
 The programs are Modified Versions under the SIL Open Font License 1.1, which reserves no font name
 for Noto (ADR 2630's licence reading), so each keeps the family's name and its copyright notice.
 """
 
 import argparse
 import hashlib
+import math
 import os
 import sys
 import urllib.request
@@ -46,12 +52,13 @@ import zipfile
 from fontTools import agl
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
+from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 
 # The pack's number, in its zip's name: the next one whenever a byte of the output moves, which is
 # whenever the digests `lgc_pack.rs` carries change.
-PACK_VERSION = 2
+PACK_VERSION = 3
 
 # google/fonts at a commit that holds both families' variable fonts and their licence.
 COMMIT = "097bc1b8c04c3224087c2ae95f7a923859b778cf"
@@ -95,21 +102,26 @@ DOUBLE_MAPPED = {
     "tcommaaccent": 0x021B,    # 2.0: U+0163; 1.2 also LATIN SMALL LETTER T WITH COMMA BELOW
 }
 
-# Output file -> (source, weight, PostScript name, full name). The four styles of the Foxit serif
-# face; Noto Sans Mono is published in no italic, so the fixed face's two upright styles alone.
+# Output file -> (source, weight, PostScript name, full name, slant in degrees). The four styles of
+# the Foxit serif face and of its fixed face; Noto Sans Mono is published in no italic, so the fixed
+# face's two italics are its upright instances slanted (ADR 3048).
 FACES = {
     "NotoSerif-Regular.cff": ("NotoSerif[wdth,wght].ttf", 400, "NotoSerif-Regular",
-                              "Noto Serif Regular"),
+                              "Noto Serif Regular", 0),
     "NotoSerif-Bold.cff": ("NotoSerif[wdth,wght].ttf", 700, "NotoSerif-Bold",
-                           "Noto Serif Bold"),
+                           "Noto Serif Bold", 0),
     "NotoSerif-Italic.cff": ("NotoSerif-Italic[wdth,wght].ttf", 400, "NotoSerif-Italic",
-                             "Noto Serif Italic"),
+                             "Noto Serif Italic", 0),
     "NotoSerif-BoldItalic.cff": ("NotoSerif-Italic[wdth,wght].ttf", 700, "NotoSerif-BoldItalic",
-                                 "Noto Serif Bold Italic"),
+                                 "Noto Serif Bold Italic", 0),
     "NotoSansMono-Regular.cff": ("NotoSansMono[wdth,wght].ttf", 400, "NotoSansMono-Regular",
-                                 "Noto Sans Mono Regular"),
+                                 "Noto Sans Mono Regular", 0),
     "NotoSansMono-Bold.cff": ("NotoSansMono[wdth,wght].ttf", 700, "NotoSansMono-Bold",
-                              "Noto Sans Mono Bold"),
+                              "Noto Sans Mono Bold", 0),
+    "NotoSansMono-Oblique.cff": ("NotoSansMono[wdth,wght].ttf", 400, "NotoSansMono-Oblique",
+                                 "Noto Sans Mono Oblique", 12),
+    "NotoSansMono-BoldOblique.cff": ("NotoSansMono[wdth,wght].ttf", 700,
+                                     "NotoSansMono-BoldOblique", "Noto Sans Mono Bold Oblique", 12),
 }
 
 
@@ -147,7 +159,9 @@ def own_name(character):
 
 def build(entry, source_dir):
     """One face's bare CFF program, as bytes."""
-    source, weight, postscript, full = entry
+    source, weight, postscript, full, slant = entry
+    # x' = x + y * tan(slant): the shear that leans a vertical stroke right by `slant` degrees.
+    shear = math.tan(math.radians(slant))
     variable = TTFont(os.path.join(source_dir, source), recalcTimestamp=False)
     font = instancer.instantiateVariableFont(variable, {"wght": weight, "wdth": 100},
                                              updateFontNames=False)
@@ -168,21 +182,24 @@ def build(entry, source_dir):
         glyph = drawn[name]
         # The width as the first operand, every charstring self-contained (ADR 2642's item).
         pen = T2CharStringPen(advances[glyph][0], glyphs)
-        glyphs[glyph].draw(pen)
+        glyphs[glyph].draw(TransformPen(pen, (1, 0, shear, 1, 0, 0)) if slant else pen)
         strings[name] = pen.getCharString()
     head = font["head"]
     builder = FontBuilder(head.unitsPerEm, isTTF=False)
     builder.updateHead(created=head.created, modified=head.modified)
     builder.setupGlyphOrder(order)
     copyright_notice = font["name"].getDebugName(0)
+    # The box of the slanted outlines: a point at height y moves right by y * shear.
+    box = [math.floor(head.xMin + min(head.yMin * shear, head.yMax * shear)), head.yMin,
+           math.ceil(head.xMax + max(head.yMin * shear, head.yMax * shear)), head.yMax]
     builder.setupCFF(postscript, {
         "FullName": full,
         "FamilyName": "Noto Sans Mono" if "Mono" in postscript else "Noto Serif",
         "Weight": "Bold" if weight == 700 else "Regular",
         "Notice": copyright_notice,
-        "ItalicAngle": font["post"].italicAngle,
+        "ItalicAngle": -slant if slant else font["post"].italicAngle,
         "isFixedPitch": int(font["post"].isFixedPitch),
-        "FontBBox": [head.xMin, head.yMin, head.xMax, head.yMax],
+        "FontBBox": box,
     }, strings, {"defaultWidthX": 0, "nominalWidthX": 0})
     compiled = builder.font["CFF "].compile(builder.font)
     return compiled, len(order)

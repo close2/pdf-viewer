@@ -180,7 +180,10 @@ mod declared_range_tests {
 /// route: the embedded program's own advance for a code that reaches a glyph other than
 /// `.notdef` — Table 109's "consistent with the actual widths given in the font program" — then
 /// the resembling standard font's published metrics, then Table 120's `/MissingWidth`, which
-/// [`crate::LoadedFont::advance`] supplies as the default width. A substitute's face is no program
+/// [`crate::LoadedFont::advance`] supplies as the default width; a font stating no descriptor has
+/// no `/MissingWidth` to read, so its last step, and a code outside a `/Widths` range it does
+/// state, is the advance of the glyph its drawn face paints ([`painted_glyph_widths`], ADR 3046).
+/// A substitute's face is no program
 /// of the file's and is not the first step. The second answer records which steps answered, for
 /// the report the caller owes and the archive's `layout-from-this-viewer`.
 ///
@@ -190,7 +193,14 @@ pub(crate) fn simple_widths(
     stated: BTreeMap<u32, f32>,
     font: SimpleMetrics<'_>,
 ) -> (BTreeMap<u32, f32>, Option<SuppliedWidths>, CodeSet) {
-    let Some(request) = font.published.filter(|_| stated.is_empty()) else {
+    if !stated.is_empty() {
+        // The file's own `/Widths` govern every code in its range; a code outside it is sent to a
+        // `/MissingWidth` that a dictionary with no descriptor does not state (ADR 3046).
+        let mut stated = stated;
+        let by_notdef = painted_glyph_widths(font, &mut stated);
+        return (stated, None, by_notdef);
+    }
+    let Some(request) = font.published else {
         return (stated, None, CodeSet::default());
     };
     let standard = standard_metrics::StandardFont::for_request(request);
@@ -221,12 +231,53 @@ pub(crate) fn simple_widths(
     for (code, width) in resembling {
         widths.entry(code).or_insert(width);
     }
+    let from_standard = widths.len().saturating_sub(from_program);
+    let by_notdef = painted_glyph_widths(font, &mut widths);
     let supplied = SuppliedWidths {
         from_program,
-        from_standard: widths.len().saturating_sub(from_program),
+        from_standard,
+        from_drawn_face: widths
+            .len()
+            .saturating_sub(from_program)
+            .saturating_sub(from_standard),
         standard,
     };
-    (widths, Some(supplied), CodeSet::default())
+    (widths, Some(supplied), by_notdef)
+}
+
+/// The width of a code a font drawn from a substitute and stating no `/FontDescriptor` gives no
+/// width to — every code outside its `/Widths` range, or, where it states no `/Widths` and is not
+/// one of the fourteen, every code ADR 2898's first two steps left: the advance of the glyph the
+/// drawn face paints for it, its own glyph of that name or its `.notdef` for a name it lacks or an
+/// empty slot. The codes advanced by `.notdef` are returned (ADR 3046).
+///
+/// Table 109's `/Widths` row sends a code outside the range to the `/MissingWidth` of the font's
+/// `/FontDescriptor`, and ADR 2898's third step is the same entry; Table
+/// 120 is the font descriptor's table, so a dictionary with no descriptor states no such entry,
+/// and the default of an entry the font never states is no statement either. What remains is
+/// §9.2.4's: "the Tj operator shall position the consecutive glyphs of a string according to
+/// their widths", a glyph's width being "the distance the current text position shall move (by
+/// translating text space) when the glyph is painted", and §9.6.5.2's choice of the glyph painted
+/// for a name the program lacks:
+///
+/// > If an encoding maps to a character name that does not exist in the Type 1 font program, the
+/// > .notdef glyph shall be substituted.
+///
+/// That is ADR 2942's reading of a name-alone standard font, which has no descriptor either, and
+/// it answers the same codes the same way here: a page no longer sets the next glyph on top of a
+/// painted one. A font that states a descriptor keeps ADR 2898's `/MissingWidth`, stated or 0.
+fn painted_glyph_widths(font: SimpleMetrics<'_>, widths: &mut BTreeMap<u32, f32>) -> CodeSet {
+    if font.substituted.is_none() || font.states_descriptor {
+        return CodeSet::default();
+    }
+    let drawn = SimpleMetrics {
+        type1: None,
+        ..font
+    };
+    for (code, width) in program_widths(drawn, |code, _| !widths.contains_key(&code)) {
+        widths.entry(code).or_insert(width);
+    }
+    notdef_advanced(font, widths)
 }
 
 /// Advances each code of one of the fourteen stated by name alone that names a glyph the drawn
@@ -309,6 +360,7 @@ pub(crate) fn unprogrammed_widths(
     let supplied = SuppliedWidths {
         from_program: 0,
         from_standard: widths.len(),
+        from_drawn_face: 0,
         standard,
     };
     (widths, supplied)
@@ -345,6 +397,10 @@ pub struct SuppliedWidths {
     pub from_program: usize,
     /// Codes whose advance is the published metric of [`Self::standard`] for the code's name.
     pub from_standard: usize,
+    /// Codes of a font stating no descriptor whose advance is the glyph the drawn face paints
+    /// for them, its `.notdef` where it holds none, because no `/MissingWidth` is stated (ADR
+    /// 3046).
+    pub from_drawn_face: usize,
     /// The standard font whose metrics the font's name and descriptor resemble.
     pub standard: standard_metrics::StandardFont,
 }
@@ -353,11 +409,19 @@ impl SuppliedWidths {
     /// The sentence a page owes for a font laid out this way, naming `font` as the page did.
     #[must_use]
     pub fn detail(&self, font: &str) -> String {
+        let rest = if self.from_drawn_face == 0 {
+            String::from("every other code by Table 120's /MissingWidth")
+        } else {
+            format!(
+                "{} by the drawn face's own glyph or its .notdef, since no font descriptor \
+                 states a /MissingWidth",
+                self.from_drawn_face
+            )
+        };
         format!(
             "font {font} states no /Widths, which ISO 32000-2 Table 109 requires outside the \
              fourteen standard fonts, so its layout is this viewer's: {} codes by the font \
-             program's own advances, {} by {:?}'s published metrics and every other code by \
-             Table 120's /MissingWidth",
+             program's own advances, {} by {:?}'s published metrics and {rest}",
             self.from_program, self.from_standard, self.standard
         )
     }
@@ -1343,6 +1407,88 @@ mod substituted_width_tests {
         }
     }
 
+    /// A font outside the fourteen stating neither `/Widths` nor a descriptor (ADR 3046): a code
+    /// no encoding names (code 10, empty in `WinAnsiEncoding`) and a code naming a glyph no face
+    /// holds are advanced by the drawn face's `.notdef`, which is the advance of the code naming
+    /// `.notdef` outright and is not 0 — Table 120's `/MissingWidth`, ADR 2898's last step, is an
+    /// entry of a descriptor the font does not have. Codes the published metrics name keep them
+    /// (Helvetica's 667 for `A`, the face `/Arial` resembles), and the report counts the rest.
+    #[test]
+    fn a_font_with_no_descriptor_advances_a_code_no_encoding_names_by_its_notdef() {
+        for encoding in [
+            "/Encoding << /BaseEncoding /WinAnsiEncoding /Differences [66 /nonesuch 67 /.notdef] >>",
+            "/Encoding << /Differences [66 /nonesuch 67 /.notdef] >>",
+        ] {
+            let (document, dict) = font_dictionary(&format!("/BaseFont /Garamond {encoding}"));
+            let font = LoadedFont::load(&document, &dict, "F1").expect("a named face loads");
+            let (empty, absent, notdef) = (
+                Code::single_byte(10),
+                Code::single_byte(66),
+                Code::single_byte(67),
+            );
+            let width = font.advance(notdef);
+            assert!(width > 0.0, "{encoding}: {width}");
+            for code in [empty, absent] {
+                assert!(
+                    font.advanced_by_notdef(code),
+                    "{encoding}: {}",
+                    code.value()
+                );
+                assert!(
+                    (font.advance(code) - width).abs() < 1e-6,
+                    "{encoding}: code {} advances {}, .notdef {width}",
+                    code.value(),
+                    font.advance(code)
+                );
+                assert!(font.outline(code).is_none_or(|path| path.is_empty()));
+            }
+            assert!((font.advance(Code::single_byte(b'A')) - 0.722).abs() < 1e-6);
+            let supplied = font.supplied_widths().expect("the layout is this viewer's");
+            assert_eq!(supplied.standard, StandardFont::TimesRoman, "{encoding}");
+            assert!(supplied.from_drawn_face >= 2, "{supplied:?}");
+            assert!(
+                font.supplied_widths()
+                    .is_some_and(|supplied| supplied.detail("F1").contains(".notdef")),
+                "the report says which step answered"
+            );
+        }
+    }
+
+    /// A font stating `/Widths` and no descriptor keeps every width it states (§9.2.4, Table
+    /// 109), and a code outside `/FirstChar` to `/LastChar`, which the table sends to a
+    /// `/MissingWidth` the absent descriptor does not state, takes the drawn face's `.notdef`
+    /// (ADR 3046). A descriptor states where `/MissingWidth` lives, and keeps it.
+    #[test]
+    fn a_code_outside_the_widths_of_a_font_with_no_descriptor_takes_the_notdef_advance() {
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Garamond /FirstChar 65 /LastChar 66 /Widths [500 0] \
+             /Encoding /WinAnsiEncoding",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a named face loads");
+        assert!((font.advance(Code::single_byte(b'A')) - 0.5).abs() < 1e-6);
+        assert!(
+            font.advance(Code::single_byte(b'B')).abs() < 1e-6,
+            "a width of 0 the file states is the file's"
+        );
+        // `C` reaches the drawn face's own glyph, and code 10, empty in `WinAnsiEncoding`, its
+        // `.notdef`.
+        let (outside, empty) = (Code::single_byte(b'C'), Code::single_byte(10));
+        assert!(!font.advanced_by_notdef(outside));
+        assert!(font.advance(outside) > 0.0, "{}", font.advance(outside));
+        assert!(font.advanced_by_notdef(empty));
+        assert!(font.advance(empty) > 0.0, "{}", font.advance(empty));
+        assert_eq!(font.supplied_widths(), None, "the layout is the file's");
+
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Garamond /FirstChar 65 /LastChar 66 /Widths [500 0] \
+             /Encoding /WinAnsiEncoding /FontDescriptor << /Type /FontDescriptor /Flags 34 \
+             /MissingWidth 333 >>",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a named face loads");
+        assert!(!font.advanced_by_notdef(outside));
+        assert!((font.advance(outside) - 0.333).abs() < 1e-6);
+    }
+
     /// Without the `/Differences`, code 32 is the base encoding's `space` and is 250 too.
     ///
     /// The pair is what says the fix did not simply hard-code a number: the two routes to
@@ -1361,18 +1507,20 @@ mod substituted_width_tests {
     /// Table 120's `/MissingWidth` answers a code they do not name. The face's own advance is no
     /// statement of the file's and is not a step: Helvetica's metrics name no `afii10017`
     /// (Cyrillic А), so it is the descriptor's 333 whatever the face this machine offers states.
+    /// Where no descriptor is stated there is no `/MissingWidth` to read, and the code takes the
+    /// advance of the glyph the drawn face paints, never 0 (ADR 3046).
     #[test]
     fn a_substitute_with_no_widths_keeps_the_resembling_standard_metrics() {
         for (entries, missing) in [
             (
                 "/BaseFont /Arial /Encoding << /Differences [66 /afii10017] >>",
-                0.0,
+                None,
             ),
             (
                 "/BaseFont /Arial /Encoding << /Differences [66 /afii10017] >> \
                  /FontDescriptor << /Type /FontDescriptor /FontName /Arial /Flags 32 \
                  /MissingWidth 333 >>",
-                0.333,
+                Some(0.333),
             ),
         ] {
             let (document, dict) = font_dictionary(entries);
@@ -1382,11 +1530,11 @@ mod substituted_width_tests {
                 (font.advance(Code::single_byte(b'A')) - 0.667).abs() < 1e-6,
                 "{entries}"
             );
-            assert!(
-                (font.advance(Code::single_byte(66)) - missing).abs() < 1e-6,
-                "{entries}: {}",
-                font.advance(Code::single_byte(66))
-            );
+            let advance = font.advance(Code::single_byte(66));
+            match missing {
+                Some(missing) => assert!((advance - missing).abs() < 1e-6, "{entries}: {advance}"),
+                None => assert!(advance > 0.0, "{entries}: the painted glyph's, not 0"),
+            }
             let supplied = font.supplied_widths().expect("the layout is this reader's");
             assert_eq!(supplied.standard, StandardFont::Helvetica, "{entries}");
         }

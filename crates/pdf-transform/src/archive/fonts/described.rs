@@ -717,13 +717,49 @@ fn restated_entries(
     }
     // **The widths the page is laid out by, stated, because the descriptor obliges them.** Table
     // 109's `/FontDescriptor` row: "For the standard 14 fonts, the entries FirstChar, LastChar,
-    // Widths , and FontDescriptor shall either all be present or all be absent." A file that wrote
-    // `/Widths` keeps them; one that relied on the permission is given the numbers the viewer laid
-    // it out with, which is the one `/Widths` that moves nothing (`doc/adr/2146`).
-    if document.get_key(&used.dict, "Widths").is_null() {
-        state_laid_out_widths(&mut entries, source);
-    }
+    // Widths , and FontDescriptor shall either all be present or all be absent." A file that relied
+    // on the permission is given the numbers the viewer laid it out with, which is the one `/Widths`
+    // that moves nothing (`doc/adr/2146`). A file that wrote `/Widths` without a descriptor keeps
+    // every width it wrote, and is given, for the codes outside its range, the advances the window
+    // laid them out at: the descriptor written here states no `/MissingWidth`, and its default of 0
+    // would move a glyph the window placed by the glyph it painted (`doc/adr/3046`, `doc/adr/3047`).
+    state_laid_out_widths(&mut entries, source);
+    keep_stated_widths(document, &used.dict, &mut entries);
     entries
+}
+
+/// Puts back, inside the `/Widths` array just written, the file's own entry for every code the
+/// file's `/FirstChar` to `/LastChar` range states, so that a width the producer wrote is the
+/// object it wrote rather than the same number read and written again (`doc/adr/3047`).
+fn keep_stated_widths(document: &Document, dict: &Dictionary, entries: &mut Dictionary) {
+    let stated = document.get_key(dict, "Widths");
+    let (Some(stated), Some(stated_first)) = (
+        stated.as_array(),
+        document.get_key(dict, "FirstChar").as_integer(),
+    ) else {
+        return;
+    };
+    let Some(written_first) = entries.get("FirstChar").and_then(Object::as_integer) else {
+        return;
+    };
+    let Some(mut written) = entries
+        .get("Widths")
+        .and_then(Object::as_array)
+        .map(<[Object]>::to_vec)
+    else {
+        return;
+    };
+    for (offset, entry) in stated.iter().enumerate() {
+        let index = i64::try_from(offset)
+            .ok()
+            .and_then(|offset| stated_first.checked_add(offset))
+            .and_then(|code| code.checked_sub(written_first))
+            .and_then(|index| usize::try_from(index).ok());
+        if let Some(slot) = index.and_then(|index| written.get_mut(index)) {
+            *slot = document.resolve(entry);
+        }
+    }
+    entries.insert(Name::new(&b"Widths"[..]), Object::Array(written));
 }
 
 /// Writes `/FirstChar`, `/LastChar` and `/Widths` into `entries` from the advances `source` is laid
@@ -868,12 +904,18 @@ pub(super) fn describe(
 /// `/FontDescriptor`, and Annex D publishes their metrics. Any other simple font that leaves both
 /// out has had its layout stated by nothing in the file or the standard, and the viewer's choice
 /// of the metrics its name resembles is the only layout the page was shown with
-/// (`doc/questions/A687`, `doc/adr/2504`).
+/// (`doc/questions/A687`, `doc/adr/2504`). One that leaves out only the descriptor has stated its
+/// layout itself, and §9.2.4 positions its glyphs by those widths (`doc/adr/3047`).
 enum Layout {
     /// One of the fourteen, whose metrics the standard publishes.
     Standard,
-    /// Any other simple font, laid out by this viewer.
+    /// Any other simple font stating no `/Widths`, laid out by this viewer.
     ThisViewers {
+        /// The bytes of the `/BaseFont` the file states, or `None` where it states none.
+        base_font: Option<Vec<u8>>,
+    },
+    /// Any other simple font that states `/Widths` and no descriptor, laid out by its own widths.
+    TheFiles {
         /// The bytes of the `/BaseFont` the file states, or `None` where it states none.
         base_font: Option<Vec<u8>>,
     },
@@ -887,7 +929,10 @@ impl Layout {
 
     /// Whether the font dictionary is given the `/BaseFont` its descriptor is named by.
     const fn supplies_base_font(&self) -> bool {
-        matches!(self, Self::ThisViewers { base_font: None })
+        matches!(
+            self,
+            Self::ThisViewers { base_font: None } | Self::TheFiles { base_font: None }
+        )
     }
 
     /// The `/FontName` of the descriptor, which Table 120 makes the dictionary's `/BaseFont`.
@@ -911,13 +956,18 @@ impl Layout {
             Self::Standard => requested.as_bytes().to_vec(),
             Self::ThisViewers {
                 base_font: Some(stated),
+            }
+            | Self::TheFiles {
+                base_font: Some(stated),
             } => stated.clone(),
-            Self::ThisViewers { base_font: None } => postscript_name(face).unwrap_or_else(|| {
-                face.describe()
-                    .bytes()
-                    .map(|byte| if byte == b' ' { b'-' } else { byte })
-                    .collect()
-            }),
+            Self::ThisViewers { base_font: None } | Self::TheFiles { base_font: None } => {
+                postscript_name(face).unwrap_or_else(|| {
+                    face.describe()
+                        .bytes()
+                        .map(|byte| if byte == b' ' { b'-' } else { byte })
+                        .collect()
+                })
+            }
         }
     }
 }
@@ -950,9 +1000,12 @@ pub(super) fn postscript_name(face: &ShippedFace) -> Option<Vec<u8>> {
 ///
 /// A `Type1` font naming one of the fourteen keeps the standard's layout. A `Type1`, `MMType1` or
 /// `TrueType` font naming anything else, with no `/Widths` either, is the viewer's layout under
-/// the loss `layout-from-this-viewer`. One that states `/Widths` but no descriptor, a `/BaseFont`
-/// that is not a name, or a subtype of another kind, is refused: its layout is the file's, or its
-/// name is no name, and neither is this route's to rewrite.
+/// the loss `layout-from-this-viewer`. One that states `/Widths` but no descriptor is laid out by
+/// those widths, which the descriptor written beside them leaves as they are: ISO 32000-2 §9.2.4
+/// positions glyphs "according to their widths", and Table 109's descriptor row is a requirement
+/// the converter can meet without moving a glyph (`doc/adr/3047`). A `/BaseFont` that is not a
+/// name, or a subtype of another kind, is refused: its name is no name, or the standard describes
+/// no program for it.
 fn layout_of(
     document: &Document,
     used: &SelectedFont,
@@ -965,18 +1018,21 @@ fn layout_of(
     if !matches!(subtype, "Type1" | "MMType1" | "TrueType") {
         return Err(Because::NotBuiltYet(NOT_A_SIMPLE_FONT));
     }
-    if !document.get_key(&used.dict, "Widths").is_null() {
-        return Err(Because::NotBuiltYet(WIDTHS_WITHOUT_A_DESCRIPTOR));
-    }
+    let states_widths = !document.get_key(&used.dict, "Widths").is_null();
+    let layout = |base_font| {
+        if states_widths {
+            Layout::TheFiles { base_font }
+        } else {
+            Layout::ThisViewers { base_font }
+        }
+    };
     let base_font = document.get_key(&used.dict, "BaseFont");
     if base_font.is_null() {
-        return Ok(Layout::ThisViewers { base_font: None });
+        return Ok(layout(None));
     }
     base_font
         .as_name()
-        .map(|name| Layout::ThisViewers {
-            base_font: Some(name.as_bytes().to_vec()),
-        })
+        .map(|name| layout(Some(name.as_bytes().to_vec())))
         .ok_or(Because::NotBuiltYet(BASE_FONT_NOT_A_NAME))
 }
 
@@ -1951,12 +2007,6 @@ const NOT_A_SIMPLE_FONT: &str = "this rendered font states no FontDescriptor and
      describes a program for, so the standard says nothing of what it is drawn or laid out by and \
      there is no description to embed a program against";
 
-/// Why a font that states `/Widths` but no descriptor, outside the fourteen, is not described.
-const WIDTHS_WITHOUT_A_DESCRIPTOR: &str = "this rendered font states /Widths and no \
-     FontDescriptor and is not a Type1 font naming one of the fourteen ISO 32000-2 \u{a7}9.6.2.2 \
-     lists, so its layout is the file's own and the face this program would embed is not the one \
-     the widths were stated for; Table 109 lets only the standard 14 leave the descriptor out";
-
 /// Why a font whose `/BaseFont` is present but is no name is not described.
 const BASE_FONT_NOT_A_NAME: &str = "this rendered font states no FontDescriptor and a BaseFont \
      that is not a name, so there is no name for the descriptor's FontName to equal, and \
@@ -1976,7 +2026,7 @@ const ANOTHER_FACE_DRAWS_A_SHOWN_CODE: &str = "this rendered font names one of t
      rather than given a face that draws less than the page";
 
 /// Why a face whose advances are not the widths the page is laid out by is not embedded.
-const WIDTHS_NOT_THE_FACES: &str = "this rendered font names one of the standard 14 and states no \
+const WIDTHS_NOT_THE_FACES: &str = "this rendered font states no \
      FontDescriptor, and for a code the page shows the face this program ships states an advance \
      more than ISO 19005-2 section 6.2.11.5's thousandth of an em away from the width the page is \
      laid out by. Embedding it would mean restating the program's advance, which modifies a face \

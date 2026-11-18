@@ -2947,6 +2947,21 @@ fn stated_widths(bytes: &[u8]) -> Vec<f64> {
         .collect()
 }
 
+/// The width the converted font object 6 states for `code`, read through its `/FirstChar`.
+fn stated_width_of(bytes: &[u8], code: u8) -> Option<f64> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    let first = held.get_key(&font, "FirstChar").as_integer()?;
+    let index = i64::from(code).checked_sub(first)?;
+    stated_widths(bytes)
+        .get(usize::try_from(index).ok()?)
+        .copied()
+}
+
 /// Table 109's count changes no advance: a missing entry and a code outside the range both
 /// take `MissingWidth`, while entries past `LastChar` do not describe any code.
 #[test]
@@ -16065,8 +16080,10 @@ fn a_shipped_face_fitted_horizontally_is_embedded_with_its_fitting() {
             .expect("the font was substituted");
         assert!(font.losses.is_empty());
         assert_eq!(font.fitting, Some(Fitting::Written(stretch)));
+        // The file's own width for `H` is kept; the codes outside its range are stated at the
+        // window's advances, since the descriptor written has no `/MissingWidth` (ADR 3046).
         let stated: f64 = width.parse().expect("a number");
-        assert_eq!(stated_widths(&output), vec![stated]);
+        assert_eq!(stated_width_of(&output, b'H'), Some(stated));
         assert!(
             drawn_alike(&h_outline(&source), &h_outline(&output), within),
             "{width}, descriptor {descriptor}: the output does not draw the window's H"
@@ -16117,7 +16134,7 @@ fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch_where_autho
             .expect("the font was substituted");
         assert_eq!(font.losses, Losses::one(Loss::SubstituteStretch));
         assert_eq!(font.fitting, Some(Fitting::Removed(stretch)));
-        assert_eq!(stated_widths(&output), vec![721.9]);
+        assert_eq!(stated_width_of(&output, b'H'), Some(721.9));
     }
 }
 

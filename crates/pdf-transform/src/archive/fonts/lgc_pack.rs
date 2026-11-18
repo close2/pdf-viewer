@@ -1,4 +1,4 @@
-//! The Latin-Greek-Cyrillic pack: Noto Serif in four styles and Noto Sans Mono in two, downloaded
+//! The Latin-Greek-Cyrillic pack: Noto Serif and Noto Sans Mono in four styles each, downloaded
 //! beside this program, for a simple font whose shown codes the compiled-in serif or fixed face
 //! cannot all draw (ADR 2630's decision, ADR 2934's build).
 //!
@@ -56,22 +56,31 @@ pub enum LgcFace {
     MonoRegular,
     /// Noto Sans Mono at weight 700.
     MonoBold,
+    /// Noto Sans Mono at weight 400, slanted by `tools/lgc-pack.py` (ADR 3048).
+    MonoOblique,
+    /// Noto Sans Mono at weight 700, slanted by `tools/lgc-pack.py` (ADR 3048).
+    MonoBoldOblique,
 }
 
 impl LgcFace {
     /// Every face the pack holds, in the order `SHA256SUMS` lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::SerifRegular,
         Self::SerifBold,
         Self::SerifItalic,
         Self::SerifBoldItalic,
         Self::MonoRegular,
         Self::MonoBold,
+        Self::MonoOblique,
+        Self::MonoBoldOblique,
     ];
 
     /// The face standing in for the shipped face a request is answered by, where the pack holds
-    /// one: the serif face's four styles, and the fixed face's two upright ones, since Noto Sans
-    /// Mono is published in no italic and an upright face is not the producer's italic.
+    /// one: the serif face's four styles and the fixed face's four. Noto Sans Mono is published in
+    /// no italic, and an upright face is not the italic ISO 32000-2 §9.8.2's Table 121 asks for
+    /// with its `Italic` flag ("Glyphs have dominant vertical strokes that are slanted"), so the
+    /// fixed face's italics are the upright outlines slanted by the 12 degrees the standard
+    /// fixed-pitch obliques' metrics state, a face this program made and says so (ADR 3048).
     #[must_use]
     pub const fn for_request(request: Request) -> Option<Self> {
         match (request.family, request.bold, request.italic) {
@@ -81,6 +90,8 @@ impl LgcFace {
             (Family::Serif, true, true) => Some(Self::SerifBoldItalic),
             (Family::Monospace, false, false) => Some(Self::MonoRegular),
             (Family::Monospace, true, false) => Some(Self::MonoBold),
+            (Family::Monospace, false, true) => Some(Self::MonoOblique),
+            (Family::Monospace, true, true) => Some(Self::MonoBoldOblique),
             _ => None,
         }
     }
@@ -95,6 +106,8 @@ impl LgcFace {
             Self::SerifBoldItalic => "NotoSerif-BoldItalic.cff",
             Self::MonoRegular => "NotoSansMono-Regular.cff",
             Self::MonoBold => "NotoSansMono-Bold.cff",
+            Self::MonoOblique => "NotoSansMono-Oblique.cff",
+            Self::MonoBoldOblique => "NotoSansMono-BoldOblique.cff",
         }
     }
 
@@ -108,6 +121,12 @@ impl LgcFace {
             Self::SerifBoldItalic => "Noto Serif Bold Italic, from the Latin-Greek-Cyrillic pack",
             Self::MonoRegular => "Noto Sans Mono Regular, from the Latin-Greek-Cyrillic pack",
             Self::MonoBold => "Noto Sans Mono Bold, from the Latin-Greek-Cyrillic pack",
+            Self::MonoOblique => {
+                "Noto Sans Mono Regular slanted by this program, from the Latin-Greek-Cyrillic pack"
+            }
+            Self::MonoBoldOblique => {
+                "Noto Sans Mono Bold slanted by this program, from the Latin-Greek-Cyrillic pack"
+            }
         }
     }
 
@@ -125,6 +144,10 @@ impl LgcFace {
             }
             Self::MonoRegular => "7628d0991bb74a7764c82b5d906a0edfebea58f1ea8a8fdd44f53c75263fae30",
             Self::MonoBold => "0efd3c29d995835d8739073487e3d627fbba10d54248c6d269451f7549f73ba8",
+            Self::MonoOblique => "c65e6e70e6634e9f3ffc153df5739d1ffc4dc764378fa88ee58c2f78a43a7f4e",
+            Self::MonoBoldOblique => {
+                "c13a69479f5a692805994d565cbfc9fb758f9afe97c663c49ed1011d5f3fe669"
+            }
         }
     }
 
@@ -137,6 +160,8 @@ impl LgcFace {
             Self::SerifBoldItalic => 3,
             Self::MonoRegular => 4,
             Self::MonoBold => 5,
+            Self::MonoOblique => 6,
+            Self::MonoBoldOblique => 7,
         }
     }
 }
@@ -152,7 +177,7 @@ pub struct LgcPack(Arc<Shared>);
 #[derive(Debug)]
 struct Shared {
     files: Arc<dyn PackFiles>,
-    loaded: [Loaded; 6],
+    loaded: [Loaded; LgcFace::ALL.len()],
 }
 
 /// One face's program once it was asked for: its verified bytes, or why there are none.
@@ -221,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn the_serif_face_has_four_styles_the_fixed_two_and_the_sans_none() {
+    fn the_serif_and_the_fixed_face_have_four_styles_and_the_sans_none() {
         assert_eq!(
             LgcFace::for_request(request(Family::Serif, true, true)),
             Some(LgcFace::SerifBoldItalic)
@@ -230,10 +255,14 @@ mod tests {
             LgcFace::for_request(request(Family::Monospace, true, false)),
             Some(LgcFace::MonoBold)
         );
-        // Noto Sans Mono is published upright only, and an upright face is not the italic asked.
+        // Noto Sans Mono is published upright only, so its italics are the pack's own obliques.
         assert_eq!(
             LgcFace::for_request(request(Family::Monospace, false, true)),
-            None
+            Some(LgcFace::MonoOblique)
+        );
+        assert_eq!(
+            LgcFace::for_request(request(Family::Monospace, true, true)),
+            Some(LgcFace::MonoBoldOblique)
         );
         assert_eq!(
             LgcFace::for_request(request(Family::SansSerif, false, false)),

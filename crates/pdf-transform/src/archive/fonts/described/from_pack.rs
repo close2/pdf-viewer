@@ -18,7 +18,7 @@
 //! §9.6.5.2 selects by name — applied to the face this file draws (`doc/adr/2942`).
 //!
 //! Only the standard's layout is taken: a font outside the fourteen that states no descriptor is
-//! laid out by this viewer's choice (ADR 2898), whose name the shipped face supplies, and it keeps
+//! laid out by this viewer's choice (ADR 2898) or by its own `/Widths` (ADR 3047), and it keeps
 //! [`super::describe`]'s route.
 
 use std::collections::BTreeMap;

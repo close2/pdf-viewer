@@ -32,10 +32,15 @@ The face is the pack's and neither the producer's nor the one the window drew, w
 profile withholds that loss, comes the machine's own face the window drew the font from, where its
 licence permits (ADR 2773). The viewer does not read the pack.
 
-Not answered, each refused by its sentence as before: an italic fixed-pitch request (Noto Sans Mono
-is published in no italic, and an upright face is not the italic asked for), a sans-serif request
+An italic fixed-pitch request takes one of the two obliques the script makes: Noto Sans Mono is
+published in no italic, and an upright face is not the italic Table 121's `Italic` flag asks for, so
+the upright instance is slanted by 12 degrees, the `ItalicAngle` of the standard fixed-pitch
+obliques' metrics (`data/standard-fonts/afm/Courier-Oblique.afm`), and the report names it as a face
+this program slanted (ADR 3048).
+
+Not answered, each refused by its sentence as before: a sans-serif request
 (Liberation Sans already covers Latin, Greek and Cyrillic), a font outside the fourteen that states
-no descriptor (its layout and name are this viewer's, ADR 2898), and a standard font the conversion
+no descriptor (its layout is this viewer's or its own `/Widths`, ADRs 2898 and 3047), and a standard font the conversion
 itself defines for a name a content stream uses with no font resource (ADR 2522).
 
 ## Layout
@@ -51,6 +56,8 @@ else and named with `--lgc-pack <dir>`:
 | `NotoSerif-BoldItalic.cff` | Noto Serif Italic at weight 700 |
 | `NotoSansMono-Regular.cff` | Noto Sans Mono at weight 400 |
 | `NotoSansMono-Bold.cff` | Noto Sans Mono at weight 700 |
+| `NotoSansMono-Oblique.cff` | Noto Sans Mono at weight 400, slanted 12 degrees by the script |
+| `NotoSansMono-BoldOblique.cff` | Noto Sans Mono at weight 700, slanted 12 degrees by the script |
 | `LICENSE.txt` | the family's `OFL.txt`: the SIL Open Font License 1.1 and its copyright line, verbatim |
 | `SHA256SUMS` | each file's SHA-256, in `sha256sum`'s format |
 

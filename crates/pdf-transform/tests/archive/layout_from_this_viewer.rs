@@ -4,6 +4,8 @@
 //! ISO 32000-2 §9.6.2.1's Table 109 makes `/Widths` and `/FontDescriptor` required of every
 //! simple font but the fourteen; the layout of any other name is stated by nothing, so what the
 //! output states is this viewer's. `as-if-printed` discards the loss and `as-shown` stops on it.
+//! One that leaves out only the descriptor has stated its layout, and keeps it with no loss
+//! (`doc/adr/3047`).
 
 use super::*;
 
@@ -225,25 +227,75 @@ fn the_standard_fourteen_by_name_do_not_incur_the_loss() {
     assert!(!font.losses.contains(Loss::LayoutFromThisViewer));
 }
 
+/// `Hello`'s four letters at Arial's widths, which the shipped sans face shares, and no other.
+const HELLO_WIDTHS: &str = "/FirstChar 72 /LastChar 111 /Widths [722 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 \
+                            0 0 0 0 0 0 0 0 0 0 0 0 0 556 0 0 0 0 0 0 222 0 0 556]";
+
+/// A font outside the fourteen stating `/Widths` and no descriptor is laid out by its own widths
+/// (ISO 32000-2 §9.2.4), so it is given the descriptor Table 109 requires and keeps them, and the
+/// layout is no loss (`doc/adr/3047`).
 #[test]
-fn a_font_stating_widths_but_no_descriptor_outside_the_fourteen_stays_refused() {
-    let source = a_font_stating_nothing(
-        "TrueType",
-        "/BaseFont /Arial",
-        "/FirstChar 72 /LastChar 72 /Widths [722]",
-    );
-    let (report, output) = convert(&source, Target::Two(Level::B), every_font_loss());
-    assert!(output.is_none(), "nothing is written");
-    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
-        panic!("the font requirement is refused");
-    };
+fn a_font_stating_widths_but_no_descriptor_keeps_them_beside_the_descriptor_it_is_given() {
+    for subtype in ["Type1", "TrueType"] {
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let source = a_font_stating_nothing(subtype, "/BaseFont /Arial", HELLO_WIDTHS);
+            let (report, output) = converted(&source, target);
+            let font = conversion(&report).substituted.first().expect("one font");
+            assert!(
+                !font.losses.contains(Loss::LayoutFromThisViewer),
+                "{subtype} {target}: {}",
+                font.losses.words()
+            );
+            let (held, dict) = described_font(&output);
+            assert_eq!(name_entry(&held, &dict, "BaseFont"), "Arial", "{subtype}");
+            let descriptor = held.get_key(&dict, "FontDescriptor");
+            let descriptor = descriptor.as_dict().expect("a descriptor");
+            assert_eq!(name_entry(&held, descriptor, "FontName"), "Arial");
+            let after = pdf_font::LoadedFont::load(&held, &dict, "F1").expect("the output loads");
+            assert!(
+                after.substitute_program().is_none(),
+                "{subtype}: a program is embedded"
+            );
+            for (letter, width) in [(b'H', 0.722), (b'e', 0.556), (b'l', 0.222), (b'o', 0.556)] {
+                let advance = after.advance(pdf_font::Code::single_byte(letter));
+                assert!(
+                    (advance - width).abs() < 1e-6,
+                    "{subtype}: {letter} {advance}"
+                );
+            }
+        }
+    }
+}
+
+/// The window's advance of every code is the converted font's: the file's widths in their range,
+/// and outside it the advance of the glyph the window painted, which the converted font states
+/// because its descriptor's `/MissingWidth` would otherwise be 0 (`doc/adr/3046`).
+#[test]
+fn a_font_stating_widths_but_no_descriptor_moves_no_code() {
+    let source = a_font_stating_nothing("TrueType", "/BaseFont /Arial", HELLO_WIDTHS);
+    let (_, output) = converted(&source, Target::Two(Level::B));
+    let drawn = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let before = drawn
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("font");
+    let before = pdf_font::LoadedFont::load(&drawn, &before, "F1").expect("the source loads");
     assert!(
-        because
-            .sentence()
-            .contains("states /Widths and no FontDescriptor"),
-        "{}",
-        because.sentence()
+        before.advance(pdf_font::Code::single_byte(b'A')) > 0.0,
+        "a code outside the range is not laid out at 0"
     );
+    let (held, dict) = described_font(&output);
+    let after = pdf_font::LoadedFont::load(&held, &dict, "F1").expect("the output loads");
+    for code in 0..=u8::MAX {
+        let code = pdf_font::Code::single_byte(code);
+        let (was, is) = (before.advance(code), after.advance(code));
+        assert!(
+            (was - is).abs() < 0.001,
+            "code {}: {was} em before, {is} after",
+            code.value()
+        );
+    }
 }
 
 #[test]

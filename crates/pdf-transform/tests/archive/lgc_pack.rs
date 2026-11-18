@@ -232,6 +232,11 @@ fn the_pack_draws_the_fixture(fixture: &[u8]) {
 /// fourteen — its codes 65 to 67 naming a-ogonek, n-acute and z-dot-above, which the standard's
 /// Times-Roman metrics carry and the Foxit serif face does not.
 fn a_standard_font_by_name_alone_showing_latin_extended_a() -> Vec<u8> {
+    a_standard_font_by_name_alone_showing_latin_extended_a_in("Times-Roman")
+}
+
+/// The same page in the standard font `base_font`.
+fn a_standard_font_by_name_alone_showing_latin_extended_a_in(base_font: &str) -> Vec<u8> {
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
                     [0.9505 1.0 1.089] >>] >>"
@@ -240,11 +245,10 @@ fn a_standard_font_by_name_alone_showing_latin_extended_a() -> Vec<u8> {
             String::new(),
             b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (ABC) Tj ET".to_vec(),
         )),
-        objects: vec![
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding << /Type /Encoding \
+        objects: vec![format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} /Encoding << /Type /Encoding \
              /BaseEncoding /WinAnsiEncoding /Differences [65 /aogonek /nacute /zdotaccent] >> >>"
-                .to_owned(),
-        ],
+        )],
         ..Conforming::part_two()
     }
     .build()
@@ -317,6 +321,62 @@ fn a_standard_font_stated_by_name_alone_takes_the_packs_face_and_a_descriptor_of
                 .any(|loss| loss == Loss::MachineFace),
         "{substituted:?}"
     );
+}
+
+/// ADR 3048: an italic fixed-pitch request — `Courier-Oblique` and `Courier-BoldOblique` stated by
+/// name alone, showing three Latin Extended-A letters the shipped fixed face lacks — takes the
+/// pack's slanted Noto Sans Mono of its weight, whose program states the 12 degrees of the
+/// standard obliques' `ItalicAngle`, and the report names a face this program slanted.
+#[test]
+#[ignore = "needs the Latin-Greek-Cyrillic pack, a download that is not part of a checkout: \
+            QUORRA_LGC_PACK=<dir> names it (doc/lgc-pack.md)"]
+fn an_italic_fixed_pitch_request_takes_the_packs_slanted_mono_face() {
+    let directory = std::env::var_os("QUORRA_LGC_PACK")
+        .expect("QUORRA_LGC_PACK names the directory the pack was unpacked into");
+    for (base_font, program_name, face) in [
+        (
+            "Courier-Oblique",
+            "+NotoSansMono-Oblique",
+            "Noto Sans Mono Regular slanted by this program",
+        ),
+        (
+            "Courier-BoldOblique",
+            "+NotoSansMono-BoldOblique",
+            "Noto Sans Mono Bold slanted by this program",
+        ),
+    ] {
+        let pack = LgcPack::new(Arc::new(Directory(Some(directory.clone().into()))));
+        let fixture = a_standard_font_by_name_alone_showing_latin_extended_a_in(base_font);
+        let (report, output) = convert_with_plan(&fixture, &plan_with(Some(pack)));
+        let output = output.unwrap_or_else(|| panic!("{base_font} converts"));
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let font = font_resource(&held);
+        let base = held
+            .get_key(&font, "BaseFont")
+            .as_name()
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+            .expect("a /BaseFont");
+        assert!(base.ends_with(program_name), "{base_font}: {base}");
+        let after = pdf_font::LoadedFont::load(&held, &font, "F1").expect("it loads");
+        assert!(!after.is_substituted(), "the embedded program is drawn");
+        for code in [65_u8, 66, 67].map(pdf_font::Code::single_byte) {
+            assert!(
+                after
+                    .glyph_index(code)
+                    .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH),
+                "{base_font}: {code:?}"
+            );
+            assert!(
+                (after.advance(code) - 0.6).abs() < 1e-6,
+                "{base_font}: {code:?}"
+            );
+        }
+        let substituted = conversion(&report)
+            .substituted
+            .first()
+            .expect("the one font");
+        assert!(substituted.face.starts_with(face), "{substituted:?}");
+    }
 }
 
 /// `Times-Roman` stated by name alone, its code 65 naming a-ogonek, which the standard's metrics
