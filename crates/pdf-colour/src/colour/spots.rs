@@ -5,7 +5,9 @@ use std::sync::{Arc, OnceLock};
 use pdf_render::Color;
 use pdf_syntax::Name;
 
-use super::cie::{D50, degamma, gamma, linear_srgb_to_xyz_d50, xyz_d50_to_linear_srgb};
+use super::cie::{
+    D50, constrained, degamma, gamma, linear_srgb_to_xyz_d50, xyz_d50_to_linear_srgb,
+};
 use super::compositing::{Compositing, Plane, process_plane};
 use super::device_cmyk::channel;
 use super::press::{Press, PressIdentity};
@@ -133,7 +135,11 @@ impl DeviceSpots {
         let mut space = space;
         for _ in 0..=MAX_DEPTH {
             match space {
-                ColourSpace::Indexed { base, .. } | ColourSpace::Pattern { base: Some(base) } => {
+                ColourSpace::Indexed { base, .. }
+                | ColourSpace::Pattern { base: Some(base) }
+                | ColourSpace::IccAlternate {
+                    alternate: base, ..
+                } => {
                     space = base;
                 }
                 ColourSpace::Separation { names, .. } | ColourSpace::Simulated { names, .. } => {
@@ -221,7 +227,11 @@ impl DeviceSpots {
         let mut space = space;
         for _ in 0..MAX_DEPTH {
             match space {
-                ColourSpace::Indexed { base, .. } | ColourSpace::Pattern { base: Some(base) } => {
+                ColourSpace::Indexed { base, .. }
+                | ColourSpace::Pattern { base: Some(base) }
+                | ColourSpace::IccAlternate {
+                    alternate: base, ..
+                } => {
                     space = base;
                 }
                 _ => break,
@@ -341,6 +351,10 @@ impl DeviceSpots {
                     space = base;
                 }
                 ColourSpace::Pattern { base: Some(base) } => space = base,
+                ColourSpace::IccAlternate { range, alternate } => {
+                    values = std::borrow::Cow::Owned(constrained(&values, range));
+                    space = alternate;
+                }
                 _ => break,
             }
         }
@@ -481,6 +495,17 @@ impl SpotSet {
             }
             ColourSpace::Pattern { base: Some(base) } => {
                 return self.reach(plane, press, base, values, rendering, generation, deeper);
+            }
+            ColourSpace::IccAlternate { range, alternate } => {
+                return self.reach(
+                    plane,
+                    press,
+                    alternate,
+                    &constrained(values, range),
+                    rendering,
+                    generation,
+                    deeper,
+                );
             }
             _ => {}
         }

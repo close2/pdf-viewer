@@ -2,7 +2,7 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-use super::cie::nearest;
+use super::cie::{constrained, nearest};
 use super::device_cmyk::channel;
 use super::grey_route::GreyIdentity;
 use super::rgb_route::RgbIdentity;
@@ -59,6 +59,7 @@ impl ColourSpace {
                 (0.0, top)
             }
             Self::Icc { profile } => profile.component_range(component),
+            Self::IccAlternate { range, .. } => range.get(component).copied().unwrap_or((0.0, 1.0)),
             Self::Lab { range, .. } => match component {
                 0 => (0.0, 100.0),
                 other => {
@@ -141,6 +142,7 @@ impl ColourSpace {
     pub fn profile_identity(&self) -> Option<u128> {
         match self {
             Self::Icc { profile } => Some(profile.identity()),
+            Self::IccAlternate { alternate, .. } => alternate.profile_identity(),
             _ => None,
         }
     }
@@ -160,6 +162,7 @@ impl ColourSpace {
             Self::Icc { profile } if profile.channels() == 1 => {
                 Some(GreyIdentity::Profile(profile.identity()))
             }
+            Self::IccAlternate { alternate, .. } => alternate.grey_identity(),
             _ => None,
         }
     }
@@ -186,6 +189,7 @@ impl ColourSpace {
             Self::Icc { profile } if profile.channels() == 3 => {
                 Some(RgbIdentity::Profile(profile.identity()))
             }
+            Self::IccAlternate { alternate, .. } => alternate.rgb_identity(),
             _ => None,
         }
     }
@@ -196,6 +200,7 @@ impl ColourSpace {
         match self {
             Self::Gray | Self::Indexed { .. } | Self::CalGray { .. } | Self::AllColourants => 1,
             Self::Icc { profile } => profile.channels(),
+            Self::IccAlternate { range, .. } => range.len(),
             // A pattern is named, not given as components; where an uncoloured one takes
             // a colour, that colour belongs to the underlying space.
             Self::Pattern { base } => base.as_ref().map_or(1, |base| base.components()),
@@ -233,7 +238,8 @@ impl ColourSpace {
             // `a` and `b`, and an `ICCBased` space's profile range with Table 65's `/Range`
             // taken over it (ADR 1098). `nearest` takes a range stated backwards as the
             // conversion does rather than panicking on it, as `f32::clamp` would.
-            Self::Lab { .. } | Self::Icc { .. } => (0..self.components())
+            Self::Lab { .. } | Self::Icc { .. } | Self::IccAlternate { .. } => (0..self
+                .components())
                 .map(|component| nearest(0.0, self.component_range(component)))
                 .collect(),
             // "In an Indexed colour space, the initial colour value shall be 0." And `DeviceGray`
@@ -325,6 +331,9 @@ impl ColourSpace {
             Self::Pattern { base } => base
                 .as_ref()
                 .map_or(1.0, |base| base.ink_at(values, depth.saturating_add(1))),
+            Self::IccAlternate { range, alternate } => {
+                alternate.ink_at(&constrained(values, range), depth.saturating_add(1))
+            }
             // Every other space is one this tree resolves to RGB, and §10.4.2.2's grey of
             // that RGB is the luminosity — so its ink is one minus it. That covers the
             // CIE-based branch of §11.5.3 as well, where the clause asks for the `Y` of the
@@ -374,6 +383,7 @@ impl ColourSpace {
             | Self::CalGray { .. }
             | Self::CalRgb { .. }
             | Self::Icc { .. }
+            | Self::IccAlternate { .. }
             | Self::Separation { .. }
             // The clause names the *space*, not the route out of it: a `DeviceN` read under
             // §10.8.3 is still the designated `DeviceN` colour space its tints interpolate in.

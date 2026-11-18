@@ -355,6 +355,8 @@ impl RgbRoute {
                 matrix,
             } => cal_rgb_stages(*white, *gamma, matrix),
             ColourSpace::Icc { profile } => profile_stages(profile)?,
+            // Drawn in its alternate, whose route it is (`ColourSpace::IccAlternate`).
+            ColourSpace::IccAlternate { alternate, .. } => return Self::of(alternate),
             _ => return None,
         };
         let output: Vec<f32> = (0..RGB_OUTPUT_SAMPLES)

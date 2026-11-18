@@ -295,8 +295,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-colour/src/colour/parsing.rs
 - test files: crates/pdf-model/tests/icc_alternate_range_spec_audit.rs, crates/pdf-model/tests/special_space_initial_tints_spec_audit.rs
 
-- 2038-B25 | pdf-colour | behavior-mismatch | open | unsupported ICC fallback skips Range clamp | 1 manifest failure
-- 2038-T31 | pdf-colour,pdf-model | test-coverage-gap | open | test control: special colour space initial values
+- 2038-B25 | pdf-colour | behavior-mismatch | fixed (ADR 2973; `ColourSpace::IccAlternate` holds Table 65's `/Range` before the alternate; icc_alternate_range_spec_audit passes) | unsupported ICC fallback skips Range clamp | 1 manifest failure
+- 2038-T31 | pdf-colour,pdf-model | test-coverage-gap | fixed (round 2074: special_space_initial_tints, indexed_rounding_initial and indexed_lab_lookup each fail on a plant — Separation initial tint 0, `entry_of` floor, palette bytes not scaled to the base range) | test control: special colour space initial values
 
 ### G010 — mesh shading vertex decoding
 
@@ -304,9 +304,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-colour/src/mesh.rs
 - test files: crates/pdf-model/tests/shading_continuations_spec_audit.rs, crates/pdf-model/tests/type5_function_spec_audit.rs?, crates/pdf-model/tests/type5_vertex_padding_spec_audit.rs
 
-- 2038-T137 | pdf-colour | assertion-strengthening | open | mesh shading vertex decoding
-- 2038-T138 | pdf-colour | assertion-strengthening | open | mesh shading vertex decoding
-- 2038-T139 | pdf-colour | assertion-strengthening | open | mesh shading vertex decoding
+- 2038-T137 | pdf-colour | assertion-strengthening | fixed (round 2074: type5_low_bit_vertices_pad_to_bytes_like_the_8bit_control fails with `read_vertex`'s `align` removed) | mesh shading vertex decoding
+- 2038-T138 | pdf-colour | assertion-strengthening | fixed (round 2074: the Type 7 continuation test fails with flag 2's edge reversed in `shared_edge`; a_later_overlapping_patch_paints_over_the_earlier_patch fails with the patch order reversed) | mesh shading vertex decoding
+- 2038-T139 | pdf-colour | assertion-strengthening | fixed (round 2074: type5_accepts_every_table82_coordinate_and_component_width fails with 32-bit `decode_at` halved, while the padding test passes) | mesh shading vertex decoding
 
 
 ## pdf-font
@@ -317,11 +317,11 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/encoding.rs
 - test files: crates/pdf-font/tests/agl_sequences_spec_audit.rs, crates/pdf-font/tests/mac_os_roman_table_spec_audit.rs, crates/pdf-model/tests/simple_font_standard_fill_spec_audit.rs, crates/pdf-model/tests/truetype_standard_fill_spec_audit.rs
 
-- 2038-B15 | pdf-font | behavior-gap | open | AGL multi-scalar glyph-name text | 4 manifest failures
-- 2038-B16 | pdf-font | behavior-policy-conflict | open | AGL multi-scalar glyph-name text | 1 manifest failure
-- 2038-B50 | pdf-font | truetype-standard-encoding-fill | open | MacExpert undefined slot not filled | 1 manifest failure
-- 2038-T36 | pdf-model,pdf-font | test-discrimination-gap | open | test defect: undefined encoding slot
-- 2038-T151 | pdf-font | assertion-quality | open | Mac OS Roman encoding table
+- 2038-B15 | pdf-font | behavior-gap | fixed (ADR 2970; `text_for` reads AGL rows and `uni` groups as strings; pdf-font and viewer-core agl_sequences_spec_audit pass) | AGL multi-scalar glyph-name text | 4 manifest failures
+- 2038-B16 | pdf-font | behavior-policy-conflict | fixed (ADR 2970 supersedes the whole-name refusal; an_unrecognized_component_contributes_an_empty_string passes; the unit test asserting `f_f_notaglyph` → None now asserts `ff`) | AGL multi-scalar glyph-name text | 1 manifest failure
+- 2038-B50 | pdf-font | truetype-standard-encoding-fill | fixed (ADR 2971, read against ADRs 2948 and 2956, which are about name-keyed programs and stand; `truetype::fill_dictionary_gaps_from_standard`; truetype_standard_fill_spec_audit passes) | MacExpert undefined slot not filled | 1 manifest failure
+- 2038-T36 | pdf-model,pdf-font | test-discrimination-gap | fixed (round 2074: simple_truetype_differences_fill_undefined_slot_from_standard_encoding fails with the absent-base fallback planted as `WinAnsiEncoding`) | test defect: undefined encoding slot
+- 2038-T151 | pdf-font | assertion-quality | fixed (round 2074: fails with Table 113's `notequal` row moved to 174) | Mac OS Roman encoding table
 
 ### G012 — ToUnicode map code length and sequences; test control: ToUnicode UseCMap
 
@@ -329,9 +329,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/loading/codes.rs?, crates/pdf-font/src/tounicode.rs
 - test files: crates/pdf-model/tests/tounicode_bfrange_sequence_destinations_spec_audit.rs, crates/pdf-model/tests/tounicode_keeps_source_code_length_spec_audit.rs, crates/pdf-model/tests/tounicode_usecmap_stream_inheritance_spec_audit.rs
 
-- 2038-B27 | pdf-font | behavior-defect | open | ToUnicode map code length and sequences | 1 manifest failure
-- 2038-B28 | pdf-font | behavior-defect | open | ToUnicode map code length and sequences | 1 manifest failure
-- 2038-T30 | pdf-font | test-coverage-gap | open | test control: ToUnicode UseCMap
+- 2038-B27 | pdf-font | behavior-defect | fixed (ADR 2972; statements keyed by code length; tounicode_keeps_source_code_length_spec_audit passes; `tounicode::code_length_tests`) | ToUnicode map code length and sequences | 1 manifest failure
+- 2038-B28 | pdf-font | behavior-defect | fixed (ADR 2972; a sequence `bfrange` increments its last byte; tounicode_bfrange_sequence_destinations_spec_audit passes; `tounicode::code_length_tests`) | ToUnicode map code length and sequences | 1 manifest failure
+- 2038-T30 | pdf-font | test-coverage-gap | fixed (round 2074: the audit test passes with a stream-valued `/UseCMap` ignored, because its base maps CID 36 to the `A` the program gives anyway; new tounicode_usecmap_stream_base maps the base to U+0416 and fails on that plant) | test control: ToUnicode UseCMap
 
 ### G013 — test control: indirect values need resolving at consumer
 
@@ -339,8 +339,8 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/lib.rs?
 - test files: crates/pdf-font/tests/cid_metrics_indirect_spec_audit.rs, crates/pdf-font/tests/simple_metrics_indirect_spec_audit.rs, crates/pdf-model/tests/indirect_differences_spec_audit.rs
 
-- 2038-T78 | pdf-font | test-coverage-gap | open | test control: indirect values need resolving at consumer
-- 2038-T83 | pdf-font | test-coverage-gap | open | test control: indirect values need resolving at consumer
+- 2038-T78 | pdf-font | test-coverage-gap | fixed (round 2074: simple_metrics_indirect fails with `/Widths` members unresolved, cid_metrics_indirect with `metrics::resolved` borrowing a reference) | test control: indirect values need resolving at consumer
+- 2038-T83 | pdf-font | test-coverage-gap | fixed (round 2074: indirect_integer_and_name_objects_preserve_differences_glyph_selection fails with `/Differences` references unresolved; the direct control passes) | test control: indirect values need resolving at consumer
 
 ### G014 — font comments cite retired Courier-BoldOblique spelling
 
@@ -348,7 +348,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/standard.rs?
 - test files: none located
 
-- 2038-D43 | pdf-font | source-premise-correction | open | font comments cite retired Courier-BoldOblique spelling
+- 2038-D43 | pdf-font | source-premise-correction | fixed (round 2074: `standard.rs` and `substitute.rs` name `Courier-BoldOblique` as the clause's, per Issue #384, and the unhyphenated spelling as an alias; the 9.6.2.2 ledger note follows) | font comments cite retired Courier-BoldOblique spelling
 
 ### G015 — direct CIDFont descriptor loading
 
@@ -356,7 +356,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/embed.rs?
 - test files: crates/pdf-model/tests/direct_cid_font_descriptor_spec_audit.rs
 
-- 2038-T127 | pdf-font,pdf-model | assertion-strengthening | open | direct CIDFont descriptor loading
+- 2038-T127 | pdf-font,pdf-model | assertion-strengthening | fixed (round 2074: fails with a direct `/FontDescriptor` ignored in `loading/opening.rs`) | direct CIDFont descriptor loading
 
 ### G016 — CMap UseCMap inheritance
 
@@ -364,7 +364,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-font/src/cmap.rs
 - test files: crates/pdf-model/tests/encoding_cmap_usecmap_spec_audit.rs
 
-- 2038-T129 | pdf-font | assertion-strengthening | open | CMap UseCMap inheritance
+- 2038-T129 | pdf-font | assertion-strengthening | fixed (round 2074: fails with `CMap::parse` given no base) | CMap UseCMap inheritance
 
 
 ## pdf-model

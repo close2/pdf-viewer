@@ -175,8 +175,8 @@ impl LoadedFont {
     /// substitute face is addressed by character, so a code standing for a cluster has no glyph
     /// to look up.
     fn substituted_character(&self, cmap: &CMap, code: Code) -> Option<char> {
-        if self.to_unicode.states(code.value()) {
-            return self.to_unicode.char_for(code.value());
+        if self.to_unicode.states(code) {
+            return self.to_unicode.char_for(code);
         }
         self.collection
             .as_ref()

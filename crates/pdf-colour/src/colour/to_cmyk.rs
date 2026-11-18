@@ -1,5 +1,6 @@
 //! §11.7.2: a colour space's components converted into a four-component press.
 
+use super::cie::constrained;
 use super::device_cmyk::channel;
 use super::ink_search::{rgb_to_ink, xyz_to_ink};
 use super::press::Press;
@@ -164,6 +165,13 @@ impl ColourSpace {
                     generation,
                 )
             }),
+            Self::IccAlternate { range, alternate } => alternate.to_cmyk_at(
+                &constrained(values, range),
+                depth.saturating_add(1),
+                rendering,
+                press,
+                generation,
+            ),
             // §11.7.5.3's own condition, and it is the leaf rather than the operand that has
             // to meet it: an `Indexed` entry, a `Separation`'s alternate or a `/Default` space
             // arrives here as the `DeviceRGB` colour the clause names, and a `CalRGB` or an

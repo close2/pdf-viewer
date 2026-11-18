@@ -83,6 +83,14 @@ fn space_identity(space: &ColourSpace) -> Option<u64> {
     let mut hasher = DefaultHasher::new();
     match space {
         ColourSpace::Icc { profile } => profile.identity().hash(&mut hasher),
+        // Still an `ICCBased` space, CIE-based by §8.6.5, told apart by what it is drawn as.
+        ColourSpace::IccAlternate { range, alternate } => {
+            for (low, high) in range.iter() {
+                (low.to_bits(), high.to_bits()).hash(&mut hasher);
+            }
+            space_identity(alternate).hash(&mut hasher);
+            alternate.components().hash(&mut hasher);
+        }
         ColourSpace::CalGray { .. } => space.grey_identity()?.hash(&mut hasher),
         ColourSpace::CalRgb { .. } => space.rgb_identity()?.hash(&mut hasher),
         ColourSpace::Lab { white, range, .. } => {

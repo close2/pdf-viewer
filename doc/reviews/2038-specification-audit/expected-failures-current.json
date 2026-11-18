@@ -40,36 +40,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-font::agl_sequences_spec_audit",
-   "test": "an_agl_table_row_keeps_all_its_unicode_scalars",
-   "finding": "2038-B15",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-font::agl_sequences_spec_audit",
-   "test": "a_uni_name_keeps_every_four_digit_group",
-   "finding": "2038-B15",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-font::agl_sequences_spec_audit",
-   "test": "an_unrecognized_component_contributes_an_empty_string",
-   "finding": "2038-B16",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::agl_sequences_spec_audit",
-   "test": "query_text_keeps_the_full_agl_string_for_one_glyph",
-   "finding": "2038-B15",
-   "log": "broad.log"
-  },
-  {
-   "binary": "viewer-core::agl_sequences_spec_audit",
-   "test": "find_matches_the_full_agl_string_for_one_glyph",
-   "finding": "2038-B15",
-   "log": "broad.log"
-  },
-  {
    "binary": "pdf-signature::docmdp_dts_carveout",
    "test": "valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout",
    "finding": "2038-B18",
@@ -79,24 +49,6 @@
    "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
    "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
    "finding": "2038-B20",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::icc_alternate_range_spec_audit",
-   "test": "unsupported_icc2_profile_clamps_to_icc_range_before_wider_alternate",
-   "finding": "2038-B25",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::tounicode_keeps_source_code_length_spec_audit",
-   "test": "to_unicode_distinguishes_equal_values_at_different_source_code_lengths",
-   "finding": "2038-B27",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::tounicode_bfrange_sequence_destinations_spec_audit",
-   "test": "sequential_multiscalar_bfrange_increments_destination_string_last_byte",
-   "finding": "2038-B28",
    "log": "broad.log"
   },
   {
@@ -188,12 +140,6 @@
    "binary": "viewer-core::rendition_preconditions_spec_audit",
    "test": "an_enabled_runner_executes_the_rendition_script_and_does_not_use_op_as_fallback",
    "finding": "2038-B49",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::truetype_standard_fill_spec_audit",
-   "test": "explicit_macexpert_base_without_differences_fills_remaining_slot_from_standard",
-   "finding": "2038-B50",
    "log": "broad.log"
   },
   {

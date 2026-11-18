@@ -228,6 +228,26 @@ pub enum ColourSpace {
         /// and the profile is parsed and held once (ADR 1008).
         profile: Arc<crate::icc::Profile>,
     },
+    /// An `ICCBased` space whose profile this reader cannot apply, drawn in its `/Alternate`.
+    ///
+    /// ISO 32000-2 §8.6.5.5, Table 65's `/Alternate` row, states the order of the two clamps:
+    ///
+    /// > Colour values within the range of the ICCBased colour space might not be within the
+    /// > range of the alternate colour space. In this case and after constraining to the
+    /// > ICCBased range, the nearest values within the range of the alternate space shall be
+    /// > substituted without error indication.
+    ///
+    /// So the space stays the `ICCBased` one for every question about its components — how
+    /// many, their range, the initial colour, an image's default `/Decode` — and a colour is
+    /// first held to `range` and then handed unchanged to `alternate`, which holds it to its own.
+    /// Answering with the alternate alone skipped the first clamp (ADR 2973).
+    IccAlternate {
+        /// One `(minimum, maximum)` pair per component: Table 65's `/Range`, or its default of
+        /// the unit interval.
+        range: Arc<[(f32, f32)]>,
+        /// The space the values are drawn in, which "shall" have the same number of components.
+        alternate: Box<ColourSpace>,
+    },
     /// A pattern space, which carries no colour of its own.
     ///
     /// It may name an *underlying* space, and that is not decoration: an uncoloured

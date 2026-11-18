@@ -216,8 +216,13 @@ impl ColourSpace {
     /// data colour spaces and `CMYK` is the only one with four components, so the channel
     /// count tells them apart here (trap 6).
     fn is_cmyk_process(space: &Self) -> bool {
-        matches!(space, Self::Cmyk)
-            || matches!(space, Self::Icc { profile } if profile.channels() == 4)
+        match space {
+            Self::Cmyk => true,
+            Self::Icc { profile } => profile.channels() == 4,
+            // An `ICCBased` space drawn in its `/Alternate` is the four-component space it states.
+            Self::IccAlternate { range, .. } => range.len() == 4,
+            _ => false,
+        }
     }
 
     /// Table 71's process colour space and the component names that index it, checked against

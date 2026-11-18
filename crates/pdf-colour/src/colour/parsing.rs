@@ -202,6 +202,13 @@ impl ColourSpace {
         // be applied. Preferring it over a guess from `/N` is what the specification asks for
         // and is free: a document saying its profile stands in for `Lab` or a `Separation` gets
         // that, rather than whichever device space happens to have the same component count.
+        //
+        // The values are held to the `ICCBased` space's own `/Range` before the alternate sees
+        // them, which is what `Self::IccAlternate` carries (Table 65; ADR 2973). A component the
+        // entry states no pair for takes the alternate's own range: the entry's default "shall
+        // match the information in the ICC profile", Table 68's row for the profile's data
+        // colour space, and that is what this reader could not read — the unit interval would
+        // be a guess that holds an `'Lab '` profile's `a` and `b` to `[0, 1]`.
         if let Some(alternate) = stream.dict.get("Alternate")
             && let Some(space) = Self::parse_at(
                 document,
@@ -211,7 +218,20 @@ impl ColourSpace {
                 depth.saturating_add(1),
             )
         {
-            return Some(space);
+            let components = space.components();
+            let stated = icc_range(document, &stream.dict);
+            let range: Arc<[(f32, f32)]> = (0..components)
+                .map(|component| {
+                    stated
+                        .get(component)
+                        .copied()
+                        .unwrap_or_else(|| space.component_range(component))
+                })
+                .collect();
+            return Some(Self::IccAlternate {
+                range,
+                alternate: Box::new(space),
+            });
         }
 
         // Failing that, the device space with the same component count — which is the fallback

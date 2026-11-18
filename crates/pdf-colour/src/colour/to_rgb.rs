@@ -3,7 +3,8 @@
 use pdf_render::Color;
 
 use super::cie::{
-    D50, adapt, cal_rgb_xyz, cie_to_srgb, lab, lab_xyz, srgb_to_xyz_d50, xyz_d50_to_srgb,
+    D50, adapt, cal_rgb_xyz, cie_to_srgb, constrained, lab, lab_xyz, srgb_to_xyz_d50,
+    xyz_d50_to_srgb,
 };
 use super::device_cmyk::{channel, cmyk};
 use super::rgb_route::RgbRoute;
@@ -86,6 +87,12 @@ impl ColourSpace {
             Self::Pattern { base } => base.as_ref().map_or([0.0; 3], |base| {
                 base.rgb_components_at(values, depth.saturating_add(1), rendering, route)
             }),
+            Self::IccAlternate { range, alternate } => alternate.rgb_components_at(
+                &constrained(values, range),
+                depth.saturating_add(1),
+                rendering,
+                route,
+            ),
             _ => match self.cie_xyz_at(values, depth, rendering) {
                 Some(xyz) => route.components_with_xyz(xyz, rendering),
                 None => route.components_with_xyz(
@@ -135,6 +142,11 @@ impl ColourSpace {
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
         match self {
             Self::Icc { profile } => Some(profile.to_xyz_with(values, rendering)),
+            Self::IccAlternate { range, alternate } => alternate.cie_xyz_at(
+                &constrained(values, range),
+                depth.saturating_add(1),
+                rendering,
+            ),
             Self::Lab { white, range, .. } => Some(adapt(
                 lab_xyz(at(0), at(1), at(2), *range, *white),
                 *white,
@@ -194,6 +206,11 @@ impl ColourSpace {
             Self::Rgb => Color::rgb(channel(at(0)), channel(at(1)), channel(at(2))),
             Self::Cmyk => cmyk(at(0), at(1), at(2), at(3)),
             Self::Icc { profile } => profile.to_rgb_with(values, rendering),
+            Self::IccAlternate { range, alternate } => alternate.to_rgb_at(
+                &constrained(values, range),
+                depth.saturating_add(1),
+                rendering,
+            ),
             // `black` is read but not applied, as for the two spaces below.
             Self::Lab { white, range, .. } => lab(at(0), at(1), at(2), *range, *white),
             // `black` is read but not applied — `cie_to_srgb` carries the argument.
@@ -290,7 +307,9 @@ impl ColourSpace {
             Self::Indexed { base, .. } | Self::Pattern { base: Some(base) } => {
                 base.rgb_alpha_at(depth.saturating_add(1))
             }
-            Self::Separation { alternate, .. } => alternate.rgb_alpha_at(depth.saturating_add(1)),
+            Self::Separation { alternate, .. } | Self::IccAlternate { alternate, .. } => {
+                alternate.rgb_alpha_at(depth.saturating_add(1))
+            }
             Self::NoColourant { .. } => Color::TRANSPARENT.a,
             Self::Gray
             | Self::Rgb

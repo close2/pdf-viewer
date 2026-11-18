@@ -124,6 +124,35 @@ pub(crate) fn cmap_subtables(data: &[u8]) -> Option<Vec<(u16, u16)>> {
     )
 }
 
+/// §9.6.5.4's last step for a nonsymbolic font whose `/Encoding` is a dictionary:
+///
+/// > Finally, any undefined entries in the table shall be filled using StandardEncoding.
+///
+/// `encoding_names` already starts from `StandardEncoding` where the dictionary names no
+/// `/BaseEncoding`; this is the case it does not reach, a named base that leaves a slot empty —
+/// `MacExpertEncoding`'s code 168, say, which Annex D.4 leaves blank and Annex D.2 gives
+/// `currency`. A `/Differences` entry only ever defines a slot, so filling after it changes none
+/// it wrote. The sentence is the TrueType paragraph's own; a name-keyed program's empty slot
+/// names `.notdef` instead (ADR 2956), and a named `/Encoding` is "initialised with the mappings
+/// described in Annex D" with no fill (ADR 2971).
+fn fill_dictionary_gaps_from_standard(
+    document: &Document,
+    dict: &Dictionary,
+    mut names: GlyphNames,
+) -> GlyphNames {
+    if document.get_key(dict, "Encoding").as_dict().is_none() {
+        return names;
+    }
+    for (code, slot) in names.iter_mut().enumerate() {
+        if slot.is_empty()
+            && let Ok(code) = u8::try_from(code)
+        {
+            *slot = Cow::Borrowed(encoding::BaseEncoding::Standard.glyph_name(code));
+        }
+    }
+    names
+}
+
 /// Resolves a simple font's character codes to glyphs in a `TrueType` or `OpenType` program.
 ///
 /// This is ISO 32000-2 §9.6.5.4, whose shape is easy to lose: a `cmap` is *not* indexed by
@@ -218,6 +247,11 @@ pub(crate) fn truetype_code_table(
         // specification tells us not to read.
         Err(FontError::UnsupportedEncoding { .. }) if symbolic => no_names(),
         Err(other) => return Err(other),
+    };
+    let names = if symbolic {
+        names
+    } else {
+        fill_dictionary_gaps_from_standard(document, dict, names)
     };
 
     // The `post` names are inverted once for the whole table, and only if some code's name

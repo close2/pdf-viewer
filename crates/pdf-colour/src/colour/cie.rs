@@ -335,3 +335,18 @@ pub(super) fn degamma(value: f32) -> f32 {
         ((value + 0.055) / 1.055).powf(2.4)
     }
 }
+
+/// Each value held to its component's range by [`nearest`]: the first of the two clamps Table 65
+/// orders for an `ICCBased` space drawn in its `/Alternate` (`ColourSpace::IccAlternate`). A
+/// value past the last pair is passed on as it came, for the alternate to hold.
+pub(super) fn constrained(values: &[f32], range: &[(f32, f32)]) -> Vec<f32> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(component, &value)| {
+            range
+                .get(component)
+                .map_or(value, |&bounds| nearest(value, bounds))
+        })
+        .collect()
+}

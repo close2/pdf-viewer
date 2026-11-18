@@ -365,7 +365,7 @@ const fn describe(request: Request) -> &'static str {
     }
 }
 
-/// §9.6.2.2's fourteen names, exactly as the clause spells them.
+/// §9.6.2.2's fourteen names, as the clause spells them, and one alias.
 ///
 /// > The PostScript language names of 14 Type 1 fonts, known as the standard 14 fonts, are as
 /// > follows: Times-Roman, Helvetica, Courier, Symbol, Times-Bold, Helvetica-Bold, Courier-Bold,
@@ -380,9 +380,12 @@ const fn describe(request: Request) -> &'static str {
 /// may call its resource `/Arial` and mean anything at all. Only the clause's own fourteen
 /// strings are a name whose meaning the standard states rather than a producer's.
 ///
-/// `Courier-BoldOblique` is accepted beside the clause's unhyphenated `CourierBoldOblique`: the
-/// list spells thirteen of the fourteen with a hyphen and this one without, which reads as the
-/// standard's own typography rather than as a distinct name, and producers write the hyphen.
+/// The fourteenth name is `Courier-BoldOblique`. The published clause sets it broken across a
+/// line after the hyphen, `doc/md/`'s conversion drops a hyphen where it joins a broken word —
+/// which is how the quotation above reads `CourierBoldOblique` — and Issue #384 of the errata
+/// spells it with the hyphen (`doc/errata-read.md`, §9.6.2.2). The unhyphenated spelling stays
+/// accepted as an alias: it names no other font, and a file that copied the conversion's spelling
+/// meant this one.
 const STANDARD_NAMES: [&str; 15] = [
     "Times-Roman",
     "Times-Bold",
@@ -401,7 +404,8 @@ const STANDARD_NAMES: [&str; 15] = [
     "ZapfDingbats",
 ];
 
-/// Whether `name` is one of §9.6.2.2's fourteen, spelled exactly as the clause spells it.
+/// Whether `name` is one of §9.6.2.2's fourteen, spelled as the clause spells it or as the one
+/// alias `STANDARD_NAMES` gives.
 ///
 /// Case-sensitive and whole-string, for the reason `STANDARD_NAMES` gives: this is asked of a
 /// *resource* name, where anything looser would start claiming that a file's `/helvetica` or

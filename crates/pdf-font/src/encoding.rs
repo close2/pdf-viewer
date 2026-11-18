@@ -264,17 +264,30 @@ pub fn character_for(name: &str) -> Option<char> {
 ///
 /// §9.10.2's second method names two lists — "the Adobe Glyph List **and Adobe Glyph List for New
 /// Fonts**" — and the second brings a convention with it that a one-character lookup cannot
-/// express: a name may be *composed*, and it may carry a variant suffix.
+/// express: a name may be *composed*, it may carry a variant suffix, and one name may stand for
+/// several characters.
 ///
 /// ```text
-/// f_f_i     → "ffi"    three components, each a name the list knows
-/// oacute.sc → "ó"      the small-capital variant of a name the list knows
+/// f_f_i           → "ffi"    three components, each a name the list knows
+/// oacute.sc       → "ó"      the small-capital variant of a name the list knows
+/// dalethatafpatah → "דֲ"     one row of the list, two Unicode scalar values
+/// uni00420043     → "BC"     one `uni` component, two groups of four digits
 /// ```
 ///
-/// So the algorithm is the Adobe Glyph List Specification's, in three steps: drop everything from
-/// the first period, split on underscores, and map each component. A component the list cannot
-/// answer for makes the whole name unanswerable — a half-mapped ligature would be worse than
-/// none, because it would put `ff` where the page shows `ffi`.
+/// So the algorithm is the Adobe Glyph List Specification's (version 2.9, section 2), in four
+/// steps: drop everything from the first period, split on underscores, map each component to a
+/// *string*, and concatenate the strings. A component is mapped by the first of three rules that
+/// holds — a row of the list, which may hold several scalar values; `uni` followed by groups of
+/// four uppercase hexadecimal digits, each outside the surrogates; `u` followed by four to six,
+/// one scalar value outside the surrogates — and **a component no rule maps contributes the empty
+/// string**, which is the specification's own step and not a choice: `A_notaglyph` is `A`
+/// (ADR 2970). The first rule of that section, the ITC Zapf Dingbats list for a font named
+/// `ZapfDingbats`, needs the font; [`SymbolicEncoding::character_for`] is that rule, asked by
+/// the caller that has one.
+///
+/// `None` where the concatenation is empty — a name of no component the rules map, `.notdef`
+/// and the empty name among them — so a caller falls through to the clause's next method
+/// rather than reading an empty string as the text a glyph shows.
 ///
 /// **A suffix is dropped rather than read**, and that is the specification's own instruction:
 /// the part after the period names a *variant* — `.sc` for small capitals, `.alt` for an
@@ -287,19 +300,59 @@ pub fn character_for(name: &str) -> Option<char> {
 #[must_use]
 pub fn text_for(name: &str) -> Option<String> {
     let stem = name.split('.').next().unwrap_or(name);
-    if stem.is_empty() {
-        return None;
-    }
-    // The common case is one component and a name the list knows, which is every ordinary
-    // encoding: answered without splitting or allocating a `Vec`.
-    if let Some(character) = character_for(stem) {
+    // The common case is one component and a name the list knows as one character, which is
+    // every ordinary encoding: answered without splitting or allocating.
+    if !stem.contains('_')
+        && !stem.starts_with("uni")
+        && let Some(character) = character_for(stem)
+    {
         return Some(character.to_string());
     }
     let mut out = String::new();
     for component in stem.split('_') {
-        out.push(character_for(component)?);
+        push_component(component, &mut out);
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// One component's string, by the Adobe Glyph List Specification's step 3, pushed onto `out`;
+/// nothing where no rule maps it.
+///
+/// The `uni` rule is read here rather than by `read_fonts::ps::agl::name_to_chars`, because that
+/// function stops at the first group naming a surrogate and keeps the groups before it, where the
+/// specification's condition is on *every* group: "if each group of four digits represents a
+/// value in the ranges 0000 through D7FF or E000 through FFFF". A `uni` component failing it is
+/// not of the `u` rule's shape either (`n` is not a hexadecimal digit), so it maps to nothing.
+fn push_component(component: &str, out: &mut String) {
+    let uppercase_hex = |digits: &str| {
+        digits
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte))
+    };
+    if let Some(digits) = component.strip_prefix("uni")
+        && !digits.is_empty()
+        && digits.len() % 4 == 0
+        && uppercase_hex(digits)
+    {
+        let scalars: Option<String> = digits
+            .as_bytes()
+            .chunks(4)
+            .map(|group| {
+                std::str::from_utf8(group)
+                    .ok()
+                    .and_then(|group| u32::from_str_radix(group, 16).ok())
+                    .and_then(char::from_u32)
+            })
+            .collect();
+        if let Some(scalars) = scalars {
+            out.push_str(&scalars);
+        }
+        return;
+    }
+    // A row of the list, one scalar value or several, or the `u` form: `name_to_chars` asks the
+    // list's single and several-character tables and then the `u` rule, in the specification's
+    // order, and yields nothing for a component none of them holds.
+    out.extend(read_fonts::ps::agl::name_to_chars(component));
 }
 
 /// Whether a glyph name is a row of the Adobe Glyph List itself, the list's 2002 table.
@@ -776,9 +829,8 @@ mod tests {
             assert!(super::is_listed(name), "{name} is a row of the list");
         }
         // Names the specification's algorithm derives a value for, and the list does not hold:
-        // `issue6961`'s `uni0042` among them, then a ligature and a variant. `text_for` derives one
-        // character per component and so declines the two-character `uni` form, which the list
-        // does not hold either.
+        // `issue6961`'s `uni0042` among them, then a ligature and a variant. `text_for` derives each of them,
+        // the two-character `uni` form too, which the list does not hold either.
         for name in [
             "uni0042",
             "uni00420043",
@@ -793,7 +845,7 @@ mod tests {
             let derivable = super::text_for(name).is_some();
             assert_eq!(
                 derivable,
-                !["", "uni", "notaname", "uni00420043"].contains(&name),
+                !["", "uni", "notaname"].contains(&name),
                 "and text_for, the wider reading, derives {name} or not as expected"
             );
         }
@@ -921,9 +973,19 @@ mod tests {
         // The ordinary case is unchanged, and the `uniXXXX` form the list itself defines.
         assert_eq!(super::text_for("colon").as_deref(), Some(":"));
         assert_eq!(super::text_for("uni0041").as_deref(), Some("A"));
-        // A component the list cannot answer for makes the *whole* name unanswerable: half a
-        // ligature would put `ff` where the page shows `ffi`.
-        assert_eq!(super::text_for("f_f_notaglyph"), None);
+        // A component no rule maps contributes the empty string, and the others stand: the
+        // specification's step 3 maps it to "" and step 4 concatenates (ADR 2970).
+        assert_eq!(super::text_for("f_f_notaglyph").as_deref(), Some("ff"));
+        // A row of several scalar values keeps them all, and so does a `uni` name of several
+        // groups; a `uni` name with a surrogate group maps to nothing at all, not to its prefix.
+        assert_eq!(
+            super::text_for("dalethatafpatah").as_deref(),
+            Some("\u{5d3}\u{5b2}")
+        );
+        assert_eq!(super::text_for("uni00420043").as_deref(), Some("BC"));
+        assert_eq!(super::text_for("uni0041D801"), None);
+        assert_eq!(super::text_for("uni0041_B").as_deref(), Some("AB"));
+        assert_eq!(super::text_for("uni00e9"), None);
         assert_eq!(super::text_for("a97"), None);
         assert_eq!(super::text_for(""), None);
         assert_eq!(super::text_for(".notdef"), None);

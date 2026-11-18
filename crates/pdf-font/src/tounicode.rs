@@ -97,13 +97,68 @@ pub const CUT_BY_RANGES: &str = "max_tounicode_ranges";
 /// What [`ToUnicode::truncated`] answers when one section's operands outran the buffer.
 pub const CUT_BY_OPERANDS: &str = "max_tounicode_operands";
 
+/// A source code as a lookup asks for it: its value, and the number of bytes it occupied where
+/// the caller knows it.
+///
+/// ISO 32000-2 §9.7.6.2 matches a code against the codespace ranges byte by byte, so `<01>` and
+/// `<0001>` are two codes of one value, and a `CMap` that maps both has said two things (ADR
+/// 2972). A caller holding a [`crate::Code`] knows the length and passes it; one holding only a
+/// value — a simple font's one-byte code read elsewhere — asks by value, and is answered by the
+/// shortest code of that value the map states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceCode {
+    /// The code's value, its bytes read most significant first.
+    pub value: u32,
+    /// How many bytes it occupied, where known.
+    pub length: Option<u8>,
+}
+
+impl From<u32> for SourceCode {
+    fn from(value: u32) -> Self {
+        Self {
+            value,
+            length: None,
+        }
+    }
+}
+
+impl From<crate::Code> for SourceCode {
+    fn from(code: crate::Code) -> Self {
+        Self {
+            value: code.value(),
+            length: Some(code.length()),
+        }
+    }
+}
+
+/// One `beginbfrange` entry whose destination is a single scalar value.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    /// The lowest code the span covers.
+    low: u32,
+    /// The highest code it covers, inclusive.
+    high: u32,
+    /// The scalar value `low` stands for.
+    first: u32,
+    /// How many bytes the span's source codes were written in.
+    length: u8,
+}
+
 /// Maps character codes to the text they represent.
 #[derive(Debug, Default, Clone)]
 pub struct ToUnicode {
-    /// Codes given a mapping individually, including every multi-character one.
-    singles: BTreeMap<u32, Box<str>>,
-    /// Spans of codes mapping to consecutive characters: low, high, and the first scalar.
-    ranges: Vec<(u32, u32, u32)>,
+    /// Codes given a mapping individually, including every multi-character one, keyed by value
+    /// and then by the number of bytes the code was written in.
+    singles: BTreeMap<(u32, u8), Box<str>>,
+    /// Spans of codes mapping to consecutive characters.
+    ranges: Vec<Span>,
+    /// Which code lengths this map's own statements were written in: bit `n` for `n` bytes.
+    ///
+    /// A lookup that knows its code's length matches only statements of that length where the
+    /// map writes any, and by value where it writes none — the second is the producer who
+    /// wrote a simple font's one-byte codes as two, against §9.10.3's requirement that a simple
+    /// font's codes be written as one byte, whose every code would otherwise be lost (ADR 2972).
+    lengths: u8,
     /// The `CMap` this one only states its *differences* from (§9.10.3, Table 118).
     ///
     /// Boxed because the type is otherwise recursive, and owned rather than shared because a
@@ -248,8 +303,9 @@ impl ToUnicode {
     /// map already holds is still overwritten — §9.10.3 lets a later section restate a code, and
     /// a restatement discards nothing — and a section whose last entry lands exactly on the
     /// bound reports nothing.
-    fn insert_single(&mut self, code: u32, text: String) {
+    fn insert_single(&mut self, code: (u32, u8), text: String) {
         if self.singles.len() < MAX_SINGLES || self.singles.contains_key(&code) {
+            self.lengths |= 1 << code.1;
             self.singles.insert(code, text.into_boxed_str());
         } else {
             self.cut_by(CUT_BY_SINGLES);
@@ -266,7 +322,7 @@ impl ToUnicode {
                 index = index.saturating_add(1);
                 continue;
             };
-            let (Some(low), Some(high)) = (code_of(low), code_of(high)) else {
+            let (Some((low, length)), Some((high, _))) = (code_of(low), code_of(high)) else {
                 index = index.saturating_add(2);
                 continue;
             };
@@ -280,15 +336,19 @@ impl ToUnicode {
                         // so it is dropped without a report, and only the bound reports.
                         if low <= high {
                             if self.ranges.len() < MAX_RANGES {
-                                self.ranges.push((low, high, first));
+                                self.lengths |= 1 << length;
+                                self.ranges.push(Span {
+                                    low,
+                                    high,
+                                    first,
+                                    length,
+                                });
                             } else {
                                 self.cut_by(CUT_BY_RANGES);
                             }
                         }
-                    } else if let Some(text) = text_of(target) {
-                        // A destination that is not a single scalar — a ligature, say —
-                        // cannot be incremented, so it applies to the low code only.
-                        self.insert_single(low, text);
+                    } else {
+                        self.take_sequence_range(low, high, length, target);
                     }
                     index = index.saturating_add(3);
                 }
@@ -306,7 +366,7 @@ impl ToUnicode {
                                     break;
                                 }
                                 if let Some(text) = text_of(target) {
-                                    self.insert_single(code, text);
+                                    self.insert_single((code, length), text);
                                 }
                                 code = code.saturating_add(1);
                                 at = at.saturating_add(1);
@@ -325,25 +385,91 @@ impl ToUnicode {
         }
     }
 
+    /// One `<lo> <hi> <dst>` entry whose destination is a sequence rather than one scalar value.
+    ///
+    /// §9.10.3 states what the range means whatever the destination holds:
+    ///
+    /// > In this case, the last byte of the string shall be incremented for each consecutive
+    /// > code in the source code range.
+    ///
+    /// So `<0001> <0003> <00660061>` is `fa`, `fb`, `fc`, one entry per code (ADR 2972). The
+    /// clause bounds the last byte by "255 - ( srcCode2 - srcCode1 )" and calls a range past it
+    /// undefined; the codes before the byte would pass 255 are mapped and the rest are not, so a
+    /// range states at most 256 entries however wide its source codes are.
+    fn take_sequence_range(&mut self, low: u32, high: u32, length: u8, target: &[u8]) {
+        let Some((&last, head)) = target.split_last() else {
+            return;
+        };
+        let mut destination = head.to_vec();
+        destination.push(last);
+        let mut code = low;
+        let mut byte = last;
+        loop {
+            if let Some(slot) = destination.last_mut() {
+                *slot = byte;
+            }
+            if let Some(text) = text_of(&destination) {
+                self.insert_single((code, length), text);
+            }
+            if code >= high {
+                break;
+            }
+            let (Some(next_byte), Some(next_code)) = (byte.checked_add(1), code.checked_add(1))
+            else {
+                break;
+            };
+            byte = next_byte;
+            code = next_code;
+        }
+    }
+
+    /// The text this map's own statements give a code, without its base.
+    fn own(&self, code: SourceCode) -> Option<Own<'_>> {
+        let exact = code
+            .length
+            .filter(|length| self.lengths & (1 << length) != 0);
+        let fits = |length: u8| exact.is_none_or(|exact| exact == length);
+        if let Some(text) = self
+            .singles
+            .range((code.value, 0)..=(code.value, u8::MAX))
+            .find(|((_, length), _)| fits(*length))
+            .map(|(_, text)| text)
+        {
+            return Some(Own::Text(text));
+        }
+        let mut spans: Vec<&Span> = self
+            .ranges
+            .iter()
+            .filter(|span| fits(span.length) && (span.low..=span.high).contains(&code.value))
+            .collect();
+        spans.sort_by_key(|span| span.length);
+        let scalar = |span: &&Span| {
+            span.first
+                .checked_add(code.value.saturating_sub(span.low))
+                .and_then(char::from_u32)
+        };
+        if spans.is_empty() {
+            return None;
+        }
+        Some(Own::Scalar(spans.iter().find_map(scalar)))
+    }
+
     /// Appends the text a character code represents, reporting whether any was found.
     ///
     /// Takes the destination by reference rather than returning a `String` because
     /// extraction calls this once per character on the page.
-    pub fn append(&self, code: u32, out: &mut String) -> bool {
-        if let Some(text) = self.singles.get(&code) {
-            out.push_str(text);
-            return true;
-        }
-        for &(low, high, first) in &self.ranges {
-            if (low..=high).contains(&code) {
-                let Some(scalar) = first.checked_add(code.saturating_sub(low)) else {
-                    continue;
-                };
-                if let Some(ch) = char::from_u32(scalar) {
-                    out.push(ch);
-                    return true;
-                }
+    pub fn append(&self, code: impl Into<SourceCode>, out: &mut String) -> bool {
+        let code = code.into();
+        match self.own(code) {
+            Some(Own::Text(text)) => {
+                out.push_str(text);
+                return true;
             }
+            Some(Own::Scalar(Some(ch))) => {
+                out.push(ch);
+                return true;
+            }
+            Some(Own::Scalar(None)) | None => {}
         }
         // Table 118: a referencing `CMap` "shall specify only the character mappings that
         // differ from the referenced CMap", so the base is what a code this file says nothing
@@ -361,13 +487,9 @@ impl ToUnicode {
     /// omits and for one it maps to a sequence — and the second is an answer. The same walk as
     /// [`Self::append`], without the destination.
     #[must_use]
-    pub fn states(&self, code: u32) -> bool {
-        self.singles.contains_key(&code)
-            || self
-                .ranges
-                .iter()
-                .any(|&(low, high, _)| (low..=high).contains(&code))
-            || self.base.as_ref().is_some_and(|base| base.states(code))
+    pub fn states(&self, code: impl Into<SourceCode>) -> bool {
+        let code = code.into();
+        self.own(code).is_some() || self.base.as_ref().is_some_and(|base| base.states(code))
     }
 
     /// Returns the single character a code represents, when it represents exactly one.
@@ -375,18 +497,17 @@ impl ToUnicode {
     /// This is what font substitution needs: a `cmap` is keyed by character, so a code
     /// mapping to a ligature or a cluster has no single glyph to look up.
     #[must_use]
-    pub fn char_for(&self, code: u32) -> Option<char> {
-        if let Some(text) = self.singles.get(&code) {
-            let mut chars = text.chars();
-            let first = chars.next()?;
-            return chars.next().is_none().then_some(first);
-        }
-        for &(low, high, first) in &self.ranges {
-            if (low..=high).contains(&code) {
-                return char::from_u32(first.checked_add(code.saturating_sub(low))?);
+    pub fn char_for(&self, code: impl Into<SourceCode>) -> Option<char> {
+        let code = code.into();
+        match self.own(code) {
+            Some(Own::Text(text)) => {
+                let mut chars = text.chars();
+                let first = chars.next()?;
+                chars.next().is_none().then_some(first)
             }
+            Some(Own::Scalar(scalar)) => scalar,
+            None => self.base.as_ref().and_then(|base| base.char_for(code)),
         }
-        self.base.as_ref().and_then(|base| base.char_for(code))
     }
 
     /// Every statement this `CMap` makes, the base it builds on included.
@@ -404,6 +525,8 @@ impl ToUnicode {
     /// This map's own statements come before the base's, in the order `append` consults them,
     /// and a code both state therefore appears twice — the child's first. That is deliberate:
     /// both files said it, and which of the two a caller cares about is the caller's question.
+    /// A value one map writes at two lengths, `<01>` and `<0001>`, is two codes (§9.7.6.2) and
+    /// appears once for each.
     pub fn mappings(&self) -> impl Iterator<Item = Mapping<'_>> {
         // The chain is walked into a list rather than recursed into, because a recursive
         // `impl Iterator` cannot name its own opaque type. `base` is an owned tree built by the
@@ -417,11 +540,11 @@ impl ToUnicode {
         chain.into_iter().flat_map(|map| {
             map.singles
                 .iter()
-                .map(|(code, text)| Mapping::Single { code: *code, text })
-                .chain(map.ranges.iter().map(|&(low, high, first)| Mapping::Span {
-                    low,
-                    high,
-                    first,
+                .map(|(&(code, _), text)| Mapping::Single { code, text })
+                .chain(map.ranges.iter().map(|span| Mapping::Span {
+                    low: span.low,
+                    high: span.high,
+                    first: span.first,
                 }))
         })
     }
@@ -438,16 +561,26 @@ impl ToUnicode {
     }
 }
 
-/// Reads a source code from a `CMap` hex string, which is one to four bytes big-endian.
-fn code_of(bytes: &[u8]) -> Option<u32> {
-    if bytes.is_empty() || bytes.len() > 4 {
-        return None;
-    }
+/// Reads a source code from a `CMap` hex string, which is one to four bytes big-endian: its
+/// value, and how many bytes it was written in.
+fn code_of(bytes: &[u8]) -> Option<(u32, u8)> {
+    let length = u8::try_from(bytes.len())
+        .ok()
+        .filter(|n| (1..=4).contains(n))?;
     let mut code = 0u32;
     for &byte in bytes {
         code = code.checked_mul(256)?.checked_add(u32::from(byte))?;
     }
-    Some(code)
+    Some((code, length))
+}
+
+/// What a map's own statements give a code: a `bfchar`'s text, or a span's scalar value, which
+/// is `None` where the span's arithmetic leaves the scalar values.
+enum Own<'a> {
+    /// A `bfchar` entry, or one code of a range whose destination is a sequence.
+    Text(&'a str),
+    /// A span's scalar value for the code.
+    Scalar(Option<char>),
 }
 
 /// Decodes a destination, which is UTF-16BE text rather than a code.
@@ -767,5 +900,60 @@ mod states_tests {
         assert!(child.states(0x41));
         assert!(child.states(0x42));
         assert!(!child.states(0x43));
+    }
+}
+
+#[cfg(test)]
+mod code_length_tests {
+    use super::{SourceCode, ToUnicode};
+
+    fn sized(value: u32, length: u8) -> SourceCode {
+        SourceCode {
+            value,
+            length: Some(length),
+        }
+    }
+
+    fn text(map: &ToUnicode, code: impl Into<SourceCode>) -> Option<String> {
+        let mut out = String::new();
+        map.append(code, &mut out).then_some(out)
+    }
+
+    /// §9.7.6.2 matches a code byte by byte, so a map writing `<01>` and `<0001>` states two
+    /// codes, and a lookup that knows its code's length gets that code's text (ADR 2972).
+    #[test]
+    fn equal_values_written_at_two_lengths_are_two_codes() {
+        let map =
+            ToUnicode::parse(b"3 beginbfchar <01> <0041> <0001> <03A9> <0002> <03B2> endbfchar");
+        assert_eq!(text(&map, sized(1, 1)).as_deref(), Some("A"));
+        assert_eq!(text(&map, sized(1, 2)).as_deref(), Some("\u{3a9}"));
+        assert_eq!(text(&map, sized(2, 2)).as_deref(), Some("\u{3b2}"));
+        // The map states one-byte codes, so a one-byte 0x02 is a code it says nothing about.
+        assert_eq!(text(&map, sized(2, 1)), None);
+        // Asked by value alone, the shortest code of that value answers.
+        assert_eq!(text(&map, 1_u32).as_deref(), Some("A"));
+    }
+
+    /// A map that writes no code of the asked length is read by value: the producer who wrote a
+    /// simple font's one-byte codes as two bytes keeps every mapping.
+    #[test]
+    fn a_map_written_wholly_at_another_length_is_read_by_value() {
+        let map = ToUnicode::parse(
+            b"1 beginbfchar <0041> <0061> endbfchar 1 beginbfrange <0042> <0043> <0062> endbfrange",
+        );
+        assert_eq!(text(&map, sized(0x41, 1)).as_deref(), Some("a"));
+        assert_eq!(text(&map, sized(0x43, 1)).as_deref(), Some("c"));
+        assert_eq!(map.char_for(sized(0x42, 1)), Some('b'));
+        assert!(map.states(sized(0x42, 1)));
+    }
+
+    /// §9.10.3: "the last byte of the string shall be incremented for each consecutive code",
+    /// and a range whose last byte would pass 255 is undefined past that point.
+    #[test]
+    fn a_sequence_destination_increments_its_last_byte_and_stops_at_255() {
+        let map = ToUnicode::parse(b"1 beginbfrange <01> <03> <006600FE> endbfrange");
+        assert_eq!(text(&map, sized(1, 1)).as_deref(), Some("f\u{fe}"));
+        assert_eq!(text(&map, sized(2, 1)).as_deref(), Some("f\u{ff}"));
+        assert_eq!(text(&map, sized(3, 1)), None);
     }
 }

@@ -64,7 +64,7 @@ impl LoadedFont {
     /// Takes the destination by reference because extraction calls this once per character
     /// on the page, and returning a `String` would allocate for every one.
     pub fn text(&self, code: Code, out: &mut String) -> bool {
-        if self.to_unicode.append(code.value(), out) {
+        if self.to_unicode.append(code, out) {
             return true;
         }
         // §9.10.2's third method, in the clause's own position: after `/ToUnicode` and before
@@ -373,7 +373,7 @@ impl LoadedFont {
     /// must not be handed this reader's inference (ADR 1942).
     #[must_use]
     pub fn stated_character(&self, code: Code) -> Option<char> {
-        self.to_unicode.char_for(code.value())
+        self.to_unicode.char_for(code)
     }
 
     /// Whether [`Self::code_for`] can answer for this font at all.

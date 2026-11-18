@@ -382,9 +382,10 @@ fn width_named(folded: &str) -> Option<u16> {
 /// > Helvetica-BoldOblique, CourierBoldOblique.
 ///
 /// Matched on the family part only, because the weight and slope are already in [`Request`] and
-/// because the clause's own list spells one of them without a hyphen (`CourierBoldOblique`) —
-/// a name-by-name table would have to reproduce that, and a reader that only accepted the
-/// fourteen exact strings would refuse `Courier-BoldOblique`, which is what producers write.
+/// because a `/BaseFont` is folded before it gets here: `Courier-BoldOblique`, the clause's
+/// fourteenth name (Issue #384 of the errata, `doc/errata-read.md`), and the unhyphenated
+/// `CourierBoldOblique` that `doc/md/`'s conversion of the line-broken name reads, fold to the
+/// same family.
 ///
 /// The three clones are here on the same argument [`crate::standard_metrics::StandardFont`]
 /// already makes for the metrics: Arial was drawn metric-compatible with Helvetica, and a
