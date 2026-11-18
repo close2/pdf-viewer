@@ -533,7 +533,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-model/src/content/pattern/tiling.rs
 - test files: crates/pdf-model/tests/degenerate_tiling_bbox_clip_spec_audit.rs
 
-- 2038-B20 | pdf-model,render-raster | behavior-and-adr-mismatch | open (Table 74 NOTE 1 and §10.7.4: a zero-height /BBox must clip and still scan-convert one pixel; pdf-model keeps it unclipped because a zero-area clip removes everything on both backends. The fix is a degenerate-clip rule in render-cpu and render-raster, outside this group's pdf-model file; ADR 1080/tiling.rs comment unchanged) | degenerate tiling BBox dropped | 1 manifest failure
+- 2038-B20 | pdf-model,render-raster | behavior-and-adr-mismatch | fixed (round 2080, carried from G030: Table 74 NOTE 1 is §10.7.4's one-pixel line, which every backend's clip region already scan-converts through pdf_render::clip_region since ADRs 1060/1064, so tiling.rs keeps any finite box as the cell clip; no renderer change was owed; ADR 3009 supersedes ADR 0056 on the point; degenerate_tiling_bbox_clip_spec_audit) | degenerate tiling BBox dropped | 1 manifest failure
 
 ### G031 — page output intent replaced by catalog
 
@@ -1094,10 +1094,10 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/render-cpu/src/stroke.rs, crates/render-raster/src/stroke.rs
 - test files: crates/pdf-model/tests/stroke_composition_pdf_spec_audit.rs, crates/render-cpu/tests/stroke_fill_geometry_spec_audit.rs, crates/render-cpu/tests/transparent_degenerate_spec_audit.rs, crates/render-gpu/tests/stroke_composition_spec_audit.rs, crates/render-raster/tests/anisotropic_stroke_width_spec_audit.rs, crates/render-raster/tests/near_similarity_stroke_spec_audit.rs, crates/render-raster/tests/stroke_composition_spec_audit.rs
 
-- 2038-B39 | render-cpu,render-raster,render-gpu,pdf-model | same-object-double-compositing | open | degenerate stroke caps composited separately | 5 manifest failures
-- 2038-B59 | render-raster | rendering-behavior-gap | open | stroke width under unequal scale | 2 manifest failures
-- 2038-T53 | render-cpu | assertion-coverage-gap | open | stroke geometry test gap
-- 2038-T111 | render-raster | independent-oracle-control | open | stroke width under unequal scale
+- 2038-B39 | render-cpu,render-raster,render-gpu,pdf-model | same-object-double-compositing | fixed (§11.6.2: the rest and the dots meet the backdrop once — render-cpu own-coverage buffer, render-raster isolated knockout group, render-gpu layer with the dots knocking out; ADR 3006; transparent_degenerate_spec_audit, stroke_composition_pdf_spec_audit, both stroke_composition_spec_audit) | degenerate stroke caps composited separately | 5 manifest failures
+- 2038-B59 | render-raster | rendering-behavior-gap | fixed (§8.4.3.2: the scalar width route also needs a quarter-pixel device bound, and a non-similarity scalar scene reads the view; ADR 3007; near_similarity_stroke_spec_audit both) | stroke width under unequal scale | 2 manifest failures
+- 2038-T53 | render-cpu | assertion-coverage-gap | fixed (the audit's two tests in stroke_fill_geometry_spec_audit — joined against separate mitre wedge, nonzero/even-odd star centre with arm and exterior controls — pass; checked by reading that a dropped join or a wrong rule fails them) | stroke geometry test gap
+- 2038-T111 | render-raster | independent-oracle-control | fixed (anisotropic_stroke_width_spec_audit's three coverage-lane tests pass and fail on a plant that routes every stroke through the scalar width; remaining limits as the finding states) | stroke width under unequal scale
 
 ### G093 — degenerate shading geometry painting
 
@@ -1105,9 +1105,9 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-render/src/shading.rs, crates/render-cpu/src/shading.rs
 - test files: crates/pdf-model/tests/degenerate_shading_bbox_spec_audit.rs, crates/pdf-model/tests/degenerate_shading_geometry_spec_audit.rs, crates/render-raster/tests/degenerate_shading_bbox_spec_audit.rs
 
-- 2038-B70 | render-cpu,pdf-render | behavior-gap | open | degenerate shading geometry painting | 1 manifest failure
-- 2038-B71 | render-cpu,pdf-render | behavior-gap | open | degenerate shading geometry painting | 1 manifest failure
-- 2038-T126 | pdf-render,render-cpu | assertion-strengthening | open | degenerate shading geometry painting
+- 2038-B70 | render-cpu,pdf-render | behavior-gap | fixed (Table 79: pdf_render::Shading::paints_nothing, asked by render-cpu's shaded fill and stroke; ADR 3008; degenerate_shading_geometry_spec_audit) | degenerate shading geometry painting | 1 manifest failure
+- 2038-B71 | render-cpu,pdf-render | behavior-gap | fixed (Table 80: the same predicate; ADR 3008; degenerate_shading_geometry_spec_audit) | degenerate shading geometry painting | 1 manifest failure
+- 2038-T126 | pdf-render,render-cpu | assertion-strengthening | fixed (the audit's strengthened degenerate_shading_bbox_spec_audit tests pass on CPU and the three raster lanes; no change owed) | degenerate shading geometry painting
 
 
 ## render-raster
@@ -1118,7 +1118,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/render-raster/src/scene/shadings.rs
 - test files: crates/render-raster/tests/degenerate_shading_geometry_spec_audit.rs
 
-- 2038-T128 | render-raster | assertion-strengthening | open | degenerate shading geometry painting
+- 2038-T128 | render-raster | assertion-strengthening | fixed (the six raster controls pass; the two CPU assertions they sat beside are B70/B71, now fixed) | degenerate shading geometry painting
 
 ### G095 — test assertion: stroke-fit coverage
 
@@ -1126,7 +1126,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/render-raster/src/lib.rs?
 - test files: crates/render-raster/tests/stroke_adjustment.rs
 
-- 2038-T37 | render-raster | test-assertion-gap | open | test assertion: stroke-fit coverage
+- 2038-T37 | render-raster | test-assertion-gap | fixed (stroke_adjustment.rs already compares darkest and lightest interior levels, `[(0, 0)]`; any partially covered interior column fails it) | test assertion: stroke-fit coverage
 
 
 ## render-gpu
@@ -1137,7 +1137,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/render-gpu/tests/headless_gpu.rs?
 - test files: crates/render-gpu/tests/headless_gpu.rs?
 
-- 2038-D54 | render-gpu | source-rationale-overreach | open | GPU shading tests overstate pixel-centre rule
+- 2038-D54 | render-gpu | source-rationale-overreach | fixed (the audit's own comment change: raster-gpu's a_steep_ramp_is_read_at_its_own_t.rs and shading_steps.rs call pixel-centre sampling this renderer's policy and give §10.7.4's centre rule to sampled images; confirmed against §10.7.4) | GPU shading tests overstate pixel-centre rule
 
 ### G097 — test oracle too weak or vacuous
 
@@ -1145,7 +1145,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: none (test or document only)
 - test files: crates/render-gpu/tests/headless_gpu.rs, crates/render-raster/tests/headless_quorra.rs
 
-- 2038-T104 | render-gpu,render-raster | test-execution-gap | open | test oracle too weak or vacuous
+- 2038-T104 | render-gpu,render-raster | test-execution-gap | fixed (both blend-mode differentials carry `cfg_attr(debug_assertions, ignore = …)` and no early return, so a debug run reports them ignored rather than passed) | test oracle too weak or vacuous
 
 
 ## pdf-script
@@ -1156,7 +1156,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-script/src/engine/mod.rs
 - test files: crates/pdf-script/tests/matrix2d_reference_spec_audit.rs
 
-- 2038-B52 | pdf-script | adopted-script-reference-surface-gap | open | engine realm lacks Matrix2D constructor | 1 manifest failure
+- 2038-B52 | pdf-script | adopted-script-reference-surface-gap | fixed (A193's reference, Doc.addLink Example 2: Matrix2D defined in the realm, every member a stated choice; ADR 3010 supersedes ADR 1602 §7 on it; matrix2d_reference_spec_audit) | engine realm lacks Matrix2D constructor | 1 manifest failure
 
 ### G099 — indirect JS stream test gap
 
@@ -1164,7 +1164,7 @@ tree is `expected-failures-current.json`; every audit-fix round compares its nex
 - source files: crates/pdf-script/src/lib.rs?
 - test files: crates/pdf-script/tests/hook.rs
 
-- 2038-T65 | pdf-script | test-coverage-gap | open | indirect JS stream test gap
+- 2038-T65 | pdf-script | test-coverage-gap | fixed (hook.rs's stream and direct-string tests pass; a plant that reads no `/JS` stream fails the stream test) | indirect JS stream test gap
 
 
 ## viewer-core

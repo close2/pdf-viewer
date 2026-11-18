@@ -446,12 +446,44 @@ fn encode_stroke(
 
     // The stroke width is in the command's own coordinate space, and the transform scales it
     // along with the geometry, as PDF specifies.
+    // §11.6.2: "\[p]ortions of an object shall not be composited with one another", and the
+    // stroked rest and its dots are portions of one stroke. Where drawing one over the other
+    // would apply the paint twice, they are drawn in an isolated layer of their own and the dots
+    // knock the rest out within their shape first, so the layer holds one application of the
+    // paint wherever either reaches and meets the backdrop once (ADR 3006). A substituted dot
+    // carries part of its coverage in its alpha, which a knockout would read as shape, so it
+    // keeps the separate draw.
+    let applied_once = !shape.is_empty()
+        && !dots.is_empty()
+        && coverage >= 1.0
+        && !composites_as_one(paint, blend);
     let draw = |scene: &mut vello::Scene| {
+        let bounds = applied_once.then(|| {
+            use kurbo::Shape as _;
+            let mut reach = kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
+            reach.extend(dots.iter());
+            reach.bounding_box()
+        });
+        if let Some(bounds) = bounds {
+            scene.push_layer(
+                peniko::Fill::NonZero,
+                peniko::BlendMode::default(),
+                1.0,
+                at,
+                &bounds,
+            );
+        }
         if !shape.is_empty() {
             scene.stroke(&style, at, &brush, brush_at, &shape);
         }
         if !dots.is_empty() {
+            if bounds.is_some() {
+                knock_out(scene, at, peniko::Fill::NonZero, &dots);
+            }
             scene.fill(peniko::Fill::NonZero, at, &dot_brush, brush_at, &dots);
+        }
+        if bounds.is_some() {
+            scene.pop_layer();
         }
     };
     // Clipping to the *unstroked* path would cut the stroke in half, since a stroke
@@ -480,6 +512,13 @@ fn encode_stroke(
         draw(scene);
     }
     Ok(())
+}
+
+/// Whether drawing a stroke's portions one after another composites them exactly as drawing their
+/// union once would: an opaque colour under the Normal blend, for which `(1 − a)(1 − b)` of the
+/// backdrop survives either way (ADR 3006).
+fn composites_as_one(paint: &Paint, blend: BlendMode) -> bool {
+    blend == BlendMode::Normal && matches!(paint, Paint::Solid(colour) if colour.a >= 1.0)
 }
 
 /// The three spaces a command's geometry and its paint are stated in.

@@ -69,6 +69,44 @@ impl Encoder<'_> {
         self.element_of_knockout
     }
 
+    /// Encodes `marks` as the elements of an isolated knockout group of their own, which meets
+    /// the backdrop once under `clip`, `mask` and `blend`: the portions of one object that two
+    /// constructions draw, each replacing the other within its shape, so that ISO 32000-2
+    /// §11.6.2's "\[p]ortions of an object shall not be composited with one another" holds where
+    /// they overlap (ADR 3006).
+    pub(crate) fn one_object(
+        &mut self,
+        builder: &mut SceneBuilder,
+        (clip, mask, blend): (
+            Option<raster_scene::ClipId>,
+            Option<raster_scene::MaskId>,
+            BlendMode,
+        ),
+        marks: impl FnOnce(&mut Self, &mut SceneBuilder) -> Result<(), QuorraRasterError>,
+    ) -> Result<(), QuorraRasterError> {
+        let spec = raster_scene::GroupSpec {
+            alpha: 1.0,
+            blend: blend_mode(blend),
+            clip,
+            knockout: true,
+            mask,
+            compose: super::compose(blend),
+            isolated: true,
+        };
+        let (outer, outer_element) = (self.knockouts, self.element_of_knockout);
+        self.knockouts = outer.saturating_add(1);
+        self.element_of_knockout = true;
+        let mut drawn = Ok(());
+        let built = builder.group(spec, |body| {
+            drawn = marks(self, body);
+            Ok(())
+        });
+        self.knockouts = outer;
+        self.element_of_knockout = outer_element;
+        built?;
+        drawn
+    }
+
     /// One transparency group, composited by `compose` (ISO 32000-2 §11.4.1).
     ///
     /// See [`refuse_untranslatable_group`] for the shapes of the command every caller

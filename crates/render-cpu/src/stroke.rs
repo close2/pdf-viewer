@@ -105,6 +105,14 @@ impl CpuRasterizer {
         let Some(page_to_path) = pdf_render::paint_space(transform) else {
             return Ok(());
         };
+        // Table 79's coincident axis and Table 80's two zero radii paint nothing, a stroke's
+        // marks included (`pdf_render::Shading::paints_nothing`).
+        if let Paint::Shading(shading) = paint
+            && shading.background.is_none()
+            && shading.paints_nothing()
+        {
+            return Ok(());
+        }
         let at = to_device.of(transform);
         // §10.7.5's first requirement, where `/SA` asks for it and the caller has not turned the
         // fit off (it is on by default, ADR 2553): a thin stroke along the device axes is drawn one
@@ -176,70 +184,214 @@ impl CpuRasterizer {
                 None => (geometry.clone(), false),
             };
 
-        if !geometry.is_empty() {
-            let converted = convert::path(&geometry).ok_or(CpuRasterError::InvalidPath)?;
-            let mut style = convert::stroke(stroke, at);
-            // The dashes have already been dispensed, so what is left is solid.
-            if dashed {
-                style.dash = None;
-            }
-            let (mut levels, mut scratch) = (None, None);
-            let brush = self.mark_brush(
+        let placed = to_device.placed(transform);
+        let marks = Marks {
+            rest: (!geometry.is_empty()).then_some(&geometry),
+            dashed,
+            dots: if dots.is_empty() {
+                None
+            } else {
+                convert::path(&dots)
+            },
+            coverage,
+        };
+        let site_of_marks = ((transform, page_to_path, to_device), (at, site, placed));
+        if marks.rest.is_some() && marks.dots.is_some() && !Self::composites_as_one(paint, blend) {
+            self.draw_once(
+                pixmap,
+                (path, &marks, stroke),
                 (paint, blend),
-                || ink_extent(&geometry, stroke, to_device.placed(transform)),
+                site_of_marks,
+                clip,
+            )?;
+        } else {
+            self.draw_apart(
+                pixmap,
+                (&marks, stroke),
+                (paint, blend),
+                site_of_marks,
+                clip,
+            )?;
+        }
+        thin_segment::paint_dots(pixmap, thin_dots, paint, to_device, clip);
+        Ok(())
+    }
+
+    /// Draws `marks` so that the paint meets the backdrop once over the union of their shapes:
+    /// ISO 32000-2 §11.6.2's "\[p]ortions of an object shall not be composited with one another"
+    /// where the rest of a stroke and its dots would otherwise overlap (ADR 3006).
+    fn draw_once(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        (path, marks, stroke): (&Path, &Marks<'_>, &Stroke),
+        (paint, blend): (&Paint, tiny_skia::BlendMode),
+        ((transform, page_to_path, to_device), (at, site, placed)): MarkSite,
+        clip: scan::Clip<'_>,
+    ) -> Result<(), CpuRasterError> {
+        // §11.6.2: "\[p]ortions of an object shall not be composited with one another", and
+        // the rest of the path and its dots are portions of one stroke. Each is drawn in
+        // opaque white onto a buffer of its own, which leaves the union of their shapes in
+        // that buffer's alpha, and the paint goes through that union once (ADR 3006).
+        let mut own = tiny_skia::Pixmap::new(pixmap.width(), pixmap.height())
+            .ok_or(CpuRasterError::InvalidPath)?;
+        let white = tiny_skia::Paint {
+            shader: tiny_skia::Shader::SolidColor(tiny_skia::Color::WHITE),
+            anti_alias: self.anti_alias,
+            ..tiny_skia::Paint::default()
+        };
+        let unclipped = scan::Clip::Unclipped {
+            scratch: clip.scratch(),
+        };
+        Self::draw_marks(
+            &mut own.as_mut(),
+            marks,
+            (stroke, at, site, placed),
+            (&white, &white),
+            unclipped,
+        )?;
+        let Some(shape) = scan::own_coverage(&own, clip) else {
+            return Ok(());
+        };
+        let (mut levels, mut scratch) = (None, None);
+        let mut brush = self.mark_brush(
+            (paint, blend),
+            || ink_extent(path, stroke, placed),
+            (transform, page_to_path, to_device),
+            (pixmap.width(), pixmap.height()),
+            (&mut levels, &mut scratch),
+        )?;
+        // The step `fill_path` takes with the surface's matrix before it draws (trap 2): the
+        // rectangle below is stated on the surface already.
+        brush.shader.transform(convert::transform(placed.at));
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "`rasterize` refuses a surface beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let surface =
+            tiny_skia::Rect::from_xywh(0.0, 0.0, pixmap.width() as f32, pixmap.height() as f32);
+        if let Some(surface) = surface {
+            pixmap.fill_rect(
+                surface,
+                &brush,
+                tiny_skia::Transform::identity(),
+                Some(&shape),
+            );
+        }
+        Ok(())
+    }
+
+    /// Draws the rest of a stroke and its dots one after the other, each with its own brush: what
+    /// [`Self::draw_once`] would draw wherever [`Self::composites_as_one`] holds, and the one
+    /// construction where only one of the two is present.
+    fn draw_apart(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        (marks, stroke): (&Marks<'_>, &Stroke),
+        (paint, blend): (&Paint, tiny_skia::BlendMode),
+        ((transform, page_to_path, to_device), (at, site, placed)): MarkSite,
+        clip: scan::Clip<'_>,
+    ) -> Result<(), CpuRasterError> {
+        let (mut levels, mut scratch) = (None, None);
+        let rest_brush = match marks.rest {
+            Some(geometry) => Some(self.mark_brush(
+                (paint, blend),
+                || ink_extent(geometry, stroke, placed),
                 (transform, page_to_path, to_device),
                 (pixmap.width(), pixmap.height()),
                 (&mut levels, &mut scratch),
-            )?;
+            )?),
+            None => None,
+        };
+        let (mut dot_levels, mut dot_scratch) = (None, None);
+        let dot_brush = match &marks.dots {
+            Some(converted) => {
+                let mut brush = self.mark_brush(
+                    (paint, blend),
+                    || Some(Extent::Filled(converted)),
+                    (transform, page_to_path, to_device),
+                    (pixmap.width(), pixmap.height()),
+                    (&mut dot_levels, &mut dot_scratch),
+                )?;
+                // The marks were stated by `pdf-render` above, so this is the area they gave
+                // up.
+                brush.shader.apply_opacity(marks.coverage);
+                Some(brush)
+            }
+            None => None,
+        };
+        let unused = tiny_skia::Paint::default();
+        Self::draw_marks(
+            pixmap,
+            marks,
+            (stroke, at, site, placed),
+            (
+                rest_brush.as_ref().unwrap_or(&unused),
+                dot_brush.as_ref().unwrap_or(&unused),
+            ),
+            clip,
+        )?;
+        Ok(())
+    }
+
+    /// Whether drawing a stroke's portions one after another composites them exactly as drawing
+    /// their union once would: an opaque colour under the normal blend, for which
+    /// `(1 − a)(1 − b)` of the backdrop survives either way.
+    fn composites_as_one(paint: &Paint, blend: tiny_skia::BlendMode) -> bool {
+        blend == tiny_skia::BlendMode::SourceOver
+            && matches!(paint, Paint::Solid(colour) if colour.a >= 1.0)
+    }
+
+    /// Draws a stroke's ordinary part with `rest_brush` and its §8.5.3.2 dots with `dot_brush`,
+    /// the order `pdf_render::split_degenerate`'s rest and circles are drawn in (ADR 1875).
+    fn draw_marks(
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        marks: &Marks<'_>,
+        (stroke, at, site, placed): (&Stroke, Transform, (Transform, ToDevice), Placed),
+        (rest_brush, dot_brush): (&tiny_skia::Paint<'_>, &tiny_skia::Paint<'_>),
+        clip: scan::Clip<'_>,
+    ) -> Result<(), CpuRasterError> {
+        if let Some(geometry) = marks.rest {
+            let converted = convert::path(geometry).ok_or(CpuRasterError::InvalidPath)?;
+            let mut style = convert::stroke(stroke, at);
+            // The dashes have already been dispensed, so what is left is solid.
+            if marks.dashed {
+                style.dash = None;
+            }
             let outline = SolidOutline::of(&converted, &style, at);
             let outlined = (&converted, &outline);
-            let placed = to_device.placed(transform);
             if !draw_sub_pixel_rule(
                 pixmap,
-                (&geometry, &converted),
+                (geometry, &converted),
                 (&style, stroke.cap),
                 (placed, &outline),
-                &brush,
+                rest_brush,
                 clip,
             ) && !draw_long_mitres(
                 pixmap,
-                (&geometry, &converted),
+                (geometry, &converted),
                 (stroke, &style),
                 placed,
-                &brush,
+                rest_brush,
                 clip,
-            ) && !draw_stroked_outline(pixmap, outlined, &style, site, &brush, clip)
+            ) && !draw_stroked_outline(pixmap, outlined, &style, site, rest_brush, clip)
             {
-                scan::stroke(pixmap, &converted, &brush, &style, placed, clip);
+                scan::stroke(pixmap, &converted, rest_brush, &style, placed, clip);
             }
         }
         // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
         // centred at the single point", and the stroking paint is what fills it.
-        if !dots.is_empty()
-            && let Some(converted) = convert::path(&dots)
-        {
-            let (mut levels, mut scratch) = (None, None);
-            let mut brush = self.mark_brush(
-                (paint, blend),
-                || Some(Extent::Filled(&converted)),
-                (transform, page_to_path, to_device),
-                (pixmap.width(), pixmap.height()),
-                (&mut levels, &mut scratch),
-            )?;
-            // The marks were stated by `pdf-render` above, so this is the area they gave up.
-            brush.shader.apply_opacity(coverage);
+        if let Some(converted) = &marks.dots {
             // Measured on the page's grid, so a window's or a strip's discs are the page's (ADR
             // 2148).
             scan::fill_stated(
                 pixmap,
-                (&converted, &scan::Exact::Unknown),
-                &brush,
+                (converted, &scan::Exact::Unknown),
+                dot_brush,
                 tiny_skia::FillRule::Winding,
-                to_device.placed(transform),
+                placed,
                 clip,
             );
         }
-        thin_segment::paint_dots(pixmap, thin_dots, paint, to_device, clip);
         Ok(())
     }
 
@@ -289,6 +441,27 @@ impl CpuRasterizer {
             ),
         }
     }
+}
+
+/// Where a stroke's marks are drawn: the command's transform, page-to-path map and device placement
+/// that a brush is built from, and the device transform, outline site and grid placement the marks
+/// are drawn under.
+type MarkSite = (
+    (Transform, Transform, ToDevice),
+    (Transform, (Transform, ToDevice), Placed),
+);
+
+/// The marks one stroke is drawn as, once `pdf_render` has taken §8.5.3.2's degenerate subpaths out
+/// of it: the ordinary rest, and the dots filled beside it at `coverage`.
+struct Marks<'g> {
+    /// The path stroked under the line's width, caps and joins, if any of it is left.
+    rest: Option<&'g Path>,
+    /// Whether `rest`'s dashes were dispensed already.
+    dashed: bool,
+    /// The filled circles of zero-length round-capped subpaths and dashes.
+    dots: Option<tiny_skia::Path>,
+    /// The opacity the dots carry for the area a substituted mark gave up.
+    coverage: f32,
 }
 
 /// The pixels a ramp's cells cover for a stroke of `path` under `stroke`, placed by `placed` (ADR

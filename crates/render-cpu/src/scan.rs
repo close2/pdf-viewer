@@ -398,7 +398,7 @@ impl<'a> Clip<'a> {
     }
 
     /// Where a mark's own coverage is built before it meets anything.
-    fn scratch(self) -> &'a Scratch {
+    pub(crate) fn scratch(self) -> &'a Scratch {
         match self {
             Clip::Unclipped { scratch }
             | Clip::Region { scratch, .. }
@@ -1196,6 +1196,35 @@ pub(crate) fn scaled(coverage: u8, value: u8) -> u8 {
         .saturating_mul(u16::from(value))
         .saturating_add(127);
     u8::try_from(scaled / 255).unwrap_or(u8::MAX)
+}
+
+/// The shape a mark drawn in opaque white onto `own` leaves in its alpha, met with `clip` as one
+/// mark's coverage is: §10.7.4's set by `min` and §11.6.5's value by a product, in the order
+/// [`intersect_group`] states — `min(f, C) · S = min(f · S, C · S)`, the second factor being what
+/// [`Clip::Both`] holds. `None` where `own` is not the clip's size, which no caller draws.
+///
+/// This is what lets a stroke whose portions are drawn by different constructions meet the
+/// backdrop once, as ISO 32000-2 §11.6.2 asks of "\[p]ortions of an object" (ADR 3006).
+pub(crate) fn own_coverage(own: &tiny_skia::Pixmap, clip: Clip<'_>) -> Option<tiny_skia::Mask> {
+    let mut shape = tiny_skia::Mask::from_pixmap(own.as_ref(), tiny_skia::MaskType::Alpha);
+    let (set, value) = clip.factors();
+    if let Some(value) = value {
+        if value.len() != shape.data().len() {
+            return None;
+        }
+        for (sample, &value) in shape.data_mut().iter_mut().zip(value) {
+            *sample = scaled(*sample, value);
+        }
+    }
+    if let Some(set) = set {
+        if set.data().len() != shape.data().len() {
+            return None;
+        }
+        for (sample, &bound) in shape.data_mut().iter_mut().zip(set.data()) {
+            *sample = (*sample).min(bound);
+        }
+    }
+    Some(shape)
 }
 
 /// Whether the clip inside `admitted` is a set rather than a coverage, over `reach`.

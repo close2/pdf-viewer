@@ -119,8 +119,98 @@ pub(crate) fn encode(
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
 
     let at = enc.placed(transform);
+    let marks = Marks {
+        source: path,
+        solid,
+        stroke: s,
+        path_width,
+        to_device,
+        from_source: dashed.is_none() && split.is_none(),
+        at,
+        paint: raster_paint,
+        dots: &dots,
+        coverage,
+    };
+    // §11.6.2: "\[p]ortions of an object shall not be composited with one another", and the
+    // stroked rest and its dots are portions of one stroke. Where drawing one over the other
+    // would apply the paint twice, both are elements of an isolated knockout group of their own,
+    // so the dots replace the rest within their shape and the group meets the backdrop once under
+    // the stroke's clip, mask and blend (ADR 3006). Two cases keep the separate draw: a
+    // substituted dot carries part of its coverage in its alpha, which a knockout would read as
+    // shape; and a stroke that is itself an element of §11.4.6's knockout group cannot be a group,
+    // whose shape a layer does not carry (`doc/adr/1295`).
+    let applied_once = !solid.is_empty()
+        && !dots.is_empty()
+        && coverage >= 1.0
+        && !enc.knockout_element()
+        && !composites_as_one(paint, blend);
+    if applied_once {
+        enc.one_object(builder, (clip, mask, blend), |enc, builder| {
+            draw_marks(enc, builder, &marks, (None, None, BlendMode::Normal))
+        })
+    } else {
+        draw_marks(enc, builder, &marks, (clip, mask, blend))
+    }
+}
+
+/// Whether drawing a stroke's portions one after another composites them exactly as drawing their
+/// union once would: an opaque colour under the Normal blend, for which `(1 − a)(1 − b)` of the
+/// backdrop survives either way (ADR 3006).
+fn composites_as_one(paint: &Paint, blend: BlendMode) -> bool {
+    blend == BlendMode::Normal && matches!(paint, Paint::Solid(colour) if colour.a >= 1.0)
+}
+
+/// The marks one stroke is drawn as once `pdf-render` has split and dashed it: the solid rest,
+/// stroked, and §8.5.3.2's dots, filled beside it at `coverage`.
+struct Marks<'a> {
+    /// The display list's own path, which the expansion cache is keyed by.
+    source: &'a Arc<Path>,
+    /// What is stroked solid.
+    solid: &'a Path,
+    /// The stroke's parameters.
+    stroke: &'a Stroke,
+    /// §8.4.3.2's width in path units.
+    path_width: f32,
+    /// Path space to the device.
+    to_device: Transform,
+    /// Whether `solid` *is* the display list's own path.
+    from_source: bool,
+    /// Where the scene places the marks.
+    at: raster_scene::Affine,
+    /// The stroke's paint.
+    paint: raster_scene::Paint,
+    /// The filled dots.
+    dots: &'a Path,
+    /// The coverage the dots carry in their alpha.
+    coverage: f32,
+}
+
+/// Draws `marks` under one clip, mask and blend.
+fn draw_marks(
+    enc: &mut Encoder<'_>,
+    builder: &mut SceneBuilder,
+    marks: &Marks<'_>,
+    (clip, mask, blend): (
+        Option<raster_scene::ClipId>,
+        Option<raster_scene::MaskId>,
+        BlendMode,
+    ),
+) -> Result<(), QuorraRasterError> {
+    let Marks {
+        source: path,
+        solid,
+        stroke: s,
+        path_width,
+        to_device,
+        from_source,
+        at,
+        paint: raster_paint,
+        dots,
+        coverage,
+    } = *marks;
     if !solid.is_empty() {
-        if anisotropy(to_device) > MAX_ISOTROPY_ERROR {
+        let in_path_space = !scalar_width_holds(to_device, path_width);
+        if in_path_space {
             // The expansion below happens in device space, on this view's transform
             // (ADR 0702).
             enc.consume_view();
@@ -135,7 +225,7 @@ pub(crate) fn encode(
                     // Whether `solid` *is* the display list's own path rather than geometry this
                     // frame computed from it — which is what decides whether the expansion can be
                     // cached, below.
-                    from_source: dashed.is_none() && split.is_none(),
+                    from_source,
                 },
             )?;
             builder.fill(
@@ -149,10 +239,16 @@ pub(crate) fn encode(
                 mask,
             )?;
         } else {
+            // Under a transform that is not a similarity the choice above read this view's
+            // magnification through [`MAX_SCALAR_WIDTH_ERROR`], so the scene it built is only
+            // true at this target (ADR 0702).
+            if anisotropy(to_device) > 1.0 + SIMILARITY_ROUNDING {
+                enc.consume_view();
+            }
             // The untouched common case keeps the path's `Arc` identity, so a
             // glyph stroked a thousand times uploads once; computed geometry is
             // per-frame.
-            let outline = if dashed.is_none() && split.is_none() {
+            let outline = if from_source {
                 enc.outline(path)?
             } else {
                 enc.transient_outline(solid)?
@@ -189,7 +285,7 @@ pub(crate) fn encode(
     fill_dots(
         enc,
         builder,
-        &dots,
+        dots,
         at,
         faint(raster_paint, coverage),
         (clip, mask, blend),
@@ -682,10 +778,40 @@ fn expanded(
 }
 
 /// How far a scalar device width may sit from the truth before the path-space
-/// route takes over: the ratio of the transform's two singular values, allowed to
-/// reach 1% — under the antialiasing floor every gate already tolerates, and far
-/// under the 1.9× that made issue6769's bar visibly fat.
+/// route takes over, as a ratio: the transform's two singular values, allowed to
+/// reach 1% — far under the 1.9× that made issue6769's bar visibly fat.
 const MAX_ISOTROPY_ERROR: f32 = 1.01;
+
+/// The same bound in device pixels: a quarter of one.
+///
+/// A ratio alone does not bound a thick line. ISO 32000-2 §8.4.3.2 has the device thickness
+/// "vary according to their orientation" under unequal scales, and the two device pixels the
+/// clause allows are for "the positions of lines with respect to the pixel grid", not for a
+/// width read off the wrong direction — a 1000-unit line under a 1.009 scale was nine pixels
+/// wide across the axis the scale leaves alone. The clause states no tolerance for that error,
+/// so this is a choice and not a derivation: a quarter pixel is under what anti-aliased
+/// coverage shows at an edge, and it keeps every stroke thinner than 25 pixels under a 1% ratio
+/// on the scalar route, where the scene stays true at every magnification (ADR 3007).
+const MAX_SCALAR_WIDTH_ERROR: f32 = 0.25;
+
+/// How far above 1 [`anisotropy`] reads for a similarity transform, from the rounding of its
+/// determinant and stretch in `f32`: a few units in the last place.
+const SIMILARITY_ROUNDING: f32 = 1.0e-5;
+
+/// Whether one scalar device width states a stroke `path_width` path units wide under `t`
+/// within both bounds: [`MAX_ISOTROPY_ERROR`] on the ratio of the singular values and
+/// [`MAX_SCALAR_WIDTH_ERROR`] on the difference of the widths along them.
+fn scalar_width_holds(t: Transform, path_width: f32) -> bool {
+    let ratio = anisotropy(t);
+    if ratio > MAX_ISOTROPY_ERROR {
+        return false;
+    }
+    // The scalar width is the wider one, `path_width · max`, and the narrowest direction's
+    // true width is `path_width · max / ratio`.
+    let widest = path_width * t.max_stretch();
+    let error = widest - widest / ratio;
+    !error.is_finite() || error <= MAX_SCALAR_WIDTH_ERROR
+}
 
 /// The ratio of the transform's larger singular value to its smaller — 1 exactly
 /// for a similarity transform, growing with shear or uneven scale.

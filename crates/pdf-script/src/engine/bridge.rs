@@ -82,6 +82,14 @@ pub(super) fn install(context: &mut Context) -> JsResult<()> {
     });
     document(context)?;
     constants(context)?;
+    matrix2d(context)
+}
+
+/// The `Matrix2D` object the reference's `Doc.addLink` Example 2 constructs (ADR 3010), defined by
+/// a script of this crate's own because every member of it is arithmetic on the six numbers.
+fn matrix2d(context: &mut Context) -> JsResult<()> {
+    const MATRIX2D: &str = include_str!("matrix2d.js");
+    context.eval(boa_engine::Source::from_bytes(MATRIX2D))?;
     Ok(())
 }
 

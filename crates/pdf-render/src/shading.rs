@@ -85,6 +85,35 @@ pub struct Shading {
 }
 
 impl Shading {
+    /// Whether this shading's own geometry paints nothing at all, which ISO 32000-2 states for
+    /// two degenerate `/Coords`, whatever `/Extend` says.
+    ///
+    /// §8.7.4.5.3, Table 79, of an axial shading:
+    ///
+    /// > If the starting and ending coordinates are coincident (x 0 =x 1 and y 0 =y 1 ) nothing
+    /// > shall be painted.
+    ///
+    /// §8.7.4.5.4, Table 80, of a radial one:
+    ///
+    /// > If one radius is 0 , the corresponding circle shall be treated as a point; if both are
+    /// > 0 , nothing shall be painted.
+    ///
+    /// Asked here once so that the three backends answer it alike (trap 2). `/Background` is not
+    /// the shading's geometry and is not part of the answer: a caller that paints one decides
+    /// that on Table 77's terms.
+    #[must_use]
+    pub fn paints_nothing(&self) -> bool {
+        match self.kind.as_ref() {
+            ShadingKind::Axial { start, end, .. } => start == end,
+            ShadingKind::Radial {
+                start_radius,
+                end_radius,
+                ..
+            } => *start_radius == 0.0 && *end_radius == 0.0,
+            _ => false,
+        }
+    }
+
     /// Whether every colour this shading can paint is fully opaque.
     ///
     /// Asked for the same reason as [`crate::Image::is_opaque`]: §11.4.6's knockout differs

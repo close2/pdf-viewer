@@ -66,6 +66,11 @@ impl CpuRasterizer {
             // `shading::shader`) would turn that into an error on the page.
             return true;
         }
+        // Table 79's coincident axis and Table 80's two zero radii paint nothing, and a gradient
+        // library handed either draws a solid colour or refuses it.
+        if shading.paints_nothing() {
+            return true;
+        }
         match shading.kind.as_ref() {
             pdf_render::ShadingKind::Mesh {
                 triangles,

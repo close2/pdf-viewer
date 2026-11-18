@@ -145,11 +145,14 @@ impl Interpreter<'_> {
         );
         // Normalised to (left, bottom, right, top): the clause names the four edges in that
         // order and producers write the corners in any of them, exactly as they do for a page
-        // box. A box with no extent in either direction clips everything away, and Table 74's
-        // NOTE 1 says otherwise — "[a] BBox of zero height or width will still paint one
-        // pixel" — so it is left unclipped rather than emptied.
+        // box. A box with no extent in one direction is still the cell's clip. Table 74's NOTE 1
+        // — "\[a] BBox of zero height or width will still paint one pixel" — is what §10.7.4's
+        // scan conversion makes of it, "\[a] zero-width or zero-height rectangle paints a line 1
+        // pixel wide", and every backend builds a clip's region by that rule
+        // (`pdf_render::clip_region`), so the cell keeps its line and loses what lies beyond it
+        // (ADR 3009).
         let cell_box = match bbox.as_slice() {
-            [x0, y0, x1, y1] if (x1 - x0).abs() > 0.0 && (y1 - y0).abs() > 0.0 => {
+            [x0, y0, x1, y1] if [x0, y0, x1, y1].iter().all(|edge| edge.is_finite()) => {
                 Some([x0.min(*x1), y0.min(*y1), x0.max(*x1), y0.max(*y1)])
             }
             _ => None,

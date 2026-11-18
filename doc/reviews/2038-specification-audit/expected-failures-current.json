@@ -34,42 +34,6 @@
    "log": "broad.log"
   },
   {
-   "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
-   "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
-   "finding": "2038-B20",
-   "log": "broad.log"
-  },
-  {
-   "binary": "render-cpu::transparent_degenerate_spec_audit",
-   "test": "a_degenerate_subpath_does_not_composite_twice_with_the_same_stroke_object",
-   "finding": "2038-B39",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::stroke_composition_pdf_spec_audit",
-   "test": "one_pdf_stroke_object_does_not_apply_its_alpha_to_its_own_parts",
-   "finding": "2038-B39",
-   "log": "broad.log"
-  },
-  {
-   "binary": "render-gpu::stroke_composition_spec_audit",
-   "test": "direct_gpu_backend_applies_one_alpha_for_one_stroke_object",
-   "finding": "2038-B39",
-   "log": "gpu.log"
-  },
-  {
-   "binary": "render-raster::stroke_composition_spec_audit",
-   "test": "gpu_coverage_applies_one_alpha_for_one_stroke_object",
-   "finding": "2038-B39",
-   "log": "gpu.log"
-  },
-  {
-   "binary": "render-raster::stroke_composition_spec_audit",
-   "test": "compute_coverage_applies_one_alpha_for_one_stroke_object",
-   "finding": "2038-B39",
-   "log": "gpu.log"
-  },
-  {
    "binary": "viewer-accessibility::interleaved_struct_content_spec_audit",
    "test": "accesskit_preserves_interleaving_of_parent_content_and_child_elements",
    "finding": "2038-B43",
@@ -79,37 +43,6 @@
    "binary": "pdf-transform::archive_external_components_spec_audit",
    "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
    "finding": "2038-B46",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-script::matrix2d_reference_spec_audit",
-   "test": "matrix2d_constructor_and_reference_methods_are_available_to_a_document_realm",
-   "finding": "2038-B52",
-   "log": "engine.log",
-   "requires": "pdf-script/engine"
-  },
-  {
-   "binary": "render-raster::near_similarity_stroke_spec_audit",
-   "test": "near_similarity_large_stroke_preserves_transverse_width_within_two_pixels",
-   "finding": "2038-B59",
-   "log": "gpu.log"
-  },
-  {
-   "binary": "render-raster::near_similarity_stroke_spec_audit",
-   "test": "a_pdf_stroke_under_near_similarity_keeps_its_horizontal_width",
-   "finding": "2038-B59",
-   "log": "gpu.log"
-  },
-  {
-   "binary": "pdf-model::degenerate_shading_geometry_spec_audit",
-   "test": "coincident_axial_endpoints_paint_nothing_even_with_extend_and_direct_background",
-   "finding": "2038-B70",
-   "log": "broad.log"
-  },
-  {
-   "binary": "pdf-model::degenerate_shading_geometry_spec_audit",
-   "test": "both_zero_radial_radii_paint_nothing_but_a_zero_radius_circle_is_a_point",
-   "finding": "2038-B71",
    "log": "broad.log"
   },
   {
