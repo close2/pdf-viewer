@@ -206,6 +206,13 @@ fn body_of(draws: GivenOutline, advance: i32, notdef_plain: &[u8]) -> Result<Vec
         }
         GivenOutline::NotdefsOwn => with_width(notdef_plain, advance)
             .ok_or_else(|| not_written("the .notdef charstring's width cannot be restated")),
+        // A Type 1 program's glyphs are keyed by name in its `CharStrings` dictionary, not by an
+        // index a caller could name, so a copy of another glyph is written into a Compact Font
+        // Format program only (`crate::cff::with_glyphs_given`).
+        GivenOutline::GlyphsOwn(_) => Err(not_written(
+            "a copy of a glyph other than .notdef is written into a Compact Font Format program \
+             only",
+        )),
     }
 }
 
@@ -640,6 +647,8 @@ fn read_back(
         let expected = match asked.draws {
             GivenOutline::Nothing => Vec::new(),
             GivenOutline::NotdefsOwn => notdef_outline.clone(),
+            // `body_of` writes no such glyph, so none is read back as one.
+            GivenOutline::GlyphsOwn(_) => return Err(differs()),
         };
         if drawn != expected {
             return Err(differs());

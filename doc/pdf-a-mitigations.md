@@ -1393,6 +1393,15 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   serif) is restated as the face's kind, on the same proof (ADR 2147). A `Type1` dictionary restated
   as `TrueType` has its descriptor copy flagged Nonsymbolic and not Symbolic, since its encoding is
   a Latin one over a Latin face and section 6.2.11.6 gives a symbolic TrueType font none (ADR 2278).
+- **A code ISO 32000-2 Annex D encodes twice, shown at a width other than its twin's** (code 173
+  beside the hyphen) is named for the character ISO 32000-1's Annex D says it means, `softhyphen`,
+  and reaches a copy of the twin's glyph at its own width, so section 6.2.11.5 asks each glyph's
+  advance to equal one number: in a `glyf` face the copy is sent U+00AD by every Unicode `cmap`
+  subtable (ADR 2723); in a shipped CFF face, which names no such glyph, the copy is a glyph of that
+  name drawing the twin's charstring, under the dictionary kept or restated as `Type1` (ADR 3154);
+  in a `glyf` program the file embeds, the restatement of its advances makes the same copy and
+  restates the font dictionary's `/Encoding` (ADR 3153). The rename is reported and recorded in the
+  file's history; extracted text for the code is U+00AD.
 - **A font that names a descriptor the conversion renamed** (the CJK pack's subset, a re-keyed
   face) and that no route embedded into keeps its own `/BaseFont`, so it is pointed at a copy of
   the producer's descriptor, which embeds nothing: Table 120 makes `/FontName` the `/BaseFont` of
@@ -1519,7 +1528,8 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   report their preparations read, and a row left with none takes this row's decision.
 - **Refused, by name**: a program no row admits under its dictionary — a Type 1 program under
   `CIDFontType0` (`issue11740_reduced`) — since a true filing would need the program's format
-  changed; a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
+  changed (the conversion into the CID-keyed CFF Table 124 files under `/FontFile3
+  /CIDFontType0C` is the remedy, its construction in ADR 3155); a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
   where that row's named objects or places were cut short, so its findings at the font cannot be
   told from the rest, and its rewrite would write it as a TrueType font again; a
   CFF-flavoured program under a `CIDFontType2` stating no map, or a CID-keyed one, whose CIDs nothing

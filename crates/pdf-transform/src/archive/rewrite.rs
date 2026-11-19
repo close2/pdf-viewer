@@ -3303,6 +3303,21 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Restates the `/Encoding` of a font whose embedded program gave a twin code a copy of its
+    /// twin's glyph, and answers whether it did (`super::fonts::restate_metrics`,
+    /// `doc/adr/3153`).
+    fn name_the_twin_codes(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(encoding) = self
+            .metrics
+            .filter(|_| self.wants(Rewrite::RestateFontMetrics))
+            .and_then(|metrics| metrics.encodings.get(&id))
+        else {
+            return false;
+        };
+        out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
+        true
+    }
+
     fn rewrite_dictionary(
         &self,
         id: ObjectId,
@@ -3364,6 +3379,7 @@ impl Rewriter<'_> {
         changed |= self.refile_font_program(id, &mut out);
         changed |= self.restate_collection(id, &mut out, applied);
         changed |= self.name_the_copied_descriptor(id, &mut out, applied);
+        changed |= self.name_the_twin_codes(id, &mut out);
         if self.wants(Rewrite::SuppliedMediaType)
             && let Some(media_type) = self.remedies.supplied.get(&id)
         {

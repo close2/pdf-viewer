@@ -6584,8 +6584,8 @@ note = "The annex's own table of the four predefined encodings, and its two `sha
 clause = "D.2"
 title = "Latin character set and encodings"
 status = "implemented"
-code = ["crates/pdf-font/src/encoding.rs"]
-test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present", "crates/pdf-font/src/encoding.rs::the_encodings_differ_where_they_are_known_to_differ"]
+code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-transform/src/archive/fonts/twin_codes.rs"]
+test = ["crates/pdf-font/src/encoding.rs::the_assignments_made_only_in_the_notes_are_present", "crates/pdf-font/src/encoding.rs::the_encodings_differ_where_they_are_known_to_differ", "crates/pdf-transform/tests/archive/twin_codes.rs::an_embedded_soft_hyphen_narrower_than_the_hyphen_reaches_a_copy_of_its_glyph", "crates/pdf-transform/tests/archive/twin_codes.rs::a_soft_hyphen_in_a_compact_font_format_face_reaches_a_copy_of_its_glyph"]
 note = "Table D.2's Latin character set — `StandardEncoding`, `MacRomanEncoding`, `WinAnsiEncoding` and `PDFDocEncoding` in four columns. Transcribed with the table's *notes*, which carry assignments the body does not show and are the entries most easily got wrong, and gated three ways: every glyph name is one the CFF specification knows, each table encodes the number of codes the annex defines, and the encodings differ exactly where they are known to differ. `StandardEncoding` is deliberately not transcribed — it is the CFF standard encoding, which `read-fonts` already carries, and one table is easier to keep right than two."
 
 [[clause]]

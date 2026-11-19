@@ -18,6 +18,7 @@ use pdf_archive::survey::Survey;
 use pdf_syntax::Document;
 use pdf_syntax::object::ObjectId;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 /// Every font object the two Unicode requirements were found to fail at.
 ///
@@ -163,10 +164,32 @@ pub(super) fn prepare_fonts(
         substitutes
     });
     let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {
-        (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics, spare),
+        (true, Some(survey)) => {
+            fonts::restate_metrics(document, survey, wants_metrics, plan.target, spare)
+        }
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
-    let recorded = substitutes.as_ref().map_or_default(Substitutes::recorded);
+    let mut recorded = substitutes.as_ref().map_or_default(Substitutes::recorded);
+    // A twin code named for its character in a program the file embeds is a restated encoding,
+    // and the file's history says which, as it does for a substituted face (`doc/adr/3153`).
+    if let Ok(metrics) = &metrics {
+        for font in metrics
+            .done
+            .iter()
+            .filter(|font| !font.twin_codes.is_empty())
+        {
+            if !recorded.is_empty() {
+                recorded.push_str("; ");
+            }
+            let _ = write!(
+                recorded,
+                "{} (resource {}), whose embedded program is kept: {}",
+                font.requested,
+                font.resource,
+                fonts::twin_codes_named(&font.twin_codes)
+            );
+        }
+    }
     PreparedFonts {
         substitutes,
         metrics,

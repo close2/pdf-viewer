@@ -2313,12 +2313,20 @@ impl Conversion {
                 self.restated.len()
             );
             for font in &self.restated {
-                let _ = writeln!(
+                let _ = write!(
                     out,
                     "      {} (resource {}): {} glyph(s) restated across the page and {} down \
                      it, no outline changed",
                     font.requested, font.resource, font.glyphs, font.heights
                 );
+                if !font.twin_codes.is_empty() {
+                    let _ = write!(
+                        out,
+                        "; {}",
+                        super::fonts::twin_codes_named(&font.twin_codes)
+                    );
+                }
+                let _ = writeln!(out);
             }
         }
         if !self.removed.is_empty() {
@@ -2600,12 +2608,24 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
 
 /// One font whose program's advances were restated, as JSON.
 fn restated_to_json(font: &RestatedFont) -> Value {
-    Value::Object(vec![
+    let mut fields = vec![
         ("resource".to_owned(), Value::text(font.resource.clone())),
         ("base_font".to_owned(), Value::text(font.requested.clone())),
         ("glyphs".to_owned(), Value::count(font.glyphs)),
         ("vertical_glyphs".to_owned(), Value::count(font.heights)),
-    ])
+    ];
+    if !font.twin_codes.is_empty() {
+        fields.push((
+            "twin_codes".to_owned(),
+            Value::Array(
+                font.twin_codes
+                    .iter()
+                    .map(|code| Value::text(format!("{code:#04x}")))
+                    .collect(),
+            ),
+        ));
+    }
+    Value::Object(fields)
 }
 
 /// One removed property as JSON.

@@ -201,9 +201,38 @@ pub(super) fn split(program: &[u8], splits: &[(u8, u16, u16)]) -> Option<Split> 
     })
 }
 
-/// What [`split`] writes: the program, and the copy each split code reaches.
+/// A bare Compact Font Format program with each code of `splits` given a copy of its glyph,
+/// named for the character the code means, at the advance asked, in the program's own units.
+///
+/// The program is name-keyed (Adobe Technical Note #5176 section 13): a simple font's encoding
+/// reaches a glyph by its charset name (ISO 32000-2 §9.6.5.2), so the name the restated encoding
+/// gives the code — `softhyphen`, `nonbreakingspace` — is the copy's charset name, and its
+/// charstring is the twin's, every byte but the width operand (`doc/adr/3154`). `None` where the
+/// program is CID-keyed or already names a glyph so, which [`pdf_font::cff::with_glyphs_given`]
+/// refuses.
+pub(super) fn split_compact(program: &[u8], splits: &[(u8, u16, u16)]) -> Option<Split> {
+    let glyphs: Vec<pdf_font::cff::GlyphToGive> = splits
+        .iter()
+        .map(|(code, source, advance)| {
+            Some(pdf_font::cff::GlyphToGive {
+                draws: pdf_font::cff::GivenOutline::GlyphsOwn(*source),
+                name: Some(name_of(*code)?.to_owned()),
+                advance: i64::from(*advance),
+            })
+        })
+        .collect::<Option<_>>()?;
+    let (program, added) = pdf_font::cff::with_glyphs_given(program, &glyphs).ok()?;
+    let reached = splits
+        .iter()
+        .zip(added)
+        .map(|((code, ..), added)| (*code, added.glyph))
+        .collect();
+    Some(Split { program, reached })
+}
+
+/// What [`split`] and [`split_compact`] write: the program, and the copy each split code reaches.
 pub(super) struct Split {
-    /// The program with the copies and the rewritten `cmap`.
+    /// The program with the copies, and an sfnt's rewritten `cmap`.
     pub(super) program: Vec<u8>,
     /// Each split code and the copy of its glyph it now reaches.
     pub(super) reached: Vec<(u8, u16)>,

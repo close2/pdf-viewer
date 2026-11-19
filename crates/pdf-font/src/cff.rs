@@ -2768,6 +2768,10 @@ pub enum GivenOutline {
     /// Glyph 0's own outline: `.notdef`'s charstring, every byte of it but the width operand,
     /// interpreted against the same Private DICT and the same subroutines.
     NotdefsOwn,
+    /// The outline of the glyph at this index, copied as [`Self::NotdefsOwn`] copies glyph 0's:
+    /// the glyph two codes reach at two widths, given to the second under a name of its own
+    /// (`doc/adr/3154`).
+    GlyphsOwn(u16),
 }
 
 /// One glyph for [`with_glyphs_given`] to append.
@@ -2900,6 +2904,13 @@ pub fn with_glyphs_given(
         let (source, subroutines): (&[u8], _) = match asked.draws {
             GivenOutline::Nothing => (&[stack_clearing::ENDCHAR], &no_subroutines),
             GivenOutline::NotdefsOwn => (&notdef, &notdefs_subroutines),
+            GivenOutline::GlyphsOwn(copied) => (
+                charstrings
+                    .get(usize::from(copied))
+                    .ok_or_else(|| malformed("the glyph to copy is not in the CharStrings INDEX"))?
+                    .as_slice(),
+                &notdefs_subroutines,
+            ),
         };
         let charstring = charstring_with_advance(source, asked.advance, nominal, subroutines)
             .map_err(|why| why.refusal(glyph, NOTDEF_NOT_RESTATED))?;

@@ -476,6 +476,9 @@ pub struct RestatedFont {
     /// set vertically — which is nearly all of them. The two counts are separate because the
     /// two requirements are: a document can fail either without the other.
     pub heights: usize,
+    /// The codes ISO 32000-2 Annex D encodes twice that the encoding now names for the character
+    /// ISO 32000-1 says each means, each reaching a copy of its twin's glyph (`doc/adr/3153`).
+    pub twin_codes: Vec<u8>,
 }
 
 /// The requirement the embedding answers.
@@ -604,6 +607,9 @@ pub(super) struct Metrics {
     pub(super) descriptors: BTreeMap<ObjectId, (ObjectId, ObjectId)>,
     /// What was done, per font.
     pub(super) done: Vec<RestatedFont>,
+    /// The font dictionaries whose `/Encoding` names a twin code for its character, each with
+    /// the encoding written (`twin_codes`, `doc/adr/3153`).
+    pub(super) encodings: BTreeMap<ObjectId, Object>,
 }
 
 /// Which of ISO 19005-4 section 6.2.10.5's two disagreements a conversion was asked to answer.
@@ -694,6 +700,7 @@ pub(super) fn restate_metrics(
     document: &Document,
     survey: &Survey,
     wants: Directions,
+    target: pdf_archive::Target,
     spare: &mut Spare,
 ) -> Result<Metrics, Because> {
     let mut metrics = Metrics::default();
@@ -709,14 +716,10 @@ pub(super) fn restate_metrics(
         // whose two statements already agree asked for nothing. A glyph the program states no
         // advance for is left alone too — that answer is a fact about this reader rather than
         // about the file, and `pdf_archive` passes over the same case for the same reason.
-        let widths: BTreeMap<u16, f32> = if wants.widths {
-            shown_widths(&font, used)?
-                .into_iter()
-                .filter(|(_, (width, program))| program.is_some_and(|own| disagrees(*width, own)))
-                .map(|(glyph, (width, _))| (glyph, width))
-                .collect()
+        let (widths, twins) = if wants.widths {
+            widths_to_restate(document, used, (&font, &embedded), target)?
         } else {
-            BTreeMap::new()
+            (BTreeMap::new(), None)
         };
         // The same question going down the page, asked only of a font a `CMap` sets vertically:
         // §9.7.5.1's `/WMode` is what [`pdf_font::LoadedFont::is_vertical`] answers, and it is
@@ -730,7 +733,7 @@ pub(super) fn restate_metrics(
         } else {
             BTreeMap::new()
         };
-        if widths.is_empty() && heights.is_empty() {
+        if widths.is_empty() && heights.is_empty() && twins.is_none() {
             continue;
         }
         let bytes = document
@@ -743,7 +746,9 @@ pub(super) fn restate_metrics(
         };
         let (restated, lengths) = match embedded.format {
             Filed::Read(format) => {
-                let mut restated = bytes.to_vec();
+                let mut restated = twins
+                    .as_ref()
+                    .map_or_else(|| bytes.to_vec(), |twins| twins.program.clone());
                 if !widths.is_empty() {
                     restated = pdf_font::restate::with_widths(&restated, format, &widths)
                         .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
@@ -781,17 +786,25 @@ pub(super) fn restate_metrics(
             metrics.at.insert(embedded.at, stream);
             embedded.at
         };
-        if !widths.is_empty() {
+        if !widths.is_empty() || twins.is_some() {
             metrics.horizontal.insert(at);
         }
         if !heights.is_empty() {
             metrics.vertical.insert(at);
         }
+        let twin_codes = match twins {
+            Some(twins) => {
+                metrics.encodings.insert(twins.font, twins.encoding);
+                twins.codes
+            }
+            None => Vec::new(),
+        };
         metrics.done.push(RestatedFont {
             resource: used.name.clone(),
             requested: base_font(document, &used.dict),
             glyphs: widths.len(),
             heights: heights.len(),
+            twin_codes,
         });
     }
     if metrics.at.is_empty() && metrics.descriptors.is_empty() {
@@ -841,7 +854,7 @@ fn another_font_differs(
                 })
             })
         };
-        (!widths.is_empty() && contradicts(shown_widths(&font, other), widths))
+        (!widths.is_empty() && contradicts(shown_widths(&font, other, &[]), widths))
             || (!heights.is_empty()
                 && font.is_vertical()
                 && contradicts(shown_heights(&font, other), heights))
@@ -1008,13 +1021,19 @@ fn shown_heights(
 /// and because two codes reaching one glyph is the case a restatement cannot serve: a program
 /// holds one advance per glyph, so a dictionary asking for two of them is a document no rewrite
 /// of the program can satisfy and one this refuses rather than half-corrects.
+///
+/// The codes in `set_aside` are passed over: each is given a glyph of its own by the caller.
 fn shown_widths(
     font: &LoadedFont,
     used: &SelectedFont,
+    set_aside: &[u8],
 ) -> Result<BTreeMap<u16, (f32, Option<f32>)>, Because> {
     let mut widths: BTreeMap<u16, (f32, Option<f32>)> = BTreeMap::new();
     for text in used.shown.keys() {
         for code in font.decode(text) {
+            if single_byte(code).is_some_and(|byte| set_aside.contains(&byte)) {
+                continue;
+            }
             let Some(glyph) = font.glyph_index(code) else {
                 continue;
             };
@@ -1031,6 +1050,115 @@ fn shown_widths(
         }
     }
     Ok(widths)
+}
+
+/// The width to restate each glyph of an embedded program to, and the twin codes given copies.
+///
+/// **A code Annex D encodes twice, at a width of its own**, is named for the character ISO
+/// 32000-1 says it means and reaches a copy of its twin's glyph in the program (`twin_codes`,
+/// `doc/adr/2723`, `doc/adr/3153`); every other two codes reaching one glyph at two widths keep
+/// the fence.
+fn widths_to_restate(
+    document: &Document,
+    used: &SelectedFont,
+    (font, embedded): (&LoadedFont, &Embedded),
+    target: pdf_archive::Target,
+) -> Result<(BTreeMap<u16, f32>, Option<EmbeddedTwins>), Because> {
+    match shown_widths(font, used, &[]) {
+        Ok(found) => Ok((disagreeing(found), None)),
+        Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH)) => {
+            let twins = embedded_twins(document, used, font, embedded, target).ok_or(refusal)?;
+            Ok((twins.widths.clone(), Some(twins)))
+        }
+        Err(refusal) => Err(refusal),
+    }
+}
+
+/// The width to restate each glyph to, of the glyphs whose two statements disagree.
+fn disagreeing(widths: BTreeMap<u16, (f32, Option<f32>)>) -> BTreeMap<u16, f32> {
+    widths
+        .into_iter()
+        .filter(|(_, (width, program))| program.is_some_and(|own| disagrees(*width, own)))
+        .map(|(glyph, (width, _))| (glyph, width))
+        .collect()
+}
+
+/// An embedded `glyf` program whose twin codes reach a copy of their twin's glyph, with the
+/// encoding that names them and the widths the program is then restated to.
+struct EmbeddedTwins {
+    /// The program with each copy appended and its Unicode `cmap` subtables sending the
+    /// character to it.
+    program: Vec<u8>,
+    /// The widths to restate: every disagreeing glyph of the other shown codes, and each copy
+    /// whose stated width is not the zero advance it was written with.
+    widths: BTreeMap<u16, f32>,
+    /// The font dictionary whose `/Encoding` is restated.
+    font: ObjectId,
+    /// That `/Encoding`.
+    encoding: Object,
+    /// The codes renamed.
+    codes: Vec<u8>,
+}
+
+/// The twin route over a program the file embeds: the construction `twin_codes` gives a
+/// substituted face (`doc/adr/2723`), taken where the file's own subset `TrueType` program shows
+/// both codes of a pair (`doc/adr/3153`).
+///
+/// ISO 32000-2 §9.6.5.4 sends a non-symbolic `TrueType` font's code through its encoding's glyph
+/// name, the Adobe Glyph List and the (3, 1) subtable, so code 173 under `WinAnsiEncoding`
+/// (`hyphen`) reaches the hyphen's glyph; named `softhyphen`, it reaches the glyph the subtable
+/// gives U+00AD, which [`twin_codes::split`] makes a byte-for-byte copy of the hyphen's. What a
+/// reader draws is unchanged — the same outline at the width the dictionary states — and ISO
+/// 19005-2 section 6.2.11.5 then asks each glyph's advance to equal one number. `None` where the
+/// program is not a `glyf` sfnt, the font dictionary is not an object of its own whose
+/// `/Encoding` can be restated, or [`twin_codes::renamed`] declines the codes.
+fn embedded_twins(
+    document: &Document,
+    used: &SelectedFont,
+    font: &LoadedFont,
+    embedded: &Embedded,
+    target: pdf_archive::Target,
+) -> Option<EmbeddedTwins> {
+    if embedded.format != Filed::Read(Format::Sfnt) {
+        return None;
+    }
+    let at = used.id?;
+    let bytes = document
+        .get(embedded.at)
+        .as_stream()
+        .and_then(|stream| document.decoded_stream_data(stream))?;
+    if pdf_font::embed::has_cff_outlines(&bytes) {
+        return None;
+    }
+    let renamed = twin_codes::renamed(
+        document,
+        &used.dict,
+        &shown_bytes(font, used),
+        |code| font.advance(Code::single_byte(code)),
+        target,
+    )?;
+    // Each copy is written at advance 0, and restated with the program's other glyphs where the
+    // dictionary states another width for its code.
+    let asked: Vec<(u8, u16, u16)> = renamed
+        .codes
+        .iter()
+        .map(|code| Some((*code, font.glyph_index(Code::single_byte(*code))?, 0)))
+        .collect::<Option<_>>()?;
+    let twin_codes::Split { program, reached } = twin_codes::split(&bytes, &asked)?;
+    let mut widths = disagreeing(shown_widths(font, used, &renamed.codes).ok()?);
+    for (code, copy) in reached {
+        let stated = font.advance(Code::single_byte(code));
+        if disagrees(stated, 0.0) {
+            widths.insert(copy, stated);
+        }
+    }
+    Some(EmbeddedTwins {
+        program,
+        widths,
+        font: at,
+        encoding: renamed.encoding,
+        codes: renamed.codes,
+    })
 }
 
 /// The program's statement of a code's advance that the dictionary's `stated` is judged by.
@@ -1370,9 +1498,32 @@ fn embed_pass(
         // 32000-1 says it means, it reaches the face's glyph for that character, and the face
         // is read again under the restated encoding (`twin_codes`, `doc/adr/2723`). Not beside a
         // restatement of the dictionary's kind, which writes an encoding of its own.
+        // Under a shipped Compact Font Format face, which is name-keyed and holds no glyph for
+        // the character, the code is held to its twin's glyph under the encoding as stated and
+        // the program gains a copy of that glyph under the name, where the dictionary keeps its
+        // kind or is restated as `Type1`, whose encoding is the file's (`doc/adr/3154`).
         let (face, font, found, twins) =
             match face_widths(&font, &face, reading, (&[], empty_allowed)) {
                 Ok(found) => (face, font, found, None),
+                Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))
+                    if matches!(face, Face::Shipped(_))
+                        && face.format() == Format::BareCff
+                        && restated.as_ref().is_none_or(|restatement| {
+                            restatement.described == Described::RestatedAsType1
+                        }) =>
+                {
+                    let twins = twin_codes::renamed(
+                        document,
+                        &reading.dict,
+                        &shown_bytes(&font, reading),
+                        |code| font.advance(Code::single_byte(code)),
+                        target,
+                    )
+                    .ok_or(refusal)?;
+                    let found = face_widths(&font, &face, reading, (&twins.codes, false))
+                        .map_err(|_| refusal)?;
+                    (face, font, found, Some(twins))
+                }
                 Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))
                     if restated.is_none() =>
                 {
@@ -1508,6 +1659,12 @@ fn embed_pass(
             if !named_empty.is_empty() {
                 let (key, value) = empty::encoding_entry(&font, &named_empty);
                 restatement.entries.insert(key, value);
+            }
+            // A twin code's name is part of the font the restatement's proof reads back.
+            if let Some(twins) = &twins {
+                restatement
+                    .entries
+                    .insert(Name::new(&b"Encoding"[..]), twins.encoding.clone());
             }
             restatement
         });
@@ -2084,22 +2241,24 @@ fn machine_face_named(program: &[u8]) -> String {
 }
 
 /// The face's program with each split code reaching a copy of its glyph, and each copy's advance
-/// added to `widths`; `None` where the face is not a `glyf` program [`twin_codes::split`] rewrites.
+/// added to `widths`; `None` where the face is neither a `glyf` program [`twin_codes::split`]
+/// rewrites nor a bare Compact Font Format one [`twin_codes::split_compact`] does.
 fn split_twins(
     face: &Face,
     splits: &[(u8, u16, f32)],
     widths: &mut BTreeMap<u16, f32>,
 ) -> Option<Vec<u8>> {
-    if face.format() != Format::Sfnt {
-        return None;
-    }
     // Each copy starts at advance 0 and is given the dictionary's width by the restatement every
     // split takes (`MetricRoute::RestatedProgram`), whose read-back `proves` checks.
     let asked: Vec<(u8, u16, u16)> = splits
         .iter()
         .map(|(code, glyph, _)| (*code, *glyph, 0))
         .collect();
-    let twin_codes::Split { program, reached } = twin_codes::split(face.program(), &asked)?;
+    let twin_codes::Split { program, reached } = match face.format() {
+        Format::Sfnt => twin_codes::split(face.program(), &asked)?,
+        Format::BareCff => twin_codes::split_compact(face.program(), &asked)?,
+        _ => return None,
+    };
     for (code, copy) in reached {
         let (_, _, width) = splits.iter().find(|(split, ..)| *split == code)?;
         widths.insert(copy, *width);
