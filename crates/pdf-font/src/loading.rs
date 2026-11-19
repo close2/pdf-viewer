@@ -2515,8 +2515,8 @@ mod substituted_composite_tests {
     /// **Machine-independent by construction.** Which face stands in is this machine's business
     /// (§9.5 NOTE 5, ADR 0133), so the test states relations between the three codes' glyphs
     /// and no glyph index: any face `installed_covering` accepts covers あ, and a face covering
-    /// あ covers い and う. Where the machine has no such face the load refuses and the test says
-    /// so rather than passing.
+    /// あ covers い and う. Where the machine has no such face the font's codes are uncovered
+    /// (ADR 3103) and the test says so rather than passing.
     ///
     /// **Calibrated both ways** (ADR 1002): with `substituted_character` reading the
     /// `/ToUnicode` alone — the route before ADR 1002 — the second and third codes reach no
@@ -2537,6 +2537,10 @@ mod substituted_composite_tests {
         assert!(font.is_substituted());
         let codes = font.decode(&[0x30, 0x42, 0x30, 0x44, 0x30, 0x46]);
         assert_eq!(codes.len(), 3, "UniJIS-UCS2-H is two bytes a code");
+        if let Some(character) = font.uncovered_character(codes[0]) {
+            println!("skipped: this machine offers no face that draws {character}");
+            return;
+        }
         let stated = font.glyph_index(codes[0]);
         let omitted = font.glyph_index(codes[1]);
         let another = font.glyph_index(codes[2]);
@@ -2603,13 +2607,13 @@ mod glyph_class_tests {
     /// them for its class alone.
     fn japanese(classes: &str) -> (pdf_syntax::Document, pdf_syntax::Dictionary) {
         let descriptor = format!(
-            "3 0 obj\n<< /Type /FontDescriptor /FontName /KozMinPr6N-Regular /Flags 6 \
+            "3 0 obj\n<< /Type /FontDescriptor /FontName /HiraginoJP-Regular /Flags 6 \
              /StemV 62 /Ascent 752 /Descent -271 {classes} >>\nendobj\n"
         );
         document_of(&[
-            b"1 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /KozMinPr6N-Regular \
+            b"1 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /HiraginoJP-Regular \
               /Encoding /Identity-H /DescendantFonts [ 2 0 R ] >>\nendobj\n",
-            b"2 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /KozMinPr6N-Regular \
+            b"2 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HiraginoJP-Regular \
               /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> \
               /FontDescriptor 3 0 R /DW 1000 >>\nendobj\n",
             descriptor.as_bytes(),

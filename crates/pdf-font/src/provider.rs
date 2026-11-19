@@ -57,7 +57,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use crate::substitute::{Family, Request, Style};
+use crate::substitute::{Collection, Family, Request, Style};
 
 /// Whether a host offers a confined worker the faces installed on this machine.
 ///
@@ -101,7 +101,8 @@ type Offered = (Vec<u8>, Option<(Arc<[u8]>, String)>);
 ///
 /// **Bounded by the description rather than by a ceiling**, which is why there is no eviction: a
 /// key is a family (five), a style (nine weights, two slopes, nine widths — `substitute::Style`
-/// reads a `/FontWeight` as the nearest of Table 120's hundreds), a `skip` under
+/// reads a `/FontWeight` as the nearest of Table 120's hundreds — and none or one of five
+/// character collections), a `skip` under
 /// `substitute::MAX_OFFERS`, and either the characters a registered character collection samples
 /// or one character a substituted composite font shows and its face does not draw (ADR 3067).
 /// The keys are small, and the programs are held once each however many keys answered them: an
@@ -209,7 +210,7 @@ pub fn open_a_face(request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
 }
 
 /// This encoding's version byte, so a worker and a broker built apart refuse rather than guess.
-const VERSION: u8 = 2;
+const VERSION: u8 = 3;
 
 /// A family as one byte.
 fn family_byte(family: Family) -> u8 {
@@ -234,8 +235,35 @@ fn family_of(byte: u8) -> Option<Family> {
     })
 }
 
+/// A style's character collection as one byte, zero for none.
+fn collection_byte(collection: Option<Collection>) -> u8 {
+    match collection {
+        None => 0,
+        Some(Collection::Japan1) => 1,
+        Some(Collection::Gb1) => 2,
+        Some(Collection::Cns1) => 3,
+        Some(Collection::Korea1) => 4,
+        Some(Collection::Kr) => 5,
+    }
+}
+
+/// The highest byte [`collection_byte`] writes; a description stating more is refused.
+const LAST_COLLECTION_BYTE: u8 = 5;
+
+/// A style's character collection from one byte, `None` for zero.
+fn collection_of(byte: u8) -> Option<Collection> {
+    match byte {
+        1 => Some(Collection::Japan1),
+        2 => Some(Collection::Gb1),
+        3 => Some(Collection::Cns1),
+        4 => Some(Collection::Korea1),
+        5 => Some(Collection::Kr),
+        _ => None,
+    }
+}
+
 /// Where the fixed-width head of a description ends and its characters begin.
-const HEAD: usize = 14;
+const HEAD: usize = 15;
 
 /// A description on the wire: what the document asked for, and nothing about this machine.
 ///
@@ -255,6 +283,7 @@ pub fn encode_request(request: Request, style: Style, wanted: &[char], skip: u32
     out.push(flags);
     out.extend_from_slice(&style.weight.to_be_bytes());
     out.push(u8::try_from(style.width).unwrap_or(u8::MAX));
+    out.push(collection_byte(style.collection));
     out.extend_from_slice(&skip.to_be_bytes());
     out.extend_from_slice(
         &u32::try_from(wanted.len())
@@ -290,8 +319,13 @@ pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>,
     if !(1..=1000).contains(&weight) || !(1..=9).contains(&width) {
         return None;
     }
-    let skip = u32::from_be_bytes(bytes.get(6..10)?.try_into().ok()?);
-    let count = u32::from_be_bytes(bytes.get(10..HEAD)?.try_into().ok()?);
+    let collection = bytes.get(6).copied()?;
+    if collection > LAST_COLLECTION_BYTE {
+        return None;
+    }
+    let collection = collection_of(collection);
+    let skip = u32::from_be_bytes(bytes.get(7..11)?.try_into().ok()?);
+    let count = u32::from_be_bytes(bytes.get(11..HEAD)?.try_into().ok()?);
     let count = usize::try_from(count).ok()?;
     // The count is a claim about a slice that is already in hand, so it is checked against the
     // slice rather than believed: `wanted` is sized from what arrived, never from the number.
@@ -315,6 +349,7 @@ pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>,
             weight,
             italic: flags & 8 != 0,
             width,
+            collection,
         },
         wanted,
         skip,
@@ -350,7 +385,7 @@ mod tests {
         decode_identity, decode_request, decode_styled_request, encode_identity, encode_request,
         offered, open_a_face,
     };
-    use crate::substitute::{Family, Request, Style};
+    use crate::substitute::{Collection, Family, Request, Style};
 
     /// The description a worker sends is the description a broker reads.
     #[test]
@@ -365,6 +400,7 @@ mod tests {
             weight: 300,
             italic: true,
             width: 3,
+            collection: Some(Collection::Cns1),
         };
         let wanted = ['中', 'あ'];
         let bytes = encode_request(request, style, &wanted, 3);

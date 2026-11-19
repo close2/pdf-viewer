@@ -14,6 +14,9 @@
 //! are installed, and the test runs in a process of its own because both statements are for the
 //! life of the process.
 //!
+//! The same machine has no Hangul face, which is the other test's: a Korean font's script is drawn
+//! by no face here, and what a face does draw is drawn all the same (ADR 3103).
+//!
 //! **Calibrated** (trap 13): with `substituted_glyph`'s borrowing arm removed — the face chosen for
 //! the sample drawing every character or none — `uncovered_character` answers `T` and the first
 //! assertion fails.
@@ -145,6 +148,26 @@ fn japanese_font() -> LoadedFont {
           /FontBBox [0 -120 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 \
           /CapHeight 700 /StemV 80 >> /DW 1000 >>\nendobj\n",
     ];
+    font_of(objects)
+}
+
+/// A Korean font as a producer that did not embed it states one: `Adobe-Korea1` through
+/// `UniKS-UTF16-H`, no program and no `/ToUnicode`.
+fn korean_font() -> LoadedFont {
+    let objects: [&[u8]; 2] = [
+        b"1 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Dotum \
+          /Encoding /UniKS-UTF16-H /DescendantFonts [2 0 R] >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Dotum \
+          /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> \
+          /FontDescriptor << /Type /FontDescriptor /FontName /Dotum /Flags 4 \
+          /FontBBox [0 -120 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 \
+          /CapHeight 700 /StemV 80 >> /DW 1000 >>\nendobj\n",
+    ];
+    font_of(objects)
+}
+
+/// The composite font object 1 of a file holding `objects` states.
+fn font_of(objects: [&[u8]; 2]) -> LoadedFont {
     let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
     for object in objects {
@@ -215,4 +238,36 @@ fn a_character_the_scripts_face_does_not_draw_is_drawn_from_a_face_that_does() {
     // And あ is still the kana face's: borrowing is for what the chosen face does not draw.
     let kana = font.decode(&[0x30, 0x42]);
     assert_eq!(font.uncovered_character(kana[0]), None);
+}
+
+/// A font whose script no face on the machine draws is not refused whole: §9.10.2 gives each code
+/// its character, and the characters some face maps are drawn while each one no face maps is
+/// reported (ADR 3103). This fixture machine has no Hangul face, so 한 is uncovered and `A` is
+/// drawn.
+///
+/// **Calibrated** (trap 13): with `load_composite`'s fallback to the family's face removed, the
+/// font is refused with `NoSubstitute` and the load's `expect` fails.
+#[test]
+fn a_font_whose_script_no_face_draws_still_draws_what_a_face_does() {
+    pdf_font::substitute::no_machine_fonts();
+    pdf_font::provider::faces_come_from(ask);
+    let font = korean_font();
+    assert!(font.is_substituted());
+    // UTF-16BE, as `UniKS-UTF16-H` reads it: "A", then 한 (U+D55C).
+    let codes = font.decode(&[0x00, 0x41, 0xD5, 0x5C]);
+    assert_eq!(codes.len(), 2, "UniKS-UTF16-H is two bytes a code here");
+    assert_eq!(
+        font.uncovered_character(codes[0]),
+        None,
+        "A is drawn by a face that maps it"
+    );
+    assert!(
+        font.glyph_index(codes[0]).is_some_and(|glyph| glyph != 0),
+        "A reaches a glyph"
+    );
+    assert_eq!(
+        font.uncovered_character(codes[1]),
+        Some('\u{d55c}'),
+        "no face on this machine maps 한, and the code says so"
+    );
 }

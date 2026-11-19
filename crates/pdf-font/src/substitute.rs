@@ -166,6 +166,13 @@ pub struct Style {
     /// Table 120's nine `/FontStretch` names numbered 1 (`UltraCondensed`) to 9
     /// (`UltraExpanded`), 5 being `Normal` — the numbering an `OS/2` table's `usWidthClass` uses.
     pub width: u16,
+    /// The registered character collection the font's codes name characters in (§9.7.3), where
+    /// it is one of the five whose language Table 116 states; `None` for every other font.
+    ///
+    /// Not a matter of weight or slope, and kept here all the same because it does the same job:
+    /// it decides among faces that draw the same characters — a CJK collection's region faces
+    /// map one repertoire and differ in the glyph *forms* each region writes (ADR 3101).
+    pub collection: Option<Collection>,
 }
 
 impl Style {
@@ -180,6 +187,7 @@ impl Style {
             weight: if request.bold { 700 } else { 400 },
             italic: request.italic,
             width: Self::NORMAL_WIDTH,
+            collection: None,
         }
     }
 
@@ -243,6 +251,7 @@ impl Style {
             weight,
             italic,
             width,
+            collection: Collection::of_font(document, dict, descriptor),
         }
     }
 
@@ -253,6 +262,165 @@ impl Style {
     #[must_use]
     pub const fn is_bold(self) -> bool {
         self.weight >= 600
+    }
+}
+
+/// A registered character collection whose language ISO 32000-2 Table 116 states, as far as it
+/// decides which face stands in for a font that names it.
+///
+/// Table 116 lists the predefined `CMap`s under four headings — Chinese (Simplified), Chinese
+/// (Traditional), Japanese and Korean — and gives each heading's Unicode `CMap` as the "encoding
+/// for the Adobe-GB1 character collection", Adobe-CNS1, Adobe-Japan1 and Adobe-Korea1 in turn;
+/// §9.7.5.2 adds Adobe-KR as the Korean collection a processor shall support. So a font's
+/// `/CIDSystemInfo` (Table 114) states the language its characters are written in, and a CJK
+/// face is drawn in one region's glyph forms: one Han character takes a different shape in
+/// mainland China, Taiwan, Japan and Korea, and a font family that serves all four ships a face
+/// per region over one repertoire. [`installed_covering_styled`] ranks by the collection twice —
+/// by how many of its characters a face maps, and among faces mapping as many, by whether the
+/// face names itself in the collection's language (ADR 3101).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Collection {
+    /// `Adobe-Japan1`, Table 116's Japanese.
+    Japan1,
+    /// `Adobe-GB1`, Table 116's Chinese (Simplified).
+    Gb1,
+    /// `Adobe-CNS1`, Table 116's Chinese (Traditional).
+    Cns1,
+    /// `Adobe-Korea1`, Table 116's Korean.
+    Korea1,
+    /// `Adobe-KR`, the Korean collection §9.7.5.2 requires.
+    Kr,
+}
+
+impl Collection {
+    /// The collection a font's descendant names in its `/CIDSystemInfo`, or else the one its
+    /// descriptor's `/Lang` implies; `None` for a simple font and for every other collection.
+    ///
+    /// `/Lang` (Table 122) names a language and not a collection, so it answers only where the
+    /// language has one collection: Japanese and Korean. A Chinese `/Lang` does not say which
+    /// of the two Chinese scripts, and is left without a region rather than given one.
+    fn of_font(
+        document: &Document,
+        dict: &Dictionary,
+        descriptor: Option<&Dictionary>,
+    ) -> Option<Self> {
+        if let Some((registry, ordering)) = crate::composite::collection_names(document, dict)
+            && let Some(collection) = Self::named(&registry, &ordering)
+        {
+            return Some(collection);
+        }
+        match language(document, descriptor?)? {
+            Language::Japanese => Some(Self::Japan1),
+            Language::Korean => Some(Self::Korea1),
+            Language::Chinese => None,
+        }
+    }
+
+    /// The collection a `/CIDSystemInfo`'s registry and ordering name, if it is one of these.
+    #[must_use]
+    pub fn named(registry: &str, ordering: &str) -> Option<Self> {
+        match (registry, ordering) {
+            ("Adobe", "Japan1") => Some(Self::Japan1),
+            ("Adobe", "GB1") => Some(Self::Gb1),
+            ("Adobe", "CNS1") => Some(Self::Cns1),
+            ("Adobe", "Korea1") => Some(Self::Korea1),
+            ("Adobe", "KR") => Some(Self::Kr),
+            _ => None,
+        }
+    }
+
+    /// How many collections there are, for a table holding one entry each.
+    const COUNT: usize = 5;
+
+    /// This collection's entry in such a table.
+    const fn slot(self) -> usize {
+        match self {
+            Self::Japan1 => 0,
+            Self::Gb1 => 1,
+            Self::Cns1 => 2,
+            Self::Korea1 => 3,
+            Self::Kr => 4,
+        }
+    }
+
+    /// The ordering, under the registry `Adobe`.
+    const fn ordering(self) -> &'static str {
+        match self {
+            Self::Japan1 => "Japan1",
+            Self::Gb1 => "GB1",
+            Self::Cns1 => "CNS1",
+            Self::Korea1 => "Korea1",
+            Self::Kr => "KR",
+        }
+    }
+
+    /// The Windows language identifiers (`OpenType`'s `name` table, platform 3) of the regions
+    /// Table 116's heading names, best first.
+    ///
+    /// **A documented choice of this tree's.** The standard ties a collection to a language and
+    /// says nothing of how a face states one; a face's `name` table is where it does, by the
+    /// languages it gives its own family name in. Table 116's Traditional `CMap`s are Big Five's
+    /// and Taiwan's CNS 11643 with Hong Kong's HKSCS as "an extension to the Big Five character
+    /// set", so Taiwan leads and Hong Kong follows, then Macao; its Simplified ones are GB 2312's
+    /// and GBK's, mainland China's, then Singapore.
+    const fn languages(self) -> &'static [u16] {
+        match self {
+            Self::Japan1 => &[0x0411],
+            Self::Gb1 => &[0x0804, 0x1004],
+            Self::Cns1 => &[0x0404, 0x0C04, 0x1404],
+            Self::Korea1 | Self::Kr => &[0x0412],
+        }
+    }
+
+    /// Every character the collection's own `-UCS2` table (§9.10.2's third method) maps a CID
+    /// to, ascending — the characters a font of this collection can show — read once.
+    fn characters(self) -> &'static [u32] {
+        static READ: [OnceLock<Vec<u32>>; Collection::COUNT] =
+            [const { OnceLock::new() }; Collection::COUNT];
+        READ[self.slot()].get_or_init(|| {
+            let Some(table) = crate::predefined::cid_to_unicode("Adobe", self.ordering()) else {
+                return Vec::new();
+            };
+            let mut values: Vec<u32> = Vec::new();
+            for mapping in table.mappings() {
+                match mapping {
+                    crate::tounicode::Mapping::Single { text, .. } => {
+                        let mut chars = text.chars();
+                        if let (Some(only), None) = (chars.next(), chars.next()) {
+                            values.push(u32::from(only));
+                        }
+                    }
+                    crate::tounicode::Mapping::Span { low, high, first } => {
+                        let end = first.saturating_add(high.saturating_sub(low));
+                        values
+                            .extend((first..=end).filter(|value| char::from_u32(*value).is_some()));
+                    }
+                }
+            }
+            values.sort_unstable();
+            values.dedup();
+            values
+        })
+    }
+
+    /// How well a face that names itself in `languages` is placed for this collection: its
+    /// first matching region's position in [`Self::languages`], then the same language in
+    /// another region, then any other face.
+    fn region_rank(self, languages: &[u16]) -> usize {
+        let preferred = self.languages();
+        // A Windows language identifier's low ten bits are the primary language.
+        let primary = |id: u16| id & 0x03FF;
+        preferred
+            .iter()
+            .position(|id| languages.contains(id))
+            .or_else(|| {
+                languages
+                    .iter()
+                    .any(|id| preferred.iter().any(|p| primary(*p) == primary(*id)))
+                    .then_some(preferred.len())
+            })
+            .unwrap_or(preferred.len().saturating_add(1))
     }
 }
 
@@ -558,10 +726,10 @@ pub fn overridden(document: &Document, main: &Dictionary, over: &Dictionary) -> 
 /// # Only the three the substitution table already distinguishes
 ///
 /// A `Language-Tag` names any of BCP 47's languages, and this enum names three. That is not a
-/// claim about BCP 47 but about what a face can be chosen by: the one thing this crate does with
-/// a script is ask whether a face can draw a character of it, and
-/// `substituted::script_sample`'s table has one character each for Japanese, Chinese and
-/// Korean and nothing for any other script. A tag outside them is read, found to name no entry of
+/// claim about BCP 47 but about what a face can be chosen by: this crate asks whether a face can
+/// draw a character of the script, and which region's forms it draws ([`Collection`], which a
+/// Chinese tag cannot choose for it); `substituted::script_sample`'s table has one character each
+/// for Japanese, Chinese and Korean and nothing for any other script. A tag outside them is read, found to name no entry of
 /// that table, and answered `None` — which leaves the font with the family match it had, exactly
 /// as an unregistered character collection does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -731,6 +899,7 @@ fn family_of(
         || folded.contains("cambria")
         || folded.contains("book")
         || folded.contains("serif") && !folded.contains("sansserif")
+        || names_a_cjk_serif(folded)
     {
         return Family::Serif;
     }
@@ -782,6 +951,35 @@ fn family_of(
         // conspicuous than the reverse at reading sizes.
         _ => Family::SansSerif,
     }
+}
+
+/// Whether a font's name, folded, names one of the serifed styles of Chinese, Japanese and Korean
+/// type: Mincho (明朝) in Japanese, Song (宋体) and Ming (明體) in Chinese, Batang and Myeongjo
+/// (명조) in Korean — the counterpart of a Latin serif face, with the stroke-end serifs the name
+/// describes — and the families every one of whose members is one: Kozuka Mincho
+/// (`KozMin`), Ryumin, Heisei Mincho (`HeiseiMin`) and `SimSun`.
+///
+/// **A documented choice, and the name's rather than the clause's**: Table 121's `Serif` flag is
+/// read where the name says nothing ([`family_of`]), and a Mincho that sets it is a serif face
+/// either way; these words are what a name already says, in a script whose styles the Latin words
+/// above do not name. Without them a Mincho with no `/Flags` serif bit was a sans request, and
+/// was drawn by a gothic face where a Mincho one was installed (ADR 3102).
+fn names_a_cjk_serif(folded: &str) -> bool {
+    [
+        "mincho",
+        "myeongjo",
+        "batang",
+        "song",
+        "mingliu",
+        "adobeming",
+        "kozmin",
+        "ryumin",
+        "heiseimin",
+        "simsun",
+    ]
+    .iter()
+    .any(|word| folded.contains(word))
+        || folded.starts_with("ming")
 }
 
 /// Removes the `ABCDEF+` prefix a subset font's name carries.
@@ -1645,7 +1843,7 @@ fn covering_faces(
         .filter(move |face| read_cached(face).is_some_and(|bytes| covers(&bytes, wanted)))
         .cloned();
     let ranked = std::iter::once(()).flat_map(move |()| {
-        let faces = qualifying(wanted);
+        let faces = qualifying(wanted, style.collection);
         ranked_covering(&faces, request, style)
             .into_iter()
             .cloned()
@@ -1662,24 +1860,44 @@ fn covering_faces(
 }
 
 /// The catalogue faces stating every character, in the order [`installed_covering_styled`] takes
-/// them: the widest repertoire, and among the widest the nearest style, then the request's generic
-/// family. The first in the catalogue's order — by path, then by a collection's face index — wins
-/// a tie, so one machine answers alike on every run.
+/// them: the widest repertoire, and among the widest the region the font's collection is written
+/// in, then the nearest style, then the request's generic family. The first in the catalogue's
+/// order — by path, then by a collection's face index — wins a tie, so one machine answers alike
+/// on every run.
+///
+/// **A repertoire is measured against the font's collection where it names one** (ADR 3101): the
+/// characters of the collection's `-UCS2` table a face maps, which are the characters such a font
+/// can show. Counted over the whole `cmap`, Noto Serif CJK's 44 777 lose to Noto Sans CJK's
+/// 44 810 for every font, and a Mincho could never be drawn by the serif face; counted over
+/// Adobe-Japan1's 15 465 characters both map 15 109, and the descriptor's serif-ness decides.
+/// The 59 characters the sans face maps and the serif does not are supplementary-plane
+/// ideographs that the Japan1, GB1, CNS1 and Korea1 tables do not name, and a page that shows one
+/// borrows it from a face that draws it (ADR 3067). Adobe-KR's table names 47 of them, so for an
+/// Adobe-KR font the sans face is still the wider and draws a Myeongjo too: repertoire before
+/// family, as ADR 1441 orders it.
 fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<&MachineFace> {
     let mut ranked: Vec<&Qualifying> = faces.iter().collect();
     // Stable, which is what keeps a tie in the catalogue's order.
-    ranked.sort_by_key(|(_, mappings, face)| {
+    ranked.sort_by_key(|face| {
         (
-            std::cmp::Reverse(*mappings),
-            face.distance(style),
-            face.other_family(request.family),
+            std::cmp::Reverse(face.breadth),
+            face.region,
+            face.style.distance(style),
+            face.style.other_family(request.family),
         )
     });
-    ranked.into_iter().map(|(face, _, _)| face).collect()
+    ranked.into_iter().map(|face| &face.face).collect()
 }
 
-/// One face that states every character of a set: the face, its `cmap`'s size, and its style.
-type Qualifying = (MachineFace, usize, FaceStyle);
+/// One face that states every character of a set, with what [`ranked_covering`] ranks it by.
+struct Qualifying {
+    face: MachineFace,
+    /// [`Repertoire::breadth`] for the font's collection.
+    breadth: usize,
+    /// [`Collection::region_rank`] for the font's collection, zero where it names none.
+    region: usize,
+    style: FaceStyle,
+}
 
 /// What one catalogue face states about itself, read once: which characters its `cmap` maps, as
 /// ascending inclusive ranges of scalar values, how many it maps, and its style.
@@ -1688,12 +1906,35 @@ struct Repertoire {
     ranges: Vec<(u32, u32)>,
     mappings: usize,
     style: FaceStyle,
+    /// The Windows language identifiers its `name` table gives its family name in.
+    languages: Vec<u16>,
+    /// How many of each [`Collection`]'s characters it maps, counted on the first question.
+    breadth: [OnceLock<usize>; Collection::COUNT],
 }
 
 impl Repertoire {
     /// Whether the face maps `character`.
     fn maps(&self, character: char) -> bool {
-        let value = u32::from(character);
+        self.maps_value(u32::from(character))
+    }
+
+    /// How wide the face's repertoire is for a font of `collection`: the collection's own
+    /// characters it maps, or with no collection every character it maps.
+    fn breadth(&self, collection: Option<Collection>) -> usize {
+        let Some(collection) = collection else {
+            return self.mappings;
+        };
+        *self.breadth[collection.slot()].get_or_init(|| {
+            collection
+                .characters()
+                .iter()
+                .filter(|value| self.maps_value(**value))
+                .count()
+        })
+    }
+
+    /// Whether the face maps the scalar value `value`.
+    fn maps_value(&self, value: u32) -> bool {
         let at = self.ranges.partition_point(|&(_, last)| last < value);
         self.ranges
             .get(at)
@@ -1755,6 +1996,8 @@ fn repertoires() -> &'static [Repertoire] {
                 ranges,
                 mappings: values.len(),
                 style: FaceStyle::of(&font),
+                languages: name_languages(&font),
+                breadth: [const { OnceLock::new() }; Collection::COUNT],
             });
         }
         found
@@ -1766,18 +2009,37 @@ fn repertoires() -> &'static [Repertoire] {
 /// What a face maps does not depend on the style, so the repertoires are read once and every
 /// question — a document's three Japanese fonts in three weights, or one font's characters asked
 /// one by one — is answered from them.
-fn qualifying(wanted: &[char]) -> Vec<Qualifying> {
+fn qualifying(wanted: &[char], collection: Option<Collection>) -> Vec<Qualifying> {
     repertoires()
         .iter()
         .filter(|repertoire| wanted.iter().all(|&c| repertoire.maps(c)))
-        .map(|repertoire| {
-            (
-                repertoire.face.clone(),
-                repertoire.mappings,
-                repertoire.style,
-            )
+        .map(|repertoire| Qualifying {
+            face: repertoire.face.clone(),
+            breadth: repertoire.breadth(collection),
+            region: collection.map_or(0, |collection| {
+                collection.region_rank(&repertoire.languages)
+            }),
+            style: repertoire.style,
         })
         .collect()
+}
+
+/// The Windows language identifiers (platform 3) a face's `name` table states its family name
+/// in — `nameID` 1, or 16 where the face states a typographic family — ascending, each once.
+fn name_languages(font: &skrifa::FontRef<'_>) -> Vec<u16> {
+    use read_fonts::TableProvider;
+    let Ok(name) = font.name() else {
+        return Vec::new();
+    };
+    let mut languages: Vec<u16> = name
+        .name_record()
+        .iter()
+        .filter(|record| record.platform_id() == 3 && matches!(record.name_id().to_u16(), 1 | 16))
+        .map(read_fonts::tables::name::NameRecord::language_id)
+        .collect();
+    languages.sort_unstable();
+    languages.dedup();
+    languages
 }
 
 /// Face `index` of a font file's bytes, as one font program.
@@ -1828,9 +2090,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        EMBEDDABLE_CANDIDATES, FaceStyle, Family, Language, Request, Style, catalogue,
-        first_embeddable, language, names_a_style, ranked_covering, strip_subset_prefix,
-        weight_from_stem,
+        Collection, EMBEDDABLE_CANDIDATES, FaceStyle, Family, Language, Qualifying, Request, Style,
+        catalogue, first_embeddable, language, names_a_cjk_serif, names_a_style, ranked_covering,
+        strip_subset_prefix, weight_from_stem,
     };
 
     /// A file's only face, by a name that need not exist: what the ranking tests rank.
@@ -1838,6 +2100,17 @@ mod tests {
         super::MachineFace {
             path: PathBuf::from(name),
             index: 0,
+        }
+    }
+
+    /// A face the ranking is handed: `name`, `breadth` characters wide, `region` places from the
+    /// font's collection's own (zero is its first region), in `style`.
+    fn qualifies(name: &str, breadth: usize, region: usize, style: FaceStyle) -> Qualifying {
+        Qualifying {
+            face: at(name),
+            breadth,
+            region,
+            style,
         }
     }
 
@@ -2189,12 +2462,12 @@ mod tests {
     /// `DroidSansFallbackFull` for a bold Chinese font; the second, `NotoSansArabic`'s weights.
     #[test]
     fn repertoire_is_ranked_before_style() {
-        let face = |weight: u16, italic: bool| FaceStyle {
+        let face = |weight: u16, italic: bool, serif: bool| FaceStyle {
             weight,
             italic,
             width: Style::NORMAL_WIDTH,
             fixed_pitch: false,
-            serif: Some(false),
+            serif: Some(serif),
         };
         let request = Request {
             family: Family::SansSerif,
@@ -2204,19 +2477,19 @@ mod tests {
         };
         let bold = Style::of(request);
         let faces = vec![
-            (at("narrow-bold"), 300, face(700, false)),
-            (at("wide-regular"), 30_000, face(400, false)),
+            qualifies("narrow-bold", 300, 0, face(700, false, false)),
+            qualifies("wide-regular", 30_000, 0, face(400, false, false)),
         ];
         assert_eq!(
             ranked_covering(&faces, request, bold).first().copied(),
             Some(&at("wide-regular"))
         );
         let family = vec![
-            (at("light"), 1250, face(300, false)),
-            (at("regular"), 1250, face(400, false)),
-            (at("bold-italic"), 1250, face(700, true)),
-            (at("bold"), 1250, face(700, false)),
-            (at("black"), 1250, face(900, false)),
+            qualifies("light", 1250, 0, face(300, false, false)),
+            qualifies("regular", 1250, 0, face(400, false, false)),
+            qualifies("bold-italic", 1250, 0, face(700, true, false)),
+            qualifies("bold", 1250, 0, face(700, false, false)),
+            qualifies("black", 1250, 0, face(900, false, false)),
         ];
         assert_eq!(
             ranked_covering(&family, request, bold).first().copied(),
@@ -2231,6 +2504,119 @@ mod tests {
             Some(&at("regular"))
         );
     }
+    /// ISO 32000-2 Table 116 ties each registered collection to a language, and a face states its
+    /// own by the languages its `name` table gives its family name in (ADR 3101): Adobe-CNS1
+    /// prefers Taiwan, then Hong Kong and Macao, then another Chinese, then any face at all.
+    #[test]
+    fn a_collection_ranks_its_own_regions_first() {
+        assert_eq!(Collection::Cns1.region_rank(&[0x0404]), 0);
+        assert_eq!(Collection::Cns1.region_rank(&[0x0C04]), 1);
+        assert_eq!(Collection::Cns1.region_rank(&[0x0804]), 3);
+        assert_eq!(Collection::Cns1.region_rank(&[0x0411]), 4);
+        assert_eq!(Collection::Cns1.region_rank(&[]), 4);
+        assert_eq!(Collection::Gb1.region_rank(&[0x0411, 0x0804]), 0);
+        assert_eq!(Collection::Kr.region_rank(&[0x0412]), 0);
+        assert_eq!(
+            Collection::named("Adobe", "Korea1"),
+            Some(Collection::Korea1)
+        );
+        assert_eq!(Collection::named("Adobe", "Japan2"), None);
+        // The collection's own table is what a face's breadth is counted against.
+        assert!(
+            Collection::Japan1
+                .characters()
+                .binary_search(&0x3042)
+                .is_ok()
+        );
+        assert!(Collection::Gb1.characters().binary_search(&0x7684).is_ok());
+    }
+
+    /// Among faces equally wide for the font's collection the region decides before the style,
+    /// and the generic family after it: a Chinese font is drawn by the Chinese face of a family
+    /// that serves four regions, and a serif request by the serif face of its region (ADRs 3101,
+    /// 3102). Planted: with the region left out of the key, the Japanese face — first in the
+    /// catalogue's order, as a collection's face 0 is — draws the Chinese font.
+    #[test]
+    fn a_region_ranks_before_the_style_and_the_family_after_it() {
+        let face = |weight: u16, serif: bool| FaceStyle {
+            weight,
+            italic: false,
+            width: Style::NORMAL_WIDTH,
+            fixed_pitch: false,
+            serif: Some(serif),
+        };
+        let sans = Request {
+            family: Family::SansSerif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        let serif = Request {
+            family: Family::Serif,
+            ..sans
+        };
+        let style = Style {
+            collection: Some(Collection::Gb1),
+            ..Style::of(sans)
+        };
+        let faces = vec![
+            qualifies("sans-jp", 28_629, 2, face(400, false)),
+            qualifies("sans-sc", 28_629, 0, face(400, false)),
+            qualifies("serif-jp", 28_629, 2, face(400, true)),
+            qualifies("serif-sc", 28_629, 0, face(400, true)),
+            qualifies("sans-sc-bold", 28_629, 0, face(700, false)),
+            qualifies("narrow", 3_000, 0, face(400, true)),
+        ];
+        assert_eq!(
+            ranked_covering(&faces, sans, style).first().copied(),
+            Some(&at("sans-sc"))
+        );
+        assert_eq!(
+            ranked_covering(&faces, serif, style).first().copied(),
+            Some(&at("serif-sc"))
+        );
+        let bold = Style {
+            weight: 700,
+            ..style
+        };
+        assert_eq!(
+            ranked_covering(&faces, sans, bold).first().copied(),
+            Some(&at("sans-sc-bold"))
+        );
+    }
+
+    /// The names of the serifed CJK styles are serif requests, and the gothic and sans ones are
+    /// not (ADR 3102).
+    #[test]
+    fn a_mincho_song_or_myeongjo_name_is_a_serif() {
+        for name in [
+            "kozminpr6nregular",
+            "msmincho",
+            "ryuminlightkl",
+            "heiseiminw3",
+            "simsun",
+            "stsong",
+            "adobesongstdlight",
+            "mingliu",
+            "pmingliu",
+            "adobemingstdlight",
+            "batang",
+            "hysmyeongjomedium",
+        ] {
+            assert!(names_a_cjk_serif(name), "{name}");
+        }
+        for name in [
+            "kozgopr6nregular",
+            "msgothic",
+            "simhei",
+            "dotum",
+            "gulim",
+            "notosanscjk",
+        ] {
+            assert!(!names_a_cjk_serif(name), "{name}");
+        }
+    }
+
     /// The table directory of a face carrying `glyf` outlines and an `OS/2` whose `fsType` is
     /// `fs_type`, and nothing a chooser does not read.
     fn face_licensed(fs_type: u16) -> std::sync::Arc<[u8]> {

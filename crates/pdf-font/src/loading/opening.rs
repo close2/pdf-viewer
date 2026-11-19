@@ -26,7 +26,7 @@ use crate::truetype::truetype_code_table;
 use crate::vertical::Downward;
 use pdf_syntax::{Dictionary, Document, Object};
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 impl LoadedFont {
     /// Loads a simple font: one byte per code.
@@ -190,13 +190,14 @@ impl LoadedFont {
         })
     }
 
-    /// Whether this machine offers a face the composite font `dict` names could be drawn from.
+    /// Whether this machine offers a face that draws the script of the composite font `dict`.
     ///
     /// §9.7.4.2 leaves a composite font whose program the document did not embed reachable only
     /// by *character* — "CIDs shall not participate in glyph selection" — so its stand-in has to
     /// answer a `cmap` lookup, which an `sfnt` face on this machine does and the compiled-in
-    /// name-keyed CFF faces cannot. A machine offering none therefore draws no such font at all,
-    /// and that is a fact about the machine rather than about the document.
+    /// name-keyed CFF faces cannot. A machine offering no face for the collection's script draws
+    /// only the characters some other face maps — a Korean font's digits, not its Hangul — and
+    /// that is a fact about the machine rather than about the document (ADR 3103).
     ///
     /// **Which is why this is public: it is the question a test has to ask before it measures
     /// anything through such a font.** A fixture that is a composite font with no `/FontFile`
@@ -337,15 +338,7 @@ impl LoadedFont {
                 let (request, style, found) =
                     composite_substitute(document, &descendant, descriptor);
 
-                let data = found.ok_or_else(|| FontError::NoSubstitute {
-                    name: name.to_owned(),
-                    reason: format!(
-                        "no {:?} face this machine offers can be addressed by character, which \
-                         is the only way §9.7.4.2 leaves to reach a substitute for a composite \
-                         font",
-                        request.family
-                    ),
-                })?;
+                let data = drawing_face(found, request, style, name)?;
                 (data, Program::Sfnt, true, Some((request, style)))
             }
             Ok(Embedded { data, program }) => (data, program, false, None),
@@ -500,4 +493,35 @@ pub(crate) fn within_the_fourteen(document: &Document, dict: &Dictionary) -> boo
         && name("BaseFont")
             .as_deref()
             .is_some_and(crate::standard::is_standard_name)
+}
+
+/// The face a substituted composite font is drawn from: the one [`composite_substitute`] found for
+/// the collection's script, or, where no face draws the script, the family's own face.
+///
+/// **Where no face draws the script, the family's face draws what it can** (ADR 3103). §9.10.2
+/// gives each code its character, and a character is drawn by any face that maps it: the
+/// per-character borrowing answers each one the font's face lacks, and
+/// [`LoadedFont::uncovered_character`] reports each that no face on this machine maps, code by
+/// code. Refusing the font whole lost the digits and Latin letters a Korean or Chinese font shows
+/// on a machine with no Hangul or Han face, for a fault in characters it did not draw.
+///
+/// # Errors
+///
+/// [`FontError::NoSubstitute`] where the machine offers no face of the family either.
+fn drawing_face(
+    found: Option<Arc<[u8]>>,
+    request: substitute::Request,
+    style: substitute::Style,
+    name: &str,
+) -> Result<Arc<[u8]>, FontError> {
+    found
+        .or_else(|| substitute::installed_styled(request, style))
+        .ok_or_else(|| FontError::NoSubstitute {
+            name: name.to_owned(),
+            reason: format!(
+                "no {:?} face this machine offers can be addressed by character, which is the \
+                 only way §9.7.4.2 leaves to reach a substitute for a composite font",
+                request.family
+            ),
+        })
 }
