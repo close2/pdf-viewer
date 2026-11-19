@@ -1227,7 +1227,8 @@ fn disagrees(stated: f32, program: f32) -> bool {
 ///   name where the result would not be the page this reader shows (`doc/adr/2146`); a font
 ///   dictionary written directly inside its resource dictionary is written out as an object of
 ///   its own to hold them ([`gains`], `doc/adr/2162`). A descriptor written directly inside the
-///   font dictionary is no object to add a key to, and is refused by name.
+///   font dictionary is copied into the new descriptor object as one beside it is
+///   (`doc/adr/3209`).
 /// - **A dictionary whose subtype the face's format may not go in**, which §9.9's Table 124
 ///   decides rather than this converter.
 /// - **A code the face has no glyph for**, which is `doc/questions/A47`'s "refuse rather than
@@ -1300,13 +1301,11 @@ const MAX_FONTS_PHOTOGRAPHED_AROUND: usize = 16;
 
 /// Whether a refusal of one font is one a photograph of the pages showing it answers.
 ///
-/// Not a font whose widths the file states twice (`TWO_WIDTHS_FOR_ONE_GLYPH`), nor one whose
-/// descriptor is written inside the font dictionary: those are the font refiling of the list's
-/// R10, a different remedy that photographing would hide rather than answer, and `A694` item 1
-/// names R08 and R03 alone.
+/// Not a font whose widths the file states twice (`TWO_WIDTHS_FOR_ONE_GLYPH`): that is the font
+/// refiling of the list's R10, a different remedy that photographing would hide rather than
+/// answer, and `A694` item 1 names R08 and R03 alone.
 fn photographable(refusal: Because) -> bool {
     !matches!(refusal, Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))
-        && !matches!(refusal, Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))
 }
 
 /// One pass over the rendered fonts, leaving in `failing` the position in the survey's order of the
@@ -1458,14 +1457,17 @@ fn embed_pass(
             )?;
             continue;
         }
-        // The *raw* entry rather than the resolved one: a program is embedded by writing a key
-        // into the descriptor object, so a descriptor written directly inside the font
-        // dictionary has no object for this walk to rewrite and is refused by name.
-        let descriptor = used
-            .dict
-            .get("FontDescriptor")
-            .and_then(Object::as_reference)
-            .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
+        // The descriptor as the file states it, an object of its own or written directly inside
+        // the font dictionary. ISO 32000-2 §9.6.2.1's Table 109 makes the entry an indirect
+        // reference, and the descriptor this route writes is always a new object of its own
+        // ([`embed_at_descriptor`]), so one written inside the font is copied into that object
+        // as one written beside it is, and the written font names it by reference
+        // (`doc/adr/3209`).
+        let descriptor = document
+            .get_key(&used.dict, "FontDescriptor")
+            .as_dict()
+            .cloned()
+            .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_A_DICTIONARY))?;
         // Every reading of the font from here on is of the font a cut program leaves: the
         // descriptor's names and the dictionary's widths, and no program (`doc/adr/2636`). The
         // writes go to the font and the descriptor the file holds.
@@ -1829,26 +1831,29 @@ fn embed_pass(
             )?;
         }
         substitutes.written.insert(at, stream);
-        // A subset is named by §9.9.2 in both places the clause names (`doc/adr/2939`).
+        // A subset is named by §9.9.2 in both places the clause names (`doc/adr/2939`), and a
+        // font whose own name is no UTF-8 by the program embedded for it (`doc/adr/3210`).
+        let program_name = subset_name.or_else(|| {
+            names::embedded_program_name(document, &used.dict, &program).map(Object::Name)
+        });
         let mut descriptor_gains = restated
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| {
                 restatement.descriptor.clone()
             });
-        if let Some(name) = &subset_name {
+        if let Some(name) = &program_name {
             descriptor_gains.insert(Name::new(&b"FontName"[..]), name.clone());
         }
         if made.is_some() {
             let stated = document
-                .get(descriptor)
-                .as_dict()
-                .and_then(|own| document.get_key(own, "Flags").as_integer())
+                .get_key(&descriptor, "Flags")
+                .as_integer()
                 .unwrap_or(0);
             descriptor_gains.insert(Name::new(&b"Flags"[..]), made_symbolic::flags(stated));
         }
         let own = embed_at_descriptor(
             document,
-            descriptor,
+            &descriptor,
             Embedding { key: row.key, at },
             Some(&descriptor_gains),
             spare,
@@ -1858,7 +1863,7 @@ fn embed_pass(
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
-        if let Some(name) = subset_name {
+        if let Some(name) = program_name {
             entries.insert(Name::new(&b"BaseFont"[..]), name);
         }
         if let Some(twins) = &twins {
@@ -1883,18 +1888,13 @@ fn embed_pass(
                 reading,
                 (&font, &|byte| face.glyph(byte)),
                 &named_empty,
-                (descriptor, &descriptor_gains, row, &entries),
+                (&descriptor, &descriptor_gains, row, &entries),
                 &program,
             )?;
         }
         if let Some(made) = &made {
-            let stated = document
-                .get(descriptor)
-                .as_dict()
-                .cloned()
-                .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
             let written_descriptor =
-                made_symbolic::proof_descriptor(document, &stated, &descriptor_gains);
+                made_symbolic::proof_descriptor(document, &descriptor, &descriptor_gains);
             made_symbolic::written(
                 document,
                 (reading, &font),
@@ -1980,17 +1980,13 @@ fn embed_pass(
 /// non-symbolic `/Flags` of `doc/adr/2278` — written into this font's copy alone.
 fn embed_at_descriptor(
     document: &Document,
-    descriptor: ObjectId,
+    descriptor: &Dictionary,
     embedding: Embedding,
     gains: Option<&Dictionary>,
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<ObjectId, Because> {
-    let mut own = document
-        .get(descriptor)
-        .as_dict()
-        .cloned()
-        .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
+    let mut own = descriptor.clone();
     embedding.write_into(&mut own);
     for (key, value) in gains.into_iter().flat_map(Dictionary::iter) {
         own.insert(key.clone(), value.clone());
@@ -2889,11 +2885,11 @@ const COMPOSITE_NOT_SUBSTITUTED: &str = "this document renders a composite font 
      CIDFont's writes the program into the descendant's own descriptor, against §9.7.4.3's /W \
      and /DW";
 
-/// Why a font whose descriptor is written inside its own dictionary is not given a substitute.
-const DESCRIPTOR_NOT_AN_OBJECT: &str = "this rendered font writes its FontDescriptor directly \
-     inside the font dictionary rather than as an object of its own, and a program is embedded by \
-     adding a key to the descriptor object; ISO 32000-2 \u{a7}9.6.2.1's Table 109 makes the entry \
-     an indirect reference, so there is no object here for the key to go into";
+/// Why a font whose `/FontDescriptor` is no dictionary is not given a substitute.
+const DESCRIPTOR_NOT_A_DICTIONARY: &str = "this rendered font states a FontDescriptor that is not \
+     a dictionary, and ISO 32000-2 \u{a7}9.6.2.1's Table 109 makes the entry a font descriptor \
+     dictionary; a program is embedded by writing it into a copy of that dictionary, so there is \
+     no descriptor here to write it beside";
 
 /// Why a program the operator named for a font that stated no descriptor is not embedded.
 const NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM: &str = "--font names a program for a font that states \

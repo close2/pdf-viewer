@@ -123,7 +123,7 @@ pub(super) fn pages(
             } else if row == BOUND_NAMES {
                 let reached =
                     annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
-                match bound_name_pages(document, judgement, reached) {
+                match bound_name_pages(document, survey, judgement, reached) {
                     Some(pages) => pages,
                     None => continue,
                 }
@@ -169,8 +169,16 @@ const BOUND_NAMES: &str = "file-structure/bound-names-are-valid-utf8";
 /// a print carries the glyphs and not their names (`doc/adr/3127`). Only a font's parts are
 /// answered so: a colourant or a structure type is named from places a page's photograph does
 /// not take. A font an annotation's appearance reaches keeps the refusal (ADR 2803).
+///
+/// **A simple font the pages render and the file embeds no program for is left to the
+/// substitution** (`doc/adr/3210`): the program it embeds names the font
+/// (`super::fonts::names::embedded_program_name`), which keeps the page's text, and a font it
+/// refuses is photographed around where the gate allows, which takes the name with it. Where
+/// every place is such a font, the row holds no page and the substitution's restatement answers
+/// it.
 fn bound_name_pages(
     document: &Document,
+    survey: &Survey,
     judgement: &pdf_archive::Judgement,
     annotations_reach: &BTreeSet<ObjectId>,
 ) -> Option<BTreeSet<usize>> {
@@ -193,8 +201,11 @@ fn bound_name_pages(
             _ => return None,
         }
     }
+    let substituted = substituted_parts(document, survey);
+    let stated = holders.len();
+    holders.retain(|holder| !substituted.contains(holder));
     if holders.is_empty() {
-        return Some(pages);
+        return (stated == 0 || !pages.is_empty()).then_some(pages);
     }
     if with_font_parts(document, annotations_reach.clone())
         .intersection(&holders)
@@ -217,6 +228,35 @@ fn bound_name_pages(
         }
     }
     unreached.is_empty().then_some(pages)
+}
+
+/// The font dictionaries, and the descriptors that are objects of their own, of every simple font
+/// the pages render whose descriptor names no program: the fonts the substitution embeds a
+/// program into and names by it ([`bound_name_pages`]).
+fn substituted_parts(document: &Document, survey: &Survey) -> BTreeSet<ObjectId> {
+    let mut parts = BTreeSet::new();
+    for used in survey.fonts() {
+        let Some(font) = used.id else {
+            continue;
+        };
+        let simple = document
+            .get_key(&used.dict, "Subtype")
+            .as_name()
+            .is_some_and(|name| matches!(name.as_bytes(), b"TrueType" | b"Type1" | b"MMType1"));
+        let named = used.dict.get("FontDescriptor");
+        let descriptor = document.get_key(&used.dict, "FontDescriptor");
+        let Some(stated) = descriptor.as_dict() else {
+            continue;
+        };
+        let no_program = ["FontFile", "FontFile2", "FontFile3"]
+            .iter()
+            .all(|key| document.get_key(stated, key).is_null());
+        if simple && no_program {
+            parts.insert(font);
+            parts.extend(named.and_then(Object::as_reference));
+        }
+    }
+    parts
 }
 
 /// Whether `object` is a font dictionary or a font descriptor, Table 109's and Table 120's `/Type`.

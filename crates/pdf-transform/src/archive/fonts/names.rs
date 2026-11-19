@@ -223,6 +223,53 @@ fn is_valid(name: &Name) -> bool {
     name.as_str().is_some()
 }
 
+/// The name a simple font the file did not embed is written under where this conversion embeds
+/// `program` for it and the font's own `/BaseFont` is no valid UTF-8 (`doc/adr/3210`): the
+/// program's PostScript name, `None` where the font's name is valid or the program states none a
+/// PDF name can carry.
+///
+/// ISO 32000-2 §9.6.3 reads a TrueType font's `/BaseFont` off its program:
+///
+/// > If the TrueType or OpenType font program's "name" table contains a PostScript language name,
+/// > it should be used.
+///
+/// and §9.8.1's Table 120 makes the descriptor's `/FontName` the same name. The producer's name
+/// asked for a face the file never carried; the program embedded answers it, as on the composite
+/// routes this module's head describes, and the request stays in the report and the file's history
+/// as the font's `requested` name. A valid name is left as the producer wrote it.
+pub(super) fn embedded_program_name(
+    document: &Document,
+    font: &Dictionary,
+    program: &[u8],
+) -> Option<Name> {
+    use skrifa::MetadataProvider as _;
+    if document
+        .get_key(font, "BaseFont")
+        .as_name()
+        .is_none_or(is_valid)
+    {
+        return None;
+    }
+    let stated: String = match skrifa::FontRef::new(program) {
+        Ok(face) => face
+            .localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+            .english_or_first()?
+            .chars()
+            .collect(),
+        Err(_) => skrifa::raw::ps::cff::CffFontRef::new_cff(program, 0, None)
+            .ok()?
+            .metadata()?
+            .name()?
+            .to_owned(),
+    };
+    // A PostScript name is printable ASCII and holds none of §7.2.3's delimiters.
+    let usable = !stated.is_empty()
+        && stated
+            .chars()
+            .all(|c| c.is_ascii_graphic() && !"()<>[]{}/%#".contains(c));
+    usable.then(|| Name::new(stated.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -273,6 +273,13 @@ ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · **built for Table 92's ab
   for inline images (`AHx`, `A85`, `LZW`, `Fl`, `RL`, `CCF`, `DCT`) states the full name instead,
   its bytes untouched (`Stated`): this reader decodes each as the filter it abbreviates, so the
   page was drawn through that filter. Of the census's 26 failing streams, 14 are abbreviations.
+- **Built for a stream the window drew as absent** (ADR 2689, the loss `undecodable-stream`): an
+  image or form becomes a form drawing nothing, a content stream holds no operator, a font program
+  is left out, an object or cross-reference stream is not written. **An ICC profile** is written,
+  at the same object, as the profile of the device space Table 65 has the window draw its colour
+  space in where the profile is not understood — the assumed inks for `/N 4`, sRGB for `/N 3`
+  (ADR 3211); one component, or an `/Alternate` other than that device space, stays refused by
+  name.
 - **Mitigation** — **none, for a stream anything draws under a name that is no abbreviation**,
   and the argument is short: re-encoding
   needs the decoded bytes and the decoded bytes need a decoder nobody specifies. There is no tool
@@ -379,7 +386,15 @@ session 986** (ADR 1007): the first `Mechanical`, the second an authorised loss
   anybody wants it; nobody should.
 
 ### `file-structure/bound-names-are-valid-utf8`
-ISO 19005-2 6.1.8, ISO 19005-4 6.1.7 · all six · today `the-fence`
+ISO 19005-2 6.1.8, ISO 19005-4 6.1.7 · all six · today `the-fence`, **built for a font the
+conversion embeds the program of**
+
+- **Built** — a font name goes with the program the conversion embeds: a composite font's names
+  where a route writes its descendant's program (ADR 2846), and a simple font's `/BaseFont` and
+  descriptor `/FontName` as the PostScript name of the face embedded for it where the producer's
+  name is no UTF-8 (ADR 3210). Under `as-if-printed` a page reaching a font whose own embedded
+  program carries the name is photographed (ADR 3127); a simple font that embeds no program is left
+  to the substitution, which keeps the page's text.
 
 - **Mitigation** — **none.** A font resource name is referenced from a content stream this verb
   carries byte for byte, so renaming is fenced; a colourant name *is* the ink's identity, so
@@ -1458,8 +1473,9 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   carried the glyphs the window drew and no text layer. The profile's `discard` at this site also
   authorises the loss `page-as-image`, which lifts the first of the gate's conditions and admits two
   populations: a page showing a font that any route above refused to embed a face into (R08 —
-  except a font whose widths the file states twice or whose descriptor is written inside the font
-  dictionary, which are font refiling and keep their refusals), and a page holding a fault of its
+  except a font whose widths the file states twice, which is font refiling and keeps its refusal;
+  a descriptor written inside the font dictionary is copied into the one the substitution writes,
+  ADR 3209), and a page holding a fault of its
   content stream the target refuses (R03: an operator the base standard does not define, an inline
   image's interpolation, a hexadecimal string with a byte that is no digit, a bound name that is not
   UTF-8, a Type 3 width and an `/ActualText` that the report places on a page). The page's text is

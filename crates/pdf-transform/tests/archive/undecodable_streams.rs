@@ -190,24 +190,129 @@ fn an_image_another_names_as_its_mask_keeps_the_refusal() {
     ));
 }
 
-#[test]
-fn an_icc_profile_no_reader_decodes_keeps_the_refusal() {
-    // The window draws the space as ISO 32000-2 §8.6.5.5's alternate; stating that alternate in
-    // the profile's place, with ISO 19005's licence for a device space, is not built
-    // (`doc/adr/2689`), so the row is refused by its own sentence.
-    let target = Target::Four(Flavour::Plain);
-    let profile = "/N 4 /Filter /XXXDecode /Length 3";
-    let source = Conforming {
-        objects: vec![String::from_utf8_lossy(&stream(profile, b"xyz")).into_owned()],
+/// The profile of this renderer's assumed inks, which the archive writes for an uncharacterised
+/// `DeviceCMYK` (ADR 2700), and the sRGB profile it writes for `DeviceRGB`.
+const ASSUMED_INKS: &[u8] = include_bytes!("../../../../data/icc/quorra-assumed-inks.icc");
+const SRGB: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc");
+
+/// A page filling a square in `[/ICCBased 6 0 R]`, object 6 the profile stream `dict` under
+/// `/XXXDecode`, with the colour `colour`.
+fn filling_in_a_profile(target: Target, dict: &str, colour: &str) -> Vec<u8> {
+    let profile = format!("{dict} /Filter /XXXDecode /Length 3");
+    Conforming {
+        objects: vec![String::from_utf8_lossy(&stream(&profile, b"xyz")).into_owned()],
         resources: "/ColorSpace << /CS0 [/ICCBased 6 0 R] >>".to_owned(),
-        contents: Some((String::new(), b"/CS0 cs 0 1 0 0 sc 0 0 10 10 re f".to_vec())),
+        contents: Some((
+            String::new(),
+            format!("/CS0 cs {colour} sc 0 0 10 10 re f").into_bytes(),
+        )),
         ..base(target)
     }
-    .build();
-    let (report, output) = convert(&source, target, authorised_by("as-if-printed", target));
-    assert!(output.is_none(), "nothing is written");
-    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, ROW) else {
-        panic!("{:?}", decision(&report, ROW));
+    .build()
+}
+
+/// Page 1 as this reader draws it, on the processor, as RGBA bytes.
+fn pixels(bytes: &[u8]) -> Vec<u8> {
+    use pdf_render::{Rasterizer as _, TargetSpec};
+    let document = Document::open(bytes.to_vec()).expect("an exact-xref fixture");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let state = pdf_model::view::ViewState::of(&document);
+    let list = pdf_model::content::interpret_with(&document, &page, &state).display_list;
+    let target = TargetSpec::for_page(&list, 2.0, 1 << 22).expect("a bounded target");
+    render_cpu::CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("CPU pixels")
+        .data
+}
+
+/// The profile stream page 1's `/CS0` names in `output`.
+fn the_profile(output: &[u8]) -> (Document, pdf_syntax::object::Dictionary, Vec<u8>) {
+    let document =
+        Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("the output opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let resources = document.get_key(&page.dict, "Resources");
+    let spaces = document.get_key(resources.as_dict().expect("resources"), "ColorSpace");
+    let space = document.get_key(spaces.as_dict().expect("a colour space table"), "CS0");
+    let space = space.as_array().expect("an ICCBased array").to_vec();
+    let Object::Stream(profile) = document.resolve(&space[1]) else {
+        panic!("a profile stream");
     };
-    assert!(because.contains("ICCBased"), "{because}");
+    let data = document
+        .decoded_stream_data(&profile)
+        .expect("it decodes")
+        .to_vec();
+    let dict = profile.dict.clone();
+    (document, dict, data)
+}
+
+#[test]
+fn an_icc_profile_no_reader_decodes_is_written_as_the_profile_of_the_space_it_was_drawn_in() {
+    // ISO 32000-2 §8.6.5.5's Table 65: a profile the reader does not understand, with no
+    // `/Alternate`, is drawn as DeviceRGB or DeviceCMYK by its `/N`. The profile written states
+    // those colours as this reader draws them (`doc/adr/3211`): the assumed inks for four
+    // components, sRGB for three, so the page draws what it drew.
+    for (dict, colour, expected) in [
+        ("/N 4", "0 1 0 0", ASSUMED_INKS),
+        ("/N 4 /Alternate /DeviceCMYK", "1 0 0 0.2", ASSUMED_INKS),
+        ("/N 3", "0.2 0.4 0.9", SRGB),
+    ] {
+        for profile in ["as-if-printed", "as-shown"] {
+            for target in TARGETS {
+                let source = filling_in_a_profile(target, dict, colour);
+                let (report, output) = convert(&source, target, authorised_by(profile, target));
+                let output = written(&report, output);
+                assert_eq!(
+                    decision(&report, ROW),
+                    Decision::Authorised {
+                        losses: Losses::one(Loss::UndecodableStream),
+                        rewrite: Rewrite::UndecodableStreamRemoved,
+                    },
+                    "{dict}, {profile} at {target}"
+                );
+                assert_eq!(
+                    holds(&output, target).verdict(),
+                    Verdict::Conforms,
+                    "{dict}, {profile} at {target}"
+                );
+                let (document, stated, data) = the_profile(&output);
+                assert_eq!(data, expected, "{dict}, {profile} at {target}: the profile");
+                assert_eq!(
+                    document.get_key(&stated, "N").as_integer(),
+                    Some(if expected.len() == SRGB.len() { 3 } else { 4 }),
+                    "{dict}: its /N"
+                );
+                assert!(stated.get("Alternate").is_none(), "{dict}: no alternate");
+                let streams = &conversion(&report).undecodable_streams;
+                assert_eq!(streams.len(), 1, "{streams:?}");
+                assert_eq!(streams[0].role, UndecodableRole::Profile);
+                assert_eq!(
+                    pixels(&output),
+                    pixels(&source),
+                    "{dict}, {profile} at {target}: drawn as the source was"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_icc_profile_of_one_component_or_another_alternate_keeps_the_refusal() {
+    // DeviceGray has no profile this program ships, and an alternate other than the device
+    // space of `/N` is drawn as that space, which no profile here states (`doc/adr/3211`).
+    let target = Target::Four(Flavour::Plain);
+    for (dict, colour) in [
+        ("/N 1", "0.5"),
+        (
+            "/N 3 /Alternate [/CalRGB << /WhitePoint [0.9505 1 1.089] >>]",
+            "0 1 0",
+        ),
+    ] {
+        let source = filling_in_a_profile(target, dict, colour);
+        let (report, output) = convert(&source, target, authorised_by("as-if-printed", target));
+        assert!(output.is_none(), "{dict}: nothing is written");
+        let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, ROW) else {
+            panic!("{dict}: {:?}", decision(&report, ROW));
+        };
+        assert!(because.contains("ICCBased"), "{because}");
+    }
 }

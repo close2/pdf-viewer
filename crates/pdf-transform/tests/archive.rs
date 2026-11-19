@@ -16575,6 +16575,8 @@ mod cut_program;
 mod deep_jpx;
 #[path = "archive/descriptor_empty_glyphs.rs"]
 mod descriptor_empty_glyphs;
+#[path = "archive/descriptor_inside_the_font.rs"]
+mod descriptor_inside_the_font;
 #[path = "archive/drawn_attachments.rs"]
 mod drawn_attachments;
 #[path = "archive/empty_glyphs.rs"]

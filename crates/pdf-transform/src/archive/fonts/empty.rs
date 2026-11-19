@@ -34,7 +34,7 @@ use pdf_font::cff::AddedGlyph;
 use pdf_font::substitute::Format;
 use pdf_font::{Code, LoadedFont};
 use pdf_syntax::Document;
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object};
 
 use super::super::decision::Because;
 use super::Table124;
@@ -128,15 +128,11 @@ pub(super) fn named_proved(
     used: &SelectedFont,
     (font, glyph_of): (&LoadedFont, &dyn Fn(u8) -> Option<u16>),
     given: &BTreeMap<u8, String>,
-    (descriptor, gains, row, entries): (ObjectId, &Dictionary, Table124, &Dictionary),
+    (descriptor, gains, row, entries): (&Dictionary, &Dictionary, Table124, &Dictionary),
     program: &[u8],
 ) -> Result<(), Because> {
     let not_proved = || Because::NotBuiltYet(EMPTY_GLYPH_NOT_PROVED);
-    let mut written_descriptor = document
-        .get(descriptor)
-        .as_dict()
-        .cloned()
-        .ok_or_else(not_proved)?;
+    let mut written_descriptor = descriptor.clone();
     for key in ["FontFile", "FontFile2", "FontFile3"] {
         written_descriptor.remove(key);
     }

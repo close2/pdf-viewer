@@ -173,7 +173,7 @@ fn copy_of(
         .get(descriptor)
         .as_dict()
         .cloned()
-        .ok_or(Because::NotBuiltYet(super::DESCRIPTOR_NOT_AN_OBJECT))?;
+        .ok_or(Because::NotBuiltYet(super::DESCRIPTOR_NOT_A_DICTIONARY))?;
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;

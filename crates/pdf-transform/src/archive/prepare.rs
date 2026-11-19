@@ -1448,8 +1448,18 @@ impl Prepared {
                     .any(|row| failed.contains(row))
                     || encoding_row_refused))
                 || notdef_too;
+            // The font name row is the table's fence, and the substitution answers it where it
+            // restated every name it failed at (ADR 2846), so it refuses nothing then.
+            let names_restated = |id: &str| {
+                id == fonts::UTF8_NAMES_ROW
+                    && substitutes
+                        .as_ref()
+                        .is_ok_and(|substitutes| substitutes.font_names_restated)
+            };
             let refused_anyway = !plan.authorised.grants(Loss::PageAsImage)
-                && failed.iter().any(|id| super::decision::answers_nothing(id));
+                && failed
+                    .iter()
+                    .any(|id| super::decision::answers_nothing(id) && !names_restated(id));
             let cmap_restated = if asks && refused_anyway {
                 Err(Because::NotBuiltYet(CMAP_NOT_PREPARED))
             } else {

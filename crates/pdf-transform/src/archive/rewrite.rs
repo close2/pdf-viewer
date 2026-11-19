@@ -3776,6 +3776,29 @@ impl Rewriter<'_> {
                     decryption_failed: false,
                 })))
             }
+            // The device space's profile as this reader draws it (`doc/adr/3211`), the stream's
+            // `/N` kept, and its `/Range` with it since Table 65 clamps the alternate's values
+            // to that range too.
+            Role::Profile => {
+                let components = super::undecodable::profile_family(self.document, &stream.dict)?;
+                let (bytes, family) = if components == 4 {
+                    (
+                        super::prepare::ASSUMED_INKS,
+                        pdf_archive::survey::DeviceFamily::Cmyk,
+                    )
+                } else {
+                    (super::prepare::SRGB, pdf_archive::survey::DeviceFamily::Rgb)
+                };
+                let mut written = super::prepare::profile_stream(bytes, family);
+                if let (Object::Stream(profile), Some(range)) =
+                    (&mut written, stream.dict.get("Range"))
+                {
+                    std::sync::Arc::make_mut(profile)
+                        .dict
+                        .insert(Name::new(&b"Range"[..]), range.clone());
+                }
+                Some(written)
+            }
             Role::FontProgram | Role::ObjectStream | Role::CrossReference => None,
         }
     }

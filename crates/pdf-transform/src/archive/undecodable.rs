@@ -14,8 +14,8 @@
 //! and takes the loss `undecodable-stream`: what "absent" means is a property of the stream's
 //! role, so the role is found here and each one is written as [`Role`] says (`doc/adr/2689`). A
 //! stream whose role is none of these is refused by name: what drawing it absent would mean has
-//! not been decided, and an ICC profile is refused by a sentence of its own until the alternate
-//! its colour space is drawn as is written in its place.
+//! not been decided. An ICC profile is drawn as its colour space's alternate, and is written as
+//! the profile of the device space that alternate is (`doc/adr/3211`, [`Role::Profile`]).
 use std::collections::BTreeSet;
 
 use pdf_syntax::Document;
@@ -49,6 +49,19 @@ pub enum Role {
     /// A cross-reference stream (§7.5.8): not written, as the archive writes cross-reference
     /// information of its own; this reader found the objects through the rest of the file's.
     CrossReference,
+    /// An ICC profile an `ICCBased` colour space names (§8.6.5.5), stating no `/Alternate` or the
+    /// device space of its `/N` components: written, at the same object, as the profile of that
+    /// device space as this reader draws it (`doc/adr/3211`). Table 65's `/Alternate` row:
+    ///
+    /// > If this entry is omitted and the PDF reader does not understand the ICC profile data, the
+    /// > colour space that shall be used is DeviceGray , DeviceRGB , or DeviceCMYK , depending on
+    /// > whether the value of N is 1 , 3 , or 4 , respectively.
+    ///
+    /// So the window drew the space as `DeviceRGB` or `DeviceCMYK`, and the profile written states
+    /// those colours as the window drew them: sRGB for three components, and for four the
+    /// profile of this renderer's assumed inks, which every uncharacterised `DeviceCMYK` colour is
+    /// drawn through (ADR 2700). A single component has no shipped profile and is refused by name.
+    Profile,
 }
 
 impl Role {
@@ -62,6 +75,7 @@ impl Role {
             Self::FontProgram => "font program",
             Self::ObjectStream => "object stream",
             Self::CrossReference => "cross-reference stream",
+            Self::Profile => "ICC profile",
         }
     }
 
@@ -73,6 +87,10 @@ impl Role {
             Self::Content => "written holding no operator",
             Self::FontProgram => "left out, and the font is carried as one with no program",
             Self::ObjectStream | Self::CrossReference => "not written",
+            Self::Profile => {
+                "written as the profile of the device space its colour space was drawn in, as \
+                 this viewer draws that space"
+            }
         }
     }
 }
@@ -179,15 +197,15 @@ pub(super) fn decodes_through_no_known_filter(document: &Document, object: &Obje
     }
 }
 
-/// Why an ICC profile under such a filter keeps its refusal: the window drew its colour space as
-/// §8.6.5.5's alternate, which the archive would have to state in its place, with the licence
-/// ISO 19005 asks of a device space, and this version writes neither (ADR 2689).
+/// Why an ICC profile under such a filter keeps its refusal: the space it would be written as is
+/// not one a profile this program ships states (`doc/adr/3211`).
 const PROFILE_NOT_BUILT: &str = "an ICC profile stream in this file names a filter that is \
      neither one of the base standard's standard filters nor the abbreviation ISO 32000-2 \
      8.9.7's Table 92 gives one, so no reader of the standard decodes it, and this viewer draws \
-     its ICCBased colour space as the alternate ISO 32000-2 8.6.5.5 gives it; writing that \
-     alternate in the profile's place, with the licence ISO 19005 asks of a device colour space, \
-     is not built yet (ADR 2689)";
+     its ICCBased colour space as the alternate ISO 32000-2 8.6.5.5 gives it. The profile is \
+     written as that device space's only where the alternate is DeviceRGB or DeviceCMYK, the \
+     spaces whose profiles this program ships; this one states another alternate, or a single \
+     component, whose DeviceGray no shipped profile states (ADR 3211)";
 
 /// Why a stream with such a filter keeps its refusal: its role is none [`Role`] names.
 const ROLE_NOT_DECIDED: &str = "a stream in this file names a filter that is neither one of the \
@@ -231,9 +249,6 @@ pub(super) fn survey(
         return Ok(Undecodable::default());
     }
     let holders = Holders::of(document);
-    if named.iter().any(|(at, _)| holders.profiles.contains(at)) {
-        return Err(Because::NotBuiltYet(PROFILE_NOT_BUILT));
-    }
     let mut streams: Vec<UndecodableStream> = Vec::new();
     for (at, name) in named {
         if let Some(known) = streams.iter_mut().find(|stream| stream.at == at) {
@@ -243,8 +258,7 @@ pub(super) fn survey(
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(ROLE_NOT_DECIDED));
         };
-        let role = role_of(document, &stream.dict, at, &holders)
-            .ok_or(Because::NotBuiltYet(ROLE_NOT_DECIDED))?;
+        let role = role_of(document, &stream.dict, at, &holders)?;
         streams.push(UndecodableStream {
             at,
             role,
@@ -280,6 +294,10 @@ impl Holders {
         };
         for number in document.xref().object_numbers() {
             let object = document.get(document.defined_id(number));
+            // A colour space array written as an object of its own (§7.3.10).
+            if let Object::Array(items) = &object {
+                profile_of_array(items, &mut holders.profiles);
+            }
             let Some(dict) = object.as_dict() else {
                 continue;
             };
@@ -327,19 +345,22 @@ fn profiles_named(dict: &Dictionary, depth: usize, out: &mut BTreeSet<ObjectId>)
     }
     for (_, value) in dict.iter() {
         match value {
-            Object::Array(items) => {
-                if items
-                    .first()
-                    .and_then(Object::as_name)
-                    .is_some_and(|name| name.as_bytes() == b"ICCBased")
-                    && let Some(id) = items.get(1).and_then(Object::as_reference)
-                {
-                    out.insert(id);
-                }
-            }
+            Object::Array(items) => profile_of_array(items, out),
             Object::Dictionary(inner) => profiles_named(inner, depth.saturating_add(1), out),
             _ => {}
         }
+    }
+}
+
+/// The stream `[/ICCBased …]` names, where `items` is such an array.
+fn profile_of_array(items: &[Object], out: &mut BTreeSet<ObjectId>) {
+    if items
+        .first()
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == b"ICCBased")
+        && let Some(id) = items.get(1).and_then(Object::as_reference)
+    {
+        out.insert(id);
     }
 }
 
@@ -353,6 +374,37 @@ fn name_is(document: &Document, dict: &Dictionary, key: &str, wanted: &[u8]) -> 
 /// The role, from the stream's own dictionary and then from what names it; none where neither
 /// says.
 fn role_of(
+    document: &Document,
+    dict: &Dictionary,
+    at: ObjectId,
+    holders: &Holders,
+) -> Result<Role, Because> {
+    if holders.profiles.contains(&at) {
+        return profile_family(document, dict)
+            .map(|_| Role::Profile)
+            .ok_or(Because::NotBuiltYet(PROFILE_NOT_BUILT));
+    }
+    other_role_of(document, dict, at, holders).ok_or(Because::NotBuiltYet(ROLE_NOT_DECIDED))
+}
+
+/// The number of components of the device space an ICC profile stream's colour space is drawn
+/// in where its profile cannot be read, 3 or 4, and `None` where it is neither or the stream
+/// states an `/Alternate` other than that device space (Table 65).
+pub(super) fn profile_family(document: &Document, dict: &Dictionary) -> Option<u8> {
+    let (components, device): (u8, &[u8]) = match document.get_key(dict, "N").as_integer()? {
+        3 => (3, b"DeviceRGB"),
+        4 => (4, b"DeviceCMYK"),
+        _ => return None,
+    };
+    match document.get_key(dict, "Alternate") {
+        Object::Null => Some(components),
+        Object::Name(name) if name.as_bytes() == device => Some(components),
+        _ => None,
+    }
+}
+
+/// The role of a stream no colour space names as its profile.
+fn other_role_of(
     document: &Document,
     dict: &Dictionary,
     at: ObjectId,
