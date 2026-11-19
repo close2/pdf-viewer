@@ -870,7 +870,7 @@ fn capitalised(words: &str) -> String {
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 pub(super) mod retention_tests;

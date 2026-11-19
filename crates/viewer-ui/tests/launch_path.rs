@@ -265,7 +265,7 @@ const VIEWPORT: (u32, u32) = (1600, 1000);
 /// would have, while [`phase_count_first_frame`] counts the sequence the program runs, and the
 /// program's first `Resize` is its window's default inner size (`quorra/window.rs`'s
 /// `with_inner_size`, 800 × 1000 logical), less the panel Table 29's `/PageMode` opened. The size
-/// is the program's choice and no ADR argues it (ADR 2926 §5); the figure follows it.
+/// is the program's choice, argued by ADR 3105; the figure follows it.
 const WINDOW: (u32, u32) = (800, 1000);
 
 /// The device scale the counted first frame's `Resize` states: 1.0, the scale every figure of

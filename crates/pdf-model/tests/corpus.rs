@@ -680,9 +680,13 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
 
         // Each of these is one condition and one clause, stated by the variant's own doc comment.
         Unsupported::Shading { .. } => (Whose::ThisReader, "a shading or pattern used as paint"),
+        // The file's: a usable `/Background` is painted by a fill and a stroke alike (ADR 3094),
+        // so the one condition left is an array whose length is not the colour space's count —
+        // Table 77 asks for "[a]n array of colour components appropriate to the colour space",
+        // and an array of any other length states no colour there is to paint.
         Unsupported::ShadingBackground { .. } => (
-            Whose::ThisReader,
-            "Table 77's /Background, unpainted around the shading",
+            Whose::TheFile,
+            "a /Background whose length is not its colour space's count (Table 77)",
         ),
         // **The mechanism's wording is the claim, and it is checkable.** This variant's own doc
         // comment says "[a]n operator this interpreter does not implement", which would be this

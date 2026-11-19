@@ -400,6 +400,7 @@ impl ApplicationHandler for Host {
         if self.window.is_some() {
             return;
         }
+        // `quorra`'s own window, for its reason (ADR 3105).
         let attributes = Window::default_attributes()
             .with_title(format!("{} — confined", self.heading))
             .with_inner_size(winit::dpi::LogicalSize::new(800.0, 1000.0));

@@ -291,6 +291,8 @@ impl ApplicationHandler for App {
             return;
         }
 
+        // A4 and US Letter whole at the opening `FitPage`, inside a 1080-line display's work area
+        // with the title bar; the counted first frame is taken at it (ADR 3105).
         let attributes = Window::default_attributes()
             .with_title(self.title.clone())
             .with_inner_size(winit::dpi::LogicalSize::new(800.0, 1000.0));

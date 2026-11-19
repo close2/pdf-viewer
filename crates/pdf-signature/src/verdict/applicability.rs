@@ -61,7 +61,7 @@
 use super::{BestSignatureTime, Proof};
 use crate::cms::{self, Digest, SignedData};
 use crate::policy_rules::signer_attributes;
-use crate::revocation::{CertStatus, Evidence, Material, RevocationReason};
+use crate::revocation::{CertStatus, Evidence, Material, Revocation, RevocationReason};
 use crate::saml::{self, Saml, SignatureCheck};
 use crate::signature::{Authenticity, Family, Signature};
 use crate::timestamp::{self, Accuracy, AskedAt, Chain, Time};
@@ -181,7 +181,10 @@ pub enum Assurance {
     Claimed,
     /// A time-stamp token's `genTime`.
     Token {
-        /// Whether the token's validation established it (ADR 1071's four steps).
+        /// Whether the token's validation established it (ADR 1071's four steps) and, for this
+        /// signature's own timestamp, whether §12.8.3.4.8 lets its time be used: a time-stamping
+        /// unit's path revoked for `keyCompromise` or `cACompromise`, or for no stated reason, or
+        /// revoked for another reason at or before its `genTime`, is not (ADR 3106).
         established: bool,
         /// Item 1): the time-stamping policy identifier, dotted.
         policy: String,
@@ -587,16 +590,52 @@ fn signature_timestamp(
         token_cms.as_ref().map(|(token, _)| token),
         &time,
     ));
+    let mut assurance = token(
+        &attribute.claim,
+        &time,
+        token_cms.as_ref().map(|(token, _)| token),
+        asked.lists,
+    );
+    if let Assurance::Token { established, .. } = &mut assurance {
+        *established &= reliable(&time);
+    }
     times.push(Timing {
         kind: TimeKind::SignatureTimestamp,
         at: attribute.claim.gen_time,
-        assurance: token(
-            &attribute.claim,
-            &time,
-            token_cms.as_ref().map(|(token, _)| token),
-            asked.lists,
-        ),
+        assurance,
     });
+}
+
+/// ISO 32000-2 §12.8.3.4.8's three cases on the time-stamping unit's path, whose revocation is
+/// checked "at the current UTC time" — the instant [`Asked::now`] the path was validated at:
+///
+/// > If a certificate has been revoked for a reason which is either "keyCompromise" or
+/// > "cACompromise" or if the revocation reason is missing, then the UTC time included in the
+/// > timestamp token cannot be considered as reliable and the time indicated in the timestamp
+/// > token cannot be used.
+///
+/// Revoked for another reason, the time is usable "only if the time of the revocation of that
+/// timestamping unit's certificate occurred after the UTC time included in the timestamp token".
+/// The same rule `viewer_core`'s best signature time applies (ADR 2968), asked here of the line
+/// the report states about the token (ADR 3106).
+fn reliable(time: &Time) -> bool {
+    match time {
+        Time::Established {
+            at,
+            revocation:
+                Revocation::Revoked {
+                    at: revoked,
+                    reason,
+                    ..
+                },
+            ..
+        } => match reason {
+            None | Some(RevocationReason::KeyCompromise | RevocationReason::CaCompromise) => false,
+            Some(_) => revoked > at,
+        },
+        Time::Established { .. } => true,
+        _ => false,
+    }
 }
 
 /// The key of the time-stamping unit that signed a token, with the padding its signature used.

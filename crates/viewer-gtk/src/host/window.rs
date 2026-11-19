@@ -400,6 +400,8 @@ pub(super) fn build_window(
     chrome_state: &Rc<RefCell<Chrome>>,
 ) -> Ui {
     let window = gtk4::ApplicationWindow::new(app);
+    // The whole window: an 800 × 1000 page viewport, `quorra`'s, with the side panel beside it
+    // and the strip and status line above and below (ADR 3105).
     window.set_default_size(1000, 1100);
     window.set_title(Some(&named(path)));
     // Whether a screen reader is told this is the window a person is in (ADR 1565). On the idle

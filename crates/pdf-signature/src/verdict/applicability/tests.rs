@@ -994,3 +994,164 @@ fn token_path_report(
         .collect();
     (established, clause_9_5)
 }
+
+/// The signature's own `signature-time-stamp` attribute (§12.8.3.3.1), whose token carries its
+/// time-stamping unit's certificate *and* the intermediate authority that issued it — the root
+/// left out, an anchor being the reader's to supply — in the report end to end: the fixture of
+/// `policy_rules::revocation_checks` (every key 2048-bit RSA, every certificate valid 2026-01-01
+/// to 2036-01-01, the token's imprint over the `SignerInfo`'s signature `DE AD`, `genTime`
+/// 2026-11-05T21:40:30Z, policy `1.2.3.4.1`, accuracy one second), signed into a document.
+///
+/// - **Validation and trust.** With the root as the anchor and both CRLs current, the time is
+///   established; with no anchor it is not (step 4, `NoAnchorSupplied`).
+/// - **§12.8.3.4.8.** With the intermediate's CRL listing the unit `keyCompromise` instead, the
+///   four steps still hold, and the time "cannot be considered as reliable", so the report does
+///   not state it established (ADR 3106).
+/// - **Listing.** With no anchor and Austria's list publishing the root as a granted `TSA/QTST`
+///   service, the token is established through that service and d) i) names it; ETSI TS 119 615
+///   clause 4.6 is asked and finds no Member State, the unit's subject stating no `countryName`
+///   (PRO-4.6.4-02), so clause 4.7 is `INDETERMINATE` with no `CC`.
+/// - **TS 119 312 clause 9.5.** Where a path validated, the unit at position 0 and the intermediate
+///   at position 1 are asked: each runs to 2036-01-01, past Table 2's `L` for PKCS #1 v1.5 and
+///   Table 6's `L[2026]` for 1 900 to 3 000 bits, and neither modulus is smaller than the one it
+///   certifies. With no path, the unit alone.
+#[test]
+fn a_signature_timestamps_unit_and_its_authority_are_reported_validated_trusted_and_listed() {
+    use super::ts_119_312::KeyRole;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    use crate::trusted_list::time_stamp::tests::{PROVIDER, list, qtst};
+    use crate::trusted_list::time_stamp::{Indication, TSA_QTST};
+    let root_certificate = hex(minted::ROOT);
+    let root = x509::parse(&root_certificate).expect("the fixture root parses");
+    let (root_crl, intermediate_crl, revoked) = (
+        hex(minted::ROOT_CRL),
+        hex(minted::INTERMEDIATE_CRL),
+        hex(minted::INTERMEDIATE_CRL_REVOKED),
+    );
+    let current = Material::read(&[&root_crl, &intermediate_crl], &[]);
+    let compromised = Material::read(&[&root_crl, &revoked], &[]);
+    let unit = KeyRole::TimeStampingUnit;
+    let authority = KeyRole::TimeStampingAuthority { position: 1 };
+    let anchored = TrustAnchors::of(std::slice::from_ref(&root));
+
+    let (established, eu_qualified, listed, roles) = stamped_report(&anchored, &current, &[]);
+    assert!(established, "the token's path reaches the supplied root");
+    assert_eq!(eu_qualified, EuQualified::NoListSupplied);
+    assert_eq!(listed, []);
+    assert_eq!(roles, [unit, unit, authority, authority]);
+
+    let (established, _, _, roles) = stamped_report(&TrustAnchors::none(), &current, &[]);
+    assert!(!established, "no anchor, no established time");
+    assert_eq!(roles, [unit, unit]);
+
+    let (established, _, _, roles) = stamped_report(&anchored, &compromised, &[]);
+    assert!(
+        !established,
+        "§12.8.3.4.8: a keyCompromise on the unit's path"
+    );
+    assert_eq!(roles, [unit, unit, authority, authority]);
+
+    let lists = [list("AT", PROVIDER, &[qtst(&root_certificate)])];
+    let (established, eu_qualified, listed, roles) =
+        stamped_report(&TrustAnchors::none(), &current, &lists);
+    assert!(established, "the list's service is the anchor");
+    let EuQualified::Determined(time_stamp::Answer::Determined(outputs)) = eu_qualified else {
+        panic!("clause 4.7 was asked: {eu_qualified:?}");
+    };
+    assert_eq!(outputs.results, Indication::Indeterminate);
+    assert_eq!(outputs.country, None);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|listed| (
+                listed.territory.as_str(),
+                listed.provider.as_str(),
+                listed.service_type.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("AT", PROVIDER, TSA_QTST)]
+    );
+    assert_eq!(roles, [unit, unit, authority, authority]);
+}
+
+/// What [`a_signature_timestamps_unit_and_its_authority_are_reported_validated_trusted_and_listed`]
+/// reads of the report under `anchors`, `material` and `lists`: the signature timestamp's
+/// `established`, `eu_qualified` and `listed`, and the keys clause 9.5 found outlived, in order.
+fn stamped_report(
+    anchors: &TrustAnchors<'_>,
+    material: &Material<'_>,
+    lists: &[TrustedList],
+) -> (bool, EuQualified, Vec<ListedAuthority>, Vec<KeyRole>) {
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    use std::fmt::Write as _;
+    // 2027-01-01T00:00:00Z: after `genTime` and every CRL's issue, inside every validity.
+    let at = Instant::from_unix_seconds(1_798_761_600);
+    let stamped =
+        cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &hex(minted::TOKEN));
+    let value = stamped.iter().fold(String::new(), |mut value, octet| {
+        let _ = write!(value, "{octet:02x}");
+        value
+    });
+    let (document, signature) = opened(fixtures::document(&value));
+    let found = crate::signature::signatures(&document);
+    let report = Report::of(&Asked {
+        signature: &signature,
+        authenticity: &Authenticity::Verified {
+            digest: Digest::Sha256,
+            family: Family::Rsa,
+            key_bits: 3_072,
+            over: Signed::TheDocumentsBytes,
+        },
+        when: BestSignatureTime::now(at),
+        chain: &Chain::default(),
+        index: 0,
+        material,
+        anchors,
+        now: at,
+        signatures: &found,
+        lists,
+        path: &[],
+        responders: &[],
+    });
+    let stamp = report
+        .times
+        .into_iter()
+        .find(|timing| timing.kind == TimeKind::SignatureTimestamp)
+        .expect("the attribute covers the signature, so its time is reported");
+    // 2026-11-05T21:40:30Z, the token's `genTime`.
+    assert_eq!(stamp.at, Instant::from_unix_seconds(1_793_914_830));
+    let Assurance::Token {
+        established,
+        policy,
+        accuracy,
+        eu_qualified,
+        listed,
+    } = stamp.assurance
+    else {
+        panic!("a token's assurance: {:?}", stamp.assurance);
+    };
+    assert_eq!(policy, "1.2.3.4.1");
+    assert_eq!(
+        accuracy.map(|accuracy| accuracy.micros_total()),
+        Some(1_000_000)
+    );
+    let roles = report
+        .security
+        .expect("a suite was reached")
+        .issues
+        .into_iter()
+        .filter_map(|issue| match issue {
+            Issue::OtherKeyOutlived {
+                key, class, until, ..
+            } => {
+                // 2036-01-01T00:00:00Z, every certificate's `notAfter`.
+                assert_eq!(until, Instant::from_unix_seconds(2_082_758_400), "{key:?}");
+                assert!(matches!(class, Class::Legacy { .. }), "{key:?}");
+                Some(key)
+            }
+            Issue::WeakerThanCertified { .. } => panic!("no modulus is smaller: {issue:?}"),
+            _ => None,
+        })
+        .collect();
+    (established, eu_qualified, listed, roles)
+}
