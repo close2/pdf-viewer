@@ -21,8 +21,9 @@
 //!
 //! The procedure given is `w 0 d0` and nothing after it: Table 111's `d0` states the glyph's
 //! width and permits the description to paint nothing, and `w` is the font's own `/Widths` entry,
-//! which is what §9.2.4 already lays the page out by — so ISO 19005-4 section 6.2.10.5's width
-//! is met in the same edit. The page draws exactly what §9.6.4 b) defines, before and after; this
+//! which is what §9.2.4 already lays the page out by, and for a code outside `/FirstChar` to
+//! `/LastChar` the 0 Table 110 gives it — so ISO 19005-4 section 6.2.10.5's width is met in the
+//! same edit. The page draws exactly what §9.6.4 b) defines, before and after; this
 //! is ADR 2500's empty Type 3 glyph, given to a font the file already holds. It is no loss,
 //! because nothing the producer wrote is removed: the encoding gains names and `/CharProcs` gains
 //! entries, and every existing entry stays as it was.
@@ -186,10 +187,16 @@ fn given_glyphs(
     let mut appended: Vec<Object> = Vec::new();
     for &byte in shown {
         let code = i64::from(byte);
-        let width = usize::try_from(code.checked_sub(first)?)
-            .ok()
+        // Table 110: "For character codes outside the range FirstChar to LastChar, the width
+        // shall be 0", which is the width this reader lays such a code out by (ADR 3110).
+        let width = match code
+            .checked_sub(first)
+            .and_then(|at| usize::try_from(at).ok())
             .and_then(|at| widths.get(at))
-            .and_then(|width| document.resolve(width).as_number())?;
+        {
+            Some(width) => document.resolve(width).as_number()?,
+            None => 0.0,
+        };
         let spelled = super::type3_widths::spelled(width);
         let name = if let Some(name) = names.get(&code) {
             let described = procedures

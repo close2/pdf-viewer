@@ -157,6 +157,7 @@ pub(in crate::archive::fonts) fn described_from_pack(
         fitting: None,
         empty_glyphs: Vec::new(),
         empty_cids: Vec::new(),
+        descendant_written: false,
         twin_codes: Vec::new(),
         cut_program: None,
         font: selected(used),

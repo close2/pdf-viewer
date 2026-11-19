@@ -1612,7 +1612,9 @@ earlier (ADR 2246); a part 4 file labelled 2.0, or with no version, stays `not-b
   rewrite answers it.
 
 #### `fonts/descendant-fonts-holds-one-cidfont`
-ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · `not-built-yet`, refused by name (ADR 2433)
+ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built for an `Identity-H` font this reader
+draws nothing for** (ADR 3109, `Rewrite::SubstituteFontProgram`, a stated interpretation);
+`not-built-yet` elsewhere, refused by name (ADR 2433)
 
 - **The row** — the narrow, implemented half of the general sentence that every font conform to
   the base standard's font clauses, whose remainder (a program against its own format) stays
@@ -1621,14 +1623,21 @@ ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · `not-built-yet`, refuse
   `CIDFont`, and §9.7.4.1's Table 115 makes `CIDFontType0` or `CIDFontType2` the `/Subtype` that
   says a dictionary is one; a missing entry, another shape, or an element that is no such
   dictionary — §7.3.10's null among them, `issue12823.pdf`'s `[ null ]` — fails it.
-- **Mitigation** — **none built.** A font with no `CIDFont` states no glyph selection, widths or
-  character collection, so there is nothing to restate; the only answer is a `CIDFont` built for
-  it, which is the limits document's section 4.9 substitution carried out for a font with no
-  dictionary to substitute into.
-- **By target** — the same refusal at every target.
-- **From a configuration** — none today.
-- **Departure** — **C**: a font whose codes select nothing is the font half of the format's central
-  promise.
+- **Built** — this reader draws no glyph for such a font and places its codes by its widths alone
+  (ADR 1094), which with no `CIDFont` are Table 115's `/DW` default of 1000. The font is given a
+  `CIDFontType2` whose program holds glyph 0 and one glyph that draws nothing, restated to that
+  width, with `/DW` stating it, a `/CIDToGIDMap` stream sending every CID to the empty glyph and
+  `Adobe-Identity-0`; the producer's `/ToUnicode` stays. §9.4.4's spacings and adjustments are the
+  graphics state's, so the page draws and places what it did whatever is in force, and an empty
+  glyph clips nothing (§9.3.6). The shown CIDs are reported and recorded in `xmpMM:History`, on
+  `doc/questions/A48`'s condition; no loss is named.
+- **Refused by name** — a font written inside another object, one over a `CMap` other than
+  `Identity-H`, one whose strings the survey did not keep whole, one this reader draws a glyph of,
+  and one whose codes it places at more than one width.
+- **By target** — the same at every target.
+- **From a configuration** — none needed.
+- **Departure** — **C** where it is refused: a font whose codes select nothing is the font half of
+  the format's central promise.
 
 #### `fonts/cid-system-info-agrees-with-the-cmap`
 ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · **built where this reader reads the
@@ -1697,7 +1706,8 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   §9.6.4 b) paints nothing for such a code already, so no mark moves and nothing is lost. A named
   code keeps its name; an unnamed one is given `empty` (`empty.1`, … per width) in `/Differences`, a
   name the Adobe Glyph List gives no character. Refused by name: a direct font, an unreadable
-  encoding, `/CharProcs` or `/Widths`, a code with no width, a name two codes share at two widths,
+  encoding, `/CharProcs` or `/Widths`, a `/Widths` entry that is not a number (a code outside
+  `/FirstChar` to `/LastChar` takes Table 110's width of 0, ADR 3110), a name two codes share at two widths,
   and a font the rename or the width restatement also writes. Everything below is about a font that
   carries a program.
 

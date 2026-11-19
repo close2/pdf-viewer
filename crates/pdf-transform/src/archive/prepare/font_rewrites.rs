@@ -230,7 +230,10 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             };
             if !font.empty_cids.is_empty() {
                 empty.push_str("; ");
-                empty.push_str(&fonts::empty_cids_given(&font.empty_cids));
+                empty.push_str(&fonts::empty_cids_given(
+                    &font.empty_cids,
+                    font.descendant_written,
+                ));
             }
             // A code named for the character it means is a restated encoding, and the file's
             // history says which (`doc/adr/2723`).

@@ -77,6 +77,7 @@ mod fresh_cid;
 mod lgc_pack;
 mod machine_cid;
 mod names;
+mod no_descendant;
 mod notdef_format;
 mod notdef_glyph;
 mod notices;
@@ -202,6 +203,10 @@ pub struct SubstitutedFont {
     /// `/CIDToGIDMap` to a glyph that draws nothing rather than to `.notdef` (`doc/adr/2824`),
     /// reported and recorded on `doc/questions/A48`'s condition.
     pub empty_cids: Vec<u16>,
+    /// Whether the font was a Type 0 font naming no `CIDFont`, and the one this conversion wrote
+    /// for it sends every CID to a glyph that draws nothing (ADR 3109); [`Self::empty_cids`] are
+    /// then the CIDs its pages show.
+    pub descendant_written: bool,
     /// The codes Annex D encodes twice that the font's encoding now names for the character ISO
     /// 32000-1 says each means, so that each reaches a glyph of its own (`doc/adr/2723`).
     pub twin_codes: Vec<u8>,
@@ -279,17 +284,29 @@ pub(super) fn empty_glyphs_given(codes: &[u8]) -> String {
 /// CIDs and the clause, for the report and for the file's own `xmpMM:History` alike
 /// (`doc/adr/2824`, on `doc/questions/A48`'s condition).
 #[must_use]
-pub(super) fn empty_cids_given(cids: &[u16]) -> String {
+pub(super) fn empty_cids_given(cids: &[u16], descendant_written: bool) -> String {
+    let listed = cids
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if descendant_written {
+        return format!(
+            "the Type 0 font named no CIDFont, so this viewer drew nothing for it and moved past \
+             each code by the default width its widths alone give; the CIDFont written for it \
+             states that width and sends every CID, the CIDs {listed} its pages show among them, \
+             by its CIDToGIDMap to a glyph that draws nothing at that width, rather than to \
+             .notdef, which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid \
+             a text-showing operator to reference; what each code means is still the font's \
+             ToUnicode"
+        );
+    }
     format!(
-        "the CIDs {} were drawn by this viewer as nothing, the face it drew the font from having no \
+        "the CIDs {listed} were drawn by this viewer as nothing, the face it drew the font from having no \
          glyph for them, and are each sent by the CIDToGIDMap to a glyph that draws nothing at the \
          width the CIDFont states, rather than to .notdef, which ISO 19005-2 section 6.2.11.8 and \
          ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to reference; what each CID \
-         means is still its character collection's and the font's ToUnicode",
-        cids.iter()
-            .map(u16::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
+         means is still its character collection's and the font's ToUnicode"
     )
 }
 
@@ -1181,6 +1198,17 @@ fn embed_pass(
         )?;
     }
     for (index, used) in survey.fonts().enumerate() {
+        // A Type 0 font naming no `CIDFont` is given one that draws nothing, in any mode, since
+        // the row it answers binds every font a page uses (ADR 3109).
+        if no_descendant::lacks_one(document, used) {
+            if let Some(refusal) = around.get(&selected(used)) {
+                photographed::defer(document, used, *refusal, true, &mut substitutes);
+                continue;
+            }
+            *failing = Some(index);
+            no_descendant::written(document, used, spare, &mut substitutes)?;
+            continue;
+        }
         if !used.rendered {
             continue;
         }
@@ -1611,6 +1639,7 @@ fn embed_pass(
             fitting,
             empty_glyphs: Vec::new(),
             empty_cids: Vec::new(),
+            descendant_written: false,
             twin_codes: twins.map_or_default(|twins| twins.codes),
             cut_program: cut,
             font: selected(used),

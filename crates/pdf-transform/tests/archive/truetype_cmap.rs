@@ -299,7 +299,7 @@ fn fonts_sharing_one_program(count: usize) -> Vec<u8> {
 }
 
 /// [`fonts_sharing_one_program`] with a program of the caller's choosing.
-fn fonts_sharing(count: usize, program_bytes: &[u8], null_descendant: bool) -> Vec<u8> {
+fn fonts_sharing(count: usize, program_bytes: &[u8], refused_font: bool) -> Vec<u8> {
     let mut objects = Vec::new();
     let mut resources = String::from("/Font << ");
     let mut marks = String::from("/CS0 cs 0 sc BT ");
@@ -307,7 +307,7 @@ fn fonts_sharing(count: usize, program_bytes: &[u8], null_descendant: bool) -> V
     let program = count
         .saturating_mul(2)
         .saturating_add(6)
-        .saturating_add(usize::from(null_descendant));
+        .saturating_add(usize::from(refused_font));
     for index in 0..count {
         let font = index.saturating_mul(2).saturating_add(6);
         write!(resources, "/F{index} {font} 0 R ").expect("a string takes it");
@@ -324,15 +324,15 @@ fn fonts_sharing(count: usize, program_bytes: &[u8], null_descendant: bool) -> V
              /FontFile2 {program} 0 R >>"
         ));
     }
-    if null_descendant {
+    if refused_font {
         let font = count.saturating_mul(2).saturating_add(6);
         write!(resources, "/FN {font} 0 R ").expect("a string takes it");
         write!(marks, "/FN 12 Tf 10 100 Td (AB) Tj ").expect("a string takes it");
-        // A composite font whose descendant is `null` fails a row the table refuses by name
-        // (`fonts/descendant-fonts-holds-one-cidfont`), so the file is refused whatever the
-        // TrueType fonts say.
+        // A composite font over a `CMap` neither embedded nor one of Table 116's fails a row the
+        // table refuses by name (`fonts/cmap-embedded-or-predefined`), so the file is refused
+        // whatever the TrueType fonts say.
         objects.push(
-            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /NoSuchCMap \
              /DescendantFonts [null] >>"
                 .to_owned(),
         );

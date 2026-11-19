@@ -16,6 +16,11 @@ const DEFINED: &str = "fonts/embedded-programs-define-every-glyph-shown";
 /// A page showing `ab` in a Type 3 font whose `/Widths` states 600 and 700 and whose encoding
 /// names the two codes `names` (after code 97); `/CharProcs` describes `/square` alone.
 fn a_type3_font_naming(names: &str) -> Vec<u8> {
+    a_type3_font_showing(names, "(ab) Tj")
+}
+
+/// [`a_type3_font_naming`]'s font, shown by `shows` after `10 100 Td`.
+fn a_type3_font_showing(names: &str, shows: &str) -> Vec<u8> {
     let glyph = b"600 0 d0 0 0 500 500 re f";
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
@@ -23,7 +28,7 @@ fn a_type3_font_naming(names: &str) -> Vec<u8> {
             .to_owned(),
         contents: Some((
             String::new(),
-            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (ab) Tj ET".to_vec(),
+            format!("/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td {shows} ET").into_bytes(),
         )),
         objects: vec![
             "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
@@ -159,6 +164,29 @@ fn a_name_its_char_procs_does_not_describe_keeps_its_name_and_is_given_a_procedu
             "{profile} at {target:?}"
         );
         assert_eq!(procedure_of(&output, "circle"), "700 0 d0");
+        assert_eq!(
+            laid_out(&output),
+            laid_out(&source),
+            "no glyph moves, no text changes"
+        );
+    });
+}
+
+#[test]
+fn a_code_outside_first_char_to_last_char_is_given_a_procedure_of_width_zero() {
+    // `Type3WordSpacing.pdf`'s shape: code 32 is shown, `/FirstChar` is 97, and the encoding
+    // names nothing for 32. Table 110: "For character codes outside the range FirstChar to
+    // LastChar, the width shall be 0", so the procedure states 0, and the word spacing §9.3.3
+    // applies to the single-byte code 32 moves the next glyph as it did (ADR 3110).
+    let source = a_type3_font_showing("/square", "3 Tw ( a a) Tj");
+    each_conversion(&source, |profile, target, _, output| {
+        let (document, font) = the_font(&output);
+        assert_eq!(
+            pdf_archive::type3_encoding(&document, &font),
+            [(97, "square".to_owned()), (32, "empty".to_owned())],
+            "{profile} at {target:?}"
+        );
+        assert_eq!(procedure_of(&output, "empty"), "0 0 d0");
         assert_eq!(
             laid_out(&output),
             laid_out(&source),

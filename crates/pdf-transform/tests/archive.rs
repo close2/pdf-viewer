@@ -4165,9 +4165,11 @@ fn a_direct_descendant_of_a_pdf_two_file_stays_refused_at_part_four() {
 }
 
 #[test]
-fn a_type0_font_whose_descendant_is_null_is_refused_by_name() {
+fn a_type0_font_whose_descendant_is_null_is_given_one_that_draws_nothing() {
     // `issue12823.pdf`'s `/DescendantFonts [ null ]`: §7.3.10's null is no `CIDFont`, so
-    // §9.7.6.1's Table 119 is failed, and the refusal says what is missing (ADR 2433).
+    // §9.7.6.1's Table 119 is failed (ADR 2433); this reader draws nothing for the font and moves
+    // past its code by Table 115's default width, and the conversion writes a `CIDFont` that does
+    // the same (ADR 3109, `archive/no_descendant.rs` for the page drawn alike).
     let source = an_embedded_cid_font_stating_no_map("%PDF-1.7", Descendant::Null);
     let row = "fonts/descendant-fonts-holds-one-cidfont";
     for (target, (report, output)) in [
@@ -4180,14 +4182,23 @@ fn a_type0_font_whose_descendant_is_null_is_refused_by_name() {
                 .any(|failed| failed.id == row),
             "{target:?}: the null descendant fails the row"
         );
-        let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
-            panic!("{target:?}: {:?}", decision(&report, row));
-        };
         assert!(
-            because.contains("no CIDFont as its descendant"),
-            "{because}"
+            matches!(
+                decision(&report, row),
+                Decision::Stated {
+                    rewrite: Rewrite::SubstituteFontProgram,
+                    ..
+                }
+            ),
+            "{target:?}: {:?}",
+            decision(&report, row)
         );
-        assert!(output.is_none(), "{target:?}: and nothing is written");
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
     }
 }
 
@@ -17040,6 +17051,8 @@ mod kept_modification_date;
 mod machine_cid;
 #[path = "archive/machine_face.rs"]
 mod machine_face;
+#[path = "archive/no_descendant.rs"]
+mod no_descendant;
 #[path = "archive/twin_codes.rs"]
 mod twin_codes;
 

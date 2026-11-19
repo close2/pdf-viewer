@@ -270,6 +270,7 @@ fn written_in(
         fitting: None,
         empty_glyphs: Vec::new(),
         empty_cids: written.empty_cids,
+        descendant_written: false,
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),

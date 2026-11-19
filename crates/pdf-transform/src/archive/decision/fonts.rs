@@ -70,6 +70,13 @@ const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the sy
      it has one";
 
 /// What writing `/CIDToGIDMap` `/Identity` asserts, which is `doc/adr/0948`'s condition on it.
+const DESCENDANT_WRITTEN: &str = "a Type 0 font in this file named no CIDFont, and this reader \
+     drew nothing for it, moving past each code by the default width ISO 32000-2 Table 115 gives \
+     a CIDFont stating none. It now names a CIDFontType2 that states that width and whose \
+     CIDToGIDMap sends every CID to a glyph that draws nothing at it, so the page draws and places \
+     what it did; the font's ToUnicode is kept, and the CIDs its pages show are listed with the \
+     font";
+
 const COLLECTION_RESTATED: &str = "an embedded CIDFont in this file named a character collection \
      its CMap did not, and now names the CMap's. ISO 32000-2 \u{a7}9.7.4.2 selects an embedded \
      program's glyphs through its CIDToGIDMap or its own charset, not through the collection, and \
@@ -183,6 +190,14 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1: the CIDFont's collection
     // restated as its CMap's where this reader reads it for nothing, and refused by
     // `super::super::collections`'s sentence elsewhere (ADR 2717).
+    // ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 through §9.7.6.1's Table 119:
+    // a Type 0 font naming no `CIDFont` that this reader draws nothing for is given one that draws
+    // nothing, and every other is refused by `super::super::fonts::no_descendant`'s sentences
+    // (ADRs 2433, 3109).
+    Remedy {
+        requirement: "fonts/descendant-fonts-holds-one-cidfont",
+        answer: Answer::Stated(None, Rewrite::SubstituteFontProgram, DESCENDANT_WRITTEN),
+    },
     Remedy {
         requirement: "fonts/cid-system-info-agrees-with-the-cmap",
         answer: Answer::Stated(None, Rewrite::CollectionRestated, COLLECTION_RESTATED),
@@ -336,13 +351,6 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
 
 /// This family's rows of [`super::REFUSED_BY_NAME`].
 pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
-    // ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 through §9.7.6.1's Table 119:
-    // a font a text-showing operator runs with that has no `CIDFont` states nothing a rewrite
-    // could restate, and building one is a substitution nothing here performs (ADR 2433).
-    (
-        "fonts/descendant-fonts-holds-one-cidfont",
-        Because::NotBuiltYet(NO_CIDFONT_TO_DESCEND_TO),
-    ),
     // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: the embedded program and the
     // encoding held to each other, which `REMEDIES` answers by stating the route this reader took
     // in the program itself (`doc/adr/2520`).
@@ -361,21 +369,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(WRITE_MODE_DISAGREEMENT),
     ),
 ];
-
-/// Why a Type 0 font that has no `CIDFont` is refused.
-///
-/// ISO 32000-2 §9.7.6.1's Table 119 makes `/DescendantFonts` the one-element array naming the
-/// `CIDFont`, and §9.7.4.1 makes the `CIDFont` what carries the glyph selection, the widths and the
-/// character collection. With none there is no statement for a rewrite to restate, only a
-/// dictionary to build, which is `doc/pdf-a-conversion-limits.md` section 4.9's substitution
-/// carried out for a font with nothing to substitute into (ADR 2433).
-const NO_CIDFONT_TO_DESCEND_TO: &str = "a Type 0 font here has no CIDFont as its descendant - its \
-     DescendantFonts is missing, is not the one-element array ISO 32000-2 \u{a7}9.7.6.1's Table \
-     119 requires, or holds something other than a CIDFont dictionary, a null among them - so the \
-     file states no glyph selection, widths or character collection for any code the font shows. \
-     Building a CIDFont for it would be doc/pdf-a-conversion-limits.md section 4.9's substitution \
-     carried out for a font that has no CIDFont dictionary to substitute into, and that is not \
-     built";
 
 /// Why a page that draws a glyph its own embedded program has not got is refused.
 ///

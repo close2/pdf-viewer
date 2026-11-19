@@ -2201,7 +2201,7 @@ impl Conversion {
                     let _ = write!(
                         out,
                         "; {}",
-                        super::fonts::empty_cids_given(&font.empty_cids)
+                        super::fonts::empty_cids_given(&font.empty_cids, font.descendant_written)
                     );
                 }
                 if !font.twin_codes.is_empty() {
@@ -2558,6 +2558,9 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
                     .collect(),
             ),
         ));
+    }
+    if font.descendant_written {
+        fields.push(("descendant_written".to_owned(), Value::Bool(true)));
     }
     if !font.empty_cids.is_empty() {
         fields.push((

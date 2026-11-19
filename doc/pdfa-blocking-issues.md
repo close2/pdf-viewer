@@ -3,7 +3,7 @@
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
 section 2's table are `rank.py`'s output (`--table` for section 2), re-taken with section 9's lists
-by session 2097 over `594ae80f` and ADR 3089's change, with the pack; the figures in
+by session 2102 over `59c77c0b` and ADRs 3109 and 3110's changes, with the pack; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -58,20 +58,20 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 930 | 1 | 29 | 11 | 5 |
-| corpora `as-if-printed` 2b | 438 | 6 | 40 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 942 | 0 | 18 | 11 | 5 |
-| corpora `as-if-printed` 4 | 467 | 0 | 18 | 16 | 2 |
-| pdf.js `as-shown` 2b | 896 | 1 | 63 | 11 | 5 |
-| corpora `as-shown` 2b | 407 | 6 | 69 | 16 | 5 |
-| pdf.js `as-shown` 4 | 906 | 0 | 54 | 11 | 5 |
-| corpora `as-shown` 4 | 426 | 0 | 57 | 16 | 4 |
+| pdf.js `as-if-printed` 2b | 932 | 1 | 27 | 11 | 5 |
+| corpora `as-if-printed` 2b | 439 | 6 | 39 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 944 | 0 | 16 | 11 | 5 |
+| corpora `as-if-printed` 4 | 468 | 0 | 17 | 16 | 2 |
+| pdf.js `as-shown` 2b | 898 | 1 | 61 | 11 | 5 |
+| corpora `as-shown` 2b | 408 | 6 | 68 | 16 | 5 |
+| pdf.js `as-shown` 4 | 908 | 0 | 52 | 11 | 5 |
+| corpora `as-shown` 4 | 427 | 0 | 56 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
 part, which is why the pack is taken as installed. In session 2094's the census lines are the same
 either way: one pdf.js document stops at R08b without the pack and at R03 with it, and two
-`as-shown` documents move between R08b and R09's `machine-face`. In session 2097's the census lines
-are again the same either way.
+`as-shown` documents move between R08b and R09's `machine-face`. In sessions 2097's and 2102's
+the census lines are again the same either way.
 
 Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
 opacity channel of another depth) fail veraPDF at ISO 19005-2 6.2.8.3 and -4 6.2.7.3 on veraPDF's
@@ -109,10 +109,10 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 1 | R06b-the-other-part | 37 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
 | 2 | R03-photograph | 3 | 2 | 52 / 51 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847), written into its procedure under both shipped profiles instead (A865, ADR 2907); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
 | 3 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 4 | R03a-notdef-named | 3 | 3 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
-| 5 | R11-truetype-route | 4 | 4 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
-| 6 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), a CFF program under a TrueType dictionary no TrueType row binds (ADR 3078); left, one such font a TrueType row binds, refused by name (ADR 3078 decision 3) |
-| 7 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 4 | R11-truetype-route | 3 | 3 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
+| 5 | R10-font-refiling | 4 | 4 | 6 / 6 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), a CFF program under a TrueType dictionary (ADRs 3078, 3089), a Type 0 font naming no CIDFont (ADR 3109); left, a Type 1 program under a CIDFontType0, two codes at two widths in one glyph, a descriptor inside a font with no program, a CFF width in a subroutine |
+| 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 7 | R03a-notdef-named | 2 | 2 | 6 / 3 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753, a Type 3 code outside FirstChar to LastChar (ADR 3110); left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
 | 8 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 9 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 10 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
@@ -203,7 +203,10 @@ veraPDF agrees), over either program (ADR 2622): `Identity-H` restated as an emb
 code to a fresh CID drawing CID 0's glyph, `/W` given its width; `4387ba48….pdf`,
 `emi15514-sup-0002-SupinfoS2.pdf`, `issue7544.pdf`, `issue4650.pdf`, `issue11718_reduced.pdf` and
 `PDFBOX-3062-005717-p1.pdf` convert at both targets and pass veraPDF at both; `issue11768_reduced.pdf`
-(an `Adobe-Japan1` font under a CMap of its own, no `ToUnicode`) keeps the refusal. The fonts are named from the whole population the
+(an `Adobe-Japan1` font under a CMap of its own, no `ToUnicode`) keeps the refusal. **A Type 3 code outside
+`/FirstChar` to `/LastChar`** is given ADR 2918's procedure painting nothing at Table 110's width of 0
+(ADR 3110): `Type3Test` and `Type3WordSpacing` convert at 2b and 4 under both shipped profiles, veraPDF
+1.30.3 passing all eight outputs, page 1 byte-identical to the source's. The fonts are named from the whole population the
 requirement failed over, not the places the report keeps (ADR 2602). **Built for a simple
 font's bare CFF program** (`/FontFile3 /Type1C`, ADR 2578): the program is written, its `CharStrings`
 INDEX grown by a copy of `.notdef`'s charstring per width (or a glyph that draws nothing where the code
@@ -268,7 +271,7 @@ and in an embedded subset `TrueType` program (each needs its own copy of the gly
 makes in a `glyf` face); a descriptor written inside a font that has no program
 (`SimFang-variant`, `XiaoBiaoSong` — the substitution needs an object to add `/FontFile2` to, and
 both would still stop at R03 and R11); a CFF width in a subroutine (`issue_cff_unsigned_bbox`);
-and a Type 0 font with no descendant (`issue12823`, the photograph). Builds only; no owner word.
+and a Type 0 font with no descendant (`issue12823`, built below). Builds only; no owner word.
 
 **A CFF-flavoured program under a simple `TrueType` dictionary** (built, ADR 3078): the dictionary
 becomes the `Type1` Table 124 admits it under, its `/Differences` giving every code the charset name
@@ -279,20 +282,20 @@ a retyped font leave the report their preparations read, and a row left with non
 refiling's decision. `issue215`, whose `/Differences` names small capitals outside the Adobe Glyph
 List, converts at 2b and 4 under both shipped profiles, veraPDF 1.30.3 passing all four outputs.
 
-**A Type 0 font with no `CIDFont`** (`issue12823`, read and not built): `/FT19`'s `/DescendantFonts
+**A Type 0 font with no `CIDFont`** (`issue12823`, built, ADR 3109): `/FT19`'s `/DescendantFonts
 [ null ]` fails ISO 19005-2 section 6.2.11.2's row alone (`descendant-fonts-holds-one-cidfont`,
-ADR 2433), under both profiles and at both parts. The window draws nothing for it and does not move
-the text matrix: the font does not load (`FontError::MalformedDictionary`), and `show_text` returns
-before any glyph or advance (`pdf-model` `content/text/show.rs`); page 1 at 150 dpi is
-byte-identical with its two strings emptied. So the elegant remedy keeps that absence rather than
-photographing the page: a `CIDFontType2` written for the font, its program glyph 0 and one empty
-glyph at advance 0 (`pdf_font::embed::for_embedding_with_empty_glyphs`, ADR 2824's construction),
-`/DW 0`, a `/CIDToGIDMap` stream sending every CID to the empty glyph, `/CIDSystemInfo` Adobe
-Identity 0 under an `Identity` `CMap`, reported and recorded on A48's condition as ADR 2824's empty
-CIDs are. The proof it owes: at every show of the font the character spacing is 0 (a two-byte
-`Identity` code takes no word spacing, §9.3.3), or the text matrix is set again before the next
-show, since the window advanced nothing where the written font advances by `Tc`. The producer's
-`/ToUnicode` is kept, so the codes read back as the file states them.
+ADR 2433). The window draws no glyph of it and places its codes by its widths alone (ADR 1094):
+with no `CIDFont`, Table 115's `/DW` default of 1000, plus §9.4.4's spacings — the reading that it
+does not move the text matrix was wrong, and the two shows' `ET` is why emptying them left the page
+unchanged. So the written font moves as the window moved and no content walk is owed: a
+`CIDFontType2` whose program is glyph 0 and one empty glyph restated to that width
+(`for_embedding_with_empty_glyphs`, ADR 2824's construction), `/DW` stating it, a `/CIDToGIDMap`
+stream sending every CID to the empty glyph, `Adobe-Identity-0`, the producer's `/ToUnicode` kept,
+the shown CIDs reported and recorded on A48's condition; an empty glyph clips nothing (§9.3.6).
+Refused by name elsewhere: a direct font, a `CMap` other than `Identity-H`, strings not kept whole,
+a font the window draws a glyph of or places at two widths. `issue12823` converts at 2b and 4 under
+both shipped profiles, veraPDF 1.30.3 passing all four outputs, page 1 at 150 and 300 dpi
+byte-identical to the source's.
 
 **A code Annex D encodes twice** (built, ADR 2723): `WinAnsiEncoding`'s 173 and 160 and
 `MacRomanEncoding`'s 202, shown at a width other than their twin's, are named `softhyphen` or
@@ -666,13 +669,13 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 
 - R01-recovered-structure (3): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf, corpora:T02-03_006_page-object-missing.pdf
 - R03-photograph (52): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue20489.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf
-- R03a-notdef-named (8): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, corpora:Type3Test.pdf, pdf.js:Type3WordSpacing.pdf, pdf.js:issue11768_reduced.pdf
+- R03a-notdef-named (6): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, pdf.js:issue11768_reduced.pdf
 - R05-press (2): corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:response-to-fiber-concerns[1].pdf
 - R06b-the-other-part (42): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:150277.pdf, corpora:219789.pdf, corpora:268346.pdf, corpora:427669.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:507676.pdf, corpora:PDF 2.0 UTF-8 string and annotation.pdf, corpora:PDF 2.0 image with BPC.pdf, corpora:PDF 2.0 via incremental save.pdf, corpora:PDF 2.0 with offset start.pdf, corpora:PDF 2.0 with page level output intent.pdf, corpora:Simple PDF 2.0 file.pdf, corpora:T01_001_header-invalid-major-version.pdf, corpora:UnknownFilter-Font.pdf, corpora:UnknownFilter-FormXObject.pdf, corpora:UnknownFilter-ICC.pdf, corpora:UnknownFilter-ImageXObject.pdf, corpora:UnknownFilter-Linearized.pdf, corpora:UnknownFilter-OutlineObjStm.pdf, corpora:UnknownFilter-PageContentStream.pdf, corpora:UnknownFilter-objstm.pdf, corpora:UnknownFilter-xrefstm.pdf, corpora:pdf20-utf8-test.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1937438_af_from_latex.pdf, pdf.js:bug1937438_mml_from_latex.pdf, pdf.js:bug1997343.pdf, pdf.js:bug2009627.pdf, pdf.js:bug2025674.pdf, pdf.js:bug854315.pdf, pdf.js:issue14755.pdf, pdf.js:issue17069.pdf, pdf.js:issue19176.pdf, pdf.js:issue3928.pdf, pdf.js:issue6151.pdf, pdf.js:poppler-67295-0.pdf
 - R07-undecodable-stream (2): corpora:UnknownFilter-ICC.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R08-unembedded-font-photograph (33): corpora:040669.pdf, corpora:150277.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:303226.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:443752.pdf, corpora:455746.pdf, corpora:507676.pdf, corpora:ControlCharacters.pdf, corpora:F001u_3_7j.pdf, corpora:T02-04-01_006_resources_subtype_wrong.pdf, corpora:UnknownFilter-Font.pdf, corpora:VerticalText.pdf, corpora:embedded_zip.pdf, corpora:mattgib_1.pdf, pdf.js:ThuluthFeatures.pdf, pdf.js:bug1365930.pdf, pdf.js:bug1815476.pdf, pdf.js:issue11403_reduced.pdf, pdf.js:issue13916.pdf, pdf.js:issue17929.pdf, pdf.js:issue18059.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf, pdf.js:issue7835.pdf, pdf.js:noembed-identity-2.pdf, pdf.js:noembed-identity.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:standard_fonts.pdf
 - R09-as-shown-font-losses (11): corpora:All Quiet on the Third Coast.pdf, corpora:T02-04-01_001_resources-basefont-missing.pdf, corpora:T02-04-01_002_resources-basefont-wrong-font.pdf, pdf.js:90ms_rksj_h_sample.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue18099_reduced.pdf, pdf.js:issue2391-2.pdf, pdf.js:issue5470.pdf, pdf.js:issue6069.pdf, pdf.js:issue6106.pdf, pdf.js:issue6108.pdf
-- R10-font-refiling (7): corpora:0000490.pdf, corpora:499039.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue11740_reduced.pdf, pdf.js:issue12823.pdf, pdf.js:issue5470.pdf
+- R10-font-refiling (6): corpora:0000490.pdf, corpora:499039.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue11740_reduced.pdf, pdf.js:issue5470.pdf
 - R11-truetype-route (7): corpora:507676.pdf, corpora:sample_fonts_solidconvertor.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf
 - R12-spot-colourant (1): pdf.js:devicen.pdf
 - R14-appended-page-composition (4): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, pdf.js:poppler-742-0-fuzzed.pdf

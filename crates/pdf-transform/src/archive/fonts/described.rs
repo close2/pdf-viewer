@@ -891,6 +891,7 @@ pub(super) fn describe(
         fitting,
         empty_glyphs: empty.keys().copied().collect(),
         empty_cids: Vec::new(),
+        descendant_written: false,
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
