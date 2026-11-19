@@ -49,8 +49,9 @@ as dotted decimal by `x509::dotted` rather than as a word.
 
 ISO/TS 32002 section 5.1.3's Table 3 names six ECDSA curves and its Table 4 two EdDSA ones, and all
 eight compute. Six are reviewed packages (`p256`, `p384`, `p521`, `bp256`, `bp384`,
-`ed25519-dalek`; ADRs 0532, 1063). **brainpoolP512r1 and Ed448 are private modules of
-`pdf-signature`** under the owner's answer `doc/questions/A170` — `brainpool_p512.rs` (ADR 1385) and
+`ed25519-dalek`; ADRs 0532, 1063). **brainpoolP512r1 and Ed448 are the tree's own
+modules** under the owner's answer `doc/questions/A170` — `pdf-pki`'s `ec/brainpool_p512.rs` (ADRs 1385, 3157), which
+key agreement shares, and `pdf-signature`'s
 `ed448.rs` (ADR 1386), held to RFC 7027 appendix A.3's and RFC 8032 sections 7.4 and 7.5's vectors,
 reached by the `x509` fuzz target — and each is a stopgap whose exit A170 states: the day a stable,
 reviewed crate covers the curve, the swap is decided on `doc/stack.md`'s terms. `doc/stack.md`'s

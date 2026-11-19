@@ -34,6 +34,13 @@ p384.workspace = true
 p521.workspace = true
 bp256.workspace = true
 bp384.workspace = true
+# The sixth curve, RFC 5639 section 3.7's brainpoolP512r1, has no package this project can take:
+# `ec::brainpool_p512` states its constants over the two reviewed frames `bp256` and `bp384` are
+# built from, and implements `ecdsa`'s curve trait so that `pdf-signature` verifies on the same
+# type (A170, ADRs 1385, 3157). All three are already locked under the curve packages.
+ecdsa.workspace = true
+primefield.workspace = true
+primeorder.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

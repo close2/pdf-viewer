@@ -499,13 +499,14 @@ crypto-bigint = { version = "0.7.5", default-features = false, features = ["allo
 # are already here under the NIST three.
 #
 # **brainpoolP512r1 has no crate on crates.io at all**, so its curve module is this tree's own
-# (`crates/pdf-signature/src/brainpool_p512.rs`, the owner's answer `doc/questions/A170`, ADR
-# 1385) — and it is built from the same two reviewed frames the curve crates above are built from
+# (`crates/pdf-pki/src/ec/brainpool_p512.rs`, the owner's answer `doc/questions/A170`, ADRs
+# 1385 and 3157) — and it is built from the same two reviewed frames the curve crates above are built from
 # rather than from arithmetic written here. `primefield` supplies the field and scalar types over
 # `crypto-bigint`'s Montgomery form, `primeorder` the complete short-Weierstrass group law; what the
 # module writes is RFC 5639 section 3.7's constants and the trait wiring. Both are already locked
 # under the five curve crates, so the lock gains no package — only the two direct edges. No default
-# features on either: `primeorder`'s `alloc`/`std`/`basepoint-table` buy nothing a verifier uses.
+# features on either: `primeorder`'s `alloc`/`std`/`basepoint-table` buy nothing a verifier or a
+# single key agreement uses.
 # The swap condition is A170's: the day a stable, reviewed crate covers the curve, the swap is
 # decided on `doc/stack.md`'s terms.
 primefield = { version = "0.14.0", default-features = false }
@@ -566,6 +567,14 @@ const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 # non-ASCII password, on which SASLprep is not the identity; `saslprep-r6.pdf` and
 # `pr6531_2.pdf` in the corpus are the two files that prove it.
 stringprep = "0.1.5"
+
+# ITU-T X.520 clause 7's string preparation, which `pdf-signature` runs on a signer attribute's
+# value against the one a signature policy lists (ETSI TR 102 272 clause 6.9): clause 7.3's
+# Normalization Form KC and the Unicode general categories clauses 7.2 and 7.4 name. Both are
+# already in this lock under `stringprep`, MIT or Apache-2.0; naming them adds no package
+# (ADR 3158).
+unicode-normalization = "0.1.25"
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 
 # ISO 32000-2 §12.7.4.3 has the processor construct a field's appearance from its value, and
 # §7.9.2.2 makes that value Unicode text, stored in logical order. Drawing a right-to-left

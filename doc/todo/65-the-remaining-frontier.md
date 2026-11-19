@@ -219,10 +219,10 @@ or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 
   as a JPX file where the image has other than one or three colour components, refused where a raw codestream of two, five or more states no colour box (ADRs 2480, 2481); every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
 
-### 5. Built in part — the public-key security handler
+### 5. Built — the public-key security handler
 
 **One cluster, ordered built by the owner (`doc/questions/A800`, which lifted `doc/questions/A66`'s
-trigger) and built in part (ADRs 2801, 2802, 2809, 2810, 2821, 2822).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
+trigger) and built (ADRs 2801, 2802, 2809, 2810, 2821, 2822, 3157).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
 reader, the big-integer seam, RFC 5652 `EnvelopedData` under all seven of §7.6.5.3's ciphers, RFC
 8017's RSA decryption and RFC 5753's elliptic-curve key agreement, below both `pdf-syntax` and `pdf-signature`, with fuzz targets beside it.
 `crates/pdf-syntax/src/crypt/public_key.rs` scans the recipient lists, opens the one naming the reader's
@@ -230,15 +230,11 @@ certificate, digests §7.6.5.3's key, and derives a key of its own for a crypt f
 per-stream recipient list. `crates/pdf-syntax/tests/public_key_witnesses.rs` opens `doc/questions/A168`'s
 four `PDFBox` witnesses with their keystores' keys, and documents a script writes test s3, s4 and the
 per-stream list. A host supplies the reader's certificate and key (`--recipient-certificate`,
-`--recipient-key`, `quorra_recipient_key`; ADR 2822), so ADR 2801's order is built. **What is left is
-effort only**: keys on brainpoolP512r1 are refused by name; RSAES-OAEP, the Triple DES key wrap and
-1-Pass ECMQV run (ADRs 2826, 2827, 2904). §7.6.5.1, §7.6.5.2 and
-§7.6.6 left the map: the three rows are `implemented`.
-
-- §7.6.5.3 — `partial`: all seven envelope ciphers and both digests run, the stream-level seed
-  included, and both certificate-bound recipient kinds open (RSA key transport, elliptic-curve key
-  agreement by Diffie–Hellman or 1-Pass ECMQV, under RSAES-PKCS1-v1_5 or RSAES-OAEP and any of the
-  four key wraps); brainpoolP512r1 is refused by name.
+`--recipient-key`, `quorra_recipient_key`; ADR 2822), so ADR 2801's order is built. RSAES-OAEP, the
+Triple DES key wrap and 1-Pass ECMQV run (ADRs 2826, 2827, 2904), and key agreement runs on all six of
+ISO/TS 32002 Table 3's curves, brainpoolP512r1 on the tree's own curve module that verification
+already used (ADR 3157). §7.6.5.1, §7.6.5.2, §7.6.5.3 and §7.6.6 left the map: the four rows are
+`implemented`.
 
 **`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
 the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends
@@ -320,7 +316,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
+§12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

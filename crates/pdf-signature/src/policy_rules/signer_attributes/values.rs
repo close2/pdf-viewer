@@ -7,67 +7,173 @@
 //! Each entry of the list is an X.501 `AttributeTypeAndValue`, and whether a carried value is the
 //! value an entry states is ITU-T X.501 clause 8.9.2.1's evaluation of an attribute value
 //! assertion: undefined where the type is unknown, where it has no equality matching rule, or where
-//! the value does not conform to the rule's syntax; true where the values match by the type's
-//! equality matching rule; false otherwise. X.501 clause 13.4.7 says that an attribute type
-//! without an equality matching rule has its values never compared, and clause 13.4.2 that a
+//! the value does not conform to the syntax of the rule's assertion; true where the values match by
+//! the type's equality matching rule; false otherwise. X.501 clause 13.4.7 says that an attribute
+//! type without an equality matching rule has its values never compared, and clause 13.4.2 that a
 //! subtype keeps its supertype's matching rules. So the rule is a fact about each type, which ITU-T
 //! X.520 states in each type's definition. An undefined answer is [`Match::Undecided`]: the
 //! condition it reaches is not evaluated, never met and never broken.
 //!
-//! # The types this program holds the rule for
+//! # The types and their rules
 //!
-//! [`CASE_IGNORE`] is every X.520 type in the `id-at` arc whose definition states `caseIgnoreMatch`
-//! as its equality matching rule, or that is a subtype of `name`, which states it, and whose
-//! syntax is a `DirectoryString` or one of its alternatives. X.520 clause 8.1.1 makes two values
-//! equal when the strings that clause 7's preparation makes of them are the same. Every other type
-//! is undecided by name. That covers `id-at-role` (2.5.4.72), which X.520 leaves to ITU-T X.509,
-//! a text this tree does not hold, and every type whose rule is not `caseIgnoreMatch`. Of those,
-//! `dc`'s syntax is `IA5String`, which `caseIgnoreMatch`'s `DirectoryString` syntax does not
-//! include, so X.520 states its rule but clause 8.9.2.1 (a)(3) leaves every value undefined.
+//! [`rule`] holds the rule of every X.520 type in the `id-at` arc that states one, its collective
+//! subtypes included (ADR 3158): the string rules of clause 8.1 and `telephoneNumberMatch` and
+//! `facsimileNumberMatch` of clause 8.2 over clause 7's preparation (`prepare`), and the rules
+//! over structured syntaxes (`structured`). What stays undefined, and why:
 //!
-//! # Preparation, where it is exact
-//!
-//! X.520 clause 7's six steps are transcoding, mapping with case folding by RFC 3454 table B.2,
-//! normalisation to Unicode form KC, prohibition, a bidirectional check that prohibits nothing,
-//! and the removal of insignificant spaces; a failure in any step makes the assertion undefined.
-//! On ASCII text, folding is ASCII lowercase, form KC changes nothing, and the one prohibition
-//! that can apply is the empty string's. The steps for any other character need the Unicode
-//! tables, which are not in this tree, so a value holding one is undecided, as
-//! [`crate::trust::names`] decides for a distinguished name's values under RFC 5280 section 7.1.
+//! - **Types with no equality rule** (`searchGuide`, `telexNumber`, `preferredDeliveryMethod`,
+//!   `enhancedSearchGuide`, `uiiFormat`, `utmCoordinates`, `epcFormat`, `tagLocation` and the
+//!   collective `telexNumber`): X.501 clause 13.4.7, never compared.
+//! - **A value outside its rule's syntax**: `countryCode3n`'s `NumericString` under
+//!   `caseIgnoreMatch`, whose syntax is `UnboundedDirectoryString`, and `dc`'s `IA5String`, whose
+//!   rule `caseIgnoreIA5Match` X.520 names and does not define; a `TeletexString`, which clause 7.1
+//!   lets this program decline to transcode; and a constructed (BER) bit or octet string.
+//! - **`id-at-role`** (2.5.4.72): X.520 leaves its definition to ITU-T X.509, which this tree does
+//!   not hold.
+//! - **Rules this program has not built**: `uriMatch` (clause 8.9.1, RFC 3986 section 6.2.2's
+//!   normalisation, on `uri`, `url`, `urn`, `contentUrl`, `uiiInUrn`, `epcInUrn` and `ldapUrl`),
+//!   `dnsNameMatch` (clause 8.9.2, which converts a U-label to an A-label by RFC 5890's rules),
+//!   `intEmailMatch` (clause 8.9.3, over the same), `jidMatch` (clause 8.9.4, RFC 7622's
+//!   normalisation), `presentationAddressMatch` (clause 8.2.10) and `userPwdMatch` (clause 8.10.1).
 
-use crate::der::{SET, Value};
+mod prepare;
+mod structured;
+
+use crate::der::{SEQUENCE, SET, Value};
 use crate::trust::names::Match;
-
-/// The last arc of each X.520 type, under `id-at` (2.5.4), whose equality matching rule is
-/// `caseIgnoreMatch` over a `DirectoryString` syntax, in X.520's order: `knowledgeInformation`
-/// (2), `name` (41) and its subtypes `commonName` (3), `surname` (4), `givenName` (42),
-/// `initials` (43), `generationQualifier` (44), `pseudonym` (65), `countryName` (6),
-/// `localityName` (7), `stateOrProvinceName` (8), `organizationName` (10),
-/// `organizationalUnitName` (11), `title` (12) and `dmdName` (54); then `dnQualifier` (46),
-/// `serialNumber` (5), `streetAddress` (9), `houseIdentifier` (51), `organizationIdentifier`
-/// (97), `description` (13), `businessCategory` (15), `postalCode` (17), `postOfficeBox` (18),
-/// `physicalDeliveryOfficeName` (19) and `destinationIndicator` (27). `PrintableString`, the
-/// syntax of `countryName`, `dnQualifier`, `serialNumber` and `destinationIndicator`, is one of
-/// `DirectoryString`'s alternatives.
-pub const CASE_IGNORE: [u8; 26] = [
-    2, 41, 3, 4, 42, 43, 44, 65, 6, 7, 8, 10, 11, 12, 54, 46, 5, 9, 51, 97, 13, 15, 17, 18, 19, 27,
-];
+use prepare::{DIRECTORY_STRING, Insignificant, NUMERIC_STRING, PRINTABLE_STRING, prepared};
 
 /// The equality matching rule of an attribute type, where this program holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rule {
     /// X.520 clause 8.1.1's `caseIgnoreMatch`.
     CaseIgnore,
+    /// X.520 clause 8.1.1's `caseExactMatch`.
+    CaseExact,
+    /// X.520 clause 8.1.4's `numericStringMatch`.
+    NumericString,
+    /// X.520 clause 8.1.7's `caseIgnoreListMatch`.
+    CaseIgnoreList,
+    /// X.520 clause 8.2.4's `bitStringMatch`.
+    BitString,
+    /// X.520 clause 8.2.5's `octetStringMatch`.
+    OctetString,
+    /// X.520 clause 8.2.8's `telephoneNumberMatch`.
+    TelephoneNumber,
+    /// X.520 clause 8.2.11's `uniqueMemberMatch`.
+    UniqueMember,
+    /// X.520 clause 8.2.12's `protocolInformationMatch`.
+    ProtocolInformation,
+    /// X.520 clause 8.2.13's `facsimileNumberMatch`.
+    FacsimileNumber,
+    /// X.520 clause 8.2.15's `uUIDPairMatch`.
+    UuidPair,
+    /// X.501 clause 13.4.7's `objectIdentifierMatch`.
+    ObjectIdentifier,
+    /// X.501 clause 13.4.7's `distinguishedNameMatch`.
+    DistinguishedName,
 }
+
+/// Every `id-at` type X.520 states a rule for that this program holds, by the arcs below `id-at`
+/// (2.5.4): one arc, or two for a collective subtype (`collectiveLocalityName` is 2.5.4.7.1), each
+/// with the rule its definition states or its supertype's (X.501 clause 13.4.2).
+pub const RULES: &[(&[u8], Rule)] = &[
+    // `name` (41) and its subtypes: `commonName`, `surname`, `countryName`, `localityName`,
+    // `stateOrProvinceName`, `organizationName`, `organizationalUnitName`, `title`, `givenName`,
+    // `initials`, `generationQualifier`, `dmdName`, `pseudonym`, `countryCode3c` and
+    // `countryCode3n`, and the collective subtypes of four of them.
+    (&[41], Rule::CaseIgnore),
+    (&[3], Rule::CaseIgnore),
+    (&[4], Rule::CaseIgnore),
+    (&[6], Rule::CaseIgnore),
+    (&[7], Rule::CaseIgnore),
+    (&[7, 1], Rule::CaseIgnore),
+    (&[8], Rule::CaseIgnore),
+    (&[8, 1], Rule::CaseIgnore),
+    (&[10], Rule::CaseIgnore),
+    (&[10, 1], Rule::CaseIgnore),
+    (&[11], Rule::CaseIgnore),
+    (&[11, 1], Rule::CaseIgnore),
+    (&[12], Rule::CaseIgnore),
+    (&[42], Rule::CaseIgnore),
+    (&[43], Rule::CaseIgnore),
+    (&[44], Rule::CaseIgnore),
+    (&[54], Rule::CaseIgnore),
+    (&[65], Rule::CaseIgnore),
+    (&[98], Rule::CaseIgnore),
+    (&[99], Rule::CaseIgnore),
+    // The types stating `caseIgnoreMatch` themselves, and their collective subtypes:
+    // `knowledgeInformation`, `serialNumber`, `streetAddress`, `description`, `businessCategory`,
+    // `postalCode`, `postOfficeBox`, `physicalDeliveryOfficeName`, `destinationIndicator`,
+    // `dnQualifier`, `houseIdentifier` and `organizationIdentifier`.
+    (&[2], Rule::CaseIgnore),
+    (&[5], Rule::CaseIgnore),
+    (&[9], Rule::CaseIgnore),
+    (&[9, 1], Rule::CaseIgnore),
+    (&[13], Rule::CaseIgnore),
+    (&[15], Rule::CaseIgnore),
+    (&[17], Rule::CaseIgnore),
+    (&[17, 1], Rule::CaseIgnore),
+    (&[18], Rule::CaseIgnore),
+    (&[18, 1], Rule::CaseIgnore),
+    (&[19], Rule::CaseIgnore),
+    (&[19, 1], Rule::CaseIgnore),
+    (&[27], Rule::CaseIgnore),
+    (&[46], Rule::CaseIgnore),
+    (&[51], Rule::CaseIgnore),
+    (&[97], Rule::CaseIgnore),
+    // `urnC`.
+    (&[89], Rule::CaseExact),
+    // `x121Address`, `internationalISDNNumber` and its collective subtype.
+    (&[24], Rule::NumericString),
+    (&[25], Rule::NumericString),
+    (&[25, 1], Rule::NumericString),
+    // `postalAddress`, its collective subtype, and `registeredAddress`.
+    (&[16], Rule::CaseIgnoreList),
+    (&[16, 1], Rule::CaseIgnoreList),
+    (&[26], Rule::CaseIgnoreList),
+    // `uniqueIdentifier`, `uii` and `epc`.
+    (&[45], Rule::BitString),
+    (&[90], Rule::BitString),
+    (&[91], Rule::BitString),
+    // `userPassword` and `tagAfi`.
+    (&[35], Rule::OctetString),
+    (&[92], Rule::OctetString),
+    // `telephoneNumber` and its collective subtype.
+    (&[20], Rule::TelephoneNumber),
+    (&[20, 1], Rule::TelephoneNumber),
+    // `facsimileTelephoneNumber` and its collective subtype.
+    (&[23], Rule::FacsimileNumber),
+    (&[23, 1], Rule::FacsimileNumber),
+    (&[48], Rule::ProtocolInformation),
+    (&[50], Rule::UniqueMember),
+    (&[77], Rule::UuidPair),
+    // `supportedApplicationContext`, `communicationsService`, `communicationsNetwork`, `tagOid`
+    // and `objectIdentifier`.
+    (&[30], Rule::ObjectIdentifier),
+    (&[66], Rule::ObjectIdentifier),
+    (&[67], Rule::ObjectIdentifier),
+    (&[78], Rule::ObjectIdentifier),
+    (&[106], Rule::ObjectIdentifier),
+    // `member`, `owner`, `roleOccupant`, `seeAlso` and `distinguishedName`.
+    (&[31], Rule::DistinguishedName),
+    (&[32], Rule::DistinguishedName),
+    (&[33], Rule::DistinguishedName),
+    (&[34], Rule::DistinguishedName),
+    (&[49], Rule::DistinguishedName),
+];
 
 /// The equality matching rule X.520 states for `kind`, an object identifier's contents, where it
 /// is one this program holds.
 #[must_use]
 pub fn rule(kind: &[u8]) -> Option<Rule> {
-    match kind {
-        [0x55, 0x04, last] if CASE_IGNORE.contains(last) => Some(Rule::CaseIgnore),
-        _ => None,
-    }
+    let arcs = kind.strip_prefix(&[0x55, 0x04])?;
+    // Every arc below `id-at` that `RULES` names is below 128, so each is one octet of X.690's
+    // encoding and the comparison is of the arcs themselves.
+    RULES
+        .iter()
+        .find(|(listed, _)| *listed == arcs)
+        .map(|&(_, rule)| rule)
 }
 
 /// One entry of `attributeValueConstraints`: a type, and a value the policy considers valid for
@@ -104,7 +210,7 @@ pub fn within(kind: &[u8], values: &Value<'_>, listed: &[Listed<'_>]) -> Match {
                 .iter()
                 .filter(|entry| entry.kind == kind)
                 .fold(Match::No, |best, entry| {
-                    match (best, equal(kind, &value, &entry.value)) {
+                    match (best, equal(kind, &value, &entry.value, 0)) {
                         (Match::Yes, _) | (_, Match::Yes) => Match::Yes,
                         (Match::Undecided, _) | (_, Match::Undecided) => Match::Undecided,
                         _ => Match::No,
@@ -119,91 +225,127 @@ pub fn within(kind: &[u8], values: &Value<'_>, listed: &[Listed<'_>]) -> Match {
     answer.unwrap_or(Match::Undecided)
 }
 
-/// X.501 clause 8.9.2.1 for one carried value of type `kind` against one value the policy states.
-fn equal(kind: &[u8], carried: &Value<'_>, stated: &Value<'_>) -> Match {
-    match rule(kind) {
-        None => Match::Undecided,
-        Some(Rule::CaseIgnore) => match (prepared(carried), prepared(stated)) {
-            (Some(carried), Some(stated)) => {
-                if carried == stated {
-                    Match::Yes
-                } else {
-                    Match::No
-                }
+/// X.501 clause 8.9.2.1 for one value of type `kind` the signer carries against one value the
+/// policy presents, `depth` names deep inside a distinguished name.
+fn equal(kind: &[u8], carried: &Value<'_>, stated: &Value<'_>, depth: u8) -> Match {
+    let Some(rule) = rule(kind) else {
+        return Match::Undecided;
+    };
+    match rule {
+        Rule::CaseIgnore => strings(
+            carried,
+            stated,
+            DIRECTORY_STRING,
+            true,
+            Insignificant::Spaces,
+        ),
+        Rule::CaseExact => strings(
+            carried,
+            stated,
+            DIRECTORY_STRING,
+            false,
+            Insignificant::Spaces,
+        ),
+        Rule::NumericString => strings(
+            carried,
+            stated,
+            &[NUMERIC_STRING],
+            true,
+            Insignificant::AllSpaces,
+        ),
+        Rule::TelephoneNumber => strings(
+            carried,
+            stated,
+            &[PRINTABLE_STRING],
+            true,
+            Insignificant::HyphensAndSpaces,
+        ),
+        Rule::FacsimileNumber => {
+            // Clause 8.2.13: the presented `TelephoneNumber` against the attribute value's first
+            // element, by `telephoneNumberMatch`; the parameters are not evaluated.
+            match first_of(carried) {
+                Some(number) => strings(
+                    &number,
+                    stated,
+                    &[PRINTABLE_STRING],
+                    true,
+                    Insignificant::HyphensAndSpaces,
+                ),
+                None => Match::Undecided,
             }
-            _ => Match::Undecided,
-        },
+        }
+        Rule::CaseIgnoreList => case_ignore_list(carried, stated),
+        Rule::BitString => structured::bit_string(carried, stated),
+        Rule::OctetString => structured::octet_string(carried, stated),
+        Rule::ProtocolInformation => {
+            // Clause 8.2.12: the presented octet string against the stored `nAddress`, by
+            // `octetStringMatch`.
+            match first_of(carried) {
+                Some(address) => structured::octet_string(&address, stated),
+                None => Match::Undecided,
+            }
+        }
+        Rule::UuidPair => structured::uuid_pair(carried, stated),
+        Rule::ObjectIdentifier => structured::object_identifier(carried, stated),
+        Rule::DistinguishedName => structured::distinguished_name(carried, stated, depth, equal),
+        Rule::UniqueMember => structured::unique_member(carried, stated, depth, equal),
     }
 }
 
-/// X.520 clause 7's preparation of a `DirectoryString` value, where it is exact: `None` where the
-/// value is not one of `DirectoryString`'s alternatives this program transcodes, where it holds a
-/// character outside ASCII, or where a step fails.
-fn prepared(value: &Value<'_>) -> Option<String> {
-    // X.520's `DirectoryString` is a `TeletexString`, `PrintableString`, `BMPString`,
-    // `UniversalString` or `UTF8String`. Clause 7.1 lets an implementation decline to transcode,
-    // which makes the assertion undefined; this program declines `TeletexString`.
-    const UTF8_STRING: u8 = 0x0C;
-    const PRINTABLE_STRING: u8 = 0x13;
-    const UNIVERSAL_STRING: u8 = 0x1C;
-    const BMP_STRING: u8 = 0x1E;
-    // Step 1, transcoding to Unicode.
-    let text: String = match value.identifier {
-        UTF8_STRING | PRINTABLE_STRING => std::str::from_utf8(value.contents).ok()?.to_owned(),
-        BMP_STRING => {
-            if !value.contents.len().is_multiple_of(2) {
-                return None;
+/// The first member of a `SEQUENCE`, which is where clauses 8.2.12 and 8.2.13 take the element
+/// they compare.
+fn first_of<'a>(value: &Value<'a>) -> Option<Value<'a>> {
+    if value.identifier != SEQUENCE {
+        return None;
+    }
+    value.children().ok()?.next_value().ok()?
+}
+
+/// Two strings by a clause 8.1 string rule: true where clause 7 prepares them to the same string.
+fn strings(
+    carried: &Value<'_>,
+    stated: &Value<'_>,
+    syntax: &[u8],
+    fold: bool,
+    removal: Insignificant,
+) -> Match {
+    match (
+        prepared(carried, syntax, fold, removal),
+        prepared(stated, syntax, fold, removal),
+    ) {
+        (Some(carried), Some(stated)) => {
+            if carried == stated {
+                Match::Yes
+            } else {
+                Match::No
             }
-            let units = value
-                .contents
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
-            char::decode_utf16(units)
-                .collect::<Result<String, _>>()
-                .ok()?
         }
-        UNIVERSAL_STRING => {
-            if !value.contents.len().is_multiple_of(4) {
-                return None;
-            }
-            value
-                .contents
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|quad| {
-                    char::from_u32(u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]))
-                })
-                .collect::<Option<String>>()?
-        }
-        _ => return None,
+        _ => Match::Undecided,
+    }
+}
+
+/// Clause 8.1.7: true "if, and only if the number of strings in each is the same, and the
+/// corresponding strings match" as `caseIgnoreMatch` does.
+fn case_ignore_list(carried: &Value<'_>, stated: &Value<'_>) -> Match {
+    let (Some(carried), Some(stated)) =
+        (structured::sequence(carried), structured::sequence(stated))
+    else {
+        return Match::Undecided;
     };
-    if !text.is_ascii() {
-        return None;
-    }
-    // Step 2: the white-space controls become SPACE, every other control nothing, and case folds.
-    let mapped: String = text
-        .chars()
-        .filter_map(|c| match c {
-            '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' => Some(' '),
-            c if c.is_ascii_control() => None,
-            c => Some(c.to_ascii_lowercase()),
-        })
-        .collect();
-    // Step 4 prohibits the empty string.
-    if mapped.is_empty() {
-        return None;
-    }
-    // Step 6, clause 7.6.1: leading and trailing spaces go, a run of them is one, and a string of
-    // nothing else is one space.
-    let words: Vec<&str> = mapped.split(' ').filter(|word| !word.is_empty()).collect();
-    Some(if words.is_empty() {
-        " ".to_owned()
+    let pairs = carried
+        .iter()
+        .zip(&stated)
+        .map(|(left, right)| strings(left, right, DIRECTORY_STRING, true, Insignificant::Spaces));
+    let answer = pairs.fold(Match::Yes, |sum, next| match (sum, next) {
+        (Match::No, _) | (_, Match::No) => Match::No,
+        (Match::Undecided, _) | (_, Match::Undecided) => Match::Undecided,
+        _ => Match::Yes,
+    });
+    if carried.len() == stated.len() {
+        answer
     } else {
-        words.join(" ")
-    })
+        Match::No
+    }
 }
 
 #[cfg(test)]

@@ -1,18 +1,23 @@
-//! RFC 5639 section 3.7's brainpoolP512r1, as a curve type [`crate::ecdsa`] can verify on.
+//! RFC 5639 section 3.7's brainpoolP512r1, as a curve type both of this tree's elliptic-curve
+//! computations run on: `pdf_signature::ecdsa`'s verification and [`super::PrivateKey`]'s key
+//! agreement.
 //!
-//! ISO 32000-2 §12.8.3.1 introduces ECDSA "as defined by Internet RFC 5480", and ISO/TS 32002
-//! Table 3, appended to that subclause, names six curves for it; five of them are packages. **This one has no
-//! package on crates.io at all**, so the project owner's answer A170 (`doc/questions/A170`) is that
-//! the tree states it itself, as a stopgap: private to this crate, reached only through
-//! [`crate::ecdsa::verify`]'s named-curve seam, re-exported nowhere, and advertised nowhere. ADR
-//! 1385 is the decision and its measurement.
+//! ISO/TS 32002 Table 3, appended to ISO 32000-2 §12.8.3.1, names six curves for ECDSA, and ISO
+//! 32000-2 §7.6.5.3 has a recipient's key decrypted "using that recipient's public key", which
+//! for an elliptic-curve recipient is RFC 5753's key agreement on whatever curve its certificate
+//! names; five of the six curves are packages. **This one has no package on crates.io that this
+//! project can take**, so the project owner's answer A170 (`doc/questions/A170`) is that the tree
+//! states it itself, as a stopgap: reached only through the two named-curve seams, and advertised
+//! nowhere. It lives here, below `pdf-signature`, so that the one statement of the curve serves
+//! both crates (ADR 3157); ADR 1385 is the decision and its measurement.
 //!
 //! # The swap condition
 //!
 //! In A170's own terms: **the day a stable, reviewed crate covers the curve, the swap is decided on
-//! `doc/stack.md`'s terms.** The module is shaped so that the swap is one line — [`BrainpoolP512r1`]
-//! implements exactly the traits `bp256::BrainpoolP256r1` and `bp384::BrainpoolP384r1` implement,
-//! so `ecdsa.rs`'s arm names a package's type instead of this one and this file is deleted.
+//! `doc/stack.md`'s terms.** The module is shaped so that the swap is one line per seam —
+//! [`BrainpoolP512r1`] implements exactly the traits `bp256::BrainpoolP256r1` and
+//! `bp384::BrainpoolP384r1` implement, so each arm names a package's type instead of this one and
+//! this file is deleted.
 //!
 //! # What is this tree's, and what is still reviewed code
 //!
@@ -30,20 +35,23 @@
 //!   every field. They are the smallest non-residues, found by Euler's criterion and checked by
 //!   the frame's own test. The frame names them *multiplicative generators*, and its own test
 //!   checks only the non-residue property, for every curve it serves: whether either generates the
-//!   whole multiplicative group would need `p − 1` factored, and nothing on a verification path
-//!   depends on it — ECDSA verification never takes a square root, and the one decoding that does
-//!   (a compressed SEC1 point) needs only `p ≡ 3 (mod 4)`, which RFC 5639's prime satisfies;
-//! - **the trait wiring**, which is what makes this a curve `ecdsa`'s generic verification accepts.
+//!   whole multiplicative group would need `p − 1` factored, and nothing here depends on it —
+//!   neither ECDSA verification nor Diffie–Hellman takes a square root, and the one decoding that
+//!   does (a compressed SEC1 point) needs only `p ≡ 3 (mod 4)`, which RFC 5639's prime satisfies;
+//! - **the trait wiring**, which is what makes this a curve `ecdsa`'s generic verification and
+//!   [`super`]'s generic primitives accept.
 //!
-//! # Constant time, and why it does not bind here
+//! # Constant time, and where it binds
 //!
-//! `crypto-bigint`'s Montgomery arithmetic and `primeorder`'s complete formulas are constant-time;
-//! `primeorder`'s scalar multiplication under [`mul_backend::VariableOnly`] is **not**, and neither
-//! is `ecdsa`'s verification, which runs `u1·G + u2·Q` in variable time on purpose. That is the
-//! right side of the trade for the same reason [`crate::ecdsa`] states: a verifier holds no secret.
-//! The key, `r`, `s` and the digest all came out of a file a stranger wrote; a timing channel on
-//! them leaks what is already public. The danger in a verifier is *wrong* arithmetic, which is why
-//! the arithmetic is the frames' and the numbers are checked against both RFCs.
+//! `crypto-bigint`'s Montgomery arithmetic and `primeorder`'s complete formulas are constant-time,
+//! and so is `primeorder`'s `ProjectivePoint::mul` — the `*` operator — a fixed radix-16 walk over
+//! a lookup table read by conditional selection, which is what key agreement multiplies a reader's
+//! secret scalar with, exactly as on the five package curves. [`mul_backend::VariableOnly`] names
+//! only the absence of a precomputed table for the base point. The variable-time products are
+//! `mul_vartime` and `ecdsa`'s `u1·G + u2·Q`, which verification runs on purpose because a
+//! verifier holds no secret: the key, `r`, `s` and the digest all came out of a file a stranger
+//! wrote. The danger in a verifier is *wrong* arithmetic, which is why the arithmetic is the
+//! frames' and the numbers are checked against both RFCs.
 
 use ecdsa::elliptic_curve::bigint::{Odd, U512};
 use ecdsa::elliptic_curve::consts::U64;
@@ -65,10 +73,9 @@ const ORDER: Odd<U512> = Odd::<U512>::from_be_hex(ORDER_HEX);
 
 /// brainpoolP512r1, RFC 5639 section 3.7's verifiably pseudo-random 512-bit curve.
 ///
-/// A type rather than a value, as each curve package's is: [`crate::ecdsa`]'s one generic
-/// verification is instantiated on it, which is what keeps the security-critical path written
-/// once for six curves. `pub` because the frames' trait implementations name it in public
-/// positions; the module is private, so nothing outside this crate can reach it.
+/// A type rather than a value, as each curve package's is: `pdf_signature::ecdsa`'s one generic
+/// verification and [`super`]'s key agreement are instantiated on it, which is what keeps each
+/// security-critical path written once for six curves.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct BrainpoolP512r1;
 
@@ -95,7 +102,7 @@ impl ecdsa::EcdsaCurve for BrainpoolP512r1 {
 ///
 /// A module of its own because the frame's macros declare items with fixed names and expect the
 /// `subtle` and `ff` names in scope, and this is where both are bounded: nothing here leaves
-/// `pdf-signature`.
+/// this crate.
 mod field {
     use super::{MODULUS_HEX, U512};
     use ecdsa::elliptic_curve::ff::PrimeField;
@@ -212,7 +219,8 @@ impl PrimeCurveArithmetic for BrainpoolP512r1 {
 impl PrimeCurveParams for BrainpoolP512r1 {
     /// `A` is neither zero nor `−3`, so the generic complete formulas are the ones that apply.
     type PointArithmetic = point_arithmetic::EquationAIsGeneric;
-    /// Variable time, and deliberately so: see the module documentation.
+    /// No precomputed base-point table; the product with a secret scalar is still the
+    /// constant-time one (see the module documentation).
     type Backend = mul_backend::VariableOnly;
 
     /// RFC 5639 section 3.7's `A`.

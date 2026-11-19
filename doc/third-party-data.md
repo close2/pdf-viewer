@@ -1040,7 +1040,7 @@ after a `>`.
 
 The owner's answer `doc/questions/A170` has the tree compute brainpoolP512r1 and Ed448 itself
 (ADRs 1385 and 1386), so three RFCs supply **data** that is in source, not only prose read:
-RFC 5639 section 3.7's six curve constants (`crates/pdf-signature/src/brainpool_p512.rs`), RFC 8032
+RFC 5639 section 3.7's six curve constants (`crates/pdf-pki/src/ec/brainpool_p512.rs`), RFC 8032
 section 5.2's Table 2 constants (`crates/pdf-signature/src/ed448.rs`) and its section 7.4 and 7.5
 test vectors (`crates/pdf-signature/src/ed448/vectors.rs`), and RFC 7027 appendix A.3's
 key-agreement values (`brainpool_p512.rs`'s tests). RFC 5639 and RFC 8032 are in `doc/md/rfc/`.

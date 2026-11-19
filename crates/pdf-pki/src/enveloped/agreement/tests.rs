@@ -76,13 +76,13 @@ fn open(envelope: &[u8], curve: &str) -> Result<Vec<u8>, EnvelopeError> {
 /// primitive on a curve of cofactor 1), each AES wrap of section 7.1.5, a `ukm` placed in
 /// `entityUInfo`, `originatorKey` parameters absent, NULL and `namedCurve` (section 3.1.1 allows
 /// all three), a compressed ephemeral point, `rid` as `issuerAndSerialNumber` and as `rKeyId`,
-/// the matching `RecipientEncryptedKey` second in its list, five curves, and an originator named
+/// the matching `RecipientEncryptedKey` second in its list, six curves, and an originator named
 /// by `issuerAndSerialNumber` whose certificate is in `originatorInfo` (section 6.2.2:
 /// "Implementations MUST support all three alternatives for specifying the sender's public key"). Each opens to the
 /// plaintext the generator put in, with the key in either encoding.
 #[test]
 fn each_generated_key_agreement_envelope_opens_to_its_plaintext() {
-    let cases: [(&[u8], &str); 11] = [
+    let cases: [(&[u8], &str); 12] = [
         (fixture!("kari-p256-sha256-aes256.der"), "p256"),
         (fixture!("kari-p256-sha1-aes128-ukm.der"), "p256"),
         (fixture!("kari-p256-sha224-aes192-rkeyid.der"), "p256"),
@@ -93,6 +93,7 @@ fn each_generated_key_agreement_envelope_opens_to_its_plaintext() {
         (fixture!("kari-p521-sha512-aes256.der"), "p521"),
         (fixture!("kari-bp256-sha256-aes128.der"), "bp256"),
         (fixture!("kari-bp384-sha384-aes256.der"), "bp384"),
+        (fixture!("kari-bp512-sha512-aes256.der"), "bp512"),
         (fixture!("kari-p256-originator-certificate.der"), "p256"),
     ];
     for (envelope, curve) in cases {
@@ -109,12 +110,17 @@ fn each_generated_key_agreement_envelope_opens_to_its_plaintext() {
 
 /// Envelopes `openssl cms -encrypt` wrote to the generator's certificates: P-256 with its
 /// defaults (`dhSinglePass-stdDH-sha1kdf-scheme`, `id-aes128-wrap`, AES-128-CBC), and P-384 with
-/// `ecdh_kdf_md:sha384` (`id-aes256-wrap`, AES-256-CBC).
+/// `ecdh_kdf_md:sha384` (`id-aes256-wrap`, AES-256-CBC), and brainpoolP512r1 with
+/// `ecdh_kdf_md:sha512` (`dhSinglePass-stdDH-sha512kdf-scheme`, `id-aes256-wrap`, AES-256-CBC).
 #[test]
 fn envelopes_another_tool_wrote_open_too() {
     assert_eq!(open(fixture!("openssl-p256.der"), "p256").unwrap(), PLAIN);
     assert_eq!(
         open(fixture!("openssl-p384-sha384.der"), "p384").unwrap(),
+        PLAIN
+    );
+    assert_eq!(
+        open(fixture!("openssl-bp512-sha512.der"), "bp512").unwrap(),
         PLAIN
     );
 }
@@ -224,12 +230,6 @@ fn what_is_not_run_is_refused_by_name() {
             .open(&certificate, &rsa),
         Err(EnvelopeError::KeyKind("key-agreement"))
     );
-    // brainpoolP512r1: the envelope reads and names its certificate, and the key is refused when
-    // it is handed over, by the curve's name.
-    assert!(matches!(
-        PrivateKey::from_der(recipient("bp512").2),
-        Err(crate::key::KeyError::Ec(crate::ec::EcError::Curve(name))) if name == "brainpoolP512r1"
-    ));
 }
 
 /// One flipped bit in the wrapped key is the one decryption error: RFC 3394 section 2.2.3.1's
@@ -310,13 +310,14 @@ fn the_kdf_is_sec_1_s_counter_mode_hash() {
 /// certificate in `originatorInfo` (section 3.2.1: "It SHOULD be one of the alternatives,
 /// `issuerAndSerialNumber` or `subjectKeyIdentifier`") and carried as `originatorKey`; the
 /// `ephemeralPublicKey`'s parameters absent, NULL and `namedCurve` (section 3.2.1: "MUST be absent,
-/// `ECParameters`, or NULL"); an `addedukm`, which section 7.2 puts in `entityUInfo`; and the five
-/// curves. The generator ran SEC 1 section 3.4's primitive as the sender with a static and an
+/// `ECParameters`, or NULL"); an `addedukm`, which section 7.2 puts in `entityUInfo`; and the six
+/// curves, brainpoolP512r1's written by `gen_mqv_bp512.py`, the same script with RFC 5639 section
+/// 3.7's constants beside the others. The generator ran SEC 1 section 3.4's primitive as the sender with a static and an
 /// ephemeral key and the recipient's static key as both of V's (SEC 1 section 5.2), checked against
 /// NIST's responder vectors before writing anything; each opens to the plaintext it put in.
 #[test]
 fn each_generated_one_pass_mqv_envelope_opens_to_its_plaintext() {
-    let cases: [(&[u8], &str); 8] = [
+    let cases: [(&[u8], &str); 9] = [
         (fixture!("mqv-p256-sha256-aes256.der"), "p256"),
         (fixture!("mqv-p256-sha1-aes128-addedukm-ski.der"), "p256"),
         (
@@ -328,6 +329,7 @@ fn each_generated_one_pass_mqv_envelope_opens_to_its_plaintext() {
         (fixture!("mqv-p521-sha512-aes256.der"), "p521"),
         (fixture!("mqv-bp256-sha256-aes128.der"), "bp256"),
         (fixture!("mqv-bp384-sha384-aes256.der"), "bp384"),
+        (fixture!("mqv-bp512-sha512-aes256.der"), "bp512"),
     ];
     for (envelope, curve) in cases {
         assert_eq!(open(envelope, curve).unwrap(), PLAIN, "{curve}");

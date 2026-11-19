@@ -19,8 +19,8 @@
 //!
 //! [`Curve`] holds P-256, P-384, P-521, brainpoolP256r1, brainpoolP384r1 and brainpoolP512r1. The
 //! first five are packages. **The sixth has no package**, so under the project owner's answer A170
-//! it is a private module of this crate (`brainpool_p512.rs`): RFC 5639 section 3.7's constants
-//! over the same two reviewed frames the Brainpool packages are built from, as a stopgap whose exit
+//! it is this tree's own module (`pdf_pki::ec::brainpool_p512`, which key agreement shares, ADR
+//! 3157): RFC 5639 section 3.7's constants over the same two reviewed frames the Brainpool packages are built from, as a stopgap whose exit
 //! A170 states — the day a stable, reviewed crate covers the curve, the swap is decided on
 //! `doc/stack.md`'s terms. [`verify`]'s `match` on [`Curve`] is the seam: the swap names a
 //! package's type in one arm, and nothing else here changes. ADR 1385.
@@ -57,7 +57,7 @@
 //! crate's prime, base point and order are reviewed constants on exactly that footing. So this
 //! module is the *encoding*, the *budget* and the *vocabulary*; `p256`, `p384`, `p521`, `bp256`,
 //! `bp384` and `ecdsa` are the group law, and for brainpoolP512r1 `primefield` and `primeorder`
-//! are — the frames those packages are made of, under this crate's own constants (ADR 1385).
+//! are — the frames those packages are made of, under this tree's own constants (ADR 1385).
 //!
 //! Two properties of that dependency are worth stating rather than assuming:
 //!

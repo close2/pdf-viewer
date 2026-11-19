@@ -31,12 +31,9 @@ p521.workspace = true
 # same module. ADR 1063.
 bp256.workspace = true
 bp384.workspace = true
-# The third, RFC 5639 section 3.7's brainpoolP512r1, has no package: `brainpool_p512.rs` states
-# its constants over these two reviewed frames, the field and the group law the packages above
-# are themselves built from. A stopgap until a reviewed crate covers the curve (the owner's
-# answer A170, ADR 1385).
-primefield.workspace = true
-primeorder.workspace = true
+# The third, RFC 5639 section 3.7's brainpoolP512r1, has no package: `pdf-pki`'s
+# `ec::brainpool_p512` states its constants over the two reviewed frames the packages above are
+# themselves built from, and `ecdsa.rs` verifies on it through `pdf-pki` (A170, ADRs 1385, 3157).
 # DER and the certificate reader, which the public-key security handler below `pdf-syntax` reads
 # too: one implementation of each, and the `crypto-bigint` seam they share with `pkcs1.rs`.
 pdf-pki.workspace = true
@@ -45,6 +42,12 @@ pdf-pki.workspace = true
 # `pdf-model` is deliberately not among them: a signature is read from the object graph, never
 # from the page tree (ADR 1020).
 pdf-syntax.workspace = true
+# ITU-T X.520 clause 7's string preparation for a signer attribute's value under a policy's
+# `attributeValueConstraints`: RFC 3454 table B.2's case folding from `stringprep`'s tables,
+# Normalization Form KC, and the general categories the clause names (ADR 3158).
+stringprep.workspace = true
+unicode-normalization.workspace = true
+unicode-properties.workspace = true
 # §12.8.3's six digest functions, between them and `md-5` above. `cms::Digest` is the one place
 # any of them is named; see the workspace manifest and ADR 0215.
 ripemd.workspace = true

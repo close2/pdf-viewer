@@ -32,9 +32,11 @@
 //! # Which curves
 //!
 //! The five of ISO/TS 32002 Table 3's six that this program already computes on for signatures:
-//! P-256, P-384 and P-521, and brainpoolP256r1 and brainpoolP384r1, each from its reviewed
-//! `RustCrypto` package (`doc/stack.md`). brainpoolP512r1 has no such package, and a key on it is
-//! refused by name, as `pdf_signature::ecdsa` refuses a signature on it (ADR 2821).
+//! ISO/TS 32002 Table 3's six curves, which this program also verifies signatures on: P-256,
+//! P-384 and P-521, and brainpoolP256r1 and brainpoolP384r1, each from its reviewed `RustCrypto`
+//! package (`doc/stack.md`), and brainpoolP512r1, which has no such package and is
+//! [`brainpool_p512`]'s constants over the two frames those packages are built from (A170, ADR
+//! 3157).
 
 use p256::elliptic_curve::group::Curve as _;
 use p256::elliptic_curve::point::AffineCoordinates;
@@ -42,6 +44,8 @@ use p256::elliptic_curve::sec1::{FromSec1Point, ModulusSize, ToSec1Point};
 use p256::elliptic_curve::{
     AffinePoint, CurveArithmetic, FieldBytes, FieldBytesSize, ProjectivePoint, PublicKey, SecretKey,
 };
+
+pub mod brainpool_p512;
 
 use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, Value};
 use crate::x509::EcCurve;
@@ -124,6 +128,8 @@ enum Scalar {
     BrainpoolP256r1(SecretKey<bp256::BrainpoolP256r1>),
     /// brainpoolP384r1.
     BrainpoolP384r1(SecretKey<bp384::BrainpoolP384r1>),
+    /// brainpoolP512r1.
+    BrainpoolP512r1(SecretKey<brainpool_p512::BrainpoolP512r1>),
 }
 
 /// An elliptic-curve private key: its curve and its scalar.
@@ -256,7 +262,7 @@ impl PrivateKey {
             EcCurve::P521 => Scalar::P521(secret(octets)?),
             EcCurve::BrainpoolP256r1 => Scalar::BrainpoolP256r1(secret(octets)?),
             EcCurve::BrainpoolP384r1 => Scalar::BrainpoolP384r1(secret(octets)?),
-            EcCurve::BrainpoolP512r1 => return Err(EcError::Curve(curve.name().to_owned())),
+            EcCurve::BrainpoolP512r1 => Scalar::BrainpoolP512r1(secret(octets)?),
         };
         Ok(Self {
             curve,
@@ -304,6 +310,7 @@ impl PrivateKey {
             Scalar::P521(secret) => agree_on(secret, point),
             Scalar::BrainpoolP256r1(secret) => agree_on(secret, point),
             Scalar::BrainpoolP384r1(secret) => agree_on(secret, point),
+            Scalar::BrainpoolP512r1(secret) => agree_on(secret, point),
         }
     }
 
@@ -350,6 +357,7 @@ impl PrivateKey {
             Scalar::P521(secret) => mqv_on(secret, static_point, ephemeral_point),
             Scalar::BrainpoolP256r1(secret) => mqv_on(secret, static_point, ephemeral_point),
             Scalar::BrainpoolP384r1(secret) => mqv_on(secret, static_point, ephemeral_point),
+            Scalar::BrainpoolP512r1(secret) => mqv_on(secret, static_point, ephemeral_point),
         }
     }
 }
@@ -437,7 +445,8 @@ where
 /// `x` is a point's x-coordinate in section 2.3.5's big-endian octets, as a scalar.
 ///
 /// `n` lies strictly between `2^(L−1)` and `2^L` for its bit length `L`, so `⌈(log2 n)/2⌉` is
-/// `⌈L/2⌉`: 128 on P-256 and brainpoolP256r1, 192 on P-384 and brainpoolP384r1, 261 on P-521.
+/// `⌈L/2⌉`: 128 on P-256 and brainpoolP256r1, 192 on P-384 and brainpoolP384r1, 256 on
+/// brainpoolP512r1, 261 on P-521.
 /// The value is below `2^(⌈L/2⌉+1)`, far below `n`, so taking it modulo `n` leaves it as it is.
 fn associate<C: CurveArithmetic>(x: &FieldBytes<C>) -> C::Scalar {
     use p256::elliptic_curve::bigint::BitOps as _;

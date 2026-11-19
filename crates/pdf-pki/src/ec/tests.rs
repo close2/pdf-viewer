@@ -44,7 +44,7 @@ fn uncompressed(x: &str, y: &str) -> Vec<u8> {
 ///
 /// RFC 5903 section 8 gives, for each NIST curve, the initiator's private key `i`, the
 /// responder's public key `g^r = (grx, gry)`, and "the Diffie-Hellman shared secret value is
-/// girx". RFC 7027 appendix A gives the same for the Brainpool curves as `dA`, `qB = (x_qB,
+/// girx". RFC 7027 appendix A gives the same for the three Brainpool curves as `dA`, `qB = (x_qB,
 /// y_qB)` and `Z = (x_Z, y_Z)`. Each `x` is SEC 1's `z`.
 #[test]
 fn the_primitive_agrees_with_rfc_5903_and_rfc_7027_s_vectors() {
@@ -83,6 +83,13 @@ fn the_primitive_agrees_with_rfc_5903_and_rfc_7027_s_vectors() {
             "4D44326F269A597A5B58BBA565DA5556ED7FD9A8A9EB76C25F46DB69D19DC8CE6AD18E404B15738B2086DF37E71D1EB4",
             "62D692136DE56CBE93BF5FA3188EF58BC8A3A0EC6C1E151A21038A42E9185329B5B275903D192F8D4E1F32FE9CC78C48",
             "0BD9D3A7EA0B3D519D09D8E48D0785FB744A6B355E6304BC51C229FBBCE239BBADF6403715C35D4FB2A5444F575D4F42",
+        ),
+        (
+            EcCurve::BrainpoolP512r1,
+            "16302FF0DBBB5A8D733DAB7141C1B45ACBC8715939677F6A56850A38BD87BD59B09E80279609FF333EB9D4C061231FB26F92EEB04982A5F1D1764CAD57665422",
+            "9D45F66DE5D67E2E6DB6E93A59CE0BB48106097FF78A081DE781CDB31FCE8CCBAAEA8DD4320C4119F1E9CD437A2EAB3731FA9668AB268D871DEDA55A5473199F",
+            "2FDC313095BCDD5FB3A91636F07A959C8E86B5636A1E930E8396049CB481961D365CC11453A06C719835475B12CB52FC3C383BCE35E27EF194512B71876285FA",
+            "A7927098655F1F9976FA50A9D566865DC530331846381C87256BAF3226244B76D36403C024D7BBF0AA0803EAFF405D3D24F11A9B5C0BEF679FE1454B21C4CD1F",
         ),
     ];
     for (curve, private, x, y, shared) in vectors {
@@ -126,8 +133,9 @@ fn a_compressed_point_agrees_and_a_hybrid_or_invalid_one_is_refused() {
 
 /// RFC 5915 section 3: `version` "SHALL be set to ecPrivkeyVer1"; the parameters "MUST always"
 /// be included, and without them the scalar names no curve; a scalar of zero or not below the
-/// order is no key; RFC 8017's `RSAPrivateKey` is another family's; brainpoolP512r1 is a curve
-/// this program does not compute on, refused by name.
+/// order is no key; RFC 8017's `RSAPrivateKey` is another family's; a curve outside ISO/TS 32002
+/// Table 3 (SEC 2's secp256k1, `1.3.132.0.10`) is one this program does not compute on, refused
+/// by its identifier.
 #[test]
 fn what_is_not_a_usable_ec_private_key_is_refused_by_name() {
     let scalar = hex("c88f01f510d9ac3f70a292daa2316de544e9aab8afe84049c62a9c57862d1433");
@@ -161,9 +169,12 @@ fn what_is_not_a_usable_ec_private_key_is_refused_by_name() {
         PrivateKey::from_der(&tlv(0x30, &rsa)).unwrap_err(),
         EcError::NotEc
     );
+    let mut secp256k1 = tlv(0x02, &[1]);
+    secp256k1.extend(tlv(0x04, &scalar));
+    secp256k1.extend(tlv(0xA0, &tlv(0x06, &[0x2B, 0x81, 0x04, 0x00, 0x0A])));
     assert_eq!(
-        PrivateKey::from_der(&ec_private_key(EcCurve::BrainpoolP512r1, &[1; 64])).unwrap_err(),
-        EcError::Curve("brainpoolP512r1".to_owned())
+        PrivateKey::from_der(&tlv(0x30, &secp256k1)).unwrap_err(),
+        EcError::Curve("1.3.132.0.10".to_owned())
     );
 }
 
@@ -218,6 +229,12 @@ fn both_encodings_of_a_generated_key_read_on_its_curve() {
             EcCurve::BrainpoolP384r1,
             include_bytes!("../../tests/envelopes/kari/bp384.ec.der"),
             include_bytes!("../../tests/envelopes/kari/bp384.p8.der"),
+        ),
+        (
+            "bp512",
+            EcCurve::BrainpoolP512r1,
+            include_bytes!("../../tests/envelopes/kari/bp512.ec.der"),
+            include_bytes!("../../tests/envelopes/kari/bp512.p8.der"),
         ),
     ] {
         let bare = PrivateKey::from_der(bare).unwrap();

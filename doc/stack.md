@@ -118,13 +118,14 @@ a dependency needs from those three ADRs:
     and 1386). brainpoolP512r1 has no stable, reviewed crate, and Ed448's signature scheme is on
     `ed448-goldilocks`' pre-release line only; the owner's answer is that the algorithms belong in
     a crypto library, that implementing them here is a workaround until one does, that it is not
-    advertised, and that it is built so the switch is easy. So both are **private modules of
-    `pdf-signature`** behind the named-curve seam — `brainpool_p512.rs` is RFC 5639 section 3.7's
-    constants over `primefield` and `primeorder`, the frames `bp256` and `bp384` are made of, with
+    advertised, and that it is built so the switch is easy. So both are **the tree's own
+    modules** behind the named-curve seams — `pdf-pki`'s `ec/brainpool_p512.rs`, which
+    `pdf-signature`'s verification and `pdf-pki`'s key agreement both run on (ADR 3157), is RFC 5639
+    section 3.7's constants over `primefield` and `primeorder`, the frames `bp256` and `bp384` are made of, with
     no new locked package (`hybrid-array` 0.4.15 supplies the 513-element array size a 512-bit
     scalar's wNAF needs); `ed448.rs` is RFC 8032 section
     5.2 over `crypto-bigint`'s constant-modulus Montgomery form and the `shake` already here.
-    Neither re-exports anything; the crate's public surface is still the signature questions.
+    Neither is re-exported by the crate that verifies on it.
     **The swap condition is A170's: the day a stable, reviewed crate covers the curve, the swap is
     decided on this file's terms**, module for module. Where that day would come from, as far as a
     search shows (`cargo search bp512`, `cargo info ed448-goldilocks`): RustCrypto's own `bp512`

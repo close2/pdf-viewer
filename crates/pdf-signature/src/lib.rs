@@ -26,9 +26,10 @@
 //! same encodings. Then one module per family Table 260 names: [`pkcs1`] and [`pss`] for RFC
 //! 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS 32002 section
 //! 5.1.2 adds.
-//! `brainpool_p512` and `ed448` are the two curves no reviewed package carries, private stopgaps
-//! behind [`ecdsa`]'s and [`eddsa`]'s named-curve seams until one does (the owner's answer A170,
-//! ADRs 1385 and 1386); nothing of either is re-exported.
+//! `brainpool_p512` and `ed448` are the two curves no reviewed package carries, stopgaps behind
+//! [`ecdsa`]'s and [`eddsa`]'s named-curve seams until one does (the owner's answer A170, ADRs
+//! 1385 and 1386); the first is `pdf-pki`'s, which runs key agreement on it too (ADR 3157), and
+//! nothing of either is re-exported.
 //!
 //! Three modules answer questions the clause asks after the arithmetic. [`revision`] is
 //! §12.8.2.2.2's second step — the signed revision beside the current one, object by object,
@@ -83,7 +84,7 @@
 
 pub mod attribute_certificate;
 use pdf_pki::bigint;
-mod brainpool_p512;
+use pdf_pki::ec::brainpool_p512;
 mod certificate_signature;
 pub mod cms;
 pub mod dsa;
