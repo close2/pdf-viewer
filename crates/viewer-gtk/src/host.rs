@@ -74,6 +74,8 @@ mod stand_in;
 mod tabs;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trusted_lists_shift_t;
 mod window;
 
 use notes::{NoteEditor, PlacedPopup};

@@ -610,3 +610,64 @@ fn a_form_elements_field_has_places_too() {
         "{boxes:?} in {widget:?}"
     );
 }
+
+/// A field whose `/DA` font's program will not read still has places for its characters: the
+/// layout sets the value in the substitute the font dictionary describes, as the page draws such a
+/// font (ADR 3097).
+///
+/// ISO 32000-2 §9.5 says a font dictionary carries "information that can be used to provide a
+/// substitute when the font program is not available", and §9.2.4's NOTE 2 that the widths it
+/// stores enable "a PDF processor to determine glyph positioning without having to look inside the
+/// font program". The font here is a TrueType font whose `/FontFile2` holds bytes that are no font
+/// program, beside its `/Widths` and descriptor; the field is multi-line (Table 231 bit 13) and
+/// holds `1`, a line break and `2`, so each digit is a line of its own, inside the widget. The
+/// shape is `PDFBOX-3148-2-fuzzed.pdf`'s, which the accessibility census named.
+#[test]
+fn a_field_set_in_an_unreadable_font_program_has_places_from_its_substitute() {
+    let widths = ["600"; 10].join(" ");
+    let font = format!(
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Verdana /Encoding /WinAnsiEncoding \
+         /FirstChar 48 /LastChar 57 /Widths [{widths}] /FontDescriptor 7 0 R >>"
+    );
+    let bytes = assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
+         /DR << /Font << /Verdana 5 0 R >> >> >> >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (multiline) /Ff 4096 \
+         /DA (/Verdana 12 Tf 0 g) /V (1\\n2) /Rect [10 100 190 170] /P 3 0 R >>",
+        &font,
+        "<< /Length 16 >>\nstream\nno font program.\nendstream",
+        "<< /Type /FontDescriptor /FontName /Verdana /Flags 32 /FontBBox [-560 -303 1447 1051] \
+         /ItalicAngle 0 /Ascent 1051 /Descent -303 /CapHeight 727 /StemV 92 /FontFile2 6 0 R >>",
+    ]);
+    let page = answered(bytes);
+    let [field] = page.widgets.as_slice() else {
+        panic!("one field: {:?}", page.widgets);
+    };
+    assert_eq!(
+        field.value.as_ref().map(|value| value.text.as_str()),
+        Some("1\n2"),
+        "the field's /V"
+    );
+    let lines: Vec<&str> = field
+        .value_lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(lines, ["1", "2"], "a line each: {:?}", field.value_lines);
+    let widget = field.bounds.expect("the widget is placed");
+    let boxes = placed(field);
+    assert!(
+        boxes.iter().all(|(_, b)| b[0] >= widget[0] - 0.01
+            && b[2] <= widget[2] + 0.01
+            && b[1] >= widget[1] - 0.01
+            && b[3] <= widget[3] + 0.01
+            && b[2] > b[0]),
+        "{boxes:?} in {widget:?}"
+    );
+    assert!(
+        matches!(boxes.as_slice(), [(_, one), (_, two)] if one[1] < two[1] && one[3] < two[3]),
+        "the first line above the second on the screen, whose y grows downward: {boxes:?}"
+    );
+}

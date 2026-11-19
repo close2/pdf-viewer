@@ -29,7 +29,10 @@ impl Host {
     /// the page also gave the keyboard to the outline, whose list then took Home, `+` and `-`
     /// (ADR 1453). §12.5.1's Tab is the exception and answers `false`: GTK's focus move for it is
     /// what [`Self::follow_focus`] corrects afterwards.
-    fn key(&mut self, key: gtk4::gdk::Key, held: viewer_host::Modifiers) -> bool {
+    ///
+    /// The host's to call, not only this module's: the window's tests press a key as the
+    /// controller does (ADR 3098).
+    pub(super) fn key(&mut self, key: gtk4::gdk::Key, held: viewer_host::Modifiers) -> bool {
         let Some(stated) = key_pressed(key) else {
             return false;
         };

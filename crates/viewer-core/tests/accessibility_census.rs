@@ -1651,6 +1651,13 @@ fn what_a_screen_reader_is_told_about_every_document() {
         "a line's characters and its text disagree: {:?}",
         census.inconsistent_lines
     );
+    // ADR 1501's capability, held at zero once ADR 3097 laid out the last witness: a filled field
+    // with no place for any character is a layout this program refused, which the witness names.
+    assert!(
+        census.filled_unplaced.is_empty(),
+        "a filled field whose characters have no place: {:?}",
+        census.filled_unplaced
+    );
     let specifications: Vec<String> = files
         .iter()
         .filter(|path| !tracked(path))
@@ -1722,15 +1729,19 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.derived,
             211_412,
         );
+        // ADR 2977: a header scoped to the other axis is stepped over by §14.8.4.8.3's search
+        // (Errata Collection 3 Issue #200) rather than ending it, so the eligible headers beyond
+        // it are found — 107 more cells with headers and 107 more associations, the tracked ones
+        // unchanged, between 7471eeff and 0ebbf41b, whose one change to the search is that ADR's.
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            23_988,
+            24_095,
         );
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            34_767,
+            34_874,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
         gate_ratchet::floor(
@@ -1748,11 +1759,16 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.with_lines,
             135_497,
         );
-        gate_ratchet::floor("lines, whole population", census.lines, 223_491);
+        // ADR 3013's lines in `/K` order: 138 more over the population, the same characters; and
+        // ADR 2976's structure element `/ActualText` placed once, at its first content item:
+        // `Well-Tagged-PDF-WTPDF-1.0.pdf`, which states the entry 1 101 times, most of them a single
+        // space, reads 56 fewer lines and 92 fewer characters. A/B'd per document against 7471eeff;
+        // no other document's characters moved.
+        gate_ratchet::floor("lines, whole population", census.lines, 223_573);
         // ADR 2086: a code whose span is the span of the line's last character is that character,
         // so §14.9.4's replacement is spoken once rather than once per code it covers — 126 fewer
-        // characters over the population, the same lines and elements.
-        gate_ratchet::floor("characters, whole population", census.characters, 5_700_485);
+        // characters over the population, the same lines and elements. ADR 2976, above: 92 fewer.
+        gate_ratchet::floor("characters, whole population", census.characters, 5_700_393);
         // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
         // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
         // this population as it is in the tracked one.
@@ -2014,15 +2030,15 @@ fn widget_floors(tracked_census: &Census) {
     gate_ratchet::floor("fields with a value published", tracked_census.valued, 548);
     // ADR 1501's population, new with that decision: a character of a field's value with the box
     // §12.7.4.3's layout gave its glyph, which is what AT-SPI's `GetCharacterExtents` answers with.
-    // Every one crossed with no place before it. Measured at 1571, over 79 of the 80 filled fields;
-    // the eightieth is `PDFBOX-3148-2-fuzzed.pdf`'s, named by the census each run. The node carries
-    // the value as the field displays it (ADR 1617), so a formatted field has the characters its
-    // format adds.
+    // Every one crossed with no place before it. Measured at 1571. The node carries the value as
+    // the field displays it (ADR 1617), so a formatted field has the characters its format adds.
     // 1571 → 1588 with ADR 1653: the characters of a recovered root's fields are published too.
+    // 1588 → 1592 with ADR 3097: `PDFBOX-3148-2-fuzzed.pdf`'s four digits, whose `/DA` font's
+    // program will not read, are laid out in its substitute, so every filled field has places.
     gate_ratchet::floor(
         "field characters with extents",
         tracked_census.field_characters,
-        1588,
+        1592,
     );
 }
 
@@ -2131,7 +2147,11 @@ fn ratchet(
     // ADR 1515: a code inside §14.9.4's replacement reads back as the whole replacement, A/B'd on
     // one build — two more elements a line of their own text, one more line, three characters.
     gate_ratchet::floor("elements a caret reaches", tracked_census.with_lines, 1384);
-    gate_ratchet::floor("lines", tracked_census.lines, 2483);
+    // ADR 3013: an element's own lines and its children stand in `/K` order, so a line of the page
+    // holding content from both sides of a child is two lines in the tree — 19 more lines, the
+    // same characters, A/B'd per document against 7471eeff (`bug1997343.pdf` 15, `bug2009627.pdf`,
+    // `bug1937438_from_word.pdf` 1 each, `bug1937438_af_from_latex.pdf` 2).
+    gate_ratchet::floor("lines", tracked_census.lines, 2502);
     gate_ratchet::floor("characters", tracked_census.characters, 31_436);
     // §7.6.6's `/AuthEvent` is read against Table 25, whose next sentence is "if authorization
     // fails, the event shall fail". `encrypted-attachment.pdf` states no `/AuthEvent`, so Table

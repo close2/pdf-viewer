@@ -6135,6 +6135,7 @@ dependencies = [
  "pango",
  "pdf-model",
  "pdf-render",
+ "pdf-signature",
  "pdf-syntax",
  "render-cpu",
  "thiserror 2.0.21",

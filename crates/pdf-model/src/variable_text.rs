@@ -41,10 +41,17 @@
 //! blank page. [`substituted_font`] and [`Resolution`] are what actually happens, and the
 //! asymmetry between a font the document named and one this module inferred is stated there.
 //!
+//! **A `/DA` font whose program will not read is laid out in the substitute its dictionary
+//! describes, and reported** ([`Owed::FontSubstituted`], ADR 3097): §9.5 makes the dictionary
+//! "information that can be used to provide a substitute when the font program is not
+//! available", and the page draws such a font from that substitute (ADR 2619), so the appearance
+//! written here is measured with the face that draws it.
+//!
 //! What is refused whole, each because the clause's own answer is a refusal rather than a
-//! shortfall: a `/DA` with no `Tf` ([`Owed::NoFont`]), a font that will not load or whose codes
-//! cannot be reached from a character ([`Owed::FontUnusable`]), and a composite font whose
-//! `CMap` asks for §9.7.5.1's writing mode 1 ([`Owed::VerticalWritingMode`]). A refusal here
+//! shortfall: a `/DA` with no `Tf` ([`Owed::NoFont`]), a font that will not load even as a
+//! substitute or whose codes cannot be reached from a character ([`Owed::FontUnusable`]), and a
+//! composite font whose `CMap` asks for §9.7.5.1's writing mode 1
+//! ([`Owed::VerticalWritingMode`]). A refusal here
 //! leaves whatever appearance stream the file itself states standing, which is why it is the
 //! right answer where a wrong axis or a wrong glyph would be the alternative.
 
@@ -243,7 +250,25 @@ struct KeptFont {
     label: String,
     /// The font, or the sentence its failure is reported with — kept too, because the same
     /// dictionary fails the same way for every field after the first.
-    loaded: Result<std::sync::Arc<pdf_font::LoadedFont>, String>,
+    loaded: Result<LayoutFont, String>,
+}
+
+/// A font a layout sets text in, and whether it is the substitute for a program that would not
+/// read.
+///
+/// **The substitute is the page's** (ADRs 2619, 2870, `doc/questions/A837`, ADR 3097): ISO
+/// 32000-2 §9.5 says a font dictionary carries "information that can be used to provide a
+/// substitute when the font program is not available", and the interpreter draws a program it
+/// cannot read from [`pdf_font::LoadedFont::substitute_for_unreadable`]. The appearance a layout
+/// writes is drawn by that interpreter, so the layout measures with the same face, and the
+/// program's refusal travels with it so that every layout set in it says so, a kept one included
+/// (trap 5).
+#[derive(Clone)]
+struct LayoutFont {
+    /// The face the text is measured and encoded with.
+    font: std::sync::Arc<pdf_font::LoadedFont>,
+    /// The program's refusal, where `font` stands in for it.
+    unreadable: Option<String>,
 }
 
 impl<'d> LayoutFonts<'d> {
@@ -294,22 +319,33 @@ impl<'d> LayoutFonts<'d> {
     }
 
     /// The font `dict` loads, from an earlier layout where one loaded it, or from the
-    /// interpreter's cache where `/DR` names it by reference as object `reference`.
+    /// interpreter's cache where `/DR` names it by reference as object `reference`; where its
+    /// program will not read, the substitute the page draws it from ([`LayoutFont`]).
     ///
     /// # Errors
     ///
-    /// The load's own error, as the sentence [`Owed::FontUnusable`] carries.
+    /// The load's own error, as the sentence [`Owed::FontUnusable`] carries, where no substitute
+    /// stands in either.
     fn load(
         &self,
         document: &Document,
         dict: &Dictionary,
         reference: Option<pdf_syntax::ObjectId>,
         label: &str,
-    ) -> Result<std::sync::Arc<pdf_font::LoadedFont>, String> {
-        let load = || {
-            pdf_font::LoadedFont::load(document, dict, label)
-                .map(std::sync::Arc::new)
-                .map_err(|error| error.to_string())
+    ) -> Result<LayoutFont, String> {
+        let load = || match pdf_font::LoadedFont::load(document, dict, label) {
+            Ok(font) => Ok(LayoutFont {
+                font: std::sync::Arc::new(font),
+                unreadable: None,
+            }),
+            Err(refusal) => {
+                pdf_font::LoadedFont::substitute_for_unreadable(document, dict, label, &refusal)
+                    .map(|font| LayoutFont {
+                        font: std::sync::Arc::new(font),
+                        unreadable: Some(refusal.to_string()),
+                    })
+                    .ok_or_else(|| refusal.to_string())
+            }
         };
         // Checked before `across` is asked as well as before `kept`: an imported page's layouts
         // are handed this interpreter's cache, and `FontCache` empties itself when asked about
@@ -328,12 +364,23 @@ impl<'d> LayoutFonts<'d> {
             Some((across, object)) => across.program(document, object).map_or_else(
                 || {
                     let loaded = load();
-                    if let Ok(program) = &loaded {
-                        across.keep_program(document, object, program);
+                    // A substitute is not the object's program, and the interpreter's cache serves
+                    // what it holds without the report the substitute owes, so it is not kept there.
+                    if let Ok(LayoutFont {
+                        font,
+                        unreadable: None,
+                    }) = &loaded
+                    {
+                        across.keep_program(document, object, font);
                     }
                     loaded
                 },
-                Ok,
+                |font| {
+                    Ok(LayoutFont {
+                        font,
+                        unreadable: None,
+                    })
+                },
             ),
             None => load(),
         };
@@ -359,6 +406,10 @@ pub(crate) enum Owed {
     FontNotInResources(pdf_syntax::Name),
     /// The named font could not be loaded, or is one this crate cannot address by character.
     FontUnusable(String),
+    /// The named font's program would not read, so the value is laid out and drawn in the
+    /// substitute its dictionary describes, as the page draws such a font (ADR 3097). The
+    /// program's refusal is carried so the report can say what stood in for what.
+    FontSubstituted(String),
     /// The `/DA` names a composite font whose `CMap` sets §9.7.5.1's writing mode 1.
     ///
     /// The name is carried so the report can say which. A whole refusal rather than a report
@@ -470,6 +521,10 @@ impl Owed {
                 name.escaped()
             ),
             Self::FontUnusable(detail) => format!("its /DA's font is unusable: {detail}"),
+            Self::FontSubstituted(detail) => format!(
+                "its /DA's font program is unusable ({detail}), so the value is laid out in the \
+                 substitute face its font dictionary describes (§9.5)"
+            ),
             Self::VerticalWritingMode(name) => format!(
                 "its /DA names the font /{}, whose CMap sets §9.7.5.1's writing mode 1, and \
                  the variable text of §12.7.4.3 is laid out along the horizontal axis here",
@@ -721,20 +776,12 @@ fn set_in(
     request: &Request,
     font_name: &pdf_syntax::Name,
     paragraphs: Option<&pdf_font::shaping::Paragraphs>,
-) -> Result<
-    (
-        Dictionary,
-        std::sync::Arc<pdf_font::LoadedFont>,
-        Encoded,
-        Resolution,
-    ),
-    Owed,
-> {
+) -> Result<SetIn, Owed> {
     let (dict, resolution, reference) = resolve_font_object(document, request.resources, font_name);
     // The label `FontError` puts in its message, which is §7.3.5's text exception rather than a
     // lookup — so it is the escaped form, which names the name exactly.
     let label = font_name.escaped();
-    let font = request
+    let LayoutFont { font, unreadable } = request
         .fonts
         .load(document, &dict, reference, &label)
         .map_err(Owed::FontUnusable)?;
@@ -794,7 +841,28 @@ fn set_in(
     {
         (dict, font, runs) = machine;
     }
-    Ok((dict, font, runs, resolution))
+    Ok(SetIn {
+        dict,
+        font,
+        runs,
+        resolution,
+        unreadable,
+    })
+}
+
+/// What [`set_in`] answers: the font dictionary, the face, the value encoded through it, how the
+/// `/DA`'s name was resolved, and the refusal of the program a substitute stands in for.
+struct SetIn {
+    /// The dictionary the face was loaded from, whose metrics place the lines.
+    dict: Dictionary,
+    /// The face the value is encoded and measured with.
+    font: std::sync::Arc<pdf_font::LoadedFont>,
+    /// The value, encoded.
+    runs: Encoded,
+    /// How the `/DA`'s font name was found.
+    resolution: Resolution,
+    /// The font program's refusal, where [`Self::font`] is the substitute for it (ADR 3097).
+    unreadable: Option<String>,
 }
 
 /// One face a rich text string's runs are set in: the font, the dictionary it came from, and the
@@ -1893,8 +1961,13 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     // UAX #9's resolution of the value, `None` where every character is left to right; the lines
     // it is reordered by are only known once the layout has broken them (ADR 1413).
     let paragraphs = pdf_font::shaping::Paragraphs::new(request.text);
-    let (dict, font, runs, resolution) =
-        set_in(document, request, &font_name, paragraphs.as_ref())?;
+    let SetIn {
+        dict,
+        font,
+        runs,
+        resolution,
+        unreadable,
+    } = set_in(document, request, &font_name, paragraphs.as_ref())?;
 
     let metrics = Metrics::read(document, &dict);
     if resolution != Resolution::Named && !(runs.missing.is_empty() && runs.unformed.is_empty()) {
@@ -1930,6 +2003,10 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // is a different statement from one whose length fell short, and it is the one that
         // explains the other when it follows from it.
         Some(Owed::FontNotInResources(font_name.clone()))
+    } else if let Some(detail) = unreadable {
+        // Named ahead of a shortfall for the same reason: the substitute's encoding and widths
+        // are what any shortfall below would follow from.
+        Some(Owed::FontSubstituted(detail))
     } else if runs.truncated {
         Some(Owed::Truncated(MAX_CODES))
     } else if !runs.missing.is_empty() {

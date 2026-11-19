@@ -417,18 +417,18 @@ jobs:
   # viewer_ffi.dll first, which no other job builds for Windows, so the window's project copies the
   # library it loads beside the executable and the step after it checks that it did.
   #
-  # The ceiling is thirty-six minutes, restated from runs as ADR 2024's are: the four green runs of
+  # The ceiling is thirty-eight minutes, restated from runs as ADR 2024's are: the four green runs of
   # 2026-10-20 to 22 took 311 to 610 s, twice the longer is about twenty minutes, and the publish,
   # its check and the start on a document added after them are priced at up to seven more, the
   # start's own five-minute ceiling among them (ADR 2374), and Table 147's run after it at up to
-  # eight, its own ceiling, for two windows of up to two minutes each (ADR 2436).
+  # ten, its own ceiling, for three windows of up to two minutes each (ADRs 2436, 3099).
   #
   # The window is released (ADR 2374): on a push to main the published folder is handed to
   # `snapshot-window` below, which puts the decoder's worker beside it for the snapshot.
   window:
     runs-on: windows-latest
     name: window (WinUI 3)
-    timeout-minutes: 36  # see `check` above, and the comment above this job
+    timeout-minutes: 38  # see `check` above, and the comment above this job
     steps:
       - uses: actions/checkout@v5
         with:
@@ -504,15 +504,16 @@ jobs:
           if ($title -notlike '*type4_pi*') { throw "after 120 s the window's title is '$title', which does not name type4_pi" }
           "the window's title: $title"
 
-      # §12.2's half that only Windows can run (ADRs 2301, 2308, 2436): the published window started
-      # under its own `--probe` word on two documents written here, its log read back, and each
+      # §12.2's half that only Windows can run (ADRs 2301, 2308, 2436, 3099): the published window started
+      # under its own `--probe` word on three documents written here, its log read back, and each
       # assertion a sentence of Table 147 held to what the window says it did. The window writes
       # what it reads back from its own AppWindow and page area after acting, never what it was
       # asked, and the sentences matched below are copied from Probe.cs, which writes them. The
       # library's half -- the numbers a placement is -- is drive_a_window.c's (ADR 2308); this step
-      # holds the window to carrying them out. Its ceiling is the title step's, for two windows.
-      - name: Run Table 147's placement and full screen in the published window
-        timeout-minutes: 8
+      # holds the window to carrying them out. Its ceiling is the title step's, for two windows, and
+      # two minutes more for the third.
+      - name: Run Table 147's placement, full screen and window controls in the published window
+        timeout-minutes: 10
         shell: pwsh
         run: |
           # A document of numbered objects with a cross-reference table whose offsets are counted
@@ -570,6 +571,7 @@ jobs:
           $placed = Join-Path $env:RUNNER_TEMP 'placed.pdf'
           Write-Document $placed '<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /ViewerPreferences << /FitWindow true /CenterWindow true /NonFullScreenPageMode /UseOutlines >> >>'
           $probe = Read-Probe $placed '^probe: placed: '
+          $probe_placed = $probe
           $line = @($probe | Where-Object { $_ -like 'probe: placed: *' })[-1]
           $resized = @($probe | Where-Object { $_ -like 'probe: asked to resize the window to *' }).Count
           if ($line -match '^probe: placed: the page area (\d+) by (\d+), the window (\d+) by (\d+) at (-?\d+), (-?\d+), on the work area (-?\d+), (-?\d+), (\d+) by (\d+)$') {
@@ -611,6 +613,24 @@ jobs:
           Verdict ($escape -ge 0 -and $back.Count -ge 1 -and ($after -contains 'probe: the pane is open on Contents')) `
             "/NonFullScreenPageMode /UseOutlines, 'specifying how to display the document on exiting full-screen mode', 'Document outline visible'" `
             "after Escape: $(($after | Where-Object { $_ -like 'probe: the p*' }) -join '; ')"
+
+          # A page stating Table 147's /HideWindowUI, read back on the two controls ApplyChrome sets
+          # (WindowProbe.Controls, ADR 3099). Its calibration is the placed page above, which states
+          # no /HideWindowUI and so must have said both controls are shown: a probe that wrote the
+          # collapsed line for every document would fail there rather than pass here.
+          $shown = 'probe: the status line is visible, the pane toggle is visible'
+          $hidden = 'probe: the status line is collapsed, the pane toggle is hidden'
+          $plain = @($probe_placed | Where-Object { $_ -like 'probe: the status line is *' })
+          Verdict ($plain.Count -ge 1 -and $plain[-1] -eq $shown) `
+            "/HideWindowUI, 'Default value: false', on the placed page stating none" `
+            "the last controls line: $(if ($plain.Count) { $plain[-1] } else { 'none' })"
+          $bare = Join-Path $env:RUNNER_TEMP 'bare.pdf'
+          Write-Document $bare '<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /ViewerPreferences << /HideWindowUI true >> >>'
+          $probe = Read-Probe $bare '^probe: the status line is collapsed, '
+          $said = @($probe | Where-Object { $_ -like 'probe: the status line is *' })
+          Verdict ($said.Count -ge 1 -and $said[-1] -eq $hidden) `
+            "/HideWindowUI, 'A flag specifying whether to hide user interface elements in the document's window (such as scroll bars and navigation controls), leaving only the document's contents displayed'" `
+            "the last controls line: $(if ($said.Count) { $said[-1] } else { 'none' })"
 
           if ($failed.Count -gt 0) { throw "$($failed.Count) of Table 147's sentences were not held: $($failed -join ' | ')" }
 

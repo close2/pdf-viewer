@@ -295,8 +295,10 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `/HideWindowUI` is checked as a state mapping (`Quorra.Chrome.Tests`), and the probe now writes a
   line for the two controls `MainWindow.ApplyChrome` sets, the status line's `Visibility` and the
   navigation's `IsPaneToggleButtonVisible`, as read back (`WindowProbe.Controls`).
-  No run has written it yet: a document stating `/HideWindowUI` in that step, and the step holding
-  the line, are owed.
+  The step now opens a third document stating `/HideWindowUI` and holds that line to `the status
+  line is collapsed, the pane toggle is hidden`, with the placed page's visible pair as its
+  calibration (ADR 3099); its first run on main is what checks the PowerShell, which nothing on the
+  development machine parses.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the
