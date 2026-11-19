@@ -72,8 +72,8 @@ use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{
     Artifact, BlockProgression, Category, CellPlacement, Child, HeaderScope, InlineStatements,
-    ListEntry, Nonstandard, StandardType, TableStack, TextDecoration, TextPosition, Tree,
-    list_predecessors, table_cell_rectangles,
+    ListEntry, Nonstandard, StandardType, TableStack, TextAlign, TextDecoration, TextPosition,
+    Tree, WritingMode, list_predecessors, table_cell_rectangles,
 };
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -663,6 +663,56 @@ pub struct AccessibilityNode {
     /// and a negative one a subscript; the nearest statement wins, so an element's own shift
     /// outranks an inherited `/TextPosition` and its own `/TextPosition` outranks both (ADR 2384).
     pub position: TextPosition,
+    /// Table 379's `/TextAlign` for the block this element's own text is laid in, as a side of
+    /// the page: where the element or an ancestor states one.
+    ///
+    /// `None` where nothing on the way up states it, **although the cell's default is `Start`**:
+    /// the default parameterises a layout process this program does not run, and a heading
+    /// centred on the page whose producer stated no alignment is not left-aligned text. What is
+    /// carried is what the document says, as [`Self::decoration_colour`] carries no default
+    /// colour. `None` too for `Start` and `End` under a vertical writing mode, whose start edge is
+    /// the top or the bottom of the page, which no platform's alignment names (ADR 3191).
+    pub alignment: Option<LineAlignment>,
+}
+
+/// Which side of the page a block's lines are aligned to: Table 379's `/TextAlign` with its
+/// start and end edges turned into page edges by Table 378's `/WritingMode`.
+///
+/// The turning is §14.8.3.3's: "Block layout proceeds from before to after, inline from start to
+/// end", and the writing mode's first half names the inline progression — so `Start` is the left
+/// edge under `LrTb` and the right edge under `RlTb`. The four values are the ones every platform
+/// text interface offers, which is why this enum and not [`TextAlign`] is what a host is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineAlignment {
+    /// The page's left edge.
+    Left,
+    /// The page's right edge.
+    Right,
+    /// Centred between the start and end edges.
+    Center,
+    /// Aligned with both edges.
+    Justify,
+}
+
+impl LineAlignment {
+    /// `stated` under `mode`, or `None` where the mode's inline progression is vertical and the
+    /// statement names an edge.
+    #[must_use]
+    pub fn of(stated: TextAlign, mode: WritingMode) -> Option<Self> {
+        let start_is_left = match mode {
+            WritingMode::LrTb | WritingMode::LrBt => Some(true),
+            WritingMode::RlTb | WritingMode::RlBt => Some(false),
+            WritingMode::TbRl | WritingMode::TbLr | WritingMode::BtRl | WritingMode::BtLr => None,
+        };
+        match stated {
+            TextAlign::Center => Some(Self::Center),
+            TextAlign::Justify => Some(Self::Justify),
+            TextAlign::Start => {
+                start_is_left.map(|left| if left { Self::Left } else { Self::Right })
+            }
+            TextAlign::End => start_is_left.map(|left| if left { Self::Right } else { Self::Left }),
+        }
+    }
 }
 
 impl AccessibilityNode {
@@ -702,6 +752,7 @@ impl AccessibilityNode {
             decoration: TextDecoration::None,
             decoration_colour: None,
             position: TextPosition::Normal,
+            alignment: None,
         }
     }
 }
@@ -1131,7 +1182,11 @@ fn walk(
                 // Table 380's decoration, colour and position, carried down by the reach each
                 // cell states — which for two of them is §14.8.4.1's category, settled here
                 // where the parent's is in hand (ADR 2384).
-                let inline = inline.enter(kind.as_ref(), tree.inline_statements(document, &dict));
+                let inline = inline
+                    .enter(kind.as_ref(), tree.inline_statements(document, &dict))
+                    .aligned(tree.text_align(document, &dict), || {
+                        tree.writing_mode(document, &dict)
+                    });
                 // ISO 32000-1 Table 333's `Private`, which only the PDF 1.7 namespace defines:
                 // "[n]either the Private element nor any of its descendants shall be interpreted or
                 // exported to other document formats". So neither is gathered — no node, no text,
@@ -1480,8 +1535,8 @@ fn names_object(object: ObjectId, parent: Option<usize>, out: &mut [(Option<usiz
     }
 }
 
-/// Table 380's four text attributes as they stand at one element, which is what its children
-/// inherit from.
+/// Table 380's four text attributes, and Table 379's `/TextAlign`, as they stand at one element,
+/// which is what its children inherit from.
 ///
 /// ISO 32000-2 §14.8.5.4.4 gives the four entries three different reaches, and each field is the
 /// one its cell states:
@@ -1516,6 +1571,12 @@ pub(crate) struct Inline {
     /// The summed `/BaselineShift` of the inline chain this element ends, in default user space.
     shift: f32,
     position: TextPosition,
+    /// §14.8.5.4.3's `/TextAlign` as stated here or above: "inheritable" in the plain §14.8.5.3
+    /// sense, carried in the clause's own terms so a descendant in another writing mode turns it
+    /// into its own edge.
+    align: Option<TextAlign>,
+    /// [`Self::align`] under this element's writing mode.
+    alignment: Option<LineAlignment>,
 }
 
 impl Inline {
@@ -1553,6 +1614,25 @@ impl Inline {
             named,
             shift,
             position,
+            align: self.align,
+            alignment: self.alignment,
+        }
+    }
+
+    /// The reach of §14.8.5.4.3's `/TextAlign` at the element [`Self::enter`] entered, which
+    /// states `stated` and is laid in `mode`.
+    ///
+    /// Table 379's cell says the entry "applies only to BLSEs containing text", so an inline element's
+    /// statement is passed over and its block's alignment still reaches its text; every other
+    /// element's statement is taken, because a grouping element's value is what its blocks
+    /// inherit. `mode` is asked only where there is an alignment to turn (ADR 3191).
+    fn aligned(self, stated: Option<TextAlign>, mode: impl FnOnce() -> WritingMode) -> Self {
+        let own = stated.filter(|_| self.category != Some(Category::Inline));
+        let align = own.or(self.align);
+        Self {
+            align,
+            alignment: align.and_then(|align| LineAlignment::of(align, mode())),
+            ..self
         }
     }
 }
@@ -1741,6 +1821,7 @@ pub(crate) fn finish(
         decoration: gathered.inline.decoration,
         decoration_colour: gathered.inline.colour,
         position: gathered.inline.position,
+        alignment: gathered.inline.alignment,
     }
 }
 
@@ -2134,6 +2215,7 @@ mod tests {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         }
     }
 
@@ -2144,6 +2226,66 @@ mod tests {
         stated: super::InlineStatements,
     ) -> super::Inline {
         at.enter(Some(kind), stated)
+    }
+
+    /// §14.8.5.4.3's `/TextAlign`: "inheritable", and it "applies only to BLSEs containing text" —
+    /// so a paragraph takes its section's alignment, a span's own statement is passed over while
+    /// its paragraph's reaches its text, and the start edge is the side the writing mode names
+    /// (ADR 3191).
+    #[test]
+    fn an_alignment_reaches_the_text_of_the_blocks_below_and_a_span_cannot_state_one() {
+        use super::LineAlignment;
+        use pdf_model::structure::{StandardType, TextAlign, WritingMode};
+        let horizontal = || WritingMode::LrTb;
+        let section = entered(
+            super::Inline::default(),
+            &StandardType::Section,
+            super::InlineStatements::default(),
+        )
+        .aligned(Some(TextAlign::Center), horizontal);
+        let paragraph = entered(
+            section,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        )
+        .aligned(None, horizontal);
+        assert_eq!(paragraph.alignment, Some(LineAlignment::Center));
+        let span = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements::default(),
+        )
+        .aligned(Some(TextAlign::End), horizontal);
+        assert_eq!(
+            span.alignment,
+            Some(LineAlignment::Center),
+            "an inline element's statement applies to nothing"
+        );
+        let control = entered(
+            paragraph,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        )
+        .aligned(Some(TextAlign::End), horizontal);
+        assert_eq!(
+            control.alignment,
+            Some(LineAlignment::Right),
+            "the control: a block's own statement is taken"
+        );
+        assert_eq!(
+            LineAlignment::of(TextAlign::Start, WritingMode::RlTb),
+            Some(LineAlignment::Right)
+        );
+        assert_eq!(LineAlignment::of(TextAlign::Start, WritingMode::TbRl), None);
+        assert_eq!(
+            LineAlignment::of(TextAlign::Justify, WritingMode::TbRl),
+            Some(LineAlignment::Justify)
+        );
+        assert_eq!(
+            super::Inline::default().alignment,
+            None,
+            "nothing stated is not the cell's Start"
+        );
     }
 
     /// Table 380's `/TextDecorationType`: "inheritable only for directly nested ILSEs", and it

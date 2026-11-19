@@ -5,9 +5,10 @@ use super::{
     Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, Boundary, Category,
     CellFacts, CellPlacement, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
     MAX_TABLE_COLUMNS, MappedRole, Nonstandard, Owner, ParentTree, Priority, StandardType,
-    TableGrid, TableStack, TextDecoration, Tree, WritingMode, actual_text, allocation_rectangle,
-    alternate_description, annotation_languages, annotation_rectangles, language,
-    list_predecessors, outside_sequences, table_cell_rectangles, well_formed_language_tag,
+    TableGrid, TableStack, TextAlign, TextDecoration, Tree, WritingMode, actual_text,
+    allocation_rectangle, alternate_description, annotation_languages, annotation_rectangles,
+    language, list_predecessors, outside_sequences, table_cell_rectangles,
+    well_formed_language_tag,
 };
 use pdf_syntax::{Dictionary, Document, Object};
 use std::collections::BTreeSet;
@@ -1899,6 +1900,93 @@ fn a_flattened_form_field_says_what_it_was() {
     assert!(
         tree.print_field(&doc, &elements[3]).is_none(),
         "an element with no PrintField attributes has none"
+    );
+}
+
+/// §14.8.5.6's owner sentence: a `PrintField` entry is read from the owners the clause admits.
+///
+/// One `Form` element with four attribute objects. A `PrintField` object states the field's
+/// role; a later `List` object states another role, a `Table` object a state and an `Artifact`
+/// object a description. §14.8.5.3 alone ranks the later `List` object's `/Role` first — the
+/// control — and the clause's exclusion of `Layout`, `List`, `Table` and `Artifact` is what
+/// refuses it, along with the other two excluded owners' entries.
+#[test]
+fn a_print_field_attribute_is_read_only_from_the_owners_its_clause_admits() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K 5 0 R >>",
+        "<< /Type /StructElem /S /Form /Pg 3 0 R /A [6 0 R 7 0 R 8 0 R 9 0 R] >>",
+        "<< /O /PrintField /Role /cb >>",
+        "<< /O /List /Role /rb >>",
+        "<< /O /Table /Checked /on >>",
+        "<< /O /Artifact /Desc (Not a field) >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let Some(Child::Element(form)) = tree.children(&doc, None).first().cloned() else {
+        panic!("one element under the root");
+    };
+
+    assert_eq!(
+        tree.attribute(&doc, &form, "Role")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec())),
+        Some(b"rb".to_vec()),
+        "the control: §14.8.5.3 alone takes the later object, the List one"
+    );
+    let field = tree
+        .print_field(&doc, &form)
+        .expect("the PrintField object states a role");
+    assert_eq!(
+        field.role,
+        Some(FieldRole::CheckBox),
+        "the List object's /Role is refused, and the PrintField object's answers"
+    );
+    assert_eq!(
+        field.checked,
+        Checked::Off,
+        "the Table object's /Checked is refused, so Table 383's default stands"
+    );
+    assert_eq!(
+        field.description, None,
+        "the Artifact object's /Desc is refused"
+    );
+}
+
+/// Table 379's `/TextAlign`, read from §14.8.5.4.1's owners: the `Layout` object's value, not the
+/// later `Table` object's, which §14.8.5.3 alone would take; and a name the cell does not define
+/// states nothing.
+#[test]
+fn a_text_alignment_is_read_from_a_layout_owner() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R 6 0 R] >>",
+        "<< /Type /StructElem /S /P /A [<< /O /Layout /TextAlign /Center >> \
+         << /O /Table /TextAlign /End >>] >>",
+        "<< /Type /StructElem /S /P /A << /O /Layout /TextAlign /Left >> >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let elements: Vec<_> = tree
+        .children(&doc, None)
+        .into_iter()
+        .filter_map(|child| match child {
+            Child::Element(dict) => Some(dict),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        tree.attribute(&doc, &elements[0], "TextAlign")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec())),
+        Some(b"End".to_vec()),
+        "the control: §14.8.5.3 alone takes the later object, the Table one"
+    );
+    assert_eq!(tree.text_align(&doc, &elements[0]), Some(TextAlign::Center));
+    assert_eq!(
+        tree.text_align(&doc, &elements[1]),
+        None,
+        "Left is not one of the cell's four names"
     );
 }
 

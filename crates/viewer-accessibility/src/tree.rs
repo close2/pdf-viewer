@@ -110,11 +110,11 @@
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
 use accesskit::{
-    Action, Affine, Color, Node, NodeId, Rect, Role, TextDecorationStyle, TextDirection, Toggled,
-    Tree, TreeId, TreeUpdate, VerticalOffset,
+    Action, Affine, Color, Node, NodeId, Rect, Role, TextAlign, TextDecorationStyle, TextDirection,
+    Toggled, Tree, TreeId, TreeUpdate, VerticalOffset,
 };
 use pdf_model::structure::{ArtifactKind, Nonstandard, TextDecoration, TextPosition};
-use viewer_core::AccessibilityNode;
+use viewer_core::{AccessibilityNode, LineAlignment};
 
 /// The window, and the root of the tree.
 const ROOT: NodeId = NodeId(0);
@@ -690,6 +690,9 @@ fn silence(tagging: viewer_core::Tagging) -> &'static str {
 /// all four down its tree, and §14.8.5.4.4 says `/TextDecorationType` "shall not apply to nested
 /// BLSEs", so an underline set on a paragraph would reach the block inside it; on the runs, an
 /// element's attributes are exactly the ones `viewer_core` resolved for its own text (ADR 2384).
+/// Table 379's `/TextAlign` goes the same way, as [`Node::set_text_align`], because the platform
+/// inherits it too and `viewer_core` has already resolved which block's statement reaches which
+/// text (ADR 3191).
 fn runs(
     node: &AccessibilityNode,
     lines: &[viewer_core::TextLine],
@@ -711,8 +714,8 @@ fn runs(
     ids
 }
 
-/// Table 380's decoration and position, as `viewer_core` resolved them for this element's text,
-/// on one of its runs.
+/// Table 380's decoration and position, and Table 379's alignment, as `viewer_core` resolved them
+/// for this element's text, on one of its runs.
 fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
     let line = accesskit::TextDecoration {
         style: TextDecorationStyle::Solid,
@@ -728,6 +731,14 @@ fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
         TextPosition::Sup => run.set_vertical_offset(VerticalOffset::Superscript),
         TextPosition::Sub => run.set_vertical_offset(VerticalOffset::Subscript),
         TextPosition::Normal => {}
+    }
+    if let Some(alignment) = node.alignment {
+        run.set_text_align(match alignment {
+            LineAlignment::Left => TextAlign::Left,
+            LineAlignment::Right => TextAlign::Right,
+            LineAlignment::Center => TextAlign::Center,
+            LineAlignment::Justify => TextAlign::Justify,
+        });
     }
 }
 

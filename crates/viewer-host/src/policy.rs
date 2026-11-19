@@ -1125,9 +1125,16 @@ fn bound(
                     note: closed(note, warned, onward),
                 }
             } else {
-                note.push_str(
-                    ". It is not a PDF, so this reader cannot show it; its media type is above",
-                );
+                note.push_str(". It is not a PDF, so this reader cannot show it");
+                // Only a fetched copy's sentence printed the server's media type; a copy a caller
+                // was handed came without one, and the sentence may not point at what it never
+                // said (ADR 3192).
+                note.push_str(match onward {
+                    Onward::ToValidation => "; its media type is above",
+                    Onward::NoCopy | Onward::ByTheCaller => {
+                        "; what kind of document it is, the caller that fetched it was told and                          this program was not"
+                    }
+                });
                 Reply::Say(closed(note, warned, onward))
             }
         }

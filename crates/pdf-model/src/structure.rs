@@ -2214,9 +2214,10 @@ impl StandardType {
 /// > progression order rather than by familiar terms such as up, down, left, and right. Block
 /// > layout proceeds from before to after, inline from start to end.
 ///
-/// Only the block half is read here, because only the block half has a consumer: §14.8.5.4.5
-/// adjusts an allocation rectangle's before and after edges and leaves the start and end ones
-/// alone. The inline half is carried in the variant names and nothing asks for it.
+/// Only the block half is read here, because §14.8.5.4.5 adjusts an allocation rectangle's before
+/// and after edges and leaves the start and end ones alone. The inline half is carried in the
+/// variant names, and its one consumer is the accessibility tree, which turns [`TextAlign`]'s start
+/// and end edges into the page's left and right.
 ///
 /// **Not §9.7's vertical writing**, and the two must not be confused: `/WM` in a `CIDFont` places
 /// glyphs from §9.2.4's metrics, and this places blocks. A document may state either without the
@@ -2273,6 +2274,42 @@ impl WritingMode {
             Self::LrBt | Self::RlBt => BlockProgression::BottomToTop,
             Self::TbRl | Self::BtRl => BlockProgression::RightToLeft,
             Self::TbLr | Self::BtLr => BlockProgression::LeftToRight,
+        }
+    }
+}
+
+/// ISO 32000-2 §14.8.5.4.3's Table 379 `/TextAlign`: where a block-level element's lines sit
+/// between its start and end edges.
+///
+/// > (Optional; inheritable; applies only to BLSEs containing text) The alignment, in the
+/// > inline-progression direction, of text and other content within lines of the BLSE.
+///
+/// The four names the cell defines. Which page edge *start* is depends on [`WritingMode`]'s
+/// inline half, so the value is carried as the clause states it and turned into an edge by
+/// whoever knows the mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    /// `Start` (§14.8.5.4.3): "Aligned with the start edge." The cell's default.
+    Start,
+    /// `Center` (§14.8.5.4.3): "Centred between the start and end edges."
+    Center,
+    /// `End` (§14.8.5.4.3): "Aligned with the end edge."
+    End,
+    /// `Justify` (§14.8.5.4.3): "Aligned with both the start and end edges, with internal
+    /// spacing within each line expanded, if necessary, to achieve such alignment."
+    Justify,
+}
+
+impl TextAlign {
+    /// Reads one of Table 379's four names, or `None` for anything else.
+    #[must_use]
+    pub fn read(name: &[u8]) -> Option<Self> {
+        match name {
+            b"Start" => Some(Self::Start),
+            b"Center" => Some(Self::Center),
+            b"End" => Some(Self::End),
+            b"Justify" => Some(Self::Justify),
+            _ => None,
         }
     }
 }

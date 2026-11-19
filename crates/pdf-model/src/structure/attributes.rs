@@ -9,7 +9,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 
 use super::{
     Artifact, ArtifactKind, AttributeObject, Checked, FieldRole, MAX_ANCESTRY, MAX_CHILDREN, Owner,
-    PrintField, Tree, paired, ranked,
+    PrintField, TextAlign, Tree, paired, ranked,
 };
 
 impl Tree {
@@ -188,6 +188,22 @@ impl Tree {
         ranked(document, &attached, name, layout_owner)
     }
 
+    /// §14.8.5.4.3's `/TextAlign` (Table 379) as this element states it, under §14.8.5.4.1's
+    /// owners.
+    ///
+    /// The element's own statement only, and `None` where it makes none or names a value the
+    /// cell does not define. The entry is "inheritable" and "applies only to BLSEs containing
+    /// text", and both halves need the element's §14.8.4.1 category, which is the caller's — an
+    /// inline element's statement applies to nothing and still does not stop its block's
+    /// alignment reaching its text — so the walk that knows the categories does the inheriting.
+    #[must_use]
+    pub fn text_align(&self, document: &Document, element: &Dictionary) -> Option<TextAlign> {
+        self.layout_attribute(document, element, "TextAlign")
+            .as_ref()
+            .and_then(Object::as_name)
+            .and_then(|name| TextAlign::read(name.as_bytes()))
+    }
+
     /// [`Self::layout_attribute`] with §14.8.5.3's fourth priority: this element's value, or its
     /// nearest ancestor's, for an attribute Table 377 marks inheritable.
     ///
@@ -226,14 +242,19 @@ impl Tree {
     /// `None` where the element states no `PrintField` attributes, which is every element of
     /// every corpus document — measured.
     ///
-    /// Which attribute objects may carry it is stated by the clause and applied by
-    /// [`Self::attribute`] already: it "may only be defined in attribute objects whose O (owner)
-    /// entry has the value `PrintField` or whose owner is any other owner excluding `Layout`,
-    /// `List`, `Table` and `Artifact`" — a paraphrase in this crate's own spelling of the names.
+    /// Which attribute objects may carry it is stated by the clause's last sentence:
+    ///
+    /// > This attribute may only be defined in attribute objects whose O (owner) entry has the
+    /// > value PrintField or whose owner is any other owner excluding Layout, List, Table and
+    /// > Artifact
+    ///
+    /// and the entries are read through `Tree::print_field_attribute`, which applies it. A
+    /// `/Role` under a `List` object is therefore not a field's role, however late §14.8.5.3
+    /// ranks it (ADR 3189).
     #[must_use]
     pub fn print_field(&self, document: &Document, element: &Dictionary) -> Option<PrintField> {
         let role = self
-            .attribute(document, element, "Role")
+            .print_field_attribute(document, element, "Role")
             .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()));
         // Table 383 gives this entry two spellings and deprecates one of them: "Checked,
         // checked … lower case form is deprecated in PDF 2.0", with NOTE 2 explaining that the
@@ -241,10 +262,10 @@ impl Tree {
         // Both are read, the current spelling first, because deprecation tells a *writer* what
         // to stop doing — the same reading §12.2's `/ViewArea` gets.
         let checked = self
-            .attribute(document, element, "Checked")
-            .or_else(|| self.attribute(document, element, "checked"))
+            .print_field_attribute(document, element, "Checked")
+            .or_else(|| self.print_field_attribute(document, element, "checked"))
             .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()));
-        let description = match self.attribute(document, element, "Desc") {
+        let description = match self.print_field_attribute(document, element, "Desc") {
             Some(Object::String(bytes)) => Some(pdf_syntax::text_string(&bytes)),
             _ => None,
         };
@@ -335,6 +356,26 @@ impl Tree {
             bbox: self.bounds(document, element),
             attached: [false; 4],
         }
+    }
+
+    /// One Table 383 attribute, under the owners §14.8.5.6's last sentence permits.
+    ///
+    /// The narrowing [`Self::artifact_attribute`] applies for §14.8.5.8 with the clause's own
+    /// four exclusions, applied to [`AttributeObject::effective_owner`] for the same reason; the
+    /// ranking among the admitted objects is §14.8.5.3's unchanged.
+    fn print_field_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let attached = self.attributes(document, element);
+        ranked(document, &attached, name, |owner| {
+            !matches!(
+                owner,
+                Owner::Layout | Owner::List | Owner::Table | Owner::Artifact
+            )
+        })
     }
 
     /// One Table 385 attribute, under the owners §14.8.5.8's first sentence permits.

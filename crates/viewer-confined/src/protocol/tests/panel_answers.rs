@@ -764,6 +764,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // A `Table` whose `/Summary` crossed, because §14.8.5.7 wrote it "[f]or use in
         // non-visual rendering" and the only non-visual renderer is on the host's side of
@@ -799,6 +800,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // A `Figure` marks no text, so Table 379's `/BBox` is the only place it has — and
         // a rectangle that did not cross would leave a magnifier nothing to point at.
@@ -837,6 +839,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // A `TH` whose axis Table 384 states, because a header cell that crossed as a
         // column's when the document called it a row's would be read out backwards.
@@ -884,6 +887,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // §14.8.4.7.2's `Form`, which is one widget annotation: the control it names is
         // what makes a screen reader say "check box, ticked" instead of "group", so a
@@ -920,6 +924,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // And a `TD` that §14.8.4.8.3's search gave the header beside it, because a cell
         // whose headers did not cross would be announced with nothing in front of it.
@@ -972,6 +977,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // Two `L` elements, the second continuing the first: §14.8.5.5's two entries live in
         // §14.7.6's attribute objects, which only the confined side reads, and nothing a host
@@ -1007,6 +1013,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         AccessibilityNode {
             parent: Some(0),
@@ -1039,6 +1046,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // §14.8.4.8.7's `Artifact`, with Table 385's three entries and §14.8.5.4.5's second
         // rectangle. Both are read out of §14.7.6's attribute objects, which only the
@@ -1086,6 +1094,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // A `Form` naming a text field, with §12.7.4.3's value beside its control: what a screen
         // reader reads as the field's contents (ADR 1489). A wire that dropped it would publish
@@ -1133,6 +1142,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         // Two elements that are not standard types, each with the reason the reading side
         // gave, because the reason is what a host cannot work out from the name: a foreign
@@ -1168,6 +1178,7 @@ fn every_panel_answer_round_trips() {
             decoration: pdf_model::structure::TextDecoration::None,
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
+            alignment: None,
         },
         AccessibilityNode {
             parent: Some(0),
@@ -1197,11 +1208,12 @@ fn every_panel_answer_round_trips() {
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
-            // Table 380's three, away from their defaults so that the round trip is seen to
-            // carry each (ADR 2384).
+            // Table 380's three and Table 379's alignment, away from their defaults so that
+            // the round trip is seen to carry each (ADRs 2384, 3191).
             decoration: pdf_model::structure::TextDecoration::LineThrough,
             decoration_colour: Some([0.25, 0.5, 1.0]),
             position: pdf_model::structure::TextPosition::Sub,
+            alignment: Some(viewer_core::LineAlignment::Justify),
         },
     ];
     // Two pages, because a column crosses several and a decoder that read one page's list

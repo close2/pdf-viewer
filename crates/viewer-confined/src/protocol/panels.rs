@@ -61,7 +61,8 @@ use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp, XmpError};
 use pdf_render::{Color, Image};
 use pdf_syntax::{Name, Object};
 use viewer_core::{
-    AccessibilityNode, Character, FormField, FormWidget, Layer, PopupWindow, TableCell, TextLine,
+    AccessibilityNode, Character, FormField, FormWidget, Layer, LineAlignment, PopupWindow,
+    TableCell, TextLine,
 };
 
 use super::{ProtocolError, Reader, Uncarried, Writer};
@@ -1984,6 +1985,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             decoration,
             decoration_colour,
             position,
+            alignment,
         } = node;
         writer
             .option_usize(*parent)
@@ -2004,34 +2006,13 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         writer
             .option_str(summary.as_deref())
             .option_str(short.as_deref());
-        match bounds {
-            Some(rect) => {
-                writer.u8(1).numbers(rect);
-            }
-            None => {
-                writer.u8(0);
-            }
-        }
+        encode_rectangle(writer, bounds.as_ref());
         // §14.8.3.3's content rectangle, beside the stated one rather than folded into it: the
         // two are different kinds of fact and the host decides between them (`tree::place`).
-        match drawn {
-            Some(rect) => {
-                writer.u8(1).numbers(rect);
-            }
-            None => {
-                writer.u8(0);
-            }
-        }
+        encode_rectangle(writer, drawn.as_ref());
         // §14.8.3.3's *other* rectangle. Table 379's spacing and Table 378's writing mode are both
         // in §14.7.6's attribute objects, so nothing on the far side could add it to the first.
-        match allocation {
-            Some(rect) => {
-                writer.u8(1).numbers(rect);
-            }
-            None => {
-                writer.u8(0);
-            }
-        }
+        encode_rectangle(writer, allocation.as_ref());
         // Table 385's artifact attributes, for an element §14.8.4.8.7 makes an `Artifact`: which
         // kind of artifact it is, which decides what §14.8.2.2.1's text-to-speech engine does
         // about it.
@@ -2066,7 +2047,13 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         // predecessor is in this answer at all — which. Both are in §14.7.6's attribute objects,
         // which only this side reads, and nothing a host can see says a list is a continuation.
         writer.bool(*continues_a_list).option_usize(*continued_from);
-        encode_drawn_as(writer, *decoration, decoration_colour.as_ref(), *position);
+        encode_drawn_as(
+            writer,
+            *decoration,
+            decoration_colour.as_ref(),
+            *position,
+            *alignment,
+        );
         writer.usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
@@ -2172,6 +2159,7 @@ pub(super) fn decode_accessibility(
             decoration: read_decoration(reader)?,
             decoration_colour: read_decoration_colour(reader)?,
             position: read_position(reader)?,
+            alignment: read_alignment(reader)?,
             quads: super::wire::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
             interleaving: reader.list("a node's child positions", |reader| {
@@ -2250,14 +2238,27 @@ fn read_standard(
     })
 }
 
-/// Table 380's decoration, its colour and the text's position, which `viewer_core` resolves down
-/// the tree by each cell's own reach — §14.8.4.1's categories and §14.7.6's attribute objects,
-/// neither of which a host holds (ADR 2384).
+/// One of a node's three rectangles, behind a flag byte that says whether there is one.
+fn encode_rectangle(writer: &mut Writer, rectangle: Option<&[f32; 4]>) {
+    match rectangle {
+        Some(rectangle) => {
+            writer.u8(1).numbers(rectangle);
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+}
+
+/// Table 380's decoration, its colour and the text's position, and Table 379's alignment, which
+/// `viewer_core` resolves down the tree by each cell's own reach — §14.8.4.1's categories and
+/// §14.7.6's attribute objects, neither of which a host holds (ADRs 2384, 3191).
 fn encode_drawn_as(
     writer: &mut Writer,
     decoration: TextDecoration,
     colour: Option<&[f32; 3]>,
     position: TextPosition,
+    alignment: Option<LineAlignment>,
 ) {
     writer.u8(decoration_kind(decoration));
     match colour {
@@ -2269,6 +2270,7 @@ fn encode_drawn_as(
         }
     }
     writer.u8(position_kind(position));
+    writer.u8(alignment_kind(alignment));
 }
 
 /// Table 380's `/TextDecorationType`, as one byte: the standard's closed set of four.
@@ -2332,6 +2334,31 @@ fn read_position(reader: &mut Reader<'_>) -> Result<TextPosition, ProtocolError>
         1 => TextPosition::Sup,
         2 => TextPosition::Sub,
         value => return Err(unrecognised("a node's text position", value)),
+    })
+}
+
+/// Table 379's `/TextAlign` as `viewer_core` turned it into a page edge, as one byte: like
+/// [`decoration_kind`], resolved on this side, because the attribute objects and the writing mode
+/// that turn it are §14.7.6's and only this side reads them (ADR 3191).
+fn alignment_kind(alignment: Option<LineAlignment>) -> u8 {
+    match alignment {
+        None => 0,
+        Some(LineAlignment::Left) => 1,
+        Some(LineAlignment::Right) => 2,
+        Some(LineAlignment::Center) => 3,
+        Some(LineAlignment::Justify) => 4,
+    }
+}
+
+/// The inverse of [`alignment_kind`].
+fn read_alignment(reader: &mut Reader<'_>) -> Result<Option<LineAlignment>, ProtocolError> {
+    Ok(match reader.u8("a node's text alignment")? {
+        0 => None,
+        1 => Some(LineAlignment::Left),
+        2 => Some(LineAlignment::Right),
+        3 => Some(LineAlignment::Center),
+        4 => Some(LineAlignment::Justify),
+        value => return Err(unrecognised("a node's text alignment", value)),
     })
 }
 

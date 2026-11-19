@@ -262,6 +262,28 @@ fn a_copy_a_c_caller_was_handed_is_compared_and_enforced_once_handed_on() {
     );
 }
 
+/// A handed copy that is not a PDF is said without pointing at a media type its sentence never
+/// printed, which a fetched copy's sentence does print (ADR 3192).
+#[test]
+fn a_handed_copy_that_is_not_a_pdf_names_no_media_type_it_was_not_given() {
+    let copy = b"<policy/>".to_vec();
+    let policy = PublishedPolicy {
+        commitment: Commitment::Stated {
+            digest: Digest::Sha1,
+            value: Digest::Sha1.compute(&[copy.as_slice()]),
+        },
+        ..published("https://example.invalid/policy.xml")
+    };
+    let Reply::Say(note) = signature_policy_handed(&policy, copy) else {
+        panic!("a copy that is not a PDF is said, not opened");
+    };
+    assert!(
+        note.contains("It is not a PDF, so this reader cannot show it; what kind of document"),
+        "{note}"
+    );
+    assert!(!note.contains("media type is above"), "{note}");
+}
+
 /// How long a loopback answer may take before the test calls it lost. A bound on a failure only:
 /// the wait ends at the submitter's wake, which comes as soon as the answer is on its channel.
 const ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_mins(1);
@@ -578,6 +600,14 @@ fn a_policy_the_window_fetched_is_enforced_by_the_document_s_validation() {
             panic!("a copy that is not a PDF is said, not opened");
         };
         assert!(note.contains(HANDED), "{note}");
+        // The control for the handed copy's sentence: a fetched copy's printed the server's
+        // media type, so a bound one that is not a PDF may point at it.
+        if note.contains("is the document the signer committed to") {
+            assert!(
+                note.contains("(application/xml, ") && note.contains("its media type is above"),
+                "{note}"
+            );
+        }
         (url, before, after)
     };
 

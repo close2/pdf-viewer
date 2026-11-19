@@ -16,7 +16,7 @@ use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::structure::{HeaderScope, Nonstandard, StandardType, TextDecoration, TextPosition};
 use pdf_model::view::ShownValue;
 use viewer_accessibility::{DocumentView, PageView, tree};
-use viewer_core::{AccessibilityNode, Character, TextLine};
+use viewer_core::{AccessibilityNode, Character, LineAlignment, TextLine};
 
 /// One structure element, as `Query::AccessibilityTree` would answer with it.
 ///
@@ -54,6 +54,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         decoration: TextDecoration::None,
         decoration_colour: None,
         position: TextPosition::Normal,
+        alignment: None,
     }
 }
 
@@ -924,6 +925,25 @@ fn a_decoration_and_a_position_reach_the_platform_on_the_runs() {
     let plain = built(view(&[typed("plain", (0.0, 0.0), 5.0)], &[]));
     let run = node(&plain, NodeId(2_000_000));
     assert_eq!((run.underline(), run.vertical_offset()), (None, None));
+}
+
+/// Table 379's `/TextAlign`, turned into a page edge by `viewer_core`, reaches the platform on the
+/// element's runs and not on its node, as Table 380's decoration does (ADR 3191); an element whose
+/// document states no alignment has none set, rather than the cell's `Start` default.
+#[test]
+fn an_alignment_reaches_the_platform_on_the_runs() {
+    let nodes = [AccessibilityNode {
+        alignment: Some(LineAlignment::Center),
+        ..typed("centred", (0.0, 0.0), 5.0)
+    }];
+    let update = built(view(&nodes, &[]));
+    assert_eq!(node(&update, NodeId(16)).text_align(), None);
+    assert_eq!(
+        node(&update, NodeId(2_000_000)).text_align(),
+        Some(accesskit::TextAlign::Center)
+    );
+    let plain = built(view(&[typed("plain", (0.0, 0.0), 5.0)], &[]));
+    assert_eq!(node(&plain, NodeId(2_000_000)).text_align(), None);
 }
 
 /// The page is the node that carries the text, and that is a platform's requirement.
