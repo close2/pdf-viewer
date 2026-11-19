@@ -327,6 +327,32 @@ fn detached_pid(opened: &str, what: &str) -> Option<String> {
     (!pid.is_empty()).then_some(pid)
 }
 
+/// The ceiling on a wait for a detached job's next mark while the job still runs. A wait ends at
+/// the mark, or at the job's end, which no mark follows; this bounds only a job that neither marks
+/// nor ends. Measured on the shared machine (ADR 3114): the export runs at the wrapper's `nice 19`,
+/// in a slice at its memory ceiling, and with a processor pressure of 89 % its first README line
+/// came 20 s after its lock, which is a figure of the load and not of the script.
+const DETACHED_MARK_CEILING_SECONDS: u64 = 300;
+
+/// Polls `condition` every tenth of a second until it holds or the process group `group` has
+/// ended, then reads it once more, since a job writes its last mark before its last process exits.
+/// A wait for an event rather than for a number of seconds: a loaded machine delays the mark and
+/// the end alike, so neither outruns the other.
+fn marked_before_ending(group: &str, condition: impl Fn() -> bool) -> bool {
+    let ceiling = std::time::Duration::from_secs(DETACHED_MARK_CEILING_SECONDS);
+    let asked = std::time::Instant::now();
+    while asked.elapsed() < ceiling {
+        if condition() {
+            return true;
+        }
+        if !group_runs(group) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    condition()
+}
+
 /// Polls `condition` every tenth of a second for at most `seconds`.
 fn within(seconds: u64, condition: impl Fn() -> bool) -> bool {
     for _ in 0..seconds.saturating_mul(10) {
@@ -1507,6 +1533,9 @@ fn arms_says_when_its_hold_of_the_lock_ended_in_the_logs_own_words() {
 /// lock through `tools/bounded.sh --lock`, so its hold is a line of the lock's log, written when
 /// the job is stopped (ADR 1662). Calibrated by planting the defect (trap 13): with `cd … &&
 /// setsid … &` restored in `detach`, `open` took the stand-in's whole minute and this test failed.
+/// Each of the export's three marks — the lock taken, the README's lock line, the log's line — is
+/// waited for until it is there or the export has ended (ADR 3114), so a loaded machine that
+/// starts the export late is waited out and an export that ends without the mark still fails.
 #[test]
 fn open_returns_while_the_warm_build_and_the_arms_export_run_detached() {
     let started = std::time::Instant::now();
@@ -1540,7 +1569,7 @@ fn open_returns_while_the_warm_build_and_the_arms_export_run_detached() {
         sandbox.opened
     );
     let lock = sandbox.lock();
-    let held = within(20, || {
+    let held = marked_before_ending(&arms, || {
         Command::new("flock")
             .args(["-n"])
             .arg(&lock)
@@ -1557,7 +1586,7 @@ fn open_returns_while_the_warm_build_and_the_arms_export_run_detached() {
     // The export under the lock wrote its README's lock line, so `arms-held` found the
     // descriptor the wrapper handed down rather than refusing for want of it.
     let readme = sandbox.base.join("arms-9001/README");
-    let under_the_lock = within(20, || {
+    let under_the_lock = marked_before_ending(&arms, || {
         std::fs::read_to_string(&readme).is_ok_and(|text| text.contains("\nlock: queued "))
     });
     assert!(
@@ -1568,7 +1597,7 @@ fn open_returns_while_the_warm_build_and_the_arms_export_run_detached() {
     );
     stop_group(&arms);
     let log = sandbox.base.join("heavy-walk.log");
-    let logged = within(20, || {
+    let logged = marked_before_ending(&arms, || {
         std::fs::read_to_string(&log).is_ok_and(|text| {
             text.lines()
                 .any(|line| line.contains(" batch=batch-9001-9006 round=arms wait="))
