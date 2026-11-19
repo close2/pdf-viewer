@@ -890,11 +890,14 @@ fn family_of(
     if folded.contains("courier") || folded.contains("mono") || folded.contains("consol") {
         return Family::Monospace;
     }
+    // `Century` names a serifed family (Schoolbook, Expanded, Old Style) except in `Century
+    // Gothic`, a geometric sans-serif face named by the sans style's own word, which therefore
+    // keeps the name out of the serif words (ADR 3146).
     if folded.contains("times")
         || folded.contains("georgia")
         || folded.contains("garamond")
         || folded.contains("palatino")
-        || folded.contains("century")
+        || folded.contains("century") && !folded.contains("gothic")
         || folded.contains("cambria")
         || folded.contains("book")
         || folded.contains("serif") && !folded.contains("sansserif")
@@ -957,7 +960,7 @@ fn family_of(
 /// type: Mincho (明朝) in Japanese, Song (宋体) and Ming (明體) in Chinese, Batang and Myeongjo
 /// (명조) in Korean — the counterpart of a Latin serif face, with the stroke-end serifs the name
 /// describes — and the families every one of whose members is one: Kozuka Mincho
-/// (`KozMin`), Ryumin, Heisei Mincho (`HeiseiMin`) and `SimSun`.
+/// (`KozMin`), Ryumin, Heisei Mincho (`HeiseiMin`), Hiragino Mincho (`HiraMin`) and `SimSun`.
 ///
 /// **A documented choice, and the name's rather than the clause's**: Table 121's `Serif` flag is
 /// read where the name says nothing ([`family_of`]), and a Mincho that sets it is a serif face
@@ -977,6 +980,7 @@ fn names_a_cjk_serif(folded: &str) -> bool {
         "kozmin",
         "ryumin",
         "heiseimin",
+        "hiramin",
         "simsun",
     ]
     .iter()
@@ -2753,7 +2757,7 @@ mod tests {
     }
 
     /// The names of the serifed CJK styles are serif requests, and the gothic and sans ones are
-    /// not (ADR 3102).
+    /// not (ADRs 3102 and 3146).
     #[test]
     fn a_mincho_song_or_myeongjo_name_is_a_serif() {
         for name in [
@@ -2761,6 +2765,8 @@ mod tests {
             "msmincho",
             "ryuminlightkl",
             "heiseiminw3",
+            "hiraminpronw3",
+            "hiraminprow6",
             "simsun",
             "stsong",
             "adobesongstdlight",
@@ -2775,6 +2781,8 @@ mod tests {
         for name in [
             "kozgopr6nregular",
             "msgothic",
+            "hirakakupronw3",
+            "hiramarupronw4",
             "simhei",
             "dotum",
             "gulim",
@@ -2840,6 +2848,31 @@ mod tests {
         ] {
             assert!(!names_a_cjk_sans(name), "{name}");
         }
+    }
+
+    /// `issue4722`'s `/CenturyGothic,Bold`, a geometric sans-serif face, is a sans request though
+    /// `Century` alone names a serifed family, and `Century Schoolbook` stays a serif one (ADR
+    /// 3146). The descriptor's `/Flags` 4 states no Serif bit, so the name alone decides here.
+    #[test]
+    fn century_gothic_is_a_sans_request_and_century_schoolbook_a_serif_one() {
+        let document = Document::empty();
+        let named = |name: &[u8]| {
+            let mut dict = Dictionary::new();
+            dict.insert(
+                Name::new(b"BaseFont".to_vec()),
+                Object::Name(Name::new(name.to_vec())),
+            );
+            dict
+        };
+        let flags = descriptor(4);
+        let gothic = Request::derive(&document, &named(b"CenturyGothic,Bold"), Some(&flags));
+        assert_eq!(gothic.family, Family::SansSerif);
+        assert!(gothic.bold);
+        let schoolbook = named(b"CenturySchoolbook");
+        assert_eq!(
+            Request::derive(&document, &schoolbook, Some(&flags)).family,
+            Family::Serif
+        );
     }
 
     /// The table directory of a face carrying `glyf` outlines and an `OS/2` whose `fsType` is

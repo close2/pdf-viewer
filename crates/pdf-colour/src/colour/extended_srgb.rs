@@ -275,20 +275,25 @@ impl ExtendedSrgb {
         }
     }
 
-    /// Equation 4's offset and equation 3's scale for e-sRGB's `n`.
+    /// Equation 4's offset `2^(n−2) + 2^(n−3)` and equation 3's scale `255 × 2^(n−9)` for
+    /// e-sRGB's `n`, each an integer formed exactly (ADR 3147); none of the sums nears `u32`'s
+    /// bound, so saturation never acts.
     fn offset_and_scale(self) -> (f32, f32) {
-        let power = |exponent: i32| 2f32.powi(exponent);
-        let bits = i32::from(self.bits);
+        let power = |exponent: u8| 1u32 << exponent;
         (
-            power(bits.saturating_sub(2)) + power(bits.saturating_sub(3)),
-            255.0 * power(bits.saturating_sub(9)),
+            as_real(
+                power(self.bits.saturating_sub(2))
+                    .saturating_add(power(self.bits.saturating_sub(3))),
+            ),
+            as_real(power(self.bits.saturating_sub(9)).saturating_mul(255)),
         )
     }
 
-    /// Equation B7's divisor `2^m − 1` and B8's chroma centre `2^(m−1)` for e-sYCC's `m`.
+    /// Equation B7's divisor `2^m − 1` and B8's chroma centre `2^(m−1)` for e-sYCC's `m`, each an
+    /// integer formed exactly (ADR 3147).
     fn top_and_middle(self) -> (f32, f32) {
-        let bits = i32::from(self.bits);
-        (2f32.powi(bits) - 1.0, 2f32.powi(bits.saturating_sub(1)))
+        let whole = 1u32 << self.bits;
+        (as_real(whole.saturating_sub(1)), as_real(whole >> 1))
     }
 }
 
@@ -307,11 +312,13 @@ fn linearised(nonlinear: f32) -> f32 {
     }
 }
 
-/// An integer of at most sixteen bits as a real.
+/// An integer of at most seventeen bits as a real: a decoded sample, or a power of two or a scale
+/// no greater than `2^16` or `255 × 2^7`.
 fn as_real(code: u32) -> f32 {
     #[expect(
         clippy::cast_precision_loss,
-        reason = "a decoded sample is at most 65535, which every f32 represents exactly"
+        reason = "every integer below 2^24 is an f32 exactly, and a sample is at most 65535, \
+                  a power of two at most 2^16 and a scale at most 255 × 2^7"
     )]
     let real = code as f32;
     real
@@ -335,6 +342,29 @@ mod tests {
     fn e_sycc(bits: u8) -> ExtendedSrgb {
         ExtendedSrgb::new(ExtendedEncoding::Ycc, bits)
             .unwrap_or_else(|| panic!("Annex B places no limit on {bits} bits"))
+    }
+
+    /// Equations 3 and 4's scale and offset, and B7 and B8's divisor and centre, are the integers
+    /// the equations state at every depth, compared exactly (ADR 3147): `2^(n−2) + 2^(n−3)` and
+    /// `255 × 2^(n−9)` for e-sRGB's three, `2^m − 1` and `2^(m−1)` for e-sYCC's sixteen.
+    #[test]
+    fn the_scales_are_the_equations_integers_exactly() {
+        for (bits, offset, scale) in [
+            (10, 384.0, 510.0),
+            (12, 1536.0, 2040.0),
+            (16, 24576.0, 32640.0),
+        ] {
+            assert_eq!(e_srgb(bits).offset_and_scale(), (offset, scale), "{bits}");
+        }
+        let mut whole = 1.0f32;
+        for bits in 1..=16 {
+            whole *= 2.0;
+            assert_eq!(
+                e_sycc(bits).top_and_middle(),
+                (whole - 1.0, whole / 2.0),
+                "{bits}"
+            );
+        }
     }
 
     /// Section 4.1's three precisions are e-sRGB and no other depth is; e-sYCC takes any.
