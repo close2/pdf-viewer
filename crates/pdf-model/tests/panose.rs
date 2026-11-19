@@ -42,6 +42,7 @@ fn a_panose_number_changes_the_substitute_for_some_fonts_and_not_others() {
     let mut readable = 0usize;
     let mut embedded = 0usize;
     let mut changed = Vec::new();
+    let mut unnamed = Vec::new();
     let mut unreadable = Vec::new();
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
@@ -115,6 +116,15 @@ fn a_panose_number_changes_the_substitute_for_some_fonts_and_not_others() {
             if stated != ignored {
                 changed.push(format!("{name} object {number}: {ignored:?} → {stated:?}"));
             }
+            // The same two requests with the name taken out, which is where the classification
+            // is the first thing read: a name that says what the face is decides before it.
+            let mut nameless = font.clone();
+            nameless.remove("BaseFont");
+            let stated = Request::derive(&document, &nameless, Some(&descriptor));
+            let ignored = Request::derive(&document, &nameless, Some(&without));
+            if stated != ignored {
+                unnamed.push(format!("{name} object {number}: {ignored:?} → {stated:?}"));
+            }
         }
     }
 
@@ -127,6 +137,10 @@ fn a_panose_number_changes_the_substitute_for_some_fonts_and_not_others() {
     for entry in &changed {
         println!("    {entry}");
     }
+    println!("  {} change with the name taken out:", unnamed.len());
+    for entry in &unnamed {
+        println!("    {entry}");
+    }
 
     assert_eq!(with_a_style, 46, "fonts whose descriptor carries a /Style");
     assert_eq!(
@@ -137,21 +151,30 @@ fn a_panose_number_changes_the_substitute_for_some_fonts_and_not_others() {
     // The ratchet, and the finding. Both documents embed nothing and name **MS-Gothic** — a
     // Japanese sans-serif face — while their `/Flags` claim serif *and* fixed pitch *and* both
     // Symbolic and Nonsymbolic at once. §9.8.3.2's classification says Latin Text, Normal Sans,
-    // Medium, Monospaced, and the font's own name agrees with it. So this is the case the hint
-    // exists for: a descriptor whose flags are careless and whose classification is not.
-    let names: Vec<&str> = changed
+    // Medium, Monospaced. So this is the case the hint exists for: a descriptor whose flags are
+    // careless and whose classification is not. The name says the same as the classification
+    // and is read first (ADR 3137), so as the file is written the hint changes no request; with
+    // the name taken out it changes these four, and the weight of `issue13147`'s two
+    // `FutoGoB101-Bold`, whose name says bold as their classification does.
+    assert!(
+        changed.is_empty(),
+        "requests the classification changes: {changed:?}"
+    );
+    let names: Vec<&str> = unnamed
         .iter()
         .filter_map(|entry| entry.split(':').next())
         .collect();
     assert_eq!(
         names,
         [
+            "issue13147.pdf object 374",
+            "issue13147.pdf object 560",
             "noembed-eucjp.pdf object 6",
             "noembed-eucjp.pdf object 7",
             "noembed-sjis.pdf object 6",
             "noembed-sjis.pdf object 7"
         ],
-        "requests the classification changes: {changed:?}"
+        "requests the classification changes where the name says nothing: {unnamed:?}"
     );
 }
 

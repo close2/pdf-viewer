@@ -1409,10 +1409,12 @@ mod tests {
 
     /// The exact line test answers what exact arithmetic answers where `f64` products of the same
     /// differences round to one value: `(1 + 2⁻²⁷)²` and `1 + 2⁻²⁶` are one double once rounded,
-    /// and differ by `2⁻⁵⁴`.
+    /// and differ by `2⁻⁵⁴`. `2⁻²⁷` is a quotient of powers of two, which IEEE 754 divides exactly,
+    /// rather than a `powi`, which no standard rounds and Miri perturbs per seed (ADR 3129): an
+    /// exact test states its case in exact operations, so that every run tests the same doubles.
     #[test]
     fn the_line_test_compares_exact_products() {
-        let e = 2f64.powi(-27);
+        let e = 1.0 / f64::from(1u32 << 27);
         assert_eq!(
             ((1.0 + e) * (1.0 + e)).to_bits(),
             (1.0 + 2.0 * e).to_bits(),

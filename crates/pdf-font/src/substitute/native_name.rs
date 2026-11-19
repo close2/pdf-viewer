@@ -118,7 +118,7 @@ fn class_of(text: &str) -> Option<Class> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Collection, read};
+    use super::{Collection, class_of, read, through};
 
     /// `issue3521`'s 黑体 in GBK, `BA DA CC E5`, which is not UTF-8: read through GBK's `CMap` and
     /// Adobe-GB1's table it is Hei, a sans style. Planted: with the collection's readings emptied,
@@ -156,6 +156,46 @@ mod tests {
         assert_eq!(
             read(&[0xB9, 0xD9, 0xC5, 0xC1], Some(Collection::Kr)).as_deref(),
             Some("바탕")
+        );
+    }
+
+    /// Why a Type 0 font's own `/Encoding` is not asked first (ADR 3138): Japanese is the one
+    /// language Table 116 gives two unrelated byte encodings, and a style word in either reads as
+    /// no style in the other, so the two readings never disagree and the producer's `CMap` would
+    /// have nothing to break. EUC-JP 明朝 (`CC C0 C4 AB`) is four half-width katakana in Shift-JIS,
+    /// and Shift-JIS ゴシック (`83 53 83 56 83 62 83 4E`) is no EUC-JP text at all: its lead bytes
+    /// are below EUC's.
+    #[test]
+    fn a_japanese_style_word_names_a_style_in_its_own_encoding_only() {
+        let mincho_euc = [0xCC, 0xC0, 0xC4, 0xAB];
+        let gothic_sjis = [0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83, 0x4E];
+        assert_eq!(
+            through(&mincho_euc, "EUC-H", "Japan1").as_deref(),
+            Some("明朝")
+        );
+        assert_eq!(
+            through(&mincho_euc, "90ms-RKSJ-H", "Japan1")
+                .as_deref()
+                .and_then(class_of),
+            None
+        );
+        assert_eq!(
+            through(&gothic_sjis, "90ms-RKSJ-H", "Japan1").as_deref(),
+            Some("ゴシック")
+        );
+        assert_eq!(
+            through(&gothic_sjis, "EUC-H", "Japan1")
+                .as_deref()
+                .and_then(class_of),
+            None
+        );
+        assert_eq!(
+            read(&mincho_euc, Some(Collection::Japan1)).as_deref(),
+            Some("明朝")
+        );
+        assert_eq!(
+            read(&gothic_sjis, Some(Collection::Japan1)).as_deref(),
+            Some("ゴシック")
         );
     }
 }

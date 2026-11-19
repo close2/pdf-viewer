@@ -208,6 +208,26 @@ fn the_forbidden_identity_combination_is_unchanged() {
     assert!(said.contains("§9.7.5.2 says shall not be used"), "{said}");
 }
 
+/// The premise of [`the_witnesses_draw_their_text`], asked of the machine before a page is drawn:
+/// the name of a composite font on one of the witness's pages for which, its program dropped,
+/// this machine offers no face. A composite font is reached by character only (§9.7.4.2), so
+/// its substitute is a face the machine has installed and never a compiled-in one; where there is
+/// none the page draws no text, which is a fact about the machine and not about the code under
+/// test (ADR 3130). Asked through `pdf-font`'s own search, so there is no second matcher.
+fn composite_without_a_machine_face(document: &Document, pages: &Pages<'_>) -> Option<String> {
+    (0..pages.len())
+        .filter_map(|index| pages.get(index))
+        .find_map(|page| {
+            let fonts = document.get_key(&page.resources, "Font");
+            fonts.as_dict()?.iter().find_map(|(name, font)| {
+                let font = document.resolve(font);
+                let dropped = pdf_font::without_program(document, font.as_dict()?)?;
+                (!pdf_font::LoadedFont::machine_offers_a_substitute(document, &dropped))
+                    .then(|| String::from_utf8_lossy(name.as_bytes()).into_owned())
+            })
+        })
+}
+
 /// The corpus witnesses `doc/questions/A837` names: every page on which the window now draws an
 /// unreadable program from a substitute reads text back, where it drew none. Read from the optional
 /// checkouts, and said when absent.
@@ -235,6 +255,13 @@ fn the_witnesses_draw_their_text() {
         };
         let document = Document::open(bytes).expect("the witness opens");
         let pages = Pages::new(&document);
+        if let Some(font) = composite_without_a_machine_face(&document, &pages) {
+            eprintln!(
+                "skipped: {path}: this machine offers no face composite font /{font} can be drawn \
+                 from without its program"
+            );
+            continue;
+        }
         let mut substituted = 0;
         for index in 0..pages.len() {
             let page = pages.get(index).expect("a page the tree counts");

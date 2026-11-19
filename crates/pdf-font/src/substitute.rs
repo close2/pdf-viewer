@@ -908,9 +908,7 @@ fn family_of(
         || folded.contains("tahoma")
         || folded.contains("calibri")
         || folded.contains("segoe")
-        || native_name::SANS_WORDS
-            .iter()
-            .any(|word| folded.contains(word))
+        || names_a_cjk_sans(folded)
     {
         return Family::SansSerif;
     }
@@ -985,6 +983,47 @@ fn names_a_cjk_serif(folded: &str) -> bool {
     .chain(native_name::SERIF_WORDS)
     .any(|word| folded.contains(word))
         || folded.starts_with("ming")
+}
+
+/// Whether a font's name, folded, names one of the sans-serif styles of Chinese, Japanese and
+/// Korean type in its romanised form: Hei (黑) in Chinese — `SimHei`, `Microsoft YaHei`, `Microsoft
+/// JhengHei`, `STHeiti` and `MHei` — Gothic (ゴシック, 고딕) in Japanese and Korean — `MS Gothic`
+/// and `MS PGothic`, `Yu Gothic`, Hiragino Kaku Gothic (`HiraKaku`), `Malgun Gothic`, `Nanum Gothic`,
+/// `HYGoThic`, Adobe Gothic, Kozuka Gothic (`KozGo`) and Heisei Kaku Gothic (`HeiseiKakuGo`) —
+/// Korean Dotum and Gulim, and Meiryo, a family every one of whose members is a gothic face.
+///
+/// **A documented choice, the counterpart of [`names_a_cjk_serif`]** (ADR 3137): without these a
+/// `SimHei` whose descriptor sets Table 121's `Serif` flag was a serif request, drawn by a Song face
+/// under a name that says Hei, which the same name written 黑体 is not ([`native_name`], ADR 3117).
+/// The Gothic names are the CJK families', not the bare word: a Latin `Gothic` is a sans face in
+/// `Franklin Gothic` and `News Gothic` but a monospaced one in `Letter Gothic` and a blackletter in
+/// some foundries' usage, and this list decides nothing about Latin type. `hei` alone is not a
+/// word here either, because it is a syllable of Latin names (`Fahrenheit`, `Heidelberg`).
+fn names_a_cjk_sans(folded: &str) -> bool {
+    [
+        "simhei",
+        "yahei",
+        "jhenghei",
+        "heiti",
+        "mhei",
+        "msgothic",
+        "mspgothic",
+        "msuigothic",
+        "yugothic",
+        "hirakaku",
+        "kakugo",
+        "kozgo",
+        "malgungothic",
+        "nanumgothic",
+        "hygothic",
+        "adobegothic",
+        "dotum",
+        "gulim",
+        "meiryo",
+    ]
+    .iter()
+    .chain(native_name::SANS_WORDS)
+    .any(|word| folded.contains(word))
 }
 
 /// Removes the `ABCDEF+` prefix a subset font's name carries.
@@ -2111,8 +2150,8 @@ mod tests {
 
     use super::{
         Collection, EMBEDDABLE_CANDIDATES, FaceStyle, Family, Language, Qualifying, Request, Style,
-        catalogue, first_embeddable, language, names_a_cjk_serif, names_a_style, ranked_covering,
-        strip_subset_prefix, weight_from_stem,
+        catalogue, first_embeddable, language, names_a_cjk_sans, names_a_cjk_serif, names_a_style,
+        ranked_covering, strip_subset_prefix, weight_from_stem,
     };
 
     /// A file's only face, by a name that need not exist: what the ranking tests rank.
@@ -2742,6 +2781,64 @@ mod tests {
             "notosanscjk",
         ] {
             assert!(!names_a_cjk_serif(name), "{name}");
+        }
+    }
+
+    /// The romanised names of the sans styles are sans requests over a descriptor whose `/Flags`,
+    /// 6, set Table 121's `Serif` bit, as the same styles written 黑体, ゴシック and 돋움 are (ADR
+    /// 3137); the names are `/BaseFont`s producers write, `SimHei` and `MS-PGothic` among Table
+    /// 116's neighbours. No serif name is a sans one, and the Latin names that share a syllable or
+    /// a word with them are left to the classification and the flags: planted, with
+    /// `names_a_cjk_sans` out of [`family_of`], the first assertion fails on `SimHei`.
+    #[test]
+    fn a_romanised_hei_gothic_dotum_or_gulim_name_is_a_sans() {
+        let document = Document::empty();
+        let flags = descriptor(6);
+        for name in [
+            "SimHei",
+            "Microsoft YaHei",
+            "MicrosoftJhengHeiRegular",
+            "STHeiti",
+            "MHei-Medium",
+            "MS-Gothic",
+            "MS-PGothic",
+            "MS UI Gothic",
+            "YuGothic-Bold",
+            "HiraKakuProN-W3",
+            "HeiseiKakuGo-W5",
+            "KozGoPr6N-Regular",
+            "MalgunGothic",
+            "NanumGothic",
+            "HYGoThic-Medium",
+            "AdobeGothicStd-Bold",
+            "Dotum",
+            "GulimChe",
+            "Meiryo",
+            "ABCDEF+SimHei",
+        ] {
+            let mut dict = Dictionary::new();
+            dict.insert(
+                Name::new(b"BaseFont".to_vec()),
+                Object::Name(Name::new(name.as_bytes().to_vec())),
+            );
+            assert_eq!(
+                Request::derive(&document, &dict, Some(&flags)).family,
+                Family::SansSerif,
+                "{name}"
+            );
+        }
+        for name in [
+            "kozminpr6nregular",
+            "msmincho",
+            "simsun",
+            "batang",
+            "hysmyeongjomedium",
+            "lettergothic",
+            "franklingothic",
+            "fahrenheit",
+            "heidelberg",
+        ] {
+            assert!(!names_a_cjk_sans(name), "{name}");
         }
     }
 
