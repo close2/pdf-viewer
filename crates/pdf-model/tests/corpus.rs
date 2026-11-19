@@ -830,6 +830,12 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a simple font outside the fourteen that states no /Widths (Table 109)",
         ),
+        // ADR 3119: Table 109 requires `/FontDescriptor` outside §9.6.2.2's fourteen, so the
+        // substitute such a font is drawn from was chosen without the metrics it states.
+        _ if has("states no /FontDescriptor, which ISO 32000-2 Table 109 requires") => (
+            Whose::TheFile,
+            "a simple font outside the fourteen that states no /FontDescriptor (Table 109)",
+        ),
         _ if has("no /Font resource named") => (
             Whose::TheFile,
             "a /Font name §7.8.3's resource dictionary does not define",

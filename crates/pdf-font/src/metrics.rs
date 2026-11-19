@@ -1489,6 +1489,32 @@ mod substituted_width_tests {
         assert!((font.advance(outside) - 0.333).abs() < 1e-6);
     }
 
+    /// Table 109 requires `/FontDescriptor` of every font outside §9.6.2.2's fourteen, and only
+    /// such a font is found stating none (ADR 3119): one of the fourteen stated by name alone is
+    /// what the table admits, and a font stating a descriptor has met it. The finding names the
+    /// font and the table. Planted: with the fourteen's exemption dropped, `Times-Roman` is found.
+    #[test]
+    fn a_font_outside_the_fourteen_stating_no_descriptor_is_found() {
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Garamond /FirstChar 65 /LastChar 66 /Widths [500 0] \
+             /Encoding /WinAnsiEncoding",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a named face loads");
+        assert!(font.states_no_descriptor());
+        assert!(LoadedFont::missing_descriptor_detail("F1").contains("Table 109"));
+
+        let (document, dict) = font_dictionary("/BaseFont /Times-Roman");
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+        assert!(!font.states_no_descriptor());
+
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Garamond /FirstChar 65 /LastChar 66 /Widths [500 0] \
+             /FontDescriptor << /Type /FontDescriptor /Flags 34 >>",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a named face loads");
+        assert!(!font.states_no_descriptor());
+    }
+
     /// Without the `/Differences`, code 32 is the base encoding's `space` and is 250 too.
     ///
     /// The pair is what says the fix did not simply hard-code a number: the two routes to

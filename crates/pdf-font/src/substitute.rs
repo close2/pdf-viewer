@@ -40,6 +40,8 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use pdf_syntax::{Dictionary, Document};
 
+mod native_name;
+
 /// The generic family a substitute has to belong to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -110,19 +112,9 @@ impl Request {
     /// exactly the case that needs substituting most often.
     #[must_use]
     pub fn derive(document: &Document, dict: &Dictionary, descriptor: Option<&Dictionary>) -> Self {
-        let base = document
-            .get_key(dict, "BaseFont")
-            .as_name()
-            .map_or_default(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
-        let base = strip_subset_prefix(&base);
-
         // The name is the strongest signal and the only one the standard 14 reliably
         // carry, so it is consulted first; the descriptor fills in what it does not say.
-        let folded: String = base
-            .chars()
-            .filter(char::is_ascii_alphanumeric)
-            .map(|c| c.to_ascii_lowercase())
-            .collect();
+        let folded = folded_base_font(document, dict);
 
         // §9.8.3.2's classification, where a CIDFont's descriptor states one. It is consulted
         // *after* the name and *before* the flags, and the order is the argument: the name is
@@ -424,17 +416,24 @@ impl Collection {
     }
 }
 
-/// A `/BaseFont` name without its subset tag, lowercased and without punctuation.
+/// A `/BaseFont` name without its subset tag, its ASCII letters and digits lowercased, followed by
+/// the characters outside ASCII it names where they can be read ([`native_name::read`], ADR 3117):
+/// 黑体 written in GBK is Hei, a sans style, which the ASCII letters alone cannot say.
 fn folded_base_font(document: &Document, dict: &Dictionary) -> String {
-    let base = document
-        .get_key(dict, "BaseFont")
-        .as_name()
-        .map_or_default(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
-    strip_subset_prefix(&base)
+    let base = document.get_key(dict, "BaseFont");
+    let bytes = base.as_name().map_or(&[][..], |value| value.as_bytes());
+    let collection = crate::composite::collection_names(document, dict)
+        .and_then(|(registry, ordering)| Collection::named(&registry, &ordering));
+    let mut folded: String = strip_subset_prefix(&String::from_utf8_lossy(bytes))
         .chars()
         .filter(char::is_ascii_alphanumeric)
         .map(|c| c.to_ascii_lowercase())
-        .collect()
+        .collect();
+    // A subset tag is ASCII, so the reading below passes over it.
+    if let Some(native) = native_name::read(bytes, collection) {
+        folded.push_str(&native);
+    }
+    folded
 }
 
 /// A weight word a folded name carries, on Table 120's scale.
@@ -909,6 +908,9 @@ fn family_of(
         || folded.contains("tahoma")
         || folded.contains("calibri")
         || folded.contains("segoe")
+        || native_name::SANS_WORDS
+            .iter()
+            .any(|word| folded.contains(word))
     {
         return Family::SansSerif;
     }
@@ -962,8 +964,10 @@ fn family_of(
 /// **A documented choice, and the name's rather than the clause's**: Table 121's `Serif` flag is
 /// read where the name says nothing ([`family_of`]), and a Mincho that sets it is a serif face
 /// either way; these words are what a name already says, in a script whose styles the Latin words
-/// above do not name. Without them a Mincho with no `/Flags` serif bit was a sans request, and
-/// was drawn by a gothic face where a Mincho one was installed (ADR 3102).
+/// above do not name. Without them a Mincho with no `/Flags` serif bit would be a sans request,
+/// drawn by a gothic face where a Mincho one is installed (ADR 3102). The same styles written in
+/// their own scripts (明朝, 宋, 明體, 명조, 바탕) are read from a name whose bytes are read as
+/// characters ([`native_name`], ADR 3117).
 fn names_a_cjk_serif(folded: &str) -> bool {
     [
         "mincho",
@@ -978,6 +982,7 @@ fn names_a_cjk_serif(folded: &str) -> bool {
         "simsun",
     ]
     .iter()
+    .chain(native_name::SERIF_WORDS)
     .any(|word| folded.contains(word))
         || folded.starts_with("ming")
 }
@@ -1871,10 +1876,10 @@ fn covering_faces(
 /// 44 810 for every font, and a Mincho could never be drawn by the serif face; counted over
 /// Adobe-Japan1's 15 465 characters both map 15 109, and the descriptor's serif-ness decides.
 /// The 59 characters the sans face maps and the serif does not are supplementary-plane
-/// ideographs that the Japan1, GB1, CNS1 and Korea1 tables do not name, and a page that shows one
-/// borrows it from a face that draws it (ADR 3067). Adobe-KR's table names 47 of them, so for an
-/// Adobe-KR font the sans face is still the wider and draws a Myeongjo too: repertoire before
-/// family, as ADR 1441 orders it.
+/// ideographs, and a page that shows one borrows it from a face that draws it (ADR 3067).
+/// Adobe-KR's table names 47 of them, and the count is taken over the Basic Multilingual Plane
+/// ([`Repertoire::breadth`], ADR 3118), so an Adobe-KR Myeongjo is drawn by the serif face too and
+/// borrows those 47 where a page shows one.
 fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<&MachineFace> {
     let mut ranked: Vec<&Qualifying> = faces.iter().collect();
     // Stable, which is what keeps a tie in the catalogue's order.
@@ -1919,7 +1924,18 @@ impl Repertoire {
     }
 
     /// How wide the face's repertoire is for a font of `collection`: the collection's own
-    /// characters it maps, or with no collection every character it maps.
+    /// characters in the Basic Multilingual Plane it maps, or with no collection every character
+    /// it maps.
+    ///
+    /// **The plane is a documented choice** (ADR 3118). A character a page shows and the chosen
+    /// face lacks is drawn by a face borrowed for it alone (ADR 3067), so what the count still
+    /// decides is which face draws the most of a line, and a collection's supplementary-plane
+    /// characters are its rarest: CJK Unified Ideographs extensions, outside the character sets
+    /// the collections were first built on (GB 2312, Big Five, JIS X 0208, KS X 1001), which lie
+    /// wholly in the BMP. Counted over every character, Noto Sans CJK maps 47 more of Adobe-KR's
+    /// than Noto Serif CJK, all of them in the supplementary plane, and would draw every Adobe-KR
+    /// Myeongjo; counted over the BMP the two tie (21 001 each) and the family decides, as it does
+    /// among Japan1's, GB1's, CNS1's and Korea1's faces.
     fn breadth(&self, collection: Option<Collection>) -> usize {
         let Some(collection) = collection else {
             return self.mappings;
@@ -1928,7 +1944,7 @@ impl Repertoire {
             collection
                 .characters()
                 .iter()
-                .filter(|value| self.maps_value(**value))
+                .filter(|value| **value <= BMP_LAST && self.maps_value(**value))
                 .count()
         })
     }
@@ -1941,6 +1957,10 @@ impl Repertoire {
             .is_some_and(|&(first, _)| first <= value)
     }
 }
+
+/// The last scalar value of Unicode's Basic Multilingual Plane, the plane [`Repertoire::breadth`]
+/// counts a collection's characters in.
+const BMP_LAST: u32 = 0xFFFF;
 
 /// Every catalogue face's repertoire, read once per process.
 ///
@@ -2583,6 +2603,114 @@ mod tests {
             ranked_covering(&faces, sans, bold).first().copied(),
             Some(&at("sans-sc-bold"))
         );
+    }
+
+    /// A collection's breadth is counted over the Basic Multilingual Plane (ADR 3118): a face
+    /// mapping every BMP character and one mapping every character tie for Adobe-KR, whose table
+    /// names 60 supplementary-plane characters, so the family decides between them and a
+    /// Myeongjo is drawn by a serif face. Planted: with the plane's bound removed, the wider face
+    /// counts 60 more and the sans face ranks first for a serif request.
+    #[test]
+    fn a_collections_breadth_is_counted_in_the_basic_multilingual_plane() {
+        let repertoire = |name: &str, last: u32, serif: bool| super::Repertoire {
+            face: at(name),
+            ranges: vec![(0, last)],
+            mappings: 0,
+            style: FaceStyle {
+                weight: 400,
+                italic: false,
+                width: Style::NORMAL_WIDTH,
+                fixed_pitch: false,
+                serif: Some(serif),
+            },
+            languages: vec![0x0412],
+            breadth: Default::default(),
+        };
+        let sans = repertoire("sans-kr", 0x0010_FFFF, false);
+        let serif = repertoire("serif-kr", 0xFFFF, true);
+        let in_the_bmp = Collection::Kr
+            .characters()
+            .iter()
+            .filter(|value| **value <= 0xFFFF)
+            .count();
+        assert!(in_the_bmp < Collection::Kr.characters().len());
+        assert_eq!(sans.breadth(Some(Collection::Kr)), in_the_bmp);
+        assert_eq!(serif.breadth(Some(Collection::Kr)), in_the_bmp);
+
+        let request = Request {
+            family: Family::Serif,
+            bold: false,
+            italic: false,
+            standard: false,
+        };
+        let style = Style {
+            collection: Some(Collection::Kr),
+            ..Style::of(request)
+        };
+        let faces: Vec<Qualifying> = [&sans, &serif]
+            .iter()
+            .map(|face| qualifies_as(face, Collection::Kr))
+            .collect();
+        assert_eq!(
+            ranked_covering(&faces, request, style).first().copied(),
+            Some(&at("serif-kr"))
+        );
+    }
+
+    /// What [`super::qualifying`] makes of a repertoire for a font of `collection`.
+    fn qualifies_as(repertoire: &super::Repertoire, collection: Collection) -> Qualifying {
+        Qualifying {
+            face: repertoire.face.clone(),
+            breadth: repertoire.breadth(Some(collection)),
+            region: collection.region_rank(&repertoire.languages),
+            style: repertoire.style,
+        }
+    }
+
+    /// `issue3521`'s descendant: `/BaseFont` 黑体 in GBK (`BA DA CC E5`, not UTF-8), Adobe-GB1, and
+    /// `/Flags` 6, Symbolic and Serif. The name read through GBK's `CMap` says Hei, a sans style,
+    /// and the name decides before the flags (ADR 3117); 宋体 in the same encoding is a serif
+    /// request, and the same 黑体 in UTF-8 is read as §7.3.5 asks. Planted: with the reading
+    /// switched off, the Serif flag decides and the first request is a serif one.
+    #[test]
+    fn a_cjk_name_in_its_collections_encoding_names_its_style() {
+        let document = Document::empty();
+        let with_name = |bytes: &[u8]| {
+            let mut info = Dictionary::new();
+            info.insert(
+                Name::new(b"Registry".to_vec()),
+                Object::String(b"Adobe".to_vec().into()),
+            );
+            info.insert(
+                Name::new(b"Ordering".to_vec()),
+                Object::String(b"GB1".to_vec().into()),
+            );
+            let mut dict = Dictionary::new();
+            dict.insert(
+                Name::new(b"BaseFont".to_vec()),
+                Object::Name(Name::new(bytes.to_vec())),
+            );
+            dict.insert(
+                Name::new(b"CIDSystemInfo".to_vec()),
+                Object::Dictionary(info),
+            );
+            dict
+        };
+        let flags = descriptor(6);
+        let hei = with_name(&[0xBA, 0xDA, 0xCC, 0xE5]);
+        assert_eq!(
+            Request::derive(&document, &hei, Some(&flags)).family,
+            Family::SansSerif
+        );
+        let song = with_name(&[0xCB, 0xCE, 0xCC, 0xE5]);
+        assert_eq!(
+            Request::derive(&document, &song, None).family,
+            Family::Serif
+        );
+        let utf8 = with_name("黑体,Bold".as_bytes());
+        let request = Request::derive(&document, &utf8, Some(&flags));
+        assert_eq!(request.family, Family::SansSerif);
+        assert!(request.bold);
     }
 
     /// The names of the serifed CJK styles are serif requests, and the gothic and sans ones are

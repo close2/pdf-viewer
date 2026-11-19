@@ -895,6 +895,23 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Says that a simple font outside §9.6.2.2's fourteen states no `/FontDescriptor`, which
+    /// ISO 32000-2 Table 109 requires of it, so the face it is drawn from was chosen without the
+    /// metrics §9.8.1 gives a descriptor to inform that choice (ADR 3119). Said once per font per
+    /// page, and not for this reader's own stand-in, as [`Self::note_supplied_widths`] argues.
+    fn note_missing_descriptor(&mut self, font: &Font, name: &str, referenced: bool) {
+        if !referenced && matches!(self.stream, super::report::ContentStream::Unnameable) {
+            return;
+        }
+        if let Font::Program(program) = font
+            && program.states_no_descriptor()
+        {
+            self.note(Unsupported::Font {
+                detail: pdf_font::LoadedFont::missing_descriptor_detail(name),
+            });
+        }
+    }
+
     /// Says which of `pdf-font`'s `CMap` bounds cut this font's mapping short.
     ///
     /// ADR 0963: a bound that discards a mapping the file stated makes §9.7.6.2's lookup fail
@@ -957,6 +974,7 @@ impl Interpreter<'_> {
                 self.note_cmap_truncation(&font);
                 self.note_to_unicode_truncation(&font);
                 self.note_supplied_widths(&font, name, key.is_some());
+                self.note_missing_descriptor(&font, name, key.is_some());
                 Some(font)
             }
             // A Type 3 font has no program for `pdf-font` to read: its glyphs are content

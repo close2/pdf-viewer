@@ -104,6 +104,32 @@ impl LoadedFont {
         self.symbolic_flags_conflict
     }
 
+    /// Whether this is a simple font outside §9.6.2.2's fourteen that states no
+    /// `/FontDescriptor` (ADR 3119).
+    ///
+    /// ISO 32000-2 Table 109 gives the entry as "Required; optional in PDF 1.0-1.7 for the
+    /// standard 14 fonts", so such a file is malformed in every version. It is drawn as any font
+    /// the file did not embed is: from a substitute, laid out by its own `/Widths`. What the
+    /// missing entry costs is the choice of that substitute, which §9.8.1 has the descriptor
+    /// inform ("information that enables a PDF processor to synthesise a substitute font or
+    /// select a similar font") and which is then made from `/BaseFont` and `/Encoding` alone, so
+    /// a page that shows the font owes the sentence [`Self::missing_descriptor_detail`] words.
+    #[must_use]
+    pub fn states_no_descriptor(&self) -> bool {
+        self.descriptor_absent
+    }
+
+    /// The sentence a page owes for a font [`Self::states_no_descriptor`] answers for, naming the
+    /// font by the resource name `font`.
+    #[must_use]
+    pub fn missing_descriptor_detail(font: &str) -> String {
+        format!(
+            "font {font} states no /FontDescriptor, which ISO 32000-2 Table 109 requires outside \
+             the fourteen standard fonts, so its substitute was chosen by /BaseFont and /Encoding \
+             alone"
+        )
+    }
+
     /// Where this font's advances came from, when it is a simple font outside §9.6.2.2's
     /// fourteen that states no `/Widths` — an entry ISO 32000-2 Table 109 requires of it.
     ///

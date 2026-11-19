@@ -921,6 +921,9 @@ pub struct LoadedFont {
     /// and the fact is kept so that a page drawn short by that reading can say the file asked for
     /// both (ADR 1411). Always false for a composite font, whose descriptor selects no encoding.
     symbolic_flags_conflict: bool,
+    /// Whether a simple font outside §9.6.2.2's fourteen states no `/FontDescriptor`, which Table
+    /// 109 requires of it in every version (ADR 3119); always false for a composite font.
+    descriptor_absent: bool,
     /// Where a simple font outside §9.6.2.2's fourteen that states no `/Widths` took its
     /// advances; `None` for every font that states them or that Table 109 lets omit them.
     supplied_widths: Option<SuppliedWidths>,
@@ -1178,6 +1181,7 @@ impl LoadedFont {
             glyph_names: None,
             notdef: None,
             symbolic_flags_conflict: false,
+            descriptor_absent: false,
             supplied_widths: stated.supplied_widths,
             reader_chosen: CodeSet::default(),
             notdef_advanced: CodeSet::default(),

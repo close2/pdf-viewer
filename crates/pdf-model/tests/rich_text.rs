@@ -1983,7 +1983,8 @@ fn pair_kerning_in_one_of_the_fourteen_takes_its_published_pairs() {
 
 /// A face that states no pairs is not kerned by numbers that are not its own, and the run says
 /// so: `/Arial`, named and not embedded, is drawn by a stand-in whose pairs would be another
-/// typeface's, and it is not one of the fourteen whose published pairs this tree holds.
+/// typeface's, and it is not one of the fourteen whose published pairs this tree holds. The font
+/// states the descriptor Table 109 requires of it, so the kerning is the one thing said.
 #[test]
 fn pair_kerning_in_a_face_without_pairs_is_said() {
     let bytes = pdf_with_fonts(
@@ -1996,7 +1997,8 @@ fn pair_kerning_in_a_face_without_pairs_is_said() {
         "",
         &format!(
             "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Arial \
-             /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 86 /Widths [{}] >>\nendobj\n",
+             /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 86 /Widths [{}] \
+             /FontDescriptor << /Type /FontDescriptor /FontName /Arial /Flags 32 >> >>\nendobj\n",
             ["667"; 22].join(" ")
         ),
         "/Ar 8 0 R",

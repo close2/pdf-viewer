@@ -175,6 +175,7 @@ impl LoadedFont {
             glyph_names: names,
             notdef,
             symbolic_flags_conflict: both_symbol_flags(document, descriptor),
+            descriptor_absent: descriptor.is_none() && !within_the_fourteen(document, dict),
             supplied_widths,
             reader_chosen,
             notdef_advanced,
@@ -395,6 +396,7 @@ impl LoadedFont {
             // §9.6.5.4 is a *simple* font's subclause: a composite font's codes reach glyphs
             // through §9.7.6.2 and §9.7.4.2, neither of which offers the processor a choice.
             symbolic_flags_conflict: false,
+            descriptor_absent: false,
             // `/Widths` is a simple font's entry; a composite font's `/DW` defaults (Table 115).
             supplied_widths: None,
             reader_chosen: CodeSet::default(),
