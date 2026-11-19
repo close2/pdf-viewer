@@ -441,6 +441,34 @@ impl Events {
         }
     }
 
+    /// Which document a [`Event::SignaturePoliciesPublished`] is about, and its published copy
+    /// `policy`: what `quorra_policy_copy` hands on with a caller's copy, so that a C caller names
+    /// a policy by the event that listed it and never by a value it rebuilt (ADR 3169).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] for an event or a policy the list does not hold, or
+    /// [`Status::WrongKind`] for another kind of event.
+    pub fn published(
+        &self,
+        index: usize,
+        policy: usize,
+    ) -> Result<
+        (
+            viewer_core::DocumentId,
+            &pdf_signature::policy::PublishedPolicy,
+        ),
+        Status,
+    > {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::SignaturePoliciesPublished { document, policies } => policies
+                .get(policy)
+                .map(|named| (*document, named))
+                .ok_or(Status::OutOfRange),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
     /// A copy of policy `policy`'s document that a caller fetched itself, bound against the digest
     /// its signer signed: whether it is the signer's and a PDF to open beside, and the sentence
     /// that says so — `viewer_host::policy`'s, word for word as the three windows say it (ADR

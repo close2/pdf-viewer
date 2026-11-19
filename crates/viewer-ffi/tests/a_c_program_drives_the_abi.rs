@@ -27,6 +27,12 @@ use std::path::Path;
 
 #[path = "../../../tools/conformance/test-support/cargo_artifacts.rs"]
 mod cargo_artifacts;
+#[path = "../../../tools/conformance/test-support/signed_under_a_policy.rs"]
+#[expect(
+    dead_code,
+    reason = "the windows' tests bind through `viewer_core`; this one binds through the C program"
+)]
+mod signed_under_a_policy;
 use cargo_artifacts::Artifacts;
 use std::process::Command;
 
@@ -842,4 +848,87 @@ fn what_the_window_owed(said: &str) {
         .and_then(|count| count.parse::<usize>().ok())
         .expect("the program says how many pixels of page one are not white");
     assert!(inked > 1000, "only {inked} pixels of page one are inked");
+}
+
+/// `quorra_policy_copy` from C: `c/hand_on_a_policy.c` finds the policy a signature publishes,
+/// binds the caller's copy of its document and hands it to the document's validation, which
+/// enforces ISO 32000-2 §12.8.3.4.4's constraints from it (ADR 3169).
+///
+/// **What shows the copy was enforced** is the trusted list its one trust point references: ETSI TS
+/// 119 172-2 clause 4.22.2.1 b) takes that point's anchors from the list, and a policy whose copy
+/// nobody handed in has no rules to reference one with (ADR 2936). The control is the same run's
+/// own first reading, before the copy, which names none; an entry point that bound the copy and
+/// did not hand it on would leave the second reading the same as the first.
+#[test]
+fn a_c_program_hands_a_fetched_policy_copy_to_the_documents_validation() {
+    let Some(cc) = compiler() else {
+        println!("skipped: no C compiler on this machine");
+        return;
+    };
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = crate_root.join("../..");
+    let artifacts = Artifacts::new(&workspace).expect("the native Cargo profile is identified");
+    let private = artifacts.fixtures();
+    // The `cdylib`, for the first test's reason.
+    let library = artifacts
+        .library("viewer-ffi")
+        .expect("the matching cdylib is built");
+    let library_dir = library.parent().expect("the cdylib has a parent");
+    let program = private.join("quorra_hand_on_a_policy");
+    let compiled = Command::new(&cc)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-I"])
+        .arg(crate_root.join("include"))
+        .arg(crate_root.join("c/hand_on_a_policy.c"))
+        .arg("-o")
+        .arg(&program)
+        .arg(&library)
+        .arg(format!("-Wl,-rpath,{}", library_dir.display()))
+        .output()
+        .expect("the compiler runs");
+    assert!(
+        compiled.status.success() && compiled.stderr.is_empty(),
+        "{cc} refused the header or the program:\n{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+
+    let document = private.join("quorra_signed_under_a_policy.pdf");
+    std::fs::write(&document, signed_under_a_policy::document())
+        .expect("the fixture is written in the private test directory");
+    let copy = private.join("quorra_signature_policy.xml");
+    std::fs::write(&copy, signed_under_a_policy::policy())
+        .expect("the copy is written in the private test directory");
+    let ran = Command::new(&program)
+        .arg(&document)
+        .arg(&copy)
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&ran.stdout).into_owned();
+    println!("{said}");
+    assert!(
+        ran.status.success(),
+        "the C program failed:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let reference = format!("  reference: {}", signed_under_a_policy::REFERENCE);
+    for expected in [
+        "before: 0 reference(s)",
+        "published: 1 policy copy(ies)",
+        // Not a PDF, so nothing opens beside the document; the sentence says the copy is the
+        // signer's and where its constraints are enforced.
+        "bound: opens 0: ",
+        "is the document the signer committed to",
+        "they are enforced from this copy once it is handed on to this document's validation",
+        // `QUORRA_OUT_OF_RANGE` and `QUORRA_WRONG_KIND`, and nothing sent for either.
+        "refused: past the list 2, another kind 3, events none",
+        // The validation's own words for an enforced copy, on the event the call answered with.
+        "  handed: §12.8.3.4.4 requires a signature handler to enforce that policy's constraints, \
+         and the copy fetched from ",
+        "after: 1 reference(s)",
+        reference.as_str(),
+    ] {
+        assert!(
+            said.contains(expected),
+            "the C program did not say {expected:?}"
+        );
+    }
 }

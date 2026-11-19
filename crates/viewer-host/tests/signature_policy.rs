@@ -241,10 +241,10 @@ fn a_named_specification_is_said_where_a_copy_does_not_match() {
 }
 
 /// A copy a caller of the C interface fetched itself is compared as a window's is, and its
-/// sentence says the constraints were not enforced from it, because no call of that interface
-/// hands a copy to the document's validation (ADR 2624).
+/// sentence says the constraints are enforced from it once the caller hands it on to the
+/// document's validation, which `quorra_policy_copy` does (ADRs 2624, 3169).
 #[test]
-fn a_copy_a_c_caller_was_handed_is_compared_and_not_enforced() {
+fn a_copy_a_c_caller_was_handed_is_compared_and_enforced_once_handed_on() {
     let policy = published("https://administracionelectronica.gob.es/politica_de_firma.pdf");
     let Reply::Document { note, .. } = signature_policy_handed(&policy, POLICY.to_vec()) else {
         panic!("a bound PDF is opened beside the document");
@@ -255,8 +255,8 @@ fn a_copy_a_c_caller_was_handed_is_compared_and_not_enforced() {
     );
     assert!(
         note.contains(
-            "none was enforced from this copy: this program's C interface has no call that hands \
-             a copy to the document's validation"
+            "they are enforced from this copy once it is handed on to this document's \
+             validation, which binds it to the signature and says what came of them"
         ),
         "{note}"
     );

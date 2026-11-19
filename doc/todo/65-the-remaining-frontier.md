@@ -70,36 +70,10 @@ The reading is done; what is missing is a reviewed package on this tree's line, 
 project does not hold. **What would unblock them:** an upstream release (re-measurable, not
 permanent) or an owner decision to acquire a specification.
 
-- §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
-  ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
-  known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
-  5.2.10's stored copy checked against that digest. What is missing is the specification the policy's
-  own syntax is written in, and the signature *names* it, so the block is per file and named at
-  runtime rather than one text to acquire (ADR 1219). The signatures on this disk name none, and the
-  policy most of them sign under is a PDF bound by its own digest — human-readable, which a validator can
-  bind and show but not enforce (ADR 1709). That half is built: the copy at the qualifier's URL is
-  fetched, bound by the signed digest and opened beside the document (ADR 1728); every window is handed the policy's URL and fetches it at
-  the reader's submissions level (ADR 1738), and a C caller that fetched the copy itself has it bound
-  (ADR 1753). A copy a window fetched goes back to the document's validation and is enforced as a
-  stored one is, under the three syntaxes, a copy not matching the signed digest said and never
-  enforced (ADR 2624); a C caller's copy is bound and not yet enforced, its interface having no call
-  that hands one on. A stored policy in ETSI TR 102 272's ASN.1 syntax, bound to its signature, is
-  enforced constraint by constraint, what it cannot evaluate named (ADR 2560, on A713), and one in ETSI
-  TS 119 172-3's ASN.1 syntax is read by a second parser and enforced the same way (ADR 2580), and one
-  in TS 119 172-2's XML by a third, bound by its octets' digest (ADR 2604) or by its own `Digest`
-  over its components under inclusive Canonical XML 1.0, Exclusive XML Canonicalization 1.0 or
-  Canonical XML 1.1, which `policy_rules::canonical_xml` computes (ADRs 2644, 2710); the constraints
-  that rest on certification paths — the trust conditions against a policy's own trust points, the
-  certificate-issuer algorithm constraints, the full-path requirements, an attribute certificate's
-  chain and the algorithm its authority signed it under, and the algorithms a time-stamping
-  authority made the signature's token with — are evaluated (ADRs 2711, 2714, 2720, 2797, 2890,
-  2891, 2894), and TR 102 272's constraints on a signer attribute's value are compared by each
-  type's X.520 equality rule, every rule an `id-at` type states now held (ADRs 2895, 3158, 3161).
-  What is owed is one entry point: a C caller's fetched copy is bound and not enforced, because
-  `viewer-ffi` has no call handing it to the document's validation as `Command::PolicyCopy` (ADR
-  3162). Everything else left is a limit or the reader's own choice not to fetch a trusted list —
-  human-readable policies, a signed assertion of a form the texts do not define, a TS 119 172 value
-  constraint, a clear-text password against an encrypted one (ADRs 2725, 3161, 3162).
+§12.8.3.4.4 was here, and is `implemented`, with §12.8.3.4, §12.8.3 and §12.8 above it: a C caller's
+fetched policy copy is handed to the document's validation by `quorra_policy_copy` (ADR 3169), a
+distinguished name's values compare after RFC 4518's whole preparation (ADR 3170), and what its note
+still names is a limit or the reader's own choice not to fetch (ADR 3171).
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
@@ -317,7 +291,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§12.8, §12.8.3, §12.8.3.4.
+None is open: §12.8, §12.8.3 and §12.8.3.4 were the last, and are `implemented` (ADR 3171).
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

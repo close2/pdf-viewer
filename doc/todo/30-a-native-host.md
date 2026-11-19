@@ -208,7 +208,8 @@ These are the places where a native host's shape differs from the tier-2 host's,
   followed by a line feed is one paragraph break in every note window, split once by
   `viewer_host::popup::paragraphs` (ADR 1798). §12.3.5's collection is shown in all three. A
   signature's published policy is fetched in all three under the submissions level, declined in
-  `quorra-confined`, and `quorra_event_policy_bind` binds a C caller's copy (ADRs 1738, 1753). A
+  `quorra-confined`, and `quorra_event_policy_bind` binds a C caller's copy, which `quorra_policy_copy`
+  hands to the document's validation (ADRs 1738, 1753, 3169). A
   widget's and a page's `/AA` scripts are raised in all three, a press on a toolkit's own control
   included, every window's console being its log (ADRs 1752, 1771); a choice field's selection runs
   its Table 199 `/K` once, with `event.keyDown` true where an arrow made it (ADRs 1786, 1787, 1799).

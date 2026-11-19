@@ -1308,6 +1308,14 @@ int32_t quorra_respond(quorra_viewer *viewer, uint64_t document, uint32_t answer
  * postSubmit events, which XFA 3.3 page 447 runs whether or not the submit succeeded (ADR 2764).
  * A document no longer open takes nothing. */
 int32_t quorra_unanswered(quorra_viewer *viewer, uint64_t document, quorra_events **events);
+/* A copy of policy `policy`'s document, fetched by the caller from the URL the
+ * SIGNATURE_POLICIES_PUBLISHED at `index` of `published` names, handed to the validation of the
+ * document that event is about: §12.8.3.4.4's constraints are enforced from it where a digest the
+ * signer signed binds it, and `events` says what they came to (ADR 3169). `published` is read, not
+ * consumed. A NULL `bytes` with a zero `len` is an empty copy. */
+int32_t quorra_policy_copy(quorra_viewer *viewer, const quorra_events *published, size_t index,
+                           size_t policy, const uint8_t *bytes, size_t len,
+                           quorra_events **events);
 /* What this caller does with a page past MAX_PIXELS: QUORRA_OVERSIZE_*. Under LISTED a
  * request quorra_render_request_oversized names is answered with quorra_render_ready_listed and
  * drawn a window at a time with quorra_render_request_rasterise_window. */
@@ -1418,6 +1426,7 @@ int32_t quorra_event_extracted(const quorra_events *events, size_t index, bool *
  * the caller fetched from one bound against the digest its signer signed. Fetching is the caller's
  * decision at its reader's network level. `opens` is true only where the copy is the signer's and
  * a PDF, which the caller may open beside the document; the sentence says which it is (ADR 1753).
+ * quorra_policy_copy hands the copy to the document's validation, which enforces it (ADR 3169).
  */
 int32_t quorra_event_policy_count(const quorra_events *events, size_t index, size_t *count);
 int32_t quorra_event_policy_url(const quorra_events *events, size_t index, size_t policy, char *out,

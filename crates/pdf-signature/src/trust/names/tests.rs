@@ -102,10 +102,10 @@ fn an_ip_address_is_within_its_masked_range() {
     assert_eq!(within(&Name::IpAddress(vec![0; 16]), &base), Match::No);
 }
 
-/// Section 7.1: RFC 4518's preparation with case folding and insignificant space handling, exact
-/// on ASCII; outside ASCII two values that differ are not decided.
+/// Section 7.1: RFC 4518's preparation with case folding and insignificant space handling, on
+/// every value; one the preparation fails on, a private-use character here, is not decided.
 #[test]
-fn attribute_values_compare_after_preparation_and_undecided_beyond_ascii() {
+fn attribute_values_compare_after_preparation_and_undecided_where_it_fails() {
     let value = |text: Option<&str>, encoding: &[u8]| Attribute {
         kind: vec![0x55, 0x04, 0x03],
         encoding: encoding.to_vec(),
@@ -126,6 +126,20 @@ fn attribute_values_compare_after_preparation_and_undecided_beyond_ascii() {
         attribute_matches(
             &value(Some("Stra\u{df}e"), &[1]),
             &value(Some("strasse"), &[2])
+        ),
+        Match::Yes
+    );
+    assert_eq!(
+        attribute_matches(
+            &value(Some("Stra\u{df}e"), &[1]),
+            &value(Some("strase"), &[2])
+        ),
+        Match::No
+    );
+    assert_eq!(
+        attribute_matches(
+            &value(Some("Test\u{e000}"), &[1]),
+            &value(Some("test"), &[2])
         ),
         Match::Undecided
     );

@@ -19,13 +19,12 @@
 //! # Comparison
 //!
 //! Section 7.1 makes a distinguished name's attribute values compare after RFC 4518's string
-//! preparation with case folding. `prepared` performs that preparation exactly on ASCII text —
-//! where case folding is ASCII lowercase and normalisation changes nothing — and refuses to decide
-//! between two values that differ beyond it while either holds a character outside ASCII, because
-//! RFC 4518's mapping and normalisation tables are not in this tree. An undecided comparison is
-//! [`Match::Undecided`], and a check that meets one is refused by name ([`NameRefusal::Undecided`])
-//! rather than decided in either direction: a permitted subtree that might not match and an
-//! excluded one that might are both a path this program cannot vouch for.
+//! preparation with case folding, which `string_prep` performs whole (ADR 3170). A value the
+//! preparation fails on — RFC 4518 section 2's "Undefined", a prohibited code point — or one of a
+//! string type this program does not decode is an undecided comparison, [`Match::Undecided`], and
+//! a check that meets one is refused by name ([`NameRefusal::Undecided`]) rather than decided in
+//! either direction: a permitted subtree that might not match and an excluded one that might are
+//! both a path this program cannot vouch for.
 //!
 //! # Bounds
 //!
@@ -369,33 +368,6 @@ fn text(value: &Value<'_>) -> Option<String> {
     }
 }
 
-/// RFC 4518's preparation of a stored value as section 7.1 asks for it, where it is exact.
-///
-/// Step 2 maps the white-space controls to SPACE and the other controls to nothing and folds case;
-/// step 6 compresses white space, which for comparison is trimming both ends and making every run
-/// one SPACE. On ASCII that is the whole algorithm. `None` where the text holds anything outside
-/// ASCII, because the mapping and normalisation tables steps 2 and 3 name are not in this tree.
-fn prepared(text: &str) -> Option<String> {
-    if !text.is_ascii() {
-        return None;
-    }
-    let mapped: String = text
-        .chars()
-        .filter_map(|c| match c {
-            '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' => Some(' '),
-            c if c.is_ascii_control() => None,
-            c => Some(c.to_ascii_lowercase()),
-        })
-        .collect();
-    Some(
-        mapped
-            .split(' ')
-            .filter(|word| !word.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
-}
-
 /// The answer to whether a name lies in a subtree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Match {
@@ -422,7 +394,7 @@ fn attribute_matches(left: &Attribute, right: &Attribute) -> Match {
         return Match::Yes;
     }
     match (&left.text, &right.text) {
-        (Some(a), Some(b)) => match (prepared(a), prepared(b)) {
+        (Some(a), Some(b)) => match (string_prep::prepared(a), string_prep::prepared(b)) {
             (Some(a), Some(b)) => Match::of(a == b),
             _ => Match::Undecided,
         },
@@ -759,15 +731,14 @@ pub fn attributes_of(contents: &[u8]) -> Result<Vec<NamedAttribute>, Unreadable>
 }
 
 /// Section 7.1's comparison of two attribute values held as text, after RFC 4518's preparation
-/// where it is exact (`prepared`); identical text matches whatever it holds, and text outside
-/// ASCII that differs is [`Match::Undecided`], because the case folding the preparation asks of it
-/// is not in this tree.
+/// (`string_prep`); identical text matches whatever it holds, and text the preparation fails on
+/// is [`Match::Undecided`], RFC 4518 section 2's "Undefined".
 #[must_use]
 pub fn texts_match(left: &str, right: &str) -> Match {
     if left == right {
         return Match::Yes;
     }
-    match (prepared(left), prepared(right)) {
+    match (string_prep::prepared(left), string_prep::prepared(right)) {
         (Some(a), Some(b)) => Match::of(a == b),
         _ => Match::Undecided,
     }
@@ -843,6 +814,8 @@ fn only_child<'a>(tagged: &Value<'a>) -> Result<Value<'a>, Unreadable> {
         _ => Err(Unreadable::Malformed),
     }
 }
+
+mod string_prep;
 
 #[cfg(test)]
 mod tests;

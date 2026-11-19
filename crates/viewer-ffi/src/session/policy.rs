@@ -62,6 +62,27 @@ impl Session {
         self.handle(Command::Delegate(appearances))
     }
 
+    /// A copy of a signature policy's document this caller fetched, handed to `document`'s
+    /// validation, which binds it from the signature's own identifier and enforces §12.8.3.4.4's
+    /// constraints from it as from a copy the file stores (ADRs 2624, 3169).
+    ///
+    /// The copy the three windows hand on after their own fetch, as
+    /// `viewer_host::submit::Returned::follow_up` does; whether to fetch was the caller's, at its
+    /// reader's network level (ADR 1738).
+    #[must_use]
+    pub fn policy_copy(
+        &mut self,
+        document: DocumentId,
+        policy: pdf_signature::policy::PublishedPolicy,
+        copy: Vec<u8>,
+    ) -> Events {
+        self.handle(Command::PolicyCopy {
+            document,
+            policy,
+            copy,
+        })
+    }
+
     /// §12.8.1's third question: which certification authorities this reader believes.
     ///
     /// RFC 5280 section 6.1.1's inputs (d) and (b), which ADR 1039 made a host's to supply and

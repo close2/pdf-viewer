@@ -403,7 +403,8 @@ pub unsafe extern "C" fn quorra_event_policy_url(
 ///
 /// `opens` is true only where the copy is the signer's and a PDF, which the caller may then open
 /// beside the document with [`quorra_open`](super::quorra_open); the sentence, in the two-call idiom, says which it is
-/// and that §12.8.3.4.4's constraints were not enforced — the three windows' own words (ADR 1753).
+/// — the three windows' own words (ADR 1753). The constraints are enforced from the copy once the
+/// caller hands it to the document's validation with [`quorra_policy_copy`](super::quorra_policy_copy) (ADR 3169).
 /// A null `bytes` with a zero `len` is an empty copy.
 ///
 /// # Safety

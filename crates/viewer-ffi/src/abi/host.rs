@@ -1098,6 +1098,59 @@ pub unsafe extern "C" fn quorra_unanswered(
     Status::Ok.code()
 }
 
+/// A copy of policy `policy`'s document, which the caller fetched from the URL a
+/// `QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED` at `index` of `published` names, handed to the
+/// validation of the document that event is about — `viewer_core::Command::PolicyCopy`, the call
+/// the three windows make after their own fetch (ADRs 2624, 3169).
+///
+/// ISO 32000-2 §12.8.3.4.4 has a signature handler "enforce signature policy constraints", and the
+/// constraints are in the policy's document: the core binds this copy from the signature's own
+/// identifier — never from the caller's word — and answers on `events` with what its constraints
+/// came to, where they are new. A copy no digest the signer signed binds is said and not enforced;
+/// a document no longer open takes nothing. [`quorra_event_policy_bind`](super::quorra_event_policy_bind)
+/// says whether the same copy opens beside the document, and neither call needs the other.
+///
+/// The policy is named by the event that listed it, so `published` is read and not consumed. A
+/// null `bytes` with a zero `len` is an empty copy. `QUORRA_OUT_OF_RANGE` for an event or a policy
+/// the list does not hold, `QUORRA_WRONG_KIND` for another kind of event; nothing is sent then.
+///
+/// # Safety
+///
+/// See the module documentation. `published` is a live event list; `bytes` is readable for `len`,
+/// or null with a zero `len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_policy_copy(
+    viewer: *mut Session,
+    published: *const Events,
+    index: usize,
+    policy: usize,
+    bytes: *const u8,
+    len: usize,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(published), Some(events)) =
+        (viewer.as_mut(), published.as_ref(), events.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let copy = if bytes.is_null() {
+        if len > 0 {
+            return Status::NullArgument.code();
+        }
+        Vec::new()
+    } else {
+        core::slice::from_raw_parts(bytes, len).to_vec()
+    };
+    match published.published(index, policy) {
+        Ok((document, named)) => {
+            let named = named.clone();
+            *events = Box::into_raw(Box::new(viewer.policy_copy(document, named, copy)));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// What this caller does with a page past `MAX_PIXELS`, or one whose window keeps few of its
 /// commands: `QUORRA_OVERSIZE_*`.
 ///

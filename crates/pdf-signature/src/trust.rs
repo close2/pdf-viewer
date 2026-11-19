@@ -506,8 +506,8 @@ pub enum PathRefusal {
         "a certificate states a {0} under a constraint on that form, which this program does not compare"
     )]
     NameFormNotProcessed(&'static str),
-    /// A section 7.1 comparison this program cannot decide: text outside ASCII that RFC 4518's
-    /// tables would prepare, or a string type it does not decode.
+    /// A section 7.1 comparison this program cannot decide: a value RFC 4518's preparation fails
+    /// on, or a string type it does not decode.
     #[error("a certificate's {0} compares with a constraint in a way this program cannot decide")]
     NameComparisonUndecided(&'static str),
 }

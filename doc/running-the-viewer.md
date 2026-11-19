@@ -489,10 +489,11 @@ no popup of its own is a comment in the window of the note it answers (ADR 1727)
 §12.8.3.4.4 signature names a URL a copy of its policy document is published at, every window asks
 the level `--submissions=` and the restrictions menu set — `send` and `warn` fetch it, `ask` puts the
 URL to you first, `refuse` says it was not fetched — and a copy that hashes to the digest the signer
-signed is opened beside the document; any other answer is a sentence, and every one says the
-policy's constraints were not enforced. `quorra-confined` has no network and fetches nothing. Step
-66 of `tools/drive-windows.sh` serves one from the drive's loopback server. A C caller fetches the
-copy itself and hands it to `quorra_event_policy_bind`, which says the same sentence (ADR 1753).
+signed is opened beside the document; any other answer is a sentence, and every one says where the
+policy's constraints are enforced from (ADR 2624). `quorra-confined` has no network and fetches
+nothing. Step 66 of `tools/drive-windows.sh` serves one from the drive's loopback server. A C caller
+fetches the copy itself and hands it to `quorra_event_policy_bind`, which says the same sentence
+(ADR 1753), and to `quorra_policy_copy`, which has its constraints enforced (ADR 3169).
 
 **A measured point on a geospatial map is written in the file's display system** (Table 269's
 `/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an

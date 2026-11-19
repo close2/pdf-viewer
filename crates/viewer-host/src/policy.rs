@@ -1093,7 +1093,7 @@ pub fn signature_policy_handed(
         policy.url,
         copy.len()
     );
-    bound(policy, copy, note, None, Onward::NotCarried)
+    bound(policy, copy, note, None, Onward::ByTheCaller)
 }
 
 /// The binding of a copy to the signature, which ETSI EN 319 122-1 clause 5.2.10's note makes the
@@ -1208,10 +1208,10 @@ enum Onward {
     /// No copy came back, or none was fetched, so nothing was enforced from the URL.
     NoCopy,
     /// A copy a caller of the C interface fetched itself and handed to
-    /// [`signature_policy_handed`]: that interface has no call that hands a copy to the
-    /// document's validation, so the sentence says the constraints were not enforced from it
-    /// (ADR 2624).
-    NotCarried,
+    /// [`signature_policy_handed`]: the caller hands it on to the document's validation with
+    /// `quorra_policy_copy`, which sends `viewer_core::Command::PolicyCopy`, so the sentence says
+    /// the constraints are enforced from it there (ADRs 2624, 3169).
+    ByTheCaller,
 }
 
 /// The sentences every signature-policy note ends with: the level's warning where it gave one,
@@ -1231,10 +1231,10 @@ fn closed(mut note: String, warned: Option<&str>, onward: Onward) -> String {
             ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, \
              and none was enforced from that URL, because no copy came from it"
         }
-        Onward::NotCarried => {
-            ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, \
-             and none was enforced from this copy: this program's C interface has no call that \
-             hands a copy to the document's validation"
+        Onward::ByTheCaller => {
+            ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints: \
+             they are enforced from this copy once it is handed on to this document's validation, \
+             which binds it to the signature and says what came of them"
         }
     });
     note
