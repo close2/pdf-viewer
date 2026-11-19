@@ -262,6 +262,9 @@ self_test() {
             fails=$((fails + 1))
         fi
     }
+    ended() { # <log>: whether the run started into it has appended its end line
+        grep -q -E -- "$end_ere" "$1" 2>/dev/null
+    }
 
     out=$(bash "$me" --start "$scratch/a.log" -- bash -c 'echo first; sleep 1; echo second'); status=$?
     check "--start returns 0 once the run has started, naming the wait to make" 0 "$status" "$out" \
@@ -300,13 +303,19 @@ self_test() {
     [ ! -e "$scratch/x.log" ] || check "and nothing is started" 0 1 "x.log was made" x
 
     # One call, a start and a wait in it, holds one wall: the composition the round's contract
-    # writes, which two walls in one call put past the harness's timeout (ADR 2025).
-    local t0=$SECONDS
-    out=$(bash "$me" --start "$scratch/c.log" -- sleep 3 && bash "$me" --wall 1 "$scratch/c.log"); status=$?
+    # writes, which two walls in one call put past the harness's timeout (ADR 2025). The run ends
+    # when this test lets it, or at its own minute's ceiling, so a call that returns before the
+    # run's end line has waited neither for the run nor for the caller's pipe to close: the order
+    # of two events, which a loaded machine delays alike, and not a count of seconds (ADR 3134).
+    out=$(bash "$me" --start "$scratch/c.log" -- \
+        sh -c 'n=0; until [ -e "$0" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done' \
+        "$scratch/c.go" && bash "$me" --wall 1 "$scratch/c.log"); status=$?
     check "the wall comes first: 75, and the run named to re-issue" 75 "$status" "$out" \
         'still running .*re-issue tools/wait\.sh .*c\.log'
-    [ $((SECONDS - t0)) -le 2 ] ||
-        check "a start and a wait in one call took one wall" 0 1 "took $((SECONDS - t0)) s" x
+    ! ended "$scratch/c.log" ||
+        check "a start and a wait in one call took one wall, not the run's length" 0 1 \
+            "the run had ended when the call returned" x
+    : > "$scratch/c.go"
     local pid pgid
     read -r pid pgid _ < "$scratch/c.log.pid"
     check "the run leads a process group of its own, not the caller's" 0 \
@@ -340,15 +349,27 @@ self_test() {
         --tree 12 --data 1 --nice 0 -- \
         sh -c ': > "$0"; n=0; until [ -e "$1" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done' \
         "$scratch/held" "$scratch/go" > /dev/null
+    # Each wait below is for an event, or for the run that would make it ending first; three
+    # hundred seconds is a ceiling only on a run that does neither (ADR 3114's form, ADR 3134).
     local n=0
-    until [ -e "$scratch/held" ] || [ "$n" -ge 100 ]; do sleep 0.1; n=$((n + 1)); done
-    t0=$SECONDS
+    until [ -e "$scratch/held" ] || ended "$scratch/holder.log" || [ "$n" -ge 3000 ]; do
+        sleep 0.1
+        n=$((n + 1))
+    done
     out=$(locked bash "$me" --start "$scratch/g.log" -- "$root/tools/bounded.sh" --lock --round 7 \
         --tree 12 --data 1 --nice 0 -- sh -c 'exit 5'); status=$?
-    check "a locked run behind a holder is started at once" 0 "$status" \
-        "$out (returned after $((SECONDS - t0)) s)" 'started pid .*returned after [0-2] s\)$'
+    # The holder lets go only when `go` exists, which is made below, or at its minute's ceiling:
+    # a start that returned while the holder still held the lock did not wait in its queue.
+    if [ -e "$scratch/held" ] && ! ended "$scratch/holder.log"; then
+        out="$out (returned while the holder held the lock)"
+    else
+        out="$out (returned after the holder ended, or it never held the lock)"
+    fi
+    check "a locked run behind a holder is started at once" 0 "$status" "$out" \
+        'started pid .*returned while the holder held the lock\)$'
     n=0
-    until grep -q 'queued for the heavy-walk lock' "$scratch/g.log" || [ "$n" -ge 100 ]; do
+    until grep -q 'queued for the heavy-walk lock' "$scratch/g.log" || ended "$scratch/g.log" ||
+        [ "$n" -ge 3000 ]; do
         sleep 0.1
         n=$((n + 1))
     done

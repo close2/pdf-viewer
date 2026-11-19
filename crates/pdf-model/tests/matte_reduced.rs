@@ -160,7 +160,11 @@ fn a_matte_is_undone_on_a_parent_decoded_at_a_reduced_level() {
          drawn at a quarter again: {right:?}"
     );
 
-    let (_, control) = draw(page(false));
+    let (control_reports, control) = draw(page(false));
+    assert!(
+        control_reports.is_empty(),
+        "the control's image is drawn, so its pixels can tell: {control_reports:?}"
+    );
     let unblended = at(&control, 30, 20);
     assert!(
         unblended[1].abs_diff(239) <= 2,

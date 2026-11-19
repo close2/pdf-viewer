@@ -751,6 +751,9 @@ fn an_unreached_worker_is_its_own_error() {
             detail: "killed by signal 9".to_owned(),
         },
         SandboxError::TimedOut,
+        SandboxError::Stalled {
+            after: std::time::Duration::from_secs(300),
+        },
         SandboxError::Undecodable {
             detail: "the codestream ends early".to_owned(),
         },

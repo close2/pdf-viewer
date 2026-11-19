@@ -81,6 +81,11 @@ pub fn decode_here_within(
     request: &Request<'_>,
     timeout: Duration,
 ) -> Result<Decoded, SandboxError> {
+    crate::counted(within(request, timeout))
+}
+
+/// [`decode_here_within`] before its wall-clock refusals are counted.
+fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxError> {
     let still_running = ABANDONED.load(Ordering::Acquire);
     if still_running >= MAX_ABANDONED {
         return Err(SandboxError::TooManyOverran {

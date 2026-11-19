@@ -39,9 +39,8 @@ use pdf_sandbox::{Decoded, Isolation, Request, Sandbox, SandboxError};
 
 mod symbol_dictionaries;
 
-/// The deadline the deadline test gives a decode: short enough that one refused at it is refused
-/// well inside [`symbol_dictionaries::REFUSED_WITHIN`], long enough for the ordinary request
-/// beside it to be answered.
+/// The processor budget the deadline test gives a decode: a small fraction of what the large
+/// region costs, and long enough for the ordinary request beside it to be answered.
 const DEADLINE: Duration = Duration::from_millis(250);
 
 /// The `/JBIG2Globals` stream: segment 0, a symbol dictionary, page association 0.
@@ -224,26 +223,26 @@ fn rubbish_is_refused_and_the_worker_survives_it() {
 /// answers the next request.
 ///
 /// `hayro-jbig2` has no limit to be given and no way to be asked to stop, so what ends a decode in
-/// the confined path is the parent's deadline and the kill that follows it — thirty seconds for the
-/// shared worker, and [`DEADLINE`] for this sandbox of the test's own. The
-/// decode is the largest bilevel image the filter produces, whose cost is its area.
+/// the confined path is the parent's budget of the worker's processor time and the kill that
+/// follows it — thirty seconds for the shared worker, and [`DEADLINE`] for this sandbox of the
+/// test's own. The decode is the largest bilevel image the filter produces, whose cost is its area.
+///
+/// **No wall-clock assertion, because the budget is not wall clock** (ADR 3133): on a loaded
+/// machine a quarter-second of processor time takes longer than a second to spend, and the test
+/// would then measure the load. `TimedOut` is returned only by the processor budget — a wall-clock
+/// ceiling's refusal is `Stalled` — so the variant is what says the budget, and not the decode's
+/// end, ended it.
 #[test]
 fn a_decode_past_the_deadline_is_killed_and_the_next_request_answered() {
     let sandbox = Sandbox::with_timeout(DEADLINE);
     let large = symbol_dictionaries::one_region(1 << 14);
-    let started = std::time::Instant::now();
     let outcome = sandbox.decode(&Request::Jbig2 {
         data: &large,
         globals: &[],
     });
-    let spent = started.elapsed();
     assert!(
         matches!(outcome, Err(SandboxError::TimedOut)),
-        "ended by the deadline, not {outcome:?}"
-    );
-    assert!(
-        spent < symbol_dictionaries::REFUSED_WITHIN,
-        "refused at the deadline, not after the decode: {spent:?}"
+        "ended by the processor budget, not {outcome:?}"
     );
     assert!(
         sandbox.decode(&request()).is_ok(),

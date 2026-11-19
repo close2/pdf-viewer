@@ -21,9 +21,6 @@ use std::time::Duration;
 
 use pdf_sandbox::{Decoded, Request, SandboxError};
 
-/// How long any of these may take to be refused, wherever it is decoded.
-pub(crate) const REFUSED_WITHIN: Duration = Duration::from_secs(1);
-
 /// The deadline the seven are decoded under, long enough that the codec's own bound is what ends
 /// each: the symbol-pixel bound decodes its 2^28 pixels before it refuses, about two thirds of a
 /// second in the `dev` profile, past the quarter of a second the deadline tests give. A deadline ending one of them is then a sentence

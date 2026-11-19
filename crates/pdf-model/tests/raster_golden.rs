@@ -94,7 +94,9 @@
 //! which is how the round that wrote this proved it (ADR 1016). What *is* a source of difference
 //! is the sandbox worker — `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a
 //! separate program, and a page whose image it could not decode holds no command for it — so this
-//! gate refuses to measure without it, like every other corpus gate.
+//! gate refuses to measure without it, like every other corpus gate. The worker's budget is its
+//! processor time, which the bytes decide; a decode refused by the wall-clock ceiling behind it is
+//! the machine's, and a run that had one is refused before anything is compared (ADR 3133).
 //!
 //! # Beside it, how far a division moves the same pages
 //!
@@ -502,6 +504,23 @@ fn require_the_sandbox() {
     }
 }
 
+/// Refuses to compare or to record a run in which the wall clock refused a decode.
+///
+/// A decode the worker was stalled out of — stopped, or starved of the processor past
+/// `pdf-sandbox`'s ceiling — leaves its image undrawn for a reason the machine's load decided, so
+/// its page's list and reports are a fact about the machine and not about the tree. Recording them
+/// would put a load in the golden, and comparing them would report a page moved that no commit
+/// moved (ADR 3133).
+fn require_no_wall_clock_refusal() {
+    let refused = pdf_sandbox::wall_clock_refusals();
+    assert!(
+        refused == 0,
+        "{refused} image decodes in this run were refused by the wall clock, not by their \
+         processor budget: the machine stalled the sandbox worker, so the pages that held them \
+         measure the load. Nothing was compared or written; run it again on a quieter machine"
+    );
+}
+
 /// The gate.
 #[test]
 #[ignore = "the whole tracked corpus rasterised; run explicitly, under the gates profile"]
@@ -527,6 +546,7 @@ fn the_first_page_of_every_tracked_document_draws_what_it_drew() {
         .map(|path| (key_for(path), examine(path)))
         .collect();
     let seconds = started.elapsed().as_secs_f64();
+    require_no_wall_clock_refusal();
 
     // The three classes, each by name. A page that is on disk and in the file with the same line
     // is *held* and needs no sentence.

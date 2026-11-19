@@ -88,6 +88,7 @@
 // platform without one gets no confinement rather than an `unsafe` block (ADR 0194).
 
 pub mod beside;
+mod clock;
 mod decode;
 mod encode;
 pub mod in_process;
@@ -109,9 +110,9 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use lockdown::Confinement;
 
@@ -166,6 +167,31 @@ pub fn isolation() -> Isolation {
         // "unconfined".
         _ => Isolation::Sandboxed,
     }
+}
+
+/// How many decodes in this process the wall clock has refused: [`SandboxError::Stalled`],
+/// [`SandboxError::Overran`] and [`SandboxError::TooManyOverran`], each counted once as it is
+/// returned.
+///
+/// **What a caller that must be a function of the bytes reads before it records anything.** Each
+/// of the three leaves an image undrawn for a reason the machine's load decided, so a run that
+/// counts one has measured the machine as well as the document: the golden refuses to record such
+/// a run, and an oracle comparison should (ADR 3133). A count rather than a flag on the page's
+/// report, because the report is the document's and its words are what the golden digests.
+#[must_use]
+pub fn wall_clock_refusals() -> u64 {
+    WALL_CLOCK_REFUSALS.load(Ordering::Relaxed)
+}
+
+/// [`wall_clock_refusals`]'s count.
+static WALL_CLOCK_REFUSALS: AtomicU64 = AtomicU64::new(0);
+
+/// Counts `outcome` in [`wall_clock_refusals`] when the wall clock decided it, and returns it.
+fn counted<T>(outcome: Result<T, SandboxError>) -> Result<T, SandboxError> {
+    if outcome.as_ref().is_err_and(SandboxError::is_the_machines) {
+        WALL_CLOCK_REFUSALS.fetch_add(1, Ordering::Relaxed);
+    }
+    outcome
 }
 
 /// Decodes an image under the process's isolation policy.
@@ -230,13 +256,19 @@ pub const WORKER_PATH_VARIABLE: &str = "PDF_SANDBOX_WORKER";
 /// than it is answered within, by the ordinary worker (ADR 1333).
 pub const ORDINARY_SAMPLES: u64 = decode::MAX_SAMPLES;
 
-/// How long a single decode may take before the worker is killed.
+/// How much processor time a single decode may spend before the worker is killed.
 ///
-/// Wall clock, not processor time, and enforced by the parent: the worker cannot be trusted
-/// to time itself, and a cumulative processor-time limit would eventually kill a healthy
-/// long-lived worker for the crime of having decoded a lot of images. Thirty seconds is the
-/// same budget the corpus gate gives an entire document to a reference renderer, so an
-/// image that reaches it is not slow, it is not returning.
+/// The worker's processor time **on this request**, read and enforced by the parent: the worker
+/// cannot be trusted to time itself, and a cumulative limit would eventually kill a healthy
+/// long-lived worker for the crime of having decoded a lot of images. Processor time rather than
+/// wall clock because what a decode returns is part of the page, and the page must be a function
+/// of its bytes, not of the machine's load; the wall clock stays behind it as a ceiling of
+/// [`clock::STALL_FACTOR`] times this, refused as [`SandboxError::Stalled`] (ADR 3133). Thirty
+/// seconds is the same budget the corpus gate gives an entire document to a reference renderer,
+/// so an image that spends it is not slow, it is not returning.
+///
+/// The in-process path ([`decode_here_within`]) holds a thread of this process to the same length
+/// of wall clock, because a thread it cannot stop is all it has to bound ([`in_process`]).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Largest response this will accept from a worker, in bytes.
@@ -306,11 +338,31 @@ pub enum SandboxError {
         /// How it stopped, as far as the parent can tell.
         detail: String,
     },
-    /// The worker did not answer within its time: `REQUEST_TIMEOUT`, the longer one a
-    /// worker for full-resolution decodes is given ([`Sandbox::whole`]), or the one a caller
-    /// stated ([`Sandbox::with_timeout`]). The worker is killed, and the decode with it.
+    /// The worker spent its processor time without answering: `REQUEST_TIMEOUT`, the longer
+    /// budget a worker for full-resolution decodes is given ([`Sandbox::whole`]), or the one a
+    /// caller stated ([`Sandbox::with_timeout`]). The worker is killed, and the decode with it.
+    ///
+    /// The image's own refusal: the same bytes spend the same processor time on any machine.
     #[error("the sandbox worker did not answer within the time it was given")]
     TimedOut,
+    /// The worker neither answered nor spent its processor budget before the wall-clock ceiling,
+    /// or, where its processor time cannot be read, did not answer within the wall clock that is
+    /// then the whole budget. The worker is killed, and the decode with it.
+    ///
+    /// **The machine's refusal, and its own variant for that reason**: a stopped or starved worker
+    /// spends no processor time, so what decided this is the load, and the same bytes decode on a
+    /// quieter run. A caller whose output must be a function of the bytes — the golden, the oracle
+    /// — counts these with [`wall_clock_refusals`] and refuses to record a run that had one (ADR
+    /// 3133).
+    #[error(
+        "the sandbox worker did not answer within {after:?} of wall-clock time, a bound the \
+         machine's load decides as much as the image does, so the image is not known to be at \
+         fault (ADR 3133)"
+    )]
+    Stalled {
+        /// The wall-clock length of the wait it outlasted.
+        after: Duration,
+    },
     /// An in-process decode did not finish within its time, and was abandoned rather than
     /// stopped: a thread cannot be killed, so it runs on until it ends ([`in_process`]).
     #[error(
@@ -356,6 +408,19 @@ pub enum SandboxError {
     },
 }
 
+impl SandboxError {
+    /// Whether the wall clock, and so the machine's load, decided this refusal rather than the
+    /// image: [`SandboxError::Stalled`], [`SandboxError::Overran`] and
+    /// [`SandboxError::TooManyOverran`] (ADR 3133).
+    #[must_use]
+    pub fn is_the_machines(&self) -> bool {
+        matches!(
+            self,
+            Self::Stalled { .. } | Self::Overran { .. } | Self::TooManyOverran { .. }
+        )
+    }
+}
+
 /// A worker process and the pipes to it.
 #[derive(Debug)]
 struct Connection {
@@ -386,7 +451,7 @@ pub struct Sandbox {
     /// The samples a full-resolution decode may produce, for a worker started for them
     /// ([`Sandbox::whole`]); `None` for the ordinary worker.
     whole: Option<u64>,
-    /// The deadline a caller stated ([`Sandbox::with_timeout`]); `None` for the one derived
+    /// The processor budget a caller stated ([`Sandbox::with_timeout`]); `None` for the one derived
     /// from the worker's kind.
     timeout: Option<Duration>,
 }
@@ -406,12 +471,12 @@ impl Sandbox {
         })
     }
 
-    /// Returns a sandbox of its own whose worker is held to `timeout` for each request, without
-    /// starting anything.
+    /// Returns a sandbox of its own whose worker is held to `timeout` of processor time for each
+    /// request, and to ten times it of wall clock (ADR 3133), without starting anything.
     ///
     /// The ordinary worker's bounds otherwise. For a caller whose own budget is shorter than
-    /// thirty seconds — a thumbnail, a test that a deadline holds — and which is prepared to
-    /// start a worker of its own for it; dropping the sandbox ends that worker.
+    /// thirty seconds — a thumbnail, a test that a budget holds — and which is prepared to start
+    /// a worker of its own for it; dropping the sandbox ends that worker.
     #[must_use]
     pub fn with_timeout(timeout: Duration) -> Self {
         Self {
@@ -425,15 +490,15 @@ impl Sandbox {
     /// `samples`, without starting anything.
     ///
     /// The ordinary worker's bounds are the viewer's: a gigabyte of address space, thirty
-    /// seconds, a quarter-gigabyte answer — sized for [`Request::Jpx`], which steps a codestream
+    /// seconds of processor time, a quarter-gigabyte answer — sized for [`Request::Jpx`], which steps a codestream
     /// over its budget down to a reduced resolution level as §7.4.9 NOTE 3 permits. A writer
     /// that must carry the image's own grid cannot take that step ([`Request::JpxWhole`]), and a
     /// budget large enough for such a grid is the **operator's** to state, not the reader's. So
     /// this worker is a separate process started with `samples` as its one argument, and every
     /// bound is derived from it before a byte is read: an address-space ceiling of sixteen bytes
     /// a sample (the ordinary worker's own ratio, never below its gigabyte), an answer of two
-    /// bytes a sample, and thirty seconds for each `decode::MAX_SAMPLES` of them. The
-    /// confinement is otherwise the ordinary decoder's, system-call list and all (ADR 1333).
+    /// bytes a sample, and thirty seconds of processor time for each `decode::MAX_SAMPLES` of
+    /// them. The confinement is otherwise the ordinary decoder's, system-call list and all (ADR 1333).
     ///
     /// One sandbox per distinct budget, kept for the process: a verb states one budget for its
     /// run, so this is one more worker, not one per image.
@@ -459,21 +524,24 @@ impl Sandbox {
         let derived = match self.whole {
             None => Bounds {
                 response: MAX_RESPONSE,
-                timeout: REQUEST_TIMEOUT,
+                processor: REQUEST_TIMEOUT,
             },
             Some(samples) => {
                 let response = usize::try_from(samples.saturating_mul(2))
                     .unwrap_or(usize::MAX)
                     .max(MAX_RESPONSE);
                 let periods = samples.div_ceil(decode::MAX_SAMPLES).max(1);
-                let timeout = REQUEST_TIMEOUT
+                let processor = REQUEST_TIMEOUT
                     .checked_mul(u32::try_from(periods).unwrap_or(u32::MAX))
                     .unwrap_or(Duration::MAX);
-                Bounds { response, timeout }
+                Bounds {
+                    response,
+                    processor,
+                }
             }
         };
         Bounds {
-            timeout: self.timeout.unwrap_or(derived.timeout),
+            processor: self.timeout.unwrap_or(derived.processor),
             ..derived
         }
     }
@@ -500,7 +568,7 @@ impl Sandbox {
             unreachable!("the connection was just established")
         };
 
-        let outcome = connection.exchange(request, self.bounds());
+        let outcome = counted(connection.exchange(request, self.bounds()));
         if outcome.is_err() {
             // Any failure leaves the pipe at an unknown offset, so the worker is not reusable
             // even when it is still alive. Killing it is how the next request gets a clean
@@ -681,15 +749,15 @@ impl Connection {
     /// it was measured on the very binary this arrangement exists to name.
     fn read_handshake(&mut self, program: &Path) -> Result<Confinement, SandboxError> {
         let mut greeting = [0u8; protocol::HANDSHAKE_LEN];
-        let deadline = deadline(REQUEST_TIMEOUT);
+        let allowance = clock::Allowance::start(self.child.id(), REQUEST_TIMEOUT);
         let (magic, rest) = greeting.split_at_mut(protocol::MAGIC_LEN);
-        self.read_exactly(magic, deadline)?;
+        self.read_exactly(magic, &allowance)?;
         if !protocol::is_our_magic(magic) {
             return Err(SandboxError::Malformed {
                 detail: "the greeting was not this protocol's".to_owned(),
             });
         }
-        self.read_exactly(rest, deadline)?;
+        self.read_exactly(rest, &allowance)?;
         protocol::parse_handshake(&greeting).map_err(|stranger| match stranger {
             protocol::Stranger::Protocol => SandboxError::Malformed {
                 detail: "the greeting was not this protocol's".to_owned(),
@@ -704,7 +772,9 @@ impl Connection {
 
     /// Sends one request and reads its response, within `bounds`.
     fn exchange(&mut self, request: &Request<'_>, bounds: Bounds) -> Result<Decoded, SandboxError> {
-        let deadline = deadline(bounds.timeout);
+        // Started before the write, so that a worker that stops reading mid-request is held to
+        // the same allowance as one that stops answering.
+        let allowance = clock::Allowance::start(self.child.id(), bounds.processor);
 
         let encoded = protocol::encode_request(request);
         self.to_worker
@@ -713,7 +783,7 @@ impl Connection {
             .map_err(|error| self.explain(error))?;
 
         let mut header = [0u8; protocol::RESPONSE_HEADER_LEN];
-        self.read_exactly(&mut header, deadline)?;
+        self.read_exactly(&mut header, &allowance)?;
         let shape =
             protocol::parse_response_header(header).ok_or_else(|| SandboxError::Malformed {
                 detail: "unrecognised response header".to_owned(),
@@ -728,34 +798,37 @@ impl Connection {
         }
 
         let mut payload = vec![0u8; shape.payload_len];
-        self.read_exactly(&mut payload, deadline)?;
+        self.read_exactly(&mut payload, &allowance)?;
         protocol::parse_response(shape, &payload)
     }
 
-    /// Fills `buffer`, giving up at `deadline`.
+    /// Fills `buffer`, giving up when `allowance` is spent.
     ///
     /// A blocking read cannot be interrupted, so each read is preceded by a poll bounded by
-    /// what is left of the budget. That is what makes [`SandboxError::TimedOut`] possible at
-    /// all: without it, a worker that stopped answering would hang whatever thread asked.
+    /// what the allowance says may pass before it looks again. That is what makes
+    /// [`SandboxError::TimedOut`] and [`SandboxError::Stalled`] possible at all: without it, a
+    /// worker that stopped answering would hang whatever thread asked.
     #[cfg(unix)]
-    fn read_exactly(&mut self, buffer: &mut [u8], deadline: Instant) -> Result<(), SandboxError> {
+    fn read_exactly(
+        &mut self,
+        buffer: &mut [u8],
+        allowance: &clock::Allowance,
+    ) -> Result<(), SandboxError> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
         let mut filled = 0;
         while filled < buffer.len() {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(SandboxError::TimedOut);
-            }
+            let remaining = allowance.next_wait()?;
             let timeout = Timespec {
                 tv_sec: remaining.as_secs().try_into().unwrap_or(i64::MAX),
                 tv_nsec: remaining.subsec_nanos().into(),
             };
             let mut fds = [PollFd::new(&self.from_worker, PollFlags::IN)];
             match poll(&mut fds, Some(&timeout)) {
-                Ok(0) => return Err(SandboxError::TimedOut),
+                // The wait ended with nothing to read, or a signal ended it; either way the
+                // allowance decides whether to go on.
+                Ok(0) | Err(rustix::io::Errno::INTR) => continue,
                 Ok(_) => {}
-                Err(rustix::io::Errno::INTR) => continue,
                 Err(error) => return Err(SandboxError::Connection(error.into())),
             }
 
@@ -776,7 +849,8 @@ impl Connection {
         Ok(())
     }
 
-    /// Fills `buffer`, giving up at `deadline` — the version for a platform with no `poll`.
+    /// Fills `buffer`, giving up when `allowance` is spent — the version for a platform with no
+    /// `poll`.
     ///
     /// **A thread instead of a system call, and it exists for the deadline rather than for
     /// speed.** `poll` is POSIX and Windows has no equivalent that reaches a `ChildStdout`, so
@@ -787,10 +861,14 @@ impl Connection {
     /// What that costs is one thread per worker, which is one thread per *process* — the
     /// sandbox holds a single connection — and it ends when the worker's output closes. What it
     /// buys is the property the unix path gets from the kernel: a worker that stops answering
-    /// is a [`SandboxError::TimedOut`] rather than a hung viewer, which on a platform with no
-    /// address-space ceiling is the *only* bound left on a hostile file's decode.
+    /// is a refusal rather than a hung viewer, which on a platform with no address-space ceiling
+    /// is the *only* bound left on a hostile file's decode.
     #[cfg(not(unix))]
-    fn read_exactly(&mut self, buffer: &mut [u8], deadline: Instant) -> Result<(), SandboxError> {
+    fn read_exactly(
+        &mut self,
+        buffer: &mut [u8],
+        allowance: &clock::Allowance,
+    ) -> Result<(), SandboxError> {
         let mut filled = 0;
         while filled < buffer.len() {
             if !self.pending.is_empty() {
@@ -814,17 +892,13 @@ impl Connection {
                 filled = filled.saturating_add(taken);
                 continue;
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(SandboxError::TimedOut);
-            }
+            let remaining = allowance.next_wait()?;
             match self.from_worker.recv_timeout(remaining) {
                 Ok(Ok(chunk)) if chunk.is_empty() => return Err(self.died()),
                 Ok(Ok(chunk)) => self.pending.extend_from_slice(&chunk),
                 Ok(Err(error)) => return Err(self.explain(error)),
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    return Err(SandboxError::TimedOut);
-                }
+                // The wait ended with nothing to read; the allowance decides whether to go on.
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 // The reader thread ended, which it only does when the pipe closed.
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(self.died()),
             }
@@ -867,24 +941,13 @@ impl Connection {
     }
 }
 
-/// When the current request runs out of time.
-///
-/// `checked_add` rather than `+` because a deadline is arithmetic on untrusted-adjacent
-/// input everywhere else in this tree and the habit is worth keeping. An `Instant` that
-/// cannot represent thirty seconds from now is not reachable on any real clock; if it were,
-/// the safe reading is "already out of time", not "never".
-fn deadline(timeout: Duration) -> Instant {
-    let now = Instant::now();
-    now.checked_add(timeout).unwrap_or(now)
-}
-
 /// What the parent holds one worker's answers to: how long, and how large.
 #[derive(Debug, Clone, Copy)]
 struct Bounds {
     /// The largest response accepted, in bytes.
     response: usize,
-    /// How long one request may take.
-    timeout: Duration,
+    /// The processor time one request may spend ([`clock`]).
+    processor: Duration,
 }
 
 /// Describes how a worker ended, naming the signal where the platform has one.
