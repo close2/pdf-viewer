@@ -115,7 +115,7 @@ fn fixed(value: f64) -> Option<i32> {
 
 /// One operand in the shortest form the note's section 3.2 gives it: an integer in one, two or
 /// three bytes, and anything with a fraction as `255` and a 16.16 number.
-fn push_operand(out: &mut Vec<u8>, bits: i32) {
+pub(crate) fn push_operand(out: &mut Vec<u8>, bits: i32) {
     if bits & 0xFFFF != 0 {
         out.push(255);
         out.extend_from_slice(&bits.to_be_bytes());
@@ -147,15 +147,15 @@ fn byte(value: i32) -> u8 {
 
 /// The components' paths as relative charstring operators, built as a component is evaluated.
 #[derive(Default)]
-struct Path {
+pub(crate) struct Path {
     /// The charstring bytes so far, without a width and without `endchar`.
-    code: Vec<u8>,
+    pub(crate) code: Vec<u8>,
     /// The current point, in 16.16 units: the last point written.
     at: (i32, i32),
     /// Where the component being evaluated has its origin.
     offset: (i32, i32),
     /// Whether a point fell outside what 16.16 can state once moved.
-    overflowed: bool,
+    pub(crate) overflowed: bool,
 }
 
 impl Path {

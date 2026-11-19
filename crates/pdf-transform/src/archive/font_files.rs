@@ -14,10 +14,18 @@
 //! chose its reader by those bytes (`pdf_font::program`). A row under the same key is taken first,
 //! which restates the name alone; failing that, a `/FontFile3` row, which moves the stream to that
 //! key and drops the three lengths a compact program does not state. Moving a program the other
-//! way would need lengths this conversion does not compute, and where no row admits the pairing —
-//! a Type 1 program under a `CIDFontType0` dictionary is the corpus's case — no filing is true of
-//! it, and making one true would change the program's format, so the document is refused by that
-//! sentence (ADR 2307).
+//! way would need lengths this conversion does not compute, and where no row admits the pairing no
+//! filing is true of it, and making one true would change the program's format, so the document is
+//! refused by that sentence (ADR 2307).
+//!
+//! **A Type 1 program under a `CIDFontType0` dictionary is the CID-keyed CFF that draws the same
+//! glyphs** (ADR 3173, the construction of ADR 3155). Table 124 gives that dictionary a CFF under
+//! `/FontFile3` `/CIDFontType0C`, and this reader selects glyph *n* of the Type 1 program for CID
+//! *n* by §9.7.4.2's rule for a CFF without `CIDFont` operators; `pdf_font::type1::as_cid_keyed_cff`
+//! writes each charstring as the Type 2 one drawing the same outline, gives glyph *n* the CID *n*,
+//! and proves every glyph before the program is kept ([`as_cid_keyed`]). The program moves to that
+//! row as a whole stream, and the dictionary loses the `/CIDToGIDMap` Table 115 states of a Type 2
+//! `CIDFont` alone.
 //!
 //! **A CFF-flavoured OpenType program under a simple `TrueType` dictionary is the `Type1` font
 //! that names each code's glyph** (ADR 3078). Table 124 admits a name-keyed one under `Type1`,
@@ -88,10 +96,17 @@ pub(super) const REQUIREMENT: &str = "fonts/font-programs-filed-by-their-format"
 
 /// Why a program no row admits keeps its refusal.
 const NO_ROW: &str = "a font program is in a format ISO 32000-2's Table 124 admits under no key \
-     in the dictionary that names it - a Type 1 program under a CIDFontType0 dictionary, for one. \
-     No filing is true of it, and making one true would change the program's format or the \
-     font dictionary's subtype and with it how a code selects a glyph (sections 9.6.5 and \
-     9.7.4.2), which is a reinterpretation this conversion does not make";
+     in the dictionary that names it. No filing is true of it, and making one true would change \
+     the program's format or the font dictionary's subtype and with it how a code selects a glyph \
+     (sections 9.6.5 and 9.7.4.2), which is a reinterpretation this conversion does not make";
+
+/// Why a Type 1 program under a `CIDFontType0` that is not written as a CID-keyed CFF keeps its
+/// refusal (ADR 3173).
+const NOT_CONVERTED: &str = "a Type 1 program is under a CIDFontType0 dictionary, where ISO \
+     32000-2's Table 124 files a CID-keyed CFF, and it is not written as one: its FontMatrix is \
+     not the 1000-unit one, a charstring does not run or does not read back drawing the outline \
+     and width it drew, or a dictionary naming it is written inside its Type 0 font, states no \
+     CIDSystemInfo, or states another than a second one naming the same program";
 
 /// Why a `TrueType` font over a CFF-flavoured program that a TrueType row also binds keeps its
 /// refusal.
@@ -313,9 +328,14 @@ pub(super) fn refiled(
             .get(&id)
             .filter(|naming| !naming.is_empty())
             .ok_or(Because::NotBuiltYet(NO_DICTIONARY))?;
-        // A collection is filed as the face written out of it, so the row is that face's.
+        // A collection is filed as the face written out of it, so the row is that face's; a Type
+        // 1 program under a `CIDFontType0` as the CID-keyed CFF written from it (ADR 3173).
         let face = if program.starts_with(b"ttcf") {
             Some(face_of(naming, &program)?)
+        } else if program.starts_with(TYPE1)
+            && naming.iter().any(|holder| holder.subtype == "CIDFontType0")
+        {
+            Some(as_cid_keyed(document, naming, &program, &mut out)?)
         } else {
             None
         };
@@ -368,6 +388,60 @@ pub(super) fn refiled(
         }
     }
     Ok(out)
+}
+
+/// How a Type 1 program's clear-text portion opens (Adobe Type 1 Font Format section 2.4), the
+/// test `pdf_archive::table_124_rows` reads the format by.
+const TYPE1: &[u8] = b"%!";
+
+/// A Type 1 program under `CIDFontType0` dictionaries, written as the CID-keyed CFF Table 124
+/// files there (ADR 3173), each dictionary added to [`Refiled::retyped`] so that it loses the
+/// `/CIDToGIDMap` Table 115 states of a Type 2 `CIDFont` alone.
+///
+/// The program's charset gives glyph *n* the CID *n*, which is the glyph this reader selected for
+/// CID *n* in the Type 1 program by §9.7.4.2's rule for a CFF without `CIDFont` operators
+/// (`pdf_font::composite`); `pdf_font::type1::as_cid_keyed_cff` proves every glyph draws the
+/// outline it drew before returning it. Its `ROS` is the dictionaries' own `/CIDSystemInfo`, which
+/// §9.7.3 makes the character collection the CIDs are in.
+fn as_cid_keyed(
+    document: &Document,
+    naming: &[Holder],
+    program: &[u8],
+    out: &mut Refiled,
+) -> Result<Vec<u8>, Because> {
+    let refused = Because::NotBuiltYet(NOT_CONVERTED);
+    let mut system: Option<pdf_font::embed::SystemInfo> = None;
+    let mut fonts = Vec::new();
+    for holder in naming {
+        let font = holder
+            .font
+            .filter(|_| holder.subtype == "CIDFontType0")
+            .ok_or(refused)?;
+        let Object::Dictionary(dict) = document.get(font) else {
+            return Err(refused);
+        };
+        let stated = system_info(document, &dict).ok_or(refused)?;
+        if system.as_ref().is_some_and(|system| *system != stated) {
+            return Err(refused);
+        }
+        system = Some(stated);
+        fonts.push(font);
+    }
+    let system = system.ok_or(refused)?;
+    let converted = pdf_font::type1::as_cid_keyed_cff(program, &system).map_err(|_| refused)?;
+    out.retyped.extend(fonts);
+    Ok(converted)
+}
+
+/// A `CIDFont` dictionary's `/CIDSystemInfo` (§9.7.3, Table 114), where it states all three entries.
+fn system_info(document: &Document, font: &Dictionary) -> Option<pdf_font::embed::SystemInfo> {
+    let info = document.get_key(font, "CIDSystemInfo");
+    let info = info.as_dict()?;
+    Some(pdf_font::embed::SystemInfo {
+        registry: document.get_key(info, "Registry").as_string()?.to_vec(),
+        ordering: document.get_key(info, "Ordering").as_string()?.to_vec(),
+        supplement: document.get_key(info, "Supplement").as_integer()?,
+    })
 }
 
 /// The program streams the requirement failed at, or why they cannot all be named.
@@ -664,8 +738,8 @@ mod tests {
     use pdf_syntax::object::ObjectId as Id;
 
     use super::{
-        A_COLLECTION, Because, NO_MAP_TO_KEEP, NO_ROW, NOT_THE_SAME_GLYPHS, REQUIREMENT, Spare,
-        refiled, without_retyped,
+        A_COLLECTION, Because, NO_MAP_TO_KEEP, NOT_CONVERTED, NOT_THE_SAME_GLYPHS, REQUIREMENT,
+        Spare, refiled, without_retyped,
     };
 
     /// Object numbers past every fixture's own.
@@ -847,9 +921,10 @@ mod tests {
     }
 
     #[test]
-    fn a_program_no_row_admits_keeps_its_refusal() {
+    fn a_type1_program_under_cid_font_type0_that_does_not_convert_keeps_a_refusal() {
         // No row admits a Type 1 program under a `CIDFontType0` dictionary: Table 124 gives that
-        // dictionary a compact or an OpenType program alone, and the program is neither.
+        // dictionary a compact or an OpenType program alone. It is written as the CID-keyed CFF
+        // drawing the same glyphs (ADR 3173), and a program with no charstrings to write is not.
         let document = a_program_under(
             "CIDFontType0",
             "FontFile",
@@ -858,7 +933,7 @@ mod tests {
         );
         let input = pdf_archive::check(&document, Target::Four(Flavour::Plain));
         assert!(
-            matches!(refiled(&document, &input, &mut spare()), Err(Because::NotBuiltYet(why)) if why == NO_ROW)
+            matches!(refiled(&document, &input, &mut spare()), Err(Because::NotBuiltYet(why)) if why == NOT_CONVERTED)
         );
     }
 

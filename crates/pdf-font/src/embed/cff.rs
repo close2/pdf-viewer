@@ -763,7 +763,7 @@ fn font_dicts_with(
 
 /// An INDEX of `items` with the smallest offset size that holds its data (Adobe Technical Note
 /// #5176, section 5); `None` past the 65 535 items a count can state.
-pub(super) fn index<T: AsRef<[u8]>>(items: &[T]) -> Option<Vec<u8>> {
+pub(crate) fn index<T: AsRef<[u8]>>(items: &[T]) -> Option<Vec<u8>> {
     let count = u16::try_from(items.len()).ok()?;
     let mut out = count.to_be_bytes().to_vec();
     if count == 0 {

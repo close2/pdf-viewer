@@ -1701,7 +1701,10 @@ impl Rewrite {
                  the ones its format is given, every byte of the program the producer's, and a \
                  CIDFontType2 whose Identity map selects a name-keyed CFF program's glyphs by \
                  their CIDs is the CIDFontType0 that selects the same ones, as a CIDFontType0 \
-                 over a glyf program is the CIDFontType2 that does"
+                 over a glyf program is the CIDFontType2 that does; a Type 1 program under a \
+                 CIDFontType0 is written as the CID-keyed CFF whose every glyph draws the outline \
+                 and states the width it did, without the stem hints that fit an outline to the \
+                 pixel grid"
             }
             Self::CollectionRestated => {
                 "an embedded CIDFont whose character collection disagreed with its CMap's names \

@@ -17030,6 +17030,8 @@ mod notdef_glyph;
 mod truetype_no_glyph;
 #[path = "archive/type1_notdef_glyph.rs"]
 mod type1_notdef_glyph;
+#[path = "archive/type1_under_cid_font.rs"]
+mod type1_under_cid_font;
 #[path = "archive/type1_widths.rs"]
 mod type1_widths;
 #[path = "archive/whole_population.rs"]

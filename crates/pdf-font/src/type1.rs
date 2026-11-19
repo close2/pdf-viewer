@@ -64,6 +64,9 @@ pub use glyphs_given::{
     AdvancesRestated, GlyphsGiven, MOST_BYTES_WRITTEN, MOST_CHARSTRING_BYTES, with_advances,
     with_glyphs_given,
 };
+#[path = "type1_to_cff.rs"]
+mod to_cff;
+pub use to_cff::{MOST_GLYPHS, as_cid_keyed_cff};
 
 /// A parsed Type 1 font program.
 ///
@@ -431,6 +434,12 @@ pub(crate) mod tests {
     /// A bare Type 1 program holding `.notdef` and `A`, each charstring given whole, with the
     /// subroutines given, in the PFA shape: a cleartext header and a binary `eexec` section.
     pub(crate) fn program(notdef: &[u8], a: &[u8], subrs: &[Vec<u8>]) -> Vec<u8> {
+        program_with(&[(".notdef", notdef), ("A", a)], subrs)
+    }
+
+    /// A bare Type 1 program holding `glyphs` in their order, each a name and its charstring
+    /// given whole, with the subroutines given, in [`program`]'s shape.
+    pub(crate) fn program_with(glyphs: &[(&str, &[u8])], subrs: &[Vec<u8>]) -> Vec<u8> {
         let mut private = b"dup /Private 8 dict dup begin\n\
             /RD{string currentfile exch readstring pop}executeonly def\n\
             /ND{noaccess def}executeonly def\n\
@@ -444,8 +453,10 @@ pub(crate) mod tests {
             private.extend_from_slice(&subr);
             private.extend_from_slice(b" NP\n");
         }
-        private.extend_from_slice(b"2 index /CharStrings 2 dict dup begin\n");
-        for (name, body) in [(".notdef", notdef), ("A", a)] {
+        private.extend_from_slice(
+            format!("2 index /CharStrings {} dict dup begin\n", glyphs.len()).as_bytes(),
+        );
+        for &(name, body) in glyphs {
             let body = charstring(body);
             private.extend_from_slice(format!("/{name} {} RD ", body.len()).as_bytes());
             private.extend_from_slice(&body);
@@ -481,8 +492,8 @@ pub(crate) mod tests {
 
     pub(crate) const HSBW: u8 = 13;
     pub(crate) const ENDCHAR: u8 = 14;
-    const CALLSUBR: u8 = 10;
-    const RETURN: u8 = 11;
+    pub(crate) const CALLSUBR: u8 = 10;
+    pub(crate) const RETURN: u8 = 11;
 
     /// `0 <width> hsbw endchar`.
     pub(crate) fn plain_glyph(width: i32) -> Vec<u8> {

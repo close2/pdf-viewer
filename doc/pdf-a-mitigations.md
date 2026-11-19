@@ -1526,10 +1526,16 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   section 6.2.11.6's TrueType rows at that font** (ADR 3089): they bind TrueType fonts alone, and a
   font written as `Type1` is outside their population, so their findings at it are taken out of the
   report their preparations read, and a row left with none takes this row's decision.
-- **Refused, by name**: a program no row admits under its dictionary — a Type 1 program under
-  `CIDFontType0` (`issue11740_reduced`) — since a true filing would need the program's format
-  changed (the conversion into the CID-keyed CFF Table 124 files under `/FontFile3
-  /CIDFontType0C` is the remedy, its construction in ADR 3155); a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
+  **A Type 1 program under a `CIDFontType0`** is written as the CID-keyed CFF Table 124 files
+  there under `/FontFile3` `/CIDFontType0C` (ADR 3173, ADR 3155's construction): every charstring
+  run through this reader's interpreter and written as the Type 2 path it draws, glyph *n* at CID
+  *n*, the written program read back and every glyph's outline and width compared bit for bit before
+  it is kept; the dictionary's `/CIDToGIDMap` goes and its `/W` stays. Stem hints are not carried.
+- **Refused, by name**: a program no row admits under its dictionary, since a true filing would
+  need the program's format changed; a Type 1 program under a `CIDFontType0` whose conversion is
+  refused (a `FontMatrix` other than the 1000-unit one, a glyph that does not run, read back the
+  same, or state a width, a `CIDFont` written inside its `Type0` font or stating no
+  `/CIDSystemInfo`); a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
   where that row's named objects or places were cut short, so its findings at the font cannot be
   told from the rest, and its rewrite would write it as a TrueType font again; a
   CFF-flavoured program under a `CIDFontType2` stating no map, or a CID-keyed one, whose CIDs nothing
