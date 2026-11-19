@@ -178,3 +178,46 @@ fn every_test_file_of_a_crate_without_discovery_is_compiled() {
             .join("\n")
     );
 }
+
+/// The calls that change a whole process for good: each is made once, by a process about to be
+/// confined, and has no way back by design (`pdf_font::substitute::no_machine_fonts`,
+/// `pdf_font::provider::faces_come_from`, ADR 0870).
+const PROCESS_WIDE_SWITCHES: [&str; 2] = ["no_machine_fonts(", "faces_come_from("];
+
+/// A module of a grouped suite throws no process-wide switch.
+///
+/// Under `cargo test` — CI's runner — a suite's modules share one process, so a module that turns
+/// the machine's fonts off takes them from every test scheduled after it, and which tests those
+/// are depends on the harness's threads; nextest, which every local gate runs, gives each test a
+/// process of its own and never sees it. Two such files grouped into `pdf-model`'s `text_suite`
+/// failed CI twice over while passing here (ADR 3130). A file that throws one is a `[[test]]` of
+/// its own, as ADR 3086 provides for a walk.
+#[test]
+fn no_module_of_a_suite_throws_a_process_wide_switch() {
+    let root = repository_root();
+    let members = conformance::roots::members(root).expect("the workspace manifest states members");
+    let mut offenders = Vec::new();
+    for member in members {
+        let crate_dir = root.join(&member);
+        let manifest = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap_or_default();
+        if !discovery_is_off(&manifest) {
+            continue;
+        }
+        for test_root in declared_roots(&manifest, &crate_dir) {
+            for module in modules_of(&test_root) {
+                let text = fs::read_to_string(&module).unwrap_or_default();
+                for switch in PROCESS_WIDE_SWITCHES {
+                    if text.contains(switch) {
+                        offenders.push(format!("  {} calls {switch}", module.display()));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "these modules share a process with their suite's other tests under `cargo test` and \
+         change it for good; make each a `[[test]]` of its own (ADR 3130):\n{}",
+        offenders.join("\n")
+    );
+}

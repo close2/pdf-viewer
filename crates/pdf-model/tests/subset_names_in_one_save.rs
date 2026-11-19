@@ -8,8 +8,9 @@
 //! subset would be given must give it another. The test saves once to learn the name, writes a
 //! file that already states it, and saves the same value there.
 //!
-//! Its own binary, beside `machine_face_written.rs`, because it asks the machine for a face; where
-//! the machine offers none covering the value, it says so and stops (ADR 1154).
+//! It asks the machine for a face, and where the machine offers none covering the value it says so
+//! and stops (ADR 1154) — a premise asked before the save, so that a save which fails on a machine
+//! that has the face is a failure (ADR 3130).
 
 #![expect(
     clippy::expect_used,
@@ -103,6 +104,26 @@ fn subset_names(bytes: Vec<u8>) -> BTreeSet<Vec<u8>> {
     names
 }
 
+/// The premise, asked before a save rather than read from one: whether this machine offers a face
+/// it may embed that draws every character the value displays, as the layout asks it
+/// (`variable_text::machine_set`). Read afterwards, a save that constructed no appearance could
+/// be a machine without the face or a defect, and only the first is a skip.
+fn machine_writes_the_value() -> bool {
+    let Some(glyphs) = pdf_font::shaping::displayed_characters(TYPED, None) else {
+        return false;
+    };
+    let wanted: Vec<char> = glyphs.keys().copied().collect();
+    // `/HeBo` stands in for Helvetica-Bold; the layout asks the machine in its family, as a
+    // question that is no longer the standard font's.
+    let asked = pdf_font::substitute::Request {
+        family: pdf_font::substitute::Family::SansSerif,
+        bold: true,
+        italic: false,
+        standard: false,
+    };
+    pdf_font::substitute::installed_covering_embeddable(asked, &wanted).is_some()
+}
+
 /// The value typed into `file`'s field and saved: the subset names the saved file states that
 /// `file` did not.
 fn saved_names(file: Vec<u8>) -> BTreeSet<Vec<u8>> {
@@ -135,11 +156,15 @@ fn saved_names(file: Vec<u8>) -> BTreeSet<Vec<u8>> {
 /// The control is the first save, into the file without it, which takes the name.
 #[test]
 fn a_save_does_not_reuse_a_subset_name_the_file_already_holds() {
-    let fresh = saved_names(one_field(&[]));
-    let Some(taken) = fresh.first().cloned() else {
-        println!("skipped: no face on this machine covers the Arabic value");
+    if !machine_writes_the_value() {
+        println!("skipped: no face on this machine that may be embedded covers the Arabic value");
         return;
-    };
+    }
+    let fresh = saved_names(one_field(&[]));
+    let taken = fresh
+        .first()
+        .cloned()
+        .expect("a face covers the value, so the save writes it subset");
     assert_eq!(fresh.len(), 1, "one value, one subset: {fresh:?}");
 
     let name = String::from_utf8(taken.clone()).expect("a font name the writer wrote is ASCII");

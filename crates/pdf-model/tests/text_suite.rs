@@ -13,7 +13,9 @@
 //! `tools/conformance/tests/test_targets.rs` fails on a file no suite names.
 //!
 //! Under `cargo test` the modules share one process (nextest gives each test a process of its own
-//! either way), so a module sets no environment variable and changes no working directory.
+//! either way), so a module sets no environment variable, changes no working directory and throws
+//! no process-wide switch: the two files that turn the machine's fonts off are binaries of their own
+//! (ADR 3130).
 
 mod cid_map_stream_spec_audit;
 mod composite_font_fixtures;
@@ -27,8 +29,6 @@ mod font_paint_type_audit;
 mod font_subset_reader_audit;
 mod glyph_clip_direction;
 mod logical_order;
-mod machine_cff_face_written;
-mod machine_face_written;
 mod null_font_substitute;
 mod ocr_text_layer;
 mod opentype_selection_audit;

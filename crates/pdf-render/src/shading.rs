@@ -2076,7 +2076,12 @@ fn box_down(samples: &[u8], out: &mut [u8], span: u32) {
     let n = usize::from(FILTER_SAMPLES);
     let span = span as usize;
     let fine_row = span.saturating_mul(n).saturating_mul(4);
-    let weight = 1.0 / f32::from(FILTER_SAMPLES).powi(2);
+    // Squared by one multiplication, which IEEE 754 rounds correctly and is exact here: `powi`
+    // is not an IEEE operation and Rust does not promise it exact (Miri perturbs it), and a
+    // weight a unit in the last place under 1/16 turns a half-covered pixel's 127.5 into 127
+    // (ADR 3129).
+    let samples_per_axis = f32::from(FILTER_SAMPLES);
+    let weight = 1.0 / (samples_per_axis * samples_per_axis);
     for (row, line) in out
         .chunks_exact_mut(span.saturating_mul(4).max(1))
         .enumerate()

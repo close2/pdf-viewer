@@ -103,6 +103,16 @@ name = "text_extraction"
 [[test]]
 name = "xmp"
 
+# Two binaries of their own because each turns the machine's fonts off for its whole process
+# (`pdf_font::substitute::no_machine_fonts` and `provider::faces_come_from` cannot be undone),
+# which under `cargo test` would take the faces from every test sharing a suite with it (ADR 3130).
+
+[[test]]
+name = "machine_cff_face_written"
+
+[[test]]
+name = "machine_face_written"
+
 # The subject suites: each a root whose `mod` lines name the files of one subject.
 
 [[test]]
