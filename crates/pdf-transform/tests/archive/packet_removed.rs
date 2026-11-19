@@ -5,8 +5,10 @@
 //! are, and bytes that are not UTF-8 are no packet a page can set as text (ISO 16684-1 makes a
 //! packet Unicode). `state-every-loss` answers the packet rows with `preserve`, `original =
 //! "page"` and `on-failure = "append-statement"`: such a packet is removed, the fresh packet
-//! replaces it, and the statement page lists the stream, its length and its filters. `no-data-loss`
-//! names no second step, so the same document keeps its refusal.
+//! replaces it, and the statement page lists the stream, its length and its filters.
+//! `as-if-printed` names `on-failure = "discard"` (`doc/adr/3141`): the packet is removed and named
+//! in the report and `xmpMM:History`, and no page is appended for it. `no-data-loss` names no
+//! second step, so the same document keeps its refusal.
 use super::{
     ArchivePlan, Because, Decision, Level, Rewrite, Target, Verdict, conversion, convert_with_plan,
     decision, holds, plan_from,
@@ -15,6 +17,7 @@ use pdf_syntax::{Document, Limits};
 
 const STATE_EVERY_LOSS: &str = include_str!("../../../../doc/profiles/state-every-loss.toml");
 const NO_DATA_LOSS: &str = include_str!("../../../../doc/profiles/no-data-loss.toml");
+const AS_IF_PRINTED: &str = include_str!("../../../../doc/profiles/as-if-printed.toml");
 
 const WELL_FORMED: &str = "metadata/xmp-packets-well-formed";
 
@@ -135,6 +138,52 @@ fn a_packet_no_page_can_lay_out_is_removed_and_stated() {
         }
 
         // And `xmpMM:History` records it.
+        assert!(
+            the_packet_of(&output).contains("is removed (metadata-packet)"),
+            "{target:?}: the history names the removal"
+        );
+    }
+}
+
+#[test]
+fn as_if_printed_removes_a_packet_no_page_can_lay_out_and_names_it() {
+    let source = a_packet_that_is_not_text();
+    for target in TARGETS {
+        let (report, output) = convert_with_plan(&source, &planned(AS_IF_PRINTED, target));
+        assert!(
+            matches!(
+                decision(&report, WELL_FORMED),
+                Decision::Configured {
+                    rewrite: Rewrite::FreshMetadataPacket,
+                    ..
+                }
+            ),
+            "{target:?}: {:?}",
+            decision(&report, WELL_FORMED)
+        );
+        let output = output.unwrap_or_else(|| panic!("{target:?}: it converts: {report:#?}"));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+
+        // The report names the stream, and no page states it: a print carries no packet.
+        let replaced = &conversion(&report).replaced_packets;
+        let removed = replaced
+            .iter()
+            .find_map(|packet| packet.removed.as_ref())
+            .unwrap_or_else(|| panic!("{target:?}: the removal is reported: {replaced:?}"));
+        assert_eq!(removed.at.number, 6, "{target:?}");
+        assert_eq!(removed.length, PLACEHOLDER.len(), "{target:?}");
+        assert_eq!(removed.stated_on, None, "{target:?}: no statement page");
+        assert!(
+            conversion(&report).statement.is_none(),
+            "{target:?}: no statement is reported"
+        );
+        assert_eq!(pages_of(&output).0, 1, "{target:?}: no page is appended");
+
+        // `xmpMM:History` records the removal all the same.
         assert!(
             the_packet_of(&output).contains("is removed (metadata-packet)"),
             "{target:?}: the history names the removal"

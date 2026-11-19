@@ -38,12 +38,22 @@
 //!   coordinates of the page it is on and is refused wherever it is, since which page is not
 //!   read here.
 //!
-//! A media box with a side of no length has no factor at all, and keeps
-//! [`super::boundaries::THE_MEDIA_BOX_IS_THE_PAGE`].
+//! # A media box with a side of no length is restated as the box this reader draws
+//!
+//! A side of no length has no factor at all: no unit counts it as three. But such a box is no
+//! rectangle a page can be shown on, and `pdf_model::Page` reads it as no entry, so the page is
+//! drawn on the media box its ancestry states or, where none does, on
+//! [`pdf_model::Page::DEFAULT_MEDIA_BOX`] — a choice of this reader's that ISO 32000-2 does not
+//! make, since §7.7.3.3's Table 31 requires the entry and states no default. That box is written
+//! on the page, with each other box stating no area written as the box this reader computes for
+//! it, §14.11.2.1's default; the unit and the content stay as they are, so nothing a reader of
+//! this viewer saw moves (`doc/adr/3142`). Where the box drawn is itself outside the range, the
+//! page keeps [`super::boundaries::THE_MEDIA_BOX_IS_THE_PAGE`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::Page;
+use pdf_model::page::Boundary;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
@@ -88,8 +98,8 @@ pub struct RestatedPage {
 pub(super) struct Restatement {
     /// Each box written on the page itself, in the new units.
     pub(super) boxes: Vec<(&'static str, [f64; 4])>,
-    /// The `/UserUnit` written.
-    pub(super) user_unit: f64,
+    /// The `/UserUnit` written, `None` where the page keeps the unit it states.
+    pub(super) user_unit: Option<f64>,
     /// The `q … cm` stream before the producer's content, absent where the page has none.
     pub(super) prepend: Option<ObjectId>,
     /// The stream after the producer's content, closing what it left open and the prepended `q`.
@@ -155,11 +165,35 @@ pub(super) fn restate(
             .and_then(Option::as_ref)
             .ok_or(Because::NotBuiltYet(NO_SUCH_PAGE))?;
         let id = page.id.ok_or(Because::NotBuiltYet(NO_SUCH_PAGE))?;
-        placed_on_the_page(document, page)?;
         let stated: Vec<(&'static str, [f64; 4])> = BOXES
             .iter()
             .filter_map(|key| stated_rectangle(document, page, key).map(|rect| (*key, rect)))
             .collect();
+        if stated
+            .iter()
+            .any(|(key, rect)| *key == "MediaBox" && !has_area(*rect))
+        {
+            let drawn = as_drawn(page, &stated)?;
+            out.at.insert(
+                id,
+                Restatement {
+                    boxes: drawn.iter().map(|(key, _, now)| (*key, *now)).collect(),
+                    user_unit: None,
+                    prepend: None,
+                    closing: None,
+                    closing_balanced: None,
+                },
+            );
+            let user_unit = stated_user_unit(document, page)?;
+            out.done.push(RestatedPage {
+                page: index.saturating_add(1),
+                factor: 1.0,
+                user_unit_was: user_unit,
+                user_unit_now: user_unit,
+                boxes: drawn,
+            });
+            continue;
+        }
         let sides: Vec<f64> = stated
             .iter()
             .flat_map(|(_, rect)| [(rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs()])
@@ -167,14 +201,8 @@ pub(super) fn restate(
         let k = factor(&sides).ok_or(Because::TheFence(
             super::boundaries::THE_MEDIA_BOX_IS_THE_PAGE,
         ))?;
-        let user_unit_was = match page.dict.get("UserUnit") {
-            None => 1.0,
-            Some(stated) => document
-                .resolve(stated)
-                .as_number()
-                .filter(|unit| *unit > 0.0 && unit.is_finite())
-                .ok_or(Because::NotBuiltYet(USER_UNIT_UNREADABLE))?,
-        };
+        placed_on_the_page(document, page)?;
+        let user_unit_was = stated_user_unit(document, page)?;
         let (prepend, closing) = match page.dict.get("Contents") {
             None | Some(Object::Null) => (None, None),
             Some(Object::Reference(_) | Object::Array(_)) => {
@@ -209,7 +237,7 @@ pub(super) fn restate(
             id,
             Restatement {
                 boxes: boxes.iter().map(|(key, _, now)| (*key, *now)).collect(),
-                user_unit: user_unit_was * k,
+                user_unit: Some(user_unit_was * k),
                 prepend,
                 closing,
                 closing_balanced: prepend.and(closing_balanced),
@@ -240,7 +268,9 @@ impl Restatement {
                 Object::Array(rect.iter().map(|side| Object::Real(*side)).collect()),
             );
         }
-        out.insert(Name::new(&b"UserUnit"[..]), Object::Real(self.user_unit));
+        if let Some(unit) = self.user_unit {
+            out.insert(Name::new(&b"UserUnit"[..]), Object::Real(unit));
+        }
         let closing = if photographed {
             self.closing_balanced
         } else {
@@ -259,6 +289,66 @@ impl Restatement {
         }
         contents.push(Object::Reference(closing));
         out.insert(Name::new(&b"Contents"[..]), Object::Array(contents));
+    }
+}
+
+/// The `/UserUnit` a page states, 1 where it states none (§7.7.3.3's Table 31).
+fn stated_user_unit(document: &Document, page: &Page) -> Result<f64, Because> {
+    match page.dict.get("UserUnit") {
+        None => Ok(1.0),
+        Some(stated) => document
+            .resolve(stated)
+            .as_number()
+            .filter(|unit| *unit > 0.0 && unit.is_finite())
+            .ok_or(Because::NotBuiltYet(USER_UNIT_UNREADABLE)),
+    }
+}
+
+/// Whether a rectangle as written has a side of some length.
+fn has_area(rect: [f64; 4]) -> bool {
+    (rect[2] - rect[0]).abs() > 0.0 && (rect[3] - rect[1]).abs() > 0.0
+}
+
+/// One box a restated page states: its key, its rectangle as written, and the one written now.
+type BoxBeforeAndAfter = (&'static str, [f64; 4], [f64; 4]);
+
+/// Each box a page whose media box has a side of no length states, before and after: the media
+/// box and every other box stating no area written as the one this reader computes for the page,
+/// every box with an area as it is written (`doc/adr/3142`).
+///
+/// The rectangles written are `pdf_model::Page`'s own, so the page a reader of this viewer was
+/// shown is the page the output states; one still outside section 6.1.13's range at the page's
+/// own unit keeps [`super::boundaries::THE_MEDIA_BOX_IS_THE_PAGE`].
+fn as_drawn(
+    page: &Page,
+    stated: &[(&'static str, [f64; 4])],
+) -> Result<Vec<BoxBeforeAndAfter>, Because> {
+    let mut drawn = Vec::with_capacity(stated.len());
+    for (key, rect) in stated {
+        let now = if has_area(*rect) {
+            *rect
+        } else {
+            let boundary = match *key {
+                "CropBox" => Boundary::Crop,
+                "BleedBox" => Boundary::Bleed,
+                "TrimBox" => Boundary::Trim,
+                "ArtBox" => Boundary::Art,
+                _ => Boundary::Media,
+            };
+            page.boundary(boundary).map(f64::from)
+        };
+        drawn.push((*key, *rect, now));
+    }
+    let sides: Vec<f64> = drawn
+        .iter()
+        .flat_map(|(_, _, rect)| [(rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs()])
+        .collect();
+    if sides.iter().all(|side| (SMALLEST..=LARGEST).contains(side)) {
+        Ok(drawn)
+    } else {
+        Err(Because::TheFence(
+            super::boundaries::THE_MEDIA_BOX_IS_THE_PAGE,
+        ))
     }
 }
 

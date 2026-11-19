@@ -1663,7 +1663,8 @@ impl Rewrite {
                  19005-2 section 6.1.13 does not admit, so that ISO 32000-2 \u{a7}14.11.2.1's \
                  own default states that boundary instead; a page whose media box it does not \
                  admit is restated in larger units under \u{a7}7.7.3.3's /UserUnit, its content \
-                 bracketed by the matching cm"
+                 bracketed by the matching cm, and one with a side of no length is written as the \
+                 box this viewer draws the page on"
             }
             Self::ActualTextRemoved => {
                 "an object's ActualText entry holding a character of the Unicode Private Use Area \

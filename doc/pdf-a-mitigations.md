@@ -511,7 +511,8 @@ the same four answers with one requirement breaking the pattern.
 limits is an edit to what the document says — re-nesting `q`/`Q`, re-encoding a colour space,
 renaming an object, dropping objects until the count falls. The page boundary is the exception: the
 limit counts units and `/UserUnit` sizes them, so a page is restated in larger units without moving
-a mark (ADR 2888).
+a mark (ADR 2888), and a media box with a side of no length, which no unit counts, is written as
+the box this viewer draws the page on (ADR 3142).
 `doc/pdf-a-conversion-limits.md` sections 2.5 and 9.2 already say this and rank it as the one class
 PDF/A-2 cannot take at all.
 
@@ -2471,6 +2472,11 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · **
   `fresh-packet = true`. Two facts for the operator: *the archive's metadata is what this converter
   could read, not what the producer wrote*, and *the producer's packet is kept as text rather than
   as metadata*. Both are plain, and an operator running a queue will recognise which they want.
+  **The second step** (ADRs 2678, 2682): with `original = "page"`, `on-failure =
+  "append-statement"` removes a packet that is not UTF-8 text and leaves a C0 control character off
+  the page, each listed on the statement page; `on-failure = "discard"` does the same and names
+  each in the report and `xmpMM:History` only. `state-every-loss` names the first; `as-if-printed`
+  the second, since a print carries no packet (ADR 3141).
 - **Departure** — **B** for the one-`rdf:RDF` and data-model rules, where a tolerant parser still
   reads the packet; **C** for a packet that does not parse at all, because metadata no machine can
   read is the one thing an archival format cannot shrug at. The data-model rule is part 2's only

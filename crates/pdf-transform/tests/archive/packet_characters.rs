@@ -7,8 +7,10 @@
 //! leaves the character off the page, lays the rest of the packet out, and lists the character on
 //! the statement page by its code point, its count and its byte offsets. ISO 32000-2 §7.2.3's line
 //! breaks are not control characters to it: the layout reads them as end-of-line markers.
-//! `no-data-loss` names no second step and keeps the face search's refusal, and a character
-//! outside C0 keeps it under every profile.
+//! `as-if-printed` names `on-failure = "discard"` (`doc/adr/3141`): the character is left off the
+//! same page and named in the report and `xmpMM:History`, with no statement page. `no-data-loss`
+//! names no second step and keeps the face search's refusal, and a character outside C0 keeps it
+//! under every profile.
 use super::{
     ArchivePlan, Because, Decision, Level, Rewrite, Target, Verdict, conversion, convert_with_plan,
     decision, holds, plan_from,
@@ -17,6 +19,7 @@ use pdf_syntax::{Document, Limits};
 
 const STATE_EVERY_LOSS: &str = include_str!("../../../../doc/profiles/state-every-loss.toml");
 const NO_DATA_LOSS: &str = include_str!("../../../../doc/profiles/no-data-loss.toml");
+const AS_IF_PRINTED: &str = include_str!("../../../../doc/profiles/as-if-printed.toml");
 
 const WELL_FORMED: &str = "metadata/xmp-packets-well-formed";
 
@@ -184,6 +187,65 @@ fn a_control_character_is_left_off_the_packet_page_and_stated() {
         );
 
         // And `xmpMM:History` records it.
+        assert!(
+            the_packet_of(&output).contains("(metadata-packet-character)"),
+            "{target:?}: the history names the omission"
+        );
+    }
+}
+
+#[test]
+fn as_if_printed_leaves_a_control_character_off_the_packet_page_and_names_it() {
+    // `balloon_a1b_jp2k`'s shape: U+0000 where the header's byte-order mark goes, and nothing else.
+    let source = a_document_holding('\n');
+    for target in TARGETS {
+        let (report, output) = convert_with_plan(&source, &planned(AS_IF_PRINTED, target));
+        assert!(
+            matches!(
+                decision(&report, WELL_FORMED),
+                Decision::Configured {
+                    rewrite: Rewrite::FreshMetadataPacket,
+                    ..
+                }
+            ),
+            "{target:?}: {:?}",
+            decision(&report, WELL_FORMED)
+        );
+        let output = output.unwrap_or_else(|| panic!("{target:?}: it converts: {report:#?}"));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+
+        // The report names the character by its code point, on no statement page.
+        let replaced = &conversion(&report).replaced_packets;
+        let omitted: Vec<_> = replaced
+            .iter()
+            .flat_map(|packet| packet.omitted.iter())
+            .collect();
+        assert_eq!(omitted.len(), 1, "{target:?}: {replaced:?}");
+        assert_eq!(
+            (omitted[0].character, omitted[0].count, omitted[0].stated_on),
+            ('\u{0}', 1, None),
+            "{target:?}"
+        );
+        assert!(
+            conversion(&report).statement.is_none(),
+            "{target:?}: no statement is reported"
+        );
+
+        // The packet is still set on its page, without the character; the line feed inside the
+        // value is §7.2.3's end-of-line marker and divides it.
+        let text = appended_text(&output);
+        assert!(
+            text.contains("image/") && text.contains("jpeg</dc:format>"),
+            "{target:?}: {text:?}"
+        );
+        assert!(
+            !text.contains('\u{0}'),
+            "{target:?}: the character is not set"
+        );
         assert!(
             the_packet_of(&output).contains("(metadata-packet-character)"),
             "{target:?}: the history names the omission"

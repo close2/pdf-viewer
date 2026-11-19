@@ -32,8 +32,10 @@
 //! 31's `/UserUnit` says how large a unit is, so a page failing at its media box is restated in
 //! larger (or smaller) units with its content bracketed under the matching `cm`, every mark where
 //! it was measured in inches (`super::larger_units`, `doc/adr/2888`). A box with a side of no
-//! length, or sides no one unit brings inside the range, is refused by name; tiling a page into
-//! several stays on the far side of ADR 0816's fence, since it composes pages nobody produced.
+//! length is no box a page is drawn on, and is written as the one this reader drew the page on
+//! (`doc/adr/3142`). Sides no one unit brings inside the range are refused by name; tiling a page
+//! into several stays on the far side of ADR 0816's fence, since it composes pages nobody
+//! produced.
 //!
 //! # An entry an ancestor states governs every page beneath it
 //!
@@ -366,8 +368,9 @@ const NOT_STATED: &str = "this requirement was failed at a page boundary no obje
 
 /// Why a failing media box is refused, which is the catalogue's original *none*.
 pub(super) const THE_MEDIA_BOX_IS_THE_PAGE: &str = "this document states a MediaBox outside the \
-     range ISO 19005-2 section 6.1.13 admits that no unit brings inside it: a side of no length, \
-     or sides further apart than the range's own ratio. ISO 32000-2 \u{a7}7.7.3.3's Table 31 \
+     range ISO 19005-2 section 6.1.13 admits that no unit brings inside it: sides further apart \
+     than the range's own ratio, or a side of no length on a page this reader draws on a box \
+     outside the range as well (doc/adr/3142). ISO 32000-2 \u{a7}7.7.3.3's Table 31 \
      makes that entry required and \u{a7}14.11.2.1 gives it no default, so there is nothing to \
      fall back to, and restating it under /UserUnit (doc/adr/2888) finds no factor; tiling it \
      into several pages composes pages nobody produced, which is on the far side of ADR 0816's \

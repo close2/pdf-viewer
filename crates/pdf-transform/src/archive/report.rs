@@ -1076,7 +1076,9 @@ pub struct Conversion {
     /// restated in larger units: ISO 32000-2 §7.7.3.3's `/UserUnit` multiplied by the factor,
     /// every box divided by it, the content bracketed by the matching `cm`. Each row names the
     /// page, the factor, the unit before and after and each box before and after; nothing a
-    /// reader shows moves, measured in inches (`doc/adr/2888`).
+    /// reader shows moves, measured in inches (`doc/adr/2888`). A media box with a side of no
+    /// length is a row at factor 1, its boxes written as this viewer drew the page
+    /// (`doc/adr/3142`).
     pub restated_pages: Vec<super::RestatedPage>,
     /// Every `/ActualText` entry holding a Private Use character this conversion removed, the
     /// loss `actual-text-private-use`: each by its object and the value it held, every character

@@ -264,20 +264,28 @@ remedy = "discard"
 [site."metadata/properties-use-known-schemas"]
 remedy = "discard"
 
+# A packet the fresh one replaces is laid out on an appended page where a page can carry it, and
+# the rows' second step answers the rest by the yardstick above (ADR 3141): a packet whose data
+# is not UTF-8 text is removed, and a C0 control character no face draws is left off its page
+# (ADRs 2678 and 2682). Each is named in the report and in xmpMM:History; no statement page is
+# appended, since a printed copy would have carried none of the packet.
 [site."metadata/xmp-packets-well-formed"]
 remedy = "preserve"
 original = "page"
 fresh-packet = true
+on-failure = "discard"
 
 [site."metadata/xmp-packets-state-one-rdf-element"]
 remedy = "preserve"
 original = "page"
 fresh-packet = true
+on-failure = "discard"
 
 [site."metadata/xmp-packets-meet-the-xmp-data-model"]
 remedy = "preserve"
 original = "page"
 fresh-packet = true
+on-failure = "discard"
 
 [site."metadata/extension-schemas-embedded"]
 remedy = "preserve"

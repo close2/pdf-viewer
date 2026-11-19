@@ -1,6 +1,6 @@
 //! Three of R03's fenced rows answered by a finer remedy than a refusal (`doc/pdfa-blocking-issues.md`
 //! section 5): a media box past ISO 19005-2 section 6.1.13's range restated in larger units
-//! (`doc/adr/2888`), an `/ActualText` holding a Private Use character removed where an object states
+//! (`doc/adr/2888`) or, with a side of no length, as the box this viewer draws (`doc/adr/3142`), an `/ActualText` holding a Private Use character removed where an object states
 //! it (`doc/adr/2889`), and a transfer function's page photographed under `as-if-printed`
 //! (`doc/adr/2889`).
 
@@ -136,25 +136,90 @@ fn a_media_box_under_the_range_is_restated_in_smaller_units() {
 }
 
 #[test]
-fn a_media_box_with_no_width_and_a_page_with_annotations_stay_refused() {
-    // A side of no length is three units in no unit at all, and an annotation's `/Rect` (§12.5.2)
-    // counts the page's default units, which the bracket's `cm` does not reach.
-    for (media, page) in [
-        ("[0 0 0   200]", ""),
-        (
-            "[0 0 16000 9]",
-            "/Annots [<< /Type /Annot /Subtype /Square /Rect [0 0 4 4] /F 4 >>]",
-        ),
-    ] {
-        let source = a_page_with_a_media_box(media, page);
-        let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-        assert!(output.is_none(), "{media} {page}");
-        assert!(
-            matches!(decision(&report, BOUNDARIES), Decision::Refused(_)),
-            "{media} {page}: {:?}",
-            decision(&report, BOUNDARIES)
+fn a_media_box_with_no_width_is_written_as_the_box_this_viewer_draws() {
+    // A side of no length is three units in no unit at all, so no `/UserUnit` answers it. ISO
+    // 32000-2 §7.9.5 admits the rectangle and §7.7.3.3's Table 31 requires the entry with no
+    // default, and this viewer draws such a page on `Page::DEFAULT_MEDIA_BOX` (ADR 0389). The
+    // output states that box, and a crop box of no area, read as absent, is written as
+    // §14.11.2.1's default, the media box (`doc/adr/3142`). The unit is the page's own, so the
+    // content takes no bracket.
+    let drawn = pdf_model::Page::DEFAULT_MEDIA_BOX.map(f64::from);
+    for page in ["", "/CropBox [0 0 0 0]"] {
+        let source = a_page_with_a_media_box("[0 0 0   200]", page);
+        let (_, before) = first_page(&source);
+        assert_eq!(
+            before.media_box,
+            pdf_model::Page::DEFAULT_MEDIA_BOX,
+            "{page}"
         );
+        let target = Target::Two(Level::B);
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert_eq!(
+            decision(&report, BOUNDARIES),
+            Decision::Mechanical(Rewrite::PageBoundaryRemoved),
+            "{page}"
+        );
+        let output = written(&report, output);
+        let held = holds(&output, target);
+        assert_eq!(
+            held.verdict(),
+            Verdict::Conforms,
+            "{page}: {}",
+            held.render()
+        );
+        let (document, after) = first_page(&output);
+        assert_eq!(numbers(&document, &after, "MediaBox"), drawn, "{page}");
+        assert_eq!(after.media_box, before.media_box, "{page}");
+        assert_eq!(after.crop_box, before.crop_box, "{page}");
+        assert_eq!(
+            after.substituted_media_box, None,
+            "{page}: the box is stated now"
+        );
+        if page.starts_with("/CropBox") {
+            assert_eq!(numbers(&document, &after, "CropBox"), drawn, "{page}");
+        }
+        assert!(
+            document
+                .get_key(&after.dict, "UserUnit")
+                .as_number()
+                .is_none(),
+            "{page}: the unit is the page's own"
+        );
+        let (content, _) = after.content_with_report(&document);
+        assert_eq!(
+            String::from_utf8_lossy(&content).trim(),
+            "q 0 0 1 rg 10 1 100 2 re f Q",
+            "{page}: the producer's content, unbracketed"
+        );
+        let restated = &conversion(&report).restated_pages;
+        assert_eq!(restated.len(), 1, "{page}: {restated:?}");
+        assert_eq!(
+            (
+                restated[0].page,
+                restated[0].factor,
+                restated[0].user_unit_now
+            ),
+            (1, 1.0, 1.0),
+            "{page}"
+        );
+        assert_eq!(restated[0].boxes[0].0, "MediaBox", "{page}");
+        assert_eq!(restated[0].boxes[0].2, drawn, "{page}");
     }
+}
+
+#[test]
+fn a_page_with_annotations_past_the_range_stays_refused() {
+    // An annotation's `/Rect` (§12.5.2) counts the page's default units, which the bracket's `cm`
+    // does not reach.
+    let page = "/Annots [<< /Type /Annot /Subtype /Square /Rect [0 0 4 4] /F 4 >>]";
+    let source = a_page_with_a_media_box("[0 0 16000 9]", page);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none());
+    assert!(
+        matches!(decision(&report, BOUNDARIES), Decision::Refused(_)),
+        "{:?}",
+        decision(&report, BOUNDARIES)
+    );
 }
 
 /// A part 4 file whose structure element states `/ActualText <FEFFF0B7>`, U+F0B7 being in the
