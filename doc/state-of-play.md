@@ -1115,6 +1115,14 @@ rather than which page. **Its default answer is `Interpretation::text` byte for 
 test asserts: a tool that tidied it would put itself between a caller and the only independent
 measurement this project has of its own extraction. ADR 0257.
 
+**And another processor can be asked the same questions this one answers.** `portable-conformance/`
+is a suite of tests whose expected values come from the clause alone — regions a clause fixes probed
+inside and out, an equality it states, the string its mapping gives, the answer to a question it
+decides — each PDF generated from readable source, run against any processor through an executable
+adapter: this program's (`quorra-transform render`, and `tools/portable-adapter` for text and
+questions), and poppler's, MuPDF's and Ghostscript's as evidence. `run.py` prints its table. RFC
+0016, ADRs 3205 to 3208.
+
 ### Archival documents, validated and made
 
 **And a program can ask it whether a document is an archival one.** `crates/pdf-archive` holds a

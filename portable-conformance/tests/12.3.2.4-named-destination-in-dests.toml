@@ -1,0 +1,30 @@
+id = "12.3.2.4-named-destination-in-dests"
+clause = "12.3.2.4"
+title = "A name in the catalog's Dests dictionary resolves to its destination's page"
+kind = "structure"
+quote = [
+  "The value of this entry shall be a dictionary in which each key is a destination name and the corresponding value is either an array defining the destination, using the syntax shown in \"Table 149 -Destination syntax\", or a dictionary with a D entry whose value is such an array and may optionally contain an SD entry as defined in \"Table 201 -Action types\".",
+]
+
+# Two pages. The catalog's Dests maps Chap6.begin (the clause's own NOTE 1 name) to an array on
+# the second page, and Chap7.begin to a dictionary whose D is an array on the first. Page indices
+# are zero-based (section 12.4.2: "starting from 0").
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R /Dests << /Chap6.begin [4 0 R /XYZ 0 100 null] /Chap7.begin << /D [3 0 R /Fit] >> >> >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+]
+
+[[check]]
+type = "answer"
+question = "destination Chap6.begin"
+equals = "page 1"
+why = "The array's first element is the second page's dictionary (Table 149: page designates the page)."
+
+[[check]]
+type = "answer"
+question = "destination Chap7.begin"
+equals = "page 0"
+why = "The dictionary form: its D entry's array names the first page."

@@ -1,0 +1,35 @@
+id = "7.3.7-null-entry-is-absent"
+clause = "7.3.7"
+title = "A null entry is absent, so an inheritable attribute is inherited past it"
+kind = "refusal"
+quote = [
+  "A dictionary entry whose value is null (see 7.3.9, \"Null object\") shall be treated the same as if the entry does not exist.",
+]
+dpi = 144
+
+# The page tree node says /Rotate 90 and the page says /Rotate null. A null entry is an absent
+# one, and Rotate is inheritable (Table 31; section 7.7.3.4), so the page is rotated 90 degrees
+# clockwise, its own null notwithstanding. A processor that reads null as 0 draws it upright.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 /Rotate 90 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] /Rotate null /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 g 0 0 40 40 re f" },
+]
+
+[[check]]
+type = "size"
+width = 400
+height = 200
+why = "100 by 200 units turned a quarter at 144 dpi: 400 pixels wide, 200 tall."
+
+[[check]]
+type = "marked"
+pixel = [40, 40]
+why = "Turned 90 degrees clockwise, the page's left edge is the top and its lower-left corner the top-left: the square 0 to 40 is pixels 0 to 80 on both axes."
+
+[[check]]
+type = "unmarked"
+pixel = [360, 160]
+why = "User-space point (80, 180) of the unrotated page, far from the square."

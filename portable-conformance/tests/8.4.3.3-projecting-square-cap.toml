@@ -1,0 +1,29 @@
+id = "8.4.3.3-projecting-square-cap"
+clause = "8.4.3.3"
+title = "Line cap 2, the projecting square cap, extends half the line width"
+kind = "pixels"
+quote = [
+  "The stroke shall continue beyond the endpoint of the path for a distance equal to half the line width and shall be squared off.",
+]
+dpi = 144
+
+# One horizontal stroke 40 units wide from (40, 50) to (60, 50), black on white. Every probe sits at
+# least 2.6 units (5 pixels at 144 dpi) from the edge the clause fixes, so no scan-conversion rule of
+# section 10.7 and no anti-aliasing can move an edge onto it.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 G 40 w 2 J 40 50 m 60 50 l S" },
+]
+
+[[check]]
+type = "marked"
+at = [24, 34]
+why = "The cap covers x 20 to 40 and y 30 to 70; this point is 4 units inside both edges, where a round cap would leave it blank."
+
+[[check]]
+type = "unmarked"
+at = [16, 50]
+why = "4 units beyond the cap: the stroke continues half the line width (20) past x = 40, to x = 20, and no further."

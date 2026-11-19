@@ -1,0 +1,6 @@
+# The suite's version and the edition of the standard every expected value is derived from.
+name = "portable-conformance"
+version = "0.1.0"
+standard = "ISO 32000-2:2020"
+manifest-licence = "CC0-1.0"
+tool-licence = "Apache-2.0"

@@ -1,0 +1,32 @@
+id = "8.5.3.3.2-non-zero"
+clause = "8.5.3.3.2"
+title = "The non-zero winding number rule fills two nested squares drawn in one direction"
+kind = "pixels"
+quote = [
+  "Starting with a count of 0, the rule adds 1 each time a path segment crosses the ray from left to right and subtracts 1 each time a segment crosses from right to left. After counting all the crossings, if the result is 0, the point is outside the path; otherwise, it is inside.",
+]
+dpi = 144
+
+# The same path as the even-odd test, painted by f. Probes sit 5 or more units from every edge.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 g 10 10 80 80 re 30 30 40 40 re f" },
+]
+
+[[check]]
+type = "marked"
+at = [50, 50]
+why = "Both squares wind the same way (re draws each counterclockwise in user space, section 8.5.2.1), so a ray crosses two segments of the same direction: count 2, not 0, inside."
+
+[[check]]
+type = "marked"
+at = [20, 50]
+why = "Count 1, inside."
+
+[[check]]
+type = "unmarked"
+at = [5, 50]
+why = "Outside both squares: count 0."

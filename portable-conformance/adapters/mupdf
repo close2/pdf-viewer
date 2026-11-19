@@ -1,0 +1,14 @@
+#!/bin/sh
+# The suite's adapter protocol (README.md) answered by MuPDF's mutool. Evidence only: a verdict
+# here is a reading of the clause by MuPDF's authors, never a reference.
+set -eu
+request=$1; pdf=$2
+case "$request" in
+render)
+    page=$(( $3 + 1 ))
+    mutool draw -q -r "$4" -o "$5" "$pdf" "$page" ;;
+text)
+    page=$(( $3 + 1 ))
+    mutool draw -q -F txt -o - "$pdf" "$page" ;;
+*) exit 3 ;;
+esac

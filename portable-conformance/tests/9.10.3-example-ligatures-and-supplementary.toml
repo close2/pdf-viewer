@@ -1,0 +1,50 @@
+id = "9.10.3-example-ligatures-and-supplementary"
+clause = "9.10.3"
+title = "Section 9.10.3's own EXAMPLE CMap: a range, a code that is a ligature's two letters, and a code past the Basic Multilingual Plane"
+kind = "text"
+quote = [
+  "In this case, the original character codes are the glyph indices for the ligatures ff, fi, and ffl.",
+]
+
+# The ToUnicode stream is the clause's example CMap, as printed there, broken into lines. Under
+# Identity-H each two bytes are one code. <0028> <0045> <004C> <004C> <004F> fall in the range
+# <0000> <005E> -> <0020>, so each maps to itself plus 0x20: H e l l o. <0060> is the second code
+# of the array range: f i. <3A51> is U+2003E, written as the surrogate pair D840 DC3E (UTF-16BE).
+# The descendant font is not embedded; the text route does not draw on its program.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "BT /F1 12 Tf 10 40 Td <00280045004C004C004F00603A51> Tj ET" },
+  { body = "<< /Type /Font /Subtype /Type0 /BaseFont /Helvetica /Encoding /Identity-H /DescendantFonts [7 0 R] /ToUnicode 6 0 R >>" },
+  { body = "<< /Type /CMap /CMapName /Adobe-Identity-UCS2 /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS2) /Supplement 0 >> >>", stream = '''
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo <</Registry (Adobe) /Ordering (UCS2) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS2 def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfrange
+<0000> <005E> <0020>
+<005F> <0061> [<00660066> <00660069> <00660066006C>]
+endbfrange
+1 beginbfchar
+<3A51> <D840DC3E>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end''' },
+  { body = "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Helvetica /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R /CIDToGIDMap /Identity >>" },
+  { body = "<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 /FontBBox [-166 -225 1000 931] /ItalicAngle 0 /Ascent 718 /Descent -207 /CapHeight 718 /StemV 88 >>" },
+]
+
+[[check]]
+type = "text"
+page = 0
+equals = "Hellofi\U0002003E"
+why = "H e l l o by the range, f i by the array range's second entry, U+2003E by the bfchar entry."

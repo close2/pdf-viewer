@@ -1,0 +1,28 @@
+id = "10.4.2.2-grey-is-neutral"
+clause = "10.4.2.2"
+title = "A DeviceGray level is drawn as an RGB value with its three components equal"
+kind = "pixels"
+quote = [
+  "A gray level shall be equivalent to an RGB value with all three components the same.",
+]
+dpi = 144
+
+# A 0.5 DeviceGray square. The clause states an equivalence, not a level.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0.5 g 10 10 80 80 re f" },
+]
+
+[[check]]
+type = "neutral"
+at = [50, 50]
+tolerance = 2
+why = "The clause fixes equality of the three components and fixes 0.0 as black and 1.0 as white; it does not fix the level of 0.5 for a processor that converts through section 10.3 instead (10.4.2.1 permits either), so only equality is checked, with 2 of 255 for two independent roundings to 8 bits."
+
+[[check]]
+type = "between"
+at = [50, 50]
+why = "0.5 is an intermediate gray: neither black nor white (the classification thresholds of the marked and unmarked checks)."

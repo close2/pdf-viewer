@@ -1,0 +1,27 @@
+id = "8.4.4-cm"
+clause = "8.4.4"
+title = "cm concatenates a translation onto the CTM"
+kind = "pixels"
+quote = [
+  "Modify the current transformation matrix (CTM) by concatenating the specified matrix (see 8.3.2, \"Coordinate spaces\").",
+]
+dpi = 144
+
+# A translation by (50, 50), then a 40-unit square at the new origin.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 g 1 0 0 1 50 50 cm 0 0 40 40 re f" },
+]
+
+[[check]]
+type = "marked"
+at = [70, 70]
+why = "The square 0 to 40 in the translated space is 50 to 90 in default user space (section 8.3.3: a translation by (50, 50))."
+
+[[check]]
+type = "unmarked"
+at = [20, 20]
+why = "Where the square would have been without the cm: 30 units from the translated square."

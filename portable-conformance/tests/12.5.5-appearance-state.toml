@@ -1,0 +1,34 @@
+id = "12.5.5-appearance-state"
+clause = "12.5.5"
+title = "The appearance state AS selects the stream from an appearance subdictionary"
+kind = "pixels"
+quote = [
+  "In the latter case, the subdictionary shall define multiple appearance streams corresponding to different appearance states of the annotation.",
+]
+dpi = 144
+
+# Two Square annotations share one normal-appearance subdictionary, /On a filled rectangle and
+# /Off an empty form. The left one's AS is /On, the right one's /Off. Table 166's AS entry
+# "selects the applicable appearance stream from an appearance subdictionary". The page's own
+# content is empty, so every mark is an annotation's.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R 6 0 R] >>" },
+  { body = "<< >>", stream = "" },
+  { body = "<< /Type /Annot /Subtype /Square /Rect [10 10 45 90] /F 4 /AP << /N << /On 7 0 R /Off 8 0 R >> >> /AS /On >>" },
+  { body = "<< /Type /Annot /Subtype /Square /Rect [55 10 90 90] /F 4 /AP << /N << /On 7 0 R /Off 8 0 R >> >> /AS /Off >>" },
+  { body = "<< /Type /XObject /Subtype /Form /BBox [0 0 35 80] >>", stream = "0 g 0 0 35 80 re f" },
+  { body = "<< /Type /XObject /Subtype /Form /BBox [0 0 35 80] >>", stream = "" },
+]
+
+[[check]]
+type = "marked"
+at = [27, 50]
+why = "The left annotation's AS is /On, whose form fills its whole rectangle (section 12.5.5's algorithm maps the form's bounding box onto the annotation's Rect)."
+
+[[check]]
+type = "unmarked"
+at = [72, 50]
+why = "The right annotation's AS is /Off, whose form is empty."

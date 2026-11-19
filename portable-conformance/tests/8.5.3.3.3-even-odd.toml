@@ -1,0 +1,27 @@
+id = "8.5.3.3.3-even-odd"
+clause = "8.5.3.3.3"
+title = "The even-odd rule leaves the hole between two nested squares"
+kind = "pixels"
+quote = [
+  "This rule determines whether a point is inside a path by drawing a ray from that point in any direction and simply counting the number of path segments that cross the ray, regardless of direction. If this number is odd, the point is inside; if even, the point is outside.",
+]
+dpi = 144
+
+# Two squares drawn by re, which section 8.5.2.1 draws in one direction, so the winding rule and the even-odd rule disagree about the inner one. Probes sit 10 units from every edge.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 g 10 10 80 80 re 30 30 40 40 re f*" },
+]
+
+[[check]]
+type = "marked"
+at = [20, 50]
+why = "A ray to the left crosses one segment (x = 10): odd, inside."
+
+[[check]]
+type = "unmarked"
+at = [50, 50]
+why = "A ray to the left crosses two segments (x = 30 and x = 10): even, outside."

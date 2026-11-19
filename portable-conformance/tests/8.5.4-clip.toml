@@ -1,0 +1,32 @@
+id = "8.5.4-clip"
+clause = "8.5.4"
+title = "A clipping path keeps marks outside it off the page"
+kind = "pixels"
+quote = [
+  "Marks falling inside this area shall be applied to the page; those falling outside it shall not be.",
+]
+dpi = 144
+
+# A clip to the square 30 to 70, then a fill of the whole page.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "30 30 40 40 re W n 0 g 0 0 100 100 re f" },
+]
+
+[[check]]
+type = "marked"
+at = [50, 50]
+why = "Inside the clipping square 30 to 70."
+
+[[check]]
+type = "unmarked"
+at = [20, 20]
+why = "Outside the clipping square by 10 units: the fill covers the page but the mark falls outside the clip."
+
+[[check]]
+type = "unmarked"
+at = [80, 50]
+why = "Outside the clipping square by 10 units."

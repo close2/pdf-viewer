@@ -1,0 +1,60 @@
+id = "12.4.2-page-labels-example"
+clause = "12.4.2"
+title = "Section 12.4.2's own EXAMPLE: pages labelled i, ii, iii, iv, 1, 2, 3, A-8, A-9"
+kind = "structure"
+quote = [
+  "The value of this entry shall be a number tree (7.9.7, \"Number trees\"), each of whose keys is the page index of the first page in a labelling range.",
+]
+
+# The catalog's PageLabels is the clause's example number tree as printed there (its first
+# range, 0 << /S /r >>, is the first line of the example). Nine pages, so the A- range holds two.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /S /r >> 4 << /S /D >> 7 << /S /D /P (A-) /St 8 >>] >> >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R 7 0 R 8 0 R 9 0 R 10 0 R 11 0 R] /Count 9 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>" },
+]
+
+[[check]]
+type = "answer"
+question = "page-label 0"
+equals = "i"
+why = "The range at index 0 is lowercase Roman (S /r), starting at the default St of 1."
+
+[[check]]
+type = "answer"
+question = "page-label 3"
+equals = "iv"
+why = "The fourth page of the Roman range: iv."
+
+[[check]]
+type = "answer"
+question = "page-label 4"
+equals = "1"
+why = "The range at index 4 is decimal (S /D), starting at 1."
+
+[[check]]
+type = "answer"
+question = "page-label 6"
+equals = "3"
+why = "The third page of the decimal range."
+
+[[check]]
+type = "answer"
+question = "page-label 7"
+equals = "A-8"
+why = "The range at index 7 is decimal with prefix A- and St 8."
+
+[[check]]
+type = "answer"
+question = "page-label 8"
+equals = "A-9"
+why = "The second page of that range: 8 plus 1."

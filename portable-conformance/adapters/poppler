@@ -1,0 +1,25 @@
+#!/bin/sh
+# The suite's adapter protocol (README.md) answered by poppler's command-line programs. Evidence
+# only: a verdict here is a reading of the clause by poppler's authors, never a reference.
+set -eu
+request=$1; pdf=$2
+case "$request" in
+render)
+    page=$(( $3 + 1 )); out=$5
+    pdftoppm -r "$4" -f "$page" -l "$page" -singlefile -png "$pdf" "${out%.png}" ;;
+text)
+    page=$(( $3 + 1 ))
+    pdftotext -q -f "$page" -l "$page" -enc UTF-8 "$pdf" - ;;
+query)
+    shift 2
+    case "$1" in
+    destination)
+        # pdfinfo -dests prints "  <page> [ <view> ] \"<name>\"", one-based.
+        line=$(pdfinfo -dests "$pdf" | grep -F "\"$2\"" | head -n 1)
+        [ -n "$line" ] || { echo "no destination $2" >&2; exit 1; }
+        set -- $line
+        echo "page $(( $1 - 1 ))" ;;
+    *) exit 3 ;;
+    esac ;;
+*) exit 3 ;;
+esac

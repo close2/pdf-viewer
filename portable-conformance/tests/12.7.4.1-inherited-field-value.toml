@@ -1,0 +1,28 @@
+id = "12.7.4.1-inherited-field-value"
+clause = "12.7.4.1"
+title = "A terminal field without V takes its value from its parent"
+kind = "structure"
+quote = [
+  "Many field attributes are inheritable , meaning that if they are not explicitly specified for a given field, their values are taken from those of its parent in the field hierarchy.",
+]
+
+# The parent field form is a text field (FT is inheritable too) whose V is the string "inherited".
+# Its one kid, name, is a terminal field merged with its widget (section 12.7.4.1 allows the
+# merge), and has no V of its own. Table 226 marks V "(Optional; inheritable)", so the field
+# form.name (section 12.7.4.2's fully qualified name: the partial names joined by periods) has the
+# value "inherited".
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [6 0 R] /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "" },
+  { body = "<< /T (form) /FT /Tx /V (inherited) /Kids [6 0 R] >>" },
+  { body = "<< /Type /Annot /Subtype /Widget /Parent 5 0 R /T (name) /Rect [10 40 90 60] /P 3 0 R >>" },
+]
+
+[[check]]
+type = "answer"
+question = "field-value form.name"
+equals = "inherited"
+why = "V is absent from the terminal field and present on its parent; V is inheritable (Table 226)."

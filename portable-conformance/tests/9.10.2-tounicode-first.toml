@@ -1,0 +1,42 @@
+id = "9.10.2-tounicode-first"
+clause = "9.10.2"
+title = "A font's ToUnicode CMap is the first route from a code to Unicode, ahead of its encoding"
+kind = "text"
+quote = [
+  "If the font dictionary contains a ToUnicode CMap (see 9.10.3, \"ToUnicode CMaps\"), use that CMap to convert the character code to Unicode.",
+]
+
+# Code 0x41 is A by WinAnsiEncoding's glyph name (the clause's second route), and B by the
+# ToUnicode CMap (its first). The clause gives the methods "in the priority given", so a processor
+# that uses them answers B. The font is Helvetica unembedded (section 9.6.2.2's standard fonts).
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "BT /F1 24 Tf 10 40 Td (A) Tj ET" },
+  { body = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode 6 0 R >>" },
+  { body = "<< >>", stream = '''
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+1 beginbfchar
+<41> <0042>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end''' },
+]
+
+[[check]]
+type = "text"
+page = 0
+equals = "B"
+why = "The ToUnicode CMap maps <41> to U+0042."

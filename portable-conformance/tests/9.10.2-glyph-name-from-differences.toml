@@ -1,0 +1,25 @@
+id = "9.10.2-glyph-name-from-differences"
+clause = "9.10.2"
+title = "Without ToUnicode, a simple font's glyph name, from its Differences array, gives the character"
+kind = "text"
+quote = [
+  "If the font is a simple font and the glyph selection algorithm (see 9.6.5, \"Character encoding\") uses a glyph name, that name can be looked up in the Adobe Glyph List and Adobe Glyph List for New Fonts to obtain the corresponding Unicode value.",
+]
+
+# The encoding is WinAnsiEncoding with code 65 changed to /eacute by Differences (Table 112).
+# The string is the codes 65 and 66: eacute by Differences, B by WinAnsiEncoding (Annex D). The
+# Adobe Glyph List maps eacute to U+00E9 and B to U+0042.
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "BT /F1 24 Tf 10 40 Td (AB) Tj ET" },
+  { body = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [65 /eacute] >> >>" },
+]
+
+[[check]]
+type = "text"
+page = 0
+equals = "éB"
+why = "Code 65 is eacute by Differences, which the glyph list maps to U+00E9; code 66 is B by WinAnsiEncoding."

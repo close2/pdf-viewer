@@ -1,0 +1,37 @@
+id = "7.3.10-undefined-reference-is-null"
+clause = "7.3.10"
+title = "A reference to an undefined object is the null object, and the page opens unrotated"
+kind = "refusal"
+quote = [
+  "An indirect reference to an undefined object shall not be considered an error by a PDF processor; it shall be treated as a reference to the null object.",
+]
+dpi = 144
+
+# The page's /Rotate is 99 0 R, and the file has no object 99. Section 7.3.10 makes that null,
+# section 7.3.7 makes a null entry absent, and Table 31 makes an absent Rotate 0 ("Default value:
+# 0"). So the file is not an error: the page opens, 100 wide and 200 tall, the square at its
+# lower left. (Section 7.3.7's sentence on a null entry is quoted by 7.3.7-null-entry-is-absent,
+# because a quotation is held to the clause its manifest names.)
+[pdf]
+object = [
+  { body = "<< /Type /Catalog /Pages 2 0 R >>" },
+  { body = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+  { body = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] /Rotate 99 0 R /Contents 4 0 R >>" },
+  { body = "<< >>", stream = "0 g 0 0 40 40 re f" },
+]
+
+[[check]]
+type = "size"
+width = 200
+height = 400
+why = "100 by 200 units at 144 dpi is 200 by 400 pixels, whole numbers, so no rounding choice enters; rotated, it would be 400 by 200."
+
+[[check]]
+type = "marked"
+at = [20, 20]
+why = "The square 0 to 40 at the page's lower left, unrotated."
+
+[[check]]
+type = "unmarked"
+at = [80, 180]
+why = "The upper right, 40 units from the square."

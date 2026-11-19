@@ -1,0 +1,16 @@
+#!/bin/sh
+# The suite's adapter protocol (README.md) answered by Ghostscript. Evidence only: a verdict here
+# is a reading of the clause by Ghostscript's authors, never a reference.
+set -eu
+request=$1; pdf=$2
+case "$request" in
+render)
+    page=$(( $3 + 1 ))
+    gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=png16m -r"$4" \
+        -dFirstPage="$page" -dLastPage="$page" -sOutputFile="$5" "$pdf" ;;
+text)
+    page=$(( $3 + 1 ))
+    gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=txtwrite \
+        -dFirstPage="$page" -dLastPage="$page" -sOutputFile=- "$pdf" ;;
+*) exit 3 ;;
+esac
