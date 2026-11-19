@@ -8,7 +8,7 @@ use crate::policy_rules::tests::{seq, tlv};
 
 /// `id-at-title`, 2.5.4.12: a subtype of `name`, so `caseIgnoreMatch` (X.520 clause 6.4.3).
 const TITLE: &[u8] = &[0x55, 0x04, 0x0C];
-/// `id-at-role`, 2.5.4.72: X.520 leaves its definition to ITU-T X.509.
+/// `id-at-role`, 2.5.4.72: ITU-T X.509 clause 16.5.1 defines it with no equality matching rule.
 const ROLE: &[u8] = &[0x55, 0x04, 0x48];
 /// `id-at-dc`, 0.9.2342.19200300.100.1.25: `caseIgnoreMatch` stated over an `IA5String` syntax.
 const DC: &[u8] = &[0x09, 0x92, 0x26, 0x89, 0x93, 0xF2, 0x2C, 0x64, 0x01, 0x19];
@@ -136,7 +136,7 @@ fn every_value_must_be_listed_and_one_listed_value_is_enough() {
 #[test]
 fn an_undefined_comparison_is_undecided_never_met_or_broken() {
     let listed = [string(UTF8, "Manager")];
-    // X.501 clause 8.9.2.1 (a)(1) and (2): a type whose rule this program does not hold.
+    // X.501 clause 8.9.2.1 (a)(2): a type with no equality matching rule.
     assert_eq!(
         answer(ROLE, &[string(UTF8, "Manager")], &listed),
         Match::Undecided
@@ -213,9 +213,18 @@ fn the_rule_is_held_for_every_listed_type_and_no_other() {
     assert_eq!(rule(&[0x55, 0x04, 7, 1]), Some(Rule::CaseIgnore));
     assert_eq!(rule(&[0x55, 0x04, 45]), Some(Rule::BitString));
     assert_eq!(rule(&[0x55, 0x04, 20]), Some(Rule::TelephoneNumber));
-    // `searchGuide` (14) and `telexNumber` (21) have no equality rule; `role` (72) is not X.520's;
-    // `uri` (83), `dnsName` (100) and `jid` (105) have rules this program has not built.
-    for last in [14, 21, 72, 83, 100, 105] {
+    // `uri` (83) and its subtype `ldapUrl` (95) are `uriMatch`, `dnsName` (100) `dnsNameMatch`,
+    // `jid` (105) `jidMatch`, `presentationAddress` (29) and `userPwd` (85) their own rules.
+    assert_eq!(rule(&[0x55, 0x04, 83]), Some(Rule::Uri));
+    assert_eq!(rule(&[0x55, 0x04, 95]), Some(Rule::Uri));
+    assert_eq!(rule(&[0x55, 0x04, 100]), Some(Rule::DnsName));
+    assert_eq!(rule(&[0x55, 0x04, 104]), Some(Rule::IntEmail));
+    assert_eq!(rule(&[0x55, 0x04, 105]), Some(Rule::Jid));
+    assert_eq!(rule(&[0x55, 0x04, 29]), Some(Rule::PresentationAddress));
+    assert_eq!(rule(&[0x55, 0x04, 85]), Some(Rule::UserPwd));
+    // `searchGuide` (14) and `telexNumber` (21) have no equality rule, and neither has `role` (72),
+    // which ITU-T X.509 clause 16.5.1 defines with none.
+    for last in [14, 21, 72] {
         assert_eq!(rule(&[0x55, 0x04, last]), None, "2.5.4.{last}");
     }
     assert_eq!(rule(DC), None);

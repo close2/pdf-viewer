@@ -94,11 +94,12 @@ permanent) or an owner decision to acquire a specification.
   chain and the algorithm its authority signed it under, and the algorithms a time-stamping
   authority made the signature's token with — are evaluated (ADRs 2711, 2714, 2720, 2797, 2890,
   2891, 2894), and TR 102 272's constraints on a signer attribute's value are compared by each
-  type's X.520 equality rule where this tree holds it (ADR 2895). What is left is human-readable
-  policies, a C caller's fetched copy, a signed SAML assertion, which needs a SAML reader, a value
-  of a type whose rule is not held, and a trusted-list anchor whose list nobody supplied (ADRs 2725,
-  2782, 2895); a signed assertion of any other form and a TS 119 172 value constraint have no form
-  in the texts, and are limits.
+  type's X.520 equality rule, every rule an `id-at` type states now held (ADRs 2895, 3158, 3161).
+  What is owed is one entry point: a C caller's fetched copy is bound and not enforced, because
+  `viewer-ffi` has no call handing it to the document's validation as `Command::PolicyCopy` (ADR
+  3162). Everything else left is a limit or the reader's own choice not to fetch a trusted list —
+  human-readable policies, a signed assertion of a form the texts do not define, a TS 119 172 value
+  constraint, a clear-text password against an encrypted one (ADRs 2725, 3161, 3162).
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather

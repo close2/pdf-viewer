@@ -4022,6 +4022,7 @@ dependencies = [
  "crypto-bigint",
  "ecdsa",
  "ed25519-dalek",
+ "icu_properties",
  "md-5",
  "p256",
  "p384",

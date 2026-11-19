@@ -16,12 +16,12 @@ const BIT_STRING: u8 = 0x03;
 pub(super) const MAX_NESTING: u8 = 4;
 
 /// `true` and `false` as an answer.
-fn answer(equal: bool) -> Match {
+pub(super) fn answer(equal: bool) -> Match {
     if equal { Match::Yes } else { Match::No }
 }
 
 /// X.501 clause 8.9.2.1's conjunction: one false is false, otherwise one undefined is undefined.
-fn all(answers: impl IntoIterator<Item = Match>) -> Match {
+pub(super) fn all(answers: impl IntoIterator<Item = Match>) -> Match {
     answers
         .into_iter()
         .fold(Match::Yes, |sum, next| match (sum, next) {
@@ -235,4 +235,142 @@ pub(super) fn unique_member(
         (Some(_), None) => Match::No,
     };
     all([names, uid])
+}
+
+/// X.520 clause 6.9.1's `PresentationAddress`, under its module's explicit tags: the three
+/// optional selectors `[0]` to `[2]`, each an `OCTET STRING`, and `[3]`'s non-empty `SET OF`
+/// network addresses. Later members, which the type's extension marker admits, are not read.
+struct PresentationAddress<'a> {
+    selectors: [Option<&'a [u8]>; 3],
+    addresses: Vec<&'a [u8]>,
+}
+
+fn presentation_address<'a>(value: &Value<'a>) -> Option<PresentationAddress<'a>> {
+    let members = components(value).filter(|_| value.identifier == SEQUENCE)?;
+    let mut selectors = [None; 3];
+    let mut addresses = None;
+    let mut last = None;
+    for member in &members {
+        let number = (0..4).find(|&number| member.identifier == 0xA0 | number)?;
+        // The members come in their tags' order, each at most once.
+        if last.is_some_and(|last| number <= last) {
+            return None;
+        }
+        last = Some(number);
+        let inner = components_of(member)?;
+        let [inner] = inner.as_slice() else {
+            return None;
+        };
+        if number < 3 {
+            if inner.identifier != OCTET_STRING {
+                return None;
+            }
+            selectors[usize::from(number)] = Some(inner.contents);
+        } else {
+            let set = components(inner).filter(|_| inner.identifier == SET)?;
+            if set.is_empty() || set.iter().any(|address| address.identifier != OCTET_STRING) {
+                return None;
+            }
+            addresses = Some(set.iter().map(|address| address.contents).collect());
+        }
+    }
+    Some(PresentationAddress {
+        selectors,
+        addresses: addresses?,
+    })
+}
+
+/// The values an explicitly tagged member holds.
+fn components_of<'a>(value: &Value<'a>) -> Option<Vec<Value<'a>>> {
+    let mut reader = value.children().ok()?;
+    let mut out = Vec::new();
+    while let Some(next) = reader.next_value().ok()? {
+        out.push(next);
+    }
+    Some(out)
+}
+
+/// X.520 clause 8.2.10's `presentationAddressMatch`: true where the presented and the stored
+/// address have equal selectors — a selector one states and the other does not being unequal —
+/// and every presented network address is among the stored ones. The policy's value is the
+/// presented one (ADR 3158).
+pub(super) fn presentation_address_match(carried: &Value<'_>, stated: &Value<'_>) -> Match {
+    match (presentation_address(carried), presentation_address(stated)) {
+        (Some(stored), Some(presented)) => answer(
+            stored.selectors == presented.selectors
+                && presented
+                    .addresses
+                    .iter()
+                    .all(|address| stored.addresses.contains(address)),
+        ),
+        _ => Match::Undecided,
+    }
+}
+
+/// X.520 clause 6.14.2's `UserPwd`: the clear text, or the `encrypted` sequence's algorithm
+/// identifier and encrypted string.
+enum UserPwd<'a> {
+    Clear(Value<'a>),
+    Encrypted {
+        algorithm: Value<'a>,
+        encrypted: Value<'a>,
+    },
+}
+
+fn user_pwd<'a>(value: &Value<'a>) -> Option<UserPwd<'a>> {
+    match value.identifier {
+        super::prepare::UTF8_STRING => Some(UserPwd::Clear(*value)),
+        SEQUENCE => {
+            let members = components(value)?;
+            match members.as_slice() {
+                [algorithm, encrypted, ..]
+                    if algorithm.identifier == SEQUENCE && encrypted.identifier == OCTET_STRING =>
+                {
+                    Some(UserPwd::Encrypted {
+                        algorithm: *algorithm,
+                        encrypted: *encrypted,
+                    })
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// X.520 clause 8.10.1's `userPwdMatch`, the policy's value presented (ADR 3158). Two clear
+/// texts compare by `caseExactMatch`, which `clear` is; two encrypted passwords are unequal where
+/// their algorithm identifiers and parameters differ — compared as DER encodes them, one encoding
+/// to a value — and otherwise compare by `octetStringMatch`. A clear text against an encrypted
+/// password is the clear text encrypted by the other's algorithm, and no algorithm for that is
+/// defined: clause 6.14.2 sends the reader to ITU-T X.509 Annex B, which lists none for passwords,
+/// and clause 6.15.15's `pwdEncAlg` to an Annex L X.520 does not contain. That comparison is
+/// undefined (ADR 3161).
+pub(super) fn user_pwd_match(
+    carried: &Value<'_>,
+    stated: &Value<'_>,
+    clear: impl Fn(&Value<'_>, &Value<'_>) -> Match,
+) -> Match {
+    match (user_pwd(carried), user_pwd(stated)) {
+        (Some(UserPwd::Clear(stored)), Some(UserPwd::Clear(presented))) => {
+            clear(&stored, &presented)
+        }
+        (
+            Some(UserPwd::Encrypted {
+                algorithm: stored_algorithm,
+                encrypted: stored,
+            }),
+            Some(UserPwd::Encrypted {
+                algorithm: presented_algorithm,
+                encrypted: presented,
+            }),
+        ) => {
+            if stored_algorithm.contents == presented_algorithm.contents {
+                octet_string(&stored, &presented)
+            } else {
+                Match::No
+            }
+        }
+        _ => Match::Undecided,
+    }
 }

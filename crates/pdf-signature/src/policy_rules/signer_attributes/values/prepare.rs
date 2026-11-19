@@ -66,8 +66,13 @@ pub(super) fn prepared(
     if !syntax.contains(&value.identifier) {
         return None;
     }
-    let text = transcoded(value)?;
-    let mapped = mapped(&text, fold);
+    prepared_text(&transcoded(value)?, fold, removal)
+}
+
+/// `text`, already Unicode, through clause 7's steps after transcoding: for a rule that applies
+/// a clause 8.1 string rule to a part of its value, as `dnsNameMatch` and `intEmailMatch` do.
+pub(super) fn prepared_text(text: &str, fold: bool, removal: Insignificant) -> Option<String> {
+    let mapped = mapped(text, fold);
     // Clause 7.3.
     let normalized: String = mapped.nfkc().collect();
     prohibit(&normalized)?;

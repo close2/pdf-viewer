@@ -23,25 +23,38 @@
 //!
 //! - **Types with no equality rule** (`searchGuide`, `telexNumber`, `preferredDeliveryMethod`,
 //!   `enhancedSearchGuide`, `uiiFormat`, `utmCoordinates`, `epcFormat`, `tagLocation` and the
-//!   collective `telexNumber`): X.501 clause 13.4.7, never compared.
+//!   collective `telexNumber`): X.501 clause 13.4.7, never compared. **`id-at-role`** (2.5.4.72)
+//!   is one of them: X.520 leaves its definition to ITU-T X.509, whose clause 16.5.1 defines it
+//!   over `RoleSyntax` with no equality matching rule and leaves its values' specification outside
+//!   that Recommendation (ADR 3161).
 //! - **A value outside its rule's syntax**: `countryCode3n`'s `NumericString` under
 //!   `caseIgnoreMatch`, whose syntax is `UnboundedDirectoryString`, and `dc`'s `IA5String`, whose
 //!   rule `caseIgnoreIA5Match` X.520 names and does not define; a `TeletexString`, which clause 7.1
-//!   lets this program decline to transcode; and a constructed (BER) bit or octet string.
-//! - **`id-at-role`** (2.5.4.72): X.520 leaves its definition to ITU-T X.509, which this tree does
-//!   not hold.
-//! - **Rules this program has not built**: `uriMatch` (clause 8.9.1, RFC 3986 section 6.2.2's
-//!   normalisation, on `uri`, `url`, `urn`, `contentUrl`, `uiiInUrn`, `epcInUrn` and `ldapUrl`),
-//!   `dnsNameMatch` (clause 8.9.2, which converts a U-label to an A-label by RFC 5890's rules),
-//!   `intEmailMatch` (clause 8.9.3, over the same), `jidMatch` (clause 8.9.4, RFC 7622's
-//!   normalisation), `presentationAddressMatch` (clause 8.2.10) and `userPwdMatch` (clause 8.10.1).
+//!   lets this program decline to transcode; a constructed (BER) bit or octet string; and a URI, a
+//!   domain name, an e-mail address or a Jabber identifier that is not one by the RFCs its type
+//!   names (`uri`, `domain`, `jid`).
+//! - **A clear-text password against an encrypted one** under `userPwdMatch` (clause 8.10.1): the
+//!   clear text is to be encrypted by the other side's algorithm, and no Recommendation defines
+//!   how a password is encrypted by any algorithm (`structured::user_pwd_match`, ADR 3161).
+//!
+//! The rules over internationalised identifiers — clause 8.9.1's `uriMatch`, 8.9.2's
+//! `dnsNameMatch`, 8.9.3's `intEmailMatch` and 8.9.4's `jidMatch` — are written from the RFCs the
+//! clauses name, over `code_points`' derived properties and `punycode` (ADR 3161).
 
+mod code_points;
+mod domain;
+mod jid;
+mod precis;
 mod prepare;
+mod punycode;
 mod structured;
+mod uri;
 
 use crate::der::{SEQUENCE, SET, Value};
 use crate::trust::names::Match;
-use prepare::{DIRECTORY_STRING, Insignificant, NUMERIC_STRING, PRINTABLE_STRING, prepared};
+use prepare::{
+    DIRECTORY_STRING, Insignificant, NUMERIC_STRING, PRINTABLE_STRING, UTF8_STRING, prepared,
+};
 
 /// The equality matching rule of an attribute type, where this program holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +85,18 @@ pub enum Rule {
     ObjectIdentifier,
     /// X.501 clause 13.4.7's `distinguishedNameMatch`.
     DistinguishedName,
+    /// X.520 clause 8.2.10's `presentationAddressMatch`.
+    PresentationAddress,
+    /// X.520 clause 8.9.1's `uriMatch`.
+    Uri,
+    /// X.520 clause 8.9.2's `dnsNameMatch`.
+    DnsName,
+    /// X.520 clause 8.9.3's `intEmailMatch`.
+    IntEmail,
+    /// X.520 clause 8.9.4's `jidMatch`.
+    Jid,
+    /// X.520 clause 8.10.1's `userPwdMatch`.
+    UserPwd,
 }
 
 /// Every `id-at` type X.520 states a rule for that this program holds, by the arcs below `id-at`
@@ -161,6 +186,19 @@ pub const RULES: &[(&[u8], Rule)] = &[
     (&[33], Rule::DistinguishedName),
     (&[34], Rule::DistinguishedName),
     (&[49], Rule::DistinguishedName),
+    (&[29], Rule::PresentationAddress),
+    // `uri` and its subtypes `urn`, `url`, `uiiInUrn`, `contentUrl`, `epcInUrn` and `ldapUrl`.
+    (&[83], Rule::Uri),
+    (&[86], Rule::Uri),
+    (&[87], Rule::Uri),
+    (&[80], Rule::Uri),
+    (&[81], Rule::Uri),
+    (&[94], Rule::Uri),
+    (&[95], Rule::Uri),
+    (&[100], Rule::DnsName),
+    (&[104], Rule::IntEmail),
+    (&[105], Rule::Jid),
+    (&[85], Rule::UserPwd),
 ];
 
 /// The equality matching rule X.520 states for `kind`, an object identifier's contents, where it
@@ -289,6 +327,20 @@ fn equal(kind: &[u8], carried: &Value<'_>, stated: &Value<'_>, depth: u8) -> Mat
         Rule::ObjectIdentifier => structured::object_identifier(carried, stated),
         Rule::DistinguishedName => structured::distinguished_name(carried, stated, depth, equal),
         Rule::UniqueMember => structured::unique_member(carried, stated, depth, equal),
+        Rule::PresentationAddress => structured::presentation_address_match(carried, stated),
+        Rule::Uri => uri::uri(carried, stated),
+        Rule::DnsName => domain::dns_name(carried, stated),
+        Rule::IntEmail => domain::int_email(carried, stated),
+        Rule::Jid => jid::jid(carried, stated),
+        Rule::UserPwd => structured::user_pwd_match(carried, stated, |stored, presented| {
+            strings(
+                stored,
+                presented,
+                &[UTF8_STRING],
+                false,
+                Insignificant::Spaces,
+            )
+        }),
     }
 }
 
@@ -348,5 +400,7 @@ fn case_ignore_list(carried: &Value<'_>, stated: &Value<'_>) -> Match {
     }
 }
 
+#[cfg(test)]
+mod identifier_tests;
 #[cfg(test)]
 mod tests;

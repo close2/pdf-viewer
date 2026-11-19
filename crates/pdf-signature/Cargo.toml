@@ -48,6 +48,9 @@ pdf-syntax.workspace = true
 stringprep.workspace = true
 unicode-normalization.workspace = true
 unicode-properties.workspace = true
+# RFC 5892's and RFC 8264's derived properties for X.520's `dnsNameMatch`, `intEmailMatch` and
+# `jidMatch` (ADR 3161).
+icu_properties.workspace = true
 # §12.8.3's six digest functions, between them and `md-5` above. `cms::Digest` is the one place
 # any of them is named; see the workspace manifest and ADR 0215.
 ripemd.workspace = true

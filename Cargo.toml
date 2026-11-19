@@ -575,6 +575,14 @@ stringprep = "0.1.5"
 # (ADR 3158).
 unicode-normalization = "0.1.25"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+# ITU-T X.520 clauses 8.9.2 and 8.9.4 compare internationalised domain names and Jabber
+# identifiers, whose validity RFC 5892 and RFC 8264 define as algorithms over Unicode character
+# properties — join control, joining type, script, Bidi class, canonical combining class, Hangul
+# syllable type, default-ignorable, noncharacter, white space and `Changes_When_NFKC_Casefolded` —
+# that neither crate above carries. ICU4X's `icu_properties` carries them as compiled-in static
+# data, so nothing is parsed at startup; it and every package under it are already in this lock
+# under `boa_parser`, Unicode-3.0, and naming it adds no package (ADR 3161).
+icu_properties = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 
 # ISO 32000-2 §12.7.4.3 has the processor construct a field's appearance from its value, and
 # §7.9.2.2 makes that value Unicode text, stored in logical order. Drawing a right-to-left

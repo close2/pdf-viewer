@@ -42,6 +42,26 @@ UCD's own tables**, reaching each form as a presentation-form code point (ADR 14
 source is a face on the machine covering the shaped value, since no compiled-in face has an Arabic
 glyph; executing a face's `GSUB` through `read-fonts` is priced there and not built.
 
+**Unicode character properties for internationalised identifiers: ICU4X's `icu_properties`**
+(2.3, `Unicode-3.0`, with `compiled_data` and no default features), in **`pdf-signature` only**
+(ADR 3161). ITU-T X.520's `dnsNameMatch` and `jidMatch` compare names whose validity RFC 5892 and
+RFC 8264 define as algorithms over Unicode properties — joining type, script, Bidi class, canonical
+combining class, Hangul syllable type, default-ignorable, noncharacter, white space, join control and
+`Changes_When_NFKC_Casefolded` — that `unicode-properties` and `unicode-normalization` do not carry,
+and typing those tables here would be a copy of the UCD to keep current by hand. It adds no package:
+it and everything under it are already in the lock under `boa_parser`, and its data is compiled-in
+`static` tables, so nothing is parsed at startup. **Its `unsafe` is counted, not trusted** (`grep -rw
+unsafe` over each package's `src`): none in `icu_properties` or its data, 16 lines in
+`icu_collections`, 20 in `icu_provider`, 248 in `zerovec`. What a document's text reaches is a `char`,
+a scalar value Rust has already checked, looked up in a code-point trie whose two unchecked reads
+(`CodePointTrie::get32_assuming_fast_index`) rely on index and data lengths checked when the trie was
+built — from this crate's own compiled-in data, which no document can change. That is the same
+exposure `unicode-normalization`'s five `unsafe` lines already have on the same strings, and less
+than the hand-written alternative would put at risk of going stale. `idna` was not taken: it applies UTS #46's
+compatibility mapping, which is not RFC 5891's protocol, and a PRECIS crate was not surveyed;
+Punycode and the two derived properties are a few hundred lines written from the RFCs and tested
+on their own examples.
+
 **Not used, and recorded for a reopening: an H.264 and an AAC decoder.** Clause 13's playing of
 audio and video stays excluded until the owner decides to build the player (`CLAUDE.md`, the
 owner's answer to Q649 of 2026-10-27, ADR 2428), so no `Cargo.toml` names a decoder. When the

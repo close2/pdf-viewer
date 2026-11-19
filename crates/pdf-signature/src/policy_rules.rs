@@ -40,9 +40,11 @@
 //! each attribute certificate judged by RFC 5755 section 5 under the condition's trust trees (ADR
 //! 2797) and its chain under `attrRevReq` (ADR 2890), and clause 6.10's
 //! `aaCertAlgorithmConstraints` on the algorithm each certificate's authority signed it under (ADR
-//! 2891). Named and not evaluated: constraints on attribute values; the verifier rules of clause
-//! 6.5.2, which ask a verifier to *add* attributes and so are an augmentation this reader never
-//! performs; and every extension of clause 6.11, whose syntax is whatever its own identifier names.
+//! 2891), and its `attributeValueConstraints` by each type's own X.520 equality rule
+//! ([`signer_attributes::values`], ADRs 2895, 3158, 3161). Named and not evaluated: the verifier
+//! rules of clause 6.5.2, which ask a verifier to *add* attributes and so are an augmentation this
+//! reader never performs; and every extension of clause 6.11, whose syntax is whatever its own
+//! identifier names.
 //!
 //! # Budgets, before the work
 //!
