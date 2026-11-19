@@ -4,7 +4,7 @@ Status: **standing**, kept true by the round that moves a verdict (ADR 2728). Wh
 of it is in the tree: [`gwg-output-suite-provenance.md`](gwg-output-suite-provenance.md).
 
 **How to reproduce.** `tools/fetch-gwg.sh` (pinned by SHA-256), then `tools/gwg-render.sh <dir outside the tree>`
-draws every page on the CPU at 180 dpi in both views; `cargo nextest run -p pdf-model --test gwg_output_suite`
+draws every page on the CPU at 180 dpi in both views; `cargo nextest run -p pdf-model --test content_suite -E 'test(/^gwg_output_suite::/)'`
 re-checks the patches a pixel comparison decides, and fails when one of their verdicts below moves.
 
 **The two views.** *screen* is the default view; *press* is §10.8.3's simulation of separations, which a person asks

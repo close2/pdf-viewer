@@ -153,6 +153,24 @@ fn package_name(manifest: &str) -> Option<String> {
     None
 }
 
+/// Whether the manifest's `[package]` table states `autotests = false`.
+fn autotests_off(manifest: &str) -> bool {
+    let mut inside = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == "[package]";
+            continue;
+        }
+        if inside
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "autotests"
+        {
+            return value.trim() == "false";
+        }
+    }
+    false
+}
+
 /// Every workspace member by package name, with its targets.
 fn workspace(root: &Path) -> BTreeMap<String, Targets> {
     let members = conformance::roots::members(root).expect("the workspace manifest states members");
@@ -163,9 +181,17 @@ fn workspace(root: &Path) -> BTreeMap<String, Targets> {
         let Some(name) = package_name(&manifest) else {
             continue;
         };
+        // A crate that turned test discovery off (`autotests = false`, ADR 3086) has only the
+        // tests it declares: a file under its `tests/` is a module of one of them, and naming
+        // it as a target is the stale citation this check exists to find.
+        let tests = if autotests_off(&manifest) {
+            BTreeSet::new()
+        } else {
+            stems(&dir.join("tests"))
+        };
         let mut targets = Targets {
             examples: stems(&dir.join("examples")),
-            tests: stems(&dir.join("tests")),
+            tests,
             bins: stems(&dir.join("src/bin")),
         };
         targets

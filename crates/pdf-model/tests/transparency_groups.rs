@@ -2719,7 +2719,7 @@ fn a_page_naming_many_presses_is_drawn_in_each_and_spends_no_other_page() {
 /// bound admits and refused the next by name; its memory is the bound's.
 ///
 /// `#[ignore]`d because it samples about fifteen hundred presses twice: run it in release as
-/// `cargo test --release -p pdf-model --test transparency_groups -- --ignored a_hostile_page`,
+/// `cargo test --release -p pdf-model --test transparency_suite transparency_groups::a_hostile_page -- --ignored`,
 /// beside a measurement of the child's peak resident set (ADR 2532 prints it beside HEAD's).
 /// `PRESS_PROBE_ONLY_AT_BOUND=1` skips the over-the-bound half, so that a probe measures one page.
 #[test]

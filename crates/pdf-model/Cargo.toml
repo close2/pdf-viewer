@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are grouped by subject into the `*_suite` binaries below, each file under
+# `tests/` a module of one, and Cargo would otherwise make every file a binary of its own; ADR
+# 3086 has the measurement. `tools/conformance/tests/test_targets.rs` fails on a file no target
+# names, which is the one thing turning discovery off could hide.
+autotests = false
 
 [dependencies]
 # Table 45's `/CheckSum` is an MD5 of an embedded file's bytes, and ICC.1 section 7.2.18's
@@ -58,6 +63,74 @@ test-scenes.workspace = true
 
 [lints]
 workspace = true
+
+# The walks the tier-2 gates name by `--test` (`doc/todo/02` section 2, `tools/state.sh`), each a
+# binary of its own so that its name and its command do not change.
+
+[[test]]
+name = "actions"
+
+[[test]]
+name = "corpus"
+
+[[test]]
+name = "dates"
+
+[[test]]
+name = "drawn_while_read"
+
+[[test]]
+name = "fixed_documents"
+
+[[test]]
+name = "jpeg2000"
+
+[[test]]
+name = "oracle"
+
+[[test]]
+name = "raster_golden"
+
+[[test]]
+name = "save_round_trip"
+
+[[test]]
+name = "script_corpus"
+
+[[test]]
+name = "text_extraction"
+
+[[test]]
+name = "xmp"
+
+# The subject suites: each a root whose `mod` lines name the files of one subject.
+
+[[test]]
+name = "annotations_suite"
+
+[[test]]
+name = "colour_suite"
+
+[[test]]
+name = "content_suite"
+
+[[test]]
+name = "forms_suite"
+
+[[test]]
+name = "images_suite"
+
+[[test]]
+name = "navigation_suite"
+
+[[test]]
+name = "syntax_suite"
+
+[[test]]
+name = "text_suite"
+
+[[test]]
+name = "transparency_suite"
 
 [[bench]]
 name = "interpret"

@@ -16,7 +16,7 @@ interpreter *knows* it skipped. It cannot say a font loaded and produced garbage
 down, or a gradient came out opaque. The archetype: wiring bare-CFF support in made every affected
 document report `unsupported: []` and render **almost no text**.
 
-`cargo test -p pdf-model --test render_real_pdf -- --nocapture writes_inspectable` writes PNGs;
+`cargo test -p pdf-model --test content_suite render_real_pdf::writes_inspectable -- --nocapture` writes PNGs;
 the oracle's artefacts are better. Two automated checks catch a wrong mapping, both in
 `pdf-font/src/loading.rs`: `the_pdf_widths_agree_with_the_font_programs_own_advances` — the `/Widths`
 and the charstring's own advance are independent statements of one fact — and

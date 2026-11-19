@@ -257,7 +257,7 @@ struct Row<'a> {
 /// stops asserting a restriction is a named change rather than a number that drifted:
 ///
 /// ```sh
-/// cargo test -p pdf-model --test restrictions -- --ignored --nocapture the_corpus_census
+/// cargo test -p pdf-model --test syntax_suite restrictions::the_corpus_census -- --ignored --nocapture
 /// ```
 #[test]
 // not a gate: the census behind this file's counts, run when one is re-derived; it walks a

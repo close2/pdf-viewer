@@ -1151,7 +1151,7 @@ $R $C/0669/0669424.pdf 1 1.0 /tmp/a.png && magick /tmp/a.png -alpha off -colorsp
 
 And the negative twin, which is the one a merge is likeliest to lose because it is a page that
 must **stay** blank — it is a gate, and named here so the pair is read together:
-`cargo test -p pdf-model --test silent_fonts` covers `issue13316_reduced.pdf`.
+`cargo test -p pdf-model --test text_suite silent_fonts::` covers `issue13316_reduced.pdf`.
 
 **What this chunk leaves: 33 944 crawled documents unranked**, in archive-sized pieces. Five rounds
 running, the crawl's head has been a defect no curated corpus states.
