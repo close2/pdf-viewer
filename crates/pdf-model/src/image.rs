@@ -299,6 +299,19 @@ pub fn sandboxed_decoder() -> Result<(), ImageError> {
         .map_err(ImageError::from)
 }
 
+/// How many image decodes in this process the wall clock refused rather than their processor
+/// budget: [`pdf_sandbox::wall_clock_refusals`], read where a gate already asks
+/// [`sandboxed_decoder`].
+///
+/// **What a gate whose verdict depends on a decoded image reads before it judges.** Each such
+/// refusal left an image undrawn because the machine's load decided it, so a run that counts one
+/// measured the machine as well as the documents; the golden, the oracle and the corpus walks
+/// refuse to judge such a run (ADR 3133, ADR 3149).
+#[must_use]
+pub fn wall_clock_refusals() -> u64 {
+    pdf_sandbox::wall_clock_refusals()
+}
+
 /// Decodes an image `XObject` to one raster on the grid the file states.
 ///
 /// `fill` is the current fill colour, used for a stencil mask, which paints the *current*

@@ -1610,6 +1610,7 @@ fn what_a_screen_reader_is_told_about_every_document() {
         .into_inner()
         .expect("reported through the census");
     report(&census, files.len(), elapsed.as_secs_f64());
+    refuse_a_run_the_machine_decided();
 
     assert!(
         census.panicked.is_empty(),
@@ -2350,4 +2351,20 @@ fn the_census_reads_an_untagged_document_as_honestly_silent() {
     assert_eq!(census.untagged_pages, 1, "page one alone answers for it");
     assert_eq!(census.untagged_honest, 1);
     assert_eq!(census.invented, [] as [(String, String); 0]);
+}
+
+/// Refuses to judge a run in which the wall clock refused an image decode, after its figures are
+/// printed and before anything is asserted of them.
+///
+/// A decode the machine stalled past `pdf-sandbox`'s wall-clock ceiling leaves its image undrawn
+/// for a reason the load decided, so the pages that held it measure the machine and not the tree,
+/// and a verdict on them would report a change no commit made (ADR 3133, ADR 3149).
+fn refuse_a_run_the_machine_decided() {
+    let refused = pdf_model::image::wall_clock_refusals();
+    assert!(
+        refused == 0,
+        "{refused} image decodes in this run were refused by the wall clock, not by their \
+         processor budget: the machine stalled the decoder, so the figures above measure the load \
+         and are not judged; run it again on a quieter machine (ADR 3149)"
+    );
 }

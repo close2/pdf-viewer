@@ -770,6 +770,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         started.elapsed(),
     );
 
+    refuse_a_run_the_machine_decided();
     hold(
         ratchets(files.len(), settings, only.is_some()),
         &refused,
@@ -1351,4 +1352,20 @@ fn corpus() -> Option<Vec<PathBuf>> {
     }
     files.sort();
     Some(files)
+}
+
+/// Refuses to judge a run in which the wall clock refused an image decode, after its figures are
+/// printed and before anything is asserted of them.
+///
+/// A decode the machine stalled past `pdf-sandbox`'s wall-clock ceiling leaves its image undrawn
+/// for a reason the load decided, so the pages that held it measure the machine and not the tree,
+/// and a verdict on them would report a change no commit made (ADR 3133, ADR 3149).
+fn refuse_a_run_the_machine_decided() {
+    let refused = pdf_model::image::wall_clock_refusals();
+    assert!(
+        refused == 0,
+        "{refused} image decodes in this run were refused by the wall clock, not by their \
+         processor budget: the machine stalled the decoder, so the figures above measure the load \
+         and are not judged; run it again on a quieter machine (ADR 3149)"
+    );
 }

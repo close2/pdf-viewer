@@ -56,6 +56,9 @@ set -u -o pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 wall=240
 wall_ceiling=270
+# How long --start waits for a runner that neither writes its pid file nor ends: inside the
+# harness's timeout, so the call returns with a sentence (ADR 3151).
+pid_file_ceiling=240
 tail_lines=3
 until_ere=
 start_log=
@@ -152,18 +155,28 @@ start() {
     # from here, `ps` can answer before `setsid` has run and name this script's own group, which is
     # the caller's, and `--stop` would then end the caller.
     # shellcheck disable=SC2016 # the runner's variables are its own, expanded when it runs
-    setsid bash -c 'pidfile=$1; shift
+    setsid --wait bash -c 'pidfile=$1; shift
 printf "%s %s %s\n" "$$" "$(ps -o pgid= -p "$$" | tr -d " ")" "$(date +%s)" > "$pidfile.part"
 mv "$pidfile.part" "$pidfile"
 started=$SECONDS; "$@"; status=$?
 printf "wait: exit %s after %ss\n" "$status" "$((SECONDS - started))"; exit "$status"' \
         wait-run "$log.pid" "$@" < /dev/null >> "$log" 2>&1 &
-    local n=0
-    until [ -e "$log.pid" ] || [ "$n" -ge 100 ]; do
+    # The pid file is an event, waited for until it is there or the runner has ended, and read once
+    # more then, because the runner writes it before it can end; a loaded machine delays the file
+    # and the end alike, so neither outruns the other. `--wait` keeps `setsid` alive for as long as
+    # the run where it must fork, so the job this waits on is the run whichever way it went. The
+    # ceiling, inside the call's own wall, is only for a runner that does neither (ADR 3114's form,
+    # ADR 3151).
+    local runner=$! began=$SECONDS
+    until [ -e "$log.pid" ] || ! kill -0 "$runner" 2>/dev/null ||
+        [ $((SECONDS - began)) -ge "$pid_file_ceiling" ]; do
         sleep 0.05
-        n=$((n + 1))
     done
-    read_pid_file "$log" || refuse "the run did not write $log.pid within 5 s"
+    if ! read_pid_file "$log" 2>/dev/null; then
+        kill -0 "$runner" 2>/dev/null &&
+            refuse "the run neither wrote $log.pid nor ended within $pid_file_ceiling s"
+        refuse "the run ended before it wrote $log.pid: $(tail -n 3 "$log" | tr '\n' ' ')"
+    fi
     local pid=$run_pid pgid=$run_pgid
     if [ "$pgid" != "$pid" ] || [ "$pgid" = "$(own_group)" ]; then
         refuse "the run's process group $pgid is not its own (pid $pid): --stop would reach the caller"
@@ -301,6 +314,31 @@ self_test() {
     check "a wait's option beside --start is refused" 64 "$status" "$out" \
         '^wait: --wall is a wait.s, and --start waits for nothing'
     [ ! -e "$scratch/x.log" ] || check "and nothing is started" 0 1 "x.log was made" x
+
+    # A runner the machine starts late is waited for, and one that ends without its pid file is
+    # refused when it ends: a `setsid` earlier on PATH stands in for the load, holding the runner
+    # back until `late.go` exists, which comes six seconds after the shim is reached — past the
+    # five seconds a count would have allowed — or ending it at once. The order asserted is the
+    # pid file's and the call's, not a length (ADR 3151).
+    mkdir -p "$scratch/late" "$scratch/dead"
+    printf '#!/bin/sh\n: > "%s/late.reached"\nn=0; until [ -e "%s/late.go" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done\nexec %s "$@"\n' \
+        "$scratch" "$scratch" "$(command -v setsid)" > "$scratch/late/setsid"
+    printf '#!/bin/sh\nexit 1\n' > "$scratch/dead/setsid"
+    chmod +x "$scratch/late/setsid" "$scratch/dead/setsid"
+    (
+        n=0
+        until [ -e "$scratch/late.reached" ] || [ "$n" -ge 3000 ]; do sleep 0.1; n=$((n + 1)); done
+        sleep 6
+        : > "$scratch/late.go"
+    ) &
+    out=$(PATH="$scratch/late:$PATH" bash "$me" --start "$scratch/l.log" -- true 2>&1); status=$?
+    [ -e "$scratch/late.go" ] && out="$out (returned after the runner was let go)"
+    wait
+    check "a runner started late is waited for until it writes its pid file" 0 "$status" "$out" \
+        'started pid .*\(returned after the runner was let go\)$'
+    out=$(PATH="$scratch/dead:$PATH" bash "$me" --start "$scratch/m.log" -- true 2>&1); status=$?
+    check "a runner that ends without its pid file is refused as it ends" 64 "$status" "$out" \
+        '^wait: the run ended before it wrote .*m\.log\.pid'
 
     # One call, a start and a wait in it, holds one wall: the composition the round's contract
     # writes, which two walls in one call put past the harness's timeout (ADR 2025). The run ends

@@ -176,8 +176,9 @@ pub fn isolation() -> Isolation {
 /// **What a caller that must be a function of the bytes reads before it records anything.** Each
 /// of the three leaves an image undrawn for a reason the machine's load decided, so a run that
 /// counts one has measured the machine as well as the document: the golden refuses to record such
-/// a run, and an oracle comparison should (ADR 3133). A count rather than a flag on the page's
-/// report, because the report is the document's and its words are what the golden digests.
+/// a run (ADR 3133), and the oracle and the corpus walks refuse to judge one (ADR 3149). A count
+/// rather than a flag on the page's report, because the report is the document's and its words
+/// are what the golden digests.
 #[must_use]
 pub fn wall_clock_refusals() -> u64 {
     WALL_CLOCK_REFUSALS.load(Ordering::Relaxed)
@@ -267,8 +268,9 @@ pub const ORDINARY_SAMPLES: u64 = decode::MAX_SAMPLES;
 /// seconds is the same budget the corpus gate gives an entire document to a reference renderer,
 /// so an image that spends it is not slow, it is not returning.
 ///
-/// The in-process path ([`decode_here_within`]) holds a thread of this process to the same length
-/// of wall clock, because a thread it cannot stop is all it has to bound ([`in_process`]).
+/// The in-process path ([`decode_here_within`]) holds its decoding thread to the same length of
+/// that thread's processor time and the same ceiling, abandoning rather than killing, because a
+/// thread it cannot stop is all it has to bound ([`in_process`], ADR 3150).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Largest response this will accept from a worker, in bytes.
@@ -363,19 +365,42 @@ pub enum SandboxError {
         /// The wall-clock length of the wait it outlasted.
         after: Duration,
     },
-    /// An in-process decode did not finish within its time, and was abandoned rather than
-    /// stopped: a thread cannot be killed, so it runs on until it ends ([`in_process`]).
+    /// An in-process decode spent its processor budget without finishing, and was abandoned
+    /// rather than stopped: a thread cannot be killed, so it runs on until it ends ([`in_process`]).
+    ///
+    /// The image's own refusal, as [`SandboxError::TimedOut`] is the worker's: the same bytes
+    /// spend the same processor time on any machine (ADR 3150).
     #[error(
-        "the decode did not finish within {after:?} and was abandoned on its own thread, where \
-         it runs on until it ends: a decode in this process cannot be stopped, only left (ADR \
-         1447)"
+        "the decode spent {budget:?} of processor time without finishing and was abandoned on \
+         its own thread, where it runs on until it ends: a decode in this process cannot be \
+         stopped, only left (ADR 1447, ADR 3150)"
+    )]
+    Exhausted {
+        /// The processor budget it spent.
+        budget: Duration,
+    },
+    /// An in-process decode neither finished nor spent its processor budget before the wall-clock
+    /// ceiling, or, where its thread's processor time cannot be read, did not finish within the
+    /// wall clock that is then the whole budget; it was abandoned as [`SandboxError::Exhausted`]
+    /// is.
+    ///
+    /// The machine's refusal, as [`SandboxError::Stalled`] is the worker's (ADR 3133, ADR 3150).
+    #[error(
+        "the decode did not finish within {after:?} of wall-clock time, a bound the machine's \
+         load decides as much as the image does, and was abandoned on its own thread, where it \
+         runs on until it ends: a decode in this process cannot be stopped, only left (ADR 1447, \
+         ADR 3150)"
     )]
     Overran {
-        /// The deadline it overran.
+        /// The wall-clock length of the wait it outlasted.
         after: Duration,
     },
-    /// An in-process decode was not started, because as many decodes that overran their
-    /// deadline as [`in_process::MAX_ABANDONED`] admits are still running.
+    /// An in-process decode was not started, because as many abandoned decodes as
+    /// [`in_process::MAX_ABANDONED`] admits are still running.
+    ///
+    /// Counted as the machine's ([`SandboxError::is_the_machines`]) whatever abandoned them:
+    /// whether an abandoned decode has ended by the time the next is asked for is a matter of wall
+    /// clock (ADR 3150).
     #[error(
         "{running} earlier decodes in this process overran their deadline and are still running, \
          which is as many as it lets run at once, so this image is not decoded; the confined \

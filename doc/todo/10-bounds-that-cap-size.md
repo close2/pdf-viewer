@@ -280,8 +280,9 @@ They were not architecture and did not wait for a decision, which is why they we
 - **A real deadline with a clean error, already shipping**: `pdf-sandbox`'s `REQUEST_TIMEOUT`,
   30 s of the worker's processor time, enforced by the *parent* with `poll` and `/proc` →
   `SandboxError::TimedOut`, behind a wall-clock ceiling of ten times it → `SandboxError::Stalled`,
-  the machine's refusal (ADR 3133); and in process by a wait
-  on a kept decoding thread → `SandboxError::Overran`, which *abandons* the decode rather than
+  the machine's refusal (ADR 3133); and in process by the same budget of the decoding thread's
+  processor time, read from `/proc/self/task/<tid>/stat` → `SandboxError::Exhausted`, behind the
+  same ceiling → `SandboxError::Overran` (ADR 3150), each of which *abandons* the decode rather than
   ending it — a thread cannot be killed, so at most `in_process::MAX_ABANDONED` run on (ADR 1447).
   For image codecs only.
 - **A budget as a constructor argument**: `TargetSpec::for_page(…, max_pixels)`,

@@ -13,10 +13,6 @@ use pdf_sandbox::{Request, SandboxError, in_process};
 
 mod symbol_dictionaries;
 
-/// How long a decode past its deadline may take to be refused: the in-process deadline is wall
-/// clock on the caller's wait, so this is a wall-clock bound too (ADR 1447).
-const REFUSED_WITHIN: Duration = Duration::from_secs(1);
-
 /// How long the honest decode below may take to finish once abandoned, before this test gives up
 /// on seeing its slot come back. It takes about two seconds in a release build.
 const RETURNS_WITHIN: Duration = Duration::from_mins(2);
@@ -36,15 +32,18 @@ fn an_in_process_decode_past_its_deadline_is_abandoned_counted_and_ended() {
     };
     let deadline = Duration::from_millis(100);
 
+    // Each is refused by its processor budget, the image's refusal, or — where a loaded machine
+    // gave its thread less than a tenth of a processor — by the wall-clock ceiling, the machine's;
+    // either way it is abandoned, and only the machine's are counted (ADR 3150).
+    let mut the_machines = 0_u64;
     for already in 0..in_process::MAX_ABANDONED {
         assert_eq!(in_process::overran_still_running(), already);
-        let started = Instant::now();
         let outcome = pdf_sandbox::decode_here_within(&large, deadline);
-        assert!(
-            matches!(outcome, Err(SandboxError::Overran { after }) if after == deadline),
-            "a decode past its deadline is abandoned and says so: {outcome:?}"
-        );
-        assert!(started.elapsed() < REFUSED_WITHIN);
+        match outcome {
+            Err(SandboxError::Exhausted { budget }) if budget == deadline => {}
+            Err(SandboxError::Overran { .. }) => the_machines += 1,
+            _ => panic!("a decode past its budget is abandoned and says why: {outcome:?}"),
+        }
     }
     assert!(
         matches!(
@@ -53,13 +52,12 @@ fn an_in_process_decode_past_its_deadline_is_abandoned_counted_and_ended() {
         ),
         "with every slot held, the next decode is refused rather than started"
     );
-    // Each of those refusals was the wall clock's, and each is counted as the machine's (ADR 3133).
+    // That refusal turned on whether the abandoned decodes had ended yet, a matter of wall clock,
+    // so it is counted as the machine's with any ceiling above (ADR 3133, ADR 3150).
     assert_eq!(
         pdf_sandbox::wall_clock_refusals(),
-        u64::try_from(in_process::MAX_ABANDONED)
-            .unwrap_or(u64::MAX)
-            .saturating_add(1),
-        "every overrun and the refusal after them are counted"
+        the_machines + 1,
+        "the wall clock's refusals are counted, and the processor budget's are not"
     );
 
     // An honest decode ends, and when it does its slot and its thread come back.

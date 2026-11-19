@@ -6,9 +6,17 @@
 //! neither codec offers a way to be asked to stop — `hayro_jbig2::Image::decode` and
 //! `hayro_jpeg2000`'s decode each run to their end in one call. So the bound here is on the
 //! **caller's wait**, not on the work: the decode runs on a decoding thread this module keeps, the
-//! caller waits at most the deadline, and a decode that overruns it is *abandoned* — left to finish
-//! on its thread, holding what it has allocated until it does, and reported as
-//! [`SandboxError::Overran`].
+//! caller waits while the thread has processor time left of its budget, and a decode that spends
+//! it is *abandoned* — left to finish on its thread, holding what it has allocated until it does,
+//! and reported as [`SandboxError::Exhausted`], the image's refusal.
+//!
+//! **The budget is the thread's processor time, as the worker's is the worker's** (ADR 3133, ADR
+//! 3150): the thread names itself through `/proc/thread-self` when it takes a request and reads
+//! its own time then, and the caller reads the time under that name while it waits
+//! (the `clock` module), so a thread a loaded machine starves is not abandoned for the machine's
+//! load. A wall-clock ceiling of ten times the budget stays behind it, the worker's own,
+//! refused as [`SandboxError::Overran`], the machine's refusal; where `/proc` cannot be read the
+//! wall clock is the whole budget, refused the same way.
 //!
 //! **An abandoned decode may never finish.** ITU-T T.88 section E.3.4 has the arithmetic decoder
 //! fed 1-bits once its data is exhausted, for as long as decoding asks, and a symbol dictionary
@@ -23,8 +31,9 @@
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::clock::{self, Allowance, Ended, Whose};
 use crate::protocol::{self, Request};
 use crate::{Decoded, SandboxError, decode};
 
@@ -63,7 +72,8 @@ pub fn decode_here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
     decode::here(request)
 }
 
-/// Decodes in this process, waiting at most `timeout` for the answer.
+/// Decodes in this process, waiting while the decoding thread has spent less than `timeout` of
+/// processor time on it, and at most ten times `timeout` of wall clock, the worker's ceiling.
 ///
 /// What [`crate::decode()`] does under [`crate::Isolation::InProcess`], with the worker's own
 /// `REQUEST_TIMEOUT`; named so that a caller can state a shorter one. The request is copied into
@@ -72,7 +82,10 @@ pub fn decode_here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
 ///
 /// # Errors
 ///
-/// - [`SandboxError::Overran`] when the decode did not finish within `timeout`;
+/// - [`SandboxError::Exhausted`] when the decode spent `timeout` of processor time unfinished;
+/// - [`SandboxError::Overran`] when it neither finished nor spent that before the wall-clock
+///   ceiling, or, where its thread's processor time cannot be read, did not finish within
+///   `timeout` of wall clock;
 /// - [`SandboxError::TooManyOverran`] when [`MAX_ABANDONED`] decodes that overran are still
 ///   running, so this one is not started;
 /// - [`SandboxError::Thread`] when no thread could be started to decode on;
@@ -101,35 +114,79 @@ fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxEr
         })?;
     let state = Arc::new(AtomicU8::new(RUNNING));
     let (answer, answered) = mpsc::channel();
+    let began = Instant::now();
     dispatch(Job {
         wire,
         answer,
         state: Arc::clone(&state),
     })?;
 
-    match answered.recv_timeout(timeout) {
-        Ok(decoded) => decoded,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            // Counted before it is claimed, so that a thread returning in between never
-            // subtracts what was not yet added.
-            ABANDONED.fetch_add(1, Ordering::AcqRel);
-            if state
-                .compare_exchange(RUNNING, LEFT, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                Err(SandboxError::Overran { after: timeout })
-            } else {
-                // It returned between the timeout and the claim, so its answer is waiting.
-                ABANDONED.fetch_sub(1, Ordering::AcqRel);
-                answered
-                    .recv()
-                    .unwrap_or(Err(SandboxError::Overran { after: timeout }))
+    // Until the thread has said who it is, the wall clock from `began` is all there is to wait
+    // under: `timeout` of it, the bound where no reading is possible.
+    let mut allowance = Allowance::since(None, timeout, began);
+    loop {
+        let wait = match allowance.next_wait() {
+            Ok(wait) => wait,
+            Err(ended) => return abandon(&state, &answered, ended, timeout),
+        };
+        match answered.recv_timeout(wait) {
+            Ok(Message::Taken { whose, at_start }) => {
+                allowance = Allowance::since(whose.zip(at_start), timeout, began);
+            }
+            Ok(Message::Answer(decoded)) => return decoded,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(SandboxError::Malformed {
+                    detail: "the decoding thread ended without answering".to_owned(),
+                });
             }
         }
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err(SandboxError::Malformed {
-            detail: "the decoding thread ended without answering".to_owned(),
-        }),
     }
+}
+
+/// Leaves a decode its allowance has `ended` running on its thread, and says why — unless it
+/// answered between the allowance's end and the claim, in which case its answer is the result.
+fn abandon(
+    state: &AtomicU8,
+    answered: &mpsc::Receiver<Message>,
+    ended: Ended,
+    budget: Duration,
+) -> Result<Decoded, SandboxError> {
+    let refusal = match ended {
+        Ended::Spent => SandboxError::Exhausted { budget },
+        Ended::Ceiling { after } => SandboxError::Overran { after },
+    };
+    // Counted before it is claimed, so that a thread returning in between never subtracts what
+    // was not yet added.
+    ABANDONED.fetch_add(1, Ordering::AcqRel);
+    if state
+        .compare_exchange(RUNNING, LEFT, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        return Err(refusal);
+    }
+    // It returned between the end and the claim, so its answer is waiting behind any `Taken`.
+    ABANDONED.fetch_sub(1, Ordering::AcqRel);
+    while let Ok(message) = answered.recv() {
+        if let Message::Answer(decoded) = message {
+            return decoded;
+        }
+    }
+    Err(refusal)
+}
+
+/// What a decoding thread tells the caller waiting on one request, in this order.
+enum Message {
+    /// The thread has taken the request: its name under `/proc`, and its processor time as it
+    /// began, each `None` where `/proc` could not be read.
+    Taken {
+        /// The thread, as [`clock::this_thread`] names it.
+        whose: Option<Whose>,
+        /// Its processor time before the decode.
+        at_start: Option<Duration>,
+    },
+    /// The decode's outcome.
+    Answer(Result<Decoded, SandboxError>),
 }
 
 /// One request for a decoding thread: what to decode, where to answer, and whether anyone is
@@ -138,7 +195,7 @@ struct Job {
     /// The request, as the worker would have read it from its pipe.
     wire: protocol::Wire,
     /// Where the answer goes; a receiver that stopped waiting has been dropped.
-    answer: mpsc::Sender<Result<Decoded, SandboxError>>,
+    answer: mpsc::Sender<Message>,
     /// [`RUNNING`], [`LEFT`] or [`RETURNED`].
     state: Arc<AtomicU8>,
 }
@@ -176,8 +233,15 @@ fn dispatch(mut job: Job) -> Result<(), SandboxError> {
 
 /// A decoding thread's life: decode what arrives, answer, and wait in [`IDLE`] for the next.
 fn serve(jobs: &mpsc::Receiver<Job>, own: &mpsc::Sender<Job>) {
+    // A thread's name does not change, so it is read once, on the thread it names.
+    let whose = clock::this_thread();
     while let Ok(job) = jobs.recv() {
         let returned = Returned(job.state);
+        // A caller already gone has nobody to tell; the same holds for the answer below.
+        let _ = job.answer.send(Message::Taken {
+            whose,
+            at_start: clock::this_threads_time(),
+        });
         let decoded = protocol::typed_request(&job.wire).map_or_else(
             || {
                 Err(SandboxError::Malformed {
@@ -187,8 +251,8 @@ fn serve(jobs: &mpsc::Receiver<Job>, own: &mpsc::Sender<Job>) {
             |request| decode::here(&request),
         );
         // A caller that stopped waiting has dropped the receiver, and then there is nobody to
-        // tell: the decode was already reported as `Overran`.
-        let _ = job.answer.send(decoded);
+        // tell: the decode was already reported as `Exhausted` or `Overran`.
+        let _ = job.answer.send(Message::Answer(decoded));
         drop(returned);
         lock(&IDLE).push(own.clone());
     }

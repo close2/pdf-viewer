@@ -14214,6 +14214,7 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
     report(&results, elapsed, &cache);
     println!("artefacts under {}", work_root.display());
 
+    refuse_a_run_the_machine_decided();
     if let Some(pattern) = selection.pattern() {
         println!(
             "\nPDFVIEWER_ORACLE_ONLY={pattern} selected {} of {total} pages. The ratchets below \
@@ -16894,4 +16895,20 @@ fn quantile(sorted: &[f64], numerator: usize, denominator: usize) -> f64 {
         .checked_div(denominator)
         .unwrap_or(0);
     sorted.get(index).copied().unwrap_or(0.0)
+}
+
+/// Refuses to judge a run in which the wall clock refused an image decode, after its figures are
+/// printed and before anything is asserted of them.
+///
+/// A decode the machine stalled past `pdf-sandbox`'s wall-clock ceiling leaves its image undrawn
+/// for a reason the load decided, so the pages that held it measure the machine and not the tree,
+/// and a verdict on them would report a change no commit made (ADR 3133, ADR 3149).
+fn refuse_a_run_the_machine_decided() {
+    let refused = pdf_model::image::wall_clock_refusals();
+    assert!(
+        refused == 0,
+        "{refused} image decodes in this run were refused by the wall clock, not by their \
+         processor budget: the machine stalled the decoder, so the figures above measure the load \
+         and are not judged; run it again on a quieter machine (ADR 3149)"
+    );
 }

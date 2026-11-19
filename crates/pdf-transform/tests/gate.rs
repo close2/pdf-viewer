@@ -134,6 +134,7 @@ fn pixels(bytes: &[u8], dir: &Path) {
     let written = std::fs::read(dir.join(format!("page-{ORACLE_PAGE}.png"))).expect("page written");
     let (width, height, data) = support::decode_png(&written);
     let expected = support::oracle(bytes, ORACLE_PAGE.saturating_sub(1));
+    refuse_a_run_the_machine_decided();
     assert_eq!((width, height), (expected.width, expected.height));
     assert!(
         data == expected.data,
@@ -223,5 +224,21 @@ fn inventories(bytes: &[u8]) {
     println!(
         "transform: {} files listed from §12.5.6.15 annotations, every one the pages carry",
         from_annotations.len()
+    );
+}
+
+/// Refuses to judge a run in which the wall clock refused an image decode, after its figures are
+/// printed and before anything is asserted of them.
+///
+/// A decode the machine stalled past `pdf-sandbox`'s wall-clock ceiling leaves its image undrawn
+/// for a reason the load decided, so the pages that held it measure the machine and not the tree,
+/// and a verdict on them would report a change no commit made (ADR 3133, ADR 3149).
+fn refuse_a_run_the_machine_decided() {
+    let refused = pdf_model::image::wall_clock_refusals();
+    assert!(
+        refused == 0,
+        "{refused} image decodes in this run were refused by the wall clock, not by their \
+         processor budget: the machine stalled the decoder, so the figures above measure the load \
+         and are not judged; run it again on a quieter machine (ADR 3149)"
     );
 }
