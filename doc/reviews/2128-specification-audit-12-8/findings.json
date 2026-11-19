@@ -10,7 +10,8 @@
   "source": "ISO 32000-2 §12.8.3.3.1: \"The SHA-1 digest of the document's byte range shall be encapsulated in the CMS SignedData field with ContentInfo of type Data. The digest of that SignedData shall be incorporated as the normal CMS digest.\" §12.8.1: \"The digest shall be recomputed and compared with the one stored in the document.\" RFC 5652 sections 5.4 and 11.2 (message-digest is the digest of the content and is what the signature covers).",
   "code": "crates/pdf-signature/src/signature.rs:1609 (integrity, sha1 and timestamp_imprint branches); crates/pdf-signature/src/signature.rs:2442 (authenticity_of signs over the attributes); crates/pdf-signature/src/verdict.rs:555",
   "change": "Where signed attributes are present, require the message-digest attribute to equal the digest (under the SignerInfo's digestAlgorithm) of the encapsulated content before the encapsulated digest or imprint is compared with the document, and report a mismatch by name (as timestamp::established's ContentNotBoundToTheSignature already does for document timestamps).",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_encapsulated_document_digest_is_bound_by_the_message_digest_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_encapsulated_document_digest_is_bound_by_the_message_digest_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3221; Signature::integrity compares the message-digest attribute with the encapsulated content in the adbe.pkcs7.sha1 and TSTInfo branches; signature_value_spec_audit::an_encapsulated_document_digest_is_bound_by_the_message_digest_spec_audit and timestamp::tests::a_document_timestamps_imprint_counts_only_where_its_attributes_commit_to_it pass)"
  },
  {
   "id": "2128-B02",
@@ -23,7 +24,8 @@
   "source": "ISO 32000-2 §12.8.3.3.1, adbe.pkcs7.detached: \"The original signed message digest over the document's byte range shall be incorporated as the normal CMS SignedData field. No data shall be encapsulated in the CMS SignedData field.\" §12.8.1: \"The digest shall be recomputed and compared with the one stored in the document.\"",
   "code": "crates/pdf-signature/src/signature.rs:1645-1654 (integrity returns UnderTheSignersKey when no message-digest); crates/pdf-signature/src/signature.rs:2442-2446 (Signed::EncapsulatedContent); crates/pdf-signature/src/verdict.rs:559",
   "change": "For a detached sub-filter (adbe.pkcs7.detached, ETSI.CAdES.detached) an encapsulated content is a refusal by name; UnderTheSignersKey is admissible only where the signature is over the document's bytes (Signed::TheDocumentsBytes) or the encapsulated content is itself bound to the document (adbe.pkcs7.sha1 after B01).",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_detached_value_that_signs_encapsulated_bytes_does_not_vouch_for_the_document_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_detached_value_that_signs_encapsulated_bytes_does_not_vouch_for_the_document_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3221; a value with no digest of the document reads Integrity::NoDigestOfTheDocument, and Verdict::reached takes a verification for question 1 only over the document's bytes; signature_value_spec_audit::a_detached_value_that_signs_encapsulated_bytes_does_not_vouch_for_the_document_spec_audit passes)"
  },
  {
   "id": "2128-B03",
@@ -97,7 +99,8 @@
   "summary": "an_encapsulating_signature_is_checked_against_its_content_and_not_its_attribute asserts Integrity::Unchanged for a value whose message-digest attribute is deliberately not the digest of its content: the oracle accepts exactly the unbound digest B01 names, so a fix of B01 that refuses it will be read as a regression.",
   "source": "ISO 32000-2 §12.8.3.3.1 (\"The digest of that SignedData shall be incorporated as the normal CMS digest\"); RFC 5652 section 11.2.",
   "code": "crates/pdf-signature/src/signature.rs:4879 (test); crates/pdf-signature/src/cms.rs:2001 (fixtures::encapsulating)",
-  "change": "Give the fixture a message-digest that is the digest of its content and keep Unchanged for it; add the deliberately wrong attribute as a second case whose expected answer is a refusal."
+  "change": "Give the fixture a message-digest that is the digest of its content and keep Unchanged for it; add the deliberately wrong attribute as a second case whose expected answer is a refusal.",
+  "status": "fixed (ADR 3221; the fixture's attribute is the content's digest and the wrong one is a second case expecting Changed: signature::tests::an_encapsulating_signature_is_checked_against_its_content_and_its_attribute)"
  },
  {
   "id": "2128-T02",
@@ -119,7 +122,8 @@
   "summary": "Signed::EncapsulatedContent's doc says that for adbe.pkcs7.sha1 \"the same pairing applies as above\" (the SignedAttributes pairing, where message-digest is the recorded digest integrity compares). It does not: for that sub-filter integrity compares the encapsulated content and never the attribute, which is B01.",
   "source": "ISO 32000-2 §12.8.3.3.1.",
   "code": "crates/pdf-signature/src/signature.rs:468-474",
-  "change": "Rewrite with B01's fix to say which digest binds which value."
+  "change": "Rewrite with B01's fix to say which digest binds which value.",
+  "status": "fixed (ADR 3221; Signed::EncapsulatedContent restated)"
  },
  {
   "id": "2128-D02",
@@ -130,7 +134,8 @@
   "summary": "Verdict::reached's comment says UnderTheSignersKey is not a failure because \"question 2's answer *is* question 1's for those two\"; for a SignerInfo with no signed attributes and an encapsulated content the signature is over that content and not over the document (B02).",
   "source": "ISO 32000-2 §12.8.1 (\"The digest shall be recomputed and compared with the one stored in the document\").",
   "code": "crates/pdf-signature/src/verdict.rs:555-557",
-  "change": "Restrict the sentence to Signed::TheDocumentsBytes with B02's fix."
+  "change": "Restrict the sentence to Signed::TheDocumentsBytes with B02's fix.",
+  "status": "fixed (ADR 3221; Verdict::reached's comment restated and its premise checked in question 2)"
  },
  {
   "id": "2128-D03",
@@ -152,6 +157,7 @@
   "summary": "Ledger row 12.8.3.3.1 justifies comparing the adbe.pkcs7.sha1 content \"rather than going through the message-digest attribute, because for that format the attribute is a digest of the digest\"; the attribute is still what binds the content to the signature, and the row's implemented status rests on the omission B01 names.",
   "source": "ISO 32000-2 §12.8.3.3.1; RFC 5652 section 11.2.",
   "code": "doc/conformance/ledger.toml (clause 12.8.3.3.1, note)",
-  "change": "Restate the note with B01's fix: the content is compared with the document and the attribute with the content."
+  "change": "Restate the note with B01's fix: the content is compared with the document and the attribute with the content.",
+  "status": "fixed (ADR 3221; ledger row 12.8.3.3.1's note restated)"
  }
 ]

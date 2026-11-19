@@ -601,6 +601,11 @@ fn integrity_sentence(integrity: Integrity) -> String {
              by the signature itself"
                 .to_owned()
         }
+        Integrity::NoDigestOfTheDocument => {
+            "it records no digest of the source and its signature is not over the source's bytes, \
+             so nothing it signed says what the source was"
+                .to_owned()
+        }
         Integrity::UnknownDigest => {
             "it records a digest made with an algorithm this program does not compute".to_owned()
         }

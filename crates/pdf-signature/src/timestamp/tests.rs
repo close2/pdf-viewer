@@ -434,6 +434,56 @@ fn a_tst_info_the_attributes_do_not_commit_to_is_not_a_time() {
     );
 }
 
+/// §12.8.1's first question over a document timestamp goes through both links of its chain.
+///
+/// Table 255 makes the `TSTInfo`'s `messageImprint` "a hash of the bytes of the document
+/// indicated by the `ByteRange`", and the token's signed attributes commit to the `TSTInfo` by
+/// RFC 5652 section 11.2's `message-digest`. The forgery edits the document and writes the new
+/// digest into the imprint, leaving the attributes — and so the authority's signature — as they
+/// were: the signature still verifies, the imprint matches the edited bytes, and only the second
+/// link shows the imprint was written after the token was signed.
+#[test]
+fn a_document_timestamps_imprint_counts_only_where_its_attributes_commit_to_it() {
+    let stamped: &[u8] = b"quorra document timestamp fixture";
+    let edited: &[u8] = b"quorra document timestamp forgery";
+    let range = vec![(0, u64::try_from(stamped.len()).expect("a short text"))];
+
+    // Control: the token as the authority issued it, over the bytes it was issued for.
+    let mut genuine = document_timestamp(hex(fixtures::TOKEN));
+    genuine.byte_range.clone_from(&range);
+    assert_eq!(
+        genuine.integrity(&pdf_syntax::FileBytes::from(stamped.to_vec())),
+        Integrity::Unchanged {
+            digest: Digest::Sha256
+        }
+    );
+
+    let mut forged = hex(fixtures::TOKEN);
+    let old = Digest::Sha256.compute(&[stamped]);
+    let at = forged
+        .windows(old.len())
+        .position(|window| window == old.as_slice())
+        .expect("the imprint inside the encapsulated content");
+    forged[at..at.saturating_add(old.len())].copy_from_slice(&Digest::Sha256.compute(&[edited]));
+    let token = cms::signed_data(&forged).expect("still a SignedData");
+    assert!(
+        matches!(
+            crate::signature::authenticity_of(&token, crate::signature::Detached::Nothing),
+            crate::signature::Authenticity::Verified { .. }
+        ),
+        "the signature is over the attributes, which the forgery did not touch"
+    );
+    let mut timestamp = document_timestamp(forged);
+    timestamp.byte_range = range;
+    assert_eq!(
+        timestamp.integrity(&pdf_syntax::FileBytes::from(edited.to_vec())),
+        Integrity::Changed {
+            digest: Digest::Sha256
+        },
+        "an imprint the signed attributes do not commit to is no recorded digest"
+    );
+}
+
 /// **A chain of two timestamps, and what each of them covers.**
 ///
 /// The document is two revisions: the first carries one document timestamp, the second adds

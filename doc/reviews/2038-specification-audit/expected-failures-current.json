@@ -11,18 +11,6 @@
  "failures": [
   {
    "binary": "pdf-signature::signature_value_spec_audit",
-   "test": "an_encapsulated_document_digest_is_bound_by_the_message_digest_spec_audit",
-   "finding": "2128-B01",
-   "log": "round-2128 nextest of pdf-signature and viewer-core"
-  },
-  {
-   "binary": "pdf-signature::signature_value_spec_audit",
-   "test": "a_detached_value_that_signs_encapsulated_bytes_does_not_vouch_for_the_document_spec_audit",
-   "finding": "2128-B02",
-   "log": "round-2128 nextest of pdf-signature and viewer-core"
-  },
-  {
-   "binary": "pdf-signature::signature_value_spec_audit",
    "test": "a_pades_value_without_a_content_type_attribute_is_a_departure_spec_audit",
    "finding": "2128-B03",
    "log": "round-2128 nextest of pdf-signature and viewer-core"

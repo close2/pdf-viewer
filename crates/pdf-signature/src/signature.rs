@@ -391,18 +391,35 @@ pub enum Integrity {
         digest: Digest,
     },
     /// They do not, so the document was modified after it was signed.
+    ///
+    /// Where the value encapsulates the document's digest (`adbe.pkcs7.sha1`, a document
+    /// timestamp's `TSTInfo`) and its signer states signed attributes, the recorded digest is the
+    /// one the `message-digest` attribute commits to, so an encapsulated digest that attribute no
+    /// longer matches is this answer too: the digest the value now carries was written after the
+    /// signature over the attributes was made.
     Changed {
         /// The algorithm the signature named, and this one recomputed with.
         digest: Digest,
     },
     /// The signature value records no digest in the clear, so answering needs the signer's key.
     ///
-    /// Two shapes reach this. §12.8.3.2's `adbe.x509.rsa_sha1` is "a DER-encoded PKCS #1 binary
-    /// data object" — the digest is inside the RSA signature and comes out only with the public
-    /// key. And a CMS `SignerInfo` with no signed attributes signs the content directly, which
-    /// RFC 5652 permits and one corpus document does, so there is no `message-digest` attribute
-    /// to compare against.
+    /// Two shapes reach this, and in both the signature is over the document's own bytes
+    /// ([`Signed::TheDocumentsBytes`]). §12.8.3.2's `adbe.x509.rsa_sha1` is "a DER-encoded PKCS #1
+    /// binary data object" — the digest is inside the RSA signature and comes out only with the
+    /// public key. And a detached CMS `SignerInfo` with no signed attributes signs the content
+    /// directly, which RFC 5652 permits and one corpus document does, so there is no
+    /// `message-digest` attribute to compare against.
     UnderTheSignersKey,
+    /// The value records no digest of the document and its signature is not over the document's
+    /// bytes, so nothing anybody signed says what the document was.
+    ///
+    /// Two shapes reach this. A `SignerInfo` with no signed attributes under a `/SubFilter` that
+    /// does not make the encapsulated content the document's digest signs that content and
+    /// nothing else — §12.8.3.3.1 forbids the shape outright for `adbe.pkcs7.detached`: "No data
+    /// shall be encapsulated in the CMS `SignedData` field." And a `SignerInfo` whose signed
+    /// attributes hold no `message-digest`, which RFC 5652 section 11.2 says "MUST be present
+    /// when there are any signed attributes present".
+    NoDigestOfTheDocument,
     /// The signature records a digest made with an algorithm this program does not implement.
     ///
     /// All ten those two tables name between them — the base standard's six and ISO/TS 32001
@@ -468,9 +485,14 @@ pub enum Signed {
     /// The encapsulated content, where the signer states no signed attributes and the CMS object
     /// carries one.
     ///
-    /// For `adbe.pkcs7.sha1` that content *is* the document's digest — §12.8.3.3.1: "\[t]he SHA-1
-    /// digest of the document's byte range shall be encapsulated in the CMS `SignedData` field" —
-    /// so the same pairing applies as above.
+    /// What that proves depends on what the content is. For `adbe.pkcs7.sha1` it *is* the
+    /// document's digest — §12.8.3.3.1: "\[t]he SHA-1 digest of the document's byte range shall
+    /// be encapsulated in the CMS `SignedData` field" — and for a document timestamp its `TSTInfo`
+    /// states the digest, so a verified signature puts that digest under the signer's key and
+    /// [`Signature::integrity`] compares it with the document. Under any other `/SubFilter` the
+    /// content is not the document's and nothing compares it with the document, so a verified
+    /// signature says only that the signer signed those bytes, and
+    /// [`Integrity::NoDigestOfTheDocument`] says the document is under no digest at all.
     EncapsulatedContent,
     /// The bytes `/ByteRange` names, directly.
     ///
@@ -1604,6 +1626,13 @@ impl Signature {
     ///   signed attribute, which §12.8.3.4.3 (e) requires of a `PAdES` signature and RFC 5652
     ///   defines for all of them.
     ///
+    /// **In the first two the digest is two links from the signature, and both are compared.**
+    /// Where the signer states signed attributes, RFC 5652 section 5.4 puts the signature over
+    /// *them*, and their `message-digest` is what binds the encapsulated content — RFC 5652 section
+    /// 5.6: "the message digest value calculated by the recipient MUST be the same as the value of
+    /// the messageDigest attribute". An encapsulated digest the attribute does not commit to was
+    /// written after the signature, so it is no recorded digest at all.
+    ///
     /// Read [`Integrity`] before reading a result: [`Integrity::Unchanged`] is not "valid".
     #[must_use]
     pub fn integrity(&self, file: &FileBytes) -> Integrity {
@@ -1639,18 +1668,36 @@ impl Signature {
             else {
                 return Integrity::Unreadable(CmsError::MalformedSignedData);
             };
+            if let Some(refusal) = content_binding(&cms, encapsulated, Digest::Sha1) {
+                return refusal;
+            }
             (Digest::Sha1, encapsulated)
-        } else if let Some(imprint) = cms.timestamp_imprint() {
-            imprint
+        } else if let Some((digest, imprint)) = cms.timestamp_imprint() {
+            // The same chain through RFC 3161's `TSTInfo`: the imprint is the document's digest,
+            // and the token's `message-digest` is what puts the `TSTInfo` under its signature.
+            if let Some(refusal) =
+                content_binding(&cms, cms.encapsulated.unwrap_or_default(), digest)
+            {
+                return refusal;
+            }
+            (digest, imprint)
         } else if let Some(digest) = cms.message_digest {
             let Some(algorithm) = cms.digest else {
                 return Integrity::UnknownDigest;
             };
             (algorithm, digest)
-        } else {
-            // RFC 5652 signs the encapsulated content directly when there are no signed
-            // attributes, so nothing records the document's digest in the clear.
+        } else if cms.signed_attributes.is_none() && cms.encapsulated.is_none() {
+            // RFC 5652 section 5.4 signs the content directly when there are no signed attributes,
+            // and for a detached value that content is the byte range — so nothing records the
+            // document's digest in the clear, and the signature over the bytes is the answer.
             return Integrity::UnderTheSignersKey;
+        } else {
+            // Either the signer signed what the value encapsulates — and for every `/SubFilter`
+            // but the two above that is not the document: §12.8.3.3.1's `adbe.pkcs7.detached`,
+            // "\[n]o data shall be encapsulated in the CMS SignedData field" — or it signed
+            // attributes with no `message-digest` among them. In both the document's bytes are
+            // under no digest anybody signed.
+            return Integrity::NoDigestOfTheDocument;
         };
         // The one read of a signed document's bytes that nothing can avoid, a window at a time.
         let computed = match self.signed_digests(file, &[digest]) {
@@ -2343,6 +2390,38 @@ impl<'a> Detached<'a> {
             Self::Nothing => Err(Authenticity::Unreadable(CmsError::MalformedSignedData)),
         }
     }
+}
+
+/// Whether the signer's signed attributes commit to `content`, the encapsulated value that holds
+/// the document's digest — `None` where they do, or where there are none to commit.
+///
+/// RFC 5652 section 5.4 puts the signature over the signed attributes when there are any, and
+/// section 11.2 makes their `message-digest` "the message digest of the encapContentInfo eContent
+/// OCTET STRING being signed", computed "using the signer's message digest algorithm". So the
+/// chain from a document to its signature has two links in the encapsulating formats — the
+/// document's digest is the content, and the attribute is the content's digest — and section 5.6
+/// requires the second: "the message digest value calculated by the recipient MUST be the same as
+/// the value of the messageDigest attribute". Without signed attributes the signature is over the
+/// content itself and [`authenticity_of`] answers the link.
+///
+/// `document_digest` is the algorithm of the *first* link, which is what a
+/// [`Integrity::Changed`] reports: the comparison that failed is between the document and the
+/// digest the signer committed to.
+fn content_binding(
+    cms: &SignedData<'_>,
+    content: &[u8],
+    document_digest: Digest,
+) -> Option<Integrity> {
+    cms.signed_attributes?;
+    let Some(recorded) = cms.message_digest else {
+        return Some(Integrity::NoDigestOfTheDocument);
+    };
+    let Some(algorithm) = cms.digest else {
+        return Some(Integrity::UnknownDigest);
+    };
+    (algorithm.compute(&[content]) != recorded).then_some(Integrity::Changed {
+        digest: document_digest,
+    })
 }
 
 /// §12.8.1's question 2 over one `SignedData`, whatever carried it.
@@ -4867,16 +4946,20 @@ mod tests {
         );
     }
 
-    /// §12.8.3.3.1's `adbe.pkcs7.sha1` commits to the digest in its *content*, not its attribute.
+    /// §12.8.3.3.1's `adbe.pkcs7.sha1` commits to the digest in its *content*, and its attribute
+    /// commits to the content.
     ///
-    /// The clause puts "[t]he SHA-1 digest of the document's byte range" in the encapsulated
-    /// content and makes the `message-digest` attribute a digest of *that*, so the two are
-    /// different values and reaching for the wrong one reports a document that never changed as
-    /// one that did. The fixture's attribute is deliberately nonsense for exactly that reason.
-    /// **The corpus's only witness is a fuzzed file**, so this is the shape the clause states
-    /// rather than the shape one document happens to have (trap 8).
+    /// The clause puts "\[t]he SHA-1 digest of the document's byte range" in the encapsulated
+    /// content and makes the `message-digest` attribute a digest of *that* (RFC 5652 section 11.2),
+    /// so the two are different values and comparing the attribute with the document would report
+    /// a document that never changed as one that did. **Both links are compared**: the second
+    /// case keeps the content right and the attribute wrong, which is a content written after the
+    /// signature over the attributes was made, and RFC 5652 section 5.6 makes the attribute's
+    /// match a condition of the signature's validity. The corpus's only witness is a fuzzed file,
+    /// so this is the shape the clause states rather than the shape one document happens to have
+    /// (trap 8).
     #[test]
-    fn an_encapsulating_signature_is_checked_against_its_content_and_not_its_attribute() {
+    fn an_encapsulating_signature_is_checked_against_its_content_and_its_attribute() {
         let bytes = signed_document("adbe.pkcs7.sha1", "", Digest::Sha1, fixtures::encapsulating);
         let (document, signature) = only_signature(&bytes);
         assert_eq!(
@@ -4886,6 +4969,19 @@ mod tests {
             }
         );
 
+        // The content is the document's digest and the attribute commits to something else.
+        let unbound = signed_document("adbe.pkcs7.sha1", "", Digest::Sha1, |digest| {
+            fixtures::encapsulating_attesting(digest, &[0xFF; 32])
+        });
+        let (unbound_document, unbound_signature) = only_signature(&unbound);
+        assert_eq!(
+            unbound_signature.integrity(unbound_document.bytes()),
+            Integrity::Changed {
+                digest: Digest::Sha1
+            },
+            "a digest the signed attributes do not commit to is no recorded digest"
+        );
+
         // And a value that states that sub-filter without encapsulating anything is unreadable
         // rather than silently compared against the attribute.
         let detached = signed_document("adbe.pkcs7.sha1", "", Digest::Sha1, fixtures::detached);
@@ -4893,6 +4989,33 @@ mod tests {
         assert_eq!(
             detached_signature.integrity(detached_document.bytes()),
             Integrity::Unreadable(crate::cms::CmsError::MalformedSignedData)
+        );
+    }
+
+    /// §12.8.3.3.1's `adbe.pkcs7.detached`: "No data shall be encapsulated in the CMS `SignedData`
+    /// field." A value that does, with no signed attributes, signs what it encapsulates and nothing
+    /// of the document — and a detached value whose attributes hold no `message-digest` binds the
+    /// document no better. Neither is [`Integrity::UnderTheSignersKey`], which a verified signature
+    /// would settle; the value without attributes *and* without content still is.
+    #[test]
+    fn a_detached_value_with_no_digest_of_the_document_says_so() {
+        let encapsulating = signed_document("adbe.pkcs7.detached", "", Digest::Sha256, |_| {
+            fixtures::encapsulating_without_signed_attributes(b"not this document")
+        });
+        let (document, signature) = only_signature(&encapsulating);
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::NoDigestOfTheDocument
+        );
+
+        let attributes_without_digest =
+            signed_document("adbe.pkcs7.detached", "", Digest::Sha256, |_| {
+                fixtures::detached_without_message_digest()
+            });
+        let (document, signature) = only_signature(&attributes_without_digest);
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::NoDigestOfTheDocument
         );
     }
 

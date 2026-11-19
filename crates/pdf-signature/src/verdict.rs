@@ -552,9 +552,10 @@ impl Verdict {
         timestamps: Timestamps,
         when: BestSignatureTime,
     ) -> Self {
-        // Question 1. `UnderTheSignersKey` is not a failure: §12.8.3.2's value and a `SignerInfo`
-        // with no signed attributes record no digest in the open, and question 2's answer *is*
-        // question 1's for those two (`viewer_core::notes` words the same case).
+        // Question 1. `UnderTheSignersKey` is not a failure: §12.8.3.2's value and a detached
+        // `SignerInfo` with no signed attributes record no digest in the open, and question 2's
+        // answer *is* question 1's for those two because their signature is over the document's
+        // own bytes (`viewer_core::notes` words the same case). Question 2 checks that premise.
         match integrity {
             Integrity::Unchanged { .. } | Integrity::UnderTheSignersKey => {}
             Integrity::Changed { .. } => return Self::Reserved(Reservation::TheDocumentChanged),
@@ -562,6 +563,14 @@ impl Verdict {
         }
         // Question 2.
         match authenticity {
+            // A verification over anything but the document's bytes — attributes, or an
+            // encapsulated content — says nothing about those bytes, so it cannot stand in for
+            // question 1's missing comparison.
+            Authenticity::Verified { over, .. }
+                if *integrity == Integrity::UnderTheSignersKey && !over.binds_the_document() =>
+            {
+                return Self::Reserved(Reservation::ChangeNotDecided);
+            }
             Authenticity::Verified { .. } => {}
             Authenticity::NotUnderThatKey { .. } => {
                 return Self::Reserved(Reservation::TheSignatureDoesNotVerify);

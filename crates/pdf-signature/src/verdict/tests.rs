@@ -627,6 +627,61 @@ fn a_proof_in_hand_is_not_a_verdict() {
     );
 }
 
+/// **A verification stands in for question 1 only where it is over the document's bytes.**
+///
+/// [`Integrity::UnderTheSignersKey`] means nothing records the document's digest in the clear, and
+/// [`Verdict::reached`] lets question 2 answer for it. That is sound for
+/// [`crate::signature::Signed::TheDocumentsBytes`] and for nothing else: a signature over an
+/// encapsulated content or over attributes says nothing about the document's bytes (review 2128,
+/// B02). Held against one anchored path with good revocation, so the only thing that moves is
+/// what the signature was over.
+#[test]
+fn a_verification_answers_for_the_bytes_only_where_it_is_over_them() {
+    let anchored = Anchored::of(&Trust::Anchored {
+        length: 1,
+        revocation: Revocation::Good {
+            from: crate::revocation::Evidence::CertificateRevocationList,
+            covered: 1,
+        },
+        keys: Vec::new(),
+        responders: Vec::new(),
+    })
+    .expect("an anchored trust is a proof");
+    let verified_over = |over| crate::signature::Authenticity::Verified {
+        digest: crate::cms::Digest::Sha256,
+        family: crate::signature::Family::Rsa,
+        key_bits: 2048,
+        over,
+    };
+    let reached = |over| {
+        Verdict::reached(
+            &Integrity::UnderTheSignersKey,
+            &verified_over(over),
+            &anchored,
+            Acceptance::UnknownRevocationAccepted,
+            Timestamps::None,
+            BestSignatureTime::now(AT),
+        )
+    };
+    assert!(
+        !matches!(
+            reached(crate::signature::Signed::TheDocumentsBytes),
+            Verdict::Reserved(Reservation::ChangeNotDecided)
+        ),
+        "over the bytes, the verification is question 1's answer"
+    );
+    for over in [
+        crate::signature::Signed::EncapsulatedContent,
+        crate::signature::Signed::SignedAttributes,
+    ] {
+        assert_eq!(
+            reached(over),
+            Verdict::Reserved(Reservation::ChangeNotDecided),
+            "over {over:?}, nothing compared the document with anything"
+        );
+    }
+}
+
 /// **A revocation dated after a proven instant does not reach the signature** — and the four
 /// things that must each stop that carve-out (trap 13).
 ///

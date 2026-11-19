@@ -3752,6 +3752,11 @@ fn changed(integrity: pdf_signature::signature::Integrity) -> String {
              only be answered by checking the signature itself"
                 .to_owned()
         }
+        Integrity::NoDigestOfTheDocument => {
+            "that signature records no digest of this document and is not over its bytes, so \
+             nothing its signer signed says what the document was (§12.8.1, §12.8.3.3.1)"
+                .to_owned()
+        }
         Integrity::UnknownDigest => {
             "that signature records a digest made with an algorithm this program does not \
              compute, so whether the document changed was not checked"

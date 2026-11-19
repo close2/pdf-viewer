@@ -1989,16 +1989,49 @@ pub(crate) mod fixtures {
         content_info(Digest::Sha256, ID_DATA, None, signer(Digest::Sha256, None))
     }
 
+    /// The same, encapsulating `content`: a signer with no signed attributes then signs that
+    /// content (RFC 5652 section 5.4) and nothing of any document.
+    pub(crate) fn encapsulating_without_signed_attributes(content: &[u8]) -> Vec<u8> {
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            Some(content),
+            signer(Digest::Sha256, None),
+        )
+    }
+
+    /// A detached value whose signed attributes hold a content-type and no `message-digest`,
+    /// which RFC 5652 section 11.2 says "MUST be present when there are any signed attributes
+    /// present".
+    pub(crate) fn detached_without_message_digest() -> Vec<u8> {
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer(
+                Digest::Sha256,
+                Some(vec![attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA))]),
+            ),
+        )
+    }
+
     /// An `adbe.pkcs7.sha1` value, which encapsulates the document's digest rather than
     /// detaching from it.
     ///
-    /// §12.8.3.3.1: "[t]he SHA-1 digest of the document's byte range shall be encapsulated in the
+    /// §12.8.3.3.1: "\[t]he SHA-1 digest of the document's byte range shall be encapsulated in the
     /// CMS `SignedData` field with `ContentInfo` of type Data. The digest of that `SignedData`
     /// shall be incorporated as the normal CMS digest." So the `message-digest` attribute here is
-    /// a digest *of the digest*, and it is written deliberately wrong: a reader that reached for
-    /// it would compare the wrong two values and report a document that had not changed as one
-    /// that had.
+    /// RFC 5652 section 11.2's digest of the encapsulated content — a digest *of the digest*,
+    /// under the signer's SHA-256 — and a reader that compared it with the document would compare
+    /// the wrong two values.
     pub(crate) fn encapsulating(digest: &[u8]) -> Vec<u8> {
+        encapsulating_attesting(digest, &Digest::Sha256.compute(&[digest]))
+    }
+
+    /// [`encapsulating`] with a `message-digest` attribute of the caller's choosing, which is how
+    /// a value whose encapsulated digest was written after signing is built: the attribute keeps
+    /// the digest the signer committed to and the content says something else.
+    pub(crate) fn encapsulating_attesting(digest: &[u8], message_digest: &[u8]) -> Vec<u8> {
         content_info(
             Digest::Sha256,
             ID_DATA,
@@ -2007,7 +2040,7 @@ pub(crate) mod fixtures {
                 Digest::Sha256,
                 Some(vec![
                     attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
-                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, &[0xFF; 32])),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, message_digest)),
                 ]),
             ),
         )
