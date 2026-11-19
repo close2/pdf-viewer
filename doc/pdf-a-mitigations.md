@@ -1481,7 +1481,7 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   result the proof finds drawn differently.
 
 #### `fonts/font-programs-filed-by-their-format`
-ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADRs 2307, 3078)
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADRs 2307, 3078, 3089)
 
 - **Mitigation** — the clause's "as defined in" section 9.9 files each program's format under a key
   (ISO 32000-2 Table 124) and a `/FontFile3` under a name (Table 125), by the font's dictionary. A
@@ -1504,12 +1504,15 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   `/FontFile3` `/OpenType` (ADR 3078): §9.9.1 selects such a program's glyphs under `Type1` by
   §9.6.5.2's names, so a new `/Differences` gives every code the charset name of the glyph this
   reader drew it with over `/BaseEncoding /StandardEncoding`, and the retyped font is loaded again
-  and compared code by code for glyph and advance before anything is written.
+  and compared code by code for glyph and advance before anything is written. **The retyping ends
+  section 6.2.11.6's TrueType rows at that font** (ADR 3089): they bind TrueType fonts alone, and a
+  font written as `Type1` is outside their population, so their findings at it are taken out of the
+  report their preparations read, and a row left with none takes this row's decision.
 - **Refused, by name**: a program no row admits under its dictionary — a Type 1 program under
   `CIDFontType0` (`issue11740_reduced`) — since a true filing would need the program's format
   changed; a retyped `TrueType` font that one of section 6.2.11.6's TrueType rows also fails at
-  (`issue215`, whose `/Differences` names glyphs outside the Adobe Glyph List), whose rewrites would
-  write it as a TrueType font again, until the retyping ends those rows; a
+  where that row's named objects or places were cut short, so its findings at the font cannot be
+  told from the rest, and its rewrite would write it as a TrueType font again; a
   CFF-flavoured program under a `CIDFontType2` stating no map, or a CID-keyed one, whose CIDs nothing
   says selected the glyphs `CIDFontType0` would give them; a stream-mapped one whose re-keying would
   move something, each by its sentence — an encoding other than the two identities, a `/W2`, a
@@ -1538,7 +1541,9 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   byte-identical to the source's at 100 dpi and at 360, veraPDF 1.30.3 passing all six outputs,
   every code of the two-byte codespace drawing the source's glyph, advance and outline
   (`archive_corpus`'s `a_refiled_composite_font_draws_every_code_as_its_source_did`);
-  `issue11740_reduced` and `issue215` are refused; ADR 3078's fixture (`pdf-model`'s synthetic
+  `issue11740_reduced` is refused; `issue215` (the `/Differences` naming small capitals outside
+  the Adobe Glyph List) converts at 2b and 4 under both shipped profiles, page 1 byte-identical to
+  the source's at 300 dpi, veraPDF 1.30.3 passing all four outputs (ADR 3089); ADR 3078's fixture (`pdf-model`'s synthetic
   `cff.otf` under a `TrueType` dictionary) converts at 2b and 4 under `as-shown` and
   `as-if-printed`, its page byte-identical to the source's at 300 dpi, veraPDF 1.30.3 passing all
   four outputs.
@@ -1919,6 +1924,12 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` (
   is written into the file's `xmpMM:History` naming the clause (`doc/questions/A48`), is bounded by
   32 MiB of copied program a conversion, and is not prepared for a file another requirement
   refuses by name.
+- **A font the refiling writes as `Type1`** (ADR 3089) — a simple `TrueType` dictionary over a
+  name-keyed CFF-flavoured program, which `fonts/font-programs-filed-by-their-format` retypes (ADR
+  3078) — leaves the population of all seven TrueType rows of this subclause, which bind TrueType
+  fonts alone. Their findings at it are taken out of the report their preparations read, so no
+  TrueType rewrite reaches it, and a row that failed at no other font takes the refiling's
+  decision: `Mechanical`, losing nothing, or the refiling's refusal. `issue215` is the witness.
 
 #### `fonts/truetype-codes-reach-glyphs-by-the-standard-route`
 ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` for a non-symbolic

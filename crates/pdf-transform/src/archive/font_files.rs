@@ -72,6 +72,7 @@ mod type1_names;
 
 pub(in crate::archive) use type1_names::as_type1;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::{Outcome, Table124Row};
@@ -83,7 +84,7 @@ use super::decision::Because;
 use super::prepare::Spare;
 
 /// The requirement a refiled program answers.
-const REQUIREMENT: &str = "fonts/font-programs-filed-by-their-format";
+pub(super) const REQUIREMENT: &str = "fonts/font-programs-filed-by-their-format";
 
 /// Why a program no row admits keeps its refusal.
 const NO_ROW: &str = "a font program is in a format ISO 32000-2's Table 124 admits under no key \
@@ -96,8 +97,9 @@ const NO_ROW: &str = "a font program is in a format ISO 32000-2's Table 124 admi
 /// refusal.
 const A_TRUETYPE_ROW_TOO: &str = "a simple TrueType font over a CFF-flavoured OpenType program \
      would be written as the Type1 font Table 124 admits it under, and a requirement ISO 19005 \
-     states of TrueType fonts alone also failed at it, whose own rewrite would write the font as \
-     a TrueType font again; ending that requirement by the retyping is not built";
+     states of TrueType fonts alone also failed at it at more places than the validator's report \
+     lists, so the places the retyping ends cannot be told from the rest, and that requirement's \
+     own rewrite would write the font as a TrueType font again";
 
 /// Why a `glyf` program under a `CIDFontType0` whose `/CIDToGIDMap` names something other than
 /// `Identity` keeps its refusal.
@@ -297,26 +299,7 @@ pub(super) fn refiled(
     input: &pdf_archive::Report,
     spare: &mut Spare,
 ) -> Result<Refiled, Because> {
-    let mut named = BTreeSet::new();
-    for judgement in input
-        .failures()
-        .filter(|judgement| judgement.id == REQUIREMENT)
-    {
-        let Outcome::Failed { places, total } = &judgement.outcome else {
-            continue;
-        };
-        if places.len() != *total {
-            return Err(Because::NotBuiltYet(NOT_ALL_NAMED));
-        }
-        for finding in places {
-            named.insert(
-                finding
-                    .place
-                    .object
-                    .ok_or(Because::NotBuiltYet(NO_DICTIONARY))?,
-            );
-        }
-    }
+    let named = programs_named(input)?;
     let holders = dictionaries_naming_each_program(document);
     let mut out = Refiled::default();
     for id in named {
@@ -387,17 +370,164 @@ pub(super) fn refiled(
     Ok(out)
 }
 
+/// The program streams the requirement failed at, or why they cannot all be named.
+fn programs_named(input: &pdf_archive::Report) -> Result<BTreeSet<ObjectId>, Because> {
+    let mut named = BTreeSet::new();
+    for judgement in input
+        .failures()
+        .filter(|judgement| judgement.id == REQUIREMENT)
+    {
+        let Outcome::Failed { places, total } = &judgement.outcome else {
+            continue;
+        };
+        if places.len() != *total {
+            return Err(Because::NotBuiltYet(NOT_ALL_NAMED));
+        }
+        for finding in places {
+            named.insert(
+                finding
+                    .place
+                    .object
+                    .ok_or(Because::NotBuiltYet(NO_DICTIONARY))?,
+            );
+        }
+    }
+    Ok(named)
+}
+
+/// The simple `TrueType` dictionaries [`refiled`] writes as `Type1` fonts, each one whose
+/// encoding the retyping proves selects the glyphs it selected (ADR 3078).
+///
+/// Asked before the routes ISO 19005's TrueType rows prepare, because those rows end at a font
+/// that is no longer a `TrueType` one: ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section
+/// 6.2.10.6 bind TrueType fonts alone, and a font written as `Type1` is outside their population
+/// (ADR 3089). A font left out here keeps every finding those rows made at it.
+pub(super) fn retyped_to_type1(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> BTreeSet<ObjectId> {
+    let mut out = BTreeSet::new();
+    let Ok(named) = programs_named(input) else {
+        return out;
+    };
+    let holders = dictionaries_naming_each_program(document);
+    for id in named {
+        let Object::Stream(stream) = document.get(id) else {
+            continue;
+        };
+        let Some(program) = document.decoded_stream_data(&stream) else {
+            continue;
+        };
+        let Some(naming) = holders.get(&id) else {
+            continue;
+        };
+        // A collection is filed as the face written out of it, as `refiled` files it.
+        let face = if program.starts_with(b"ttcf") {
+            let Ok(face) = face_of(naming, &program) else {
+                continue;
+            };
+            Some(face)
+        } else {
+            None
+        };
+        let program = face.as_deref().unwrap_or(&program);
+        for holder in naming {
+            let Some(font) = holder.font else {
+                continue;
+            };
+            let retyped = matches!(rows_for(holder, program), Ok((_, Retyping::ToType1)))
+                && type1_names::encoding(document, font, program).is_ok();
+            if retyped {
+                out.insert(font);
+            }
+        }
+    }
+    out
+}
+
+/// `input` with every finding ISO 19005's TrueType rows made at a font of `retyped` taken out,
+/// and the rows that leaves with none, which the retyping ends.
+///
+/// The objects a row named are read whole ([`pdf_archive::Named`]), not the prefix of places a
+/// report keeps, so a row that failed many times at one retyped font is ended all the same. A row
+/// whose named objects or places were cut short keeps its findings whole: what lies past the cut
+/// cannot be told apart, and the font it reaches then keeps [`A_TRUETYPE_ROW_TOO`]'s refusal
+/// rather than being written twice (ADR 3089).
+pub(super) fn without_retyped<'a>(
+    input: &'a pdf_archive::Report,
+    retyped: &BTreeSet<ObjectId>,
+) -> (Cow<'a, pdf_archive::Report>, BTreeSet<&'static str>) {
+    let mut ended = BTreeSet::new();
+    if retyped.is_empty() {
+        return (Cow::Borrowed(input), ended);
+    }
+    let rows: BTreeSet<&str> = truetype_rows().collect();
+    let at_a_retyped_font =
+        |object: Option<ObjectId>| object.is_some_and(|id| retyped.contains(&id));
+    let mut report = input.clone();
+    for judgement in &mut report.judgements {
+        let named = &judgement.named;
+        if !rows.contains(judgement.id)
+            || named.cut_short()
+            || named.places_cut_short()
+            || named.objects().is_disjoint(retyped)
+        {
+            continue;
+        }
+        let Outcome::Failed { places, total } = &judgement.outcome else {
+            continue;
+        };
+        if !named.elsewhere() && named.objects().is_subset(retyped) {
+            judgement.outcome = Outcome::Met;
+            judgement.named = pdf_archive::Named::default();
+            ended.insert(judgement.id);
+            continue;
+        }
+        // Every distinct place outside the retyped fonts, recorded again for the objects and
+        // places the preparations read; the kept findings lose the ones at those fonts, and the
+        // count loses as many, so a list that was a prefix still reads as one.
+        let mut left = pdf_archive::Findings::default();
+        for place in named
+            .places()
+            .iter()
+            .filter(|place| !at_a_retyped_font(place.object))
+        {
+            left.record(place.clone(), String::new());
+        }
+        let kept: Vec<pdf_archive::Finding> = places
+            .iter()
+            .filter(|finding| !at_a_retyped_font(finding.place.object))
+            .cloned()
+            .collect();
+        // Every kept finding is one of `places`, and `total` counts each of them.
+        let total = total.saturating_sub(places.len().saturating_sub(kept.len()));
+        judgement.named = left.named().clone();
+        judgement.outcome = Outcome::Failed {
+            places: kept,
+            total,
+        };
+    }
+    (Cow::Owned(report), ended)
+}
+
+/// The rows ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 state of TrueType fonts
+/// alone, whose rewrites write a font as a `TrueType` one.
+fn truetype_rows() -> impl Iterator<Item = &'static str> {
+    super::fonts::TRUETYPE_CMAP_ROWS
+        .iter()
+        .chain(super::fonts::TRUETYPE_ENCODING_ROWS.iter())
+        .copied()
+}
+
 /// Whether a requirement ISO 19005 states of TrueType fonts alone failed at `font`, or past the
 /// objects its findings could name.
 ///
 /// Those rows' own rewrites write the font's encoding and its program's `cmap` as a `TrueType`
-/// font's, which the retyping to `Type1` replaces; a font both would write keeps the refusal
-/// until the retyping answers the rows it ends (ADR 3078).
+/// font's, which the retyping to `Type1` replaces. `input` is the report [`without_retyped`]
+/// leaves, so a finding here is one the retyping could not be shown to end, and a font both
+/// would write keeps the refusal (ADRs 3078 and 3089).
 fn bound_by_a_truetype_row(input: &pdf_archive::Report, font: ObjectId) -> bool {
-    let rows = super::fonts::TRUETYPE_CMAP_ROWS
-        .iter()
-        .chain(super::fonts::TRUETYPE_ENCODING_ROWS.iter());
-    let rows: BTreeSet<&str> = rows.copied().collect();
+    let rows: BTreeSet<&str> = truetype_rows().collect();
     input
         .failures()
         .filter(|judgement| rows.contains(judgement.id))
@@ -528,8 +658,14 @@ mod tests {
     use pdf_syntax::Document;
     use pdf_syntax::object::Object;
 
+    use std::collections::BTreeSet;
+
+    use pdf_archive::Outcome;
+    use pdf_syntax::object::ObjectId as Id;
+
     use super::{
-        A_COLLECTION, Because, NO_MAP_TO_KEEP, NO_ROW, NOT_THE_SAME_GLYPHS, Spare, refiled,
+        A_COLLECTION, Because, NO_MAP_TO_KEEP, NO_ROW, NOT_THE_SAME_GLYPHS, REQUIREMENT, Spare,
+        refiled, without_retyped,
     };
 
     /// Object numbers past every fixture's own.
@@ -1001,5 +1137,73 @@ mod tests {
             refiled(&document, &input, &mut spare()),
             Err(Because::NotBuiltYet(why)) if why == A_COLLECTION
         ));
+    }
+
+    /// A report whose one judgement is `row`, failed at each of `fonts` once.
+    fn failed_at(row: &'static str, fonts: &[Id]) -> pdf_archive::Report {
+        let mut findings = pdf_archive::Findings::default();
+        for font in fonts {
+            findings.record(pdf_archive::Where::object(*font), "a finding");
+        }
+        pdf_archive::Report {
+            target: Target::Two(pdf_archive::Level::B),
+            judgements: vec![pdf_archive::Judgement {
+                id: row,
+                citation: String::new(),
+                asks: "",
+                amended_by: None,
+                clarified_by: None,
+                outcome: Outcome::Failed {
+                    places: findings.kept().to_vec(),
+                    total: findings.seen(),
+                },
+                named: findings.named().clone(),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_truetype_row_keeps_only_the_findings_at_fonts_left_truetype() {
+        // ISO 19005-2 section 6.2.11.6 binds TrueType fonts alone: a font written as `Type1`
+        // leaves the row's population, and every other font it failed at stays (ADR 3089).
+        let row = super::super::fonts::TRUETYPE_CMAP_ROWS[0];
+        let (retyped, kept) = (Id::new(6, 0), Id::new(9, 0));
+        let input = failed_at(row, &[retyped, kept]);
+        let (left, ended) = without_retyped(&input, &BTreeSet::from([retyped]));
+        assert!(ended.is_empty(), "the row still fails at the other font");
+        let judgement = left.failures().next().expect("still failed");
+        assert_eq!(
+            judgement
+                .named
+                .objects()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![kept]
+        );
+        assert!(matches!(
+            judgement.outcome,
+            Outcome::Failed { total: 1, .. }
+        ));
+
+        // Failed past the places a report keeps, and all of them at the retyped font: the named
+        // objects are read whole, so the row is ended all the same.
+        let input = failed_at(row, &[retyped; 300]);
+        assert!(matches!(
+            input.failures().next().map(|judgement| &judgement.outcome),
+            Some(Outcome::Failed { places, total: 300 }) if places.len() < 300
+        ));
+        let (left, ended) = without_retyped(&input, &BTreeSet::from([retyped]));
+        assert_eq!(ended, BTreeSet::from([row]), "the retyping ends it");
+        assert!(left.failures().next().is_none());
+    }
+
+    #[test]
+    fn a_row_no_truetype_clause_states_keeps_its_findings_at_a_retyped_font() {
+        let font = Id::new(6, 0);
+        let input = failed_at(REQUIREMENT, &[font]);
+        let (left, ended) = without_retyped(&input, &BTreeSet::from([font]));
+        assert!(ended.is_empty());
+        assert_eq!(left.as_ref(), &input, "the refiling's own row is untouched");
     }
 }

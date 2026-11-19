@@ -259,6 +259,9 @@ impl Cleaned {
 /// does not have its packet read, which is what keeps `doc/adr/0947`'s first rule true of this
 /// slice as well.
 pub(super) struct Prepared {
+    /// The rows ISO 19005 states of TrueType fonts alone that failed only at fonts the refiling
+    /// writes as `Type1`, which the retyping ends (`doc/adr/3089`).
+    pub(super) ended_by_retyping: BTreeSet<&'static str>,
     /// The requirements this preparation found failing in the file it will write although the
     /// source met them, each with the places: `fonts/font-programs-embedded` where a name was
     /// defined as one of §9.6.2.2's fourteen (`doc/adr/2522`).
@@ -1378,9 +1381,27 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::parent_tree::Rebuilt::history);
+        // A simple `TrueType` font the refiling writes as `Type1` leaves the population of the
+        // rows ISO 19005 states of TrueType fonts alone, so their findings at it are taken out
+        // of the report the TrueType routes and the refiling read, and a row left with none is
+        // ended by the retyping (`doc/adr/3089`).
+        let retyped = if wanted(Rewrite::FontProgramRefiled) {
+            super::font_files::retyped_to_type1(document, input)
+        } else {
+            BTreeSet::new()
+        };
+        let (truetype_input, ended_by_retyping) =
+            super::font_files::without_retyped(input, &retyped);
+        let truetype_input = truetype_input.as_ref();
+        let truetype_failed: BTreeSet<&'static str> = truetype_input
+            .failures()
+            .map(|judgement| judgement.id)
+            .collect();
         // The TrueType routes are prepared before the packet too, because a restated `cmap` is
         // written into the file's own history (`doc/questions/A48`, `doc/adr/2520`).
         let truetype = {
+            let input = truetype_input;
+            let failed = &truetype_failed;
             let survey = survey.as_ref();
             let symbolic_encodings =
                 asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {
@@ -1766,7 +1787,15 @@ impl Prepared {
             metrics,
             structure,
             signatures: signatures_if_rewritten(document, source, input),
-            owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            owed: Owed::of(
+                plan,
+                document,
+                (input, truetype_input),
+                &mut spare,
+                &failed,
+                already,
+            ),
+            ended_by_retyping,
             smoothing_recorded,
             halftone_names_recorded,
             overprint_modes_recorded,
@@ -2269,7 +2298,7 @@ impl Owed {
     pub(super) fn of(
         plan: &ArchivePlan,
         document: &Document,
-        input: &pdf_archive::Report,
+        (input, truetype_input): (&pdf_archive::Report, &pdf_archive::Report),
         spare: &mut Spare,
         failed: &BTreeSet<&'static str>,
         already: Already<'_>,
@@ -2325,7 +2354,7 @@ impl Owed {
                 sites::font_types(document, input, plan.target)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
-                super::font_files::refiled(document, input, spare)
+                super::font_files::refiled(document, truetype_input, spare)
             }),
             collections: asked(wanted(Rewrite::CollectionRestated), || {
                 super::collections::restated(document, input)

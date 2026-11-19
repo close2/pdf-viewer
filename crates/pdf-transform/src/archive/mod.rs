@@ -928,6 +928,7 @@ fn decide_every_failure(
         });
     }
     met_by_the_replacement(&mut conversion.decided, &prepared);
+    met_by_the_retyping(&mut conversion.decided, &prepared);
     if let Ok(removals) = &prepared.actions {
         actions::met_by_the_removal(&mut conversion.decided, input, removals);
     }
@@ -1065,6 +1066,37 @@ fn met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
         .filter(|row| met.contains(&row.requirement))
     {
         row.decision = replacement;
+    }
+}
+
+/// Why a row the retyping would end is refused where the refiling was not decided: it is the
+/// refiling that takes the font out of the row's population.
+const REFILING_NOT_DECIDED: &str = "a requirement ISO 19005 states of TrueType fonts alone failed \
+     only at fonts that would be written as Type1 fonts, which their font programs' refiling \
+     does, and that refiling was not decided for this conversion, so nothing ends the \
+     requirement";
+
+/// Gives each row ISO 19005 states of TrueType fonts alone that failed only at fonts the
+/// refiling writes as `Type1` the refiling's own decision: those fonts leave the row's population
+/// with the retyping, so the row is ended if the refiling proceeds and refused by its sentence if
+/// it does not (`doc/adr/3089`). The row's own rewrite never reaches those fonts, because its
+/// preparation read the report without them.
+fn met_by_the_retyping(decided: &mut [Decided], prepared: &Prepared) {
+    if prepared.ended_by_retyping.is_empty() {
+        return;
+    }
+    let refiling = decided
+        .iter()
+        .find(|row| row.requirement == font_files::REQUIREMENT)
+        .map_or(
+            Decision::Refused(Because::NotBuiltYet(REFILING_NOT_DECIDED)),
+            |row| row.decision,
+        );
+    for row in decided
+        .iter_mut()
+        .filter(|row| prepared.ended_by_retyping.contains(row.requirement))
+    {
+        row.decision = refiling;
     }
 }
 
