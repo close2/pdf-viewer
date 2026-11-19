@@ -45,10 +45,10 @@ tray box among them (ADR 2919), and the WinUI window's print dialogue is `doc/to
 
 - **Beside this bucket and not in it** — §13.2.4.2 is `implemented`: its clip is judged by §13.2.2,
   Table 286's /TF asked at the reader's restriction level for `Operation::HandOverMedia`, and the data
-  handed to the host as `viewer_core::Event::Media` (ADRs 1960, 1961). What is left owes no row: the
-  host's own `Media` level for *starting* this machine's player, RFC 0009 section 11's question 3 as
-  `doc/questions/A254` answered it (`refuse|ask|warn|open`, `ask` by default), and each window's menu
-  for it. Every window says today that it starts no player.
+  handed to the host as `viewer_core::Event::Media` (ADRs 1960, 1961). The host's own level for
+  *starting* this machine's player, `--media-files=refuse|ask|warn|open` (`ask` by default, A254), is
+  in every Linux window's menu, and the hand-off goes through the XDG desktop portal (ADRs 3201,
+  3202). What is left owes no row: the WinUI window's opener, which declines by name until built.
 - **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `implemented`, and §12.3 with them:
   every name Table 160 defines is drawn, `/View` is obeyed for each of its four values, `/Sort`
   orders the panel and Table 158's `Direction N` gives the window to the file list. Unused, as a choice

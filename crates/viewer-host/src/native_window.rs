@@ -63,6 +63,7 @@ pub fn standing(settings: crate::Settings) -> crate::Restrictions {
         .with(crate::ActLevel::LaunchedDocuments(
             settings.launched_documents,
         ))
+        .with(crate::ActLevel::MediaFiles(settings.media_files))
 }
 
 /// What an open sends, in the order it sends it: every policy before the document.
@@ -898,7 +899,7 @@ pub trait NativeWindow {
                 document,
                 content_type,
                 media,
-            } => self.media(document, content_type.as_deref(), &media),
+            } => self.media(document, content_type.as_deref(), media),
             Event::AttachmentsChanged { .. } => self.attachments_changed(),
         }
     }
@@ -1090,19 +1091,37 @@ pub trait NativeWindow {
         self.say(&said);
     }
 
-    /// §13.2.4.2's clip handed over: no player is started yet, and the window says so (ADR 1961).
+    /// §13.2.4.2's clip, a movie's or a sound's file, under the level the window holds: handed to
+    /// this machine's player through the desktop portal, put to the person first, or declined, and
+    /// said in each case (ADR 3201).
     fn media(
         &mut self,
         document: DocumentId,
         content_type: Option<&str>,
-        media: &viewer_core::Media,
+        media: viewer_core::Media,
     ) {
-        let said = crate::handed_media(
-            &self.state().documents.label_of(document),
+        let label = self.state().documents.label_of(document);
+        let decided = crate::handing(
+            &label,
+            self.state().showing.directory.as_deref(),
             content_type,
             media,
+            self.state().restrictions.media_files(),
         );
-        self.say(&said);
+        match decided {
+            crate::Handing::Hand { handed, note } => {
+                let said = crate::hand_over_media(&label, &handed, note.as_deref());
+                self.say(&said);
+            }
+            crate::Handing::Ask { handed, question } => self.ask(
+                Asked::Media {
+                    document: label,
+                    handed,
+                },
+                &question,
+            ),
+            crate::Handing::Refuse(said) => self.say(&said),
+        }
     }
 
     /// Takes whatever the drawing thread has finished and answers the viewer for it.

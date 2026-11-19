@@ -130,6 +130,7 @@ fn a_bound_policy_s_reference_goes_with_shift_t_to_the_refresh() {
             separations: false,
             scripts: Scripts::Off,
             launched_documents: viewer_host::LaunchedDocuments::Refuse,
+            media_files: viewer_host::MediaFiles::Refuse,
         },
         ReaderWords {
             trusted_lists: Some(directory.clone()),

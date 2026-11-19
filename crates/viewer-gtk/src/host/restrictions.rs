@@ -162,6 +162,7 @@ fn act_menu(
         viewer_host::Act::OpeningEmbedded => "embedded",
         viewer_host::Act::RunningScripts => "scripts",
         viewer_host::Act::LaunchedDocuments => "launched",
+        viewer_host::Act::HandingMedia => "media",
     };
     let action =
         gio::SimpleAction::new_stateful(name, Some(glib::VariantTy::STRING), &chosen.to_variant());

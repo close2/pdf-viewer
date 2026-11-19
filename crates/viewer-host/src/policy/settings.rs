@@ -10,9 +10,10 @@
 
 use super::{
     EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LAUNCHED_DOCUMENTS, LINKS,
-    LaunchedDocuments, Links, REMOTE_DOCUMENTS, RESTRICTIONS, RemoteDocuments, SEPARATIONS,
-    SUBMISSIONS, Scripts, Settings, Submissions, embedded_documents, launched_documents, links,
-    remote_documents, restrictions, separations, submissions,
+    LaunchedDocuments, Links, MEDIA_FILES, MediaFiles, REMOTE_DOCUMENTS, RESTRICTIONS,
+    RemoteDocuments, SEPARATIONS, SUBMISSIONS, Scripts, Settings, Submissions, embedded_documents,
+    launched_documents, links, media_files, remote_documents, restrictions, separations,
+    submissions,
 };
 
 /// One of the reader's decisions about what a document asks this machine to do, as a host names
@@ -41,6 +42,8 @@ pub enum Policy {
     /// §12.6.4.6's launched document that is not a PDF handed to this machine's own handler
     /// ([`LAUNCHED_DOCUMENTS`]).
     LaunchedDocuments,
+    /// Clause 13's media file handed to this machine's own player ([`MEDIA_FILES`], ADR 3201).
+    MediaFiles,
 }
 
 /// A level on the scale every four-level policy shares, least permissive first: the act refused,
@@ -76,7 +79,7 @@ impl Level {
 impl Settings {
     /// Takes `word` if it is one of the words a window's settings are read from — [`RESTRICTIONS`],
     /// [`IGNORE_RESTRICTIONS`], [`LINKS`], [`REMOTE_DOCUMENTS`], [`EMBEDDED_DOCUMENTS`],
-    /// [`SUBMISSIONS`], [`LAUNCHED_DOCUMENTS`] and [`SEPARATIONS`] — answering which of those
+    /// [`SUBMISSIONS`], [`LAUNCHED_DOCUMENTS`], [`MEDIA_FILES`] and [`SEPARATIONS`] — answering which of those
     /// constants it was.
     ///
     /// `Ok(None)` where `word` is none of them, which leaves it to the window's own parser. `--scripts`
@@ -124,6 +127,11 @@ impl Settings {
             self.launched_documents = launched_documents(level)?;
             return Ok(Some(LAUNCHED_DOCUMENTS));
         }
+        if let Some(level) = word.strip_prefix(MEDIA_FILES) {
+            // Clause 13's media file handed to this machine's player (ADR 3201).
+            self.media_files = media_files(level)?;
+            return Ok(Some(MEDIA_FILES));
+        }
         if let Some(setting) = word.strip_prefix(SEPARATIONS) {
             // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
             self.separations = separations(setting)?;
@@ -148,6 +156,7 @@ impl Settings {
             Policy::Submissions => self.submissions = Submissions::ALL[place],
             Policy::Scripts => self.scripts = Scripts::ALL[place],
             Policy::LaunchedDocuments => self.launched_documents = LaunchedDocuments::ALL[place],
+            Policy::MediaFiles => self.media_files = MediaFiles::ALL[place],
             Policy::Separations => {
                 self.separations = match level {
                     Level::Refuse => false,
@@ -170,8 +179,8 @@ mod tests {
     use super::{Level, Policy};
     use crate::policy::{
         EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LAUNCHED_DOCUMENTS, LINKS,
-        LaunchedDocuments, Links, REMOTE_DOCUMENTS, RESTRICTIONS, RemoteDocuments, SEPARATIONS,
-        SUBMISSIONS, Scripts, Settings, Submissions,
+        LaunchedDocuments, Links, MEDIA_FILES, MediaFiles, REMOTE_DOCUMENTS, RESTRICTIONS,
+        RemoteDocuments, SEPARATIONS, SUBMISSIONS, Scripts, Settings, Submissions,
     };
     use viewer_core::{RestrictionLevel, RestrictionPolicy};
 
@@ -187,6 +196,7 @@ mod tests {
             ("--separations=on", SEPARATIONS),
             ("--restrictions=copy:ask", RESTRICTIONS),
             ("--launched-documents=ask", LAUNCHED_DOCUMENTS),
+            ("--media-files=refuse", MEDIA_FILES),
         ];
         for (word, named) in words {
             assert_eq!(settings.take(word), Ok(Some(named)), "{word}");
@@ -197,6 +207,7 @@ mod tests {
         assert_eq!(settings.submissions, Submissions::Send);
         assert!(settings.separations);
         assert_eq!(settings.launched_documents, LaunchedDocuments::Ask);
+        assert_eq!(settings.media_files, MediaFiles::Refuse);
         assert_eq!(
             settings.restrictions,
             RestrictionPolicy::default().with(
@@ -244,6 +255,7 @@ mod tests {
                 Policy::Submissions,
                 Policy::Scripts,
                 Policy::LaunchedDocuments,
+                Policy::MediaFiles,
             ] {
                 set.set(policy, level)
                     .expect("a four-level policy takes every level");
@@ -261,6 +273,7 @@ mod tests {
                     "{LAUNCHED_DOCUMENTS}{}",
                     LaunchedDocuments::ALL[place].as_str()
                 ),
+                format!("{MEDIA_FILES}{}", MediaFiles::ALL[place].as_str()),
             ] {
                 taken.take(&word).expect("the word names a level");
             }

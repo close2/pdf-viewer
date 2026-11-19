@@ -4808,8 +4808,8 @@ mod tests {
         // that grew an entry would otherwise leave this passing over a menu missing nine rows.
         let operations = viewer_core::RestrictionPolicy::OPERATIONS.len();
         assert_eq!(chosen.len(), operations * 4 + operations * 5);
-        // And the machine's acts, last: §12.7.6.2's four, §O.2.1's, then a document's scripts
-        // (ADRs 1291, 1331, 1616).
+        // And the machine's acts, last: §12.7.6.2's four, §O.2.1's, a document's scripts, a launched
+        // document and a media clip (ADRs 1291, 1331, 1616, 2185, 3201).
         let expected: Vec<viewer_host::ActLevel> = viewer_host::Submissions::ALL
             .map(viewer_host::ActLevel::Submissions)
             .into_iter()
@@ -4820,6 +4820,7 @@ mod tests {
             .chain(
                 viewer_host::LaunchedDocuments::ALL.map(viewer_host::ActLevel::LaunchedDocuments),
             )
+            .chain(viewer_host::MediaFiles::ALL.map(viewer_host::ActLevel::MediaFiles))
             .collect();
         assert_eq!(acts, expected);
         assert!(

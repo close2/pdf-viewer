@@ -49,7 +49,7 @@ pub const RUN_BY_HANDLERS: [&str; 15] = [
 
 /// The first bytes of a file that is executed rather than shown: an ELF image, a PE image, a script
 /// with an interpreter line, and the four Mach-O and fat-binary magics.
-const EXECUTABLE_STARTS: [&[u8]; 7] = [
+pub(super) const EXECUTABLE_STARTS: [&[u8]; 7] = [
     b"\x7fELF",
     b"MZ",
     b"#!",
@@ -174,7 +174,7 @@ pub fn handed(name: &str) -> String {
 }
 
 /// Why `path` is a program, or `None` where nothing says it is.
-fn program(path: &Path, bytes: &[u8]) -> Option<&'static str> {
+pub(super) fn program(path: &Path, bytes: &[u8]) -> Option<&'static str> {
     if executable_by_permission(path) {
         return Some("its permissions let it be executed");
     }

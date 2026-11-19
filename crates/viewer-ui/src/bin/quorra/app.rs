@@ -84,6 +84,13 @@ pub(crate) enum Pending {
         /// Where `viewer_host::resolve_import` put it, which is what would be handed over.
         path: PathBuf,
     },
+    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201).
+    Media {
+        /// The document's label, for the sentence either answer prints.
+        document: String,
+        /// What would be handed over.
+        handed: viewer_host::Handed,
+    },
     /// §O.2.1's embedded document, answered by opening it in a tab of its own (ADR 1331).
     Embedded {
         /// The document holding it.

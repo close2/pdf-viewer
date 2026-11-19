@@ -54,6 +54,13 @@ pub(crate) enum Asked {
         /// Where `viewer_host::resolve_import` put it, which is what would be handed over.
         path: PathBuf,
     },
+    /// Clause 13's media file, which a `yes` hands to this machine's player (ADR 3201).
+    Media {
+        /// The document's label, for the sentence either answer prints.
+        document: String,
+        /// What would be handed over.
+        handed: viewer_host::Handed,
+    },
     /// Table Annex O.4's `fdf`, or §12.7.6.4's file, named by an absolute URI, which a `yes`
     /// fetches (ADR 2076).
     Fetch {
@@ -197,6 +204,10 @@ impl Host {
                 "note: {}",
                 viewer_host::remote_note(Purpose::LaunchDocument, &name, Some(why))
             ),
+            Asked::Media { document, handed } => eprintln!(
+                "note: {}",
+                viewer_host::policy::media_note(&document, &handed.describe(), why)
+            ),
             Asked::Restricted {
                 document,
                 operation,
@@ -273,6 +284,16 @@ impl Host {
                 "note: {}",
                 viewer_host::remote_declined(Purpose::LaunchDocument, &name)
             ),
+            Asked::Media { document, handed } if proceed => {
+                eprintln!(
+                    "note: {}",
+                    viewer_host::hand_over_media(&document, &handed, None)
+                );
+            }
+            Asked::Media { document, handed } => eprintln!(
+                "note: {}",
+                viewer_host::policy::media_declined(&document, &handed)
+            ),
             Asked::Restricted {
                 document,
                 operation,
@@ -282,6 +303,38 @@ impl Host {
                 }
                 self.dispatch(Command::Answer { document, proceed });
             }
+        }
+    }
+
+    /// A media clip the worker judged viable and handed this window, under `--media-files=`:
+    /// handed to this machine's player through the desktop portal by this unconfined side, put to
+    /// the person, or declined — the worker's system calls are not touched (ADR 3201).
+    pub(super) fn media(
+        &mut self,
+        document: DocumentId,
+        content_type: Option<&str>,
+        media: viewer_core::Media,
+    ) {
+        let label = format!("document {}", document.0);
+        match viewer_host::handing(
+            &label,
+            self.path.parent(),
+            content_type,
+            media,
+            self.media_files,
+        ) {
+            viewer_host::Handing::Hand { handed, note } => eprintln!(
+                "note: {}",
+                viewer_host::hand_over_media(&label, &handed, note.as_deref())
+            ),
+            viewer_host::Handing::Ask { handed, question } => self.put_the_question(
+                Asked::Media {
+                    document: label,
+                    handed,
+                },
+                &question,
+            ),
+            viewer_host::Handing::Refuse(said) => eprintln!("note: {said}"),
         }
     }
 

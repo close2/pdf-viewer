@@ -2139,6 +2139,7 @@ typedef struct quorra_settings quorra_settings;
 #define QUORRA_POLICY_SCRIPTS            4u  /* a document's scripts run */
 #define QUORRA_POLICY_SEPARATIONS        5u  /* §10.8.3's simulation: REFUSE is off, PROCEED on */
 #define QUORRA_POLICY_LAUNCHED_DOCUMENTS 6u  /* §12.6.4.6: a document handed to this machine's handler */
+#define QUORRA_POLICY_MEDIA_FILES        7u  /* clause 13: a media file handed to this machine's player */
 /* Least permissive first, each policy's own four words in their order: refuse, ask, warn, open
  * for a link; refuse ... send for a submission; off, ask, warn, on for scripts, which are the
  * QUORRA_SCRIPTS_* numbers. */

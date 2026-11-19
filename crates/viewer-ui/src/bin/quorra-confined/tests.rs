@@ -194,6 +194,51 @@ fn a_link_at_refuse_is_not_asked() {
     assert!(!host.question.shown, "no question at refuse");
 }
 
+fn a_clip() -> Event {
+    Event::Media {
+        document: DocumentId(0),
+        content_type: Some("audio/wav".to_owned()),
+        media: viewer_core::Media::Embedded {
+            name: "intro.wav".to_owned(),
+            bytes: b"RIFF\x24\x00\x00\x00WAVE".to_vec(),
+        },
+    }
+}
+
+/// The worker's clip reaches this window's own level, `ask` by default: the card goes up naming
+/// the clip, and Escape takes it down with nothing handed over (ADR 3201).
+#[test]
+fn a_clip_at_the_default_is_asked_and_escape_declines_it() {
+    let mut host = a_host();
+    assert_eq!(host.media_files, viewer_host::MediaFiles::Ask);
+    host.event(a_clip());
+    assert!(host.question.shown, "the question is up");
+    assert!(
+        matches!(
+            &host.asked,
+            Some(super::asking::Asked::Media { handed: viewer_host::Handed::Written { file_name, .. }, .. })
+                if file_name == "clip.wav"
+        ),
+        "the clip is what is asked about"
+    );
+    host.press(&Key::Named(NamedKey::Escape));
+    assert!(host.asked.is_none(), "nothing is still asked");
+    assert!(
+        host.stopped.is_none(),
+        "Escape on the card is not the abort"
+    );
+}
+
+/// At `refuse` the clip is declined without a question (ADR 3201).
+#[test]
+fn a_clip_at_refuse_is_not_asked() {
+    let mut host = a_host();
+    host.media_files = viewer_host::MediaFiles::Refuse;
+    host.event(a_clip());
+    assert!(!host.question.shown, "no question at refuse");
+    assert!(host.asked.is_none());
+}
+
 /// A file a document named is asked about, read on a `yes`, and becomes the window's document
 /// when the worker says it opened — the title, the save and a resume all follow it.
 #[test]

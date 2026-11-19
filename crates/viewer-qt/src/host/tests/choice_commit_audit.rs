@@ -112,6 +112,7 @@ fn open_host(bytes: &[u8]) -> (PdfPath, Host) {
             separations: false,
             scripts: Scripts::On,
             launched_documents: viewer_host::LaunchedDocuments::Refuse,
+            media_files: viewer_host::MediaFiles::Refuse,
         },
         ReaderWords::default(),
         Trace::off(Instant::now()),

@@ -308,6 +308,7 @@ fn main() {
         submissions,
         separations,
         launched_documents,
+        media_files,
         ..
     } = settings;
     // Copied rather than moved: the policy goes to the thread that opens the document *and* stays
@@ -317,7 +318,8 @@ fn main() {
         .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents))
         .with(viewer_host::ActLevel::Submissions(submissions))
         .with(viewer_host::ActLevel::Scripts(reader.scripts))
-        .with(viewer_host::ActLevel::LaunchedDocuments(launched_documents));
+        .with(viewer_host::ActLevel::LaunchedDocuments(launched_documents))
+        .with(viewer_host::ActLevel::MediaFiles(media_files));
     let archive = reader.archive.clone();
     let trusting = reader.trusting();
     let policies = Policies {

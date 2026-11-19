@@ -2430,6 +2430,8 @@ pub enum PolicyKind {
     Separations = 5,
     /// §12.6.4.6's non-PDF document handed to the machine's handler.
     LaunchedDocuments = 6,
+    /// Clause 13's media file handed to this machine's player (ADR 3201).
+    MediaFiles = 7,
 }
 
 impl PolicyKind {
@@ -2444,6 +2446,7 @@ impl PolicyKind {
             4 => Self::Scripts,
             5 => Self::Separations,
             6 => Self::LaunchedDocuments,
+            7 => Self::MediaFiles,
             _ => return None,
         })
     }
@@ -2460,6 +2463,7 @@ impl PolicyKind {
             Self::Scripts => Policy::Scripts,
             Self::Separations => Policy::Separations,
             Self::LaunchedDocuments => Policy::LaunchedDocuments,
+            Self::MediaFiles => Policy::MediaFiles,
         }
     }
 }

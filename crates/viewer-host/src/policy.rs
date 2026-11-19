@@ -88,6 +88,7 @@ use pdf_signature::x509::Instant;
 use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 
 mod launched;
+mod media;
 mod recipient;
 mod settings;
 mod words;
@@ -95,6 +96,11 @@ mod words;
 pub use launched::{
     LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments, RUN_BY_HANDLERS, asked_to_hand_over,
     hand_over, handed, launched, launched_documents,
+};
+pub use media::{
+    Handed, Handing, MEDIA_ENDINGS, MEDIA_FILES, MEDIA_SCHEMES, MediaFiles, Opener, Portal,
+    asked_to_play, declined as media_note, file_name_for, gvariant_string, hand_media,
+    hand_over_media, handing, media_declined, media_directory, media_files,
 };
 pub use recipient::{
     RECIPIENT_CERTIFICATE, RECIPIENT_KEY, RecipientRefusal, recipient_key, recipient_required,
@@ -1433,28 +1439,6 @@ pub enum Opening {
     Refuse(String),
 }
 
-/// What a window says when [`viewer_core::Event::Media`] arrives: the clip handed over — a
-/// rendition's, a movie's or a sound's file (ADR 2382) — and that no player was started.
-///
-/// One sentence for every window, worded here for [`asked_to_open`]'s reason. `CLAUDE.md`'s clause
-/// 13 entry admits the media file "handed to this machine's own player" at the reader's level; the
-/// level for starting that player — RFC 0009 section 11's question 3, `doc/questions/A254` — is
-/// not built, so a window starts nothing, and saying so is trap 5's rule on a path that does less
-/// than the document asked (ADR 1961).
-#[must_use]
-pub fn handed_media(
-    document: &str,
-    content_type: Option<&str>,
-    media: &viewer_core::Media,
-) -> String {
-    let kind = content_type.map_or_else(String::new, |kind| format!("{kind}, "));
-    format!(
-        "{document} hands a media clip to this window for a player — {kind}{} (ISO 32000-2 \
-         §13.2.4.2, §13.3, §13.4); this window starts no player yet, so nothing plays",
-        media.describe()
-    )
-}
-
 /// Whether §12.6.4.8's resolved URI may be **handed to whatever this machine opens one with**.
 ///
 /// §12.6.4.8 says "\[a] URI action causes a URI to be resolved", of a string the clause introduces
@@ -1782,6 +1766,8 @@ pub struct Settings {
     pub scripts: Scripts,
     /// What §12.6.4.6's launched document that is not a PDF does ([`LAUNCHED_DOCUMENTS`]).
     pub launched_documents: LaunchedDocuments,
+    /// What clause 13's media file handed to this machine's player does ([`MEDIA_FILES`]).
+    pub media_files: MediaFiles,
 }
 
 /// The word a person types to say which PDFs beside their own this reader will parse.

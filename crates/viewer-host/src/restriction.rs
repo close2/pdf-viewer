@@ -48,7 +48,8 @@
 //! makes for a face with no dialogue at all.
 
 use crate::policy::{
-    EmbeddedDocuments, LaunchedDocuments, OPENING_EMBEDDED, RUNNING_SCRIPTS, Scripts, Submissions,
+    EmbeddedDocuments, LaunchedDocuments, MediaFiles, OPENING_EMBEDDED, RUNNING_SCRIPTS, Scripts,
+    Submissions,
 };
 use pdf_model::restriction::{Level, Operation};
 use viewer_core::{
@@ -90,6 +91,8 @@ pub enum Subject {
     Embedded,
     /// A document's scripts, which would run in a confined worker (RFC 0008 section 6.3).
     Scripts,
+    /// Clause 13's media file, which would be handed to this machine's player (ADR 3201).
+    Media,
 }
 
 impl Subject {
@@ -106,6 +109,7 @@ impl Subject {
             Self::TrustedLists => "Update the trusted lists?",
             Self::Embedded => "Open this embedded document?",
             Self::Scripts => "Run this document's scripts?",
+            Self::Media => "Play this media clip?",
         }
     }
 }
@@ -185,15 +189,18 @@ pub enum Act {
     RunningScripts,
     /// §12.6.4.6's non-PDF document handed to this machine's handler.
     LaunchedDocuments,
+    /// Clause 13's media file handed to this machine's player (ADR 3201).
+    HandingMedia,
 }
 
 impl Act {
     /// Every act, in the order the menu offers them.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Submitting,
         Self::OpeningEmbedded,
         Self::RunningScripts,
         Self::LaunchedDocuments,
+        Self::HandingMedia,
     ];
 
     /// The act's name, which heads its levels and begins the sentence about each.
@@ -204,6 +211,7 @@ impl Act {
             Self::OpeningEmbedded => OPENING_EMBEDDED,
             Self::RunningScripts => RUNNING_SCRIPTS,
             Self::LaunchedDocuments => "opening a launched document in another program",
+            Self::HandingMedia => "handing a media clip to this machine's player",
         }
     }
 
@@ -220,6 +228,10 @@ impl Act {
             }
             Self::RunningScripts => {
                 "ISO 32000-2 §12.6.4.17's ECMAScript, run confined (RFC 0008 section 6.3)"
+            }
+            Self::HandingMedia => {
+                "ISO 32000-2 §13.2.4.2's clip, §13.3's sound and §13.4's movie, given to the \
+                 desktop's opener; this reader plays none itself"
             }
         }
     }
@@ -239,6 +251,8 @@ pub enum ActLevel {
     Scripts(Scripts),
     /// A level of [`Act::LaunchedDocuments`].
     LaunchedDocuments(LaunchedDocuments),
+    /// A level of [`Act::HandingMedia`].
+    MediaFiles(MediaFiles),
 }
 
 impl ActLevel {
@@ -250,6 +264,7 @@ impl ActLevel {
             Self::EmbeddedDocuments(_) => Act::OpeningEmbedded,
             Self::Scripts(_) => Act::RunningScripts,
             Self::LaunchedDocuments(_) => Act::LaunchedDocuments,
+            Self::MediaFiles(_) => Act::HandingMedia,
         }
     }
 
@@ -261,6 +276,7 @@ impl ActLevel {
             Self::EmbeddedDocuments(level) => level.as_str(),
             Self::Scripts(level) => level.as_str(),
             Self::LaunchedDocuments(level) => level.as_str(),
+            Self::MediaFiles(level) => level.as_str(),
         }
     }
 }
@@ -454,7 +470,8 @@ pub fn told(level: ActLevel) -> Option<Command> {
     match level {
         ActLevel::Submissions(_)
         | ActLevel::EmbeddedDocuments(_)
-        | ActLevel::LaunchedDocuments(_) => None,
+        | ActLevel::LaunchedDocuments(_)
+        | ActLevel::MediaFiles(_) => None,
         ActLevel::Scripts(level) => Some(Command::Scripts(crate::policy::scripting(level))),
     }
 }
@@ -512,6 +529,9 @@ pub struct Restrictions {
     scripts: Scripts,
     /// What a launch action may hand to another program.
     launched: LaunchedDocuments,
+    /// What a media clip may be handed to this machine's player at — `ask` until a person picks
+    /// another (ADR 3201).
+    media: MediaFiles,
 }
 
 impl Restrictions {
@@ -532,6 +552,7 @@ impl Restrictions {
             embedded: EmbeddedDocuments::Ask,
             scripts: Scripts::Off,
             launched: LaunchedDocuments::Ask,
+            media: MediaFiles::Ask,
         }
     }
 
@@ -560,6 +581,12 @@ impl Restrictions {
         self.launched
     }
 
+    /// The level a media clip is handed over at, shared with the menu that changes it.
+    #[must_use]
+    pub const fn media_files(self) -> MediaFiles {
+        self.media
+    }
+
     /// Sets one act's level, which is what a [`Row::ActLevel`] comes to. What the viewer is told
     /// of it, where it is told anything, is [`told`]'s.
     pub const fn set(&mut self, level: ActLevel) {
@@ -568,6 +595,7 @@ impl Restrictions {
             ActLevel::EmbeddedDocuments(level) => self.embedded = level,
             ActLevel::Scripts(level) => self.scripts = level,
             ActLevel::LaunchedDocuments(level) => self.launched = level,
+            ActLevel::MediaFiles(level) => self.media = level,
         }
     }
 
@@ -579,12 +607,14 @@ impl Restrictions {
             Act::OpeningEmbedded => EmbeddedDocuments::ALL.map(ActLevel::EmbeddedDocuments),
             Act::RunningScripts => Scripts::ALL.map(ActLevel::Scripts),
             Act::LaunchedDocuments => LaunchedDocuments::ALL.map(ActLevel::LaunchedDocuments),
+            Act::HandingMedia => MediaFiles::ALL.map(ActLevel::MediaFiles),
         };
         let stands = match act {
             Act::Submitting => ActLevel::Submissions(self.submissions),
             Act::OpeningEmbedded => ActLevel::EmbeddedDocuments(self.embedded),
             Act::RunningScripts => ActLevel::Scripts(self.scripts),
             Act::LaunchedDocuments => ActLevel::LaunchedDocuments(self.launched),
+            Act::HandingMedia => ActLevel::MediaFiles(self.media),
         };
         levels
             .into_iter()
@@ -866,6 +896,30 @@ mod tests {
                     .any(|entry| entry.chosen && entry.level == ActLevel::LaunchedDocuments(level))
             );
             assert_eq!(restrictions.act_rows(Act::LaunchedDocuments).len(), 5);
+        }
+    }
+
+    /// The media level's menu offers its four levels, `ask` standing at first, and the level a
+    /// person picks is the one the window reads; the viewer is told nothing, because handing a
+    /// clip over is the host's own act (ADR 3201).
+    #[test]
+    fn the_media_menu_and_the_window_share_every_level() {
+        use super::{Act, ActLevel, MediaFiles, told};
+
+        let mut restrictions = Restrictions::new(RestrictionPolicy::default());
+        assert_eq!(restrictions.media_files(), MediaFiles::Ask);
+        for level in MediaFiles::ALL {
+            restrictions.set(ActLevel::MediaFiles(level));
+            assert_eq!(restrictions.media_files(), level);
+            let entries = restrictions.act_entries(Act::HandingMedia);
+            assert_eq!(entries.len(), 4);
+            assert!(
+                entries
+                    .iter()
+                    .all(|entry| entry.chosen == (entry.level == ActLevel::MediaFiles(level)))
+            );
+            assert_eq!(restrictions.act_rows(Act::HandingMedia).len(), 5);
+            assert!(told(ActLevel::MediaFiles(level)).is_none());
         }
     }
 

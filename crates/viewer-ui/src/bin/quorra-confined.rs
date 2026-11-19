@@ -13,7 +13,7 @@
 //! decoder bounds-checked field by field, chosen per page by size (ADR 0607).
 //!
 //! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, the wheel
-//! scrolls, `q` quits, `r` opens the launched-document permissions menu, Tab walks a form's fields, `m` measures. **Escape is the abort**: it ends the worker with a kill it cannot decline
+//! scrolls, `q` quits, `r` opens the permissions menu for a launched document and a media clip, Tab walks a form's fields, `m` measures. **Escape is the abort**: it ends the worker with a kill it cannot decline
 //! (ADR 0241) and takes back this side's own drawing thread (ADR 0650) — the reader's answer to
 //! a document written to take for ever, and it does not block. The window title carries the page
 //! and §12.4.2's label; what a page could not draw is printed, as everywhere else in this tree.
@@ -243,6 +243,9 @@ struct Host {
     submitter: viewer_host::submit::Submitter,
     /// §12.6.4.6's level, read off the command line as the other three windows read it (ADR 2171).
     launched_documents: viewer_host::LaunchedDocuments,
+    /// Clause 13's level, read off the command line and changed by the permissions menu (ADR
+    /// 3201).
+    media_files: viewer_host::MediaFiles,
     /// The *ask* level's card — the flagship's, reused whole — and what it is asking about.
     ///
     /// While it is shown it has the keyboard and the pointer, as the password card does.
@@ -373,6 +376,7 @@ impl Host {
             submissions: viewer_host::Submissions::default(),
             submitter: viewer_host::submit::Submitter::new(),
             launched_documents: viewer_host::LaunchedDocuments::default(),
+            media_files: viewer_host::MediaFiles::default(),
             question: QuestionCard::default(),
             permissions: RestrictionsCard::default(),
             asked: None,
@@ -684,6 +688,7 @@ fn main() {
         remote_documents,
         submissions,
         launched_documents,
+        media_files,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
     host.reader = reader;
@@ -692,6 +697,7 @@ fn main() {
     host.remote_documents = remote_documents;
     host.submissions = submissions;
     host.launched_documents = launched_documents;
+    host.media_files = media_files;
     host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);

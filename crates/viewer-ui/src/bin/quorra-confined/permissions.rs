@@ -1,4 +1,5 @@
-//! The machine-side launch policy, adjustable without a round trip to the worker.
+//! The machine-side policies — a launched document and a media clip handed to this machine's own
+//! program — adjustable without a round trip to the worker.
 
 use viewer_host::{Act, ActLevel, Restrictions};
 use winit::keyboard::{Key, NamedKey};
@@ -7,9 +8,12 @@ use super::Host;
 
 impl Host {
     fn permissions_rows(&self) -> Vec<viewer_host::Row> {
-        Restrictions::new(viewer_core::RestrictionPolicy::default())
+        let standing = Restrictions::new(viewer_core::RestrictionPolicy::default())
             .with(ActLevel::LaunchedDocuments(self.launched_documents))
-            .act_rows(Act::LaunchedDocuments)
+            .with(ActLevel::MediaFiles(self.media_files));
+        let mut rows = standing.act_rows(Act::LaunchedDocuments);
+        rows.extend(standing.act_rows(Act::HandingMedia));
+        rows
     }
 
     /// Modal cards and text entry keep their keys; a menu choice never waits on the worker.
@@ -39,14 +43,19 @@ impl Host {
     }
 
     fn permissions_choose(&mut self) {
-        if let Some(ActLevel::LaunchedDocuments(level)) = self.permissions.act_level() {
-            self.launched_documents = level;
-            eprintln!(
-                "{}",
-                viewer_host::act_chosen(ActLevel::LaunchedDocuments(level))
-            );
-            self.permissions.refill(self.permissions_rows());
+        let Some(chosen) = self.permissions.act_level() else {
+            return;
+        };
+        match chosen {
+            ActLevel::LaunchedDocuments(level) => self.launched_documents = level,
+            ActLevel::MediaFiles(level) => self.media_files = level,
+            // The two acts this menu offers are the two this window performs itself.
+            ActLevel::Submissions(_) | ActLevel::EmbeddedDocuments(_) | ActLevel::Scripts(_) => {
+                return;
+            }
         }
+        eprintln!("{}", viewer_host::act_chosen(chosen));
+        self.permissions.refill(self.permissions_rows());
     }
 
     pub(super) fn permissions_pointer(&mut self) {
@@ -90,6 +99,19 @@ mod tests {
             assert_eq!(host.launched_documents, level);
             host.permissions_key(&Key::Named(NamedKey::ArrowDown));
         }
+        // The media level's four follow the launch's, `ask` standing until one is chosen
+        // (ADR 3201).
+        assert_eq!(host.media_files, viewer_host::MediaFiles::Ask);
+        for level in viewer_host::MediaFiles::ALL {
+            assert!(host.permissions_key(&Key::Named(NamedKey::Enter)));
+            assert_eq!(host.media_files, level);
+            host.permissions_key(&Key::Named(NamedKey::ArrowDown));
+        }
+        assert_eq!(
+            host.launched_documents,
+            viewer_host::LaunchedDocuments::Open,
+            "choosing a media level leaves the launch's"
+        );
         host.permissions_key(&Key::Named(NamedKey::Escape));
         assert!(!host.permissions.shown);
     }

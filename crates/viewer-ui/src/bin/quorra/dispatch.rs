@@ -920,19 +920,13 @@ answers in two places"
                 "note: {}",
                 viewer_host::script_timers::console(&self.documents.label_of(document), request)
             ),
-            // §13.2.4.2's clip handed over: no player is started yet, said (ADR 1961).
+            // §13.2.4.2's clip, a movie's or a sound's file, under `--media-files=`: handed to this
+            // machine's player through the desktop portal, asked, or declined (ADR 3201).
             Event::Media {
                 document,
                 content_type,
                 media,
-            } => println!(
-                "note: {}",
-                viewer_host::handed_media(
-                    &self.documents.label_of(document),
-                    content_type.as_deref(),
-                    &media
-                )
-            ),
+            } => self.media(document, content_type.as_deref(), media),
             // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
             // (ADR 2329).
             Event::ScriptQuestionWithdrawn { document } => {
@@ -1211,6 +1205,52 @@ impl App {
             crate::app::Pending::LaunchedDocument { name, path } => {
                 Self::launch_answered(&name, &path, proceed);
             }
+            // Clause 13: handing a clip to this machine's player is the host's own act, so the
+            // answer decides whether it is handed over at all (ADR 3201).
+            crate::app::Pending::Media { document, handed } => {
+                Self::media_answered(&document, &handed, proceed);
+            }
+        }
+    }
+
+    /// Clause 13's question answered: a `yes` hands the clip over, a `no` keeps it here (ADR 3201).
+    fn media_answered(document: &str, handed: &viewer_host::Handed, proceed: bool) {
+        let said = if proceed {
+            viewer_host::hand_over_media(document, handed, None)
+        } else {
+            viewer_host::policy::media_declined(document, handed)
+        };
+        println!("note: {said}");
+    }
+
+    /// A media clip under the level this window holds, which the restrictions menu changes
+    /// (ADR 3201).
+    fn media(
+        &mut self,
+        document: viewer_core::DocumentId,
+        content_type: Option<&str>,
+        media: viewer_core::Media,
+    ) {
+        let label = self.documents.label_of(document);
+        match viewer_host::handing(
+            &label,
+            self.directory.as_deref(),
+            content_type,
+            media,
+            self.restrictions.media_files(),
+        ) {
+            viewer_host::Handing::Hand { handed, note } => println!(
+                "note: {}",
+                viewer_host::hand_over_media(&label, &handed, note.as_deref())
+            ),
+            viewer_host::Handing::Ask { handed, question } => self.put_a_question(
+                crate::app::Pending::Media {
+                    document: label,
+                    handed,
+                },
+                &question,
+            ),
+            viewer_host::Handing::Refuse(said) => println!("note: {said}"),
         }
     }
 

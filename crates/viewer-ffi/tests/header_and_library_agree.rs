@@ -852,6 +852,7 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("SCRIPTS", PolicyKind::Scripts),
         ("SEPARATIONS", PolicyKind::Separations),
         ("LAUNCHED_DOCUMENTS", PolicyKind::LaunchedDocuments),
+        ("MEDIA_FILES", PolicyKind::MediaFiles),
     ] {
         expected.insert(format!("QUORRA_POLICY_{name}"), policy as i64);
     }

@@ -486,6 +486,7 @@ internal static partial class Native
     internal const uint QUORRA_POLICY_SCRIPTS = 4;
     internal const uint QUORRA_POLICY_SEPARATIONS = 5;
     internal const uint QUORRA_POLICY_LAUNCHED_DOCUMENTS = 6;
+    internal const uint QUORRA_POLICY_MEDIA_FILES = 7;
     internal const uint QUORRA_LEVEL_REFUSE = 0;
     internal const uint QUORRA_LEVEL_ASK = 1;
     internal const uint QUORRA_LEVEL_WARN = 2;

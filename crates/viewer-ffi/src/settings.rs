@@ -215,7 +215,7 @@ mod tests {
                 .refusal()
                 .is_some_and(|said| said.contains("--links=sometimes"))
         );
-        assert_eq!(stated.set(7, 0), Err(Status::WrongKind));
+        assert_eq!(stated.set(8, 0), Err(Status::WrongKind));
         assert_eq!(stated.set(0, 4), Err(Status::WrongKind));
         assert_eq!(
             stated.set(5, 1),

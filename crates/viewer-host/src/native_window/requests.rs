@@ -98,6 +98,13 @@ pub enum Asked {
         /// What followed `ef` in the fragment, which applies to it.
         fragment: Option<String>,
     },
+    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201).
+    Media {
+        /// The document's label, for the sentence either answer says.
+        document: String,
+        /// What would be handed over.
+        handed: crate::Handed,
+    },
     /// RFC 0008 section 6.3's one question per document, answered by
     /// `viewer_core::Command::AnswerScripts` (ADR 1616).
     Scripts {
@@ -120,6 +127,7 @@ impl Asked {
             Self::RemoteDocument { .. } | Self::LaunchedDocument { .. } => crate::Subject::Document,
             Self::Embedded { .. } => crate::Subject::Embedded,
             Self::Scripts { .. } => crate::Subject::Scripts,
+            Self::Media { .. } => crate::Subject::Media,
         }
     }
 }
@@ -235,6 +243,9 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
         }
         // §12.6.4.6: the act is the host's own, handing a file to another program, so the answer
         // decides whether it is handed over at all (ADR 2171).
+        // Clause 13: the act is the host's own, starting this machine's player on a file a document
+        // supplied, so the answer decides whether it is handed over at all (ADR 3201).
+        Asked::Media { document, handed } => media_answered(window, &document, &handed, proceed),
         Asked::LaunchedDocument { name, path } => {
             if proceed {
                 hand_over(window, &name, &path, &crate::policy::handed(&name));
@@ -243,6 +254,22 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
             }
         }
     }
+}
+
+/// Clause 13's question answered: a `yes` hands the clip to this machine's player through the
+/// desktop portal, a `no` keeps it here, and either is said (ADR 3201).
+fn media_answered<W: NativeWindow + ?Sized>(
+    window: &mut W,
+    document: &str,
+    handed: &crate::Handed,
+    proceed: bool,
+) {
+    let said = if proceed {
+        crate::hand_over_media(document, handed, None)
+    } else {
+        crate::policy::media_declined(document, handed)
+    };
+    window.say(&said);
 }
 
 /// §12.7.6.2's composed request, under the level the window holds (ADR 1291).

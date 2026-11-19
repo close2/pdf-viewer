@@ -34,6 +34,9 @@ pub(crate) struct Arguments {
     /// §12.6.4.6's launched document that is not a PDF, per [`viewer_host::LAUNCHED_DOCUMENTS`]
     /// (ADR 2171).
     pub(crate) launched_documents: viewer_host::LaunchedDocuments,
+    /// Clause 13's media file handed to this machine's player, per [`viewer_host::MEDIA_FILES`]
+    /// (ADR 3201).
+    pub(crate) media_files: viewer_host::MediaFiles,
     /// `CLAUDE.md`'s four levels for a document's restrictions, per [`viewer_host::RESTRICTIONS`]
     /// and [`viewer_host::IGNORE_RESTRICTIONS`]: `Off` for every operation where neither is typed
     /// (ADR 3042).
@@ -42,7 +45,8 @@ pub(crate) struct Arguments {
 
 /// What the usage line names, after the program's name.
 const USAGE: &str = "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R] \
-                     [--submissions=S] [--launched-documents=D] [--restrictions=LEVELS] \
+                     [--submissions=S] [--launched-documents=D] [--media-files=M] \
+                     [--restrictions=LEVELS] \
                      [--ignore-restrictions]";
 
 /// A message's `Debug` form cut to a line, for the trace.
@@ -180,6 +184,7 @@ pub(crate) fn arguments() -> Arguments {
         remote_documents: settings.remote_documents,
         submissions: settings.submissions,
         launched_documents: settings.launched_documents,
+        media_files: settings.media_files,
         restrictions: settings.restrictions,
     }
 }

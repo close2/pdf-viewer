@@ -95,7 +95,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] \
              [--submissions=refuse|ask|warn|send] \
-             [--launched-documents=refuse|ask|warn|open] [--separations=on|off] {} \
+             [--launched-documents=refuse|ask|warn|open] \
+             [--media-files=refuse|ask|warn|open] [--separations=on|off] {} \
              [--proxy-pages N] [--cpu] <file.pdf>...",
             viewer_host::ReaderWords::USAGE
         )

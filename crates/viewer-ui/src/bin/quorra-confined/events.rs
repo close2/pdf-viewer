@@ -316,22 +316,13 @@ impl Host {
                     )
                 );
             }
-            // §13.2.4.2's clip, which the worker judged and this window was handed: no player is
-            // started yet, said (ADR 1961).
+            // §13.2.4.2's clip, which the worker judged and this window was handed, under
+            // `--media-files=` (ADR 3201).
             Event::Media {
                 document,
                 content_type,
                 media,
-            } => {
-                eprintln!(
-                    "note: {}",
-                    viewer_host::handed_media(
-                        &format!("document {}", document.0),
-                        content_type.as_deref(),
-                        &media
-                    )
-                );
-            }
+            } => self.media(document, content_type.as_deref(), media),
             // Pinned to `off` as for a sound; the arm says so rather than receiving a newer
             // worker's event in silence (ADR 1771).
             Event::Console { document, request } => {
