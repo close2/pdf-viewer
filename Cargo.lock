@@ -1424,6 +1424,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "darwin-sandbox"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "dashmap"
 version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3969,6 +3976,7 @@ dependencies = [
 name = "pdf-sandbox"
 version = "0.1.0"
 dependencies = [
+ "darwin-sandbox",
  "hayro-jbig2 0.3.1",
  "hayro-jpeg2000 0.4.1",
  "landlock",

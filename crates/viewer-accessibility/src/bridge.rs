@@ -35,7 +35,7 @@
 //! macOS and Windows have AccessKit adapters and this program does not use them, because nothing
 //! here can test one. That is a shortfall rather than an absence, and it is *named* —
 //! [`Bridge::shortfall`] answers with a sentence a host prints, exactly as
-//! `pdf_sandbox::Confinement::shortfall` does for the two platforms with no kernel confinement
+//! `pdf_sandbox::Confinement::shortfall` does for a platform with no kernel confinement
 //! (ADR 0194). A build that quietly did nothing would be the failure that precedent exists to
 //! prevent.
 

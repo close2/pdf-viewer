@@ -1,0 +1,17 @@
+[package]
+name = "darwin-sandbox"
+description = "The two macOS calls pdf-sandbox needs and cannot make itself: entering a Seatbelt profile, and reading another process's memory footprint."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# `libc` for `proc_pid_rusage` and its record. `sandbox_init` is not in it, and is declared here;
+# both live in `libSystem`, which every macOS program links already. macOS-only, so that every
+# other platform builds an empty crate rather than a dependency it cannot use.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

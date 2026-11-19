@@ -542,7 +542,11 @@ pub(crate) fn encode_handshake(confinement: Confinement) -> [u8; HANDSHAKE_LEN] 
     let (limit, rest) = rest.split_at_mut(8);
     limit.copy_from_slice(&confinement.address_space_limit.to_be_bytes());
     let (filtered, build) = rest.split_at_mut(1);
-    filtered[0] = u8::from(confinement.system_calls == SystemCalls::Filtered);
+    filtered[0] = match confinement.system_calls {
+        SystemCalls::Unfiltered => 0,
+        SystemCalls::Filtered => 1,
+        SystemCalls::Seatbelt => 2,
+    };
     build.copy_from_slice(BUILD.as_bytes());
     greeting
 }
@@ -591,6 +595,7 @@ pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Result<Confinem
     };
     let (filtered, build) = rest.split_at(1);
     let system_calls = match filtered.first() {
+        Some(2) => SystemCalls::Seatbelt,
         Some(1) => SystemCalls::Filtered,
         Some(0) => SystemCalls::Unfiltered,
         _ => return Err(Stranger::Protocol),
@@ -1103,7 +1108,11 @@ mod tests {
 
     #[test]
     fn a_greeting_round_trips() {
-        for system_calls in [SystemCalls::Filtered, SystemCalls::Unfiltered] {
+        for system_calls in [
+            SystemCalls::Filtered,
+            SystemCalls::Seatbelt,
+            SystemCalls::Unfiltered,
+        ] {
             let confinement = Confinement {
                 landlock: LandlockLevel::Partial,
                 address_space_limit: 1 << 30,

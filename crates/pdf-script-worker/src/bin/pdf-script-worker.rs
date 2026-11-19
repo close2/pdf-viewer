@@ -56,8 +56,9 @@ fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
     }
 }
 
-/// Nothing to close on the two platforms this worker is not yet confined on (`doc/todo/35`):
-/// `close_range` is Linux's, and each of those owes its own answer with its confinement.
+/// Nothing to close off Linux: `close_range` is Linux's, and the leak it answers is a Linux
+/// library's (ADR 1945). macOS's confinement does not close them either (ADR 2864), and Windows
+/// owes its own answer with its confinement (`doc/todo/35`).
 #[cfg(not(target_os = "linux"))]
 fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
     Ok(())

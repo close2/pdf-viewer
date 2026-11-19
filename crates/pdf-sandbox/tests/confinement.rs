@@ -1,8 +1,10 @@
 //! What the sandbox is for, tested by doing it.
 //!
-//! **Four of these are Linux's**, and are `cfg`-gated rather than skipped: they ask whether a
-//! *kernel* refuses an `openat` and a `socket`, and a platform with no seccomp-BPF has no such
-//! question to answer. The rest — the specification's own JBIG2 example, both isolation
+//! **The confinement tests are Linux's and macOS's**, and are `cfg`-gated rather than skipped: they
+//! ask whether a *kernel* refuses an `openat` and a `socket`, and Windows, with neither seccomp-BPF
+//! nor Seatbelt, has no such question to answer. Those about a filter's *system calls* — a
+//! descriptor's flags, a thread, executable memory — are Linux's alone, because a Seatbelt profile
+//! decides by operation and has no such refusal to test (ADR 2864). The rest — the specification's own JBIG2 example, both isolation
 //! settings agreeing, a worker surviving rubbish — are about the protocol and the decoders and
 //! run everywhere the crate does. A test that silently passed by doing nothing off Linux would
 //! be worse than one that is not there, which is this project's own rule (ADR 0194).
@@ -71,17 +73,29 @@ const WIDTH: u32 = 52;
 const HEIGHT: u32 = 66;
 
 /// Names the probe a re-executed test binary should run.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const PROBE_VARIABLE: &str = "PDF_SANDBOX_TEST_PROBE";
 
-/// Exit code from a probe whose forbidden operation was refused.
+/// A file every user of the machine can read, which a confined probe must not.
+///
+/// `/proc/self/maps` on Linux, chosen over anything under `/etc` because it cannot be missing.
+/// macOS has no `/proc`, and `/etc/hosts` is the file nothing installs and nothing removes.
 #[cfg(target_os = "linux")]
+const READABLE: &str = "/proc/self/maps";
+#[cfg(target_os = "macos")]
+const READABLE: &str = "/etc/hosts";
+
+/// Exit code from a probe whose forbidden operation was refused.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const REFUSED: i32 = 17;
 /// Exit code from a probe whose forbidden operation *succeeded*, which is the failure.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const ALLOWED: i32 = 18;
+/// Exit code from a macOS probe whose operation failed with something other than `EPERM`.
+#[cfg(target_os = "macos")]
+const UNEXPECTED: i32 = 20;
 /// Exit code from a probe that decoded an image behind its own filter.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const DECODED: i32 = 19;
 
 fn request() -> Request<'static> {
@@ -325,9 +339,79 @@ fn a_worker_for_whole_decodes_is_confined_under_the_ceiling_its_budget_states() 
     assert!(matches!(error, SandboxError::Undecodable { .. }), "{error}");
 }
 
+/// On macOS the worker reports a Seatbelt profile and the decoder's ceiling — which the process
+/// that started it holds, since no process there can hold one on itself (ADR 2864).
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(target_os = "macos")]
+fn the_worker_reports_a_seatbelt_profile_and_its_ceiling() {
+    let confinement = Sandbox::shared().confinement().unwrap();
+    assert_eq!(
+        confinement.system_calls,
+        pdf_sandbox::lockdown::SystemCalls::Seatbelt
+    );
+    assert!(confinement.is_enforced(), "{confinement:?}");
+    assert_eq!(confinement.address_space_limit, 1 << 30);
+    assert_eq!(confinement.shortfall(), None);
+}
+
+/// A worker for full-resolution decodes reports the ceiling its budget states on macOS too, which
+/// is the number its starting process then holds it to.
+#[test]
+#[cfg(target_os = "macos")]
+fn a_worker_for_whole_decodes_reports_the_ceiling_its_budget_states() {
+    let sandbox = Sandbox::whole(2 * pdf_sandbox::ORDINARY_SAMPLES);
+    let confinement = sandbox.confinement().unwrap();
+    assert!(confinement.is_enforced(), "{confinement:?}");
+    assert_eq!(confinement.address_space_limit, 2 << 30);
+}
+
+/// A process that grows past the ceiling it is watched against is killed, and the watch says at
+/// what footprint (ADR 2864).
+///
+/// The process is this test binary again, asked to write memory in 32 MiB steps until something
+/// stops it; the watch is the only thing that will. A probe that is never stopped exits `ALLOWED`
+/// after a few seconds, so the test cannot hang.
+#[test]
+#[cfg(target_os = "macos")]
+fn a_process_past_its_watched_ceiling_is_killed() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "confined_probe", "--test-threads=1"])
+        .env(PROBE_VARIABLE, "grow")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let watch = pdf_sandbox::watch::Watch::start(child.id(), GROW_CEILING)
+        .unwrap()
+        .expect("a running child is watched");
+    let status = child.wait().unwrap();
+    assert_eq!(
+        status.signal(),
+        Some(9),
+        "the child was not killed by its watch: {status:?}"
+    );
+    let footprint = watch.exceeded().expect("the watch says it killed");
+    assert!(footprint > GROW_CEILING, "{footprint}");
+    assert!(
+        watch
+            .sentence()
+            .is_some_and(|sentence| sentence.contains("ceiling"))
+    );
+}
+
+/// The ceiling [`a_process_past_its_watched_ceiling_is_killed`] watches its child against.
+#[cfg(target_os = "macos")]
+const GROW_CEILING: u64 = 256 << 20;
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn a_confined_process_cannot_open_a_file() {
+    // The same file opens unconfined, so a refusal below is the confinement's.
+    assert!(
+        std::fs::File::open(READABLE).is_ok(),
+        "{READABLE} is not readable here"
+    );
     let status = run_probe("open");
     assert_ne!(
         status.code(),
@@ -341,7 +425,7 @@ fn a_confined_process_cannot_open_a_file() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn a_confined_process_cannot_reach_the_network() {
     let status = run_probe("socket");
     assert_ne!(
@@ -397,6 +481,15 @@ fn refused(status: &std::process::ExitStatus) -> bool {
     status.signal() == Some(libc::SIGSYS) || status.code() == Some(REFUSED)
 }
 
+/// Whether a probe was stopped rather than served, on macOS.
+///
+/// One outcome counts: a Seatbelt profile answers an operation it does not name with `EPERM` and
+/// leaves the process running, so the probe exits `REFUSED`. There is no signal to look for.
+#[cfg(target_os = "macos")]
+fn refused(status: &std::process::ExitStatus) -> bool {
+    status.code() == Some(REFUSED)
+}
+
 /// A process behind its own filter decodes in process on its own thread, and is not killed.
 ///
 /// The in-process deadline decodes on a thread it starts, and starting one asks for `prctl`
@@ -404,7 +497,7 @@ fn refused(status: &std::process::ExitStatus) -> bool {
 /// confined viewer opened died of `SIGSYS` until a confined process took the synchronous path
 /// (ADR 1447).
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn a_confined_process_decodes_in_process_on_its_own_thread() {
     let status = run_probe("decode");
     assert_eq!(
@@ -445,7 +538,7 @@ fn a_confined_script_worker_reaches_none_of_what_its_profile_denies() {
 /// The child is this same test binary, re-executed with a filter that selects the one test
 /// below. Confinement cannot be tested in the process doing the testing: it is irreversible
 /// and process-wide, so the first thing it would break is the test harness.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn run_probe(probe: &str) -> std::process::ExitStatus {
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "confined_probe", "--test-threads=1"])
@@ -461,7 +554,7 @@ fn run_probe(probe: &str) -> std::process::ExitStatus {
 /// confines itself and then attempts the thing the sandbox exists to prevent, reporting the
 /// answer as an exit code — the only channel it has left.
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn confined_probe() {
     let Ok(probe) = std::env::var(PROBE_VARIABLE) else {
         return;
@@ -477,26 +570,72 @@ fn confined_probe() {
         std::process::exit(if decoded { DECODED } else { REFUSED });
     }
 
+    #[cfg(target_os = "linux")]
     if let Some(denied) = probe.strip_prefix("script-") {
         script_probe(denied);
     }
 
+    #[cfg(target_os = "macos")]
+    if probe == "grow" {
+        grow();
+    }
+
     pdf_sandbox::lockdown::apply().expect("a probe that cannot confine itself proves nothing");
 
-    let permitted = match probe.as_str() {
-        // `/proc/self/maps` is chosen over anything under `/etc` because it is guaranteed to
-        // exist and to be readable by this user: a failure here has to be the sandbox, not
-        // a missing file.
-        "open" => std::fs::File::open("/proc/self/maps").is_ok(),
-        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+    let attempt: std::io::Result<()> = match probe.as_str() {
+        // A file guaranteed to exist and to be readable by this user: a failure here has to be the
+        // sandbox, not a missing file.
+        "open" => std::fs::File::open(READABLE).map(drop),
+        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").map(drop),
         // `fcntl(0, F_GETFD)`. ADR 0888 admits exactly this for the *interpreter*; here it must
         // still be a kill, which is what makes that rule a narrowing rather than a habit.
-        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin()).is_ok(),
+        #[cfg(target_os = "linux")]
+        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin())
+            .map(drop)
+            .map_err(std::io::Error::from),
         other => panic!("no probe named {other}"),
     };
 
-    std::process::exit(if permitted { ALLOWED } else { REFUSED });
+    std::process::exit(match attempt {
+        Ok(()) => ALLOWED,
+        // A Seatbelt profile refuses with `EPERM` and nothing else; any other error is the probe
+        // failing for a reason of its own, which must not pass for the sandbox working.
+        #[cfg(target_os = "macos")]
+        Err(error) if error.kind() != std::io::ErrorKind::PermissionDenied => {
+            eprintln!("probe {probe}: not a refusal: {error}");
+            UNEXPECTED
+        }
+        Err(_) => REFUSED,
+    });
 }
+
+/// Writes memory in 32 MiB steps, holding every step, until it is stopped — or exits `ALLOWED`
+/// after [`GROW_FOR`], which only an unwatched process reaches.
+///
+/// Bounded by time rather than by bytes, so that a watch thread starved by a loaded test run still
+/// has seconds to act; and the steps stop growing past eight times the ceiling, so an unwatched run
+/// costs two gibibytes at most.
+#[cfg(target_os = "macos")]
+fn grow() -> ! {
+    let started = std::time::Instant::now();
+    let mut held = Vec::new();
+    let step = 32 << 20;
+    let mut total: u64 = 0;
+    while started.elapsed() < GROW_FOR {
+        if total < 8 * GROW_CEILING {
+            // `black_box`, or an optimised build removes buffers nothing reads.
+            held.push(std::hint::black_box(vec![1u8; step]));
+            total += step as u64;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::hint::black_box(&held);
+    std::process::exit(ALLOWED);
+}
+
+/// How long [`grow`] runs before it gives up on being stopped.
+#[cfg(target_os = "macos")]
+const GROW_FOR: Duration = Duration::from_secs(5);
 
 /// The script worker's probes: confine with `Profile::Script`, then do one thing and say how it
 /// went in the exit code.

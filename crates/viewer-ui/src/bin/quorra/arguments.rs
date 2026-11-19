@@ -381,8 +381,9 @@ fn supersample_factor(word: Option<std::ffi::OsString>) -> u32 {
 ///
 /// Both are facts about the executable rather than about a document, and a person choosing a viewer
 /// for untrusted files deserves them in the first line rather than in a release note. Linux has
-/// seccomp-BPF and Landlock; the other two platforms get the worker process and no kernel
-/// confinement, which is a decision with an argument (ADR 0194) rather than an omission. AT-SPI is
+/// seccomp-BPF and Landlock, and macOS a Seatbelt profile (ADR 2864); Windows gets the worker
+/// process and no kernel confinement, which is a decision with an argument (ADR 0194) rather than
+/// an omission. AT-SPI is
 /// Linux's too, and AccessKit's other two adapters are not wired in here — a build that quietly
 /// exposed nothing would look exactly like one whose bridge is broken (ADR 0214).
 ///
@@ -391,8 +392,8 @@ fn supersample_factor(word: Option<std::ffi::OsString>) -> u32 {
 fn say_what_this_build_cannot_do() {
     if !pdf_sandbox::lockdown::ENFORCED_BY_THIS_BUILD {
         println!(
-            "note: this build has no kernel confinement for the image decoder — seccomp-BPF \
-             and Landlock are Linux interfaces. JBIG2 and JPEG 2000 are still decoded in a \
+            "note: this build has no kernel confinement for the image decoder — seccomp-BPF, \
+             Landlock and Seatbelt are Linux's and macOS's interfaces. JBIG2 and JPEG 2000 are still decoded in a \
              separate process, so a decoder failure costs one image rather than the viewer, \
              and there is no address-space ceiling on that process."
         );

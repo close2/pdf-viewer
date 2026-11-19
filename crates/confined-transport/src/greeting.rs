@@ -11,8 +11,8 @@
 
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 
-/// Length of a greeting: the magic, the Landlock level, the address-space limit, and whether
-/// system calls are filtered.
+/// Length of a greeting: the magic, the Landlock level, the memory ceiling, and which mechanism
+/// holds the worker's operations — none, seccomp or Seatbelt.
 pub const LEN: usize = 8 + 1 + 8 + 1;
 
 /// Encodes a worker's greeting under `magic`.
@@ -29,7 +29,11 @@ pub fn encode(magic: &[u8; 8], confinement: Confinement) -> [u8; LEN] {
     };
     let (limit, filtered) = rest.split_at_mut(8);
     limit.copy_from_slice(&confinement.address_space_limit.to_be_bytes());
-    filtered[0] = u8::from(confinement.system_calls == SystemCalls::Filtered);
+    filtered[0] = match confinement.system_calls {
+        SystemCalls::Unfiltered => 0,
+        SystemCalls::Filtered => 1,
+        SystemCalls::Seatbelt => 2,
+    };
     greeting
 }
 
@@ -50,6 +54,7 @@ pub fn parse(magic: &[u8; 8], greeting: &[u8; LEN]) -> Option<Confinement> {
     let (limit, filtered) = rest.split_at(8);
     let bytes: [u8; 8] = limit.try_into().ok()?;
     let system_calls = match filtered.first()? {
+        2 => SystemCalls::Seatbelt,
         1 => SystemCalls::Filtered,
         0 => SystemCalls::Unfiltered,
         _ => return None,
@@ -78,6 +83,20 @@ mod tests {
             system_calls: SystemCalls::Filtered,
         };
         assert_eq!(parse(MINE, &encode(MINE, confinement)), Some(confinement));
+    }
+
+    /// A worker in a Seatbelt profile is read back as one, and not as a filtered or an unconfined
+    /// one: the three mechanisms are three bytes (ADR 2864).
+    #[test]
+    fn a_seatbelt_greeting_is_read_as_seatbelt() {
+        let confinement = Confinement {
+            landlock: LandlockLevel::Unavailable,
+            address_space_limit: 96 << 20,
+            system_calls: SystemCalls::Seatbelt,
+        };
+        let parsed = parse(MINE, &encode(MINE, confinement));
+        assert_eq!(parsed, Some(confinement));
+        assert!(parsed.is_some_and(|parsed| parsed.is_enforced()));
     }
 
     /// **The property two protocols on one wire depend on**: a worker speaking the other one is
