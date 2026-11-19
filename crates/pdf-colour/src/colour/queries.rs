@@ -194,6 +194,46 @@ impl ColourSpace {
         }
     }
 
+    /// Whether converting some colour of this space could evaluate a function that meets one of
+    /// ISO 32000-2 §7.10.5.3's run-time errors — a `Separation` or `DeviceN` tint transform
+    /// [`Function::may_fault`] cannot clear, here or in a space this one is built over.
+    ///
+    /// `false` is a proof and `true` is not: the walk errs only towards "may fault". A caller that
+    /// converts colours nobody asked for — an image's table of every level its depth holds — asks
+    /// this to know whether doing so could say a fault the drawing never meets (ADR 3165).
+    ///
+    /// [`Function::may_fault`]: crate::function::Function::may_fault
+    #[must_use]
+    pub fn may_fault(&self) -> bool {
+        // Recursion as deep as `MAX_DEPTH`, the depth the parser built to.
+        match self {
+            Self::Separation {
+                alternate, tints, ..
+            } => {
+                matches!(tints, Tints::Transform(transform) if transform.may_fault())
+                    || alternate.may_fault()
+            }
+            Self::Indexed { base, .. }
+            | Self::IccAlternate {
+                alternate: base, ..
+            } => base.may_fault(),
+            Self::Pattern { base } => base.as_deref().is_some_and(Self::may_fault),
+            Self::Simulated { process, spots, .. } => {
+                process.as_deref().is_some_and(Self::may_fault)
+                    || spots.iter().flatten().any(Self::may_fault)
+            }
+            Self::Gray
+            | Self::Rgb
+            | Self::Cmyk
+            | Self::Lab { .. }
+            | Self::CalGray { .. }
+            | Self::CalRgb { .. }
+            | Self::AllColourants
+            | Self::NoColourant { .. }
+            | Self::Icc { .. } => false,
+        }
+    }
+
     /// How many numbers a colour in this space takes.
     #[must_use]
     pub fn components(&self) -> usize {

@@ -129,32 +129,108 @@ fn a_tint_transform_that_errs_for_the_tint_painted_is_said() {
     assert_eq!(faults(&interpreted(page("0.9"))), []);
 }
 
+/// One-component, eight-bit image: `samples` in hexadecimal, in `space`, under `extra` entries,
+/// over the type 4 function object 5 holding `program`.
+fn image_page(space: &str, samples: &str, extra: &str, program: &str) -> Vec<u8> {
+    fixture(
+        "",
+        "/XObject << /Im 6 0 R >>",
+        "q 50 0 0 50 0 0 cm /Im Do Q",
+        &format!(
+            "{}6 0 obj\n<< /Type /XObject /Subtype /Image /Width {} /Height 1 \
+             /ColorSpace {space} /BitsPerComponent 8 {extra} \
+             /Filter /ASCIIHexDecode /Length {} >>\nstream\n{samples}>\nendstream\nendobj\n",
+            type4(5, "[0 1]", "[0 1 0 1 0 1]", program),
+            samples.len() / 2,
+            samples.len() + 2
+        ),
+    )
+}
+
 /// The same kind of tint transform as an image's colour space (§8.9.5's samples through
-/// §8.6.6.4). A one-component image of eight bits or fewer is converted as a table of every level
-/// its depth holds (`image::unpack::palette`), so the function is evaluated across its domain
-/// whatever samples the image carries, and the control is the program written to conform.
+/// §8.6.6.4). The program errs above 0.5, and a fault is said where a sample the image draws
+/// is one: 0x10 and 0x20 are tints of about 0.06 and 0.13, 0xF0 one of about 0.94.
+///
+/// A one-component image converts a table of its levels (`image::unpack::palette`), and where its
+/// space may fault only the levels it draws, so a level no sample takes is not evaluated and not
+/// said (ADR 3165); the control is the program written to conform.
 #[test]
-fn an_images_tint_transform_that_errs_for_some_levels_is_said() {
-    let page = |program: &str| {
-        let samples = "1020";
-        fixture(
-            "",
-            "/XObject << /Im 6 0 R >>",
-            "q 50 0 0 50 0 0 cm /Im Do Q",
-            &format!(
-                "{}6 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 1 \
-                 /ColorSpace [/Separation /Spot /DeviceRGB 5 0 R] /BitsPerComponent 8 \
-                 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{samples}>\nendstream\nendobj\n",
-                type4(5, "[0 1]", "[0 1 0 1 0 1]", program),
-                samples.len() + 2
-            ),
-        )
-    };
+fn an_images_tint_transform_that_errs_for_a_level_it_draws_is_said() {
+    let space = "[/Separation /Spot /DeviceRGB 5 0 R]";
     assert_eq!(
-        faults(&interpreted(page(COUNT_ABOVE_HALF))),
+        faults(&interpreted(image_page(
+            space,
+            "10F0",
+            "",
+            COUNT_ABOVE_HALF
+        ))),
         [EvaluationFault::OutputCount]
     );
-    assert_eq!(faults(&interpreted(page("{ dup dup }"))), []);
+    assert_eq!(
+        faults(&interpreted(image_page(
+            space,
+            "1020",
+            "",
+            COUNT_ABOVE_HALF
+        ))),
+        []
+    );
+    assert_eq!(
+        faults(&interpreted(image_page(space, "10F0", "", "{ dup dup }"))),
+        []
+    );
+}
+
+/// §8.9.6.4: "An image sample shall be masked (not painted) if all of its colour components
+/// before decoding … fall within the specified ranges". A masked sample's colour is never asked,
+/// so a fault only its level would meet is not said.
+#[test]
+fn a_level_the_colour_key_masks_says_no_fault() {
+    let space = "[/Separation /Spot /DeviceRGB 5 0 R]";
+    assert_eq!(
+        faults(&interpreted(image_page(
+            space,
+            "10F0",
+            "/Mask [200 255]",
+            COUNT_ABOVE_HALF
+        ))),
+        []
+    );
+    assert_eq!(
+        faults(&interpreted(image_page(
+            space,
+            "10F0",
+            "/Mask [0 31]",
+            COUNT_ABOVE_HALF
+        ))),
+        [EvaluationFault::OutputCount]
+    );
+}
+
+/// §8.6.6.3's `Indexed` space over a `Separation` base: an index is looked up and its entry
+/// converted through the base's tint transform, so the fault is said where an index the image
+/// draws names an entry that errs. Entry 0 is a tint of about 0.06 and entry 1 one of about 0.94.
+#[test]
+fn an_indexed_images_base_that_errs_for_an_entry_it_draws_is_said() {
+    let space = "[/Indexed [/Separation /Spot /DeviceRGB 5 0 R] 1 <10F0>]";
+    assert_eq!(
+        faults(&interpreted(image_page(
+            space,
+            "0001",
+            "",
+            COUNT_ABOVE_HALF
+        ))),
+        [EvaluationFault::OutputCount]
+    );
+    assert_eq!(
+        faults(&interpreted(image_page(
+            space,
+            "0000",
+            "",
+            COUNT_ABOVE_HALF
+        ))),
+        []
+    );
 }
 
 /// §10.5's transfer function, set by `gs`: it is sampled over its whole domain where a mark is

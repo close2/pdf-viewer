@@ -938,6 +938,64 @@ fn quorra_names_the_program_it_will_not_bound_and_draws_the_grid() {
     assert_within("refused function shading", comparison, 0.06);
 }
 
+/// ISO 32000-2 §7.10.5.3's run-time errors on the device route: a program some input makes fault
+/// is never handed to the device, and the grid the processor draws instead is what says the fault.
+///
+/// > It shall be an error for the number of remaining operands to differ from the number of
+/// > output variables specified by Range or for any of them to be objects other than numbers.
+///
+/// The program leaves two outputs for x above 0.5 and three at or below it, which the parser's
+/// walk cannot refuse (it holds on half the domain) and `Function::may_fault` cannot clear, so
+/// `device_program` offers nothing, the device evaluates no program, and the page is the oracle's
+/// picture. The corner the interpreter samples for opacity is x = 0, where the program conforms, so
+/// the interpretation says nothing; asked after quorra drew, as a host asks it (ADR 2946), it says
+/// the fault, which a shader evaluating the program would have drawn and said nowhere (ADR 2940).
+#[test]
+fn quorra_draws_a_program_some_input_makes_fault_from_the_grid_and_the_fault_is_said() {
+    let bytes = function_shading_pdf(
+        "{ pop dup 0.5 gt { pop 0 0 } { pop 1 0 0 } ifelse }",
+        "/DeviceRGB",
+        "0 1 0 1 0 1",
+    );
+    let document = pdf_syntax::Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::content::interpret(&document, &page);
+    let list = &interpretation.display_list;
+    assert!(
+        !carries_a_program(list),
+        "a program some input makes fault is not offered to a device"
+    );
+    assert_eq!(
+        interpretation.function_faults_after_drawing(),
+        [],
+        "nothing has drawn the grid yet"
+    );
+
+    let target = TargetSpec::for_page(list, 1.0, GENEROUS).expect("target fits the budget");
+    let mut ours = raster();
+    let drawn = ours.rasterize(list, target).expect("raster draws the page");
+    assert_eq!(
+        ours.last_function_paints().evaluated(),
+        0,
+        "the device evaluated no program"
+    );
+    assert_eq!(
+        interpretation.function_faults_after_drawing(),
+        [pdf_model::Unsupported::FunctionEvaluation {
+            fault: pdf_model::function::EvaluationFault::OutputCount
+        }],
+        "the grid quorra drew asked the function, and the fault is said"
+    );
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(list, target)
+        .expect("the CPU oracle draws every fixture");
+    let comparison = raster_compare::compare(&cpu, &drawn).expect("same dimensions");
+    assert_within("a program some input makes fault", comparison, 0.06);
+}
+
 /// The conditions in `pdf_model::shading` are what keep the two paths one answer.
 ///
 /// Each of these draws — the grid answers every one of them — and each is a shading the

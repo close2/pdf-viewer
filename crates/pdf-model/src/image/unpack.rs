@@ -9,6 +9,7 @@ use rayon::iter::IndexedParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSliceMut as _;
 
+use crate::black_generation::BlackGeneration;
 use crate::colour::Conversion;
 
 use super::ImageError;
@@ -185,7 +186,7 @@ pub(super) fn unpack(
         decode,
         colour_key,
         fill: _,
-        into,
+        into: _,
         matte,
     } = samples;
     // Table 87 names five, and a value it does not name says nothing about how the bytes are
@@ -195,34 +196,6 @@ pub(super) fn unpack(
     }
 
     let components = space.components();
-    // A space taking one component has at most 2^bits colours, so every one of them can be
-    // converted once instead of once per sample. This is exact rather than an approximation
-    // — the samples are integers and the table holds every value one can take — and it is
-    // what keeps an `Indexed` image whose base is an ICC profile, or a `Separation` whose
-    // tint transform is a PostScript program, off the per-sample path.
-    //
-    // Measured over the sixteen corpus documents that draw a space this arm reaches:
-    // 1.03 s of rendering without it, 330 ms with. `issue9940.pdf` is the extreme — 620 ms
-    // to 42 ms — because its images are `Indexed` over a `DeviceN` whose tint transform is a
-    // PostScript calculator, which was being run once per sample rather than once per entry
-    // of a 256-entry table.
-    // Only up to eight bits: a 16-bit table is 65 536 conversions, which is more work than
-    // the image itself for anything smaller than a quarter-megapixel, and the per-sample arm
-    // below already memoises exactly. No corpus image reaches that combination.
-    // A matte takes both of this function's shortcuts away, and for the same reason: the
-    // colour of a sample is no longer a function of the sample alone — §11.6.5.2 makes it a
-    // function of the sample *and* the mask value at that pixel — so a table indexed by the
-    // sample, and a memo keyed on it, would both answer for the wrong pixel. An eight-bit
-    // device image tabulates the pair instead ([`matted_eight_bit_device_tables`]); every other
-    // space pays one conversion per sample.
-    let palette = match space {
-        ColourSpace::Resolved(resolved)
-            if resolved.components() == 1 && bits <= 8 && matte.is_none() =>
-        {
-            Some(palette(resolved, bits, decode, into))
-        }
-        _ => None,
-    };
     let width_usize = width as usize;
     let height_usize = height as usize;
     // Each row starts on a byte boundary.
@@ -230,6 +203,7 @@ pub(super) fn unpack(
         .saturating_mul(components)
         .saturating_mul(bits as usize);
     let row_bytes = row_bits.saturating_add(7) / 8;
+    let palette = table_of_levels(data, (width_usize, height_usize), row_bytes, samples);
 
     // Only the arm that converts per sample needs one, and only where a tuple fits a key.
     // The memo's key packs eight bits per component, so it is exact only at or below that
@@ -322,6 +296,66 @@ pub(super) fn unpack(
     }
 
     Ok(out)
+}
+
+/// [`unpack`]'s table of colours for a one-component image of at most eight bits, indexed by the
+/// raw sample, or `None` for every other image.
+///
+/// A space taking one component has at most 2^bits colours, so every one of them can be
+/// converted once instead of once per sample. This is exact rather than an approximation
+/// — the samples are integers and the table holds every value one can take — and it is
+/// what keeps an `Indexed` image whose base is an ICC profile, or a `Separation` whose
+/// tint transform is a PostScript program, off the per-sample path.
+///
+/// Measured over the sixteen corpus documents that draw a space this arm reaches:
+/// 1.03 s of rendering without it, 330 ms with. `issue9940.pdf` is the extreme — 620 ms
+/// to 42 ms — because its images are `Indexed` over a `DeviceN` whose tint transform is a
+/// PostScript calculator, which was being run once per sample rather than once per entry
+/// of a 256-entry table.
+///
+/// Only up to eight bits: a 16-bit table is 65 536 conversions, which is more work than
+/// the image itself for anything smaller than a quarter-megapixel, and [`unpack`]'s
+/// per-sample arm already memoises exactly. No corpus image reaches that combination.
+///
+/// A matte takes both of [`unpack`]'s shortcuts away, and for the same reason: the
+/// colour of a sample is no longer a function of the sample alone — §11.6.5.2 makes it a
+/// function of the sample *and* the mask value at that pixel — so a table indexed by the
+/// sample, and a memo keyed on it, would both answer for the wrong pixel. An eight-bit
+/// device image tabulates the pair instead ([`matted_eight_bit_device_tables`]); every other
+/// space pays one conversion per sample.
+fn table_of_levels(
+    data: &[u8],
+    (width, height): (usize, usize),
+    row_bytes: usize,
+    samples: &Samples,
+) -> Option<Vec<pdf_render::Color>> {
+    let &Samples {
+        bits,
+        space,
+        decode,
+        colour_key,
+        into,
+        matte,
+        ..
+    } = samples;
+    // The table converts every level, and that is exact for the pixels; it is not exact for
+    // §7.10.5.3's report, which is said wherever a type 4 function is evaluated (ADR 2848). So
+    // where some conversion might fault the table converts only the levels the image draws
+    // ([`levels_drawn`]), and the report says what the drawing met; everywhere else the scan is
+    // skipped, and the hot path is the one ADR 1557 measured (ADR 3165).
+    match space {
+        ColourSpace::Resolved(resolved)
+            if resolved.components() == 1 && bits <= 8 && matte.is_none() =>
+        {
+            let drawn = (resolved.may_fault()
+                || into
+                    .black_generation_in_force()
+                    .is_some_and(BlackGeneration::may_fault))
+            .then(|| levels_drawn(data, (width, height), row_bytes, bits, colour_key));
+            Some(palette(resolved, bits, decode, into, drawn.as_ref()))
+        }
+        _ => None,
+    }
 }
 
 /// The channel table of each component of an eight-bit `DeviceGray` or `DeviceRGB` image, where
@@ -967,17 +1001,98 @@ fn resolved_sample(
 ///
 /// The `/Decode` map is baked in, so the table is indexed by the raw sample and the
 /// per-pixel path does nothing but index it.
+///
+/// `drawn`, where given, names the levels the image draws ([`levels_drawn`]): only those are
+/// converted, and every other entry is black, which no pixel reads.
 pub(super) fn palette(
     space: &crate::colour::ColourSpace,
     bits: u32,
     decode: &Decode,
     into: &Conversion,
+    drawn: Option<&[bool; 256]>,
 ) -> Vec<pdf_render::Color> {
     let max = (1u32 << bits.min(8)).saturating_sub(1);
     debug_assert!(bits <= 8, "the caller keeps a 16-bit image off this path");
     (0..=max)
-        .map(|raw| into.paint(space, &[decode.value(0, raw as usize)]))
+        .map(|raw| {
+            let level = raw as usize;
+            if drawn.is_some_and(|drawn| !drawn.get(level).copied().unwrap_or(false)) {
+                pdf_render::Color::BLACK
+            } else {
+                into.paint(space, &[decode.value(0, level)])
+            }
+        })
         .collect()
+}
+
+/// Which raw levels of a one-component image of at most eight bits paint a pixel: the levels of
+/// the whole samples each row carries, less those §8.9.6.4's colour key masks.
+///
+/// What [`unpack`]'s routes draw and nothing more: §8.9.3's padding at a row's end is "ignore\[d]",
+/// a sample past what a row carries is left unpainted (§7.3.8.2, see [`unpack`]), and a masked
+/// sample is "not painted". So a level this leaves out is one no pixel's colour is read from.
+///
+/// One pass over the data, a byte at a time where a byte holds only samples the row has (the set
+/// of bytes seen, expanded into levels once at the end), and a sample at a time for a row's last,
+/// part-filled byte.
+pub(super) fn levels_drawn(
+    data: &[u8],
+    (width, height): (usize, usize),
+    row_bytes: usize,
+    bits: u32,
+    colour_key: Option<&[(u32, u32)]>,
+) -> [bool; 256] {
+    let mut levels = [false; 256];
+    let mut bytes = [false; 256];
+    let bits = bits.clamp(1, 8);
+    let width_bits = usize::try_from(bits).unwrap_or(8);
+    let per_byte = 8_usize.checked_div(width_bits).unwrap_or(1).max(1);
+    let mark = |levels: &mut [bool; 256], level: u32| {
+        if let Some(slot) = usize::try_from(level)
+            .ok()
+            .and_then(|level| levels.get_mut(level))
+        {
+            *slot = true;
+        }
+    };
+    for y in 0..height {
+        let start = y.saturating_mul(row_bytes);
+        let available = data.len().saturating_sub(start).min(row_bytes);
+        let row = data
+            .get(start..start.saturating_add(available))
+            .unwrap_or_default();
+        let carried = available
+            .saturating_mul(8)
+            .checked_div(width_bits)
+            .unwrap_or(0)
+            .min(width);
+        let whole = carried.checked_div(per_byte).unwrap_or(0);
+        for &byte in row.get(..whole).unwrap_or_default() {
+            if let Some(seen) = bytes.get_mut(usize::from(byte)) {
+                *seen = true;
+            }
+        }
+        for x in whole.saturating_mul(per_byte)..carried {
+            mark(&mut levels, raw_sample(row, x, bits));
+        }
+    }
+    for (byte, _) in (0..=u8::MAX).zip(bytes).filter(|(_, seen)| *seen) {
+        for x in 0..per_byte {
+            mark(&mut levels, raw_sample(&[byte], x, bits));
+        }
+    }
+    // One component, so one range: a level inside it is masked wherever it occurs.
+    if let Some(&[(low, high)]) = colour_key {
+        for level in low..=high.min(255) {
+            if let Some(slot) = usize::try_from(level)
+                .ok()
+                .and_then(|level| levels.get_mut(level))
+            {
+                *slot = false;
+            }
+        }
+    }
+    levels
 }
 
 /// Reads bit `index` of a packed row, most significant bit first.
@@ -1044,4 +1159,62 @@ pub(super) fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
         }
     }
     packed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::levels_drawn;
+
+    /// The levels a mark is set for, in order.
+    fn listed(levels: &[bool; 256]) -> Vec<usize> {
+        (0..256)
+            .filter(|&level| levels.get(level).copied().unwrap_or(false))
+            .collect()
+    }
+
+    /// §8.9.3: each row "shall begin on a byte boundary" and its padding bits a processor "shall
+    /// ignore". Two rows of three two-bit samples, one byte each: levels 1, 2, 3 and 0, 3, 0, the
+    /// rows padded with 0 and 2; then rows of level 1 alone, padded with 3 and 2, which no sample
+    /// draws.
+    #[test]
+    fn a_rows_padding_is_no_level_drawn() {
+        let data = [0b0110_1100, 0b0011_0010];
+        assert_eq!(
+            listed(&levels_drawn(&data, (3, 2), 1, 2, None)),
+            [0, 1, 2, 3]
+        );
+        let data = [0b0101_0111, 0b0101_0110];
+        assert_eq!(listed(&levels_drawn(&data, (3, 2), 1, 2, None)), [1]);
+    }
+
+    /// §7.3.8.2: a stream that stops short leaves the samples it never carried unpainted, so their
+    /// level is no level drawn; and half a sample is not one.
+    #[test]
+    fn a_sample_the_data_never_carried_is_no_level_drawn() {
+        // Four-bit samples, three to a row of two bytes; the data stops after the first byte of
+        // the second row.
+        let data = [0x12, 0x30, 0x45];
+        assert_eq!(
+            listed(&levels_drawn(&data, (3, 2), 2, 4, None)),
+            [1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            listed(&levels_drawn(&data[..2], (3, 2), 2, 4, None)),
+            [1, 2, 3]
+        );
+    }
+
+    /// §8.9.6.4: "An image sample shall be masked (not painted)" where it falls in the colour key's
+    /// range, so a masked level is no level drawn.
+    #[test]
+    fn a_level_the_colour_key_masks_is_no_level_drawn() {
+        let data = [10, 20, 30, 200];
+        assert_eq!(
+            listed(&levels_drawn(&data, (4, 1), 4, 8, Some(&[(15, 100)]))),
+            [10, 200]
+        );
+        let ones = [0b1010_0000];
+        assert_eq!(listed(&levels_drawn(&ones, (3, 1), 1, 1, None)), [0, 1]);
+        assert_eq!(listed(&levels_drawn(&ones, (1, 1), 1, 1, None)), [1]);
+    }
 }

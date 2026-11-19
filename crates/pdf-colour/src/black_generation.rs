@@ -93,6 +93,16 @@ enum Said {
 }
 
 impl BlackGeneration {
+    /// Whether some input could make either half meet one of §7.10.5.3's run-time errors
+    /// ([`Function::may_fault`]); a nominal half is no function and cannot.
+    #[must_use]
+    pub fn may_fault(&self) -> bool {
+        [&self.black, &self.undercolour]
+            .into_iter()
+            .flatten()
+            .any(|function| function.may_fault())
+    }
+
     /// Table 57's four entries, applied to the pair `current` already holds.
     ///
     /// Returns the pair in force after this dictionary, and what in it was not a value Table 57

@@ -24,6 +24,11 @@
 //!   the two shapes ADR 2849 confines an input-dependent fault to it carries: a conditional
 //!   (`if`, `ifelse`) or a stack operator whose count may be computed (`copy`, `index`, `roll`).
 //!   A shading is counted where its dictionary is, a direct one inside the object that holds it.
+//! - **The images' population** (ADR 2848's first item, ADR 3165). For every image `XObject` of
+//!   one component and at most eight bits — the images `image::unpack::palette` converts as a table
+//!   of levels — whether its space is one `ColourSpace::may_fault` cannot clear, where only the
+//!   levels the image draws are converted and the samples are scanned once to find them; and how
+//!   many samples that scan reads. An inline image is not counted: it is no object of its own.
 //!
 //! # How the "before" arm is built, and why it is exact
 //!
@@ -69,8 +74,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use pdf_model::colour::ColourSpace;
 use pdf_model::function::Function;
-use pdf_syntax::{Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 /// Table 42's operators, in the clause's own order, plus the two conditional ones.
@@ -119,6 +125,14 @@ struct Counts {
     documents_may_fault: usize,
     /// Where each shading sent to the processor was found, and its program.
     sent: Vec<String>,
+    /// Image `XObject`s of one component and at most eight bits whose space parses.
+    tabulated: usize,
+    /// Of those, the ones whose space `ColourSpace::may_fault` cannot clear.
+    images_may_fault: usize,
+    /// The samples of those, which the scan for the levels drawn reads once each.
+    samples_scanned: u64,
+    /// Where each image whose space may fault was found, and its size.
+    scanned: Vec<String>,
 }
 
 impl Counts {
@@ -150,6 +164,10 @@ impl Counts {
             .documents_may_fault
             .saturating_add(other.documents_may_fault);
         self.sent.append(&mut other.sent);
+        self.tabulated = self.tabulated.saturating_add(other.tabulated);
+        self.images_may_fault = self.images_may_fault.saturating_add(other.images_may_fault);
+        self.samples_scanned = self.samples_scanned.saturating_add(other.samples_scanned);
+        self.scanned.append(&mut other.scanned);
     }
 }
 
@@ -296,7 +314,7 @@ fn as_written(values: &[f32]) -> String {
 fn compare_arms(
     path: &str,
     number: u32,
-    stream_dict: &pdf_syntax::Dictionary,
+    stream_dict: &Dictionary,
     document: &Document,
     tokens: &[String],
     comparable: &[&'static str],
@@ -424,6 +442,7 @@ fn census(path: &str, document: &Document) -> Counts {
             generation: 0,
         });
         type1_shadings(path, number, document, &object, 0, &mut counts);
+        tabulated_image(path, number, document, &object, &mut counts);
     }
     if !counts.sent.is_empty() {
         counts.documents_may_fault = 1;
@@ -437,6 +456,57 @@ fn census(path: &str, document: &Document) -> Counts {
         counts.with_type4 = 1;
     }
     counts
+}
+
+/// `object`, where it is an image `XObject` of one component and at most eight bits, counted by
+/// what `ColourSpace::may_fault` decides of its space (§8.9.5, Table 87). A stencil mask is no
+/// colour and a JPEG 2000 image states no depth; a space named only in a page's resources is not
+/// resolved here, which can miss a device family and nothing that carries a function.
+fn tabulated_image(
+    path: &str,
+    number: u32,
+    document: &Document,
+    object: &Object,
+    counts: &mut Counts,
+) {
+    let Some(stream) = object.as_stream() else {
+        return;
+    };
+    let dict = &stream.dict;
+    if document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .is_none_or(|name| name.as_bytes() != b"Image")
+        || matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true))
+        || !matches!(
+            document.get_key(dict, "BitsPerComponent").as_integer(),
+            Some(1 | 2 | 4 | 8)
+        )
+    {
+        return;
+    }
+    let stated = dict.get("ColorSpace").cloned().unwrap_or(Object::Null);
+    let Some(space) = ColourSpace::parse(document, &stated, &Dictionary::default()) else {
+        return;
+    };
+    if space.components() != 1 {
+        return;
+    }
+    counts.tabulated = counts.tabulated.saturating_add(1);
+    if !space.may_fault() {
+        return;
+    }
+    let side = |key: &str| {
+        u64::try_from(document.get_key(dict, key).as_integer().unwrap_or(0)).unwrap_or(0)
+    };
+    let (width, height) = (side("Width"), side("Height"));
+    counts.images_may_fault = counts.images_may_fault.saturating_add(1);
+    counts.samples_scanned = counts
+        .samples_scanned
+        .saturating_add(width.saturating_mul(height));
+    counts
+        .scanned
+        .push(format!("  {path} object {number}: {width} x {height}"));
 }
 
 /// How deep [`type1_shadings`] looks inside one object for a direct shading dictionary: a page's
@@ -621,5 +691,14 @@ fn main() {
     }
     for sent in &counts.sent {
         println!("{sent}");
+    }
+
+    println!(
+        "\nimage XObjects of one component and at most eight bits: {}; of those, \
+         ColourSpace::may_fault leaves {} uncleared, {} samples scanned for their levels:",
+        counts.tabulated, counts.images_may_fault, counts.samples_scanned,
+    );
+    for scanned in &counts.scanned {
+        println!("{scanned}");
     }
 }

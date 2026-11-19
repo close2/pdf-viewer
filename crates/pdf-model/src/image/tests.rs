@@ -454,7 +454,7 @@ fn an_indexed_image_unpacks_a_byte_at_a_time_at_every_depth_to_eight() {
         let top = f32::from(u16::try_from((1_u32 << bits) - 1).expect("at most 255"));
         for stated in [vec![], vec![top, 0.0]] {
             let decode = super::space::Decode::from_pairs(&stated, &space, bits);
-            let palette = super::unpack::palette(&resolved, bits, &decode, &into);
+            let palette = super::unpack::palette(&resolved, bits, &decode, &into, None);
             let samples = super::unpack::Samples {
                 bits,
                 space: &space,
