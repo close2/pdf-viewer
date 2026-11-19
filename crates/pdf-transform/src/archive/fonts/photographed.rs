@@ -494,7 +494,9 @@ pub(super) fn photograph(
     // A substituted font only the photographed content selected went with that content, so the
     // report and the file's history name only the fonts the output still holds (`doc/adr/2454`).
     if !substitutes.photographs.is_empty() {
-        let held = still_held(document, &substitutes.photographs, &substitutes.done);
+        substitutes.inherited_by_none = inherited_by_none(document, &substitutes.photographs);
+        let fonts: BTreeSet<&Outcome> = substitutes.done.iter().map(|font| &font.font).collect();
+        let held = still_held(document, substitutes, &fonts);
         substitutes.done.retain(|font| held.contains(&font.font));
     }
     Ok(())
@@ -643,8 +645,93 @@ fn photographed_page(
 /// reach through it: what [`Photograph`] replaces, and the group `rewrite` removes with them.
 pub(super) const PHOTOGRAPHED_AWAY: [&str; 3] = ["Contents", "Resources", "Group"];
 
-/// Which of the substituted fonts an object the output holds still names, once every
-/// photographed page has lost its content and its resources.
+/// The page tree nodes that state `/Resources` and whose every page is photographed, so that no
+/// page inherits the entry any longer: ISO 32000-2 §7.7.3.4 makes a page's own `/Resources` the
+/// one it uses, and each photograph states its own (`doc/adr/3193`).
+///
+/// Each page's `/Parent` chain is climbed once, marking every node above a page that keeps its
+/// content; a node reached only from photographed pages is the answer. A page tree the model
+/// cannot read whole answers nothing, because a page it could not read may inherit from any node.
+fn inherited_by_none(
+    document: &Document,
+    photographs: &BTreeMap<ObjectId, Photograph>,
+) -> BTreeSet<ObjectId> {
+    if photographs.is_empty() {
+        return BTreeSet::new();
+    }
+    let Some(pages) = Pages::new(document)
+        .every()
+        .into_iter()
+        .map(|page| page.and_then(|page| page.id))
+        .collect::<Option<Vec<ObjectId>>>()
+    else {
+        return BTreeSet::new();
+    };
+    let mut above_photographs = BTreeSet::new();
+    let mut above_others = BTreeSet::new();
+    for page in pages {
+        let marked = if photographs.contains_key(&page) {
+            &mut above_photographs
+        } else {
+            &mut above_others
+        };
+        let mut climbed = BTreeSet::new();
+        let mut at = page;
+        while let Some(parent) = dictionary_at(document, at)
+            .get("Parent")
+            .and_then(Object::as_reference)
+        {
+            // §7.7.3.2 makes the tree a tree; a `/Parent` cycle is the file's fault, climbed once.
+            if !climbed.insert(parent) {
+                break;
+            }
+            marked.insert(parent);
+            at = parent;
+        }
+    }
+    above_photographs
+        .difference(&above_others)
+        .copied()
+        .filter(|node| dictionary_at(document, *node).get("Resources").is_some())
+        .collect()
+}
+
+/// The dictionary object `id` is, or an empty one.
+fn dictionary_at(document: &Document, id: ObjectId) -> Dictionary {
+    match document.get(id) {
+        Object::Dictionary(dict) => dict,
+        _ => Dictionary::new(),
+    }
+}
+
+/// The font objects of `fonts` that no object of the output holds, once every photographed page
+/// has lost its content and its resources: [`still_held`]'s complement.
+///
+/// A font a photograph took out of the file is bound by no requirement of ISO 19005 any longer,
+/// because the standard's rows are about what the file holds; the font rows the photograph answers
+/// read this rather than restating a font nothing will write (`doc/adr/3193`).
+pub(super) fn taken_away(
+    document: &Document,
+    substitutes: &Substitutes,
+    fonts: impl IntoIterator<Item = ObjectId>,
+) -> BTreeSet<ObjectId> {
+    if substitutes.photographs.is_empty() {
+        return BTreeSet::new();
+    }
+    let fonts: BTreeSet<Outcome> = fonts.into_iter().map(Outcome::Reference).collect();
+    let held = still_held(document, substitutes, &fonts.iter().collect());
+    fonts
+        .into_iter()
+        .filter(|font| !held.contains(font))
+        .filter_map(|font| match font {
+            Outcome::Reference(id) => Some(id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Which of `fonts` an object the output holds still names, once every photographed page has
+/// lost its content and its resources.
 ///
 /// **Reached, the way the writer reaches what it copies**: `super::super::rewrite::convert` writes
 /// what the catalog and the information dictionary lead to, so a font whose every route ran
@@ -654,17 +741,16 @@ pub(super) const PHOTOGRAPHED_AWAY: [&str; 3] = ["Contents", "Resources", "Group
 /// explicit stack rather than recursion, because a document's graph is the file's to shape.
 fn still_held(
     document: &Document,
-    photographs: &BTreeMap<ObjectId, Photograph>,
-    fonts: &[super::SubstitutedFont],
+    substitutes: &Substitutes,
+    wanted: &BTreeSet<&Outcome>,
 ) -> BTreeSet<Outcome> {
-    let direct: BTreeSet<&String> = fonts
+    let direct: BTreeSet<&String> = wanted
         .iter()
-        .filter_map(|font| match &font.font {
+        .filter_map(|font| match font {
             Outcome::Direct(spelled) => Some(spelled),
             _ => None,
         })
         .collect();
-    let wanted: BTreeSet<&Outcome> = fonts.iter().map(|font| &font.font).collect();
     let trailer = document.trailer();
     let mut pending: Vec<Object> = ["Root", "Info"]
         .into_iter()
@@ -683,11 +769,9 @@ fn still_held(
                     held.insert(reached);
                 }
                 let mut value = document.get(id);
-                if photographs.contains_key(&id)
-                    && let Object::Dictionary(page) = &mut value
-                {
-                    for key in PHOTOGRAPHED_AWAY {
-                        page.remove(key);
+                if let Object::Dictionary(dict) = &mut value {
+                    for key in substitutes.keys_away(id) {
+                        dict.remove(key);
                     }
                 }
                 pending.push(value);

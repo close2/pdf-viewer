@@ -662,3 +662,132 @@ fn a_font_the_substitution_makes_a_type1_one_has_no_truetype_route_left_to_state
         .expect("the descriptor");
     assert!(descriptor.get("FontFile3").is_some() && descriptor.get("FontFile2").is_none());
 }
+
+/// Objects 9 and 10: a symbolic TrueType font the file does not embed, stating
+/// `/WinAnsiEncoding`, which ISO 19005-2 section 6.2.11.6 does not admit for a symbolic font.
+const SYMBOLIC_WITH_AN_ENCODING: [&str; 2] = [
+    "<< /Type /Font /Subtype /TrueType /BaseFont /SymbolicStatingAnEncoding /FirstChar 32 \
+     /LastChar 32 /Widths [500] /FontDescriptor 10 0 R /Encoding /WinAnsiEncoding >>",
+    "<< /Type /FontDescriptor /FontName /SymbolicStatingAnEncoding /Flags 4 /FontBBox \
+     [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>",
+];
+
+/// The row the fixture's TrueType font fails.
+const STATES_AN_ENCODING: &str = "fonts/symbolic-truetype-states-no-encoding";
+
+/// A page photographed for the `Adobe-Identity` font no reader can name, which also shows a
+/// space in the font of [`SYMBOLIC_WITH_AN_ENCODING`].
+fn a_photographed_page_showing_the_symbolic_font() -> Vec<u8> {
+    super::photographed::a_page_no_reader_can_read(
+        "/F2 9 0 R",
+        b"BT /F2 12 Tf 10 150 Td ( ) Tj ET",
+        "",
+        &SYMBOLIC_WITH_AN_ENCODING,
+    )
+}
+
+/// What `as-if-printed` authorises for the fixture: the photograph, and the faces' losses.
+fn photographs_authorised() -> Authorisations {
+    let mut authorised = faces_authorised();
+    authorised.authorise(Loss::TextAsImage);
+    authorised
+}
+
+/// `source` with object `number` restated by an incremental update (ISO 32000-2 §7.5.6): the
+/// body appended, a cross-reference section listing it, and a trailer whose `/Prev` is the
+/// original section.
+fn with_object_updated(source: &[u8], number: u32, body: &str) -> Vec<u8> {
+    let text = String::from_utf8_lossy(source).into_owned();
+    let after = |key: &str| -> String {
+        let (_, rest) = text
+            .rsplit_once(key)
+            .unwrap_or_else(|| panic!("{key} is stated"));
+        rest.split(|c: char| c.is_whitespace() || c == '>')
+            .find(|word| !word.is_empty())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let previous = after("startxref");
+    let size = after("/Size");
+    let identifier = text
+        .rsplit_once("/ID [")
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .map(|(id, _)| id.to_owned())
+        .expect("the fixture states an /ID");
+    let mut file = source.to_vec();
+    let at = file.len();
+    file.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    let section = file.len();
+    file.extend_from_slice(
+        format!(
+            "xref\n{number} 1\n{at:010} 00000 n \ntrailer\n<< /Size {size} /Root 1 0 R \
+             /Prev {previous} /ID [{identifier}] >>\nstartxref\n{section}\n%%EOF\n"
+        )
+        .as_bytes(),
+    );
+    file
+}
+
+/// Asserts the photograph answered the encoding row, the output conforms, and no object of it
+/// names the font; returns the output.
+fn answered_by_the_photograph(source: &[u8]) -> Vec<u8> {
+    let (report, output) = convert(source, Target::Two(Level::B), photographs_authorised());
+    let decided = decision(&report, STATES_AN_ENCODING);
+    assert!(
+        matches!(
+            decided,
+            Decision::Authorised {
+                rewrite: Rewrite::SubstituteFontProgram,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{:?}\n{:?}", report.refused, report.warnings));
+    let checked = holds(&output, Target::Two(Level::B));
+    assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    assert!(
+        !String::from_utf8_lossy(&output).contains("SymbolicStatingAnEncoding"),
+        "the font went with the page's resources"
+    );
+    output
+}
+
+#[test]
+fn a_truetype_font_only_a_photographed_page_showed_needs_no_route() {
+    // ISO 19005-2 section 6.2.11.6 judges the TrueType fonts the file holds. The page is
+    // photographed for its `Adobe-Identity` font (ADR 2394), its resources go with its content,
+    // and the symbolic font stating an encoding is in no object of the output: the photograph
+    // answers the row, at the losses it already takes, and no program is restated for a font
+    // nothing writes (ADR 3193).
+    let source = a_photographed_page_showing_the_symbolic_font();
+    let failed: Vec<&str> = holds(&source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&STATES_AN_ENCODING), "{failed:?}");
+    answered_by_the_photograph(&source);
+}
+
+#[test]
+fn a_page_tree_node_whose_every_page_is_photographed_loses_the_resources_none_inherits() {
+    // ISO 32000-2 §7.7.3.4: a page's `/Resources` is inherited from the page tree only where the
+    // page states none. Here the node states the font as well, and the one page under it is
+    // photographed and states the photograph's own resources, so no page inherits the node's: the
+    // output writes the node without them, and the font is in no object of it (ADR 3193).
+    let source = with_object_updated(
+        &a_photographed_page_showing_the_symbolic_font(),
+        2,
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F2 9 0 R >> >> >>",
+    );
+    let output = answered_by_the_photograph(&source);
+    let written = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let root = written.catalog().expect("a catalog");
+    let pages = written
+        .get_key(&root, "Pages")
+        .as_dict()
+        .cloned()
+        .expect("a page tree");
+    assert!(pages.get("Resources").is_none(), "{pages:?}");
+}

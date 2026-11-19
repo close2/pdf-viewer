@@ -118,10 +118,10 @@ fn reached(document: &Document, substitutes: &Substitutes) -> BTreeSet<ObjectId>
                     continue;
                 }
                 let mut written = effective(document, id, substitutes);
+                for key in substitutes.keys_away(id) {
+                    written.remove(key);
+                }
                 if let Some(photograph) = substitutes.photographs.get(&id) {
-                    for key in super::photographed::PHOTOGRAPHED_AWAY {
-                        written.remove(key);
-                    }
                     pending.push(Object::Reference(photograph.contents));
                     pending.push(Object::Dictionary(photograph.resources.clone()));
                 }

@@ -2037,6 +2037,37 @@ fn only_on_photographed_page_groups(
         })
 }
 
+/// The seven rows of ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 that the
+/// restated `cmap` answers (`super::fonts::truetype_cmaps_restated`).
+const TRUETYPE_ROUTE_ROWS: [&str; 7] = [
+    super::fonts::TRUETYPE_CMAP_ROWS[0],
+    super::fonts::TRUETYPE_CMAP_ROWS[1],
+    super::fonts::TRUETYPE_CMAP_ROWS[2],
+    super::fonts::TRUETYPE_CMAP_ROWS[3],
+    super::fonts::TRUETYPE_ENCODING_ROWS[0],
+    super::fonts::TRUETYPE_ENCODING_ROWS[1],
+    super::fonts::TRUETYPE_ENCODING_ROWS[2],
+];
+
+/// Whether every place `judgement` fails is a font object the photographs took out of the file,
+/// with the list whole.
+fn only_on_fonts_photographed_away(
+    judgement: &Judgement,
+    substitutes: &super::fonts::Substitutes,
+) -> bool {
+    let pdf_archive::report::Outcome::Failed { places, total } = &judgement.outcome else {
+        return false;
+    };
+    !places.is_empty()
+        && places.len() == *total
+        && places.iter().all(|finding| {
+            finding
+                .place
+                .object
+                .is_some_and(|font| substitutes.photographed_away.contains(&font))
+        })
+}
+
 /// The decision the table takes about one requirement the document failed.
 ///
 /// `configured` is the operator's own answer to a row, where the configuration gave one; the
@@ -2066,6 +2097,21 @@ pub(super) fn decide(
     if PAGE_GROUP_ROWS.contains(&judgement.id)
         && let Ok(substitutes) = prepared.substitutes.as_ref()
         && only_on_photographed_page_groups(judgement, substitutes)
+    {
+        return losing(
+            substitutes.photograph_losses(),
+            Rewrite::SubstituteFontProgram,
+            authorised,
+        );
+    }
+    // **A TrueType font a photograph takes out of the file needs no route** (ADR 3193): ISO
+    // 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 judge the fonts a file holds, and
+    // a font whose every route ran through a photographed page's resources is in no object of the
+    // output. Where every place the row fails is such a font, the photograph answers it at the
+    // losses it already takes, as it answers a page's `/Group`.
+    if TRUETYPE_ROUTE_ROWS.contains(&judgement.id)
+        && let Ok(substitutes) = prepared.substitutes.as_ref()
+        && only_on_fonts_photographed_away(judgement, substitutes)
     {
         return losing(
             substitutes.photograph_losses(),

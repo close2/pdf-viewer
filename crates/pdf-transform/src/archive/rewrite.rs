@@ -3442,7 +3442,8 @@ impl Rewriter<'_> {
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let photographed = self.photographed_page(id, out, applied);
+        let photographed =
+            self.photographed_page(id, out, applied) | self.inherited_by_none(id, out);
         // After the photograph, so that the bracket goes round whatever content the page keeps.
         let restated = self.restate_in_larger_units(id, out, applied);
         // Last, so that a dictionary an earlier step inserted — a page given the resources it
@@ -3516,6 +3517,19 @@ impl Rewriter<'_> {
         restatement.write(out, photographed);
         count(applied, Rewrite::PageBoundaryRemoved);
         true
+    }
+
+    /// A page tree node whose every page is photographed loses its `/Resources`, which no page
+    /// inherits any longer (`super::fonts::Substitutes::inherited_by_none`, `doc/adr/3193`).
+    ///
+    /// Not counted as a step of its own: it is the photographs' consequence, and writes nothing a
+    /// page draws.
+    fn inherited_by_none(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let unreached = self.wants(Rewrite::SubstituteFontProgram)
+            && self
+                .substitutes
+                .is_some_and(|substitutes| substitutes.inherited_by_none.contains(&id));
+        unreached && out.remove("Resources").is_some()
     }
 
     /// A page photographed because it shows an `Adobe-Identity` font no reader can name: its

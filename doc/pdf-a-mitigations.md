@@ -1965,6 +1965,13 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` (
   fonts alone. Their findings at it are taken out of the report their preparations read, so no
   TrueType rewrite reaches it, and a row that failed at no other font takes the refiling's
   decision: `Mechanical`, losing nothing, or the refiling's refusal. `issue215` is the witness.
+- **A font a photograph takes out of the file** (ADR 3193) — a font whose every route ran through
+  the resources of pages the conversion photographs (ADR 2394) is in no object of the output, and
+  the subclause binds the fonts a file holds. The restatement passes over it, and a row of the seven
+  that failed at no other font takes the photograph's decision at the losses the photograph already
+  takes. A page tree node whose every page is photographed is written without its `/Resources`,
+  which no page inherits any longer (ISO 32000-2 §7.7.3.4), so a font that node named goes too.
+  `issue20489`, `issue13316_reduced` and `sample_fonts_solidconvertor` are the witnesses.
 
 #### `fonts/truetype-codes-reach-glyphs-by-the-standard-route`
 ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` for a non-symbolic

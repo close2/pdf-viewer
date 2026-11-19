@@ -528,6 +528,14 @@ pub(super) struct Substitutes {
     pub(super) photographs: BTreeMap<ObjectId, photographed::Photograph>,
     /// Every page photographed, for the report and the file's history.
     pub(super) photographed: Vec<PhotographedPage>,
+    /// The page tree nodes whose `/Resources` no page inherits once every page below them is
+    /// photographed, each of which the output writes without the entry (ISO 32000-2 §7.7.3.4: a
+    /// page stating its own resources inherits none; `doc/adr/3193`).
+    pub(super) inherited_by_none: BTreeSet<ObjectId>,
+    /// The font objects the pages selected that no object of the output holds once the
+    /// photographs have taken their pages' content and resources (`photographed::taken_away`,
+    /// `doc/adr/3193`).
+    pub(super) photographed_away: BTreeSet<ObjectId>,
     /// The content-stream requirements whose every page this conversion photographed, which the
     /// decision of each reads to know the page it fails on is no longer in the output.
     pub(super) fenced: BTreeSet<&'static str>,
@@ -572,6 +580,19 @@ impl Substitutes {
             (_, true) => fonts,
             (true, false) => pages,
             (false, false) => format!("{fonts}; {pages}"),
+        }
+    }
+
+    /// The keys the output's copy of object `id` is written without because of the photographs:
+    /// a photographed page's content, resources and group, and the `/Resources` of a page tree
+    /// node no page inherits from any longer (`doc/adr/3193`).
+    pub(super) fn keys_away(&self, id: ObjectId) -> &'static [&'static str] {
+        if self.photographs.contains_key(&id) {
+            &photographed::PHOTOGRAPHED_AWAY
+        } else if self.inherited_by_none.contains(&id) {
+            &["Resources"]
+        } else {
+            &[]
         }
     }
 
@@ -1932,6 +1953,11 @@ fn embed_pass(
     // Last: a page is photographed whole, so whether it may be is a question about everything it
     // shows rather than about one font (`doc/adr/2394`).
     photographed::photograph(document, gate, spare, &mut substitutes)?;
+    substitutes.photographed_away = photographed::taken_away(
+        document,
+        &substitutes,
+        survey.fonts().filter_map(|used| used.id),
+    );
     substitutes.fenced = gate.fenced.pages.values().flatten().copied().collect();
     if substitutes.at.is_empty()
         && substitutes.added_fonts.is_empty()

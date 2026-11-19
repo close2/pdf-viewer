@@ -407,7 +407,7 @@ pub(in crate::archive) fn restated(
     }
     let mut found = CmapRestated::default();
     let mut copied = 0_usize;
-    for id in named {
+    for id in still_written(named, substitutes) {
         let resolved = document.get(id);
         let dict = dictionary_of(&resolved).ok_or(refused)?;
         // A `Type0` font reaches this only by the `.notdef` rows, and its glyphs are given by
@@ -486,6 +486,20 @@ pub(in crate::archive) fn restated(
     }
     found.notdef_answered = notdef_too && notdef.is_subset(&found.notdef_given);
     Ok(found)
+}
+
+/// The fonts of `named` an object of the output still holds.
+///
+/// A font the photographs took out of the file has no program to restate, and the decision answers
+/// its rows by the photograph (`doc/adr/3193`).
+fn still_written(
+    named: BTreeSet<ObjectId>,
+    substitutes: Option<&Substitutes>,
+) -> impl Iterator<Item = ObjectId> {
+    let away = substitutes.map(|substitutes| &substitutes.photographed_away);
+    named
+        .into_iter()
+        .filter(move |id| away.is_none_or(|away| !away.contains(id)))
 }
 
 /// A font over a CFF or a simple font's Type 1 program, given its glyphs by writing the program
