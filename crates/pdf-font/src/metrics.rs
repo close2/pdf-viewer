@@ -648,8 +648,9 @@ fn glyph_advances(font: SimpleMetrics<'_>, glyphs: &[u16]) -> Vec<Option<f32>> {
 /// check — that has a handful of codes rather than 256.
 ///
 /// `None` where this crate's reader for the format states no advance: a `TrueType` glyph
-/// outside `hmtx`, a Type 2 charstring that omits the leading width operand where the Private
-/// DICT supplies no `defaultWidthX`, or a bare Type 1 program, whose `hsbw` width
+/// outside `hmtx`, a Type 2 charstring the evaluator cannot read (one that omits its width
+/// states the Private DICT's `defaultWidthX`, 0 by default — [`cff::advances`]), or a bare Type 1
+/// program, whose `hsbw` width
 /// [`crate::type1::Program::advance`] reads from the parse a loaded font keeps, which bytes alone
 /// do not carry. An absence here is a fact about this reader, never about the file.
 pub(crate) fn program_advance(program: Program, data: &[u8], glyph: u16) -> Option<f32> {
@@ -1616,6 +1617,39 @@ mod substituted_width_tests {
         let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
 
         assert!((font.advance(Code::single_byte(b'A')) - 0.667).abs() < 1e-6);
+    }
+
+    /// A font stating no `/Widths` and outside the fourteen is laid out by its program's own
+    /// widths, and a charstring omitting its width states one: the Private DICT's `defaultWidthX`,
+    /// 0 where the DICT is silent (Adobe Technical Note #5177 section 3.1, #5176 Table 23; ADR
+    /// 3185). Code 65 reaches `space`, glyph 1, which omits its width under a Private DICT
+    /// stating only `nominalWidthX` 100: it advances by the program's 0, not by the resembling
+    /// Helvetica's 278 — and by 300 where the DICT states `defaultWidthX` 300.
+    #[test]
+    fn an_omitted_charstring_width_is_the_programs_default_width() {
+        let advance = |private: &[u8]| {
+            let program = crate::cff::width_tests::name_keyed_with(&[&[14], &[14]], private);
+            let font = "1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Arial \
+                        /Encoding << /Differences [65 /space] >> /FontDescriptor << \
+                        /Type /FontDescriptor /FontName /Arial /Flags 32 /FontFile3 2 0 R >> >>\n\
+                        endobj\n";
+            let mut stream = format!(
+                "2 0 obj\n<< /Subtype /Type1C /Length {} >>\nstream\n",
+                program.len()
+            )
+            .into_bytes();
+            stream.extend_from_slice(&program);
+            stream.extend_from_slice(b"\nendstream\nendobj\n");
+            let (document, dict) = crate::fixture::document_of(&[font.as_bytes(), &stream]);
+            LoadedFont::load(&document, &dict, "F1")
+                .expect("the program reads")
+                .advance(Code::single_byte(65))
+        };
+        // nominalWidthX 100 alone: `100 21`, as five-byte integers.
+        let nominal_only = [&crate::cff::int5(100)[..], &[21]].concat();
+        assert!(advance(&nominal_only).abs() < 1e-6);
+        let default_300 = [&crate::cff::int5(300)[..], &[20], &nominal_only].concat();
+        assert!((advance(&default_300) - 0.3).abs() < 1e-6);
     }
 }
 

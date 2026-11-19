@@ -4762,6 +4762,66 @@ mod tests {
         assert_eq!(crossed.len(), 2, "{crossed:?}");
     }
 
+    /// ISO 19005-2 section 6.2.11.5 holds a dictionary's width to the program's, and a Type 2
+    /// charstring that omits its width states one: the Private DICT's `defaultWidthX`, 0 by
+    /// Technical Note #5176's Table 23 where the DICT is silent (Technical Note #5177 section 3.1;
+    /// ADR 3185). The program is a bare CFF of two glyphs, each `endchar` alone, under a Private
+    /// DICT stating only `nominalWidthX` 100; code 65 reaches `space`, glyph 1 of the predefined
+    /// `ISOAdobe` charset. `/Widths [0]` agrees with it; `/Widths [278]` is named, where reading the
+    /// omitted width as no width had passed both.
+    #[test]
+    fn a_charstring_omitting_its_width_states_the_default_width() {
+        use super::widths_agree_with_the_program;
+        /// Header; Name INDEX `F`; a Top DICT of `CharStrings` 36 and `Private` 6 at 44; empty
+        /// String and Global Subr INDEXes; `CharStrings` `[endchar] [endchar]`; Private DICT
+        /// `100 nominalWidthX`.
+        const OMITTING: &[u8] = &[
+            0x01, 0x00, 0x04, 0x04, 0x00, 0x01, 0x01, 0x01, 0x02, 0x46, 0x00, 0x01, 0x01, 0x01,
+            0x12, 0x1d, 0x00, 0x00, 0x00, 0x24, 0x11, 0x1d, 0x00, 0x00, 0x00, 0x06, 0x1d, 0x00,
+            0x00, 0x00, 0x2c, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01, 0x01, 0x02, 0x03,
+            0x0e, 0x0e, 0x1d, 0x00, 0x00, 0x00, 0x64, 0x15,
+        ];
+        fn judged(width: u32) -> Vec<String> {
+            let content = b"BT /F1 12 Tf 10 100 Td (A) Tj ET";
+            let objects: Vec<Vec<u8>> = vec![
+                b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+                  /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                    .to_vec(),
+                [
+                    format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
+                    content,
+                    b"\nendstream",
+                ]
+                .concat(),
+                format!(
+                    "<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+F /FirstChar 65 \
+                     /LastChar 65 /Widths [{width}] /Encoding << /Differences [65 /space] >> \
+                     /FontDescriptor 6 0 R >>"
+                )
+                .into_bytes(),
+                b"<< /Type /FontDescriptor /FontName /ABCDEF+F /Flags 32 /FontBBox [0 0 0 0] \
+                  /ItalicAngle 0 /Ascent 0 /Descent 0 /CapHeight 0 /StemV 80 /FontFile3 7 0 R >>"
+                    .to_vec(),
+                [
+                    format!(
+                        "<< /Subtype /Type1C /Length {} >>\nstream\n",
+                        OMITTING.len()
+                    )
+                    .as_bytes(),
+                    OMITTING,
+                    b"\nendstream",
+                ]
+                .concat(),
+            ];
+            findings(&numbered_from_one(&objects), widths_agree_with_the_program)
+        }
+        assert_eq!(judged(0), Vec::<String>::new(), "the program's own 0");
+        let named = judged(278);
+        assert_eq!(named.len(), 1, "{named:?}");
+    }
+
     #[test]
     fn a_cid_mapped_past_the_programs_last_glyph_names_no_glyph_the_program_defines() {
         // ISO 19005-2 section 6.2.11.4.1 requires embedded fonts to define every glyph referenced

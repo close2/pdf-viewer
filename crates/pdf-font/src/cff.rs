@@ -225,9 +225,10 @@ pub fn draw(data: &[u8], glyph: u16, pen: &mut impl OutlinePen) -> Result<(), Cf
 
 /// The advance widths a bare CFF states for the given glyphs, in the program's own units.
 ///
-/// One entry per requested glyph, `None` where the program states no width for it — a Type 2
-/// charstring may omit the leading width operand, and a Private DICT need not carry a
-/// `defaultWidthX`, in which case the format itself supplies no answer.
+/// One entry per requested glyph, `None` only where this reader cannot evaluate the glyph's
+/// charstring or select its subfont. A charstring that omits its width still states one: the
+/// Private DICT's `defaultWidthX`, which is 0 where the DICT does not state it (Adobe Technical
+/// Notes #5177 section 3.1 and #5176 Table 23; ADR 3185).
 ///
 /// This is the width ISO 32000-2 §9.2.4 calls a glyph's horizontal displacement, read from
 /// the program rather than from the document, which §9.6.2's Table 109 says the two shall
@@ -272,6 +273,17 @@ pub fn charstring_widths(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>
 }
 
 /// Each glyph's charstring width, carried through `metric` with the program's transform.
+///
+/// Adobe Technical Note #5177 section 3.1 says where a Type 2 charstring's width is: a width other
+/// than the Private DICT's `defaultWidthX` is the charstring's first number, stated as the
+/// difference from `nominalWidthX`, and a width equal to `defaultWidthX` may be left out.
+/// Technical Note #5176 section 15 reads it back the same way, and its Table 23 gives both
+/// operators the default 0. Both are the Private DICT's, so a CID-keyed program reads them from
+/// the Font DICT `FDSelect` names for the glyph (sections 18 and 19), which is the subfont opened
+/// here — and an omitted width under a DICT stating no `defaultWidthX` is 0, not an absence. ISO
+/// 19005-2 6.2.11.5 compares exactly this number with the font dictionary's, so reading it as none
+/// hid a disagreement a validator finds. ADR 3185 holds the two notes' sentences verbatim; neither
+/// note is in `doc/`, so nothing here could check a quotation of them.
 fn evaluated_widths(
     data: &[u8],
     glyphs: &[u16],
@@ -302,9 +314,13 @@ fn evaluated_widths(
             let id = GlyphId::from(*glyph);
             let index = font.subfont_index(id)?;
             let subfont = font.subfont(index, &[]).ok()?;
+            // `read-fonts` answers `None` for a charstring that omits its width under a Private
+            // DICT stating no `defaultWidthX`; Technical Note #5176's Table 23 gives that operator
+            // the default 0, so the program has stated 0 and the width is 0.
             let width = font
                 .evaluate_charstring(&subfont, id, &[], &mut NoCommands)
-                .ok()??;
+                .ok()?
+                .unwrap_or(Fixed::ZERO);
             Some(metric(&font.transform(&subfont, None), width))
         })
         .collect())
@@ -387,6 +403,10 @@ mod operand_tests;
 #[cfg(test)]
 #[path = "cff_stop_tests.rs"]
 mod stop_tests;
+
+#[cfg(test)]
+#[path = "cff_width_tests.rs"]
+pub(crate) mod width_tests;
 
 #[path = "cff_cids_given.rs"]
 mod cids_given;
