@@ -1,0 +1,157 @@
+[
+ {
+  "id": "2128-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.3.3.1",
+   "12.8.1"
+  ],
+  "summary": "An adbe.pkcs7.sha1 value with signed attributes is reported Unchanged and Verified after its encapsulated SHA-1 is replaced: integrity compares the encapsulated content with the document, authenticity verifies the signature over the signed attributes, and nothing compares the message-digest attribute with the encapsulated content, so the document digest is bound by no signature. The timestamp_imprint branch of Signature::integrity has the same shape for a non-timestamp signature whose value carries a TSTInfo.",
+  "source": "ISO 32000-2 §12.8.3.3.1: \"The SHA-1 digest of the document's byte range shall be encapsulated in the CMS SignedData field with ContentInfo of type Data. The digest of that SignedData shall be incorporated as the normal CMS digest.\" §12.8.1: \"The digest shall be recomputed and compared with the one stored in the document.\" RFC 5652 sections 5.4 and 11.2 (message-digest is the digest of the content and is what the signature covers).",
+  "code": "crates/pdf-signature/src/signature.rs:1609 (integrity, sha1 and timestamp_imprint branches); crates/pdf-signature/src/signature.rs:2442 (authenticity_of signs over the attributes); crates/pdf-signature/src/verdict.rs:555",
+  "change": "Where signed attributes are present, require the message-digest attribute to equal the digest (under the SignerInfo's digestAlgorithm) of the encapsulated content before the encapsulated digest or imprint is compared with the document, and report a mismatch by name (as timestamp::established's ContentNotBoundToTheSignature already does for document timestamps).",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_encapsulated_document_digest_is_bound_by_the_message_digest_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.3.3.1",
+   "12.8.1"
+  ],
+  "summary": "An adbe.pkcs7.detached value whose CMS object encapsulates unrelated bytes and has no signed attributes is reported Integrity::UnderTheSignersKey and Authenticity::Verified (over Signed::EncapsulatedContent), which together clear Verdict::reached's first two questions: the document's bytes are never digested, so any signed CMS object from a trusted signer vouches for any document.",
+  "source": "ISO 32000-2 §12.8.3.3.1, adbe.pkcs7.detached: \"The original signed message digest over the document's byte range shall be incorporated as the normal CMS SignedData field. No data shall be encapsulated in the CMS SignedData field.\" §12.8.1: \"The digest shall be recomputed and compared with the one stored in the document.\"",
+  "code": "crates/pdf-signature/src/signature.rs:1645-1654 (integrity returns UnderTheSignersKey when no message-digest); crates/pdf-signature/src/signature.rs:2442-2446 (Signed::EncapsulatedContent); crates/pdf-signature/src/verdict.rs:559",
+  "change": "For a detached sub-filter (adbe.pkcs7.detached, ETSI.CAdES.detached) an encapsulated content is a refusal by name; UnderTheSignersKey is admissible only where the signature is over the document's bytes (Signed::TheDocumentsBytes) or the encapsulated content is itself bound to the document (adbe.pkcs7.sha1 after B01).",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_detached_value_that_signs_encapsulated_bytes_does_not_vouch_for_the_document_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.3.4.3"
+  ],
+  "summary": "Rule (a) is checked against encapContentInfo's eContentType only; a PAdES value whose signed attributes omit the content-type attribute (or state another value) yields no PadesDeparture.",
+  "source": "ISO 32000-2 §12.8.3.4.3: \"The attributes in the SignedData object used as the value of the signature dictionary Contents key shall obey the following rules: a) content-type: shall be present and shall always have the value \\\"id-data\\\".\"",
+  "code": "crates/pdf-signature/src/signature.rs:1840 (ContentTypeIsNotData from cms.content_type); crates/pdf-signature/src/cms.rs:702",
+  "change": "Read the content-type signed attribute; report its absence and a value other than id-data as departures (a new variant or ContentTypeIsNotData widened), and keep the eContentType check.",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_pades_value_without_a_content_type_attribute_is_a_departure_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.1"
+  ],
+  "summary": "byte_range() reads /ByteRange with as_chunks::<2>() and filter_map, so an odd trailing member and any pair with a non-integer member are dropped silently and the remaining pairs are read as the range: Coverage::WholeFile for a range the file did not state.",
+  "source": "ISO 32000-2 Table 255, ByteRange: \"An array of pairs of integers (starting byte offset, length in bytes) that shall describe the exact byte range for the digest calculation.\"",
+  "code": "crates/pdf-signature/src/signature.rs:3865 (byte_range)",
+  "change": "Refuse the whole array (an empty range, read as Coverage::Malformed) when its length is odd or any member is not a non-negative integer, as the function already does for an array past MAX_BYTE_RANGE_PAIRS.",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_byte_range_that_is_not_pairs_of_integers_describes_no_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.2.3"
+  ],
+  "summary": "UsageRights::version_understood is as_name().is_none_or(== 2.2), so a /V present as a number (e.g. 3) counts as understood and grants() enables rights.",
+  "source": "ISO 32000-2 Table 258, V: \"The UR transform parameters dictionary version. The value shall be 2.2 . If an unknown version is present, no rights shall be enabled. NOTE This value is a name object, not a number.\"",
+  "code": "crates/pdf-signature/src/signature.rs:3631-3634 (usage_rights version_understood)",
+  "change": "Understood only when /V is absent or the name 2.2; any other value present, whatever its type, enables no rights.",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_unknown_usage_rights_version_enables_no_rights_whatever_its_type_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B06",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.5.2",
+   "12.8.1"
+  ],
+  "summary": "Signature::must_cover_whole_file keys on the /SubFilter (ETSI.CAdES.detached, ETSI.RFC3161) and not on /Type /DocTimeStamp, so a document timestamp stating another sub-filter is not held to its whole-file range.",
+  "source": "ISO 32000-2 Table 255, Contents: \"For document timestamp signatures, Contents shall be the TimeStampToken ... the ByteRange shall specify the complete PDF file contents (excepting the Contents value)\"; §12.8.5.2: \"The ByteRange key shall cover the entire PDF file\"; Table 255, SubFilter: for DocTimeStamp the value \"should be\" ETSI.RFC3161.",
+  "code": "crates/pdf-signature/src/signature.rs:1139 (must_cover_whole_file)",
+  "change": "Add self.timestamp to the condition.",
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_document_timestamp_must_cover_the_whole_file_whatever_its_sub_filter_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-B07",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.8.3.4.2",
+   "12.8.1",
+   "12.8.4.3"
+  ],
+  "summary": "viewer-core's report tells a reader that a PAdES (or RFC 3161) signature followed by any later revision \"breaks that requirement\" of Table 255, and pdf-signature's pades_departures reports RangeDoesNotCoverTheFile for it; a DSS update after the signature, which §12.8.4.3 prescribes for long-term validation, is reported as a departure.",
+  "source": "ISO 32000-2 §12.8.1: \"In case of multiple digital signatures this range shall be the sequence of bytes starting from the \\\"%PDF-\\\" comment ... to the end of the \\\"%%EOF\\\" comment ... terminating the incremental update that adds the digital signature dictionary to the document.\" §12.8.4.3: \"If the signature dictionary to which a VRI dictionary applies is itself in an incremental update section, the DSS/VRI update shall be done later than the signature update.\"",
+  "code": "crates/viewer-core/src/notes.rs:1408-1428; crates/pdf-signature/src/signature.rs:1831 (pades_departures, coverage != WholeFile)",
+  "change": "Read 'the entire PDF file' as the revision the signature's update terminates (Signature::signed_end's AtAnEndOfFileMarker): a tail made of later revisions is §12.8.1's ordinary case and is said as such; the departure sentence is kept for a range that stops anywhere else.",
+  "execution": "FAIL (expected): crates/viewer-core/tests/pades_appended_update_spec_audit.rs::a_dss_update_after_a_pades_signature_is_not_reported_as_a_departure_spec_audit; crates/pdf-signature/tests/signature_value_spec_audit.rs::a_revision_appended_after_a_pades_signature_is_not_a_short_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+ },
+ {
+  "id": "2128-T01",
+  "kind": "test-oracle-gap",
+  "clauses": [
+   "12.8.3.3.1"
+  ],
+  "summary": "an_encapsulating_signature_is_checked_against_its_content_and_not_its_attribute asserts Integrity::Unchanged for a value whose message-digest attribute is deliberately not the digest of its content: the oracle accepts exactly the unbound digest B01 names, so a fix of B01 that refuses it will be read as a regression.",
+  "source": "ISO 32000-2 §12.8.3.3.1 (\"The digest of that SignedData shall be incorporated as the normal CMS digest\"); RFC 5652 section 11.2.",
+  "code": "crates/pdf-signature/src/signature.rs:4879 (test); crates/pdf-signature/src/cms.rs:2001 (fixtures::encapsulating)",
+  "change": "Give the fixture a message-digest that is the digest of its content and keep Unchanged for it; add the deliberately wrong attribute as a second case whose expected answer is a refusal."
+ },
+ {
+  "id": "2128-T02",
+  "kind": "test-coverage-gap",
+  "clauses": [
+   "12.8.3.4.2"
+  ],
+  "summary": "The whole-file departure sentence in viewer-core's report (notes.rs:1418) is exercised by no test in either direction; the corpus documents with a PAdES signature followed by a DSS revision are the case it misreports (B07), and a range that genuinely stops short of its revision's %%EOF has no test either.",
+  "source": "ISO 32000-2 §12.8.3.4.2 (\"The ByteRange shall cover the entire PDF file\"), read with §12.8.1's multiple-signature sentence.",
+  "code": "crates/viewer-core/src/notes.rs:1418",
+  "change": "With B07's fix, a test of each side: a later revision (no departure) and a range ending before its own %%EOF (departure)."
+ },
+ {
+  "id": "2128-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "12.8.3.3.1"
+  ],
+  "summary": "Signed::EncapsulatedContent's doc says that for adbe.pkcs7.sha1 \"the same pairing applies as above\" (the SignedAttributes pairing, where message-digest is the recorded digest integrity compares). It does not: for that sub-filter integrity compares the encapsulated content and never the attribute, which is B01.",
+  "source": "ISO 32000-2 §12.8.3.3.1.",
+  "code": "crates/pdf-signature/src/signature.rs:468-474",
+  "change": "Rewrite with B01's fix to say which digest binds which value."
+ },
+ {
+  "id": "2128-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "12.8.1"
+  ],
+  "summary": "Verdict::reached's comment says UnderTheSignersKey is not a failure because \"question 2's answer *is* question 1's for those two\"; for a SignerInfo with no signed attributes and an encapsulated content the signature is over that content and not over the document (B02).",
+  "source": "ISO 32000-2 §12.8.1 (\"The digest shall be recomputed and compared with the one stored in the document\").",
+  "code": "crates/pdf-signature/src/verdict.rs:555-557",
+  "change": "Restrict the sentence to Signed::TheDocumentsBytes with B02's fix."
+ },
+ {
+  "id": "2128-D03",
+  "kind": "documentation-gap",
+  "clauses": [
+   "12.8.3.4.3"
+  ],
+  "summary": "PadesDeparture::ContentTypeIsNotData quotes rule (a)'s \"shall be present\" and ProfileAttribute's doc says content-type's presence is what \"§12.8.3.4.3 (a) ... already require[s]\", implying presence is checked; only eContentType is (B03).",
+  "source": "ISO 32000-2 §12.8.3.4.3 (a).",
+  "code": "crates/pdf-signature/src/signature.rs:789-791; crates/pdf-signature/src/signature.rs:978",
+  "change": "Correct both with B03's fix."
+ },
+ {
+  "id": "2128-D04",
+  "kind": "stale-ledger-rationale",
+  "clauses": [
+   "12.8.3.3.1"
+  ],
+  "summary": "Ledger row 12.8.3.3.1 justifies comparing the adbe.pkcs7.sha1 content \"rather than going through the message-digest attribute, because for that format the attribute is a digest of the digest\"; the attribute is still what binds the content to the signature, and the row's implemented status rests on the omission B01 names.",
+  "source": "ISO 32000-2 §12.8.3.3.1; RFC 5652 section 11.2.",
+  "code": "doc/conformance/ledger.toml (clause 12.8.3.3.1, note)",
+  "change": "Restate the note with B01's fix: the content is compared with the document and the attribute with the content."
+ }
+]
