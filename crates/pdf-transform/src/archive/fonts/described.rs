@@ -94,6 +94,11 @@ pub enum Described {
     /// `TrueType` one a `glyf` program goes under, the encoding restated where it must be
     /// (`doc/adr/2147`).
     RestatedAsTrueType,
+    /// The file's own descriptor received a `glyf` face made the symbolic font ISO 32000-2
+    /// §9.6.5.4 describes, because a shown code reached `.notdef` under the file's encoding: the
+    /// dictionary states no `/Encoding`, the program's `cmap` sends each code to the glyph this
+    /// reader drew and each such code to a glyph drawing nothing (`doc/adr/3125`).
+    MadeSymbolic,
 }
 
 impl Described {
@@ -121,6 +126,7 @@ impl Described {
             Self::TrueTypeEncodingRestated => "descriptor-truetype-encoding",
             Self::RestatedAsType1 => "restated-type1",
             Self::RestatedAsTrueType => "restated-truetype",
+            Self::MadeSymbolic => "made-symbolic",
         }
     }
 
@@ -157,6 +163,12 @@ impl Described {
                  face is and the only kind ISO 32000-2 \u{a7}9.9's Table 124 admits that program \
                  under, its encoding restated on WinAnsiEncoding where it was not already one ISO \
                  19005-2 section 6.2.11.6 admits"
+            }
+            Self::MadeSymbolic => {
+                "the font is made the symbolic font ISO 32000-2 \u{a7}9.6.5.4 describes: its \
+                 /Encoding is removed, its descriptor states the Symbolic flag, and its program's \
+                 cmap sends each code to the glyph this reader drew for it under the encoding the \
+                 file stated, whose characters a /ToUnicode CMap keeps where the file stated none"
             }
         }
     }
@@ -800,7 +812,7 @@ pub(super) fn describe(
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
     let drawn = drawn_from(&source, used, &face)?;
-    let (program, empty) = with_empty_glyphs(&face, &source, used, target)?;
+    let (program, empty, made) = with_empty_glyphs(&face, &source, used, target)?;
     let (program, within) = fitting_kept(program, &face, drawn, &source, write_fitting)?;
     let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
     // A dictionary that is not the `Type1` one a Compact Font Format program goes under, given such
@@ -823,7 +835,7 @@ pub(super) fn describe(
         .ok_or_else(|| Because::NotBuiltYet(no_row(subtype, face.format, face.program)))?;
     let measured = Measured::of(&face).ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?;
 
-    let program_at = if empty.is_empty() && within.is_none() {
+    let program_at = if empty.is_empty() && made.is_none() && within.is_none() {
         shared_program(document, &face, row, spare, substitutes)?
     } else {
         own_program(document, &face, &program, row, spare, substitutes)?
@@ -832,10 +844,10 @@ pub(super) fn describe(
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
     let font_name = layout.font_name(&requested, &face);
-    let descriptor = measured.descriptor(&font_name, face.request, Some((row, program_at)));
+    let mut descriptor = measured.descriptor(&font_name, face.request, Some((row, program_at)));
 
     let restated_encoding = encoding.is_some();
-    let entries = restated_entries(
+    let mut entries = restated_entries(
         document,
         used,
         &Restated {
@@ -849,21 +861,19 @@ pub(super) fn describe(
         &source,
     );
     advances_are_the_faces(used, drawn, &source, &face)?;
-    proved(
+    let held_to = HeldTo {
+        source: &source,
+        drawn,
+        face: &face,
+        written: within,
+    };
+    let empty_codes_made = held_to_the_source(
         document,
-        used,
-        HeldTo {
-            source: &source,
-            drawn,
-            face: &face,
-            written: within,
-        },
-        &entries,
-        &descriptor,
-        row,
-        &program,
+        (used, held_to, made),
+        (&program, &mut descriptor, row),
+        &mut entries,
+        (spare, substitutes),
     )?;
-
     substitutes
         .written
         .insert(descriptor_at, Object::Dictionary(descriptor));
@@ -882,6 +892,7 @@ pub(super) fn describe(
         authority: super::FaceAuthority::Shipped,
         route: MetricRoute::FaceMetrics,
         described: Some(match (subtype, restated_encoding) {
+            _ if !empty_codes_made.is_empty() => Described::MadeSymbolic,
             ("Type1", false) => Described::Type1,
             ("Type1", true) => Described::Type1EncodingRestated,
             (_, false) => Described::TrueType,
@@ -889,7 +900,7 @@ pub(super) fn describe(
         }),
         losses,
         fitting,
-        empty_glyphs: empty.keys().copied().collect(),
+        empty_glyphs: [empty.keys().copied().collect(), empty_codes_made].concat(),
         empty_cids: Vec::new(),
         descendant_written: false,
         twin_codes: Vec::new(),
@@ -1169,16 +1180,64 @@ fn shared_program(
     Ok(at)
 }
 
+/// [`describe`]'s font held to the source as it will be written, and the codes given an empty
+/// glyph by making it symbolic.
+///
+/// A font made symbolic states the Symbolic flag, no `/Encoding` and the `/ToUnicode` its encoding
+/// derives, and is held by its own proof, code by code on the glyph indices of the program the
+/// fitting, where written, scaled and `pdf_font::stretch` read back (`doc/adr/3125`); any other is
+/// held by [`proved`].
+fn held_to_the_source(
+    document: &Document,
+    (used, held_to, made): (
+        &SelectedFont,
+        HeldTo<'_>,
+        Option<super::made_symbolic::MadeSymbolic>,
+    ),
+    (program, descriptor, row): (&[u8], &mut Dictionary, Table124),
+    entries: &mut Dictionary,
+    (spare, substitutes): (&mut Spare, &mut Substitutes),
+) -> Result<Vec<u8>, Because> {
+    let Some(mut made) = made else {
+        proved(document, used, held_to, entries, descriptor, row, program)?;
+        return Ok(Vec::new());
+    };
+    let stated = document
+        .get_key(descriptor, "Flags")
+        .as_integer()
+        .unwrap_or(0);
+    descriptor.insert(
+        Name::new(&b"Flags"[..]),
+        super::made_symbolic::flags(stated),
+    );
+    made.program = program.to_vec();
+    super::made_symbolic::written(
+        document,
+        (used, held_to.source),
+        &made,
+        (descriptor, row),
+        entries,
+        (spare, substitutes),
+    )?;
+    Ok(made.given.keys().copied().collect())
+}
+
 /// A font's program, borrowed from the shipped face or written afresh, and the name of the empty
 /// glyph each code it gained one for is drawn with.
-type ProgramWithEmptyGlyphs<'face> = (std::borrow::Cow<'face, [u8]>, BTreeMap<u8, String>);
+type ProgramWithEmptyGlyphs<'face> = (
+    std::borrow::Cow<'face, [u8]>,
+    BTreeMap<u8, String>,
+    Option<super::made_symbolic::MadeSymbolic>,
+);
 
 /// The program a font is written with, and the empty glyph each of its codes gained.
 ///
 /// **A code the file's own encoding sends to `.notdef` is given an empty glyph** where the face
 /// can carry one, `doc/questions/A48`'s permission (`doc/adr/2458`): the program written is then
 /// this font's own, and the encoding names every such code's glyph. A font with no such code
-/// keeps the shipped program, shared with every other font that selects it.
+/// keeps the shipped program, shared with every other font that selects it. Under a `glyf` face
+/// the font is made symbolic instead, the code reaching its empty glyph through the program's
+/// `cmap` rather than by a name (`super::made_symbolic`, `doc/adr/3125`).
 fn with_empty_glyphs<'face>(
     face: &'face ShippedFace,
     source: &LoadedFont,
@@ -1187,15 +1246,31 @@ fn with_empty_glyphs<'face>(
 ) -> Result<ProgramWithEmptyGlyphs<'face>, Because> {
     let empty_codes = super::empty::codes(source, used, |code| shipped_glyph(face, code));
     if empty_codes.is_empty() {
-        return Ok((std::borrow::Cow::Borrowed(face.program), BTreeMap::new()));
+        return Ok((
+            std::borrow::Cow::Borrowed(face.program),
+            BTreeMap::new(),
+            None,
+        ));
     }
     if !super::empty::offered(target) {
         return Err(Because::NotThisTarget(
             super::empty::NO_CHARACTER_AT_THIS_LEVEL,
         ));
     }
+    if face.format == Format::Sfnt && !pdf_font::embed::has_cff_outlines(face.program) {
+        let codes = empty_codes.keys().copied().collect();
+        let mut made = super::made_symbolic::restated(source, face.program, &codes, &|byte| {
+            shipped_glyph(face, Code::single_byte(byte))
+        })?;
+        made.program = super::renamed_modified(&made.program, face.format)?;
+        return Ok((
+            std::borrow::Cow::Owned(made.program.clone()),
+            BTreeMap::new(),
+            Some(made),
+        ));
+    }
     let (program, names) = super::empty::written(face.program, face.format, &empty_codes)?;
-    Ok((std::borrow::Cow::Owned(program), names))
+    Ok((std::borrow::Cow::Owned(program), names, None))
 }
 
 /// The program object for one font whose face gained empty glyphs, which no other font shares:
@@ -1322,7 +1397,7 @@ fn differences_are_listed_names(document: &Document, encoding: &Dictionary) -> b
 /// *program's* built-in encoding, and the Annex D.5 and D.6 table the viewer read the source's
 /// names from is not the shipped program's. [`proved`] then checks that each name reaches the
 /// same glyph.
-fn restated_encoding(
+pub(super) fn restated_encoding(
     source: &LoadedFont,
     base: Option<(BaseEncoding, &str)>,
     empty: &BTreeMap<u8, String>,
@@ -1402,7 +1477,7 @@ fn laid_out_widths(laid_out: &dyn Fn(Code) -> f32) -> (u8, u8, Vec<Object>) {
 /// The font as it will stand once `program` is embedded under `row`'s key into `descriptor` and
 /// `entries` are written into its dictionary, assembled into a document of its own and loaded by
 /// the reader the window uses.
-fn loaded_as_written(
+pub(super) fn loaded_as_written(
     document: &Document,
     used: &SelectedFont,
     entries: &Dictionary,
@@ -1519,10 +1594,13 @@ fn same_glyph(held_to: &HeldTo<'_>, converted: &LoadedFont, code: Code) -> bool 
         written,
     } = *held_to;
     match (drawn, written) {
+        // An empty glyph given where the encoding reached `.notdef` draws what no glyph drew
+        // (`super::empty`), whatever fitting the face was drawn at.
         (Drawn::FromTheShippedFace, Some((_, within))) => {
             match (&source.outline(code), &converted.outline(code)) {
                 (Some(before), Some(after)) => same_once_written(before, after, within),
                 (None, None) => true,
+                (None, Some(after)) => after.commands().is_empty(),
                 _ => false,
             }
         }
@@ -1530,6 +1608,7 @@ fn same_glyph(held_to: &HeldTo<'_>, converted: &LoadedFont, code: Code) -> bool 
             match (&source.outline(code), &converted.outline(code)) {
                 (Some(before), Some(after)) => same_once_fitted(before, after, source.stretch()),
                 (None, None) => true,
+                (None, Some(after)) => after.commands().is_empty(),
                 _ => false,
             }
         }

@@ -1,6 +1,6 @@
 //! A code the file's own encoding sends to `.notdef` is given an empty glyph where the face is a
-//! Compact Font Format one (`doc/questions/A48`, `doc/adr/2458`), and refused by the fence's
-//! sentence where it is a `glyf` one.
+//! Compact Font Format one (`doc/questions/A48`, `doc/adr/2458`), and by making the font symbolic
+//! where it is a `glyf` one (`doc/adr/3125`).
 
 use super::*;
 
@@ -121,15 +121,31 @@ fn codes_of_two_widths_are_given_two_glyphs() {
 }
 
 #[test]
-fn a_glyf_face_refuses_by_the_fences_sentence() {
+fn a_glyf_face_is_made_symbolic_and_the_code_reaches_an_empty_glyph() {
+    // ISO 32000-2 §9.6.5.4: with the Symbolic flag set and no Encoding, a (3, 0) subtable maps the
+    // code, so the empty glyph is reached by no name and states no character (`doc/adr/3125`).
     let source = showing("Helvetica", "", "H\\012H");
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none());
-    match decision(&report, "fonts/font-programs-embedded") {
-        Decision::Refused(Because::TheFence(sentence)) => {
-            assert!(sentence.contains("glyf one"), "{sentence}");
-        }
-        other => panic!("{other:?}"),
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (font, codes, document) = converted(&source, target);
+        assert_eq!(codes, vec![0x0a], "{target}");
+        let dict = document
+            .get(ObjectId::new(6, 0))
+            .as_dict()
+            .cloned()
+            .expect("the font object");
+        assert!(dict.get("Encoding").is_none(), "{target}");
+        let code = pdf_font::Code::single_byte(0x0a);
+        assert_ne!(font.glyph_index(code), Some(pdf_font::NOTDEF_GLYPH));
+        assert!(
+            font.outline(code)
+                .is_none_or(|outline| outline.commands().is_empty())
+        );
+        let mut text = String::new();
+        font.text(code, &mut text);
+        assert!(
+            descriptor_empty_glyphs::states_no_character(&text),
+            "{text:?}"
+        );
     }
 }
 

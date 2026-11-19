@@ -243,7 +243,15 @@ impl Rewriter<'_> {
             return false;
         };
         for (key, value) in entries.iter() {
-            out.insert(key.clone(), value.clone());
+            // A null value is §7.3.9's absent entry, which is how a route says a key goes: the
+            // symbolic font of `doc/adr/3125` states no `/Encoding`.
+            if matches!(value, Object::Null) {
+                if let Ok(key) = std::str::from_utf8(key.as_bytes()) {
+                    out.remove(key);
+                }
+            } else {
+                out.insert(key.clone(), value.clone());
+            }
         }
         true
     }

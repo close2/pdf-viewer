@@ -797,7 +797,7 @@ fn restate_one(
 /// (ISO 19005-2 section 6.2.11.5), each a copy of glyph 0's outline; and one for each width again
 /// among the codes on no glyph, each with no outline (`doc/adr/2753`). Each new glyph is proved to
 /// be glyph 0's own outline, or no outline, in the program as written.
-fn program_restated(
+pub(super) fn program_restated(
     before: &LoadedFont,
     program: &[u8],
     reached: &BTreeMap<u8, u16>,
@@ -1034,7 +1034,7 @@ const NOTDEF: u16 = 0;
 /// A code the font as read left on glyph 0 is held to no more than still not reaching another
 /// glyph, unless it is one of `given`, which must reach the glyph given it by the program's own
 /// subtables.
-fn on_the_same_glyphs(
+pub(super) fn on_the_same_glyphs(
     reached: &BTreeMap<u8, u16>,
     given: &BTreeMap<u8, u16>,
     after: &LoadedFont,

@@ -16573,6 +16573,8 @@ mod cjk_pack;
 mod cut_program;
 #[path = "archive/deep_jpx.rs"]
 mod deep_jpx;
+#[path = "archive/descriptor_empty_glyphs.rs"]
+mod descriptor_empty_glyphs;
 #[path = "archive/drawn_attachments.rs"]
 mod drawn_attachments;
 #[path = "archive/empty_glyphs.rs"]

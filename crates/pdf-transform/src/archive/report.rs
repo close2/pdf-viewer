@@ -2191,11 +2191,7 @@ impl Conversion {
                     );
                 }
                 if !font.empty_glyphs.is_empty() {
-                    let _ = write!(
-                        out,
-                        "; {}",
-                        super::fonts::empty_glyphs_given(&font.empty_glyphs)
-                    );
+                    let _ = write!(out, "; {}", super::fonts::empty_glyphs_given(font));
                 }
                 if !font.empty_cids.is_empty() {
                     let _ = write!(

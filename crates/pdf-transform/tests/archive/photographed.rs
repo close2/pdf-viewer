@@ -1431,3 +1431,51 @@ fn a_type3_font_whose_procedure_contradicts_its_width_is_photographed_with_the_p
     assert_eq!(pages[0].page, 1);
     assert_eq!(pages[0].requirements, [TYPE3_WIDTHS]);
 }
+
+/// A page showing `A` in an embedded TrueType program whose `/BaseFont` and `/FontName` are the
+/// GBK bytes `BA DA CC E5`, which are no UTF-8 sequence (ISO 19005-2 section 6.1.8).
+fn a_font_embedded_under_a_gbk_name() -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /#ba#da#cc#e5 /FirstChar 65 \
+             /LastChar 65 /Widths [667] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /#ba#da#cc#e5 /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![super::stream(
+            &format!("/Length {}", super::LIBERATION_SANS.len()),
+            super::LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+const BOUND_NAMES: &str = "file-structure/bound-names-are-valid-utf8";
+
+#[test]
+fn a_page_reaching_an_embedded_font_named_in_no_utf8_is_photographed_under_as_if_printed() {
+    // The name is the program's, so it is not restated (ADR 2846); the page whose resources reach
+    // the font is photographed, and the font leaves the output with them (ADR 3127).
+    let source = a_font_embedded_under_a_gbk_name();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.unwrap_or_else(|| panic!("{:?}", decision(&report, BOUND_NAMES)));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    let (_, output) = convert_with_plan(&source, &printing("as-shown", Target::Two(Level::B)));
+    assert!(
+        output.is_none(),
+        "as-shown keeps ADR 2394's gate (A694 item 1)"
+    );
+}

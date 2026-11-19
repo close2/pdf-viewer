@@ -120,6 +120,13 @@ pub(super) fn pages(
                     Some(pages) => pages,
                     None => continue,
                 }
+            } else if row == BOUND_NAMES {
+                let reached =
+                    annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
+                match bound_name_pages(document, judgement, reached) {
+                    Some(pages) => pages,
+                    None => continue,
+                }
             } else if row == TYPE3_WIDTHS {
                 // Restated in the procedures where the profile granted that loss, which keeps the
                 // pages' text and takes their place (`super::type3_widths`, `doc/adr/2907`).
@@ -146,6 +153,105 @@ pub(super) fn pages(
         }
     }
     found
+}
+
+/// The row whose places name a font, a `CIDFont` or a font descriptor where the name a font is
+/// bound by is not UTF-8 (ISO 19005-2 section 6.1.8).
+const BOUND_NAMES: &str = "file-structure/bound-names-are-valid-utf8";
+
+/// The pages a bound-name row's faults are on, or `None` where they are not all known.
+///
+/// A name inside a content stream is reported at its page. A font's name is reported at the
+/// object stating it — the font, its `CIDFont` or its descriptor — and where the file embeds the
+/// program the name is that program's, so renaming it would make the dictionary name a font the
+/// program does not (`doc/pdf-a-conversion-limits.md` section 4.7). A photograph of every page
+/// whose resources reach the font takes the font out of the output with those resources, the way
+/// a print carries the glyphs and not their names (`doc/adr/3127`). Only a font's parts are
+/// answered so: a colourant or a structure type is named from places a page's photograph does
+/// not take. A font an annotation's appearance reaches keeps the refusal (ADR 2803).
+fn bound_name_pages(
+    document: &Document,
+    judgement: &pdf_archive::Judgement,
+    annotations_reach: &BTreeSet<ObjectId>,
+) -> Option<BTreeSet<usize>> {
+    let Outcome::Failed { places, total } = &judgement.outcome else {
+        return None;
+    };
+    if places.len() != *total {
+        return None;
+    }
+    let mut pages = BTreeSet::new();
+    let mut holders = BTreeSet::new();
+    for finding in places {
+        match (finding.place.object, finding.place.page) {
+            (Some(holder), _) if is_a_font_part(document, holder) => {
+                holders.insert(holder);
+            }
+            (None, Some(page)) => {
+                pages.insert(page);
+            }
+            _ => return None,
+        }
+    }
+    if holders.is_empty() {
+        return Some(pages);
+    }
+    if with_font_parts(document, annotations_reach.clone())
+        .intersection(&holders)
+        .next()
+        .is_some()
+    {
+        return None;
+    }
+    let mut unreached = holders.clone();
+    for (index, page) in Pages::new(document).every().into_iter().enumerate() {
+        let Some(page) = page else {
+            continue;
+        };
+        let mut queue = Vec::new();
+        resource_entries(document, &page.resources, &mut queue);
+        let reached = with_font_parts(document, reached_from(document, queue));
+        if holders.iter().any(|holder| reached.contains(holder)) {
+            pages.insert(index);
+            unreached.retain(|holder| !reached.contains(holder));
+        }
+    }
+    unreached.is_empty().then_some(pages)
+}
+
+/// Whether `object` is a font dictionary or a font descriptor, Table 109's and Table 120's `/Type`.
+fn is_a_font_part(document: &Document, object: ObjectId) -> bool {
+    document.get(object).as_dict().is_some_and(|dict| {
+        document
+            .get_key(dict, "Type")
+            .as_name()
+            .is_some_and(|name| matches!(name.as_bytes(), b"Font" | b"FontDescriptor"))
+    })
+}
+
+/// `reached` with each font's parts: a Type 0 font's descendant `CIDFont` (§9.7.6.1's
+/// `/DescendantFonts`) and every font's descriptor, which the resource walk does not follow.
+fn with_font_parts(document: &Document, mut reached: BTreeSet<ObjectId>) -> BTreeSet<ObjectId> {
+    let mut fonts: Vec<ObjectId> = reached.iter().copied().collect();
+    while let Some(font) = fonts.pop() {
+        let Some(dict) = document.get(font).as_dict().cloned() else {
+            continue;
+        };
+        let descendants = document.get_key(&dict, "DescendantFonts");
+        let mut parts: Vec<Object> = document
+            .resolve(&descendants)
+            .as_array()
+            .map_or_default(<[Object]>::to_vec);
+        parts.extend(dict.get("FontDescriptor").cloned());
+        for part in parts {
+            if let Some(id) = part.as_reference()
+                && reached.insert(id)
+            {
+                fonts.push(id);
+            }
+        }
+    }
+    reached
 }
 
 /// The row whose places name a Type 3 font rather than a page (ISO 19005-4 section 6.2.10.5).

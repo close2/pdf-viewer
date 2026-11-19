@@ -70,7 +70,7 @@ pub(in crate::archive::fonts) fn described_from_pack(
     let face = Face::Pack(pack.clone(), wanted);
     let FaceWidths {
         mut widths, route, ..
-    } = face_widths(&source, &face, used, &[])?;
+    } = face_widths(&source, &face, used, (&[], false))?;
     let own = own_advances(&source, used, pack, &mut widths);
     let laid_out = |code: Code| {
         own.get(&code.value())

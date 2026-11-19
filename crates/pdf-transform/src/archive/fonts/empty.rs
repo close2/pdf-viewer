@@ -33,8 +33,11 @@ use pdf_archive::survey::SelectedFont;
 use pdf_font::cff::AddedGlyph;
 use pdf_font::substitute::Format;
 use pdf_font::{Code, LoadedFont};
+use pdf_syntax::Document;
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::super::decision::Because;
+use super::Table124;
 
 /// The shown codes the document's encoding sends to `.notdef`, which this reader draws nothing
 /// for, each with the advance the dictionary states for it in thousandths of an em.
@@ -115,6 +118,69 @@ pub(super) fn written(
     Ok((rebuilt, names))
 }
 
+/// Writes a font whose file states its own descriptor as it will be written — `entries` over its
+/// dictionary, `gains` over its descriptor, the program with its empty glyphs — and holds it to
+/// the source: each shown code on `.notdef` in `given` reaches a glyph that draws nothing, every
+/// other shown code the glyph `glyph_of` reads in the face, each at the advance it had, and the
+/// font is drawn from its own program (`doc/adr/3126`).
+pub(super) fn named_proved(
+    document: &Document,
+    used: &SelectedFont,
+    (font, glyph_of): (&LoadedFont, &dyn Fn(u8) -> Option<u16>),
+    given: &BTreeMap<u8, String>,
+    (descriptor, gains, row, entries): (ObjectId, &Dictionary, Table124, &Dictionary),
+    program: &[u8],
+) -> Result<(), Because> {
+    let not_proved = || Because::NotBuiltYet(EMPTY_GLYPH_NOT_PROVED);
+    let mut written_descriptor = document
+        .get(descriptor)
+        .as_dict()
+        .cloned()
+        .ok_or_else(not_proved)?;
+    for key in ["FontFile", "FontFile2", "FontFile3"] {
+        written_descriptor.remove(key);
+    }
+    for (key, value) in gains.iter() {
+        written_descriptor.insert(key.clone(), value.clone());
+    }
+    let converted = super::described::loaded_as_written(
+        document,
+        used,
+        entries,
+        &written_descriptor,
+        row,
+        program,
+    )
+    .map_err(|_| not_proved())?;
+    if converted.substitute_program().is_some() {
+        return Err(not_proved());
+    }
+    for text in used.shown.keys() {
+        for code in font.decode(text) {
+            let byte = u8::try_from(code.value()).map_err(|_| not_proved())?;
+            let same = if given.contains_key(&byte) {
+                converted
+                    .outline(code)
+                    .is_none_or(|outline| outline.commands().is_empty())
+            } else {
+                glyph_of(byte).is_some() && converted.glyph_index(code) == glyph_of(byte)
+            };
+            if !same || super::disagrees(font.advance(code), converted.advance(code)) {
+                return Err(not_proved());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The encoding restated to name each empty glyph, as an entry of the dictionary.
+pub(super) fn encoding_entry(font: &LoadedFont, given: &BTreeMap<u8, String>) -> (Name, Object) {
+    (
+        Name::new(&b"Encoding"[..]),
+        Object::Dictionary(super::described::restated_encoding(font, None, given)),
+    )
+}
+
 /// Whether the empty glyph is offered at `target`: at 2b and at part 4, never at Level U or A.
 ///
 /// ISO 19005-2 section 6.2.11.7.2 asks, at Levels U and A, that every glyph a file shows map to a
@@ -162,11 +228,19 @@ pub(super) const EMPTY_GLYPH_NOT_WRITTEN: &str = "this document shows a code its
      sends to .notdef, and the empty glyph doc/questions/A48 allows in its place could not be \
      written into the face this program ships at the width the font dictionary states for it";
 
+/// The font with its empty glyphs did not read back as the source drew it.
+const EMPTY_GLYPH_NOT_PROVED: &str = "this document renders a font it does not embed and shows a \
+     code its own encoding names no glyph for, or names .notdef; given a glyph that draws nothing \
+     for that code and an encoding naming it, the font read back by this program did not reach \
+     every shown code's glyph at its width as the source drew it, so it is not written";
+
 /// Why a code reaching `.notdef` is refused where the font states its own descriptor.
 pub(super) const NOTDEF_BESIDE_A_DESCRIPTOR: &str = "this document renders a font it does not \
      embed and shows a code its own encoding names no glyph for, or names .notdef, so the code \
      reaches the .notdef glyph in any program — which ISO 19005-2 section 6.2.11.8 and ISO \
      19005-4 section 6.2.10.9 forbid. doc/questions/A48 allows a real glyph that draws nothing in \
-     its place, and this converter writes one for a standard font stated by name alone; for a \
-     font that states its own FontDescriptor it is not built yet. A face named with --font does \
-     not change this, because the code reaches .notdef in that program too";
+     its place, and this converter writes one for a standard font stated by name alone and, for a \
+     font that states its own FontDescriptor, into a face this program ships or a glyf face of the \
+     machine's; for this font's face, or beside a code its encoding restates, it is not built yet. \
+     A face named with --font does not change this, because the code reaches .notdef in that \
+     program too";

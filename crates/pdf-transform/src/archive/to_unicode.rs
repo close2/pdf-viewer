@@ -337,7 +337,7 @@ fn usable(stated: &ToUnicode, code: u32) -> Option<String> {
 /// resolve — and then Annex D.6's `ZapfDingbats` set, whose `a1` and `a192` that list does not
 /// hold. `Symbol`'s own names are Adobe Glyph List names, which is why only one of the two
 /// symbolic sets appears here.
-fn characters_for(name: &str) -> Option<String> {
+pub(super) fn characters_for(name: &str) -> Option<String> {
     encoding::text_for(name).or_else(|| {
         SymbolicEncoding::ZapfDingbats
             .character_for(name)
@@ -357,7 +357,7 @@ fn characters_for(name: &str) -> Option<String> {
 /// Written uncompressed only where it is small enough that a reader with a text editor can see
 /// what was asserted about their file; the same judgement §14.3.2's metadata packet gets, and for
 /// the same reason.
-fn cmap_stream(mapping: &BTreeMap<u8, String>) -> Object {
+pub(super) fn cmap_stream(mapping: &BTreeMap<u8, String>) -> Object {
     let table = mapping
         .iter()
         .collect::<Vec<_>>()

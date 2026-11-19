@@ -226,7 +226,7 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             let mut empty = if font.empty_glyphs.is_empty() {
                 String::new()
             } else {
-                format!("; {}", fonts::empty_glyphs_given(&font.empty_glyphs))
+                format!("; {}", fonts::empty_glyphs_given(font))
             };
             if !font.empty_cids.is_empty() {
                 empty.push_str("; ");

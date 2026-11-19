@@ -76,6 +76,7 @@ mod empty;
 mod fresh_cid;
 mod lgc_pack;
 mod machine_cid;
+mod made_symbolic;
 mod names;
 mod no_descendant;
 mod notdef_format;
@@ -269,14 +270,22 @@ impl CutProgram {
 
 /// What an empty glyph given in place of `.notdef` is, in one clause naming the codes and the
 /// clause, for the report and for the file's own `xmpMM:History` alike (`doc/questions/A48`).
+///
+/// A font made symbolic reaches its empty glyphs through its `cmap` rather than by a name
+/// (`doc/adr/3125`), and the clause says which.
 #[must_use]
-pub(super) fn empty_glyphs_given(codes: &[u8]) -> String {
+pub(super) fn empty_glyphs_given(font: &SubstitutedFont) -> String {
+    let reached = if font.described == Some(Described::MadeSymbolic) {
+        "reached through the symbolic font's cmap and given no /ToUnicode entry"
+    } else {
+        "named outside the Adobe Glyph List"
+    };
     format!(
         "the codes {} reached .notdef under the file's own encoding, which ISO 19005-2 section \
          6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to reference, \
          and were each given a glyph that draws nothing at the width the font dictionary states, \
-         named outside the Adobe Glyph List so that no character is stated for them",
-        empty::listed(codes)
+         {reached} so that no character is stated for them",
+        empty::listed(&font.empty_glyphs)
     )
 }
 
@@ -1336,45 +1345,77 @@ fn embed_pass(
             (machine, &font, lgc),
         )?;
         let (row, restated) = row_for(document, reading, &subtype, &face)?;
+        // **A code the file's encoding sends to `.notdef`, under a `glyf` face**: the font is made
+        // symbolic and the code reaches a glyph drawing nothing (`made_symbolic`, `doc/adr/3125`),
+        // at the targets the empty glyph is offered at, for the shipped face or the machine's the
+        // window drew, where the dictionary keeps its kind.
+        // Under a Compact Font Format face the dictionary restated as `Type1` names the empty
+        // glyph in its restated encoding, as the route writing a descriptor does (`doc/adr/2458`).
+        let empty_allowed = empty::offered(target)
+            && !emptied
+            && matches!(face, Face::Shipped(_) | Face::Machine(..))
+            && match face.format() {
+                Format::Sfnt => {
+                    !pdf_font::embed::has_cff_outlines(face.program())
+                        && restated.as_ref().is_none_or(|restatement| {
+                            restatement.described == Described::RestatedAsTrueType
+                        })
+                }
+                Format::BareCff => restated
+                    .as_ref()
+                    .is_none_or(|restatement| restatement.described == Described::RestatedAsType1),
+                _ => false,
+            };
         // **A code Annex D encodes twice, at a width of its own**: named for the character ISO
         // 32000-1 says it means, it reaches the face's glyph for that character, and the face
         // is read again under the restated encoding (`twin_codes`, `doc/adr/2723`). Not beside a
         // restatement of the dictionary's kind, which writes an encoding of its own.
-        let (face, font, found, twins) = match face_widths(&font, &face, reading, &[]) {
-            Ok(found) => (face, font, found, None),
-            Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH)) if restated.is_none() => {
-                let twins = twin_codes::renamed(
-                    document,
-                    &reading.dict,
-                    &shown_bytes(&font, reading),
-                    |code| font.advance(Code::single_byte(code)),
-                    target,
-                )
-                .ok_or(refusal)?;
-                let renamed = SelectedFont {
-                    dict: twins.dict.clone(),
-                    ..reading.clone()
-                };
-                let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
-                    .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
-                let machine = (embed_machine_face && !emptied).then_some(&font);
-                let face = face_for(
-                    document,
-                    supplied,
-                    &requested,
-                    &renamed,
-                    (machine, &font, lgc),
-                )?;
-                let found =
-                    face_widths(&font, &face, &renamed, &twins.codes).map_err(|_| refusal)?;
-                (face, font, found, Some(twins))
-            }
-            Err(refusal) => return Err(refusal),
-        };
+        let (face, font, found, twins) =
+            match face_widths(&font, &face, reading, (&[], empty_allowed)) {
+                Ok(found) => (face, font, found, None),
+                Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))
+                    if restated.is_none() =>
+                {
+                    let twins = twin_codes::renamed(
+                        document,
+                        &reading.dict,
+                        &shown_bytes(&font, reading),
+                        |code| font.advance(Code::single_byte(code)),
+                        target,
+                    )
+                    .ok_or(refusal)?;
+                    let renamed = SelectedFont {
+                        dict: twins.dict.clone(),
+                        ..reading.clone()
+                    };
+                    let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
+                        .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
+                    let machine = (embed_machine_face && !emptied).then_some(&font);
+                    let face = face_for(
+                        document,
+                        supplied,
+                        &requested,
+                        &renamed,
+                        (machine, &font, lgc),
+                    )?;
+                    let found = face_widths(&font, &face, &renamed, (&twins.codes, false))
+                        .map_err(|_| refusal)?;
+                    (face, font, found, Some(twins))
+                }
+                // The empty glyph states no character, which Levels U and A ask of every glyph shown
+                // (`empty::offered`): the target's refusal, naming the targets that take it.
+                Err(Because::NotBuiltYet(empty::NOTDEF_BESIDE_A_DESCRIPTOR))
+                    if !empty::offered(target) =>
+                {
+                    return Err(Because::NotThisTarget(empty::NO_CHARACTER_AT_THIS_LEVEL));
+                }
+                Err(refusal) => return Err(refusal),
+            };
         let FaceWidths {
             mut widths,
             route,
             splits,
+            empty,
         } = found;
         // A renamed code that still reaches its twin's glyph is given a copy of it (`twin_codes`).
         let copied = if splits.is_empty() {
@@ -1427,6 +1468,28 @@ fn embed_pass(
                 renamed_modified(&modified, face.format())?
             }
         };
+        // The face made symbolic where a shown code reached `.notdef`, and renamed as A550 asks of
+        // a modified Liberation face; each empty glyph's advance is held below as every other is.
+        let mut named_empty: BTreeMap<u8, String> = BTreeMap::new();
+        let (program, made) = if empty.is_empty() {
+            (program, None)
+        } else if face.format() == Format::BareCff {
+            let advances: BTreeMap<u8, f32> = empty
+                .iter()
+                .map(|byte| (*byte, font.advance(Code::single_byte(*byte)) * 1000.0))
+                .collect();
+            let (rebuilt, names) = empty::written(&program, Format::BareCff, &advances)?;
+            named_empty = names;
+            (rebuilt, None)
+        } else {
+            let mut made =
+                made_symbolic::restated(&font, &program, &empty, &|byte| face.glyph(byte))?;
+            for (code, glyph) in &made.given {
+                widths.insert(*glyph, font.advance(Code::single_byte(*code)));
+            }
+            made.program = renamed_modified(&made.program, face.format())?;
+            (made.program.clone(), Some(made))
+        };
         // **The invariant the whole supply rests on, proved rather than trusted.** Section 4.9
         // ranks restating the program above restating `/Widths` because `/Widths` is what
         // positions the glyphs; a face whose advances do not read back as the file's numbers
@@ -1440,6 +1503,11 @@ fn embed_pass(
         let restated = restated.map(|mut restatement| {
             if document.get_key(&used.dict, "Widths").is_null() {
                 state_laid_out_widths(&mut restatement.entries, &font);
+            }
+            // Every code names the glyph it named, and each code on `.notdef` its empty glyph.
+            if !named_empty.is_empty() {
+                let (key, value) = empty::encoding_entry(&font, &named_empty);
+                restatement.entries.insert(key, value);
             }
             restatement
         });
@@ -1495,7 +1563,7 @@ fn embed_pass(
         } else {
             program
         };
-        if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
+        if let (Face::Machine(_, _, shipped), None, None) = (&face, &restated, &made) {
             described::machine_face_proved(
                 document,
                 reading,
@@ -1507,8 +1575,11 @@ fn embed_pass(
                 ),
             )?;
         }
+        // A font made symbolic is proved as it is written, below; the restatement's own proof
+        // reads the non-symbolic encoding it no longer states.
         if let Some(restatement) = &restated
             && !matches!(face, Face::Pack(..))
+            && made.is_none()
         {
             described::restatement_proved(
                 document,
@@ -1589,6 +1660,14 @@ fn embed_pass(
         if let Some(name) = &subset_name {
             descriptor_gains.insert(Name::new(&b"FontName"[..]), name.clone());
         }
+        if made.is_some() {
+            let stated = document
+                .get(descriptor)
+                .as_dict()
+                .and_then(|own| document.get_key(own, "Flags").as_integer())
+                .unwrap_or(0);
+            descriptor_gains.insert(Name::new(&b"Flags"[..]), made_symbolic::flags(stated));
+        }
         let own = embed_at_descriptor(
             document,
             descriptor,
@@ -1613,6 +1692,40 @@ fn embed_pass(
         if document.get_key(&used.dict, "Widths").is_null() {
             state_laid_out_widths(&mut entries, &font);
         }
+        // The symbolic font states no `/Encoding` (§7.3.9: a null value is no entry, and the
+        // rewriter removes the key), and keeps as `/ToUnicode` the characters its encoding named.
+        // A Compact Font Format face names each empty glyph in the encoding (`doc/adr/3126`).
+        if !named_empty.is_empty() {
+            if restated.is_none() {
+                let (key, value) = empty::encoding_entry(&font, &named_empty);
+                entries.insert(key, value);
+            }
+            empty::named_proved(
+                document,
+                reading,
+                (&font, &|byte| face.glyph(byte)),
+                &named_empty,
+                (descriptor, &descriptor_gains, row, &entries),
+                &program,
+            )?;
+        }
+        if let Some(made) = &made {
+            let stated = document
+                .get(descriptor)
+                .as_dict()
+                .cloned()
+                .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
+            let written_descriptor =
+                made_symbolic::proof_descriptor(document, &stated, &descriptor_gains);
+            made_symbolic::written(
+                document,
+                (reading, &font),
+                made,
+                (&written_descriptor, row),
+                &mut entries,
+                (spare, &mut substitutes),
+            )?;
+        }
         let (mut losses, fitting) = match (drawn, &fitting_written) {
             // No shape is drawn, so no face's shapes and no fitting are lost or written: the loss
             // is the program the file held and the substitute another reader may have drawn.
@@ -1634,10 +1747,17 @@ fn embed_pass(
             face: face.describe(),
             authority: face.authority(),
             route,
-            described: restated.as_ref().map(|restatement| restatement.described),
+            described: if made.is_some() {
+                Some(Described::MadeSymbolic)
+            } else {
+                restated.as_ref().map(|restatement| restatement.described)
+            },
             losses,
             fitting,
-            empty_glyphs: Vec::new(),
+            empty_glyphs: made.as_ref().map_or_else(
+                || named_empty.keys().copied().collect(),
+                |made| made.given.keys().copied().collect(),
+            ),
             empty_cids: Vec::new(),
             descendant_written: false,
             twin_codes: twins.map_or_default(|twins| twins.codes),
@@ -1722,9 +1842,7 @@ pub(super) fn gains(
     if let Some(font) = used.id {
         if substitutes.added_fonts.contains(&font) {
             let mut written = used.dict.clone();
-            for (key, value) in entries.iter() {
-                written.insert(key.clone(), value.clone());
-            }
+            gain(&mut written, &entries);
             substitutes
                 .written
                 .insert(font, Object::Dictionary(written));
@@ -1737,9 +1855,7 @@ pub(super) fn gains(
         .take(document)
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
     let mut written = used.dict.clone();
-    for (key, value) in entries.iter() {
-        written.insert(key.clone(), value.clone());
-    }
+    gain(&mut written, &entries);
     // The font is a font by where it stood, and the object written for it states the `/Type`
     // §9.6.2.1's Table 109 requires with its one value, which the rewriter's own walk leaves to
     // this object rather than change the value it finds the font by (`doc/adr/2608`).
@@ -1750,6 +1866,20 @@ pub(super) fn gains(
     substitutes.written.insert(at, Object::Dictionary(written));
     substitutes.direct.push((used.dict.clone(), at));
     Ok(())
+}
+
+/// `entries` written into a font dictionary, a null value removing its key: §7.3.9 makes a null
+/// value the same as no entry, and a route that removes one says so with it (`doc/adr/3125`).
+fn gain(written: &mut Dictionary, entries: &Dictionary) {
+    for (key, value) in entries.iter() {
+        if matches!(value, Object::Null) {
+            if let Ok(key) = std::str::from_utf8(key.as_bytes()) {
+                written.remove(key);
+            }
+        } else {
+            written.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 /// The Table 124 row a face goes under, and the restatement of the dictionary it needs, if any.
@@ -2000,15 +2130,20 @@ fn shown_bytes(font: &LoadedFont, used: &SelectedFont) -> Vec<u8> {
 /// returned as a split — the code, the glyph and its own width — rather than refused, and is
 /// asked after every other code so that the glyph's own advance is the other code's
 /// (`twin_codes`, `doc/adr/2723`).
+///
+/// Where `empty_allowed`, a code the file's own encoding sends to `.notdef` is returned among the
+/// empty codes rather than refused: the font is then made the symbolic font §9.6.5.4 describes,
+/// and the code reaches a glyph that draws nothing (`made_symbolic`, `doc/adr/3125`).
 fn face_widths(
     font: &LoadedFont,
     face: &Face,
     used: &SelectedFont,
-    splittable: &[u8],
+    (splittable, empty_allowed): (&[u8], bool),
 ) -> Result<FaceWidths, Because> {
     let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
     let mut route = MetricRoute::FaceMetrics;
     let mut splits: Vec<(u8, u16, f32)> = Vec::new();
+    let mut empty: BTreeSet<u8> = BTreeSet::new();
     let mut codes: Vec<Code> = used
         .shown
         .keys()
@@ -2019,9 +2154,15 @@ fn face_widths(
         for code in codes {
             let byte = single_byte(code).ok_or(Because::NotBuiltYet(NOT_A_SIMPLE_CODE))?;
             // A code the file's own encoding sends to `.notdef` reaches it in any program, so no
-            // face resolves it; the empty glyph `doc/questions/A48` allows is written on the route
-            // that writes the descriptor (`empty`, `doc/adr/2458`).
-            let missing = if empty::reaches_notdef(font, code) {
+            // face resolves it under the encoding; the empty glyph `doc/questions/A48` allows is
+            // written on the route that writes the descriptor (`empty`, `doc/adr/2458`), and on
+            // this one by making the font symbolic where the caller allows it (`doc/adr/3125`).
+            let on_notdef = empty::reaches_notdef(font, code);
+            if on_notdef && empty_allowed {
+                empty.insert(byte);
+                continue;
+            }
+            let missing = if on_notdef {
                 Because::NotBuiltYet(empty::NOTDEF_BESIDE_A_DESCRIPTOR)
             } else {
                 Because::NotBuiltYet(match face.authority() {
@@ -2062,15 +2203,18 @@ fn face_widths(
         widths,
         route,
         splits,
+        empty,
     })
 }
 
-/// What [`face_widths`] finds: the advance each glyph is to state, the route, and each code that
-/// is to reach a copy of its glyph — the code, the glyph, its own width.
+/// What [`face_widths`] finds: the advance each glyph is to state, the route, each code that is
+/// to reach a copy of its glyph — the code, the glyph, its own width — and each code the file's
+/// encoding sends to `.notdef` that is to reach a glyph drawing nothing.
 struct FaceWidths {
     widths: BTreeMap<u16, f32>,
     route: MetricRoute,
     splits: Vec<(u8, u16, f32)>,
+    empty: BTreeSet<u8>,
 }
 
 /// The program an operator named for one `/BaseFont`, where they named one.

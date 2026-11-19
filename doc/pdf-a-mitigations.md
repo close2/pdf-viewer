@@ -1473,9 +1473,17 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
   alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph
   List, added to the face and named by the restated encoding (`doc/questions/A48`, ADR 2458); the
-  codes are reported and recorded in `xmpMM:History` with the clause. Under a `glyf` face the code
-  is refused on the fence's side, since a non-symbolic `TrueType` font reaches a glyph only by a
-  name the list gives a character; with the file's own descriptor, not built yet.
+  codes are reported and recorded in `xmpMM:History` with the clause. Under a `glyf` face, where a
+  non-symbolic `TrueType` font reaches a glyph only by a name the list gives a character, the font
+  is made the symbolic font ISO 32000-2 §9.6.5.4 describes: no `/Encoding`, the Symbolic flag, a
+  (1, 0) and a (3, 0) `cmap` sending each code to the glyph this reader drew and each such code to
+  an appended glyph with no outline at its width, and a `/ToUnicode` derived from the file's own
+  encoding where it stated none, giving the empty glyph no character (ADR 3125). With the file's
+  own descriptor and no program, the same two constructions: the symbolic font under a shipped or
+  machine's `glyf` face, the named empty glyph under a shipped CFF face, the dictionary restated
+  as `Type1` or kept (ADR 3126). Not offered at Levels U and A; still refused beside a code Annex D
+  encodes twice, under a face of the Latin-Greek-Cyrillic pack and under a machine's OpenType CFF
+  face.
 - **Still refused, by name**: a composite font nobody named a program for that the gate refuses or
   that is not `Adobe-Identity`; a font no shipped face covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.
