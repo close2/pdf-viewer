@@ -41,6 +41,9 @@ mod chrome_tests;
 mod held_tests;
 #[cfg(test)]
 mod hold_tests;
+mod opening;
+#[cfg(test)]
+mod opening_tests;
 mod owed;
 mod placement;
 mod repainted;
@@ -994,6 +997,21 @@ impl NativeWindow for Window {
         }
         what.clone_into(&mut self.status);
         self.owing.owe(Owed::Said(what.to_owned()));
+    }
+
+    /// Owed to the host, which opens it with the platform's opener (ADR 3217).
+    fn hand_media_over(
+        &mut self,
+        document: &str,
+        handed: &viewer_host::Handed,
+        note: Option<&str>,
+    ) {
+        self.media_for_the_host(document, handed, note);
+    }
+
+    /// Owed to the host, which opens it with the platform's opener (ADR 3217).
+    fn hand_launched_over(&mut self, name: &str, path: &Path, _said: &str) {
+        self.launched_for_the_host(name, path);
     }
 
     fn dispatch(&mut self, command: Command) {

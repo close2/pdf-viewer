@@ -141,11 +141,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // 2856 one for whether text is under a point, 2879 one for a caller's trusted lists, 2908
     // two for a print's held scaling, on an event and on a window's record, and 2919 one for a
     // printed page's size, 2936 two for the trusted lists a signature policy references, and
-    // 3169 one for a caller's copy of a signature policy handed to the document's validation.
-    assert_eq!(no_mangle, 383, "one `#[unsafe(no_mangle)]` per entry point");
+    // 3169 one for a caller's copy of a signature policy handed to the document's validation,
+    // and 3217 one for a platform opener's failure to open what a window handed its host.
+    assert_eq!(no_mangle, 384, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(
-        signatures, 364,
-        "361 `unsafe` entry points and three helpers"
+        signatures, 365,
+        "362 `unsafe` entry points and three helpers"
     );
 }
 

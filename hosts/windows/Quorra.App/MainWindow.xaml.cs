@@ -17,8 +17,10 @@ using Quorra.Interop;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.UI.Core;
-// One name from Windows.System, whose DispatcherQueueTimer would otherwise collide with the
-// Windows App SDK's in Microsoft.UI.Dispatching.
+// Two names from Windows.System, whose DispatcherQueueTimer would otherwise collide with the
+// Windows App SDK's in Microsoft.UI.Dispatching, and one from Windows.Storage beside them.
+using Launcher = Windows.System.Launcher;
+using StorageFile = Windows.Storage.StorageFile;
 using VirtualKey = Windows.System.VirtualKey;
 
 namespace Quorra.App;
@@ -418,6 +420,13 @@ public sealed partial class MainWindow : Window
                     Commit("a drop-down list gone", window => window.OpenedList(owed.Text));
                 }
                 break;
+            // A clip or a launched document the level or the person let through, written and
+            // checked by the library as every window's is, and handed here to the platform's
+            // own opener, which this window has and the library does not (ADR 3217).
+            case Native.QUORRA_OWED_OPEN_FILE:
+            case Native.QUORRA_OWED_OPEN_URI:
+                Launch(owed.Kind, owed.Text);
+                break;
             // The strip and the system sound are later steps
             // (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
             // than dropped.
@@ -699,6 +708,31 @@ public sealed partial class MainWindow : Window
         catch (QuorraException refused)
         {
             Say($"{what}: {refused.Message}");
+        }
+    }
+
+    // Windows.System.Launcher on what an OPEN_FILE or OPEN_URI record named. Its answer comes after
+    // this batch, so a file or a URL it did not open is handed back through
+    // quorra_window_open_failed as a later call, and the library says it as the other windows
+    // say a portal's failure after its call (ADRs 3217, 3219). The event-facing async void
+    // contains its exceptions, as Dialogs.Start does.
+    private async void Launch(uint kind, string handed)
+    {
+        string? why;
+        try
+        {
+            bool launched = kind == Native.QUORRA_OWED_OPEN_FILE
+                ? await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(handed))
+                : await Launcher.LaunchUriAsync(new Uri(handed));
+            why = launched ? null : "Windows.System.Launcher answered that nothing was launched";
+        }
+        catch (Exception error)
+        {
+            why = error.Message;
+        }
+        if (why is string refused)
+        {
+            Commit("the platform's opener", open => open.OpenFailed(handed, refused));
         }
     }
 

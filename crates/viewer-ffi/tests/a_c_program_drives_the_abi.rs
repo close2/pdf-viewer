@@ -691,7 +691,11 @@ fn what_the_window_owed(said: &str) {
     for expected in [
         // The counted kinds against the header's, and a path that names no file refused by its
         // own status rather than opened into a window that says nothing.
-        "owed kinds 18 (header 18), unknown is unknown",
+        "owed kinds 20 (header 20), unknown is unknown",
+        // The host's opener refused an OPEN_URI record's URL; the window says it, and a null
+        // argument is refused by status (ADRs 3217, 3219).
+        "window open failed: https://example.org/clip.mp4 was handed to the program hosting this \
+         window, for the platform's own opener, which did not open it: no player; null is 1",
         // `viewer_host::Tab`'s six, in the order and the words every window shows them.
         "panels offered 6 (header 6): Contents Pages Layers Files Read About",
         "an unreadable file: the file named could not be opened for reading",

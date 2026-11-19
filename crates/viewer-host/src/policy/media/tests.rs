@@ -4,8 +4,8 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use super::{
-    Handed, Handing, MEDIA_FILES, MediaFiles, Opener, Portal, file_name_for, gvariant_string,
-    hand_media, handing, media_files,
+    Handed, Handing, MEDIA_FILES, MediaFiles, Opener, Portal, PortalCalls, SWEPT_AFTER,
+    file_name_for, gvariant_string, hand_media, handing, media_files, sweep,
 };
 
 /// A directory of the test's own, removed afterwards.
@@ -355,6 +355,7 @@ fn the_portal_is_called_with_the_file_as_its_descriptor() {
     std::fs::set_permissions(&double, std::fs::Permissions::from_mode(0o755)).expect("its mode");
     let portal = Portal {
         program: double.clone(),
+        told: None,
     };
     let handed = Handed::Written {
         name: "intro.wav".to_owned(),
@@ -377,4 +378,123 @@ fn the_portal_is_called_with_the_file_as_its_descriptor() {
         arguments.contains("org.freedesktop.portal.OpenURI.OpenFile\n''\n@h 0\n"),
         "{arguments}"
     );
+}
+
+/// A directory under `scratch` named `name`, holding one file, as a hand-off leaves one.
+fn left_behind(scratch: &Scratch, name: &str) -> PathBuf {
+    let directory = scratch.0.join(name);
+    std::fs::create_dir(&directory).expect("a directory");
+    std::fs::write(directory.join("clip.wav"), RIFF).expect("a clip");
+    directory
+}
+
+/// The sweep removes this program's directories older than [`SWEPT_AFTER`] and nothing else: not
+/// a younger one, not the one just written, not a name of another form, not a plain file and not
+/// a symbolic link to a directory (ADR 3218).
+#[test]
+fn the_sweep_removes_only_this_programs_old_directories() {
+    let scratch = Scratch::new("sweep");
+    let old = left_behind(&scratch, "quorra-media-1-2-0");
+    let ours = left_behind(&scratch, "quorra-media-3-4-0");
+    let other = left_behind(&scratch, "another-program-1");
+    std::fs::write(scratch.0.join("quorra-media-file"), b"x").expect("a plain file");
+    let outside = Scratch::new("sweep-outside");
+    std::fs::write(outside.0.join("kept"), b"x").expect("a file outside");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside.0, scratch.0.join("quorra-media-link"))
+        .expect("a symbolic link");
+    let now = std::time::SystemTime::now();
+    assert_eq!(sweep(&scratch.0, &ours, now), Vec::<String>::new());
+    assert!(old.exists(), "a directory younger than the bound is kept");
+    let later = now
+        .checked_add(SWEPT_AFTER)
+        .and_then(|bound| bound.checked_add(std::time::Duration::from_secs(60)))
+        .expect("a day from now is a time");
+    assert_eq!(sweep(&scratch.0, &ours, later), Vec::<String>::new());
+    assert!(!old.exists(), "a directory older than the bound is removed");
+    assert!(ours.exists(), "the directory just written is kept");
+    assert!(other.exists(), "a name of another form is kept");
+    assert!(scratch.0.join("quorra-media-file").exists());
+    assert!(outside.0.join("kept").exists(), "a link is not followed");
+}
+
+/// A hand-off sweeps: a directory left by an earlier one and made older than the bound is gone
+/// once the next clip has been written.
+#[cfg(unix)]
+#[test]
+fn the_next_hand_off_sweeps_an_old_directory() {
+    let scratch = Scratch::new("next-hand-off");
+    let old = left_behind(&scratch, "quorra-media-5-6-0");
+    let long_ago = std::time::SystemTime::now()
+        .checked_sub(SWEPT_AFTER)
+        .and_then(|bound| bound.checked_sub(std::time::Duration::from_secs(60)))
+        .expect("a day ago is a time");
+    File::open(&old)
+        .and_then(|directory| directory.set_modified(long_ago))
+        .expect("the directory's time is set back");
+    let handed = Handed::Written {
+        name: "intro.wav".to_owned(),
+        file_name: "clip.wav".to_owned(),
+        bytes: RIFF.to_vec(),
+    };
+    let opener = Recorded::default();
+    hand_media("a.pdf", &handed, &scratch.0, &opener).expect("handed over");
+    assert!(!old.exists(), "the old directory was swept");
+    let written = &opener.files.borrow()[0].0;
+    assert!(written.exists(), "the new clip is kept for its player");
+}
+
+/// A double standing in for `gdbus`, answering with `status` and saying `stderr`.
+#[cfg(unix)]
+fn double(scratch: &Scratch, status: u8, stderr: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let double = scratch.0.join("gdbus");
+    std::fs::write(
+        &double,
+        format!("#!/bin/sh\ncat > /dev/null\necho '{stderr}' >&2\nexit {status}\n"),
+    )
+    .expect("the double is written");
+    std::fs::set_permissions(&double, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    double
+}
+
+/// Looks for the calls' answers as a window's timer does, until none is out.
+fn answered(calls: &mut PortalCalls) -> Vec<String> {
+    let started = std::time::Instant::now();
+    let mut said = Vec::new();
+    while calls.interval().is_some() {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "the call never answered"
+        );
+        said.extend(calls.collect());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    said.extend(calls.collect());
+    said
+}
+
+/// A portal that fails after its call has started is said to the window whose calls it was, with
+/// the portal's own words, and a call that succeeds says nothing more (ADR 3219).
+#[cfg(unix)]
+#[test]
+fn a_portal_failure_after_the_call_reaches_the_window() {
+    let handed = Handed::Url("https://example.org/clip.mp4".to_owned());
+    let failing = Scratch::new("portal-fails");
+    let mut calls = PortalCalls::new();
+    assert_eq!(calls.interval(), None);
+    let portal = calls.portal_through(double(&failing, 1, "no such portal"));
+    hand_media("a.pdf", &handed, &failing.0, &portal).expect("the call was started");
+    let said = answered(&mut calls);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("https://example.org/clip.mp4")
+            && said[0].contains("did not open it")
+            && said[0].contains("no such portal"),
+        "{said:?}"
+    );
+    let taking = Scratch::new("portal-takes");
+    let portal = calls.portal_through(double(&taking, 0, ""));
+    hand_media("a.pdf", &handed, &taking.0, &portal).expect("the call was started");
+    assert_eq!(answered(&mut calls), Vec::<String>::new());
 }

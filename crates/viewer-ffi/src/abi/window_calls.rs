@@ -1969,6 +1969,32 @@ pub unsafe extern "C" fn quorra_window_opened_list(
     }
 }
 
+/// The platform's opener answered that it did not open what a `QUORRA_OWED_OPEN_FILE` or
+/// `QUORRA_OWED_OPEN_URI` record named: `handed` is the record's text and `why` the opener's
+/// answer, and the window says it (ADRs 3217, 3219).
+///
+/// # Safety
+///
+/// See the module documentation. `handed` and `why` are NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_open_failed(
+    window: *mut Window,
+    handed: *const c_char,
+    why: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match (owned_text(handed), owned_text(why)) {
+        (Ok(Some(handed)), Ok(Some(why))) => {
+            window.open_failed(&handed, &why);
+            Status::Ok.code()
+        }
+        (Err(()), _) | (_, Err(())) => Status::NotUtf8.code(),
+        _ => Status::NullArgument.code(),
+    }
+}
+
 /// A placed check box or radio button, by its widget annotation, clicked to `on`; a refusal the
 /// field's flags state is said. `QUORRA_NO_ANSWER` where no widget on the page is that annotation,
 /// `QUORRA_WRONG_KIND` where it toggles nothing.

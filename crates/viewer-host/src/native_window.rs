@@ -341,6 +341,9 @@ pub struct WindowState {
     /// The trusted lists' refresh, on a `fetch-trusted-lists` thread of its own while one is out,
     /// looked for on the timer that looks for a server's answers (ADR 2886).
     pub refresher: crate::trusted_list_fetch::Refresher,
+    /// The desktop portal's calls out, a media clip each, looked for on the timer that looks for
+    /// a server's answers so that a failure after the call is said here (ADR 3219).
+    pub portal_calls: crate::policy::PortalCalls,
     /// §6.3.2.2: who draws §12.7's widgets — the toolkit's controls, or the document's own
     /// pictures.
     ///
@@ -473,6 +476,7 @@ impl WindowState {
             converter: crate::archiving::Converter::new(),
             trusting: crate::Trusting::default(),
             refresher: crate::trusted_list_fetch::Refresher::new(),
+            portal_calls: crate::policy::PortalCalls::new(),
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
@@ -505,23 +509,22 @@ impl WindowState {
     }
 
     /// Whether anything this window runs on a thread of its own is still out, so that the
-    /// timer looking for it keeps running: a server's answer, a conversion, or the trusted lists'
-    /// refresh.
+    /// timer looking for it keeps running: a server's answer, a conversion, the trusted lists'
+    /// refresh, or a call to the desktop portal.
     #[must_use]
-    pub const fn looking(&self) -> bool {
-        self.submitter.interval().is_some()
-            || self.converter.interval().is_some()
-            || self.refresher.interval().is_some()
+    pub fn looking(&self) -> bool {
+        self.answers_interval().is_some()
     }
 
     /// How long a window's timer waits before [`NativeWindow::take_the_answers`] looks again: the
-    /// interval of whichever of [`Self::looking`]'s three is out, or `None` where none is.
+    /// interval of whichever of [`Self::looking`]'s four is out, or `None` where none is.
     #[must_use]
     pub fn answers_interval(&self) -> Option<std::time::Duration> {
         self.submitter
             .interval()
             .or(self.converter.interval())
             .or(self.refresher.interval())
+            .or(self.portal_calls.interval())
     }
 
     /// When the window should look at its pages again: the drawing thread's interval or the
@@ -1110,8 +1113,7 @@ pub trait NativeWindow {
         );
         match decided {
             crate::Handing::Hand { handed, note } => {
-                let said = crate::hand_over_media(&label, &handed, note.as_deref());
-                self.say(&said);
+                self.hand_media_over(&label, &handed, note.as_deref());
             }
             crate::Handing::Ask { handed, question } => self.ask(
                 Asked::Media {
@@ -1121,6 +1123,32 @@ pub trait NativeWindow {
                 &question,
             ),
             crate::Handing::Refuse(said) => self.say(&said),
+        }
+    }
+
+    /// Hands a clip the level or the person let through to this machine's player and says what
+    /// became of it: through the desktop portal, whose failure after the call is taken in with the
+    /// window's other answers and said here (ADR 3219). The C ABI's window hands it to the program
+    /// hosting it instead, which is the platform's own (ADR 3217).
+    fn hand_media_over(&mut self, document: &str, handed: &crate::Handed, note: Option<&str>) {
+        let first = !self.state().looking();
+        let portal = self.state().portal_calls.portal();
+        let said = crate::policy::hand_over_media_to(document, handed, note, &portal);
+        self.say(&said);
+        if first && self.state().looking() {
+            self.look_for_answers();
+        }
+    }
+
+    /// Hands §12.6.4.6's launched document at `path` to this machine's own handler, saying `said`
+    /// once it is started and the reason where it could not be (ADR 2171). The C ABI's window
+    /// hands it to the program hosting it instead (ADR 3217).
+    fn hand_launched_over(&mut self, name: &str, path: &Path, said: &str) {
+        match crate::policy::hand_over(path) {
+            Ok(()) => self.say(said),
+            Err(error) => self.say(&format!(
+                "Launch: {name} could not be handed over — {error}"
+            )),
         }
     }
 
@@ -2198,6 +2226,9 @@ pub trait NativeWindow {
                 self.say(line);
             }
             self.dispatch(Command::Trust(refreshed.trust));
+        }
+        for failed in self.state_mut().portal_calls.collect() {
+            self.say(&failed);
         }
         self.take_the_conversions();
     }

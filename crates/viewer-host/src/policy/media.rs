@@ -33,6 +33,12 @@ use std::process::{Command, Stdio};
 
 use super::resolve_import;
 
+mod calls;
+mod sweep;
+
+pub use calls::{PortalCalls, Told};
+pub use sweep::{MEDIA_DIRECTORY_PREFIX, SWEPT_AFTER, sweep};
+
 /// The word a person types to say what this reader does with a media file a document hands to a
 /// player.
 ///
@@ -344,10 +350,15 @@ pub trait Opener {
 /// of every window for one call — `CLAUDE.md`'s "no heavy runtime" — and keeps the call a child
 /// process, as [`super::URI_HANDLER`]'s already is. The file goes in as `gdbus`'s standard input,
 /// descriptor 0, so no descriptor table is arranged by hand.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A failure after the spawn reaches the window through `told` where a window gave one
+/// ([`PortalCalls::portal`]), and the terminal where none did (ADR 3219).
+#[derive(Debug, Clone)]
 pub struct Portal {
     /// The program that makes the call: `gdbus`, or a double in a test.
     pub program: PathBuf,
+    /// Where the waiting thread says what became of the call.
+    pub told: Option<Told>,
 }
 
 /// The portal's bus name, object path and interface, as the XDG desktop portal documents them.
@@ -359,6 +370,7 @@ impl Default for Portal {
     fn default() -> Self {
         Self {
             program: PathBuf::from("gdbus"),
+            told: None,
         }
     }
 }
@@ -380,12 +392,13 @@ impl Portal {
         command
     }
 
-    fn call(mut command: Command, handled: String) -> Result<(), String> {
-        // Windows has no desktop portal; its opener is the WinUI window's to connect, and until it
-        // is the hand-off is declined by name rather than attempted (ADR 3201).
+    fn call(&self, mut command: Command, handled: String) -> Result<(), String> {
+        // Windows has no desktop portal. The `WinUI` window opens files itself through the C ABI's
+        // window (ADR 3217), so this is reached on Windows only by a toolkit with no opener, and
+        // there the hand-off is declined by name rather than attempted (ADR 3201).
         if cfg!(windows) {
             return Err(
-                "this window has no opener on Windows yet, so nothing was handed to a player"
+                "this window has no opener on Windows, so nothing was handed to a player"
                     .to_owned(),
             );
         }
@@ -394,21 +407,50 @@ impl Portal {
             .map_err(|error| format!("the desktop portal could not be called: {error}"))?;
         // The reply is the portal's request handle and arrives at once; the player starts after
         // it. Waited for on a thread of its own so that a portal that is slow to activate holds
-        // no window, and said on the terminal where it failed — `start_handler`'s shape.
-        std::thread::Builder::new()
+        // no window — `start_handler`'s shape — and a failure is said in the window that `told`
+        // belongs to, or on the terminal where no window gave one (ADR 3219).
+        let told = self.told.clone();
+        if let Some(told) = &told {
+            told.waiting();
+        }
+        let name = self.name();
+        let waited = std::thread::Builder::new()
             .name("media-portal".to_owned())
-            .spawn(move || match child.wait_with_output() {
-                Ok(output) if output.status.success() => {}
-                Ok(output) => eprintln!(
-                    "note: the desktop portal did not open {handled}: {} {}",
-                    output.status,
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
-                Err(error) => {
-                    eprintln!("note: the desktop portal call for {handled} could not be waited for: {error}");
+            .spawn(move || {
+                let failure = match child.wait_with_output() {
+                    Ok(output) if output.status.success() => None,
+                    Ok(output) => Some(not_opened(
+                        &name,
+                        &handled,
+                        &format!(
+                            "{} {}",
+                            output.status,
+                            String::from_utf8_lossy(&output.stderr).trim()
+                        ),
+                    )),
+                    Err(error) => Some(not_opened(
+                        &name,
+                        &handled,
+                        &format!("its call could not be waited for: {error}"),
+                    )),
+                };
+                match told {
+                    Some(told) => told.finished(failure),
+                    None => {
+                        if let Some(failure) = failure {
+                            eprintln!("note: {failure}");
+                        }
+                    }
                 }
-            })
-            .map_err(|error| format!("no thread to wait for the desktop portal on: {error}"))?;
+            });
+        if let Err(error) = waited {
+            if let Some(told) = &self.told {
+                told.not_waiting();
+            }
+            return Err(format!(
+                "no thread to wait for the desktop portal on: {error}"
+            ));
+        }
         Ok(())
     }
 }
@@ -417,13 +459,13 @@ impl Opener for Portal {
     fn open_file(&self, file: File, path: &Path) -> Result<(), String> {
         let mut command = self.command("OpenFile", "@h 0");
         command.stdin(Stdio::from(file));
-        Self::call(command, path.display().to_string())
+        self.call(command, path.display().to_string())
     }
 
     fn open_uri(&self, uri: &str) -> Result<(), String> {
         let mut command = self.command("OpenURI", &gvariant_string(uri));
         command.stdin(Stdio::null());
-        Self::call(command, uri.to_owned())
+        self.call(command, uri.to_owned())
     }
 
     fn name(&self) -> String {
@@ -467,11 +509,15 @@ pub fn hand_media(
     opener: &dyn Opener,
 ) -> Result<String, String> {
     let not_handed = |why: String| declined(document, &handed.describe(), &why);
+    let mut unswept = Vec::new();
     match handed {
         Handed::Written {
             file_name, bytes, ..
         } => {
             let path = write_private(directory, file_name, bytes).map_err(not_handed)?;
+            if let Some(ours) = path.parent() {
+                unswept = sweep(directory, ours, std::time::SystemTime::now());
+            }
             let file = File::open(&path)
                 .map_err(|error| not_handed(format!("cannot read {}: {error}", path.display())))?;
             opener.open_file(file, &path).map_err(not_handed)?;
@@ -496,12 +542,25 @@ pub fn hand_media(
         }
         Handed::Url(url) => opener.open_uri(url).map_err(not_handed)?,
     }
-    Ok(format!(
+    let mut said = format!(
         "{document}: the media clip {} was handed to {}, which starts this machine's player \
          (ISO 32000-2 §13.2.4.2)",
         handed.describe(),
         opener.name()
-    ))
+    );
+    if !unswept.is_empty() {
+        said.push_str("; an older clip's directory was not removed: ");
+        said.push_str(&unswept.join("; "));
+    }
+    Ok(said)
+}
+
+/// What is said where `opener` took `handled` and then answered that it did not open it — the
+/// portal's call failing after its spawn, or the `WinUI` window's `Launcher` answering `false`
+/// (ADRs 3217, 3219).
+#[must_use]
+pub fn not_opened(opener: &str, handled: &str, why: &str) -> String {
+    format!("{handled} was handed to {opener}, which did not open it: {why}")
 }
 
 /// [`hand_media`] as a window carries it out: through [`Portal`], into [`media_directory`], with
@@ -509,7 +568,19 @@ pub fn hand_media(
 /// either way.
 #[must_use]
 pub fn hand_over_media(document: &str, handed: &Handed, note: Option<&str>) -> String {
-    match hand_media(document, handed, &media_directory(), &Portal::default()) {
+    hand_over_media_to(document, handed, note, &Portal::default())
+}
+
+/// [`hand_over_media`] through `opener`: a window's own [`PortalCalls::portal`], whose failure
+/// after the call is said in that window, or a host's opener (ADRs 3217, 3219).
+#[must_use]
+pub fn hand_over_media_to(
+    document: &str,
+    handed: &Handed,
+    note: Option<&str>,
+    opener: &dyn Opener,
+) -> String {
+    match hand_media(document, handed, &media_directory(), opener) {
         Ok(said) => match note {
             Some(note) => format!("{said} — {note}"),
             None => said,
@@ -543,7 +614,7 @@ fn write_private(directory: &Path, file_name: &str, bytes: &[u8]) -> Result<Path
     let mut attempt: u32 = 0;
     let private = loop {
         let candidate = directory.join(format!(
-            "quorra-media-{}-{stamp}-{attempt}",
+            "{MEDIA_DIRECTORY_PREFIX}{}-{stamp}-{attempt}",
             std::process::id()
         ));
         // `create_dir` and never `create_dir_all`: a directory that already exists — another

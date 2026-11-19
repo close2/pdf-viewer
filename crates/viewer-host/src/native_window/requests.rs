@@ -248,7 +248,7 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
         Asked::Media { document, handed } => media_answered(window, &document, &handed, proceed),
         Asked::LaunchedDocument { name, path } => {
             if proceed {
-                hand_over(window, &name, &path, &crate::policy::handed(&name));
+                window.hand_launched_over(&name, &path, &crate::policy::handed(&name));
             } else {
                 window.say(&crate::remote_declined(Purpose::LaunchDocument, &name));
             }
@@ -256,20 +256,19 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
     }
 }
 
-/// Clause 13's question answered: a `yes` hands the clip to this machine's player through the
-/// desktop portal, a `no` keeps it here, and either is said (ADR 3201).
+/// Clause 13's question answered: a `yes` hands the clip to this machine's player, a `no` keeps
+/// it here, and either is said (ADR 3201).
 fn media_answered<W: NativeWindow + ?Sized>(
     window: &mut W,
     document: &str,
     handed: &crate::Handed,
     proceed: bool,
 ) {
-    let said = if proceed {
-        crate::hand_over_media(document, handed, None)
+    if proceed {
+        window.hand_media_over(document, handed, None);
     } else {
-        crate::policy::media_declined(document, handed)
-    };
-    window.say(&said);
+        window.say(&crate::policy::media_declined(document, handed));
+    }
 }
 
 /// §12.7.6.2's composed request, under the level the window holds (ADR 1291).
@@ -622,7 +621,7 @@ fn launched_elsewhere<W: NativeWindow + ?Sized>(
     match crate::policy::launched(path, name, read, level) {
         None => {}
         Some(crate::Launched::Program(said) | crate::Launched::Refuse(said)) => window.say(&said),
-        Some(crate::Launched::Hand(said)) => hand_over(window, name, path, &said),
+        Some(crate::Launched::Hand(said)) => window.hand_launched_over(name, path, &said),
         Some(crate::Launched::Ask(question)) => window.ask(
             Asked::LaunchedDocument {
                 name: name.to_owned(),
@@ -630,17 +629,6 @@ fn launched_elsewhere<W: NativeWindow + ?Sized>(
             },
             &question,
         ),
-    }
-}
-
-/// Hands `path` to this machine's own handler, saying `said` once it is started and the reason
-/// where it could not be.
-fn hand_over<W: NativeWindow + ?Sized>(window: &mut W, name: &str, path: &Path, said: &str) {
-    match crate::policy::hand_over(path) {
-        Ok(()) => window.say(said),
-        Err(error) => window.say(&format!(
-            "Launch: {name} could not be handed over — {error}"
-        )),
     }
 }
 

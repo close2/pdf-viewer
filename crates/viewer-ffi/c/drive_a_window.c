@@ -629,6 +629,16 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window title: %s\n", seen.title);
+    /* The platform's opener refused what an OPEN_URI record named: handed back, and said as a
+     * sentence (ADRs 3217, 3219). */
+    if (!check("quorra_window_open_failed",
+               quorra_window_open_failed(window, "https://example.org/clip.mp4", "no player"))
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window open failed: %s; null is %d\n", seen.said,
+           quorra_window_open_failed(window, NULL, "no player"));
     if (!chrome_contract(window) || !read_the_panels(window, &seen)
         || !choose_a_page(window, &seen) || !choose_permissions(window)) {
         quorra_window_free(window);

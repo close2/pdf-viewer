@@ -2106,7 +2106,11 @@ typedef struct quorra_owed quorra_owed;
                                     * quorra_owed_print; quorra_window_print_finish */
 #define QUORRA_OWED_LIST_OPENS 17u  /* display that choice field's drop-down list now: the field's
                                      * name; quorra_window_opened_list once shown (ADR 2791) */
-#define QUORRA_OWED_KIND_COUNT 18u
+#define QUORRA_OWED_OPEN_FILE 18u   /* quorra_owed_text: a file's path, for the platform's opener;
+                                     * quorra_window_open_failed where it was not opened (ADR 3217) */
+#define QUORRA_OWED_OPEN_URI  19u   /* quorra_owed_text: a media clip's URL, for the platform's
+                                     * opener; quorra_window_open_failed where not opened */
+#define QUORRA_OWED_KIND_COUNT 20u
 
 /* What a REPAINT record changed since the caller was last told, quorra_owed_repaint's bits
  * (ADR 2168). */
@@ -2436,6 +2440,9 @@ int32_t quorra_window_cancel_field(quorra_window *window, const char *field);
  * not before, then call quorra_window_opened_list (XFA 3.3 page 392; ADR 2791). */
 int32_t quorra_window_opening_list(quorra_window *window, const char *field);
 int32_t quorra_window_opened_list(quorra_window *window, const char *field);
+/* The platform's opener did not open what a QUORRA_OWED_OPEN_FILE or QUORRA_OWED_OPEN_URI record
+ * named: that record's text and the opener's reason, said in the window (ADRs 3217, 3219). */
+int32_t quorra_window_open_failed(quorra_window *window, const char *handed, const char *why);
 int32_t quorra_window_toggle_field(quorra_window *window, uint32_t number, uint16_t generation,
                                    bool on);
 int32_t quorra_window_set_group(quorra_window *window, uint32_t number, uint16_t generation,

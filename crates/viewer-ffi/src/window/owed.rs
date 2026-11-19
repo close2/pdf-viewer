@@ -72,11 +72,20 @@ pub enum OwedKind {
     /// fully qualified name, and `quorra_window_opened_list` is called once the list is shown or
     /// could not be (XFA 3.3 page 392; ADR 2791).
     ListOpens = 17,
+    /// A file to hand to the platform's own opener — a media clip this window wrote, a media file
+    /// beside the document, or §12.6.4.6's launched document — the level or the person having let
+    /// it through: `quorra_owed_text` is its path, and `quorra_window_open_failed` is called where
+    /// the opener answers that it did not open it (ADR 3217).
+    OpenFile = 18,
+    /// §7.11.5's URL of a media clip, to hand to the platform's opener for its scheme:
+    /// `quorra_owed_text` is the URL, and `quorra_window_open_failed` is called where it was not
+    /// opened (ADR 3217).
+    OpenUri = 19,
 }
 
 impl OwedKind {
     /// How many kinds this build defines: `QUORRA_OWED_KIND_COUNT`.
-    pub const COUNT: u32 = 18;
+    pub const COUNT: u32 = 20;
 
     /// The number the header declares, as C sees it.
     #[must_use]
@@ -106,6 +115,8 @@ impl OwedKind {
             15 => Self::ScriptWithdrawn,
             16 => Self::Print,
             17 => Self::ListOpens,
+            18 => Self::OpenFile,
+            19 => Self::OpenUri,
             _ => return None,
         })
     }
@@ -132,6 +143,8 @@ impl OwedKind {
             Self::ScriptWithdrawn => "script withdrawn\0",
             Self::Print => "print\0",
             Self::ListOpens => "list opens\0",
+            Self::OpenFile => "open file\0",
+            Self::OpenUri => "open uri\0",
         }
     }
 }
@@ -207,6 +220,10 @@ pub(crate) enum Owed {
     },
     /// A drop-down list granted, by its field's fully qualified name.
     ListOpens(String),
+    /// A file for the platform's opener, by its path.
+    OpenFile(String),
+    /// A URL for the platform's opener.
+    OpenUri(String),
 }
 
 impl Owed {
@@ -232,6 +249,8 @@ impl Owed {
             Self::ScriptWithdrawn { .. } => OwedKind::ScriptWithdrawn,
             Self::Print { .. } => OwedKind::Print,
             Self::ListOpens(_) => OwedKind::ListOpens,
+            Self::OpenFile(_) => OwedKind::OpenFile,
+            Self::OpenUri(_) => OwedKind::OpenUri,
         }
     }
 
@@ -244,6 +263,8 @@ impl Owed {
             | Self::Question(text)
             | Self::Clipboard(text)
             | Self::ListOpens(text)
+            | Self::OpenFile(text)
+            | Self::OpenUri(text)
             | Self::Password { words: text, .. }
             | Self::Script { title: text, .. }
             | Self::Print { words: text, .. }

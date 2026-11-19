@@ -676,6 +676,11 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     internal void OpenedList(string field) =>
         Library.Check("quorra_window_opened_list", Native.quorra_window_opened_list(handle, field));
 
+    /// <summary>The platform's opener did not open what a QUORRA_OWED_OPEN_FILE or
+    /// QUORRA_OWED_OPEN_URI record named, for <paramref name="why"/>: said in the window (ADR 3217).</summary>
+    internal void OpenFailed(string handed, string why) =>
+        Library.Check("quorra_window_open_failed", Native.quorra_window_open_failed(handle, handed, why));
+
     /// <summary>A check box's or radio button's widget clicked towards <paramref name="on"/>.</summary>
     internal void ToggleField(uint number, ushort generation, bool on) =>
         Library.Check("quorra_window_toggle_field", Native.quorra_window_toggle_field(handle, number, generation, on));

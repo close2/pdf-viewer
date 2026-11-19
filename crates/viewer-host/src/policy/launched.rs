@@ -173,6 +173,13 @@ pub fn handed(name: &str) -> String {
     format!("Launch: {name} was handed to this machine's own handler ({URI_HANDLER})")
 }
 
+/// [`handed`]'s sentence where the hand-over went to `opener` rather than [`URI_HANDLER`] — the
+/// `WinUI` window's `Launcher` (ADR 3217).
+#[must_use]
+pub fn handed_to(name: &str, opener: &str) -> String {
+    format!("Launch: {name} was handed to {opener}")
+}
+
 /// Why `path` is a program, or `None` where nothing says it is.
 pub(super) fn program(path: &Path, bytes: &[u8]) -> Option<&'static str> {
     if executable_by_permission(path) {
