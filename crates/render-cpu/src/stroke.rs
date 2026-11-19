@@ -438,6 +438,26 @@ impl CpuRasterizer {
             return Ok(self.brush(shader, blend));
         }
         let ramp = match paint {
+            // A mesh is no gradient a brush can state, so the stroke takes the raster a fill of
+            // the mesh takes, over its own ink (ADR 3095); a mesh it reaches none of is a stroke
+            // that paints nothing here, and is never handed to `paint`, which refuses a mesh.
+            Paint::Shading(shading)
+                if matches!(shading.kind.as_ref(), pdf_render::ShadingKind::Mesh { .. }) =>
+            {
+                let mesh = ink().and_then(|extent| {
+                    crate::shading::mesh_shader(
+                        shading,
+                        extent,
+                        (
+                            to_device.placed(transform),
+                            to_device.placed(shading.transform),
+                        ),
+                        target,
+                        levels,
+                    )
+                });
+                Some(mesh.unwrap_or(tiny_skia::Shader::SolidColor(tiny_skia::Color::TRANSPARENT)))
+            }
             Paint::Shading(shading) => ink().and_then(|extent| {
                 crate::shading::ramp_shader(
                     shading,

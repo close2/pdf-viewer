@@ -1635,16 +1635,41 @@ pub const WASH: Color = Color {
 /// comparison covers both a hard edge and the fractional coverage where a construction can part.
 #[must_use]
 pub fn shading_background() -> DisplayList {
+    shading_background_painted(Mark::Fill)
+}
+
+/// [`shading_background`]'s four quadrants painted by **strokes**: ISO 32000-2 §8.7.4.1 lets a
+/// shading pattern paint "with painting operators such as f (fill), S (stroke)", and Table 77's
+/// wash fills "the area to be painted" whichever operator paints (ADR 3094).
+///
+/// Each stroke is a horizontal line twenty units wide through the middle of its quadrant's square
+/// and as long as the square is wide, so it crosses both the shading and the wash beside it, and
+/// the square above and below the stroke is no area to be painted: a backend that strokes the
+/// shading without its wash leaves the stroke's ends unpainted, and one that washes the whole
+/// square paints past the stroke. [`BACKGROUND_STROKES`] holds the rows.
+#[must_use]
+pub fn shading_background_stroked() -> DisplayList {
+    shading_background_painted(Mark::Through)
+}
+
+/// The device row through the middle of each [`shading_background_stroked`] stroke at scale 1, top
+/// row of quadrants then bottom: the strokes run along page y = 52.5 and 147.5, the middles of the
+/// quadrants' squares, which are the centres of rows 52 and 147.
+pub const BACKGROUND_STROKES: [u32; 2] = [52, 147];
+
+/// [`WASH`] as the eight-bit RGB a backend paints it: 0, 0.6 and 0.6 of 255.
+pub const WASH_RGB8: [u8; 3] = [0, 153, 153];
+
+/// The scene of [`shading_background`] and [`shading_background_stroked`], painted by `mark`.
+fn shading_background_painted(mark: Mark) -> DisplayList {
     let mut list = DisplayList::new(Size::new(200.0, 200.0));
     let ramp = || pdf_render::Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t));
 
     // Top left: an axial band 32.5 units wide inside an 85-unit square, extended at neither
     // end, so the wash is everything to the left of x = 33.5 and right of x = 66.
-    list.push(Command::Fill {
-        path: Arc::new(rect(10.0, 10.0, 95.0, 95.0)),
-        transform: Transform::IDENTITY,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+    list.push(mark.painting(
+        (10.0, 10.0, 95.0, 95.0),
+        Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
             anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Axial {
@@ -1655,20 +1680,15 @@ pub fn shading_background() -> DisplayList {
             }),
             transform: Transform::IDENTITY,
         })),
-        clip: None,
-        mask: None,
-        blend: BlendMode::Normal,
-    });
+    ));
 
     // Top right: two nested circles, neither end extended, so the wash is the square minus
     // the outer disc. Nested rather than a cone on purpose — this is the geometry a gradient
     // library *can* express, and it is therefore the quadrant that would catch a backend
     // keeping its own gradient and losing the wash.
-    list.push(Command::Fill {
-        path: Arc::new(rect(105.0, 10.0, 190.0, 95.0)),
-        transform: Transform::IDENTITY,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+    list.push(mark.painting(
+        (105.0, 10.0, 190.0, 95.0),
+        Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
             anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Radial {
@@ -1681,21 +1701,16 @@ pub fn shading_background() -> DisplayList {
             }),
             transform: Transform::IDENTITY,
         })),
-        clip: None,
-        mask: None,
-        blend: BlendMode::Normal,
-    });
+    ));
 
     // Bottom left: two triangles covering the left half of the square, so the wash is its
     // right half plus the sliver above and below the mesh's own extent.
     let corner = |x: f32, y: f32| Point::new(x, y);
     let red = Color::rgb(1.0, 0.0, 0.0);
     let blue = Color::rgb(0.0, 0.0, 1.0);
-    list.push(Command::Fill {
-        path: Arc::new(rect(10.0, 105.0, 95.0, 190.0)),
-        transform: Transform::IDENTITY,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+    list.push(mark.painting(
+        (10.0, 105.0, 95.0, 190.0),
+        Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
             anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Mesh {
@@ -1722,20 +1737,15 @@ pub fn shading_background() -> DisplayList {
             }),
             transform: Transform::IDENTITY,
         })),
-        clip: None,
-        mask: None,
-        blend: BlendMode::Normal,
-    });
+    ));
 
     // Bottom right: the unit domain carried onto a 55-unit square inside an 85-unit one, so
     // the wash is the border around it. §8.7.4.5.2 is the clause that states this quadrant
     // outright — points inside the box and outside the transformed domain "shall be painted
     // with the shading's background colour".
-    list.push(Command::Fill {
-        path: Arc::new(rect(105.0, 105.0, 190.0, 190.0)),
-        transform: Transform::IDENTITY,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+    list.push(mark.painting(
+        (105.0, 105.0, 190.0, 190.0),
+        Paint::Shading(Arc::new(pdf_render::Shading {
             background: Some(WASH),
             anti_alias: false,
             kind: Arc::new(pdf_render::ShadingKind::Sampled {
@@ -1745,10 +1755,7 @@ pub fn shading_background() -> DisplayList {
             }),
             transform: Transform::new(55.0, 0.0, 0.0, 55.0, 120.5, 120.5),
         })),
-        clip: None,
-        mask: None,
-        blend: BlendMode::Normal,
-    });
+    ));
 
     list
 }
@@ -1804,8 +1811,11 @@ pub fn shading_anti_alias_stroked(anti_alias: bool) -> DisplayList {
 enum Mark {
     /// `f`: the rectangle the shading covers is filled.
     Fill,
-    /// `S`: a twenty-unit line through the middle of that rectangle is stroked.
+    /// `S`: a twenty-unit line through the middle of that rectangle is stroked, at the row of
+    /// [`ANTI_ALIAS_EDGES`].
     Stroke,
+    /// `S`: a twenty-unit line through the rectangle's own vertical middle is stroked, end to end.
+    Through,
 }
 
 impl Mark {
@@ -1821,11 +1831,16 @@ impl Mark {
                 mask: None,
                 blend: BlendMode::Normal,
             },
-            Self::Stroke => {
+            Self::Stroke | Self::Through => {
                 // Page y = 100.5 is the row of `ANTI_ALIAS_EDGES`, the radial's centre.
+                let row = if matches!(self, Self::Stroke) {
+                    100.5
+                } else {
+                    f32::midpoint(bottom, top)
+                };
                 let mut line = Path::new();
-                line.push(PathCommand::MoveTo(Point::new(left, 100.5)));
-                line.push(PathCommand::LineTo(Point::new(right, 100.5)));
+                line.push(PathCommand::MoveTo(Point::new(left, row)));
+                line.push(PathCommand::LineTo(Point::new(right, row)));
                 Command::Stroke {
                     path: Arc::new(line),
                     transform: Transform::IDENTITY,

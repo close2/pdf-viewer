@@ -302,8 +302,71 @@ pub(crate) fn raster_shader<'a>(
         (page, (left, top, right, bottom))
     };
     let raster = pdf_render::ShadingRaster::build(shading, grid.matrix, within, target)?;
-    let samples = premultiplied(&raster.image)?;
-    let (x, y) = grid.onto_surface(raster.left, raster.top);
+    device_raster_pattern(
+        &raster.image,
+        grid.onto_surface(raster.left, raster.top),
+        shape,
+        scratch,
+    )
+}
+
+/// The brush a stroke's marks are painted with where the shading is a mesh (ISO 32000-2
+/// §8.7.4.5.5 to §8.7.4.5.8) that [`raster_shader`] does not take — the raster [`fill_mesh`] draws
+/// a fill of the same mesh through, built over the pixels the stroke's [`Extent`] can reach.
+///
+/// §8.7.4.1 lets a shading pattern paint with "S (stroke)" as with "f (fill)", and no gradient
+/// library can draw a mesh as a brush; so the stroke takes the fill's [`pdf_render::MeshRaster`],
+/// evaluated at the page's own pixel centres, and its marks keep their own coverage, as
+/// [`raster_shader`]'s do (ADR 3095).
+///
+/// `onto_mesh` places the mesh's coordinates (the shading's transform) on the page's grid, and
+/// `shape` the stroke's path space. `None` where the shading is no mesh, where the extent covers no
+/// pixel of this surface, where the mesh paints none of it, or where the placement has no inverse.
+pub(crate) fn mesh_shader<'a>(
+    shading: &Shading,
+    extent: Extent<'_>,
+    (shape, onto_mesh): (Placed, Placed),
+    target: (u32, u32),
+    scratch: &'a mut Option<tiny_skia::Pixmap>,
+) -> Option<tiny_skia::Shader<'a>> {
+    let ShadingKind::Mesh {
+        triangles,
+        patches,
+        ramp,
+    } = shading.kind.as_ref()
+    else {
+        return None;
+    };
+    let grid = OnSurface::page(onto_mesh);
+    let within = match extent {
+        Extent::Filled(path) => grid.bounds(path, shape, target)?,
+        Extent::Stroked { ink, reach } => grid.bounds_of_ink(ink, reach, target)?,
+    };
+    let raster = pdf_render::MeshRaster::build_within(
+        triangles,
+        patches.as_ref(),
+        ramp.as_ref(),
+        grid.matrix,
+        within,
+    )?;
+    device_raster_pattern(
+        &raster.image,
+        grid.onto_surface(raster.left, raster.top),
+        shape,
+        scratch,
+    )
+}
+
+/// A raster of one sample per device pixel, its first column and row at `(x, y)` on the surface,
+/// as a pattern in the path space `shape` maps from: nearest sampling, so each mark's pixel takes
+/// the raster's own sample there.
+fn device_raster_pattern<'a>(
+    image: &pdf_render::Image,
+    (x, y): (i32, i32),
+    shape: Placed,
+    scratch: &'a mut Option<tiny_skia::Pixmap>,
+) -> Option<tiny_skia::Shader<'a>> {
+    let samples = premultiplied(image)?;
     #[expect(
         clippy::cast_precision_loss,
         reason = "a device pixel index is far below f32's exact integer limit"

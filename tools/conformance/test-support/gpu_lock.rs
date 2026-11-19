@@ -23,9 +23,18 @@
 //! - **Nested and shared within a process.** The lock is the process's: a section inside a held
 //!   section, or on another thread while one is held, counts a holder instead of locking again, which
 //!   a second `flock` on a fresh descriptor in the same process would turn into a deadlock.
+//! - **Served in arrival order.** Where a queue directory stands beside the lock file (its name with
+//!   the extension `queue`: `/run/lock/gpu.queue` beside `/run/lock/gpu.lock`), a section waits
+//!   its turn there before it asks for the file's lock, exactly as `with-gpu-lock` does: it writes
+//!   a ticket `<arrival_ns>.<pid>.<start_ticks>.<deadline_s>`, waits until its ticket is the
+//!   earliest live one, takes the lock, and removes the ticket. A bare `flock` is taken by whoever
+//!   wakes first, so without the queue one user's run can take the device back again and again
+//!   while the other's waits (ADR 3093). Where no such directory stands there is no queue, and the
+//!   file's lock alone serialises the device.
 //! - **Bounded.** A wait longer than `GPU_LOCK_TIMEOUT` seconds — `with-gpu-lock`'s own variable,
 //!   600 by default as there — panics naming the file, because a test that waits forever reports
-//!   nothing.
+//!   nothing. The bound covers the queue's wait and the lock's together, and the ticket is removed
+//!   on every way out of the wait, a panic's unwind included.
 //! - **Stopped by a hang, as the kernel records one.** A hardware section that runs past
 //!   [`HUNG_AFTER`] — the kernel's ring timeout is ten seconds, so a job the kernel times out holds
 //!   its section at least that long — asks the kernel's log ([`hang_line`]) whether amdgpu timed a
@@ -89,6 +98,9 @@ const KERNEL_GRACE: Duration = Duration::from_secs(5);
 const KERNEL_SLACK: f64 = 1.0;
 /// How often a waiting section asks again: short beside a frame, long beside a system call.
 const POLL: Duration = Duration::from_millis(5);
+/// How often a queued section reads the queue again: each reading lists the directory and reads
+/// one `/proc` file per ticket, so it is asked less often than the lock.
+const QUEUE_POLL: Duration = Duration::from_millis(25);
 
 /// The process's share of the lock: how many sections hold it, and the descriptor they share.
 struct Held {
@@ -97,6 +109,8 @@ struct Held {
     since: Option<Instant>,
     waited: Duration,
     label: &'static str,
+    /// The queue ticket the hold was served on, for the hold's log line.
+    ticket: Option<String>,
 }
 
 static HELD: Mutex<Held> = Mutex::new(Held {
@@ -105,6 +119,7 @@ static HELD: Mutex<Held> = Mutex::new(Held {
     since: None,
     waited: Duration::ZERO,
     label: "",
+    ticket: None,
 });
 
 fn held() -> MutexGuard<'static, Held> {
@@ -402,6 +417,9 @@ pub(crate) fn enter(label: &'static str) {
         .ok()
         .and_then(|seconds| seconds.parse().ok())
         .map_or(DEFAULT_TIMEOUT, Duration::from_secs);
+    // The ticket is dropped — its file removed — once the lock is taken, and by the unwind of any
+    // panic before that.
+    let ticket = queue_dir(path).map(|queue| Ticket::wait_turn(&queue, asked, bound, path));
     loop {
         match file.try_lock() {
             Ok(()) => break,
@@ -416,6 +434,8 @@ pub(crate) fn enter(label: &'static str) {
             }
         }
     }
+    held.ticket = ticket.as_ref().map(|ticket| ticket.name.clone());
+    drop(ticket);
     held.holders = 1;
     held.waited = asked.elapsed();
     held.since = Some(Instant::now());
@@ -441,17 +461,182 @@ pub(crate) fn leave() {
     drop(held.file.take());
     if let Some(log) = std::env::var_os(LOG) {
         let line = format!(
-            "gpu-lock pid={} section={} waited_ms={:.3} held_ms={:.3}\n",
+            "gpu-lock pid={} section={} waited_ms={:.3} held_ms={:.3} ticket={}\n",
             std::process::id(),
             // One word, so that the line splits on whitespace into its fields.
             held.label.replace(' ', "-"),
             held.waited.as_secs_f64() * 1e3,
             holding.as_secs_f64() * 1e3,
+            held.ticket.take().as_deref().unwrap_or("none"),
         );
         // The log is a measurement's, never a test's verdict: a failed append loses one line.
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
             drop(file.write_all(line.as_bytes()));
         }
+    }
+}
+
+/// The queue directory beside `lock` — its name with the extension `queue` — where one stands.
+///
+/// It is used only where it is a directory and not a link, as `with-gpu-lock` uses it, and only on
+/// Unix, whose `/proc` gives the start times a ticket names; this code never creates it, so a
+/// machine whose lock has no queue keeps the lock alone (ADR 3093).
+pub(crate) fn queue_dir(lock: &Path) -> Option<PathBuf> {
+    if !cfg!(unix) {
+        return None;
+    }
+    let queue = lock.with_extension("queue");
+    std::fs::symlink_metadata(&queue)
+        .is_ok_and(|meta| meta.is_dir())
+        .then_some(queue)
+}
+
+/// A process's start time in clock ticks: field 22 of `/proc/<pid>/stat`, counted after the
+/// command name, which may itself hold spaces and parentheses (`proc(5)`).
+pub(crate) fn start_ticks(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, after_name) = stat.rsplit_once(") ")?;
+    // `after_name` begins at field 3, so field 22 is its twentieth word.
+    after_name.split_whitespace().nth(19)?.parse().ok()
+}
+
+/// The four numbers of a ticket's name, `<arrival_ns>.<pid>.<start_ticks>.<deadline_s>`, or `None`
+/// for any other name.
+pub(crate) fn ticket_fields(name: &str) -> Option<(u128, u32, u64, u64)> {
+    let mut parts = name.split('.');
+    let mut digits = || {
+        parts
+            .next()
+            .filter(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let fields = (
+        digits()?.parse().ok()?,
+        digits()?.parse().ok()?,
+        digits()?.parse().ok()?,
+        digits()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(fields)
+}
+
+/// Whether a ticket still waits: its process runs with the start time it names, and its deadline
+/// has not passed — `with-gpu-lock`'s own rule, so a waiter that was killed, or one whose pid was
+/// reused, holds nobody back.
+pub(crate) fn ticket_live(name: &str, now_s: u64) -> bool {
+    ticket_fields(name).is_some_and(|(_, pid, ticks, deadline)| {
+        now_s < deadline && start_ticks(pid) == Some(ticks)
+    })
+}
+
+fn unix_now() -> Duration {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+}
+
+/// The user owning a file. A queue is used only on Unix ([`queue_dir`]), where `/proc` gives the
+/// start times its tickets name; elsewhere this is never asked.
+#[cfg(unix)]
+fn owner(meta: &std::fs::Metadata) -> u32 {
+    std::os::unix::fs::MetadataExt::uid(meta)
+}
+
+#[cfg(not(unix))]
+fn owner(_: &std::fs::Metadata) -> u32 {
+    u32::MAX
+}
+
+/// This process's place in the queue: its ticket file, removed when dropped.
+struct Ticket {
+    path: PathBuf,
+    name: String,
+}
+
+impl Ticket {
+    /// Writes this process's ticket in `queue` and returns once it is the earliest live one,
+    /// panicking — and so removing it — where that takes past `bound` from `asked`.
+    fn wait_turn(queue: &Path, asked: Instant, bound: Duration, lock: &Path) -> Self {
+        let pid = std::process::id();
+        let ticks = start_ticks(pid).unwrap_or_else(|| {
+            panic!(
+                "the GPU queue {} needs this process's start time, and /proc/{pid}/stat does not \
+                 give it",
+                queue.display()
+            )
+        });
+        let arrival = unix_now();
+        // The script's deadline: arrival, the bound, and two seconds of its own slack.
+        let deadline = arrival
+            .as_secs()
+            .saturating_add(bound.as_secs())
+            .saturating_add(2);
+        let name = format!("{:020}.{pid}.{ticks}.{deadline}", arrival.as_nanos());
+        let path = queue.join(&name);
+        let mine = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "a ticket cannot be written in the GPU queue {}: {error}",
+                    queue.display()
+                )
+            });
+        // The owner of a file this process made is this process's user, with no system call.
+        let user = owner(&mine.metadata().unwrap_or_else(|error| {
+            panic!("the GPU queue ticket {} is unread: {error}", path.display())
+        }));
+        drop(mine);
+        let ticket = Self { path, name };
+        loop {
+            if ticket.is_head(queue, user) {
+                return ticket;
+            }
+            assert!(
+                asked.elapsed() < bound,
+                "the GPU lock {} was queued for by other processes for more than {} s \
+                 ({TIMEOUT}); the queue is {}",
+                lock.display(),
+                bound.as_secs(),
+                queue.display()
+            );
+            std::thread::sleep(QUEUE_POLL);
+        }
+    }
+
+    /// Whether this ticket is the earliest live one, removing on the way the stale tickets of this
+    /// user — a waiter that was killed — and leaving other users' to them, as the script does.
+    fn is_head(&self, queue: &Path, user: u32) -> bool {
+        let now = unix_now().as_secs();
+        let mut names: Vec<(String, PathBuf)> = std::fs::read_dir(queue)
+            .unwrap_or_else(|error| panic!("the GPU queue {} is unread: {error}", queue.display()))
+            .filter_map(Result::ok)
+            .filter_map(|entry| Some((entry.file_name().into_string().ok()?, entry.path())))
+            .filter(|(name, _)| ticket_fields(name).is_some())
+            .collect();
+        // Byte order is arrival order: the arrival is the name's first field, zero-padded.
+        names.sort_unstable();
+        for (name, path) in names {
+            if ticket_live(&name, now) {
+                return name == self.name;
+            }
+            if name != self.name
+                && std::fs::symlink_metadata(&path).is_ok_and(|meta| owner(&meta) == user)
+            {
+                // Another waiter may remove the same stale ticket first; either way it is gone.
+                drop(std::fs::remove_file(&path));
+            }
+        }
+        // No live ticket at all, this one included: its deadline has passed, which the bound
+        // reports on the caller's next look at the clock.
+        false
+    }
+}
+
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        // A ticket already gone (removed as stale by another waiter after its deadline) is the
+        // state this drop wants.
+        drop(std::fs::remove_file(&self.path));
     }
 }
 

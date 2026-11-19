@@ -55,15 +55,13 @@ pub(super) fn shading_with_alpha(shading: &Arc<Shading>, alpha: f32) -> Arc<Shad
 impl Interpreter<'_> {
     /// Names a `/Background` this mark will not paint, and stays quiet about one it will.
     ///
-    /// Two cases reach here, and the report's condition is exactly those two (trap 11):
+    /// One case reaches here, and the report's condition is exactly it (trap 11): an array Table
+    /// 77's own sentence cannot use — "an array of colour components appropriate to the colour
+    /// space" is a *count*, and one of any other length states no colour that could be painted,
+    /// so `resolved` is `None` while the dictionary states an array.
     ///
-    /// - a **stroking** selection, whose wash [`ShadingDefinition::paints_background`] has
-    ///   already dropped, so `resolved` is `None` while the dictionary states an array;
-    /// - an array Table 77's own sentence cannot use — "an array of colour components
-    ///   appropriate to the colour space" is a *count*, and one of any other length states no
-    ///   colour that could be painted.
-    ///
-    /// A fill of a usable array is drawn ([`pdf_render::ShadingRaster`]) and owes nothing.
+    /// A usable array is drawn, by a fill and by a stroke alike ([`pdf_render::ShadingRaster`],
+    /// ADR 3094), and owes nothing.
     pub(super) fn note_unpainted_background(
         &mut self,
         label: &str,
@@ -143,18 +141,11 @@ impl Interpreter<'_> {
                 limit: "max_mesh_refinement",
             });
         }
-        let shading = built.shading;
-        if definition.paints_background {
-            return Ok(shading);
-        }
-        // A stroke: Table 77's wash is a fill's here ([`Unsupported::ShadingBackground`]), so
-        // the stroke draws the shading unwashed. Its `/AntiAlias` is kept: Table 77's filter is
-        // of "the shading function", whichever mark paints it, and every backend strokes a
-        // flagged shading through the same raster a fill takes (ADR 3074).
-        Ok(Shading {
-            background: None,
-            ..shading
-        })
+        // Table 77's `/Background` and `/AntiAlias` are kept for a stroke as for a fill: the wash
+        // fills "the area to be painted" and the filter is of "the shading function", and
+        // §8.7.4.1 names "S (stroke)" among the operators a shading pattern paints with. Every
+        // backend strokes such a shading through the raster a fill takes (ADRs 3074, 3094).
+        Ok(built.shading)
     }
 
     /// The paint a shading pattern makes at the mark that is painting it.

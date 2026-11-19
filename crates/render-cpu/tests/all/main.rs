@@ -53,6 +53,7 @@ mod stroke_fill_geometry_spec_audit;
 mod stroke_join_shapes_audit;
 mod stroke_wider_than_its_curve;
 mod stroke_width;
+mod stroked_shading_background;
 mod thin_segment_ladder;
 mod transfer_edge;
 mod transparent_degenerate_spec_audit;

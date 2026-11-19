@@ -151,19 +151,6 @@ pub(super) struct ShadingDefinition {
     transform: Transform,
     /// §11.6.7's black point compensation, rendering intent and smoothness.
     initial: PatternInitial,
-    /// Whether marks under this definition paint Table 77's `/Background`.
-    ///
-    /// True for a *non-stroking* selection and false for a stroking one, which is a statement
-    /// about this tree rather than about the clause: Table 77's "the area to be painted" is the
-    /// area of any painting operation, and all three backends draw the wash through the
-    /// device-resolution raster lane a **fill** takes ([`pdf_render::ShadingRaster`]). A stroke
-    /// therefore paints its shading and not its wash, which is a shortfall and is named
-    /// ([`Unsupported::ShadingBackground`]) rather than left silent.
-    ///
-    /// It lives on the definition because a shading pattern's colours are rebuilt at the mark
-    /// (§11.6.7, [`Interpreter::shading_paint`]), so a flag the rebuild could not see would be
-    /// a rule somebody has to remember instead of one the type carries.
-    paints_background: bool,
 }
 
 /// Which mark a tiling pattern is the colour of (ISO 32000-2 §8.7.2).
@@ -472,10 +459,6 @@ impl Interpreter<'_> {
             resources: resources.clone(),
             transform: matrix.then(self.base),
             initial,
-            // Table 77's `/Background` "shall be applied only when the shading is used as part
-            // of a shading pattern, not when painted directly with the sh operator", so this is
-            // the one place in the interpreter where the entry means anything at all.
-            paints_background: fill,
         };
         let built = self.mark_colouring(&definition);
         match self.build_shading(&definition, &built) {

@@ -117,3 +117,27 @@ fn a_filtered_stroke_paints_the_fills_pixels_inside_it() {
         }
     }
 }
+
+/// A stroke of a mesh that does not ask for the filter is drawn, and paints the fill's pixels
+/// inside it (ADR 3095): §8.7.4.1 lets a shading pattern paint with "S (stroke)" as with
+/// "f (fill)", and a mesh is no gradient a brush can state, so the stroke takes the raster the
+/// fill of the mesh takes. The mesh is the scene's third shading, at columns 165 to 196.
+#[test]
+fn an_unfiltered_mesh_stroke_paints_the_fills_pixels_inside_it() {
+    let (stroked, filled) = (drawn_list(&shading_anti_alias_stroked(false)), drawn(false));
+    for row in 95..105 {
+        for column in 170..190 {
+            assert_eq!(
+                stroked((column, row)),
+                filled((column, row)),
+                "({column}, {row})"
+            );
+        }
+    }
+    // Black before the step and white after it: the mesh's own colours, not a refusal's blank.
+    let [_, black, white] = ANTI_ALIAS_EDGES[2];
+    assert!(
+        stroked(black) <= 2 && stroked(white) >= 253,
+        "{black:?} and {white:?}"
+    );
+}

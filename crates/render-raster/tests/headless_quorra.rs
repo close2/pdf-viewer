@@ -657,6 +657,51 @@ fn quorra_filters_a_stroke_whose_shading_asks_for_anti_aliasing() {
     );
 }
 
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background` where the shadings paint strokes (ADR 3094): the
+/// wash fills "the area to be painted", which for `S` is the stroke's outline, so each stroke's ends
+/// beside its shading are the wash on this device and the stroked page agrees with the oracle.
+#[test]
+fn quorra_washes_a_stroke_whose_shading_states_a_background() {
+    let list = test_scenes::shading_background_stroked();
+    let mut backend = raster();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let ours = backend.rasterize(&list, target).expect("draws");
+    // Left of the axial band and of the mesh, outside the radial's disc and the sampled domain.
+    for (column, middle) in [(15_u32, 0), (110, 0), (15, 1), (110, 1)] {
+        let row = test_scenes::BACKGROUND_STROKES[middle];
+        let at = ((row as usize) * (ours.width as usize) + column as usize) * 4;
+        assert_eq!(
+            ours.data[at..at + 3],
+            test_scenes::WASH_RGB8,
+            "({column}, {row})"
+        );
+    }
+    assert_within(
+        "stroked shading background",
+        compare("stroked shading background", &list),
+        0.06,
+    );
+    assert_within(
+        "stroked shading background at 4x",
+        compare_at("stroked shading background at 4x", &list, 4.0),
+        0.06,
+    );
+}
+
+/// A stroke of a mesh that does not ask for the filter (ADR 3095): this device strokes it with the
+/// mesh's raster, and the oracle now draws it too, so the two agree where the oracle refused.
+#[test]
+fn cpu_and_quorra_agree_on_an_unfiltered_mesh_stroke() {
+    assert_within(
+        "unfiltered stroked shadings",
+        compare(
+            "unfiltered stroked shadings",
+            &test_scenes::shading_anti_alias_stroked(false),
+        ),
+        0.06,
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_curves() {
     // As with strokes: curves are boundary-dominated fixtures.

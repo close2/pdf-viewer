@@ -868,36 +868,50 @@ fn the_sh_operator_ignores_a_background_and_owes_no_report() {
     );
 }
 
-/// What is still owed after the wash is drawn, and it is a *stroke*.
+/// A shading pattern paints with a stroke as with a fill (§8.7.4.1 names "S (stroke)" among its
+/// operators), and §8.7.4.3 Table 77's wash fills the area any painting operation paints:
 ///
-/// Table 77's "the area to be painted" is the area of any painting operation, a stroke
-/// included — but the three backends draw a background through the raster lane a *fill*
-/// takes, so a shading pattern selected with `SCN` paints its shading and not its wash. That
-/// is a shortfall, so it is named rather than left silent (trap 5), and the report's condition
-/// is exactly the case that is not drawn.
+/// > If present, this colour shall be used, before any painting operation involving the
+/// > shading, to fill those portions of the area to be painted that lie outside the bounds of
+/// > the shading object.
+///
+/// The axial band runs from x = 40 to x = 60 with no `/Extend`, so a twenty-unit stroke along
+/// y = 50 is the band's colours between them and the background's cyan outside; the page above the
+/// stroke is no area to be painted, and stays unpainted. Nothing is reported (ADR 3094).
 #[test]
-fn a_stroking_patterns_background_is_the_case_still_reported() {
+fn a_stroking_patterns_background_is_painted_along_the_stroke() {
     let axial = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
                  /Background [0 1 1] \
                  /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
                  /C1 [0 0 1] /N 1 >> >>";
-    let reported = |content: &str| {
-        let bytes = pdf_with(axial, content);
-        let document = Document::open(bytes).expect("the fixture is a valid PDF");
-        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
-    };
-
-    let stroked = reported("/Pattern CS /P0 SCN 4 w 20 20 m 80 80 l S");
+    let stroke = "/Pattern CS /P0 SCN 20 w 0 50 m 100 50 l S";
+    let bytes = pdf_with(axial, stroke);
+    let document = Document::open(bytes.clone()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let reported = format!("{:?}", pdf_model::interpret(&document, &page).unsupported);
     assert!(
-        stroked.contains("ShadingBackground") && stroked.contains("/P0"),
-        "a stroke's unpainted /Background must be named with its pattern: {stroked}"
+        !reported.contains("ShadingBackground"),
+        "a stroke's background is drawn, so nothing is owed: {reported}"
     );
 
-    let filled = reported(FILL_THE_PAGE);
+    let raster = render(bytes);
+    for x in [10, 90] {
+        assert_eq!(
+            pixel(&raster, x, 50),
+            (0, 255, 255, 255),
+            "outside the band and inside the stroke, the background paints at x = {x}"
+        );
+    }
+    let (r, _, b, a) = pixel(&raster, 50, 50);
     assert!(
-        !filled.contains("ShadingBackground"),
-        "a fill's background is drawn, so nothing is owed: {filled}"
+        a == 255 && r > 0 && b > 0,
+        "inside the band the shading's own colour paints, not the wash: {:?}",
+        pixel(&raster, 50, 50)
+    );
+    assert_eq!(
+        pixel(&raster, 10, 20).3,
+        0,
+        "the page beyond the stroke is no area to be painted"
     );
 }
 

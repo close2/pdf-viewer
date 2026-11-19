@@ -7,6 +7,10 @@
 //! that figure: about [`PLANTED`] where the section is the hardware's, nothing where it is not.
 //! A hold past the hang bound across a hang the kernel recorded leaves a marker that stops every
 //! later hardware section (ADR 2665); one the kernel recorded nothing of leaves a warning (ADR 2740).
+//! Where a queue directory stands beside the lock file, sections are served in the order their
+//! tickets arrived, past the tickets of waiters that are gone, and a section that times out takes
+//! its ticket with it (ADR 3093); each such test makes a queue of its own beside its own lock file
+//! and never reads the machine's.
 
 #![allow(
     clippy::expect_used,
@@ -31,6 +35,10 @@ const PLANTED: Duration = Duration::from_millis(1500);
 const SHORTENED_BOUND: Duration = Duration::from_millis(500);
 /// The holder's line once it holds the lock, so that the section is started after it.
 const HOLDING: &str = "planted holder: holding";
+/// The label a `queued` child holds its section under.
+const LABEL: &str = "GPU_LOCK_TEST_LABEL";
+/// How long a `queued` child holds its section.
+const QUEUED_HOLD: Duration = Duration::from_millis(200);
 
 /// The children: not `#[ignore]`d, so a plain run executes it, and it returns at once there.
 #[test]
@@ -46,6 +54,17 @@ fn gpu_lock_child() {
         }
         // A section the harness declares hardware without any adapter: the lock's own mechanism.
         "declared" => drop(gpu_lock::Hold::when(true, "declared-section")),
+        // A declared section named by the parent, held for a moment so that two are told apart
+        // by the order of their log lines.
+        "queued" => {
+            let label: &'static str = Box::leak(
+                std::env::var(LABEL)
+                    .expect("a queued section's label")
+                    .into_boxed_str(),
+            );
+            let _held = gpu_lock::Hold::when(true, label);
+            std::thread::sleep(QUEUED_HOLD);
+        }
         // A bring-up and one frame through `raster_gpu`'s seam, on whichever adapter the
         // environment selects; the hook decides from the adapter's own type.
         "device" => {
@@ -376,3 +395,251 @@ fn a_hardware_bring_up_waits_for_a_planted_holder() {
 
 /// The ICD file that selects lavapipe on a Debian machine.
 const LAVAPIPE: &str = "/usr/share/vulkan/icd.d/lvp_icd.json";
+
+/// A fresh queue directory beside `lock`, where `with-gpu-lock` keeps the server's (ADR 3093).
+fn fresh_queue(lock: &Path) -> std::path::PathBuf {
+    let queue = lock.with_extension("queue");
+    drop(std::fs::remove_dir_all(&queue));
+    std::fs::create_dir(&queue).expect("a queue directory");
+    queue
+}
+
+/// The ticket names in `queue`, sorted.
+fn tickets(queue: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(queue)
+        .expect("the queue reads")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a UTF-8 name")
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Waits until `queue` holds `count` tickets, as a child's arrival is seen from outside.
+fn await_tickets(queue: &Path, count: usize) {
+    let asked = Instant::now();
+    while tickets(queue).len() < count {
+        assert!(
+            asked.elapsed() < Duration::from_secs(30),
+            "the queue never held {count} tickets: {:?}",
+            tickets(queue)
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// A ticket in `with-gpu-lock`'s shape for this test process, which runs and so is live until
+/// `deadline`; arrival is `arrival_ns`.
+fn ticket_of_this_process(arrival_ns: u128, deadline: u64) -> String {
+    let pid = std::process::id();
+    let ticks = gpu_lock::start_ticks(pid).expect("this process's start time");
+    format!("{arrival_ns:020}.{pid}.{ticks}.{deadline}")
+}
+
+fn unix_now_ns() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_nanos()
+}
+
+/// Whether this machine reads process start times the way the queue does.
+fn proc_reads() -> bool {
+    let reads = Path::new("/proc/self/stat").exists();
+    if !reads {
+        println!("no /proc on this machine; the queue is not used here");
+    }
+    reads
+}
+
+/// The names the queue reads are the script's: four runs of digits joined by dots, and nothing
+/// else; and a process's start time is field 22 of its `stat`, as the script reads it.
+#[test]
+fn a_ticket_s_name_is_read_as_with_gpu_lock_writes_it() {
+    assert_eq!(
+        gpu_lock::ticket_fields("01763550000123456789.4242.987654.1763550612"),
+        Some((1_763_550_000_123_456_789, 4242, 987_654, 1_763_550_612))
+    );
+    for other in ["", "1.2.3", "1.2.3.4.5", "1.2.x.4", "1..3.4", "README"] {
+        assert_eq!(gpu_lock::ticket_fields(other), None, "{other:?}");
+    }
+    if !proc_reads() {
+        return;
+    }
+    let said = Command::new("bash")
+        .args([
+            "-c",
+            "s=$(</proc/$PPID/stat); s=${s##*) }; set -- $s; printf %s \"${20}\"",
+        ])
+        .output()
+        .expect("bash runs");
+    let script: u64 = String::from_utf8_lossy(&said.stdout)
+        .parse()
+        .expect("the script's reading");
+    assert_eq!(gpu_lock::start_ticks(std::process::id()), Some(script));
+    let now = unix_now();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "seconds since 1970, positive and far below u64's range"
+    )]
+    let now = now as u64;
+    assert!(gpu_lock::ticket_live(
+        &ticket_of_this_process(unix_now_ns(), now + 60),
+        now
+    ));
+    assert!(!gpu_lock::ticket_live(
+        &ticket_of_this_process(unix_now_ns(), now - 1),
+        now
+    ));
+}
+
+/// Two sections queued behind a holder are served in the order they arrived, each on its
+/// ticket, and leave the queue empty.
+#[test]
+fn queued_sections_are_served_in_arrival_order() {
+    if !proc_reads() {
+        return;
+    }
+    let (lock, log) = scratch("arrival-order");
+    let queue = fresh_queue(&lock);
+    let holder = plant(&lock, &log);
+    let first = child("queued", &lock, &log, &[(LABEL, "first")])
+        .spawn()
+        .expect("the first section starts");
+    await_tickets(&queue, 1);
+    let second = child("queued", &lock, &log, &[(LABEL, "second")])
+        .spawn()
+        .expect("the second section starts");
+    await_tickets(&queue, 2);
+    holder.finish();
+    for mut section in [first, second] {
+        assert!(section.wait().expect("a section ends").success());
+    }
+    let text = std::fs::read_to_string(&log).expect("the hold log");
+    let at = |section: &str| {
+        text.lines()
+            .position(|line| line.contains(&format!("section={section} ")))
+            .unwrap_or_else(|| panic!("no hold of {section} in:\n{text}"))
+    };
+    assert!(at("first") < at("second"), "served out of order:\n{text}");
+    assert!(
+        text.lines()
+            .filter(|line| !line.contains("ticket=none"))
+            .count()
+            >= 3,
+        "a hold was not served on a ticket:\n{text}"
+    );
+    assert_eq!(tickets(&queue), Vec::<String>::new());
+}
+
+/// A free lock is not taken past an earlier live ticket: the section waits until that ticket
+/// leaves the queue, which is what a bare `flock` would not do.
+#[test]
+fn a_free_lock_waits_behind_an_earlier_live_ticket() {
+    if !proc_reads() {
+        return;
+    }
+    let (lock, log) = scratch("earlier-ticket");
+    let queue = fresh_queue(&lock);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "seconds since 1970, positive and far below u64's range"
+    )]
+    let deadline = unix_now() as u64 + 120;
+    let earlier = queue.join(ticket_of_this_process(unix_now_ns(), deadline));
+    std::fs::write(&earlier, b"").expect("the earlier ticket");
+    let mut section = child("queued", &lock, &log, &[(LABEL, "behind")])
+        .spawn()
+        .expect("the section starts");
+    await_tickets(&queue, 2);
+    std::thread::sleep(PLANTED);
+    assert!(
+        section.try_wait().expect("the section's state").is_none(),
+        "the section took the lock past an earlier live ticket"
+    );
+    std::fs::remove_file(&earlier).expect("the earlier ticket leaves");
+    assert!(section.wait().expect("the section ends").success());
+    let waited = waited(&log, "behind").expect("the section held the lock");
+    assert!(
+        waited > 0.9 * PLANTED.as_secs_f64() * 1e3,
+        "the section waited only {waited:.1} ms behind the earlier ticket"
+    );
+    assert_eq!(tickets(&queue), Vec::<String>::new());
+}
+
+/// The tickets of a waiter that is gone and of one whose deadline passed hold nobody back, and
+/// the next waiter of the same user removes them.
+#[test]
+fn a_dead_ticket_is_skipped_and_removed() {
+    if !proc_reads() {
+        return;
+    }
+    let (lock, log) = scratch("dead-ticket");
+    let queue = fresh_queue(&lock);
+    let mut gone = Command::new("true").spawn().expect("a process that ends");
+    let gone_pid = gone.id();
+    gone.wait().expect("it ends");
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "seconds since 1970, positive and far below u64's range"
+    )]
+    let now = unix_now() as u64;
+    let dead = format!("{:020}.{gone_pid}.1.{}", 1, now + 120);
+    let expired = ticket_of_this_process(2, now - 1);
+    for name in [&dead, &expired] {
+        std::fs::write(queue.join(name), b"").expect("a stale ticket");
+    }
+    let status = child("queued", &lock, &log, &[(LABEL, "past-the-dead")])
+        .status()
+        .expect("the section runs");
+    assert!(status.success());
+    let waited = waited(&log, "past-the-dead").expect("the section held the lock");
+    assert!(
+        waited < 0.5 * PLANTED.as_secs_f64() * 1e3,
+        "the section waited {waited:.1} ms behind stale tickets"
+    );
+    assert_eq!(tickets(&queue), Vec::<String>::new());
+}
+
+/// A section that times out in the queue removes its ticket on the way out and leaves the one
+/// ahead of it where it was.
+#[test]
+fn a_timeout_in_the_queue_removes_the_ticket() {
+    if !proc_reads() {
+        return;
+    }
+    let (lock, log) = scratch("queue-timeout");
+    let queue = fresh_queue(&lock);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "seconds since 1970, positive and far below u64's range"
+    )]
+    let deadline = unix_now() as u64 + 120;
+    let ahead = ticket_of_this_process(unix_now_ns(), deadline);
+    std::fs::write(queue.join(&ahead), b"").expect("the ticket ahead");
+    let output = child(
+        "queued",
+        &lock,
+        &log,
+        &[(LABEL, "timed-out"), (gpu_lock::TIMEOUT, "1")],
+    )
+    .output()
+    .expect("the section runs");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "the section was served:\n{said}");
+    assert!(
+        said.contains("queued for"),
+        "not the queue's timeout:\n{said}"
+    );
+    assert_eq!(tickets(&queue), vec![ahead]);
+    assert_eq!(waited(&log, "timed-out"), None);
+}

@@ -85,9 +85,8 @@ impl Interpreter<'_> {
     /// **This is the clause's branch for a shading that states no `/Background`**, and it is the
     /// only branch that reaches here: a shading that states one is answered per device pixel by
     /// [`pdf_render::ShadingRaster`] instead, so [`Interpreter::paint_clip`] returns before
-    /// calling this rather than clipping away the very wash Table 77 asks for (ADR 0529). A
-    /// *stroking* selection is where the wash is still owed, and that is named by
-    /// [`Unsupported::ShadingBackground`] at [`Interpreter::note_unpainted_background`].
+    /// calling this rather than clipping away the very wash Table 77 asks for (ADR 0529), for a
+    /// stroke's selection as for a fill's (ADR 3094).
     ///
     /// Nothing happens for any other shading type: an axial or radial shading says where it
     /// stops through `/Extend`, which its ramp already carries, and a mesh through its

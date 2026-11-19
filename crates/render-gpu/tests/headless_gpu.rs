@@ -1060,6 +1060,61 @@ fn the_gpu_filters_a_stroke_whose_shading_asks_for_anti_aliasing() {
     );
 }
 
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background` where the shadings paint strokes (ADR 3094): the
+/// wash fills "the area to be painted", which for `S` is the stroke's outline, so each stroke's ends
+/// beside its shading are the wash here and the stroked page agrees with the oracle. A stroke that
+/// handed the shading to a Vello brush would lose the wash, and refuse the sampled quadrant.
+#[test]
+fn the_gpu_washes_a_stroke_whose_shading_states_a_background() {
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
+    let list = test_scenes::shading_background_stroked();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let ours = gpu().rasterize(&list, target).expect("supported");
+    // Left of the axial band and of the mesh, outside the radial's disc and the sampled domain.
+    for (column, middle) in [(15_u32, 0), (110, 0), (15, 1), (110, 1)] {
+        let row = test_scenes::BACKGROUND_STROKES[middle];
+        let at = ((row as usize) * (ours.width as usize) + column as usize) * 4;
+        assert_eq!(
+            ours.data[at..at + 3],
+            test_scenes::WASH_RGB8,
+            "({column}, {row})"
+        );
+    }
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    assert_within_tolerance(
+        "stroked shading background",
+        raster_compare::compare(&cpu, &ours).expect("same size"),
+    );
+}
+
+/// A stroke of a mesh that does not ask for the filter (ADR 3095): Vello has no brush for a mesh,
+/// so the stroke draws the mesh's raster inside a layer clipped to its outline, as a fill draws it
+/// inside the shape, and agrees with the oracle, which strokes it with the same raster.
+#[test]
+fn the_gpu_draws_an_unfiltered_mesh_stroke() {
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
+    let list = test_scenes::shading_anti_alias_stroked(false);
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let ours = gpu().rasterize(&list, target).expect("supported");
+    let red = |(column, row): (u32, u32)| {
+        ours.data[((row as usize) * (ours.width as usize) + column as usize) * 4]
+    };
+    let [_, black, white] = test_scenes::ANTI_ALIAS_EDGES[2];
+    assert!(
+        red(black) <= 2 && red(white) >= 253,
+        "the mesh's own colours inside the stroke: {black:?} and {white:?}"
+    );
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    assert_within_tolerance(
+        "unfiltered stroked shadings",
+        raster_compare::compare(&cpu, &ours).expect("same size"),
+    );
+}
+
 /// A mesh, which neither rasteriser can shade natively and which both therefore draw as the
 /// one raster `pdf_render::MeshRaster` builds.
 ///

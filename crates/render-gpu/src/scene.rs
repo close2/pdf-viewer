@@ -499,8 +499,9 @@ fn encode_stroke(
         knock_out(scene, at, peniko::Fill::NonZero, &outline(&shape, &dots));
     }
     // ISO 32000-2 §8.7.4.1 lets a shading pattern paint "with painting operators such as f
-    // (fill), S (stroke)", and Table 77's `/AntiAlias` asks "to filter the shading function"
-    // whichever paints it (ADR 3074).
+    // (fill), S (stroke)": Table 77's `/AntiAlias` asks "to filter the shading function" and its
+    // `/Background` fills "the area to be painted" whichever paints it, and a mesh is the fill's
+    // raster on either (ADRs 3074, 3094, 3095).
     if let Paint::Shading(shading) = paint
         && rastered
     {
@@ -531,22 +532,31 @@ fn encode_stroke(
 }
 
 /// [`brush_for`]'s brush for a stroke, and whether the stroke is drawn without it: Table 77's
-/// `/AntiAlias` is drawn through the raster a fill takes (ADR 3074), and asking for a brush would
-/// refuse the paint, so such a stroke has a brush it never uses.
+/// `/Background` and `/AntiAlias` (ADRs 3074, 3094) and a mesh (ADR 3095) are drawn through the
+/// raster a fill takes, and asking for a brush would refuse the paint, so such a stroke has a
+/// brush it never uses.
 fn stroke_brush(
     paint: &Paint,
     page_to_path: Transform,
 ) -> Result<(peniko::Brush, Option<kurbo::Affine>, bool), GpuRasterError> {
-    if matches!(paint, Paint::Shading(shading) if shading.is_rastered()) {
+    if matches!(paint, Paint::Shading(shading) if stroked_as_a_raster(shading)) {
         return Ok((peniko::Brush::Solid(peniko::Color::TRANSPARENT), None, true));
     }
     let (brush, at) = brush_for(paint, page_to_path)?;
     Ok((brush, at, false))
 }
 
-/// Draws a shading that states Table 77's `/AntiAlias` through a stroke: the raster a fill draws
-/// ([`crate::shading::fill_with_background`], ADR 3024), inside a layer clipped to each of
-/// `regions` at its alpha, as [`encode_fill`] draws it inside the filled shape (ADR 3074).
+/// Whether a stroke of `shading` is drawn through the raster a fill of it takes rather than with a
+/// brush: where it states Table 77's `/Background` or `/AntiAlias` ([`pdf_render::Shading::is_rastered`])
+/// or is a mesh, which no brush can state.
+fn stroked_as_a_raster(shading: &pdf_render::Shading) -> bool {
+    shading.is_rastered() || matches!(shading.kind.as_ref(), pdf_render::ShadingKind::Mesh { .. })
+}
+
+/// Draws a shading through a stroke as the fill draws it: the raster a washed or filtered shading
+/// takes ([`crate::shading::fill_with_background`], ADRs 3024 and 3094) or a mesh's
+/// ([`crate::shading::fill_mesh`], ADR 3095), inside a layer clipped to each of `regions` at its
+/// alpha, as [`encode_fill`] draws it inside the filled shape (ADR 3074).
 ///
 /// The regions are the stroke's outline `rest` and its `dots`: their union as one layer, so
 /// §11.6.2 composites the object once, or — where the dots carry part of their `coverage` in their
@@ -574,13 +584,30 @@ fn stroke_filtered(
             continue;
         }
         scene.push_layer(peniko::Fill::NonZero, mode, alpha, spaces.at, &region);
-        crate::shading::fill_with_background(
-            scene,
-            shading,
-            spaces.to_device,
-            device_bounds(&region, spaces.at, target),
-            target,
-        );
+        if let pdf_render::ShadingKind::Mesh {
+            triangles,
+            patches,
+            ramp,
+        } = shading.kind.as_ref()
+            && !shading.is_rastered()
+        {
+            crate::shading::fill_mesh(
+                scene,
+                triangles,
+                patches.as_ref(),
+                ramp.as_ref(),
+                shading.transform.then(spaces.to_device),
+                target,
+            );
+        } else {
+            crate::shading::fill_with_background(
+                scene,
+                shading,
+                spaces.to_device,
+                device_bounds(&region, spaces.at, target),
+                target,
+            );
+        }
         scene.pop_layer();
     }
 }
