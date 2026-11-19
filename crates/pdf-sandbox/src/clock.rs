@@ -307,8 +307,19 @@ mod tests {
             own >= seen,
             "its own reading {own:?} is at least what was read of it, {seen:?}"
         );
-        // The thread has ended, so its task directory is gone and the reading with it.
-        assert_eq!(processor_time(whose), None);
+        // A joined thread's reading goes, but not at the join: the kernel wakes the joiner when it
+        // clears the thread's id word, early in the thread's exit, and removes its task directory
+        // only when the exit is done, so for a moment after `join` the reading is still there
+        // (ADR 3181). An order again — the reading is gone at some point after the join — with a
+        // minute of wall clock as a ceiling only on a directory that never goes.
+        let joined = Instant::now();
+        while let Some(still) = processor_time(whose) {
+            assert!(
+                joined.elapsed() < Duration::from_mins(1),
+                "a minute after the join the ended thread's reading is still {still:?}"
+            );
+            std::thread::yield_now();
+        }
     }
 
     /// A process that is gone has no reading, and an allowance for it is the wall clock alone.

@@ -227,11 +227,16 @@ fn rubbish_is_refused_and_the_worker_survives_it() {
 /// follows it — thirty seconds for the shared worker, and [`DEADLINE`] for this sandbox of the
 /// test's own. The decode is the largest bilevel image the filter produces, whose cost is its area.
 ///
-/// **No wall-clock assertion, because the budget is not wall clock** (ADR 3133): on a loaded
-/// machine a quarter-second of processor time takes longer than a second to spend, and the test
-/// would then measure the load. `TimedOut` is returned only by the processor budget — a wall-clock
-/// ceiling's refusal is `Stalled` — so the variant is what says the budget, and not the decode's
-/// end, ended it.
+/// **No wall-clock assertion on Linux, because the budget there is not wall clock** (ADR 3133): on
+/// a loaded machine a quarter-second of processor time takes longer than a second to spend, and
+/// the test would then measure the load. `TimedOut` is returned only by the processor budget — a
+/// wall-clock ceiling's refusal is `Stalled` — so the variant is what says the budget, and not the
+/// decode's end, ended it.
+///
+/// **Elsewhere the wall clock is the whole budget, and its refusal says so** (ADR 3133, ADR 3181):
+/// with no `/proc` the parent has no reading of the worker's processor time, so it waits
+/// [`DEADLINE`] of wall clock and kills the worker as `Stalled` after exactly that. Each platform's
+/// answer is stated as its own, so that neither passes by the other's.
 #[test]
 fn a_decode_past_the_deadline_is_killed_and_the_next_request_answered() {
     let sandbox = Sandbox::with_timeout(DEADLINE);
@@ -240,10 +245,18 @@ fn a_decode_past_the_deadline_is_killed_and_the_next_request_answered() {
         data: &large,
         globals: &[],
     });
-    assert!(
-        matches!(outcome, Err(SandboxError::TimedOut)),
-        "ended by the processor budget, not {outcome:?}"
-    );
+    if cfg!(target_os = "linux") {
+        assert!(
+            matches!(outcome, Err(SandboxError::TimedOut)),
+            "ended by the processor budget, not {outcome:?}"
+        );
+    } else {
+        assert!(
+            matches!(outcome, Err(SandboxError::Stalled { after }) if after == DEADLINE),
+            "ended by the wall clock, the whole budget where no processor time is read, not \
+             {outcome:?}"
+        );
+    }
     assert!(
         sandbox.decode(&request()).is_ok(),
         "the next request is answered"
