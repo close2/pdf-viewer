@@ -138,7 +138,7 @@ fn processor_time(_pid: u32) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Allowance, STALL_FACTOR, processor_time};
+    use super::{Allowance, processor_time};
     use crate::SandboxError;
     use std::time::{Duration, Instant};
 
@@ -197,7 +197,7 @@ mod tests {
         let mut allowance = Allowance::start(pid, Duration::from_millis(1));
         assert_eq!(
             allowance.wall,
-            Duration::from_millis(1).saturating_mul(STALL_FACTOR)
+            Duration::from_millis(1).saturating_mul(super::STALL_FACTOR)
         );
         allowance.processor_at_start = Some(Duration::ZERO);
         allowance.wall_deadline = Instant::now() + Duration::from_secs(3600);
