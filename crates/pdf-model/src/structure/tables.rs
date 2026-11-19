@@ -7,9 +7,10 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
+use super::attributes::layout_owner;
 use super::{
-    BlockSpacing, CellFacts, HeaderScope, ListContinuation, MAX_CHILDREN, Tree, WritingMode,
-    allocation_rectangle, normalised_rectangle,
+    BlockSpacing, CellFacts, HeaderScope, ListContinuation, MAX_CHILDREN, Owner, Tree, WritingMode,
+    allocation_rectangle, normalised_rectangle, ranked,
 };
 
 impl Tree {
@@ -85,21 +86,28 @@ impl Tree {
     /// origin stand between the two, and [`crate::content::page_space_at`] is the map. A caller
     /// that took these numbers for pixels would place a rotated page's figures off the page.
     ///
-    /// Not inheritable, which is why this asks [`Self::attribute`]: a paragraph inside a figure has
-    /// its own extent and the figure's rectangle is not a statement about it. **Table 379 is not
-    /// the only table that states the entry**: §14.8.5.3's priority is applied over every
-    /// PDF-native owner, so §14.8.5.8's Table 385 answers here too, for an attribute object owned
-    /// by `Artifact` — the same rectangle, described in the same words, around content §14.8.2.2
-    /// calls an artifact rather than the document's own. Table 379's cell says *not inheritable*
-    /// outright; Table 385's says it only under Errata Collection 3's Issue #346, whose caret puts
-    /// the same two words into it, so the choice made here now rests on the cell of whichever owner
-    /// the document wrote rather than on one of the two.
+    /// Not inheritable, which is why this reads the element alone: a paragraph inside a figure
+    /// has its own extent and the figure's rectangle is not a statement about it. **Table 379 is
+    /// not the only table that states the entry**: §14.8.5.8's Table 385 states it too, for an
+    /// attribute object owned by `Artifact` — the same rectangle, described in the same words,
+    /// around content §14.8.2.2 calls an artifact rather than the document's own. Table 379's cell
+    /// says *not inheritable* outright; Table 385's says it only under Errata Collection 3's Issue
+    /// #346, whose caret puts the same two words into it, so the choice made here rests on the cell
+    /// of whichever owner the document wrote rather than on one of the two.
+    ///
+    /// So the owners admitted are the union of the two categories' sentences: §14.8.5.4.1's
+    /// layout owners (`layout_owner`) and §14.8.5.8's `Artifact`. `List`, `Table` and
+    /// `PrintField` define no `/BBox`, and an object they own that states one is not read.
     ///
     /// `None` for an element stating none, and for a value that is not four finite numbers —
     /// which no corpus document states.
     #[must_use]
     pub fn bounds(&self, document: &Document, element: &Dictionary) -> Option<[f32; 4]> {
-        normalised_rectangle(document, &self.attribute(document, element, "BBox")?)
+        let attached = self.attributes(document, element);
+        let stated = ranked(document, &attached, "BBox", |owner| {
+            layout_owner(owner) || *owner == Owner::Artifact
+        })?;
+        normalised_rectangle(document, &stated)
     }
 
     /// §14.8.5.4.5's **allocation rectangle** for this element, in default user space.
@@ -188,7 +196,7 @@ impl Tree {
     /// an infinity would push an allocation rectangle off every page rather than describe a gap.
     fn spacing_number(&self, document: &Document, element: &Dictionary, name: &str) -> f32 {
         let Some(number) = self
-            .attribute(document, element, name)
+            .layout_attribute(document, element, name)
             .as_ref()
             .and_then(Object::as_number)
             .filter(|number| number.is_finite())
@@ -208,9 +216,9 @@ impl Tree {
     ///
     /// "(Optional; inheritable)", and the cell says how far it reaches: "\[t]he specified layout
     /// directions shall apply to the given structure element and all of its descendants" —
-    /// §14.8.5.3's fourth priority, which is [`Self::inherited_attribute`]. The cell's default is
-    /// `LrTb`, which §14.8.3.3 describes as the Western one: "the block direction is from top to
-    /// bottom and the inline direction is from left to right".
+    /// §14.8.5.3's fourth priority, which is [`Self::inherited_layout_attribute`]. The cell's
+    /// default is `LrTb`, which §14.8.3.3 describes as the Western one: "the block direction is
+    /// from top to bottom and the inline direction is from left to right".
     ///
     /// A name the table does not define answers with the default as well, and that is a reading
     /// of the cell rather than a shrug: the value "shall be one of the following" eight, so a
@@ -218,7 +226,7 @@ impl Tree {
     /// what a document that states nothing means.
     #[must_use]
     pub fn writing_mode(&self, document: &Document, element: &Dictionary) -> WritingMode {
-        self.inherited_attribute(document, element, "WritingMode")
+        self.inherited_layout_attribute(document, element, "WritingMode")
             .as_ref()
             .and_then(Object::as_name)
             .and_then(|name| WritingMode::read(name.as_bytes()))

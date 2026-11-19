@@ -16,6 +16,7 @@
 
 use pdf_syntax::{Dictionary, Document};
 
+use super::attributes::layout_owner;
 use super::{Tree, ranked};
 
 /// Table 380's `/TextDecorationType`: the text decoration "to be applied to the element's text".
@@ -106,12 +107,12 @@ impl Tree {
     /// What this element states of Table 380's decoration, baseline shift and text position.
     ///
     /// The element's attribute objects are read once and ranked once per entry, by §14.8.5.3's
-    /// priority as [`Self::attribute`] ranks them; the fourth priority, inheritance, is not
-    /// applied here (see the module comment for why).
+    /// priority over the owners §14.8.5.4.1 admits, as [`Self::layout_attribute`] ranks them; the
+    /// fourth priority, inheritance, is not applied here (see the module comment for why).
     #[must_use]
     pub fn inline_statements(&self, document: &Document, element: &Dictionary) -> InlineStatements {
         let attached = self.attributes(document, element);
-        let stated = |name: &str| ranked(document, &attached, name, |_| true);
+        let stated = |name: &str| ranked(document, &attached, name, layout_owner);
         let decoration = stated("TextDecorationType").map(|object| {
             object
                 .as_name()

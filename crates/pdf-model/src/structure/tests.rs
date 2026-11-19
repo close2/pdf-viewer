@@ -5,7 +5,7 @@ use super::{
     Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, Boundary, Category,
     CellFacts, CellPlacement, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
     MAX_TABLE_COLUMNS, MappedRole, Nonstandard, Owner, ParentTree, Priority, StandardType,
-    TableGrid, TableStack, Tree, WritingMode, actual_text, allocation_rectangle,
+    TableGrid, TableStack, TextDecoration, Tree, WritingMode, actual_text, allocation_rectangle,
     alternate_description, annotation_languages, annotation_rectangles, language,
     list_predecessors, outside_sequences, table_cell_rectangles, well_formed_language_tag,
 };
@@ -1594,6 +1594,97 @@ fn an_attributes_owner_and_its_ancestry_decide_which_value_applies() {
             .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
         Some(b"Start".to_vec()),
         "an element that states its own is not overridden by its parent's"
+    );
+}
+
+/// §14.8.5.4.1's owners: "Attributes in this category shall be defined in attribute objects whose
+/// O (owner) entry has the value Layout or whose owner is any other owner excluding List, Table,
+/// PrintField and Artifact."
+///
+/// Every refused object is written *after* the admitted one in the same `/A` array and in the
+/// same §14.8.5.3 band, so a reader that ranked every PDF-native owner alike would take the
+/// refused value on §14.7.6's later-wins rule — which is what makes each assertion a calibration
+/// (`doc/traps/instruments-and-reports.md` trap 13). Three cases:
+///
+/// - **a paragraph** stating Table 378's `/WritingMode`, Table 379's `/SpaceBefore` and Table
+///   380's `/TextDecorationType` under `Layout`, and the same three under `List`: the `Layout`
+///   values hold, and the `List` object's `/BBox` is no rectangle;
+/// - **a figure** whose `/BBox` is stated under `Artifact` and again under `PrintField`: Table
+///   385 states the entry for `Artifact` (§14.8.5.8), so that one holds, and the `PrintField`
+///   object's `/SpaceAfter` is no spacing;
+/// - **inheritance**: the section above both states `/WritingMode` only under `Table`, so the
+///   figure inherits nothing and takes Table 378's default.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: §14.8.5.4.1 spells the owner names without backticks, and \
+              adding them inside the quotation marks would make the conformance gate's \
+              quotation check fail"
+)]
+fn a_layout_attribute_is_read_only_from_the_owners_its_category_admits() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K 5 0 R >>",
+        "<< /Type /StructElem /S /Sect /A 8 0 R /K [6 0 R 7 0 R] >>",
+        "<< /Type /StructElem /S /P /P 5 0 R /A [9 0 R 10 0 R] >>",
+        "<< /Type /StructElem /S /Figure /P 5 0 R /A [11 0 R 12 0 R] >>",
+        "<< /O /Table /WritingMode /TbRl >>",
+        "<< /O /Layout /WritingMode /RlTb /SpaceBefore 4 /TextDecorationType /Underline >>",
+        "<< /O /List /WritingMode /TbLr /SpaceBefore 30 /TextDecorationType /LineThrough \
+         /BBox [0 0 5 5] >>",
+        "<< /O /Artifact /BBox [1 1 3 3] >>",
+        "<< /O /PrintField /BBox [0 0 9 9] /SpaceAfter 7 >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree root");
+    let Some(Child::Element(section)) = tree.children(&doc, None).first().cloned() else {
+        panic!("one element under the root");
+    };
+    let kids = tree.children(&doc, Some(&section));
+    let [Child::Element(paragraph), Child::Element(figure)] = kids.as_slice() else {
+        panic!("a paragraph and a figure: {kids:?}");
+    };
+
+    assert_eq!(
+        tree.attribute(&doc, paragraph, "WritingMode")
+            .and_then(|value| value.as_name().map(|n| n.as_bytes().to_vec())),
+        Some(b"TbLr".to_vec()),
+        "the control: §14.8.5.3 alone takes the later object, the List one"
+    );
+    assert_eq!(
+        tree.writing_mode(&doc, paragraph),
+        WritingMode::RlTb,
+        "Table 378's entry is the Layout object's"
+    );
+    assert_eq!(
+        tree.block_spacing(&doc, paragraph),
+        BlockSpacing {
+            before: 4.0,
+            after: 0.0
+        },
+        "Table 379's entry is the Layout object's"
+    );
+    assert_eq!(
+        tree.inline_statements(&doc, paragraph).decoration,
+        Some(TextDecoration::Underline),
+        "Table 380's entry is the Layout object's"
+    );
+    assert_eq!(tree.bounds(&doc, paragraph), None, "List defines no /BBox");
+    assert_eq!(
+        tree.bounds(&doc, figure),
+        Some([1.0, 1.0, 3.0, 3.0]),
+        "Table 385's /BBox under Artifact holds, and PrintField's is not read"
+    );
+    assert_eq!(
+        tree.block_spacing(&doc, figure),
+        BlockSpacing::default(),
+        "PrintField defines no /SpaceAfter"
+    );
+    assert_eq!(
+        tree.writing_mode(&doc, figure),
+        WritingMode::LrTb,
+        "the section's only /WritingMode is a Table object's, so nothing is inherited"
     );
 }
 

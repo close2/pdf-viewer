@@ -162,6 +162,54 @@ impl Tree {
         None
     }
 
+    /// One layout attribute's value — an entry of Table 378 to Table 381 — by §14.8.5.3's
+    /// priority, under the owners §14.8.5.4.1 defines the category in.
+    ///
+    /// > Attributes in this category shall be defined in attribute objects whose O (owner) entry
+    /// > has the value Layout or whose owner is any other owner excluding List, Table, PrintField
+    /// > and Artifact.
+    ///
+    /// The sentence is a writer's obligation, and it is also what a layout attribute *is*: an
+    /// entry named `WritingMode` in a `Table` object is not Table 378's entry but one §14.8.5.7's
+    /// owner never defined, because the owner "determines the interpretation of the attributes
+    /// defined in the object" (§14.8.5.2). So the category is read from the owners the clause
+    /// admits and from no other — the narrowing `Tree::artifact_attribute` applies for
+    /// §14.8.5.8 — and among the admitted objects the ranking is still §14.8.5.3's. What consumes
+    /// these values is the accessibility tree, the export §14.8.5.4.1's NOTE 1 names (ADR 2384,
+    /// ADR 3177), so a value read from the wrong owner would reach a screen reader as a fact.
+    #[must_use]
+    pub fn layout_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let attached = self.attributes(document, element);
+        ranked(document, &attached, name, layout_owner)
+    }
+
+    /// [`Self::layout_attribute`] with §14.8.5.3's fourth priority: this element's value, or its
+    /// nearest ancestor's, for an attribute Table 377 marks inheritable.
+    ///
+    /// The owner restriction holds at every element of the walk, because each element's value is
+    /// resolved by the same priority list before its descendants inherit it.
+    #[must_use]
+    pub fn inherited_layout_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let mut current = element.clone();
+        for _ in 0..MAX_ANCESTRY {
+            if let Some(value) = self.layout_attribute(document, &current, name) {
+                return Some(value);
+            }
+            current = document.get_key(&current, "P").as_dict()?.clone();
+        }
+        None
+    }
+
     /// §14.8.5.6's `PrintField` attributes, for a `Form` element of a non-interactive form.
     ///
     /// The clause explains what the attribute is *for*, and it is the only place in §14.8.5 that
@@ -315,4 +363,18 @@ impl Tree {
             )
         })
     }
+}
+
+/// Whether §14.8.5.4.1 admits `owner` as a layout attribute's owner: `Layout`, and every owner
+/// but the four other PDF-native ones.
+///
+/// Applied to [`AttributeObject::effective_owner`], so an `NSO` object whose namespace §14.7.4.2
+/// makes equivalent to `Table` is refused as a `Table` object is. `UserProperties` and an export
+/// format pass this filter and are still never consulted, because `effective_owner` answers
+/// `None` for both.
+pub(crate) fn layout_owner(owner: &Owner) -> bool {
+    !matches!(
+        owner,
+        Owner::List | Owner::Table | Owner::PrintField | Owner::Artifact
+    )
 }

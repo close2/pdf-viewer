@@ -314,6 +314,12 @@ rendition clip does and the playing excluded (`doc/questions/A631`, ADR 2382).
 than a debt (ADR 1367), and a choice the standard leaves is not a departure (ADR 1622).
 §12.6.4.6 did not hold: Table 207's `/F` names a document to open as well as an application to run,
 and the half that names a PDF is built (ADRs 1368, 1358).
+Every `inapplicable` row was read against its clause once no row was `partial` (ADR 3177). §14.8.5.4.1
+did not hold: its owner sentence decides what a layout attribute is, and the accessibility tree reads
+layout attributes, so it is `implemented`. The rest hold on their clauses' own words — §10.6.1's
+continuous-tone device, §14.2's PostScript device, §3.15's *deprecated* for web capture and four
+prepress rows, §14.12.4.2's production workflow — and §14.8.3.2, §14.8.5.4.6 and §14.8.5.4.7 serve a
+reflowing view, which `doc/questions/A634` keeps out.
 
 ### Expired premises — a decision whose factual ground the tree has since removed
 
