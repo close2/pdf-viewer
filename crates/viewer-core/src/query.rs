@@ -984,8 +984,31 @@ pub struct PrintPage {
     /// [`crate::Event::Reported`] carries for a page on the screen.
     ///
     /// A page that prints with something missing says so here rather than silently, which is
-    /// trap 5's rule wherever a page is produced.
+    /// trap 5's rule wherever a page is produced. What the sheet's draw itself meets is not
+    /// known when this is answered; [`Self::faults_after_drawing`] asks it.
     pub reports: Vec<String>,
+    /// The page's type 4 functions, still watched once the host has drawn the sheet.
+    pub(crate) after_drawing: pdf_model::content::AfterDrawing,
+}
+
+impl PrintPage {
+    /// ISO 32000-2 §7.10.5.3's errors the sheet's draw met that [`Self::reports`] does not say,
+    /// worded as the screen words them; a host asks once it has drawn [`Self::list`].
+    ///
+    /// §8.7.4.5.2's type 1 shading is evaluated where its grid is drawn, at the printer's
+    /// resolution here and after the reports were worded, so a program that errs for some inputs
+    /// errs on the sheet and is said only if the host asks afterwards: the screen's draw is asked
+    /// in `Command::RenderReady`, a sheet's here. An empty answer is a draw whose programs ran
+    /// as the clause allows. ADRs 2848, 2946, 3122.
+    #[must_use]
+    pub fn faults_after_drawing(&self) -> Vec<String> {
+        self.after_drawing
+            .clone()
+            .news()
+            .iter()
+            .map(crate::report::describe)
+            .collect()
+    }
 }
 
 /// Where the page sits on the screen, and how large.

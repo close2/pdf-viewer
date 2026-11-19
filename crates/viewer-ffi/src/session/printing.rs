@@ -44,14 +44,18 @@ impl Session {
         let Answer::PrintPage(printed) = self.viewer.query(Query::PrintPage(page)) else {
             return Err(Status::NoAnswer);
         };
-        let (target, reports) = (printed.target, printed.reports);
-        let Some(target) = target else {
+        let Some(target) = printed.target else {
             self.printed = None;
             return Err(Status::RenderRefused);
         };
         let raster = CpuRasterizer::new()
             .rasterize(&printed.list, target)
             .map_err(|_| Status::RenderRefused)?;
+        // A type 1 shading's grid is evaluated in that draw, after the reports were worded, so
+        // what its programs met is asked of the page now (ADR 3122).
+        let faults = printed.faults_after_drawing();
+        let mut reports = printed.reports;
+        reports.extend(faults);
         let size = (raster.width, raster.height, raster.data.len());
         self.printed = Some(PrintedPage {
             page,

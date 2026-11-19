@@ -22,7 +22,8 @@ use std::fmt::Write as _;
 use pdf_render::Rasterizer as _;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Event, Query, RenderRequest, Rendered, Viewer, Zoom,
+    Answer, Command, DocumentId, Event, Printing, Query, RenderRequest, Rendered, Sheet, Viewer,
+    Zoom,
 };
 
 /// The page side, in points and so in pixels at a scale of one.
@@ -209,4 +210,39 @@ fn a_program_whose_arms_agree_says_nothing_after_its_draw() {
     }));
     assert!(said.is_empty(), "no input errs: {said:?}");
     assert!(kept(&viewer).is_empty(), "{:?}", kept(&viewer));
+}
+
+/// A printed sheet is drawn by the host after `Query::PrintPage` answered its reports, at the
+/// job's resolution and on a reading of its own, so its grid's fault is asked of the page the
+/// answer carried once the sheet is drawn: nothing before the draw, the fault after it, worded as
+/// the screen words it (ADR 3122).
+#[test]
+fn a_printed_sheets_grid_fault_is_asked_after_the_sheet_is_drawn() {
+    let (mut viewer, _) = opened(ERRS_ABOVE_HALF);
+    let _: Vec<Event> = viewer
+        .handle(Command::Print(Printing::Start(Sheet {
+            media: Some([0.0, 0.0, 595.0, 842.0]),
+            scale: 150.0 / 72.0,
+            page_scale: 1.0,
+        })))
+        .collect();
+    let Answer::PrintPage(printed) = viewer.query(Query::PrintPage(0)) else {
+        panic!("the operation was granted, so page one prints");
+    };
+    assert!(
+        !printed.reports.iter().any(|note| is_a_function_fault(note)),
+        "nothing has drawn the sheet's grid: {:?}",
+        printed.reports
+    );
+    assert_eq!(printed.faults_after_drawing(), Vec::<String>::new());
+
+    let target = printed
+        .target
+        .expect("a 100-point page fits the sheet's budget");
+    let _ = CpuRasterizer::new()
+        .rasterize(&printed.list, target)
+        .expect("the sheet draws");
+    let said = printed.faults_after_drawing();
+    assert_eq!(said.len(), 1, "the sheet's draw met one fault: {said:?}");
+    assert!(is_a_function_fault(&said[0]), "{said:?}");
 }

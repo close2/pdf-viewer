@@ -42,7 +42,8 @@
 //! asymmetry between a font the document named and one this module inferred is stated there.
 //!
 //! **A `/DA` font whose program will not read is laid out in the substitute its dictionary
-//! describes, and reported** ([`Owed::FontSubstituted`], ADR 3097): §9.5 makes the dictionary
+//! describes, and reported** ([`Owed::FontSubstituted`], ADR 3097; a rich text run's face the same,
+//! [`Face::load`], ADR 3121): §9.5 makes the dictionary
 //! "information that can be used to provide a substitute when the font program is not
 //! available", and the page draws such a font from that substitute (ADR 2619), so the appearance
 //! written here is measured with the face that draws it.
@@ -406,9 +407,11 @@ pub(crate) enum Owed {
     FontNotInResources(pdf_syntax::Name),
     /// The named font could not be loaded, or is one this crate cannot address by character.
     FontUnusable(String),
-    /// The named font's program would not read, so the value is laid out and drawn in the
-    /// substitute its dictionary describes, as the page draws such a font (ADR 3097). The
-    /// program's refusal is carried so the report can say what stood in for what.
+    /// A font the value is set in has a program that would not read, so its characters are laid
+    /// out and drawn in the substitute its dictionary describes, as the page draws such a font:
+    /// the `/DA`'s font for a plain value (ADR 3097), any face a rich text string's runs are set
+    /// in (ADR 3121). The program's refusal, which names the font, is carried so the report can
+    /// say what stood in for what.
     FontSubstituted(String),
     /// The `/DA` names a composite font whose `CMap` sets §9.7.5.1's writing mode 1.
     ///
@@ -522,8 +525,8 @@ impl Owed {
             ),
             Self::FontUnusable(detail) => format!("its /DA's font is unusable: {detail}"),
             Self::FontSubstituted(detail) => format!(
-                "its /DA's font program is unusable ({detail}), so the value is laid out in the \
-                 substitute face its font dictionary describes (§9.5)"
+                "a font program its value is set in is unusable ({detail}), so what is set in it \
+                 is laid out in the substitute face its font dictionary describes (§9.5)"
             ),
             Self::VerticalWritingMode(name) => format!(
                 "its /DA names the font /{}, whose CMap sets §9.7.5.1's writing mode 1, and \
@@ -878,23 +881,38 @@ pub(crate) struct Face {
     pub(crate) font: pdf_font::LoadedFont,
     /// Table 120's `/Ascent` and `/Descent`, or the documented split.
     pub(crate) metrics: Metrics,
+    /// The program's refusal, where `font` is the substitute its dictionary describes.
+    pub(crate) unreadable: Option<String>,
 }
 
 impl Face {
-    /// Loads a face.
+    /// Loads a face; where its program will not read, the substitute the page draws it from, with
+    /// the refusal kept in [`Self::unreadable`] for the layout to report.
+    ///
+    /// **The same substitution [`LayoutFonts`] makes for a plain value** (ADRs 2619, 3097, 3121):
+    /// ISO 32000-2 §9.5 says a font dictionary carries "information that can be used to provide
+    /// a substitute when the font program is not available", and the interpreter draws the
+    /// appearance's `Tf` from that substitute, so a run is measured in the face it is drawn in.
     ///
     /// # Errors
     ///
-    /// [`Owed::FontUnusable`] where the font will not load or cannot be addressed by character,
-    /// and [`Owed::VerticalWritingMode`] where its `CMap` asks for §9.7.5.1's writing mode 1.
+    /// [`Owed::FontUnusable`] where the font will not load even as a substitute or cannot be
+    /// addressed by character, and [`Owed::VerticalWritingMode`] where its `CMap` asks for
+    /// §9.7.5.1's writing mode 1.
     pub(crate) fn load(
         document: &Document,
         dict: Dictionary,
         name: &pdf_syntax::Name,
     ) -> Result<Self, Owed> {
         let label = name.escaped();
-        let font = pdf_font::LoadedFont::load(document, &dict, &label)
-            .map_err(|error| Owed::FontUnusable(error.to_string()))?;
+        let (font, unreadable) = match pdf_font::LoadedFont::load(document, &dict, &label) {
+            Ok(font) => (font, None),
+            Err(refusal) => {
+                pdf_font::LoadedFont::substitute_for_unreadable(document, &dict, &label, &refusal)
+                    .map(|font| (font, Some(refusal.to_string())))
+                    .ok_or_else(|| Owed::FontUnusable(refusal.to_string()))?
+            }
+        };
         if font.is_vertical() {
             return Err(Owed::VerticalWritingMode(name.clone()));
         }
@@ -909,6 +927,7 @@ impl Face {
             dict,
             font,
             metrics,
+            unreadable,
         })
     }
 

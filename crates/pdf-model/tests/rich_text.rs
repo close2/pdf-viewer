@@ -2051,3 +2051,44 @@ fn a_flags_word_outside_thirty_two_unsigned_bits_states_no_style() {
         "the two words draw the same page"
     );
 }
+
+/// A rich text string whose `/DA` font has a program that will not read is laid out in the
+/// substitute its dictionary describes, its runs styled, and the substitution said (ADR 3121).
+///
+/// ISO 32000-2 §9.5 says a font dictionary carries "information that can be used to provide a
+/// substitute when the font program is not available", and §9.2.4's NOTE 2 that the widths it
+/// stores enable "a PDF processor to determine glyph positioning without having to look inside the
+/// font program"; the page draws such a font from that substitute (ADR 2619), and a plain value is
+/// laid out in it (ADR 3097). The font here is a TrueType font whose `/FontFile2` holds bytes that
+/// are no font program, beside its `/Widths` and descriptor, and the string's second digit is a
+/// span coloured green: a layout that refused the face would draw no green, the one-style form
+/// loading the same face.
+#[test]
+fn a_rich_string_in_an_unreadable_font_program_is_laid_out_in_its_substitute() {
+    let widths = ["600"; 10].join(" ");
+    let (reports, raster) = draw(pdf_with_fonts(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff {RICH} \
+             /T (f) /V (12) /RV (<body><p>1<span style=\"color:rgb(0,255,0)\">2</span></p></body>) \
+             /DA (/Verd 24 Tf 0 g) >>"
+        ),
+        "",
+        &format!(
+            "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Verdana \
+             /Encoding /WinAnsiEncoding /FirstChar 48 /LastChar 57 /Widths [{widths}] \
+             /FontDescriptor 10 0 R >>\nendobj\n\
+             9 0 obj\n<< /Length 16 >>\nstream\nno font program.\nendstream\nendobj\n\
+             10 0 obj\n<< /Type /FontDescriptor /FontName /Verdana /Flags 32 \
+             /FontBBox [-560 -303 1447 1051] /ItalicAngle 0 /Ascent 1051 /Descent -303 \
+             /CapHeight 727 /StemV 92 /FontFile2 9 0 R >>\nendobj\n"
+        ),
+        "/Verd 8 0 R",
+    ));
+    assert!(tinted(&raster, 1) > 10, "the span is green: {reports:?}");
+    assert!(
+        reports
+            .iter()
+            .any(|report| report.contains("substitute face its font dictionary describes")),
+        "the substitution is said: {reports:?}"
+    );
+}

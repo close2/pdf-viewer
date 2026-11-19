@@ -224,7 +224,13 @@ impl Host {
         let Some(target) = printed.target else {
             return;
         };
-        let raster = match CpuRasterizer::new().rasterize(&printed.list, target) {
+        let drawn = CpuRasterizer::new().rasterize(&printed.list, target);
+        // A type 1 shading's grid is evaluated in that draw, a refused one's in part, after the
+        // reports were worded, so what its programs met is asked of the page now (ADR 3122).
+        for note in printed.faults_after_drawing() {
+            self.say(&note);
+        }
+        let raster = match drawn {
             Ok(raster) => raster,
             Err(refusal) => {
                 self.say(&format!(

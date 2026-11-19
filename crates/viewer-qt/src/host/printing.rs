@@ -236,15 +236,20 @@ impl Host {
         let Answer::PrintPage(printed) = self.state.viewer.query(Query::PrintPage(page)) else {
             return vec![0, 0];
         };
-        let (target, list, mut reports) = (printed.target, printed.list, printed.reports);
-        let Some(target) = target else {
+        let Some(target) = printed.target else {
             self.printed = Some(PrintedPage {
                 raster: None,
-                reports,
+                reports: printed.reports,
             });
             return vec![0, 0];
         };
-        match CpuRasterizer::new().rasterize(&list, target) {
+        let drawn = CpuRasterizer::new().rasterize(&printed.list, target);
+        // A type 1 shading's grid is evaluated in that draw, a refused one's in part, after the
+        // reports were worded, so what its programs met is asked of the page now (ADR 3122).
+        let faults = printed.faults_after_drawing();
+        let mut reports = printed.reports;
+        reports.extend(faults);
+        match drawn {
             Ok(raster) => {
                 let size = vec![raster.width, raster.height];
                 self.printed = Some(PrintedPage {

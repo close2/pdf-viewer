@@ -168,8 +168,12 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     stream.push_str(&decorations);
     stream.push_str("Q\nEMC\n");
 
+    // In the plain layout's order: a stood-in name, then a program a substitute stood in for
+    // (ADR 3121), then what the faces could not show, which either may explain.
     let owed = if faces.base_resolution == Resolution::StoodIn {
         Some(Owed::FontNotInResources(base_name))
+    } else if let Some(detail) = faces.substituted() {
+        Some(Owed::FontSubstituted(detail))
     } else {
         owed_by(paragraphs, request, &faces)
     };
@@ -536,6 +540,16 @@ impl<'a> Faces<'a> {
         for held in &self.held {
             held.fell_short.set(false);
         }
+    }
+
+    /// The refusal of the first program a glyph was set in the substitute of: a face whose
+    /// program would not read is drawn from the substitute its dictionary describes
+    /// ([`Face::load`]), and a string none of whose glyphs it holds owes no report of it.
+    fn substituted(&self) -> Option<String> {
+        self.held
+            .iter()
+            .filter(|held| held.used.get())
+            .find_map(|held| held.face.unreadable.clone())
     }
 
     /// The invented faces any glyph was set in, for the appearance's resources.

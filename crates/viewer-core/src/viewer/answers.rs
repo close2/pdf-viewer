@@ -275,6 +275,7 @@ impl Viewer {
 
 fn print_page(open: &Open, index: usize, sheet: crate::Sheet) -> Option<crate::PrintPage> {
     let read = crate::open::interpret(open, index)?;
+    let after_drawing = read.interpretation.after_drawing();
     let list = Arc::new(read.interpretation.display_list);
     let mut reports = read.reports;
     let target = match TargetSpec::for_page(&list, sheet.scale, MAX_PIXELS) {
@@ -295,6 +296,7 @@ fn print_page(open: &Open, index: usize, sheet: crate::Sheet) -> Option<crate::P
         list,
         target,
         reports,
+        after_drawing,
     })
 }
 
