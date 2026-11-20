@@ -1,0 +1,104 @@
+[
+ {
+  "id": "2136-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.5.7"
+  ],
+  "summary": "A compressed object is parsed from its offset to wherever the parser stops, not to the next member's offset. Since the 2020 edition no white-space is required between the objects of an object stream, so two integers stored as \"57\" (object 10 at offset 0, object 11 at offset 1) read as 57 and 7; any member whose last token runs into the next member's first (integer, real, keyword) is read wrongly.",
+  "source": "ISO 32000-2 §7.5.7: \"Following the N pairs of integers, the N objects are stored consecutively.\" NOTE 7 (2020): \"Previous editions of this specification incorrectly stated that white-space was required between objects. This document corrects the text to clarify that processing of each object in an object stream starts at the specified byte offset in the decompressed stream and ends prior to the byte offset of the next object or when the end of stream is encountered.\"",
+  "code": "crates/pdf-syntax/src/document/object_streams.rs:107 (expand_object_stream: Parser::at(&data, start, ...) over the whole data; stated_end is computed and used only as a bounds check)",
+  "change": "Parse each member over data[..stated_end] (the next member's offset, or the end of the data), so the parser cannot read past it.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_object_ends_where_the_next_one_begins_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary)"
+ },
+ {
+  "id": "2136-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.5.2",
+   "7.5.6",
+   "7.5.4",
+   "7.5.8.3"
+  ],
+  "summary": "The incremental-update writer states every new offset, and the new startxref, as a position in the whole file, while §7.5.2 counts offsets from the %PDF- marker. For a file with bytes before its header (NOTE 1) the reader adds the header's position to them, finds nothing at the new section, and rebuilds by scanning: an object the update freed is read again (the test reads (original) for a freed object 4), and the rebuilt document is then refused by every later update (UpdateError::Recovered). /Prev is right, because it is copied from the old startxref. Every save path (form fill, annotations, signatures, pdf-vfs) goes through this writer.",
+  "source": "ISO 32000-2 §7.5.2: \"The PDF file begins with the 5 characters '%PDF-' and byte offsets shall be calculated from the PERCENT SIGN (25h).\" NOTE 1: \"This provision allows for arbitrary bytes preceding the %PDF- without impacting the viability of the PDF file and its byte offsets.\" §7.5.6: \"When a PDF reader reads the PDF file, it shall build its cross-reference information in such a way that the most recent copy of each object shall be the one accessed from the PDF file.\"",
+  "code": "crates/pdf-syntax/src/write.rs:340 (offsets.push((*id, out.len()))), :438 and :490 (let at = out.len(), the new startxref and the stream's own entry)",
+  "change": "Subtract the header position the reader used (xref::header_position, exposed through Document) from every offset written and from startxref, in both section forms.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::an_update_to_a_file_with_bytes_before_its_header_counts_from_the_header_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the prefix-0 control passes"
+ },
+ {
+  "id": "2136-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.5.4",
+   "7.5.8.2",
+   "7.5.8.3"
+  ],
+  "summary": "A cross-reference stream costs the reader a table entry per record, free ones included, and nothing bounds the count but the decoded size (max_stream_len, 1 GiB, per filter): a conforming 526-byte file whose stream inflates through two FlateDecode filters to two million free entries grows the process by about 108 MiB (VmHWM). At 1 GiB decoded the same shape is some 200 million entries, and read_from_startxref keeps every section's entries until fill, over up to 1024 /Prev sections. A free entry names nothing a reader keeps. The same per-entry cost applies to an object stream's pairs (object_stream_pairs) when one member is asked for.",
+  "source": "CLAUDE.md principle 3: \"Explicit memory and time budgets guard against decompression bombs, xref cycles, and pathological content\". ISO 32000-2 §7.5.4: \"The cross-reference table (comprising the original cross-reference section and all update sections) shall contain one entry for each object number from 0 to the maximum object number defined in the PDF file\"; Table 17 /Index \"Default value: [0 Size ].\"",
+  "code": "crates/pdf-syntax/src/xref.rs:1184 (Vec::with_capacity(data.len() / row)), :1229 (one entry per record), :740 (every section's entries kept), :1433 (decode_direct decodes to max_stream_len whatever /Index states); XrefTable::fill's BTreeMap; crates/pdf-syntax/src/document/object_streams.rs:25",
+  "change": "Stop decoding an xref stream at the rows /Index states (sum of counts x row width); hold runs of free entries as ranges rather than one map entry each, or set a named budget on entries across the chain and refuse past it by name.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::free_entries_do_not_cost_the_reader_memory_apiece_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the control (the object past the free run is read) passes"
+ },
+ {
+  "id": "2136-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.5.8.3",
+   "7.5.7"
+  ],
+  "summary": "The whole-file writer's cross-reference stream has /W [1 4 2] and writes a compressed object's index with u16::try_from(index).unwrap_or(u16::MAX), while ObjectStreams::Generate's max_objects is public and unbounded: with one stream of 70 004 members every member past 65 535 is stated at index 65 535. This reader reads it right only because it looks a member up by number; a reader that uses Table 18's index reads the wrong object.",
+  "source": "ISO 32000-2 §7.5.8.3 Table 18, type 2, field 3: \"The index of this object within the object stream.\" Table 17 /W: \"the value of each integer shall be the number of bytes (in the decoded stream) of the corresponding field.\"",
+  "code": "crates/pdf-syntax/src/serialize.rs:2223 (cross_reference_stream)",
+  "change": "Size the third /W field from the largest index written (as the offset field could be sized from the largest offset), or cap max_objects at 65 536 when the options are built, or refuse by name as OffsetTooLarge does.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_entry_states_its_own_index_however_many_members_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the index-9 control passes"
+ },
+ {
+  "id": "2136-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.5.4",
+   "7.5.8.3"
+  ],
+  "summary": "The incremental-update writer writes an offset its field cannot hold without refusing: a table entry is formatted {offset:010}, which is eleven digits past 9 999 999 999 and breaks the 20-byte entry, and a stream entry is u32::try_from(offset).unwrap_or(u32::MAX) in a 4-byte field, which silently names the wrong byte past 4 GiB. The whole-file writer refuses both by name (SerializeError::OffsetTooLarge, MAX_TABLE_OFFSET). No test: it needs a file past 4 GiB in memory.",
+  "source": "ISO 32000-2 §7.5.4: \"The byte offset in the decoded stream shall be a 10-digit number\" and \"the overall length of the entry shall always be exactly 20 bytes\"; Table 18 type 1 field 2: \"The byte offset of the object, starting from the beginning of the PDF file.\"",
+  "code": "crates/pdf-syntax/src/write.rs:449, :515",
+  "change": "Refuse by name past the field (an UpdateError beside Recovered), or size the stream's offset field from the largest offset.",
+  "execution": "not run: a failing test needs a document of more than 4 GiB held whole by incremental_update; serialize's OffsetTooLarge is the model"
+ },
+ {
+  "id": "2136-T01",
+  "kind": "test-coverage-gap",
+  "clauses": [
+   "7.5.8.4"
+  ],
+  "summary": "No test pins what a hybrid section's own free entry does beside its own /XRefStm. The reader lets the section's free entry win (it is read first), which is the clause's order read literally (\"if an entry is not found in any given standard cross-reference section\"); the existing test covers only a free entry in the previous section, the one NOTE describes.",
+  "source": "ISO 32000-2 §7.5.8.4: \"When the PDF reader searches for an object, if an entry is not found in any given standard cross-reference section, the search shall proceed to a cross-reference stream specified by the XRefStm entry before looking in the previous cross-reference section\"; NOTE: \"The other is a free entry in some previous section, typically the section referenced by the Prev entry.\"",
+  "code": "crates/pdf-syntax/src/xref.rs read_from_startxref (section entries, then /XRefStm, then /Prev); crates/pdf-syntax/tests/cross_references.rs a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free",
+  "change": "Add a test that states the literal order for a free entry in the same section, so a change to it is a decision."
+ },
+ {
+  "id": "2136-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.5.7",
+   "7.5.8.3"
+  ],
+  "summary": "load's compressed-object branch says the index is \"only a hint about ordering\" and falls back to expanded.values().nth(index) when the stream does not hold the number: the map is keyed by object number, so nth counts in number order, not the stream's order Table 18's index is about (NOTE 6: members need not be in number order). The fallback hands back another member's value under this number, the silent substitution the offset branch beside it refuses.",
+  "source": "ISO 32000-2 Table 18 type 2 field 3: \"The index of this object within the object stream.\" §7.5.7 NOTE 6: \"There is no restriction on the order of objects in the object stream; in particular, the objects need not be stored in object-number order.\"",
+  "code": "crates/pdf-syntax/src/document/objects.rs:283-288",
+  "change": "Drop the fallback (an entry whose stream does not hold its number reads as null, as the offset branch's mismatch does) or keep the members in stream order for it; say which in the comment."
+ },
+ {
+  "id": "2136-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.5.6",
+   "7.5.8"
+  ],
+  "summary": "incremental_update's doc says a document \"whose last section is §7.5.8's cross-reference stream gets one of those\" and that each object is written \"with the generation the document's own table gives it\". The form is chosen from the merged trailer's /Type, which an older stream section supplies when the newest section is a classic table; and the table records no generation (Location has none) — the caller's ObjectId carries it.",
+  "source": "ISO 32000-2 §7.5.6 (the update section), §7.5.8.1",
+  "code": "crates/pdf-syntax/src/write.rs:210, :220, :360",
+  "change": "Say what decides each: the newest section's own form (xref::sections()[0].classic) if that is what is meant, and the caller's identifier for the generation."
+ }
+]

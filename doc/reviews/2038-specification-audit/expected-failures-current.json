@@ -8,7 +8,32 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [],
+ "failures": [
+  {
+   "binary": "pdf-syntax::file_structure_spec_audit",
+   "test": "a_compressed_object_ends_where_the_next_one_begins_spec_audit",
+   "finding": "2136-B01",
+   "log": "round-2136 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::file_structure_spec_audit",
+   "test": "an_update_to_a_file_with_bytes_before_its_header_counts_from_the_header_spec_audit",
+   "finding": "2136-B02",
+   "log": "round-2136 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::file_structure_spec_audit",
+   "test": "free_entries_do_not_cost_the_reader_memory_apiece_spec_audit",
+   "finding": "2136-B03",
+   "log": "round-2136 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::file_structure_spec_audit",
+   "test": "a_compressed_entry_states_its_own_index_however_many_members_spec_audit",
+   "finding": "2136-B04",
+   "log": "round-2136 nextest of pdf-syntax"
+  }
+ ],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",
