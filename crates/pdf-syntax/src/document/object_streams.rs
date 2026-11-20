@@ -22,7 +22,15 @@ use crate::xref::Location;
 /// object's own bytes, and reading on takes integers out of them. Stops early where the decoded
 /// prefix runs out mid-header, which is what a damaged stream leaves — the pairs it did carry are
 /// whole, and how many it did not is `/N` minus what came back.
-fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Vec<(u32, usize)> {
+///
+/// `None` for a stream whose `/N` is past [`crate::xref::MAX_XREF_ENTRIES`]: its members are
+/// objects of the file, and the file may hold no more than that budget between all its sections,
+/// so such a stream is refused whole, as an undecodable one is, rather than read up to a cut that
+/// would decide which members exist (ADR 3257).
+fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Option<Vec<(u32, usize)>> {
+    if usize::try_from(count).is_ok_and(|count| count > crate::xref::MAX_XREF_ENTRIES) {
+        return None;
+    }
     let mut header = crate::lexer::Lexer::new(data.get(..first).unwrap_or_default());
     let mut pairs = Vec::new();
     for _ in 0..count.max(0) {
@@ -35,7 +43,7 @@ fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Vec<(u32, usize
             pairs.push((number, at));
         }
     }
-    pairs
+    Some(pairs)
 }
 
 impl Document {
@@ -61,7 +69,7 @@ impl Document {
             .get_key(&stream.dict, "First")
             .as_integer()
             .and_then(|value| usize::try_from(value).ok())?;
-        let pairs = object_stream_pairs(&data, first, count);
+        let pairs = object_stream_pairs(&data, first, count)?;
 
         // §7.5.7 states where each compressed object ends as well as where it begins — "[t]he
         // byte offsets shall be in increasing order", and NOTE 7 (2020): "processing of each
@@ -178,7 +186,7 @@ impl Document {
             .get_key(&stream.dict, "First")
             .as_integer()
             .and_then(|value| usize::try_from(value).ok())?;
-        let numbers = object_stream_pairs(&decoded.data, first, count)
+        let numbers = object_stream_pairs(&decoded.data, first, count)?
             .into_iter()
             .map(|(number, _)| number)
             .collect();

@@ -45,12 +45,20 @@ pub enum Location {
 
 /// The cross-reference table: object numbers to locations, plus the trailer.
 ///
-/// An entry may be `None`, which is a *deletion* rather than an absence: §7.5.4's `f` entries
-/// and §7.5.8.3's type 0 both say the object number names nothing, and recording that is what
-/// makes §7.5.6's "most recent copy" rule apply to a removal as well as to a replacement.
+/// A free entry is a *deletion* rather than an absence: §7.5.4's `f` entries and §7.5.8.3's
+/// type 0 both say the object number names nothing, and recording that is what makes §7.5.6's
+/// "most recent copy" rule apply to a removal as well as to a replacement. **Free entries are held
+/// as runs and in-use ones apiece** (ADR 3257): a cross-reference stream states a
+/// million free entries in a few bytes, and a free entry names nothing a reader keeps, so what the
+/// table costs follows the objects the file has rather than the numbers it skips.
 #[derive(Debug, Clone, Default)]
 pub struct XrefTable {
-    entries: BTreeMap<u32, Option<Location>>,
+    /// The in-use entries that won: each number's most recent statement, where it names an object.
+    entries: BTreeMap<u32, Location>,
+    /// Every number some section stated free. A number may be here and in `entries` at once — an
+    /// update that reuses a freed number — and `entries` answers where it is; this answers only
+    /// whether the file described the number at all.
+    free: FreeRuns,
     trailer: Dictionary,
     /// How the table was obtained, for diagnostics and for the comparison report.
     recovered_by_scan: bool,
@@ -82,7 +90,7 @@ impl XrefTable {
     /// Returns the location of an object, if known.
     #[must_use]
     pub fn location(&self, number: u32) -> Option<Location> {
-        self.entries.get(&number).copied().flatten()
+        self.entries.get(&number).copied()
     }
 
     /// Returns the trailer dictionary.
@@ -126,7 +134,7 @@ impl XrefTable {
     /// order — [`Self::location`] first — cannot be inverted by accident.
     #[must_use]
     pub fn declared_and_unread(&self, number: u32) -> bool {
-        !self.entries.contains_key(&number)
+        !self.describes(number)
             && self.unread.iter().any(|&(first, count)| {
                 number >= first
                     && u64::from(number) < u64::from(first).saturating_add(u64::from(count))
@@ -151,16 +159,13 @@ impl XrefTable {
     /// A number the newest section deleted is not one of them.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.entries
-            .values()
-            .filter(|entry| entry.is_some())
-            .count()
+        self.entries.len()
     }
 
     /// Returns `true` if no objects are known.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.entries.values().all(Option::is_none)
+        self.entries.is_empty()
     }
 
     /// Returns every known object number, ascending.
@@ -168,10 +173,7 @@ impl XrefTable {
     /// A deleted number names nothing, so it is not yielded: every caller of this is walking
     /// the file's objects to ask each one a question.
     pub fn object_numbers(&self) -> impl Iterator<Item = u32> {
-        self.entries
-            .iter()
-            .filter(|(_, entry)| entry.is_some())
-            .map(|(number, _)| *number)
+        self.entries.keys().copied()
     }
 
     /// The highest object number any cross-reference section of this file stated.
@@ -188,7 +190,12 @@ impl XrefTable {
     /// `None` only for a table that states nothing, which [`crate::Document::empty`]'s is.
     #[must_use]
     pub fn highest_stated_number(&self) -> Option<u32> {
-        let filed = self.entries.keys().next_back().copied();
+        let filed = self
+            .entries
+            .keys()
+            .next_back()
+            .copied()
+            .max(self.free.highest());
         let unread = self
             .unread
             .iter()
@@ -279,10 +286,10 @@ impl XrefTable {
     ) -> usize {
         let mut entered = 0_usize;
         for (number, location) in entries {
-            if self.entries.contains_key(&number) {
+            if self.describes(number) {
                 continue;
             }
-            self.entries.insert(number, Some(location));
+            self.entries.insert(number, location);
             entered = entered.saturating_add(1);
         }
         entered
@@ -328,10 +335,15 @@ impl XrefTable {
         self.newest_section_classic
     }
 
+    /// Whether some section described `number`, in use or free.
+    fn describes(&self, number: u32) -> bool {
+        self.entries.contains_key(&number) || self.free.contains(number)
+    }
+
     /// Files every section's entries at once, the first writer of each number winning.
     ///
     /// **The read order carries §7.5.6's rule and this preserves it.** Sections are read newest
-    /// first, so for one object number the entry that appears earliest in `entries` is the most
+    /// first, so for one object number the entry that appears earliest in `stated` is the most
     /// recent copy — which is what "the most recent copy of each object shall be the one accessed
     /// from the PDF file" means for a reader. A stable sort keeps that order among equal numbers
     /// and `dedup_by_key` keeps the first of each run, so the rule is stated once for a whole
@@ -347,10 +359,44 @@ impl XrefTable {
     /// sort merges in one pass, and `BTreeMap`'s `FromIterator` bulk-builds from sorted input
     /// rather than searching for each key. **130.7 M instructions per open before, 76.6 M
     /// after — 41%.** ADR 0180, `cargo run -p pdf-syntax --example callgrind_open`.
-    fn fill(&mut self, mut entries: Vec<(u32, Option<Location>)>) {
-        entries.sort_by_key(|(number, _)| *number);
-        entries.dedup_by_key(|(number, _)| *number);
-        self.entries = entries.into_iter().collect();
+    ///
+    /// **Free runs take part as runs** (ADR 3257). Each run is painted, in read order, over the
+    /// numbers no earlier run covered, so every free number carries the position of its most
+    /// recent free statement; an in-use entry then survives only where no free statement made
+    /// before it in read order covers its number. Both are sorted by number, so that test is one
+    /// walk of the two lists side by side rather than a search per entry.
+    fn fill(&mut self, stated: Statements) {
+        let Statements { mut in_use, free } = stated;
+        // Sections are appended in read order, so the last entry's section is the oldest that
+        // stated anything in use.
+        let oldest_in_use = in_use.last().map(|filed| filed.section);
+        in_use.sort_by_key(|filed| filed.number);
+        in_use.dedup_by_key(|filed| filed.number);
+
+        let cover = cover_of(free);
+        // A free run deletes an in-use entry only where it was read first, so a file none of
+        // whose free statements is newer than its oldest in-use one — every single-section file,
+        // and ISO 32000-2's own — pays nothing here.
+        let newest_free = cover.iter().map(|run| run.section).min();
+        if let (Some(newest_free), Some(oldest_in_use)) = (newest_free, oldest_in_use)
+            && newest_free < oldest_in_use
+        {
+            let mut runs = cover.iter().peekable();
+            in_use.retain(|filed| {
+                while runs
+                    .next_if(|run| run.end() <= u64::from(filed.number))
+                    .is_some()
+                {}
+                !runs
+                    .peek()
+                    .is_some_and(|run| run.first <= filed.number && run.section < filed.section)
+            });
+        }
+        self.entries = in_use
+            .into_iter()
+            .map(|filed| (filed.number, filed.location))
+            .collect();
+        self.free = FreeRuns::of_ascending(&cover);
     }
 
     /// Lays one section's entries and trailer over this table, the section winning.
@@ -360,9 +406,25 @@ impl XrefTable {
     /// accessed from the PDF file" is an overwrite rather than a first-writer-wins sort, and
     /// after each section the table is the one that revision left behind. The trailer is
     /// overwritten the same way, so a key an update restated is the update's.
+    ///
+    /// A section's free runs are laid before its in-use entries, which is the precedence
+    /// [`Self::fill`] gives a number one section states both ways.
     fn lay_over(&mut self, section: &Section) {
-        for &(number, location) in &section.entries {
-            self.entries.insert(number, location);
+        for run in &section.entries.free {
+            let end = run.end();
+            let freed: Vec<u32> = self
+                .entries
+                .range(run.first..)
+                .map(|(&number, _)| number)
+                .take_while(|&number| u64::from(number) < end)
+                .collect();
+            for number in freed {
+                self.entries.remove(&number);
+            }
+            self.free.insert(run.first, end);
+        }
+        for filed in &section.entries.in_use {
+            self.entries.insert(filed.number, filed.location);
         }
         for (key, value) in section.trailer.iter() {
             self.trailer.insert(key.clone(), value.clone());
@@ -389,12 +451,250 @@ impl XrefTable {
 /// (ADR 0379).
 const STARTXREF_SEARCH_WINDOW: usize = 2048;
 
+/// One in-use entry, with the read position of the section that stated it.
+///
+/// The position sits in what was the padding of `(u32, Option<Location>)`, so an entry is the 24
+/// bytes it always was and [`XrefTable::fill`]'s sort moves no more than it did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Filed {
+    /// The object number.
+    number: u32,
+    /// The section's place in read order, newest first.
+    section: u32,
+    /// Where the object's bytes are.
+    location: Location,
+}
+
+/// A run of free entries: `count` numbers from `first`, stated by one section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FreeRun {
+    /// The first number of the run.
+    first: u32,
+    /// How many numbers the run holds; never zero.
+    count: u32,
+    /// The section's place in read order, newest first.
+    section: u32,
+}
+
+impl FreeRun {
+    /// One past the run's last number, as a `u64` so that a run ending at `u32::MAX` has one.
+    fn end(self) -> u64 {
+        u64::from(self.first).saturating_add(u64::from(self.count))
+    }
+}
+
+/// What one or more sections state: in-use entries apiece, free entries as runs.
+///
+/// **A free run is one value however long it is** (ADR 3257). §7.5.4 lets a file state "one entry
+/// for each object number from 0 to the maximum object number defined in the PDF file", and
+/// §7.5.8.2's `/Index` defaults to `[0 Size]`, so a conforming cross-reference stream may state
+/// millions of free entries in a few hundred bytes; an in-use entry is held apiece because it
+/// names an object the file must contain, and [`MAX_XREF_ENTRIES`] bounds those.
+#[derive(Debug, Default)]
+struct Statements {
+    /// In-use entries, in the order the sections state them.
+    in_use: Vec<Filed>,
+    /// Free runs, in the order the sections state them.
+    free: Vec<FreeRun>,
+}
+
+impl Statements {
+    /// Room for `in_use` in-use entries.
+    fn with_capacity(in_use: usize) -> Self {
+        Self {
+            in_use: Vec::with_capacity(in_use),
+            free: Vec::new(),
+        }
+    }
+
+    /// Appends one entry of `section`, extending the last free run where it continues.
+    fn push(&mut self, number: u32, location: Option<Location>, section: u32) {
+        if let Some(location) = location {
+            self.in_use.push(Filed {
+                number,
+                section,
+                location,
+            });
+            return;
+        }
+        if let Some(run) = self.free.last_mut()
+            && run.section == section
+            && run.end() == u64::from(number)
+            && let Some(longer) = run.count.checked_add(1)
+        {
+            run.count = longer;
+            return;
+        }
+        self.free.push(FreeRun {
+            first: number,
+            count: 1,
+            section,
+        });
+    }
+
+    /// A classic section's entries, one per number as §7.5.4 writes them.
+    fn of_classic(entries: Vec<(u32, Option<Location>)>, section: u32) -> Self {
+        let mut statements = Self::with_capacity(entries.len());
+        for (number, location) in entries {
+            statements.push(number, location, section);
+        }
+        statements
+    }
+
+    /// Appends another section's statements after these.
+    fn append(&mut self, mut later: Self) {
+        self.in_use.append(&mut later.in_use);
+        self.free.append(&mut later.free);
+    }
+}
+
+/// The numbers `free` covers, ascending and disjoint, each run carrying the newest section that
+/// stated its numbers free.
+///
+/// `free` is in read order. Where its runs are already ascending and disjoint — one section's
+/// runs always are, since §7.5.8.2 sorts `/Index` and "\[s]ubsections cannot overlap" — they are
+/// their own cover. Otherwise each run is painted, newest first, over the numbers no newer run
+/// covered.
+fn cover_of(free: Vec<FreeRun>) -> Vec<FreeRun> {
+    if free
+        .windows(2)
+        .all(|pair| matches!(pair, [before, after] if before.end() <= u64::from(after.first)))
+    {
+        return free;
+    }
+    let mut cover: BTreeMap<u32, (u64, u32)> = BTreeMap::new();
+    for run in &free {
+        paint_uncovered(&mut cover, run.first, run.end(), run.section);
+    }
+    cover
+        .into_iter()
+        .filter_map(|(first, (end, section))| {
+            // A painted piece lies inside one of `free`'s runs, whose count was a `u32`.
+            let count = u32::try_from(end.saturating_sub(u64::from(first))).ok()?;
+            Some(FreeRun {
+                first,
+                count,
+                section,
+            })
+        })
+        .collect()
+}
+
+/// Paints `first..end` over `cover` where no earlier run painted it, marking it `section`.
+///
+/// `cover` maps a run's first number to its end (exclusive, as a `u64` so that a run ending at
+/// `u32::MAX` has one) and to the section that painted it; its runs never overlap.
+fn paint_uncovered(cover: &mut BTreeMap<u32, (u64, u32)>, first: u32, end: u64, section: u32) {
+    let mut at = u64::from(first);
+    if let Some((_, &(before_end, _))) = cover.range(..first).next_back() {
+        at = at.max(before_end);
+    }
+    while at < end {
+        let Ok(from) = u32::try_from(at) else {
+            break;
+        };
+        match cover
+            .range(from..)
+            .next()
+            .map(|(&start, &(stop, _))| (start, stop))
+        {
+            Some((start, stop)) if u64::from(start) < end => {
+                if u64::from(start) > at {
+                    cover.insert(from, (u64::from(start), section));
+                }
+                at = stop;
+            }
+            _ => {
+                cover.insert(from, (end, section));
+                at = end;
+            }
+        }
+    }
+}
+
+/// The numbers a file stated free, as disjoint runs: first number to end (exclusive).
+///
+/// Adjacent runs are joined, so a table of two million free entries in one subsection holds one
+/// run (ADR 3257).
+#[derive(Debug, Clone, Default)]
+struct FreeRuns {
+    runs: BTreeMap<u32, u64>,
+}
+
+impl FreeRuns {
+    /// The runs of `cover`, which is ascending and disjoint, with touching runs joined.
+    fn of_ascending(cover: &[FreeRun]) -> Self {
+        let mut joined: Vec<(u32, u64)> = Vec::with_capacity(cover.len());
+        for run in cover {
+            match joined.last_mut() {
+                Some((_, end)) if *end == u64::from(run.first) => *end = run.end(),
+                _ => joined.push((run.first, run.end())),
+            }
+        }
+        Self {
+            runs: joined.into_iter().collect(),
+        }
+    }
+
+    /// Whether `number` is in a run.
+    fn contains(&self, number: u32) -> bool {
+        self.runs
+            .range(..=number)
+            .next_back()
+            .is_some_and(|(_, &end)| u64::from(number) < end)
+    }
+
+    /// The highest number in any run.
+    fn highest(&self) -> Option<u32> {
+        self.runs
+            .last_key_value()
+            .and_then(|(_, &end)| u32::try_from(end.saturating_sub(1)).ok())
+    }
+
+    /// Adds `first..end`, joining every run it overlaps or touches.
+    fn insert(&mut self, first: u32, end: u64) {
+        if end <= u64::from(first) {
+            return;
+        }
+        let (mut first, mut end) = (first, end);
+        if let Some((&start, &stop)) = self.runs.range(..first).next_back()
+            && stop >= u64::from(first)
+        {
+            first = start;
+            end = end.max(stop);
+        }
+        while let Some((&start, &stop)) = self
+            .runs
+            .range(first..)
+            .next()
+            .filter(|&(&start, _)| u64::from(start) <= end)
+        {
+            self.runs.remove(&start);
+            end = end.max(stop);
+        }
+        self.runs.insert(first, end);
+    }
+}
+
 /// The most cross-reference sections that will be followed through `/Prev`.
 ///
 /// A file with a genuine chain this long does not exist; one that claims to has a cycle or
 /// is trying to make the reader loop. The cycle is also detected directly, so this is a
 /// second line of defence rather than the only one.
 const MAX_XREF_SECTIONS: usize = 1024;
+
+/// The most in-use entries a file's cross-reference sections may state between them.
+///
+/// CLAUDE.md principle 3 asks for an explicit memory budget against pathological content, and an
+/// in-use entry is the one statement the reader keeps apiece (free ones are runs, [`FreeRun`]), at
+/// some fifty bytes between the section that states it and the table that files it. ISO 32000-2
+/// sets no number: Table C.1 says only that object numbers "can often be expressed within 32
+/// bits". ISO 32000-1 Table C.1 did, as the most indirect objects a writer could expect a reader to
+/// accommodate — "indirect object 8,388,607 Maximum number of indirect objects in a PDF file" — and
+/// this is that many objects and object 0's entry. It is 83 times the 101 318 entries of the
+/// standard's own file, and some 400 MiB at its worst. A file past it is refused by name
+/// ([`SyntaxError::LimitExceeded`] naming this constant), never read in part (ADR 3257).
+pub(crate) const MAX_XREF_ENTRIES: usize = 1 << 23;
 
 /// How far into the file a header is looked for.
 ///
@@ -408,12 +708,14 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 /// # Errors
 ///
 /// [`SyntaxError::NoHeader`] if the file has neither header *and* no objects could be
-/// found either, and [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
-/// yields any object.
+/// found either, [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
+/// yields any object, and [`SyntaxError::LimitExceeded`] naming `MAX_XREF_ENTRIES` if the
+/// file's sections state more in-use entries than that budget — which is not rebuilt by a scan,
+/// because the table the file states is readable and a scan would read a different document.
 pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     let header_at = header_position(file);
 
-    let mut replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None) {
+    let mut replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None)? {
         Some(table) if !table.is_empty() => return Ok(table),
         unusable => unusable,
     };
@@ -428,7 +730,11 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
         header_at
     } else {
         let far = header_past_window(file);
-        if let Some(table) = far.and_then(|far| read_from_startxref(file, far, limits, None)) {
+        let far_table = match far {
+            Some(far) => read_from_startxref(file, far, limits, None)?,
+            None => None,
+        };
+        if let Some(table) = far_table {
             if !table.is_empty() {
                 return Ok(table);
             }
@@ -539,6 +845,8 @@ pub struct SectionRecord {
 pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
     let mut record = Vec::new();
     let base = header_position(file).unwrap_or(0);
+    // A chain past the entry budget still names the sections read before it; `read` is the
+    // caller that refuses the file.
     let _ = read_from_startxref(file, base, limits, Some(&mut record));
     record
 }
@@ -573,19 +881,30 @@ pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl Fn
     let mut next = start.saturating_add(base);
     let mut chain: Vec<(Section, Option<Section>)> = Vec::new();
     let mut visited = std::collections::BTreeSet::new();
+    // The same budget `read` keeps; a chain past it hands over the revisions before the cut and
+    // no table of its own, since `read` has already refused the file by name.
+    let mut budget = MAX_XREF_ENTRIES;
     for _ in 0..MAX_XREF_SECTIONS {
         if !visited.insert(next) || next >= file.len() {
             break;
         }
-        let Some(section) = read_section(file, next, base, limits) else {
+        // `lay_over` applies each section whole, so no section here needs its read position.
+        let Ok(Some(section)) = read_section(file, next, base, limits, budget, 0) else {
             break;
         };
+        budget = budget.saturating_sub(section.entries.in_use.len());
         let hybrid = section
             .trailer
             .get("XRefStm")
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
-            .and_then(|at| read_section(file, at.saturating_add(base), base, limits));
+            .and_then(|at| {
+                read_section(file, at.saturating_add(base), base, limits, budget, 0).ok()
+            })
+            .flatten();
+        if let Some(hybrid) = &hybrid {
+            budget = budget.saturating_sub(hybrid.entries.in_use.len());
+        }
         let previous = section
             .trailer
             .get("Prev")
@@ -734,14 +1053,19 @@ pub fn rebuild(file: &FileBytes, limits: Limits, had_header: bool) -> SyntaxResu
 /// corpus document has junk before its header, and no valid file can be harmed by this,
 /// because a file whose header is at zero adds zero.
 ///
-/// Returns `None` when the chain cannot be read at all, leaving the caller to scan.
+/// Returns `None` when the chain cannot be read at all, leaving the caller to scan, and
+/// [`SyntaxError::LimitExceeded`] when its sections state more in-use entries than
+/// [`MAX_XREF_ENTRIES`].
 fn read_from_startxref(
     file: &FileBytes,
     base: usize,
     limits: Limits,
     mut record: Option<&mut Vec<SectionRecord>>,
-) -> Option<XrefTable> {
-    let mut next = find_startxref(file)?.saturating_add(base);
+) -> SyntaxResult<Option<XrefTable>> {
+    let Some(start) = find_startxref(file) else {
+        return Ok(None);
+    };
+    let mut next = start.saturating_add(base);
     let mut table = XrefTable {
         offset_origin: base,
         ..XrefTable::default()
@@ -750,7 +1074,10 @@ fn read_from_startxref(
     // Every section's entries in read order — newest first, and a hybrid file's `/XRefStm`
     // between its own section and the older one it precedes. `XrefTable::fill` turns that order
     // into §7.5.6's precedence in one pass at the end.
-    let mut entries: Vec<(u32, Option<Location>)> = Vec::new();
+    let mut entries = Statements::default();
+    let mut budget = MAX_XREF_ENTRIES;
+    // Each section's place in that order, which `fill` needs once free entries are runs.
+    let mut read_position = 0_u32;
     // Whether the section `next` names is one the file points at and this reader has not read:
     // true from the moment a `/Prev` is followed until the section it names is read, so it is
     // still true where the walk stopped on an unreadable offset, an offset past the file's end or
@@ -769,9 +1096,11 @@ fn read_from_startxref(
             break;
         }
 
-        let Some(section) = read_section(file, next, base, limits) else {
+        let Some(section) = read_section(file, next, base, limits, budget, read_position)? else {
             break;
         };
+        read_position = read_position.saturating_add(1);
+        budget = budget.saturating_sub(section.entries.in_use.len());
         named_and_unread = false;
         table.newest_section_classic.get_or_insert(section.classic);
         if let Some(record) = record.as_mut() {
@@ -781,7 +1110,7 @@ fn read_from_startxref(
                 trailer: section.trailer.clone(),
             });
         }
-        entries.extend(section.entries);
+        entries.append(section.entries);
         table.entries_lost = table.entries_lost.saturating_add(section.lost);
         table.unread.extend(section.unread);
         table.merge_trailer(&section.trailer);
@@ -794,9 +1123,18 @@ fn read_from_startxref(
             .get("XRefStm")
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
-            && let Some(extra) = read_section(file, hybrid.saturating_add(base), base, limits)
+            && let Some(extra) = read_section(
+                file,
+                hybrid.saturating_add(base),
+                base,
+                limits,
+                budget,
+                read_position,
+            )?
         {
-            entries.extend(extra.entries);
+            read_position = read_position.saturating_add(1);
+            budget = budget.saturating_sub(extra.entries.in_use.len());
+            entries.append(extra.entries);
             table.entries_lost = table.entries_lost.saturating_add(extra.lost);
             table.unread.extend(extra.unread);
         }
@@ -819,7 +1157,7 @@ fn read_from_startxref(
         declare_unreached(&mut table);
     }
     table.fill(entries);
-    Some(table)
+    Ok(Some(table))
 }
 
 /// Records that the sections before the one a `/Prev` could not reach held the rest of the table.
@@ -860,7 +1198,8 @@ fn declare_unreached(table: &mut XrefTable) {
 
 /// One cross-reference section's entries and trailer.
 struct Section {
-    entries: Vec<(u32, Option<Location>)>,
+    /// In the section's own order: in-use entries apiece, free entries as runs.
+    entries: Statements,
     trailer: Dictionary,
     /// Entries §7.5.8's own arithmetic states that the stream's data does not carry.
     ///
@@ -897,21 +1236,48 @@ const SECTION_WINDOW: usize = 64 * 1024;
 const HEADER_WINDOW: usize = 64;
 
 /// Reads either a classic `xref` table or a cross-reference stream at `offset`.
-fn read_section(file: &FileBytes, offset: usize, base: usize, limits: Limits) -> Option<Section> {
+///
+/// `budget` is how many in-use entries the section may state ([`MAX_XREF_ENTRIES`] less what the
+/// sections read before it stated); a section past it is refused by name rather than read in
+/// part, because a table missing the entries past a cut reads as a different document.
+fn read_section(
+    file: &FileBytes,
+    offset: usize,
+    base: usize,
+    limits: Limits,
+    budget: usize,
+    read_position: u32,
+) -> SyntaxResult<Option<Section>> {
+    let past_budget = || SyntaxError::LimitExceeded {
+        at: offset,
+        limit: "MAX_XREF_ENTRIES",
+    };
     file.parse_from(offset, SECTION_WINDOW, |input, _| {
         // A classic table begins with the `xref` keyword.
         let mut lexer = crate::lexer::Lexer::at(input, 0);
         if lexer.next_token() == Some(crate::Token::Keyword(b"xref")) {
-            let section = read_classic_table(file, &mut lexer, base, limits);
+            // Twenty bytes an entry (§7.5.4), so the window the table was read from has
+            // already bounded what reading it cost; the budget is the same one a stream meets.
+            let section = match read_classic_table(file, &mut lexer, base, limits, read_position) {
+                Some(section) if section.entries.in_use.len() > budget => Err(past_budget()),
+                section => Ok(section),
+            };
             return (section, lexer.examined());
         }
 
         // Otherwise expect `N G obj` introducing a cross-reference stream.
         let mut parser = Parser::at(input, 0, limits);
-        let section = parser
-            .parse_indirect_object()
-            .ok()
-            .and_then(|(_, object)| read_xref_stream(object.as_stream()?, base, limits));
+        let section =
+            match parser.parse_indirect_object() {
+                Ok((_, object)) => object.as_stream().map_or(Ok(None), |stream| {
+                    match read_xref_stream(stream, base, limits, budget, read_position) {
+                        Some(StreamRead::Read(section)) => Ok(Some(section)),
+                        Some(StreamRead::PastBudget) => Err(past_budget()),
+                        None => Ok(None),
+                    }
+                }),
+                Err(_) => Ok(None),
+            };
         (section, parser.examined())
     })
 }
@@ -927,6 +1293,7 @@ fn read_classic_table(
     lexer: &mut crate::lexer::Lexer<'_>,
     base: usize,
     limits: Limits,
+    read_position: u32,
 ) -> Option<Section> {
     let mut entries = Vec::new();
     let mut unread: Vec<(u32, u32)> = Vec::new();
@@ -958,17 +1325,35 @@ fn read_classic_table(
                     let Some(crate::Token::Integer(position)) = lexer.next_token() else {
                         entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, lexer, entry_at, limits));
+                        return Some(finish(
+                            Statements::of_classic(entries, read_position),
+                            unread,
+                            lexer,
+                            entry_at,
+                            limits,
+                        ));
                     };
                     let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
                         entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, lexer, entry_at, limits));
+                        return Some(finish(
+                            Statements::of_classic(entries, read_position),
+                            unread,
+                            lexer,
+                            entry_at,
+                            limits,
+                        ));
                     };
                     let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
                         entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, lexer, entry_at, limits));
+                        return Some(finish(
+                            Statements::of_classic(entries, read_position),
+                            unread,
+                            lexer,
+                            entry_at,
+                            limits,
+                        ));
                     };
 
                     // `f` marks a free entry: the object number names nothing *in this
@@ -1012,7 +1397,7 @@ fn read_classic_table(
                     .unwrap_or_default();
                 lexer.note_examined(parser.examined());
                 return Some(Section {
-                    entries,
+                    entries: Statements::of_classic(entries, read_position),
                     trailer,
                     lost: 0,
                     unread,
@@ -1027,7 +1412,13 @@ fn read_classic_table(
     }
 
     let at = lexer.position();
-    Some(finish(entries, unread, lexer, at, limits))
+    Some(finish(
+        Statements::of_classic(entries, read_position),
+        unread,
+        lexer,
+        at,
+        limits,
+    ))
 }
 
 /// How many of a subsection's in-use entries are checked against the objects they point at.
@@ -1143,7 +1534,7 @@ fn header_number(lexer: &mut crate::lexer::Lexer<'_>) -> Option<u32> {
 
 /// Builds a section, looking for a trailer from `offset` onwards in the lexer's input.
 fn finish(
-    entries: Vec<(u32, Option<Location>)>,
+    entries: Statements,
     unread: Vec<(u32, u32)>,
     lexer: &mut crate::lexer::Lexer<'_>,
     offset: usize,
@@ -1176,7 +1567,9 @@ fn read_xref_stream(
     stream: &crate::object::Stream,
     base: usize,
     limits: Limits,
-) -> Option<Section> {
+    budget: usize,
+    read_position: u32,
+) -> Option<StreamRead> {
     let data = decode_direct(stream, limits)?;
 
     let widths: Vec<usize> = stream
@@ -1220,12 +1613,16 @@ fn read_xref_stream(
     // rather than once per entry. `RecordLayout` says what that was costing.
     let layout = RecordLayout::of(&widths);
 
-    // One allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries.
-    // The capacity comes from the *decoded data's* own length rather than from `/Size` or
-    // `/Index`, because the data has been materialised already and its length is therefore a
-    // bound a malformed file cannot inflate. Worth 0.4% of `Document::open` on ISO 32000-2 —
-    // small, and kept because a length that is known is a length worth stating.
-    let mut entries = Vec::with_capacity(data.len().checked_div(row).unwrap_or(0));
+    // The in-use records are counted before anything is held, so that a stream past the budget
+    // is refused having cost its decode and no more (ADR 3257). The count is also the capacity:
+    // one allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries,
+    // worth 0.4% of `Document::open` on ISO 32000-2, and one more slot for the free run each
+    // in-use entry may follow costs nothing on a file whose free entries are object 0 alone.
+    let in_use = in_use_records(&data, row, &layout, &index);
+    if in_use > budget {
+        return Some(StreamRead::PastBudget);
+    }
+    let mut entries = Statements::with_capacity(in_use);
     let mut cursor = 0usize;
     // §7.5.8's own arithmetic for how long this stream is, which Table 17 states of `/W`: "[t]he
     // sum of the items shall be the total length of each entry; it can be used with the Index
@@ -1255,13 +1652,13 @@ fn read_xref_stream(
             // record is the producer's own statement about one object, and a partial one is
             // fields read from bytes that are not there.
             let Some(record) = data.get(cursor..cursor.saturating_add(row)) else {
-                return Some(Section {
+                return Some(StreamRead::Read(Section {
                     entries,
                     trailer: stream.dict.clone(),
                     lost,
                     unread: subsections_from(&index, pair_index, first, offset),
                     classic: false,
-                });
+                }));
             };
             cursor = cursor.saturating_add(row);
 
@@ -1270,17 +1667,51 @@ fn read_xref_stream(
             else {
                 continue;
             };
-            entries.push((number, entry_location(record, &layout, base)?.location()));
+            entries.push(
+                number,
+                entry_location(record, &layout, base)?.location(),
+                read_position,
+            );
         }
     }
 
-    Some(Section {
+    Some(StreamRead::Read(Section {
         entries,
         trailer: stream.dict.clone(),
         lost,
         unread: Vec::new(),
         classic: false,
-    })
+    }))
+}
+
+/// What reading a cross-reference stream came to, where it came to anything.
+enum StreamRead {
+    /// The section, as far as the data carried it.
+    Read(Section),
+    /// The stream states more in-use entries than the budget left; see [`MAX_XREF_ENTRIES`].
+    PastBudget,
+}
+
+/// How many of the records `/Index` states and the data carries are Table 18's types 1 and 2.
+///
+/// Counted from the type field alone, which is one byte in every file anyone writes; a record
+/// with no type field is type 1 (Table 17's `/W`: "If the first element is zero, the type field
+/// shall not be present, and shall default to Type 1").
+fn in_use_records(data: &[u8], row: usize, layout: &RecordLayout, index: &[i64]) -> usize {
+    let stated: usize = index
+        .chunks(2)
+        .filter_map(|pair| pair.get(1).copied())
+        .map(|count| usize::try_from(count).unwrap_or(0))
+        .fold(0, usize::saturating_add);
+    data.chunks_exact(row)
+        .take(stated)
+        .filter(|record| {
+            let kind = layout.fields[0]
+                .and_then(|(at, end)| record.get(at..end))
+                .map_or(1, big_endian);
+            matches!(kind, 1 | 2)
+        })
+        .count()
 }
 
 /// The object numbers `/Index` states from the record a short stream stopped at onwards.
@@ -1715,7 +2146,7 @@ pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     }
 
     for (number, offset) in latest {
-        table.entries.insert(number, Some(Location::Offset(offset)));
+        table.entries.insert(number, Location::Offset(offset));
     }
     // Earliest in the file first: `Document`'s recovery reads them in that order so that a
     // later stream's copy of an object number wins, which is the rule this scan already

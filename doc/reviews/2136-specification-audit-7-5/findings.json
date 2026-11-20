@@ -40,7 +40,8 @@
   "source": "CLAUDE.md principle 3: \"Explicit memory and time budgets guard against decompression bombs, xref cycles, and pathological content\". ISO 32000-2 §7.5.4: \"The cross-reference table (comprising the original cross-reference section and all update sections) shall contain one entry for each object number from 0 to the maximum object number defined in the PDF file\"; Table 17 /Index \"Default value: [0 Size ].\"",
   "code": "crates/pdf-syntax/src/xref.rs:1184 (Vec::with_capacity(data.len() / row)), :1229 (one entry per record), :740 (every section's entries kept), :1433 (decode_direct decodes to max_stream_len whatever /Index states); XrefTable::fill's BTreeMap; crates/pdf-syntax/src/document/object_streams.rs:25",
   "change": "Stop decoding an xref stream at the rows /Index states (sum of counts x row width); hold runs of free entries as ranges rather than one map entry each, or set a named budget on entries across the chain and refuse past it by name.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::free_entries_do_not_cost_the_reader_memory_apiece_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the control (the object past the free run is read) passes"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::free_entries_do_not_cost_the_reader_memory_apiece_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the control (the object past the free run is read) passes",
+  "status": "fixed (ADR 3257; free entries are held as runs, in-use entries under the named budget MAX_XREF_ENTRIES, refused by name past it)"
  },
  {
   "id": "2136-B04",

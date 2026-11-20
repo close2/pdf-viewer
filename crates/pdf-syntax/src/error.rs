@@ -35,7 +35,8 @@ pub enum SyntaxError {
     LimitExceeded {
         /// Byte offset at which the bound was reached.
         at: usize,
-        /// Which bound, named as its field in `Limits`.
+        /// Which bound, named as its field in `Limits`, or as the constant that states a bound
+        /// `Limits` does not carry (`MAX_XREF_ENTRIES`, the cross-reference entry budget).
         limit: &'static str,
     },
     /// The file begins with neither a PDF header (§7.5.2) nor an FDF one (§12.7.8.2.2).
