@@ -254,7 +254,11 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
   A `/ModDate` the clause keeps beside a `/PieceInfo` is never dropped: it stays as written, and is
   refused only where the packet's `xmp:ModifyDate` names an instant it would have to equal. A
   trailer `/Info` that is empty, or names an object that does not exist (§7.3.9's null), moves
-  nothing and goes.
+  nothing and goes. A Table 349 value whose text holds a character XML 1.0's `Char` production
+  excludes (U+0000 in `poppler-742-0-fuzzed`'s `/Title`) leaves no packet well-formed, and is
+  answered as a carried value the packet cannot hold is (ADR 2681): removed and stated under
+  `append-statement`, dropped and named under `discard` as the second step or as `unreadable`,
+  refused by name otherwise (ADR 3238).
 - **`unmapped = "extension-schema"` is recognised and refused**, and this entry offered it in
   error. ISO 19005-2 6.6.2.3.2's container describes a schema *a packet uses*, and a `/Info` key is
   in no schema: putting one into the packet needs a namespace URI first, and a namespace URI is the
@@ -1758,7 +1762,9 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   outline that the restated `cmap` maps those codes to. The page draws what this reader drew and no
   shown code reaches `.notdef`; nothing is invented, because the outline is the program's (A694
   item 3). A `CIDFontType2`, CFF or Type 1 program keeps the refusal until its glyph map or
-  charstrings are written. One escape is not a remedy but is worth repeating in the report: where the font is **not** embedded, the limits document's
+  charstrings are written. A code §9.7.6.3 calls invalid under a `Type0` font's own embedded CMap,
+  drawn as CID 0, is given a codespace range of its own and sent by a `cidchar` to a fresh CID past
+  every CID the collection's `-UCS2` CMap maps, the CMap renamed with it (ADR 3237). One escape is not a remedy but is worth repeating in the report: where the font is **not** embedded, the limits document's
   section 4.9 substitution applies instead, and `--font <base-font>=<path>` supplying the intended
   face moves the document into that case. **The flag is built** (ADR 1209): the program is the
   operator's, the licence ISO 19005-2 section 6.2.11.4.1 demands is theirs to state, and the report
@@ -1798,7 +1804,10 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
   **Recompute** the set from the embedded program, which `pdf_font` already reads; or **remove** the
   entry, which the base standard makes optional and which the clause therefore stops judging. Both
   are mechanical and neither loses anything, because the set is derivable from the program either
-  way. **Owed, not optional** in substance.
+  way. **Owed, not optional** in substance. Where the `.notdef` remedy writes a `/CIDToGIDMap`
+  stream sending a CID other than 0 to glyph 0, the descriptor it writes states no `/CIDSet`:
+  Table 115 leaves open whether such a CID is present in the program, veraPDF 1.30.3 reads it as
+  present and this tree as absent, and removal asserts neither (ADR 3239).
 - **By target** — part 4 states no such rule and ISO 32000-2's Table 122 deprecates `/CIDSet`
   outright, so a part 4 target wants the entry *gone* rather than corrected. Confirmed **A**.
 - **From a configuration** — at most `route = "recompute" | "remove"`, and only because an archive

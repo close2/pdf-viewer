@@ -131,6 +131,13 @@ impl Code {
         self.length
     }
 
+    /// Whether the code matched a codespace range: `false` for a code ISO 32000-2 §9.7.6.3 calls
+    /// invalid, whose length is the best partially matching range's.
+    #[must_use]
+    pub const fn in_codespace(self) -> bool {
+        self.in_codespace
+    }
+
     /// Whether ISO 32000-2 §9.3.3's word spacing applies to this code.
     ///
     /// > Word spacing shall be applied to every occurrence of the single-byte character code

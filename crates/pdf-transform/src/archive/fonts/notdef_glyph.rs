@@ -345,6 +345,12 @@ fn loca_bytes(offsets: &[usize], long: bool) -> Option<Vec<u8>> {
 /// The header's 16-bit field at offset 34 counts the long metrics; a glyph past them takes the
 /// last long metric's advance and its own bearing from the array after them (the Manual's `hmtx`
 /// and `vmtx` chapters, which share the layout).
+///
+/// **A bearing the array stops short of is read as 0.** The Manual sizes the array by the glyph
+/// count and does not say what a shorter one means; `read-fonts` answers no bearing for such a
+/// glyph and `skrifa`, which draws this tree's TrueType outlines, reads that as 0
+/// (`GlyphHMetrics::lsb`'s `unwrap_or_default`), so 0 is what the window drew the glyph by, and
+/// what a restated table states for it (`doc/adr/3237`).
 fn metric(
     tables: &BTreeMap<[u8; 4], &[u8]>,
     header: [u8; 4],
@@ -366,7 +372,11 @@ fn metric(
         let bearing_at = long
             .checked_mul(4)?
             .checked_add(at.checked_sub(long)?.checked_mul(2)?)?;
-        let bearing = i16_at(table, bearing_at)?;
+        let bearing = if bearing_at.checked_add(2)? <= table.len() {
+            i16_at(table, bearing_at)?
+        } else {
+            0
+        };
         Some((advance, bearing))
     }
 }
@@ -596,6 +606,23 @@ fn put_u32(bytes: &mut [u8], at: usize, value: u32) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bearing_the_metrics_array_stops_short_of_is_read_as_0() {
+        // Two long metrics, then one bearing where a glyph count of four asks for two: glyph 3's
+        // bearing is past the table's end, which `skrifa` reads as 0 (`doc/adr/3237`).
+        let mut hhea = [0_u8; 36];
+        hhea[34..36].copy_from_slice(&2_u16.to_be_bytes());
+        let mut hmtx = Vec::new();
+        for value in [500_i16, 7, 600, 8, 9] {
+            hmtx.extend_from_slice(&value.to_be_bytes());
+        }
+        let tables: BTreeMap<[u8; 4], &[u8]> =
+            BTreeMap::from([(*b"hhea", &hhea[..]), (*b"hmtx", &hmtx[..])]);
+        assert_eq!(metric(&tables, *b"hhea", *b"hmtx", 1), Some((600, 8)));
+        assert_eq!(metric(&tables, *b"hhea", *b"hmtx", 2), Some((600, 9)));
+        assert_eq!(metric(&tables, *b"hhea", *b"hmtx", 3), Some((600, 0)));
+    }
 
     /// A minimal `glyf` sfnt: `glyphs` outlines, short `loca`, two long metrics and the rest
     /// short, and a format 2 `post` naming each glyph past 0 by a custom name.

@@ -28,20 +28,33 @@ fn private(default_width: Option<i64>, nominal_width: Option<i64>) -> Vec<u8> {
 
 /// A name-keyed program of the given charstrings under one Private DICT. It states no charset,
 /// so Technical Note #5176's predefined `ISOAdobe` charset (offset 0) names glyph 1 `space`.
+pub(crate) fn name_keyed_with(charstrings: &[&[u8]], private: &[u8]) -> Vec<u8> {
+    name_keyed_with_subroutines(charstrings, &[], private)
+}
+
+/// [`name_keyed_with`] with a Global Subr INDEX of `global_subrs`, which a charstring calls by
+/// `callgsubr` with its index less the bias (107 below 1240 subroutines, Technical Note #5177
+/// section 4.7).
 #[expect(
     clippy::cast_possible_wrap,
     clippy::arithmetic_side_effects,
     reason = "a fixture builder over a font of a few glyphs: every quantity is a few hundred, and \
               a wrong table is what the assertions exist to catch"
 )]
-pub(crate) fn name_keyed_with(charstrings: &[&[u8]], private: &[u8]) -> Vec<u8> {
+fn name_keyed_with_subroutines(
+    charstrings: &[&[u8]],
+    global_subrs: &[&[u8]],
+    private: &[u8],
+) -> Vec<u8> {
     let header = [1u8, 0, 4, 4];
     let names = index(&[b"F"]);
     let empty = index(&[]);
+    let gsubrs = index(global_subrs);
     let charstrings = index(charstrings);
     // CharStrings, then Private: 6 + 11 bytes, in an INDEX of one item and one-byte offsets.
     let top_len = 17;
-    let charstrings_at = header.len() + names.len() + index(&[&[0; 17]]).len() + 2 * empty.len();
+    let charstrings_at =
+        header.len() + names.len() + index(&[&[0; 17]]).len() + empty.len() + gsubrs.len();
     let private_at = charstrings_at + charstrings.len();
     let mut top = Vec::new();
     top.extend_from_slice(&int5(charstrings_at as i64));
@@ -55,7 +68,7 @@ pub(crate) fn name_keyed_with(charstrings: &[&[u8]], private: &[u8]) -> Vec<u8> 
     out.extend_from_slice(&names);
     out.extend_from_slice(&index(&[&top]));
     out.extend_from_slice(&empty);
-    out.extend_from_slice(&empty);
+    out.extend_from_slice(&gsubrs);
     out.extend_from_slice(&charstrings);
     out.extend_from_slice(private);
     out
@@ -179,4 +192,31 @@ fn a_glyph_past_the_charstrings_still_has_no_width() {
         charstring_widths(&program, &[0, 1]),
         Ok(vec![Some(0.0), None])
     );
+}
+
+/// Technical Note #5177 section 3.1 places the width as the first operand of the first
+/// stack-clearing operator, "wherever it occurs" (`doc/adr/3240`): an operand a subroutine
+/// pushes, an `hstem` a subroutine states, and an `endchar` inside one each carry it.
+/// `0x20 29` is `-107 callgsubr`, global subroutine 0 under the bias of 107.
+#[test]
+fn a_width_a_subroutine_states_is_read() {
+    const CALL_0: [u8; 2] = [0x20, 29];
+    // `100 return`: the operand is pushed in the subroutine and cleared by the caller's `endchar`.
+    let pushed: &[u8] = &[0xef, 11];
+    // `100 10 20 hstem return`: three operands, so the first is the width.
+    let hstem: &[u8] = &[0xef, 0x95, 0x9f, 1, 11];
+    // `100 endchar`, inside the subroutine.
+    let ended: &[u8] = &[0xef, 14];
+    let caller: &[u8] = &[CALL_0[0], CALL_0[1], 14];
+    let alone: &[u8] = &CALL_0;
+    for (subr, charstring) in [(pushed, caller), (hstem, caller), (ended, alone)] {
+        let program = name_keyed_with_subroutines(
+            &[OMITTED, charstring],
+            &[subr],
+            &private(Some(300), Some(400)),
+        );
+        let expected = Ok(vec![Some(300.0), Some(500.0)]);
+        assert_eq!(charstring_widths(&program, &[0, 1]), expected, "{subr:x?}");
+        assert_eq!(advances(&program, &[0, 1]), expected, "{subr:x?}");
+    }
 }

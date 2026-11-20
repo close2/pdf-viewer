@@ -21,6 +21,8 @@ use pdf_transform::archive::{
 
 const STATE_EVERY_LOSS: &str = include_str!("../../../../doc/profiles/state-every-loss.toml");
 const NO_DATA_LOSS: &str = include_str!("../../../../doc/profiles/no-data-loss.toml");
+const AS_SHOWN: &str = include_str!("../../../../doc/profiles/as-shown.toml");
+const AS_IF_PRINTED: &str = include_str!("../../../../doc/profiles/as-if-printed.toml");
 
 const PROFILES: [(&str, &str); 2] = [
     ("state-every-loss", STATE_EVERY_LOSS),
@@ -351,5 +353,75 @@ fn an_operator_who_accepts_the_loss_drops_a_value_that_cannot_be_carried() {
             .iter()
             .any(|entry| entry.key == "Batch" && entry.property.is_none()),
         "the report names the key whose value left: {moved:?}"
+    );
+}
+
+/// The Dublin Core namespace Table 349 sends `/Title` and `/Author` to.
+const DUBLIN_CORE: &str = "http://purl.org/dc/elements/1.1/";
+
+/// A `/Title` whose UTF-16BE text holds U+0000, pdf.js `poppler-742-0-fuzzed`'s shape, beside an
+/// `/Author` the packet carries.
+const TITLE_HOLDING_NUL: &str = "/Title <FEFF0041000000420043> /Author (Kept)";
+
+#[test]
+fn a_table_349_value_holding_a_character_xml_excludes_is_answered_by_the_second_step() {
+    // XML 1.0's Char production admits no U+0000, so no packet holding the title is well-formed
+    // (ISO 19005-4 section 6.7.2.1), and ISO 19005-4 section 6.1.3 keeps no dictionary entry for
+    // it: both shipped profiles drop it and name it, the packet carrying the rest (`doc/adr/3238`).
+    let source = a_document_stating_information(TITLE_HOLDING_NUL);
+    for (name, profile) in [("as-shown", AS_SHOWN), ("as-if-printed", AS_IF_PRINTED)] {
+        let (report, output) = convert_with_plan(&source, &planned(profile));
+        let output = output.unwrap_or_else(|| panic!("{name}: it converts: {report:#?}"));
+        assert_eq!(
+            holds(&output, TARGET).verdict(),
+            Verdict::Conforms,
+            "{name}"
+        );
+        let packet = document_packet(&output);
+        let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+        assert!(xmp.value(DUBLIN_CORE, "title").is_none(), "{name}");
+        assert!(xmp.value(DUBLIN_CORE, "creator").is_some(), "{name}");
+        let title = conversion(&report)
+            .moved_information
+            .iter()
+            .find(|entry| entry.key == "Title")
+            .unwrap_or_else(|| panic!("{name}: the report names the title"));
+        assert!(
+            title.property.is_none() && title.removed.is_none(),
+            "{name}"
+        );
+        assert!(
+            title.fate.contains("XML 1.0 excludes"),
+            "{name}: {}",
+            title.fate
+        );
+    }
+
+    // `state-every-loss` removes it and states it in facts, never the value.
+    let (report, output) = convert_with_plan(&source, &planned(STATE_EVERY_LOSS));
+    let output = output.unwrap_or_else(|| panic!("it converts: {report:#?}"));
+    assert_eq!(holds(&output, TARGET).verdict(), Verdict::Conforms);
+    let removed = conversion(&report)
+        .moved_information
+        .iter()
+        .find(|entry| entry.key == "Title")
+        .and_then(|entry| entry.removed.clone())
+        .expect("the removal is reported");
+    assert_eq!(removed.key, "/Title");
+    assert_eq!(removed.value, "string of 10 bytes");
+    assert_eq!(removed.stated_on, Some(1));
+    let (_, text) = pages_of(&output);
+    assert!(text.contains("Key: /Title"), "{text}");
+
+    // `no-data-loss` keeps the refusal, by a sentence that names the character.
+    let (report, output) = convert_with_plan(&source, &planned(NO_DATA_LOSS));
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Refused(because) = decision(&report, NEEDS_PIECE_INFO) else {
+        panic!("{:?}", decision(&report, NEEDS_PIECE_INFO));
+    };
+    assert!(
+        because.sentence().contains("Char production"),
+        "{}",
+        because.sentence()
     );
 }

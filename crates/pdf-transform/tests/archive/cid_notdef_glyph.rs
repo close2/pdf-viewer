@@ -440,3 +440,175 @@ fn a_font_both_remedies_refuse_states_the_cid_remedy_s_reason() {
         assert!(output.is_none(), "and no file is written");
     }
 }
+
+/// The `CMap` file a fixture's `Type0` font embeds: a one-byte and a three-byte codespace range,
+/// the shape of UTF-8's, and `<41>` sent to CID 36, under the descendant's collection.
+const EMBEDDED_CMAP: &str = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+     /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> def\n\
+     /CMapName /Test-UTF8-H def\n/CMapType 1 def\n/WMode 0 def\n2 begincodespacerange\n\
+     <00> <7f>\n<e08080> <efbfbf>\nendcodespacerange\n1 begincidchar\n<41> 36\nendcidchar\n\
+     endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+
+/// A page showing `<E0E0E041>` in a `Type0` font over an `Adobe-Japan1` `CIDFontType2` whose
+/// program is Liberation Sans, encoded by [`EMBEDDED_CMAP`] with no `ToUnicode`: the first three
+/// bytes are a code no codespace range matches, which ISO 32000-2 §9.7.6.3 draws as CID 0, and
+/// `<41>` is CID 36 on `A`. The descriptor states a `/CIDSet` marking CID 36.
+fn a_page_showing_an_invalid_code() -> Vec<u8> {
+    let entries: Vec<u8> = (0..=36_u16)
+        .flat_map(|cid| if cid == 36 { 36_u16 } else { 0 }.to_be_bytes())
+        .collect();
+    let cid_set = [0_u8, 0, 0, 0, 0x08];
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <E0E0E041> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans-Test-UTF8-H /Encoding \
+             11 0 R /DescendantFonts [7 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << \
+             /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> /FontDescriptor 8 0 R \
+             /DW 1000 /W [36 [667]] /CIDToGIDMap 10 0 R >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 /FontBBox [-543 -303 \
+             1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 \
+             /FontFile2 9 0 R /CIDSet 12 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+            stream(&format!("/Length {}", entries.len()), &entries),
+            stream(
+                &format!(
+                    "/Type /CMap /CMapName /Test-UTF8-H /CIDSystemInfo << /Registry (Adobe) \
+                     /Ordering (Japan1) /Supplement 6 >> /WMode 0 /Length {}",
+                    EMBEDDED_CMAP.len()
+                ),
+                EMBEDDED_CMAP.as_bytes(),
+            ),
+            stream(&format!("/Length {}", cid_set.len()), &cid_set),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The highest CID `Adobe-Japan1-UCS2` maps, which §9.10.2's third method reads a CID of the
+/// collection through.
+fn highest_japan1_cid_read() -> u32 {
+    pdf_font::predefined::cid_to_unicode("Adobe", "Japan1")
+        .expect("the collection's Unicode CMap is carried")
+        .mappings()
+        .map(|mapping| match mapping {
+            pdf_font::tounicode::Mapping::Single { code, .. } => code,
+            pdf_font::tounicode::Mapping::Span { high, .. } => high,
+        })
+        .max()
+        .expect("it maps CIDs")
+}
+
+#[test]
+fn an_invalid_code_under_an_embedded_cmap_is_sent_to_a_fresh_cid_by_its_own_cmap() {
+    // ISO 32000-2 §9.7.6.3 draws a code no codespace range matches as CID 0, which §9.7.4.2 makes
+    // the CIDFont's `.notdef`: the font's own CMap is restated with a range holding that one code
+    // and a `cidchar` to a fresh CID past every CID Adobe-Japan1-UCS2 maps, so §9.10.2's third
+    // method reads nothing for it as it read nothing before; the fresh CID draws a copy of
+    // `.notdef`'s outline at CID 0's width (`doc/adr/3237`).
+    let source = a_page_showing_an_invalid_code();
+    let shown = [0xE0_u8, 0xE0, 0xE0, 0x41];
+    let (_, before) = font_of(&source);
+    let codes = before.decode(&shown);
+    assert_eq!(codes.len(), 2);
+    assert_eq!(codes[0].length(), 3);
+    assert!(!codes[0].in_codespace(), "the code matches no range");
+    assert_eq!(before.drawn_cid(codes[0]), Some(0));
+    let failed: Vec<&str> = holds(&source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&NOTDEF_SHOWN), "{failed:?}");
+    let fresh = highest_japan1_cid_read() + 1;
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| {
+            panic!(
+                "{:?}\n{:?}\n{:?}",
+                conversion(&report).achieved,
+                report.refused,
+                report.warnings
+            )
+        });
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let (document, after) = font_of(&output);
+        let now = after.decode(&shown);
+        assert_eq!(
+            now.iter()
+                .map(|code| (code.value(), code.length()))
+                .collect::<Vec<_>>(),
+            codes
+                .iter()
+                .map(|code| (code.value(), code.length()))
+                .collect::<Vec<_>>(),
+            "the string is split as before"
+        );
+        assert!(now[0].in_codespace());
+        assert_eq!(
+            after.cid(now[0]),
+            Some(fresh),
+            "the code selects the fresh CID"
+        );
+        assert_eq!(after.drawn_cid(now[0]), Some(fresh), "and draws it");
+        assert!(after.glyph_index(now[0]).is_some_and(|glyph| glyph != 0));
+        assert!((after.advance(now[0]) - before.advance(codes[0])).abs() < 0.001);
+        let (mut was, mut is) = (String::new(), String::new());
+        assert_eq!(
+            before.text(codes[0], &mut was),
+            after.text(now[0], &mut is),
+            "{was:?} {is:?}"
+        );
+        assert_eq!(was, is, "extracted text is unchanged");
+        assert_eq!(
+            (after.cid(now[1]), after.glyph_index(now[1])),
+            (Some(36), Some(36))
+        );
+        let font = document.get(ObjectId::new(6, 0));
+        let encoding = document.get_key(font.as_dict().expect("a font"), "Encoding");
+        let pdf_syntax::object::Object::Stream(cmap) = encoding else {
+            panic!("{encoding:?}");
+        };
+        let name = document.get_key(&cmap.dict, "CMapName");
+        assert!(
+            name.as_name()
+                .is_some_and(|name| name.as_bytes().starts_with(b"FreshCid-")),
+            "the restated CMap is not the one its old name registers: {name:?}"
+        );
+        // The map sends CIDs other than 0 to glyph 0, where `/CIDSet` is read two ways, so the
+        // descriptor written states none.
+        let descendant = document.get_key(font.as_dict().expect("a font"), "DescendantFonts");
+        let descendant = document.resolve(&descendant.as_array().expect("an array")[0]);
+        let descriptor =
+            document.get_key(descendant.as_dict().expect("a CIDFont"), "FontDescriptor");
+        assert!(
+            descriptor
+                .as_dict()
+                .is_some_and(|descriptor| descriptor.get("CIDSet").is_none()),
+            "{descriptor:?}"
+        );
+        let text = String::from_utf8_lossy(&output).into_owned();
+        assert!(
+            text.contains("BT /F1 12 Tf 10 100 Td <E0E0E041> Tj ET"),
+            "the content stream is the producer's bytes"
+        );
+    }
+}

@@ -96,6 +96,9 @@ pub(in crate::archive) fn shows_cid_0<'a>(
 /// Whether a code in the strings `shown` is drawn as CID 0 by the `Type0` font `dict` through
 /// §9.7.6.3's fallbacks, its own CID being another or none: such a code is no code the encoding
 /// can send to a fresh CID, since the CID it would be sent from is not 0.
+///
+/// A code no codespace range matched is not counted: §9.7.6.3 sends it to CID 0 by name, and its
+/// own embedded `CMap` can be restated to send it to a fresh CID ([`own_cid`], `doc/adr/3237`).
 pub(in crate::archive) fn falls_back_to_cid_0<'a>(
     document: &Document,
     dict: &Dictionary,
@@ -103,9 +106,9 @@ pub(in crate::archive) fn falls_back_to_cid_0<'a>(
 ) -> bool {
     loaded_as_stated(document, dict).is_some_and(|font| {
         shown.any(|text| {
-            font.decode(text)
-                .into_iter()
-                .any(|code| font.drawn_cid(code) == Some(0) && font.cid(code) != Some(0))
+            font.decode(text).into_iter().any(|code| {
+                code.in_codespace() && font.drawn_cid(code) == Some(0) && font.cid(code) != Some(0)
+            })
         })
     })
 }
@@ -194,13 +197,14 @@ pub(in crate::archive) fn given<'a>(
     (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
     budget: usize,
 ) -> Option<CidGlyphsGiven> {
-    let (descendant_id, descendant, descriptor) = descendant_of(document, dict)?;
+    let (descendant_id, descendant, mut descriptor) = descendant_of(document, dict)?;
     let program_at = descriptor.get("FontFile2")?.as_reference()?;
     let before = loaded_as_stated(document, dict)?;
+    let shown: Vec<&[u8]> = shown.collect();
 
     // Every distinct code shown, keyed by its value and length, which together are its identity.
     let mut codes: BTreeMap<(u32, u8), Code> = BTreeMap::new();
-    for text in shown {
+    for text in &shown {
         for code in before.decode(text) {
             codes.entry((code.value(), code.length())).or_insert(code);
         }
@@ -215,7 +219,7 @@ pub(in crate::archive) fn given<'a>(
     let zero_codes: Vec<Code> = codes
         .values()
         .copied()
-        .filter(|code| before.cid(*code) == Some(0))
+        .filter(|code| own_cid(&before, *code) == Some(0))
         .collect();
     if by_advance.is_empty() && zero_codes.is_empty() {
         return None;
@@ -271,17 +275,14 @@ pub(in crate::archive) fn given<'a>(
         mapped.insert(plan.cid, *glyph);
     }
     let identity_count = (identity && fresh.is_some()).then_some(glyph_count);
-    let map = super::program_stream(
-        None,
-        &map_restated(document, &descendant, &mapped, identity_count)?,
-        false,
+    let (map, cid_set, set_removed) = map_and_set_written(
+        document,
+        (&descendant, &mut descriptor),
+        &mapped,
+        identity_count,
     )?;
     let new_program = match &restated {
         Some(restated) => Some(super::program_stream(Some(&stream.dict), restated, true)?),
-        None => None,
-    };
-    let cid_set = match descriptor.get("CIDSet") {
-        Some(value) => Some(cid_set_restated(document, value, mapped.keys())?),
         None => None,
     };
 
@@ -294,7 +295,7 @@ pub(in crate::archive) fn given<'a>(
     );
     let after = LoadedFont::load(document, &candidate, "").ok()?;
     let fresh_cid = fresh.as_ref().map(|(plan, _)| plan.cid);
-    if after.is_substituted() || !proved(&before, &after, codes.values(), (&given, fresh_cid)) {
+    if after.is_substituted() || !proved(&before, &after, &shown, (&given, fresh_cid)) {
         return None;
     }
 
@@ -302,7 +303,7 @@ pub(in crate::archive) fn given<'a>(
         document,
         spare,
         (descendant_id, &descendant, descriptor),
-        (new_program, map, cid_set),
+        (new_program, map, cid_set, set_removed),
         fresh.map(|(plan, _)| plan),
     )
 }
@@ -343,18 +344,41 @@ fn fresh_planned(
     (identity, glyph_count): (bool, u16),
     given: &BTreeMap<u16, u16>,
 ) -> Option<(FreshCid, u16)> {
-    let highest_shown = codes.values().filter_map(|code| before.cid(*code)).max()?;
+    let highest_shown = codes
+        .values()
+        .filter_map(|code| own_cid(before, *code))
+        .max()?;
     let highest_mapped = if identity {
         u32::from(glyph_count.checked_sub(1)?)
     } else {
         u32::try_from(map_entries(document, descendant)?.len().checked_sub(1)?).ok()?
     };
-    let plan = fresh_cid::planned(
-        document,
-        &[dict],
-        (descendant_id, descendant),
-        highest_shown.max(highest_mapped),
-    )?;
+    let highest_used = highest_shown.max(highest_mapped);
+    // A code its `CMap` sends to CID 0 is sent on by a restated `Identity-H`; one no codespace
+    // range matched, by its own `CMap` restated to match it (`doc/adr/3237`).
+    let invalid: Vec<Code> = codes
+        .values()
+        .copied()
+        .filter(|code| !code.in_codespace() && own_cid(before, *code) == Some(0))
+        .collect();
+    let plan = if invalid.is_empty() {
+        fresh_cid::planned(document, &[dict], (descendant_id, descendant), highest_used)?
+    } else if invalid.len()
+        == codes
+            .values()
+            .filter(|code| own_cid(before, **code) == Some(0))
+            .count()
+    {
+        fresh_cid::planned_for_invalid(
+            document,
+            dict,
+            (descendant_id, descendant),
+            highest_used,
+            &invalid,
+        )?
+    } else {
+        return None;
+    };
     // The fresh CID draws what CID 0 drew: the copy where that was glyph 0, the program's own
     // glyph where the map sent CID 0 elsewhere.
     let glyph = match given.get(&0) {
@@ -362,6 +386,39 @@ fn fresh_planned(
         None => before.glyph_index(*zero)?,
     };
     Some((plan, glyph))
+}
+
+/// The map stream [`given`] writes, with `mapped` sent to their glyphs ([`map_restated`]), and the
+/// `/CIDSet` the descriptor states restated with them, or taken out of `descriptor` where the map
+/// sends a CID other than 0 to glyph 0 (the third value says which).
+///
+/// Which CIDs such a map makes "present in the font program" is read two ways — the glyphs it
+/// reaches, or every CID below its length — and §9.7.4.2 does not settle it. Table 124 makes
+/// `/CIDSet` optional and ISO 32000-2 deprecates it, so the descriptor written leaves it out
+/// rather than assert either (`doc/adr/3239`).
+fn map_and_set_written(
+    document: &Document,
+    (descendant, descriptor): (&Dictionary, &mut Dictionary),
+    mapped: &BTreeMap<u16, u16>,
+    identity_count: Option<u16>,
+) -> Option<(Object, Option<Object>, bool)> {
+    let map_bytes = map_restated(document, descendant, mapped, identity_count)?;
+    let set_removed = descriptor.get("CIDSet").is_some()
+        && map_bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .skip(1)
+            .any(|entry| entry == &[0, 0]);
+    let map = super::program_stream(None, &map_bytes, false)?;
+    let cid_set = match descriptor.get("CIDSet") {
+        Some(value) if !set_removed => Some(cid_set_restated(document, value, mapped.keys())?),
+        _ => None,
+    };
+    if set_removed {
+        descriptor.remove("CIDSet");
+    }
+    Some((map, cid_set, set_removed))
 }
 
 /// The `/CIDSet` a descriptor states as `value`, with every CID of `cids` set; `None` where it is
@@ -379,18 +436,18 @@ pub(super) fn cid_set_restated<'a>(
 }
 
 /// The objects [`given`] writes once its proof holds, each at a spare object number: the
-/// program and the `CIDSet` where they changed, the descriptor where it changed or was direct,
-/// the map, and the embedded `CMap` of the fresh CID.
+/// program and the `CIDSet` where they changed, the descriptor where it changed, was direct or
+/// leaves its `CIDSet` out (`set_removed`), the map, and the embedded `CMap` of the fresh CID.
 fn objects_written(
     document: &Document,
     spare: &mut Spare,
     (descendant_id, descendant, descriptor): (ObjectId, &Dictionary, Dictionary),
-    (new_program, map, cid_set): (Option<Object>, Object, Option<Object>),
+    (new_program, map, cid_set, set_removed): (Option<Object>, Object, Option<Object>, bool),
     fresh: Option<FreshCid>,
 ) -> Option<CidGlyphsGiven> {
     let mut written = Vec::new();
     let mut new_descriptor = descriptor;
-    let mut descriptor_changed = false;
+    let mut descriptor_changed = set_removed;
     if let Some(program) = new_program {
         let program_id = spare.take(document)?;
         new_descriptor.insert(Name::new(&b"FontFile2"[..]), Object::Reference(program_id));
@@ -455,7 +512,7 @@ fn cids_on_notdef<'a>(
         }
         // A code with no CID of its own reached glyph 0 through §9.7.6.3's fallbacks, which a map
         // keyed by CID cannot restate without moving every other code that falls back.
-        let cid = u16::try_from(font.cid(*code)?).ok()?;
+        let cid = u16::try_from(own_cid(font, *code)?).ok()?;
         by_advance
             .entry(advance_in_units(font, *code, units)?)
             .or_default()
@@ -467,6 +524,16 @@ fn cids_on_notdef<'a>(
         return None;
     }
     Some(by_advance)
+}
+
+/// The CID a code selects as its own: its `CMap`'s, or CID 0 for a code §9.7.6.3 calls invalid
+/// and draws as CID 0, which its own `CMap` restated sends to a fresh CID (`doc/adr/3237`).
+///
+/// `None` for a valid code its `CMap` maps to no CID, which reached its glyph by the notdef
+/// mappings or CID 0 as fallbacks no restatement keyed by its own CID can move.
+fn own_cid(font: &LoadedFont, code: Code) -> Option<u32> {
+    font.cid(code)
+        .or_else(|| (!code.in_codespace() && font.drawn_cid(code) == Some(0)).then_some(0))
 }
 
 /// The `Type0` font as the conversion writes it, every new object held inline, for the proof to
@@ -588,46 +655,67 @@ pub(super) fn cid_set_with<'a>(bits: &[u8], cids: impl Iterator<Item = &'a u16>)
     out
 }
 
-/// Whether every code shown reaches, in the font as written, the glyph it reached before — or
-/// the copy given its CID, with the copy's advance its width — at the width it had before, and by
-/// the program's own glyphs — and none selects CID 0, which §9.7.4.2 makes the `CIDFont`'s
-/// `.notdef` whatever glyph it reaches, by its own CID or by §9.7.6.3's fallbacks (`doc/adr/2582`).
+/// Whether every string shown splits into the same codes in the font as written, and every code
+/// reaches the glyph it reached before — or the copy given its CID, with the copy's advance its
+/// width — at the width it had before, by the program's own glyphs, with the text §9.10.2 reads
+/// for it unchanged; and none selects CID 0, which §9.7.4.2 makes the `CIDFont`'s `.notdef`
+/// whatever glyph it reaches, by its own CID or by §9.7.6.3's fallbacks (`doc/adr/2582`).
 ///
-/// `given` is keyed by the CID the file gave each code. Where `fresh` is the CID a code of CID 0
-/// is sent to, every such code must select it, and every other code the CID it selected before.
-fn proved<'a>(
+/// `given` is keyed by the CID the file gave each code ([`own_cid`]). Where `fresh` is the CID a
+/// code of CID 0 is sent to, every such code must select it, and every other code the CID it
+/// selected before. The strings are split again because a code §9.7.6.3 called invalid is a valid
+/// code of the same bytes once its `CMap` is restated (`doc/adr/3237`).
+fn proved(
     before: &LoadedFont,
     after: &LoadedFont,
-    codes: impl Iterator<Item = &'a Code>,
+    shown: &[&[u8]],
     (given, fresh): (&BTreeMap<u16, u16>, Option<u16>),
 ) -> bool {
-    codes.into_iter().all(|code| {
-        let code = *code;
-        let cid_wanted = match before.cid(code) {
-            Some(0) => fresh.map(u32::from),
-            stated => stated,
-        };
-        if (after.advance(code) - before.advance(code)).abs() > super::CONSISTENT
-            || after.drawn_cid(code) == Some(0)
-            || after.cid(code) != cid_wanted
-        {
-            return false;
-        }
-        let copy = before
-            .cid(code)
-            .and_then(|cid| u16::try_from(cid).ok())
-            .and_then(|cid| given.get(&cid))
-            .filter(|_| before.glyph_index(code) == Some(NOTDEF));
-        match copy {
-            Some(glyph) => {
-                after.glyph_index(code) == Some(*glyph)
-                    && after.program_advance(code).is_some_and(|program| {
-                        (program - after.advance(code)).abs() <= super::CONSISTENT
-                    })
-            }
-            None => after.glyph_index(code) == before.glyph_index(code),
-        }
+    shown.iter().all(|text| {
+        let (was, is) = (before.decode(text), after.decode(text));
+        was.len() == is.len()
+            && was.iter().zip(&is).all(|(old, new)| {
+                old.value() == new.value()
+                    && old.length() == new.length()
+                    && code_proved((before, *old), (after, *new), (given, fresh))
+            })
     })
+}
+
+/// [`proved`]'s question for one code, `old` as the font read it before and `new` as it reads it
+/// now.
+fn code_proved(
+    (before, old): (&LoadedFont, Code),
+    (after, new): (&LoadedFont, Code),
+    (given, fresh): (&BTreeMap<u16, u16>, Option<u16>),
+) -> bool {
+    let own = own_cid(before, old);
+    let cid_wanted = match own {
+        Some(0) => fresh.map(u32::from),
+        stated => stated,
+    };
+    let (mut text_before, mut text_after) = (String::new(), String::new());
+    if (after.advance(new) - before.advance(old)).abs() > super::CONSISTENT
+        || after.drawn_cid(new) == Some(0)
+        || after.cid(new) != cid_wanted
+        || before.text(old, &mut text_before) != after.text(new, &mut text_after)
+        || text_before != text_after
+    {
+        return false;
+    }
+    let copy = own
+        .and_then(|cid| u16::try_from(cid).ok())
+        .and_then(|cid| given.get(&cid))
+        .filter(|_| before.glyph_index(old) == Some(NOTDEF));
+    match copy {
+        Some(glyph) => {
+            after.glyph_index(new) == Some(*glyph)
+                && after.program_advance(new).is_some_and(|program| {
+                    (program - after.advance(new)).abs() <= super::CONSISTENT
+                })
+        }
+        None => after.glyph_index(new) == before.glyph_index(old),
+    }
 }
 
 #[cfg(test)]

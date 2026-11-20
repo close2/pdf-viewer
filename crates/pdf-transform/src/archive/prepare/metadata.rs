@@ -2043,6 +2043,53 @@ fn xml_carries(text: &str) -> bool {
     })
 }
 
+/// Whether XML 1.0's `Char` production admits every character of `text`: every C0 control but
+/// the three line characters is excluded, and U+FFFE and U+FFFF, so a packet holding one is not
+/// well-formed (ISO 19005-4 section 6.7.2.1) whatever else it says.
+///
+/// Narrower than [`xml_carries`], which also refuses a carriage return: a Table 349 value holding
+/// one has always been written, and that reading is not this predicate's to change.
+fn xml_admits(text: &str) -> bool {
+    text.chars().all(|character| {
+        matches!(character, '\t' | '\n' | '\r')
+            || (character >= ' ' && !matches!(character, '\u{FFFE}' | '\u{FFFF}'))
+    })
+}
+
+/// A Table 349 entry whose text holds a character [`xml_admits`] refuses, answered by the rows'
+/// second step as a carried key's value is (`doc/adr/2681`, `doc/adr/3238`): removed and stated on
+/// the appended page, removed and named in the report, or the refusal.
+fn not_admitted(
+    (key, spelled, value): (String, &[u8], &Object),
+    not_carried: NotCarried,
+) -> Result<MovedEntry, Because> {
+    match not_carried {
+        NotCarried::Stated(site) => {
+            let (value, length) = value_type(value);
+            Ok(MovedEntry {
+                key,
+                property: None,
+                fate: NOT_ADMITTED_STATED,
+                removed: Some(RemovedInformation {
+                    site,
+                    key: format!("/{}", Name::new(spelled).escaped()),
+                    value,
+                    length,
+                    because: NOT_ADMITTED_BY_XML,
+                    stated_on: None,
+                }),
+            })
+        }
+        NotCarried::Dropped => Ok(MovedEntry {
+            removed: None,
+            key,
+            property: None,
+            fate: NOT_ADMITTED_DROPPED,
+        }),
+        NotCarried::Refused => Err(Because::Declined(INFORMATION_VALUE_NOT_ADMITTED)),
+    }
+}
+
 /// One entry of the document information dictionary, and where it went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovedEntry {
@@ -2163,6 +2210,12 @@ pub(in crate::archive) const NOT_CARRIED_BY_XML: &str = "the value is a text str
      return its end-of-line handling reads as a line feed), so the XMP packet cannot carry it as \
      the dictionary stated it";
 
+/// Why a Table 349 value is not written: XML 1.0 admits no packet holding its text.
+pub(in crate::archive) const NOT_ADMITTED_BY_XML: &str = "the value is a text string holding a \
+     character XML 1.0's Char production excludes (a control character other than a tab, a line \
+     feed or a carriage return, or U+FFFE or U+FFFF), so no XMP packet holding it is well-formed \
+     and the property Table 349 names for the key cannot carry it";
+
 /// Why a value is not carried: its key is the empty name.
 pub(in crate::archive) const NO_LOCAL_NAME: &str = "the key is the empty name, which no XML name \
      can spell, so the XMP packet has no property to carry its value in";
@@ -2208,6 +2261,25 @@ const STATED_REMOVED: &str = "Table 349 names no XMP property for this key and t
 /// Table 349 names no counterpart, and the operator answered `unmapped = "discard"`.
 const DROPPED: &str = "Table 349 names no XMP property for this key and the configuration \
      answers `unmapped = \"discard\"`, so the value leaves the document";
+
+/// A Table 349 value no packet can hold, removed by the row's second step and stated.
+const NOT_ADMITTED_STATED: &str = "the value holds a character XML 1.0 excludes, so the property \
+     Table 349 names cannot carry it, and the row's second step removes it and the statement page \
+     states the removal";
+
+/// A Table 349 value no packet can hold, and the operator answered `discard` to it.
+const NOT_ADMITTED_DROPPED: &str = "the value holds a character XML 1.0 excludes, so the property \
+     Table 349 names cannot carry it, and the configuration answers `discard` (as the row's \
+     second step or as `unreadable`), so the value leaves the document";
+
+/// Why a Table 349 value no packet can hold stops the conversion.
+const INFORMATION_VALUE_NOT_ADMITTED: &str = "ISO 19005-4 section 6.1.3 moves this document \
+     information dictionary entry into the XMP packet under the property Table 349 names, and its \
+     text holds a character XML 1.0's Char production excludes, so no packet holding it is \
+     well-formed (section 6.7.2.1). The row's second step decides: `on-failure = \
+     \"append-statement\"` removes the value and states the removal on an appended page, \
+     `discard` there or as the `unreadable` answer drops the value and the report names the key, \
+     and `stop`, which is what a row saying nothing states, keeps this refusal (doc/adr/3238)";
 
 /// The one entry the clause leaves in the dictionary.
 const KEPT: &str = "kept in the dictionary, which ISO 19005-4 section 6.1.3 admits beside the \
@@ -2405,30 +2477,29 @@ pub(super) fn prepare_information(
             }
             Err(unreadable) => return Err(Because::Declined(unreadable.sentence())),
         };
-        if stated
-            .as_ref()
-            .is_some_and(|xmp| xmp.value(namespace, local).is_some())
-        {
-            entries.push(MovedEntry {
-                removed: None,
-                key,
-                property: Some(property),
-                fate: ALREADY_STATED,
-            });
+        // A character XML 1.0 excludes leaves no packet well-formed, so the value has no home in
+        // any packet and is answered as a carried key's value is (`doc/adr/3238`).
+        if !xml_admits(&text) {
+            entries.push(not_admitted((key, &spelled, &value), not_carried)?);
             continue;
         }
-        supplements.push(Gained {
-            namespace,
-            prefix,
-            local: local.to_owned(),
-            value: text,
-            form,
-        });
+        let already = stated
+            .as_ref()
+            .is_some_and(|xmp| xmp.value(namespace, local).is_some());
+        if !already {
+            supplements.push(Gained {
+                namespace,
+                prefix,
+                local: local.to_owned(),
+                value: text,
+                form,
+            });
+        }
         entries.push(MovedEntry {
             removed: None,
             key,
             property: Some(property),
-            fate: MOVED,
+            fate: if already { ALREADY_STATED } else { MOVED },
         });
     }
     // An empty dictionary, or one whose every entry is null and so absent (§7.3.9), moves

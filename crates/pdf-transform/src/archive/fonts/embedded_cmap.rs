@@ -18,7 +18,7 @@ use pdf_syntax::serialize::flate_encode;
 use super::super::COMPRESSION_LEVEL;
 
 /// Adobe Technical Note #5014 caps one `begincidrange` block at a hundred entries.
-const RANGES_PER_BLOCK: usize = 100;
+pub(super) const RANGES_PER_BLOCK: usize = 100;
 
 /// A character collection's `Registry`, `Ordering` and `Supplement` (§9.7.3).
 pub(in crate::archive) type SystemInfo = (Vec<u8>, Vec<u8>, i64);
