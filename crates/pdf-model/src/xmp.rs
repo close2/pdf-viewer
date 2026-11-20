@@ -666,6 +666,20 @@ pub enum WriteError {
         /// How many descriptions of it this writer could extend.
         found: usize,
     },
+    /// The packet does not state the extension schema container in a form
+    /// [`describe_into_container`] can extend.
+    ///
+    /// Exactly one `pdfaExtension:schemas` property whose value is one `rdf:Bag` with a close tag
+    /// of its own is what that writer needs: two leave no answer to which of them a schema belongs
+    /// in, and an empty or attribute-form one has no bag to add an item to.
+    #[error(
+        "the packet states {found} extension schema containers in a form this writer can add a \
+         schema to, and it needs exactly one"
+    )]
+    NoPlaceForASchema {
+        /// How many containers this writer could extend.
+        found: usize,
+    },
     /// A value to be written holds a character XML 1.0's `Char` production excludes.
     ///
     /// The production (XML 1.0 section 2.2) admits no C0 control but tab, line feed and carriage
@@ -1276,9 +1290,9 @@ pub struct PropertyDescription<'a> {
 ///
 /// **Written as a description of its own, never merged into one the producer wrote.** A packet
 /// already stating `pdfaExtension:schemas` would then state it twice, which ISO 16684-1 clause 6
-/// forbids — a property name is unique within its packet — so a caller holding such a packet is
-/// expected to ask before calling and this writer does not check for it. Every other byte of the
-/// packet crosses unchanged, for [`restate`]'s reason and by the same means.
+/// forbids — a property name is unique within its packet — so a caller holding such a packet
+/// calls [`describe_into_container`] instead, and this writer does not check for it. Every other
+/// byte of the packet crosses unchanged, for [`restate`]'s reason and by the same means.
 ///
 /// # Errors
 ///
@@ -1297,6 +1311,133 @@ pub fn describe(bytes: &[u8], schemas: &[SchemaDescription<'_>]) -> Result<Vec<u
     container(schemas, &mut out);
     out.push_str(text.get(at..).unwrap_or_default());
     Ok(out.into_bytes())
+}
+
+/// `bytes` with `schemas` described as items of the `pdfaExtension:schemas` container the packet
+/// already states.
+///
+/// **Written into the producer's own container, and nowhere else**, for [`describe`]'s reason
+/// turned round: a packet stating the property once has to keep stating it once (ISO 16684-1
+/// clause 6), and ISO 19005-2 section 6.6.2.3.3's Table 1 makes its value a bag of schemas, so a
+/// schema is described by one more item of that bag. Each item declares the bindings it uses,
+/// for [`describe_fields`]' reason, so that the producer's choice of prefixes elsewhere in the
+/// packet changes nothing it means; every other byte of the packet crosses unchanged (ADR 3339).
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched;
+/// [`WriteError::NoPlaceForASchema`] where the packet does not state exactly one container this
+/// writer can extend.
+pub fn describe_into_container(
+    bytes: &[u8],
+    schemas: &[SchemaDescription<'_>],
+) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let (containers, bags) = container_bags(text)?;
+    let at = match (containers, bags.as_slice()) {
+        (1, [at]) => *at,
+        _ => {
+            return Err(WriteError::NoPlaceForASchema {
+                found: bags.len().min(containers),
+            });
+        }
+    };
+    let mut out = String::with_capacity(text.len().saturating_add(1024));
+    out.push_str(text.get(..at).unwrap_or_default());
+    for schema in schemas {
+        schema_item(schema, true, &mut out);
+    }
+    out.push_str(text.get(at..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// How many `pdfaExtension:schemas` elements `text` states, and the offset of the close tag of
+/// each `rdf:Bag` directly inside one, with every prefix resolved through the bindings in scope.
+fn container_bags(text: &str) -> Result<(usize, Vec<usize>), WriteError> {
+    // Per open element: its namespace and local name, and how many bindings it declared.
+    let mut stack: Vec<(String, String, usize)> = Vec::new();
+    let mut bindings: Vec<(String, String)> = Vec::new();
+    let mut pending: Option<(String, String)> = None;
+    let mut attributes: Vec<(String, String, String)> = Vec::new();
+    let mut containers = 0usize;
+    let mut bags = Vec::new();
+    for token in xmlparser::Tokenizer::from(text) {
+        let token = token.map_err(|error| WriteError::Malformed {
+            detail: error.to_string(),
+        })?;
+        match token {
+            xmlparser::Token::ElementStart { prefix, local, .. } => {
+                pending = Some((prefix.to_string(), local.to_string()));
+                attributes.clear();
+            }
+            xmlparser::Token::Attribute {
+                prefix,
+                local,
+                value,
+                ..
+            } => attributes.push((prefix.to_string(), local.to_string(), value.to_string())),
+            xmlparser::Token::ElementEnd { end, span } => {
+                let close_at = match end {
+                    xmlparser::ElementEnd::Open | xmlparser::ElementEnd::Empty => {
+                        let Some((prefix, local)) = pending.take() else {
+                            continue;
+                        };
+                        if stack.len() >= MAX_DEPTH {
+                            return Err(WriteError::TooDeep);
+                        }
+                        let mut declared = 0usize;
+                        for (prefix, local, value) in &attributes {
+                            match (prefix.as_str(), local.as_str()) {
+                                ("", "xmlns") => bindings.push((String::new(), value.clone())),
+                                ("xmlns", _) => bindings.push((local.clone(), value.clone())),
+                                _ => continue,
+                            }
+                            declared = declared.saturating_add(1);
+                        }
+                        let namespace = bindings
+                            .iter()
+                            .rev()
+                            .find(|(bound, _)| *bound == prefix)
+                            .map_or_else(String::new, |(_, uri)| uri.clone());
+                        if namespace == EXTENSION && local == "schemas" {
+                            containers = containers.saturating_add(1);
+                        }
+                        stack.push((namespace, local, declared));
+                        if matches!(end, xmlparser::ElementEnd::Open) {
+                            continue;
+                        }
+                        None
+                    }
+                    xmlparser::ElementEnd::Close(..) => Some(span.start()),
+                };
+                let Some((namespace, local, declared)) = stack.pop() else {
+                    return Err(WriteError::Malformed {
+                        detail: "a close tag with no element open".to_owned(),
+                    });
+                };
+                bindings.truncate(bindings.len().saturating_sub(declared));
+                let in_container = stack
+                    .last()
+                    .is_some_and(|(parent, name, _)| parent == EXTENSION && name == "schemas");
+                if let (Some(at), true) = (close_at, in_container)
+                    && namespace == RDF
+                    && local == "Bag"
+                {
+                    bags.push(at);
+                }
+            }
+            _ => {}
+        }
+    }
+    if !stack.is_empty() {
+        return Err(WriteError::Malformed {
+            detail: "an element is never closed".to_owned(),
+        });
+    }
+    Ok((containers, bags))
 }
 
 /// One field of a custom value type, as ISO 19005-2 section 6.6.2.3.3's Table 6 states one.
@@ -1824,30 +1965,46 @@ fn container(schemas: &[SchemaDescription<'_>], out: &mut String) {
     escaped(EXTENSION_PROPERTY, out);
     out.push_str("\">\n<pdfaExtension:schemas><rdf:Bag>\n");
     for schema in schemas {
-        out.push_str("<rdf:li rdf:parseType=\"Resource\">\n");
-        for (local, value) in [
-            ("schema", schema.name),
-            ("namespaceURI", schema.namespace),
-            ("prefix", schema.prefix),
-        ] {
-            field("pdfaSchema", local, value, out);
-        }
-        out.push_str("<pdfaSchema:property><rdf:Seq>\n");
-        for property in schema.properties {
-            out.push_str("<rdf:li rdf:parseType=\"Resource\">\n");
-            for (local, value) in [
-                ("name", property.name),
-                ("valueType", property.value_type),
-                ("category", property.category),
-                ("description", property.description),
-            ] {
-                field("pdfaProperty", local, value, out);
-            }
-            out.push_str("</rdf:li>\n");
-        }
-        out.push_str("</rdf:Seq></pdfaSchema:property>\n</rdf:li>\n");
+        schema_item(schema, false, out);
     }
     out.push_str("</rdf:Bag></pdfaExtension:schemas>\n</rdf:Description>\n");
+}
+
+/// One Schema structure, as an item of a container's bag; with `declare`, the item states the
+/// three bindings it uses itself, as an item written into a producer's container has to.
+fn schema_item(schema: &SchemaDescription<'_>, declare: bool, out: &mut String) {
+    out.push_str("<rdf:li");
+    if declare {
+        out.push_str(" xmlns:rdf=\"");
+        escaped(RDF, out);
+        out.push_str("\" xmlns:pdfaSchema=\"");
+        escaped(EXTENSION_SCHEMA, out);
+        out.push_str("\" xmlns:pdfaProperty=\"");
+        escaped(EXTENSION_PROPERTY, out);
+        out.push('"');
+    }
+    out.push_str(" rdf:parseType=\"Resource\">\n");
+    for (local, value) in [
+        ("schema", schema.name),
+        ("namespaceURI", schema.namespace),
+        ("prefix", schema.prefix),
+    ] {
+        field("pdfaSchema", local, value, out);
+    }
+    out.push_str("<pdfaSchema:property><rdf:Seq>\n");
+    for property in schema.properties {
+        out.push_str("<rdf:li rdf:parseType=\"Resource\">\n");
+        for (local, value) in [
+            ("name", property.name),
+            ("valueType", property.value_type),
+            ("category", property.category),
+            ("description", property.description),
+        ] {
+            field("pdfaProperty", local, value, out);
+        }
+        out.push_str("</rdf:li>\n");
+    }
+    out.push_str("</rdf:Seq></pdfaSchema:property>\n</rdf:li>\n");
 }
 
 /// One simple field of a structured value, spelled with the prefix its table requires.

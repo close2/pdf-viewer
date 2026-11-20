@@ -1704,8 +1704,13 @@ fn apply_the_decisions(
             conversion.supplied.push(SuppliedFact {
                 site: "fonts/font-programs-embedded",
                 subject: format!(
-                    "the font program embedded for {}, which this file did not carry",
-                    font.requested
+                    "the font program embedded for {}, {}",
+                    font.requested,
+                    if font.cut_program.is_some() {
+                        "whose own program this conversion removed"
+                    } else {
+                        "which this file did not carry"
+                    }
                 ),
                 value: format!(
                     "{}, which the operator states may lawfully be embedded for unlimited, \

@@ -2114,6 +2114,17 @@ impl Conversion {
                         super::Loss::StandInFace.word()
                     ))
                 );
+                // A toggle written drawing nothing names its states and the loss (ADR 3340).
+                if !appearance.blank_states.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "        a check box or radio button stating no appearance and no caption, \
+                         which this viewer draws as nothing: its states /{} are written drawing \
+                         nothing (loss {})",
+                        appearance.blank_states.join(" /"),
+                        super::Loss::FieldAppearances.word()
+                    );
+                }
             }
         }
         if !self.removed_files.is_empty() {

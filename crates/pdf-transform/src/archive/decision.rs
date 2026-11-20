@@ -2338,6 +2338,21 @@ fn appearance_answer(
             authorised,
             prepared,
         ),
+        // A toggle written drawing nothing is a field whose appearance its producer never wrote
+        // left blank in the archive, which is `field-appearances`' own sentence (ADR 3340).
+        Ok(appearances) if !appearances.blank_toggles.is_empty() => {
+            let stood_in = appearances
+                .constructed
+                .iter()
+                .any(|written| written.stood_in.is_some());
+            let losses = Losses::one(Loss::FieldAppearances);
+            let losses = if stood_in {
+                losses.with(Loss::StandInFace)
+            } else {
+                losses
+            };
+            losing(losses, Rewrite::AppearanceDictionary, authorised)
+        }
         // An appearance set in ADR 0112's stand-in is the window's drawing and not one
         // the clauses state, so the construction is the loss `stand-in-face` wherever one
         // was written, as `CONDITIONAL` says (`doc/adr/2858`).

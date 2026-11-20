@@ -1423,7 +1423,10 @@ impl Rewrite {
             Self::AppearanceDictionary => {
                 "an annotation stating no appearance dictionary is given an /AP whose /N names a \
                  form XObject constructed from the entries its own subtype clause states; a push \
-                 button's /N is a subdictionary holding that form alone, with the AS selecting it"
+                 button's /N is a subdictionary holding that form alone, with the AS selecting it; \
+                 a check box's or radio button's that states no caption is a subdictionary of the \
+                 states its AS and section 12.7.5.2.3 name, each drawing nothing, as this viewer \
+                 draws it"
             }
             Self::SubstituteFontProgram => {
                 "a font the file renders and does not embed gains one of the faces this program \
@@ -3362,15 +3365,7 @@ impl Rewriter<'_> {
             // was built over — so the dictionary is written whole rather than added to. A push
             // button's `/N` is the subdictionary the same section requires of a button widget,
             // holding the one stream under the state its new `/AS` selects (`doc/adr/2751`).
-            let normal = if appearances.push_buttons.contains(&id) {
-                let state = Name::new(sites::PUSH_BUTTON_STATE);
-                let mut subdictionary = Dictionary::new();
-                subdictionary.insert(state.clone(), Object::Reference(*stream));
-                out.insert(Name::new(&b"AS"[..]), Object::Name(state));
-                Object::Dictionary(subdictionary)
-            } else {
-                Object::Reference(*stream)
-            };
+            let normal = normal_appearance(appearances, id, *stream, &mut out);
             let mut appearance = Dictionary::new();
             appearance.insert(Name::new(&b"N"[..]), normal);
             out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
@@ -4051,4 +4046,31 @@ fn with_flate(
         Object::Integer(i64::try_from(length).unwrap_or(i64::MAX)),
     );
     out
+}
+
+/// The `/N` entry written for an annotation the preparation built an appearance for: a toggle's
+/// subdictionary of states (ADR 3340), a push button's one state (`doc/adr/2751`), or the stream.
+fn normal_appearance(
+    appearances: &Appearances,
+    id: ObjectId,
+    stream: ObjectId,
+    out: &mut Dictionary,
+) -> Object {
+    if let Some(states) = appearances.blank_toggles.get(&id) {
+        // A toggle's `/N` is one entry per state, each here the stream drawing nothing,
+        // under the names its `/AS` and §12.7.5.2.3 state (ADR 3340).
+        let mut subdictionary = Dictionary::new();
+        for state in states {
+            subdictionary.insert(Name::new(state.clone()), Object::Reference(stream));
+        }
+        Object::Dictionary(subdictionary)
+    } else if appearances.push_buttons.contains(&id) {
+        let state = Name::new(sites::PUSH_BUTTON_STATE);
+        let mut subdictionary = Dictionary::new();
+        subdictionary.insert(state.clone(), Object::Reference(stream));
+        out.insert(Name::new(&b"AS"[..]), Object::Name(state));
+        Object::Dictionary(subdictionary)
+    } else {
+        Object::Reference(stream)
+    }
 }

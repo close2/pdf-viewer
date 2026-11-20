@@ -914,8 +914,11 @@ ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **partly built in session
   paragraph of the same subclause. A clause is not read until its neighbours are.
 - **Where the ink is defined nowhere else and the transform is a §7.10.5 program, the restriction
   is exact and built** (ADR 2690): the producer's program with the other inputs pushed as zero
-  before it runs, so the sampled route above is owed only for a sampled transform, and an
-  `NChannel` space stays refused because there the entry decides what is drawn.
+  before it runs; **for a §7.10.2 sampled transform it is exact and built too where each absent
+  input lands on a sample** (ADR 3337): the row of the table it names, copied bit for bit under the
+  producer's `Domain`, `Encode`, `Range`, `Decode` and `BitsPerSample`. The resampled route above is
+  owed only where an absent input falls between two samples, and an `NChannel` space stays refused
+  because there the entry decides what is drawn.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and unnecessary. A `/Colorants` dictionary is what lets a reader render one
@@ -2287,7 +2290,9 @@ button's single stream, stay `not-built-yet`
   is taken away (ADR 2752). `pdf_archive::states_an_appearance` is the one reading both appearance
   rows use, so a subtype that is not exempt is then constructed for, or refused, by
   `appearance-dictionary-present`; a push button with no `/AP` is constructed there under ADR
-  2319's state (ADR 2751), a check box or a radio button is not.
+  2319's state (ADR 2751); a check box or a radio button with no caption, which the window draws as
+  nothing, is given an `/N` subdictionary of the states its `/AS` and §12.7.5.2.3 name, each drawing
+  nothing, where `field-appearances` is granted (ADR 3340), and is not otherwise.
 - **Refused, one sentence per shape** (trap 252): a subdictionary with no `/AS`; an `/AS` naming a
   state the subdictionary does not hold; an appearance dictionary with other entries and no `N`
   (Table 170 requires it, and the file states no appearance to move there); a check box's or a radio button's single
@@ -2355,7 +2360,9 @@ ISO 19005-2 6.4.1, ISO 19005-4 6.4.1 · all six · **built** (ADR 1257)
   a subdictionary of states its value selects among), and a widget whose appearance cannot be
   completed leaves the site refused with its **field** named in the report's `unconstructed`, rather
   than clearing a flag the file would then be lying with. `construct = false` is the other answer
-  and costs `Loss::FieldAppearances`.
+  and costs `Loss::FieldAppearances`. A check box or radio button the window draws nothing for is
+  the exception where that loss is granted: section 6.3.3's row writes its states drawing nothing
+  (ADR 3340), and the flag then goes because every visible widget has an appearance.
 
 #### `forms/no-xfa-key`
 #### `forms/no-needs-rendering`
@@ -2623,8 +2630,9 @@ ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today **built**
   A property whose value type the serialisation does not show is a structure, whose own custom value
   type would need fields nobody wrote — that stops the run unless the row says
   `undeterminable = "discard"`, which cuts the property and describes the rest. A packet already
-  stating a container is refused by name rather than given a second one, because a packet may state
-  `pdfaExtension:schemas` once.
+  stating a container has the schemas it leaves out described as more items of its own bag rather
+  than in a second container, because a packet may state `pdfaExtension:schemas` once (ADR 3339);
+  one stating two containers, or one with no bag, is refused by name.
 - **By target** — part 4 states no extension schema requirement (confirmed **A**), which makes *use
   PDF/A-4* the cheapest answer for a document whose only fault is an undescribed schema.
 - **A predefined namespace's undefined name** is described the same way (ADR 1991): ISO 19005-2

@@ -183,10 +183,99 @@ fn a_one_component_space_names_its_own_transform_whatever_its_type() {
     );
 }
 
+/// A sampled function's sample table: `count` samples of `outputs` values each, `bits` wide
+/// (four or eight), the values varying from one to the next, packed high-order bit first as
+/// §7.10.2 packs them.
+fn samples(count: usize, outputs: usize, bits: u32) -> Vec<u8> {
+    let values: Vec<u8> = (0..count.wrapping_mul(outputs))
+        .map(|at| {
+            let value = u8::try_from(at.wrapping_mul(97) % 251).expect("below 251");
+            if bits == 4 { value % 16 } else { value }
+        })
+        .collect();
+    if bits == 8 {
+        return values;
+    }
+    values
+        .chunks(2)
+        .map(|pair| pair[0].wrapping_shl(4) | pair.get(1).copied().unwrap_or(0))
+        .collect()
+}
+
 #[test]
-fn a_sampled_transform_over_two_colourants_stays_refused_by_its_type() {
+fn a_sampled_transforms_row_at_zero_is_each_colourants_separation_exactly() {
+    // §7.10.2 maps an input through `Encode` onto its samples; at zero, clipped to a `Domain`
+    // that may exclude it, each absent input names one row of samples, and the interpolation
+    // along the kept input over that row is the producer's function restricted to it (ADR 3337).
+    // The second input's domain excludes zero, so its bound is what lands on a row; the second
+    // case is a spline (`/Order 3`, every `/Size` four or more) with `/Encode` and `/Decode`.
+    let cases = [
+        (
+            "/Domain [0 1 0.25 1 0 1] /Size [3 2 4] /BitsPerSample 8",
+            3 * 2 * 4,
+            8,
+            0.0,
+        ),
+        (
+            "/Domain [0 1 0 1 0 1] /Size [4 5 4] /BitsPerSample 4 /Order 3 \
+             /Encode [0 3 4 0 0 3] /Decode [0 1 1 0 0 1]",
+            4 * 5 * 4,
+            4,
+            1e-5,
+        ),
+    ];
+    for (entries, count, bits, tolerance) in cases {
+        let data = samples(count, 3, bits);
+        let sampled = stream(
+            &format!(
+                "/FunctionType 0 {entries} /Range [0 1 0 1 0 1] /Length {}",
+                data.len()
+            ),
+            &data,
+        );
+        for target in TARGETS {
+            let source = naming(target, &[three_colourants(7)], vec![sampled.clone()]);
+            let (report, output) = convert(&source, target, Authorisations::default());
+            assert_eq!(
+                decision(&report, ROW),
+                Decision::Mechanical(Rewrite::SpotColorantEntry),
+                "{target}: {entries}"
+            );
+            let output = output.expect("nothing is lost");
+            let held = holds(&output, target);
+            assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+            let (document, items) = space(&output, 0);
+            let combined = Function::parse(&document, &items[3]).expect("the producer's transform");
+            let entries_written = colorants(&document, &items);
+            for (index, name) in ["A", "B", "C"].into_iter().enumerate() {
+                let entry = document.get_key(&entries_written, name);
+                let entry = entry.as_array().expect("a Separation array");
+                let alone =
+                    Function::parse(&document, &entry[3]).expect("a function this reader reads");
+                for step in 0..=40_u8 {
+                    let tint = f32::from(step) / 40.0;
+                    let mut inputs = [0.0_f32; 3];
+                    inputs[index] = tint;
+                    let (one, all) = (alone.eval(&[tint]), combined.eval(&inputs));
+                    assert_eq!(one.len(), all.len());
+                    for (one, all) in one.iter().zip(&all) {
+                        assert!(
+                            (one - all).abs() <= tolerance,
+                            "{target}: {name} at {tint}: {one} against {all} ({entries})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_sampled_transform_whose_absent_input_falls_between_samples_stays_refused() {
+    // A `Domain` of -1 to 1 over two samples puts zero halfway between them, so the row would be
+    // a blend `BitsPerSample` may not hold: ADR 2490's resampling, refused until named.
     let sampled = stream(
-        "/FunctionType 0 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Size [2 2] /BitsPerSample 8 \
+        "/FunctionType 0 /Domain [-1 1 -1 1] /Range [0 1 0 1 0 1] /Size [2 2] /BitsPerSample 8 \
          /Length 12",
         &[0; 12],
     );
@@ -197,11 +286,10 @@ fn a_sampled_transform_over_two_colourants_stays_refused_by_its_type() {
     );
     let (report, output) = to_part_four(&source);
     assert!(
-        reason(&report).contains("sampled function"),
+        reason(&report).contains("between two of its samples"),
         "{}",
         reason(&report)
     );
-    assert!(reason(&report).contains("FunctionType 0"));
     assert!(output.is_none(), "and a refusal writes no file");
 }
 

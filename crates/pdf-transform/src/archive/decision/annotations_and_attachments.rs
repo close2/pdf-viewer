@@ -307,16 +307,17 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         "forms/need-appearances-absent-or-false",
         Conditional::PerConfiguration(Losses::one(Loss::FieldAppearances)),
     ),
-    // A construction is a statement where the clauses state the appearance, and the loss
+    // A construction is a statement where the clauses state the appearance, the loss
     // `stand-in-face` where its text is set in ADR 0112's stand-in for a `/DA` font `/DR` does not
-    // define: which is a fact about the file (`doc/adr/2858`).
+    // define (`doc/adr/2858`), and the loss `field-appearances` where a toggle the window draws
+    // nothing for is written drawing nothing (ADR 3340): each a fact about the file.
     (
         "annotations/appearance-dictionary-present",
-        Conditional::PerDocument(Losses::one(Loss::StandInFace)),
+        Conditional::PerDocument(Losses::one(Loss::StandInFace).with(Loss::FieldAppearances)),
     ),
     (
         "annotations/appearance-dictionary-present-from-base-standard",
-        Conditional::PerDocument(Losses::one(Loss::StandInFace)),
+        Conditional::PerDocument(Losses::one(Loss::StandInFace).with(Loss::FieldAppearances)),
     ),
 ];
 

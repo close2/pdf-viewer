@@ -116,6 +116,7 @@ use pdf_font::substitute::Format;
 use pdf_font::{Code, LoadedFont};
 use pdf_model::content::ledger::Outcome;
 use pdf_syntax::Document;
+use pdf_syntax::filter::Damage;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
 
@@ -231,12 +232,26 @@ pub struct CutProgram {
     /// [`pdf_syntax::filter::Damage::Corrupt`] or [`pdf_syntax::filter::Damage::CheckValue`] —
     /// or `None` where it decoded whole and this reader's parse of the program's format refused
     /// the bytes ([`pdf_archive::program_unparsed`]).
-    pub damage: Option<pdf_syntax::filter::Damage>,
+    pub damage: Option<Damage>,
     /// Whether the window draws the font as nothing — its widths alone (`doc/adr/1094`) — rather
     /// than from the substitute face it draws an unreadable program from (`doc/adr/2870`): the
     /// font then reaches no substitute, which for a composite font is one with neither a
     /// `/ToUnicode` nor a character collection this reader carries (ISO 32000-2 §9.7.4.2).
     pub drawn_as_nothing: bool,
+}
+
+impl SubstitutedFont {
+    /// What the file held for this font before the face was embedded, as the verb phrase the
+    /// report and the file's own history put after the font's name: nothing, or a program this
+    /// conversion removed (`doc/adr/2636`), whose reason `CutProgram::describe` gives (ADR 3338).
+    #[must_use]
+    pub fn what_the_file_held(&self) -> &'static str {
+        if self.cut_program.is_some() {
+            "carried a program this conversion removed"
+        } else {
+            "was not embedded"
+        }
+    }
 }
 
 impl CutProgram {
@@ -252,10 +267,26 @@ impl CutProgram {
              program, and the face written is that substitute"
         };
         match self.damage {
-            Some(damage) => format!(
+            Some(damage @ (Damage::Truncated | Damage::Corrupt)) => format!(
                 "its {} stream's data does not decode whole ({damage:?}), so the file held only the \
                  front of its program, which ISO 32000-2 section 9.9 does not count as embedded; \
                  that front was removed, and {drawn}",
+                self.key
+            ),
+            // The decode reached its end: what the file holds is a whole program its own check,
+            // or its filter's alphabet, disowns, not the front of one (ADRs 3326, 3338).
+            Some(Damage::CheckValue) => format!(
+                "its {} stream's data decodes to its end and the check value the stream carries \
+                 over the decoded program disagrees with it (CheckValue), so the program is not \
+                 the one its producer wrote, which ISO 32000-2 section 9.9 does not count as \
+                 embedded; those bytes were removed, and {drawn}",
+                self.key
+            ),
+            Some(damage) => format!(
+                "its {} stream's data decodes to its end past what its filter's format does not \
+                 admit ({damage:?}), so the program is not certainly the one its producer wrote, \
+                 which ISO 32000-2 section 9.9 does not count as embedded; those bytes were \
+                 removed, and {drawn}",
                 self.key
             ),
             None => format!(
@@ -2648,7 +2679,7 @@ fn written_whole(document: &Document, key: &str, at: ObjectId) -> Option<(Object
         return None;
     };
     let decoded = document.decoded_stream_data_reported(&stream).ok()?;
-    if !decoded.damage.is_some_and(pdf_syntax::Damage::stops_short) {
+    if !decoded.damage.is_some_and(Damage::stops_short) {
         return None;
     }
     let stated = |name: &str| {

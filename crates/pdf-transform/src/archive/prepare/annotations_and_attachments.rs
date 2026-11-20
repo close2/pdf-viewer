@@ -21,7 +21,7 @@ use crate::json::Value;
 use pdf_archive::Target;
 use pdf_model::appearance::SubsetNames;
 use pdf_syntax::Document;
-use pdf_syntax::object::{Dictionary, Object, ObjectId, Stream};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Why an annotation's appearance could not be constructed.
@@ -84,6 +84,10 @@ pub(in crate::archive) struct Appearances {
     /// button no value, so the state's name is the one `doc/adr/2319` already writes for a push
     /// button's single stream, and it decides nothing a reader draws (`doc/adr/2751`).
     pub(in crate::archive) push_buttons: BTreeSet<ObjectId>,
+    /// The check boxes and radio buttons among [`Self::at`], each with the states its `/N`
+    /// subdictionary names: the one its `/AS` selects and `Off`, each the stream drawing nothing
+    /// (ADR 3340).
+    pub(in crate::archive) blank_toggles: BTreeMap<ObjectId, Vec<Vec<u8>>>,
     /// Every appearance written, for the report.
     pub(in crate::archive) constructed: Vec<WrittenAppearance>,
     /// How many places the requirement failed at that section 6.3.1's removal takes off the page.
@@ -114,6 +118,10 @@ pub struct WrittenAppearance {
     /// appearance is set in ADR 0112's stand-in for it under the loss `stand-in-face`
     /// (`doc/adr/2858`), as the name's bytes with §7.3.5's `#` escapes.
     pub stood_in: Option<String>,
+    /// The states of a check box's or radio button's widget written drawing nothing, as the window
+    /// draws a toggle that states no appearance and no caption, under the loss `field-appearances`
+    /// (ADR 3340); empty for every other appearance.
+    pub blank_states: Vec<String>,
 }
 
 impl WrittenAppearance {
@@ -125,6 +133,10 @@ impl WrittenAppearance {
             (
                 "stood_in".to_owned(),
                 self.stood_in.clone().map_or(Value::Null, Value::text),
+            ),
+            (
+                "blank_states".to_owned(),
+                Value::Array(self.blank_states.iter().cloned().map(Value::text).collect()),
             ),
         ])
     }
@@ -150,12 +162,14 @@ pub(super) fn prepare_appearances(
     document: &Document,
     target: Target,
     forbidden: Option<&ForbiddenAnnotations>,
+    blank_toggles_granted: bool,
     (spare, names): (&mut Spare, &mut SubsetNames),
 ) -> Result<Appearances, Because> {
     let mut at = BTreeMap::new();
     let mut written = Vec::new();
     let mut constructed = Vec::new();
     let mut push_buttons = BTreeSet::new();
+    let mut blank_toggles = BTreeMap::new();
     let mut removed = 0_usize;
     for missing in pdf_archive::annotations_without_an_appearance(document, target) {
         let annotation = missing
@@ -170,10 +184,33 @@ pub(super) fn prepare_appearances(
             .as_dict()
             .cloned()
             .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
-        // Every button that passes this is a push button, the one kind whose state names no value.
+        // Every button that passes this is a push button, the one kind whose state names no value,
+        // or a toggle the window draws nothing for, which is written drawing nothing (ADR 3340).
         let button = button_widget(document, &dict);
         if button && !sites::push_button(document, &dict) {
-            return Err(Because::NotBuiltYet(BUTTON_APPEARANCE_STATES));
+            // Only where the loss it is was granted: otherwise the widget is the flag's to keep,
+            // named among the fields no appearance was built for (`doc/adr/1257`).
+            let states = blank_states(document, &dict)
+                .filter(|_| blank_toggles_granted)
+                .ok_or(Because::NotBuiltYet(BUTTON_APPEARANCE_STATES))?;
+            let stream = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+            at.insert(annotation, stream);
+            written.push((stream, nothing_drawn(document, &dict)));
+            constructed.push(WrittenAppearance {
+                page: missing.page,
+                subtype: missing
+                    .subtype
+                    .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
+                stood_in: None,
+                blank_states: states
+                    .iter()
+                    .map(|state| Name::new(state.clone()).escaped())
+                    .collect(),
+            });
+            blank_toggles.insert(annotation, states);
+            continue;
         }
         let built = pdf_model::appearance::for_annotation_in(document, &dict, names)
             .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
@@ -184,7 +221,7 @@ pub(super) fn prepare_appearances(
         // ADR 0112's stand-in, where it is the whole of what is owed, is the one shortfall written
         // all the same: the stream is the one this viewer draws, and the decision makes it the
         // loss `stand-in-face`, which the caller authorises or is asked (`doc/adr/2858`).
-        let stood_in = built.stood_in.as_ref().map(pdf_syntax::Name::escaped);
+        let stood_in = built.stood_in.as_ref().map(Name::escaped);
         if built.owed.is_some() && stood_in.is_none() {
             return Err(Because::TheFence(if built.drawn {
                 APPEARANCE_INCOMPLETE
@@ -207,12 +244,14 @@ pub(super) fn prepare_appearances(
                 .subtype
                 .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
             stood_in,
+            blank_states: Vec::new(),
         });
     }
     Ok(Appearances {
         at,
         written,
         push_buttons,
+        blank_toggles,
         constructed,
         removed,
     })
@@ -305,6 +344,7 @@ pub(super) fn prepare_field_appearances(
             subtype: "Widget".to_owned(),
             // A field's widget is written only where nothing is owed, so no stand-in reaches it.
             stood_in: None,
+            blank_states: Vec::new(),
         });
     }
     found.unconstructed.sort_unstable();
@@ -565,6 +605,82 @@ pub(super) fn prepare_extra_appearance_states(
         );
     }
     Ok(ExtraAppearanceStates { at })
+}
+
+/// The states a check box's or radio button's widget with no appearance dictionary is written
+/// with, each drawing nothing, where the window draws nothing for it.
+///
+/// **What the window draws.** `pdf_model::appearance` draws a toggle that states no `/AP` from
+/// Table 192's caption alone, and only in its on state; with no caption it draws nothing in
+/// either state, and says so of the on state. A print of the page carries the same nothing. So
+/// writing each state drawing nothing changes nothing a reader of this viewer sees or prints; what
+/// it loses is the appearance another reader might have built for the on state, which is
+/// [`Loss::FieldAppearances`]' own sentence — a field whose appearance its producer never wrote is
+/// blank in the archive — and the decision names it (ADR 3340).
+///
+/// **No state is named that the file or the standard does not name.** §12.7.5.2.3 makes `Off` the
+/// off state of every check box and radio button, and the on state is the name the widget's own
+/// `/AS` states; a widget whose `/AS` states no on state is given `Off` alone.
+fn blank_states(document: &Document, widget: &Dictionary) -> Option<Vec<Vec<u8>>> {
+    let characteristics = document.get_key(widget, "MK");
+    if let Some(characteristics) = characteristics.as_dict()
+        && ["CA", "RC", "AC"]
+            .iter()
+            .any(|key| !matches!(document.get_key(characteristics, key), Object::Null))
+    {
+        return None;
+    }
+    let mut states = Vec::new();
+    if let Some(on) = document
+        .get_key(widget, "AS")
+        .as_name()
+        .filter(|state| state.as_bytes() != b"Off")
+    {
+        states.push(on.as_bytes().to_vec());
+    }
+    states.push(b"Off".to_vec());
+    Some(states)
+}
+
+/// A form `XObject` over the widget's rectangle that draws nothing.
+fn nothing_drawn(document: &Document, widget: &Dictionary) -> Object {
+    let corners: Vec<f64> = document
+        .get_key(widget, "Rect")
+        .as_array()
+        .map_or_default(|items| {
+            items
+                .iter()
+                .filter_map(|item| document.resolve(item).as_number())
+                .collect()
+        });
+    let (width, height) = match corners.as_slice() {
+        [x0, y0, x1, y1] => ((x1 - x0).abs(), (y1 - y0).abs()),
+        _ => (0.0, 0.0),
+    };
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XObject"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Form"[..])),
+    );
+    dict.insert(
+        Name::new(&b"BBox"[..]),
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Real(width),
+            Object::Real(height),
+        ]),
+    );
+    dict.insert(Name::new(&b"Length"[..]), Object::Integer(0));
+    Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: Vec::new().into(),
+        decryption_failed: false,
+    }))
 }
 
 /// Whether this annotation is the widget of a button field.

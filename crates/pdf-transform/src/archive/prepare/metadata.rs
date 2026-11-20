@@ -497,12 +497,12 @@ const TYPE_NOT_DETERMINABLE: &str = "this packet states a property in an extensi
      operator two answers: answer the site with `undeterminable = \"discard\"`, which takes the \
      property out of the packet and describes the rest, or correct the source";
 
-/// Why a packet already carrying a container is not given a second one.
+/// Why a packet whose own container cannot be extended is not given a second one.
 const CONTAINER_ALREADY_THERE: &str = "this packet states an extension schema container that \
-     does not describe every schema it uses, and this conversion writes a container as a \
-     description of its own rather than merging into one a producer wrote. Two would make the \
-     packet state pdfaExtension:schemas twice, which the XMP data model forbids - a property \
-     name is unique within its packet — so the file is refused rather than made worse";
+     does not describe every schema it uses, and not as the one pdfaExtension:schemas holding \
+     one rdf:Bag that this conversion adds a schema's description to. A second container would \
+     make the packet state pdfaExtension:schemas twice, which the XMP data model forbids - a \
+     property name is unique within its packet — so the file is refused rather than made worse";
 
 /// Why a packet that cannot be written into gains no container.
 const CONTAINER_NOT_WRITTEN: &str = "this packet uses an extension schema it describes nowhere, \
@@ -513,6 +513,22 @@ const SCHEMA_STILL_UNDESCRIBED: &str = "an extension schema this conversion desc
      undescribed in the packet afterwards, so the packet is half-edited rather than corrected - \
      and a half-edited packet is not written at all, which is the rule the property removal \
      states";
+
+/// `bytes` with `schemas` described: in a container of its own where the packet states none, and
+/// as items of the producer's own where it states one, which a second container beside it would
+/// make a property the packet states twice — the XMP data model forbids it (ADR 3339).
+fn described(bytes: &[u8], schemas: &[xmp::SchemaDescription<'_>]) -> Result<Vec<u8>, Because> {
+    if states_a_container(bytes) {
+        xmp::describe_into_container(bytes, schemas).map_err(|error| match error {
+            xmp::WriteError::NoPlaceForASchema { .. } => {
+                Because::NotBuiltYet(CONTAINER_ALREADY_THERE)
+            }
+            _ => Because::NotBuiltYet(CONTAINER_NOT_WRITTEN),
+        })
+    } else {
+        xmp::describe(bytes, schemas).map_err(|_| Because::NotBuiltYet(CONTAINER_NOT_WRITTEN))
+    }
+}
 
 /// Writes a container for every extension schema a packet uses and describes nowhere.
 ///
@@ -558,9 +574,6 @@ pub(super) fn prepare_schema_descriptions(
         let undescribed = pdf_archive::undescribed_schemas(&bytes, catalog_packet.as_deref());
         if undescribed.is_empty() {
             continue;
-        }
-        if states_a_container(&bytes) {
-            return Err(Because::NotBuiltYet(CONTAINER_ALREADY_THERE));
         }
         let (bytes, undescribed) = if discard_undeterminable {
             out.cut.extend(undeterminable_properties(&undescribed));
@@ -622,8 +635,7 @@ pub(super) fn prepare_schema_descriptions(
                 properties,
             })
             .collect();
-        let written = xmp::describe(&bytes, &schemas)
-            .map_err(|_| Because::NotBuiltYet(CONTAINER_NOT_WRITTEN))?;
+        let written = described(&bytes, &schemas)?;
         // Read back rather than trusted, which is `prepare_properties`'s rule: the writer says
         // what it described and the packet says what it holds, and only the second is what a
         // validator will see.

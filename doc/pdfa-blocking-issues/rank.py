@@ -130,7 +130,7 @@ def remedy(kind, site, why):
 # `built` means nothing is left to build (the figures are what the remedy leaves as it is meant to);
 # `builds only` that what is left needs a build and no owner's word; `owner-blocked` that it needs one.
 STATUS = {
-    "R01-recovered-structure": ("builds only", "built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence"),
+    "R01-recovered-structure": ("builds only", "built: ADRs 2502, 2503, 2551, 2596, 2670; a document whose page 1 is past the end is X2 (A775); each left is refused by its own sentence"),
     "R02-image-smoothing": ("built", "ADR 2498"),
     "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847), written into its procedure under both shipped profiles instead (A865, ADR 2907); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888), and one with a side of no length as the box this viewer draws (ADR 3142); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); the pages reaching a font named in no UTF-8 photographed (ADR 3127); the operand cap an array left open by damage reached, baked in (ADR 3267); an image whose own bytes break its filter or stop short of its grid, baked in (ADR 3325); left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1)"),
     "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650, 2753, a Type 3 code outside FirstChar to LastChar (ADR 3110), a code an embedded CMap reads as invalid, by that CMap restated (ADR 3237); left, fonts other rows refuse first"),
@@ -143,11 +143,11 @@ STATUS = {
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773, and for a collection's composite font, a glyf subset, ADR 2807, a CID drawn as nothing given an empty glyph, ADR 2824, and a descriptor read off the face, ADR 2825, and for an Adobe-Identity font, a CFF face too, ADR 2828, its glyph choice admitted, A832 and ADR 2829, and a damaged program the window draws nothing from written drawing nothing, ADR 2830; left, (a) an empty glyph's width the face's em cannot state and a simple subset, and (b) for a bare CFF program"),
     "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), in an embedded glyf program (ADR 3153) and in a shipped CFF face (ADR 3154), a CFF program under a TrueType dictionary (ADRs 3078, 3089), a Type 0 font naming no CIDFont (ADR 3109), a Type 1 program under a CIDFontType0 (ADR 3173), a descriptor inside a font with no program and its name as the program's (ADRs 3209, 3210); a CFF width a subroutine states is read where it occurs (ADR 3240); left, what another row refuses first"),
     "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520; a font a photograph takes out of the file, and a page tree node's resources no page inherits (ADR 3193); a program the window refused, restated over the face it drew (ADR 3326); left, a font R10 or another row refuses first"),
-    "R12-spot-colourant": ("builds only", "built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490)"),
+    "R12-spot-colourant": ("builds only", "built for a PostScript calculator function (ADR 2690) and for a sampled one whose absent inputs land on samples (ADR 3337); left, one whose absent input falls between samples, refused until its loss is named (ADR 2490)"),
     "R13-jpx-transcode": ("built", "ADR 2694: the shipped profiles take ADR 1400's transcode; a bare codestream is kept in a JP2 file (ADR 2695); a space only the data states keeps its refusal"),
-    "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682, the second step under `as-if-printed` as a discard (ADR 3141)"),
+    "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682, the second step under `as-if-printed` as a discard (ADR 3141), a schema described inside the producer's own container (ADR 3339)"),
     "R15-embedded-files": ("builds only", "built: ADR 2536"),
-    "R16-annotations-and-forms": ("builds only", "built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858); left, named per site"),
+    "R16-annotations-and-forms": ("builds only", "built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858), a check box or radio button the window draws nothing for, its states written drawing nothing under `field-appearances` (ADR 3340); left, named per site"),
     "R17-press-statements": ("built", "ADR 2693: `as-if-printed` takes both discards `as-shown` takes, each named in the file's history"),
     "R18-piece-info": ("builds only", "built for one instant and under the three profiles taking the packet's date, ADR 2748; left, the stating profiles"),
     "X1-dynamic-xfa": ("exception", "CLAUDE.md's exclusion; §K.1"),
@@ -241,7 +241,10 @@ def draws_no_page(binary, repository, name):
         run = subprocess.run([binary, "render", str(found[0]), "--pages", "1", "--dpi", "10",
                               "-o", str(pathlib.Path(scratch, "page.png"))],
                              capture_output=True, text=True, timeout=60, check=False)
-    return run.returncode != 0 and "has no pages" in run.stderr
+    # Page 1 past the end is the same answer: `T02-03_006` states one page and holds none, and the
+    # verb counts the pages it can open, not the ones the root states (doc/questions/A775, ADR 2670).
+    said = run.stdout + run.stderr
+    return run.returncode != 0 and ("has no pages" in said or "page 1 is past the end" in said)
 
 
 def main():

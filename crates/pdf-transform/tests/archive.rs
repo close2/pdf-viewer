@@ -5762,9 +5762,10 @@ fn a_spot_colourant_the_file_already_defines_gains_the_producers_own_entry() {
 
 #[test]
 fn a_spot_colourant_the_file_never_defines_over_a_sampled_transform_stays_refused() {
-    // Restricting a §7.10.2 sampled transform to one colourant would resample it, an
-    // approximation an archive would carry as the producer's definition; a §7.10.5 program is
-    // restricted exactly instead (`archive/spot_separations.rs`, `doc/adr/2690`).
+    // The fixture's sampled transform states one input under a space of two colourants, so it is
+    // no function of the space's inputs and no restriction of it is the producer's; a well-formed
+    // sampled transform is restricted to the row its absent inputs name (ADR 3337), a §7.10.5
+    // program by its own operands (`doc/adr/2690`), in `archive/spot_separations.rs`.
     let source = a_devicen_over(false);
     let (report, output) = to_part_four(&source);
     assert!(
@@ -7251,6 +7252,70 @@ fn a_widget_whose_appearance_cannot_be_built_keeps_the_flag_and_is_named() {
         vec!["Total".to_owned()],
         "and the field is named, by the name §12.7.4.2 gives it"
     );
+}
+
+#[test]
+fn a_check_box_the_window_draws_nothing_for_is_written_drawing_nothing_where_the_loss_is_granted() {
+    // `checkbox_no_appearance`'s shape: a check box stating its on state `/Yes` by `/AS` and
+    // `/V`, no `/AP` and no `/MK` caption, which the window draws as nothing (ADR 3340). Where
+    // `field-appearances` is granted — a field its producer never wrote an appearance for left
+    // blank in the archive — each state the file and §12.7.5.2.3 name is written drawing nothing,
+    // and the flag can go because every visible widget then has an appearance.
+    let source = a_form_asking_for_appearances("/FT /Btn /V /Yes /AS /Yes", Vec::new());
+    let granted = Authorisations {
+        field_appearances: true,
+        ..Authorisations::default()
+    };
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, granted);
+    assert!(matches!(
+        decision(&report, "annotations/appearance-dictionary-present-from-base-standard"),
+        Decision::Authorised { losses, .. } if losses.contains(Loss::FieldAppearances)
+    ));
+    let output = output.expect("it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let widgets = pdf_model::view::widgets_by_field_name(&document);
+    let widget = document
+        .get(widgets["Total"][0])
+        .as_dict()
+        .cloned()
+        .expect("the widget");
+    let appearance = document.get_key(&widget, "AP");
+    let normal = document.get_key(appearance.as_dict().expect("an /AP"), "N");
+    let normal = normal.as_dict().expect("a subdictionary of states");
+    let mut states: Vec<Vec<u8>> = normal
+        .iter()
+        .map(|(name, _)| name.as_bytes().to_vec())
+        .collect();
+    states.sort();
+    assert_eq!(
+        states,
+        vec![b"Off".to_vec(), b"Yes".to_vec()],
+        "the file's states and no other"
+    );
+    for (_, state) in normal.iter() {
+        let stream = document.resolve(state);
+        let stream = stream.as_stream().expect("each state is a stream");
+        assert!(
+            document
+                .decoded_stream_data(stream)
+                .expect("its bytes")
+                .is_empty(),
+            "and each draws nothing, as the window drew it"
+        );
+    }
+    let written = &conversion(&report).appearances;
+    assert!(
+        written
+            .iter()
+            .any(|written| written.blank_states == vec!["Yes".to_owned(), "Off".to_owned()]),
+        "and the report names the states written blank: {written:?}"
+    );
+    // Not granted, the check box keeps its refusal, by the flag's sentence (`doc/adr/1257`).
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none());
+    assert_eq!(conversion(&report).unconstructed, vec!["Total".to_owned()]);
 }
 
 #[test]
@@ -8747,6 +8812,52 @@ fn a_schema_the_file_describes_nowhere_gains_a_container_this_conversion_wrote()
     assert!(
         written.contains("4417"),
         "and the producer's property is still in the packet: describing it is what keeps it"
+    );
+}
+
+#[test]
+fn a_schema_the_producers_own_container_leaves_out_is_described_inside_it() {
+    // `JPXTestGrey`'s shape: the packet states a container a producer wrote, describing one
+    // schema, and uses another it does not describe. A second container would state
+    // pdfaExtension:schemas twice, which the XMP data model forbids, so the schema is described
+    // by one more item of the producer's own bag (ADR 3339).
+    let container = "<pdfaExtension:schemas \
+         xmlns:pdfaExtension=\"http://www.aiim.org/pdfa/ns/extension/\" \
+         xmlns:pdfaSchema=\"http://www.aiim.org/pdfa/ns/schema#\" \
+         xmlns:pdfaProperty=\"http://www.aiim.org/pdfa/ns/property#\">\n<rdf:Bag>\n\
+         <rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaSchema:schema>Other</pdfaSchema:schema>\n\
+         <pdfaSchema:namespaceURI>http://other.example/ns/</pdfaSchema:namespaceURI>\n\
+         <pdfaSchema:prefix>other</pdfaSchema:prefix>\n\
+         <pdfaSchema:property><rdf:Seq>\n<rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaProperty:name>Thing</pdfaProperty:name>\n\
+         <pdfaProperty:valueType>Text</pdfaProperty:valueType>\n\
+         <pdfaProperty:category>external</pdfaProperty:category>\n\
+         <pdfaProperty:description>a thing</pdfaProperty:description>\n\
+         </rdf:li>\n</rdf:Seq></pdfaSchema:property>\n</rdf:li>\n</rdf:Bag>\n\
+         </pdfaExtension:schemas>\n";
+    let source = a_document_carrying(
+        a_packet_using_an_undescribed_schema(container),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(matches!(
+        decision(&report, "metadata/extension-schemas-embedded"),
+        Decision::Stated { .. }
+    ));
+    let output = output.expect("it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let written = String::from_utf8_lossy(&output);
+    assert_eq!(
+        written.matches("<pdfaExtension:schemas").count(),
+        1,
+        "one container, the producer's"
+    );
+    assert!(written.contains("<pdfaSchema:namespaceURI>http://acme.example/ns/1.0/"));
+    assert!(
+        written.contains("<pdfaSchema:namespaceURI>http://other.example/ns/"),
+        "and the producer's own description stays"
     );
 }
 

@@ -59,13 +59,13 @@ Three disagreements found outside it (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 941 | 1 | 18 | 11 | 5 |
-| corpora `as-if-printed` 2b | 448 | 6 | 30 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 953 | 0 | 7 | 11 | 5 |
+| pdf.js `as-if-printed` 2b | 943 | 1 | 16 | 11 | 5 |
+| corpora `as-if-printed` 2b | 449 | 6 | 29 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 955 | 0 | 5 | 11 | 5 |
 | corpora `as-if-printed` 4 | 482 | 0 | 3 | 16 | 2 |
-| pdf.js `as-shown` 2b | 904 | 1 | 55 | 11 | 5 |
-| corpora `as-shown` 2b | 413 | 6 | 63 | 16 | 5 |
-| pdf.js `as-shown` 4 | 914 | 0 | 46 | 11 | 5 |
+| pdf.js `as-shown` 2b | 906 | 1 | 53 | 11 | 5 |
+| corpora `as-shown` 2b | 414 | 6 | 62 | 16 | 5 |
+| pdf.js `as-shown` 4 | 916 | 0 | 44 | 11 | 5 |
 | corpora `as-shown` 4 | 433 | 0 | 50 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
@@ -74,7 +74,7 @@ either way: one pdf.js document stops at R08b without the pack and at R03 with i
 `as-shown` documents move between R08b and R09's `machine-face`. In sessions 2097's and 2102's
 the census lines are again the same either way. In session 2106's, without the pack, pdf.js
 `as-if-printed` is one document worse at each part: `issue15053` stops at R08b's pack sentence;
-in sessions 2110's, 2113's, 2118's, 2123's, 2127's, 2134's, 2138's and 2156's the same.
+in sessions 2110's, 2113's, 2118's, 2123's, 2127's, 2134's, 2138's, 2156's and 2159's the same.
 
 Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
 opacity channel of another depth) fail veraPDF at ISO 19005-2 6.2.8.3 and -4 6.2.7.3 on veraPDF's
@@ -83,8 +83,8 @@ reproducers and the clauses it cites (cited, not quoted) are indexed here:
 [`pdfa-blocking-issues/verapdf-jpeg2000-issue.md`](pdfa-blocking-issues/verapdf-jpeg2000-issue.md),
 files under `pdfa-blocking-issues/verapdf-jpeg2000/`.
 
-**Under `as-if-printed`, 120 documents are refused or declined at 2b and 108 at part 4; 91 at
-both parts, 137 at one at least. Under `as-shown`, 248 at both, 292 at one at least.** Of the
+**Under `as-if-printed`, 117 documents are refused or declined at 2b and 106 at part 4; 89 at
+both parts, 134 at one at least. Under `as-shown`, 246 at both, 289 at one at least.** Of the
 `as-if-printed` population, everything but a few documents falls under a remedy below; those are
 the exceptions of section 7 (four `X1`, six `X2`) and the documents the converter itself fails
 (section 8; seven at 2b, six at 4).
@@ -110,20 +110,19 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 42 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 3 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 4 | R14-appended-page-composition | 1 | 0 | 3 / 2 | builds only | built: ADRs 2678, 2682, the second step under `as-if-printed` as a discard (ADR 3141) |
-| 5 | R16-annotations-and-forms | 1 | 1 | 6 / 9 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858); left, named per site |
-| 6 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
-| 7 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 8 | R03-photograph | 0 | 0 | 49 / 49 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847), written into its procedure under both shipped profiles instead (A865, ADR 2907); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888), and one with a side of no length as the box this viewer draws (ADR 3142); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); the pages reaching a font named in no UTF-8 photographed (ADR 3127); the operand cap an array left open by damage reached, baked in (ADR 3267); an image whose own bytes break its filter or stop short of its grid, baked in (ADR 3325); left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 9 | R03a-notdef-named | 0 | 0 | 5 / 1 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753, a Type 3 code outside FirstChar to LastChar (ADR 3110), a code an embedded CMap reads as invalid, by that CMap restated (ADR 3237); left, fonts other rows refuse first |
-| 10 | R08-unembedded-font-photograph | 0 | 0 | 20 / 20 | builds only | built under `as-if-printed`: A694, ADR 2516; a code on `.notdef` under a `glyf` face given an empty glyph by making the font symbolic (ADR 3125), and beside the file's own descriptor (ADR 3126); a program whose stream stops after every byte of it, written whole again (ADR 3256); a code on `.notdef` drawn from a machine's face held to the nothing it drew (ADR 3266); left, a page this reader does not draw whole, a code on `.notdef` beside a twin code; `as-shown` keeps its stop (A694 item 1) |
-| 11 | R09-as-shown-font-losses | 0 | 0 | 12 / 12 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773, and for a collection's composite font, a glyf subset, ADR 2807, a CID drawn as nothing given an empty glyph, ADR 2824, and a descriptor read off the face, ADR 2825, and for an Adobe-Identity font, a CFF face too, ADR 2828, its glyph choice admitted, A832 and ADR 2829, and a damaged program the window draws nothing from written drawing nothing, ADR 2830; left, (a) an empty glyph's width the face's em cannot state and a simple subset, and (b) for a bare CFF program |
-| 12 | R10-font-refiling | 0 | 0 | 2 / 2 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), in an embedded glyf program (ADR 3153) and in a shipped CFF face (ADR 3154), a CFF program under a TrueType dictionary (ADRs 3078, 3089), a Type 0 font naming no CIDFont (ADR 3109), a Type 1 program under a CIDFontType0 (ADR 3173), a descriptor inside a font with no program and its name as the program's (ADRs 3209, 3210); a CFF width a subroutine states is read where it occurs (ADR 3240); left, what another row refuses first |
-| 13 | R11-truetype-route | 0 | 0 | 4 / 3 | builds only | built: A694 item 3, ADR 2520; a font a photograph takes out of the file, and a page tree node's resources no page inherits (ADR 3193); a program the window refused, restated over the face it drew (ADR 3326); left, a font R10 or another row refuses first |
-| 14 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 15 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 2 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
+| 3 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 4 | R01-recovered-structure | 0 | 0 | 2 / 2 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; a document whose page 1 is past the end is X2 (A775); each left is refused by its own sentence |
+| 5 | R03-photograph | 0 | 0 | 49 / 49 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847), written into its procedure under both shipped profiles instead (A865, ADR 2907); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888), and one with a side of no length as the box this viewer draws (ADR 3142); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); the pages reaching a font named in no UTF-8 photographed (ADR 3127); the operand cap an array left open by damage reached, baked in (ADR 3267); an image whose own bytes break its filter or stop short of its grid, baked in (ADR 3325); left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 6 | R03a-notdef-named | 0 | 0 | 5 / 1 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753, a Type 3 code outside FirstChar to LastChar (ADR 3110), a code an embedded CMap reads as invalid, by that CMap restated (ADR 3237); left, fonts other rows refuse first |
+| 7 | R08-unembedded-font-photograph | 0 | 0 | 20 / 20 | builds only | built under `as-if-printed`: A694, ADR 2516; a code on `.notdef` under a `glyf` face given an empty glyph by making the font symbolic (ADR 3125), and beside the file's own descriptor (ADR 3126); a program whose stream stops after every byte of it, written whole again (ADR 3256); a code on `.notdef` drawn from a machine's face held to the nothing it drew (ADR 3266); left, a page this reader does not draw whole, a code on `.notdef` beside a twin code; `as-shown` keeps its stop (A694 item 1) |
+| 8 | R09-as-shown-font-losses | 0 | 0 | 12 / 12 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773, and for a collection's composite font, a glyf subset, ADR 2807, a CID drawn as nothing given an empty glyph, ADR 2824, and a descriptor read off the face, ADR 2825, and for an Adobe-Identity font, a CFF face too, ADR 2828, its glyph choice admitted, A832 and ADR 2829, and a damaged program the window draws nothing from written drawing nothing, ADR 2830; left, (a) an empty glyph's width the face's em cannot state and a simple subset, and (b) for a bare CFF program |
+| 9 | R10-font-refiling | 0 | 0 | 2 / 2 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), in an embedded glyf program (ADR 3153) and in a shipped CFF face (ADR 3154), a CFF program under a TrueType dictionary (ADRs 3078, 3089), a Type 0 font naming no CIDFont (ADR 3109), a Type 1 program under a CIDFontType0 (ADR 3173), a descriptor inside a font with no program and its name as the program's (ADRs 3209, 3210); a CFF width a subroutine states is read where it occurs (ADR 3240); left, what another row refuses first |
+| 10 | R11-truetype-route | 0 | 0 | 4 / 3 | builds only | built: A694 item 3, ADR 2520; a font a photograph takes out of the file, and a page tree node's resources no page inherits (ADR 3193); a program the window refused, restated over the face it drew (ADR 3326); left, a font R10 or another row refuses first |
+| 11 | R14-appended-page-composition | 0 | 0 | 2 / 2 | builds only | built: ADRs 2678, 2682, the second step under `as-if-printed` as a discard (ADR 3141), a schema described inside the producer's own container (ADR 3339) |
+| 12 | R16-annotations-and-forms | 0 | 0 | 5 / 8 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858), a check box or radio button the window draws nothing for, its states written drawing nothing under `field-appearances` (ADR 3340); left, named per site |
+| 13 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 14 | X2-no-page-to-see | — | — | 7 / 7 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest rows are R03 and R08, each held by an answer of the owner's (A694 item
 1) rather than by a build, then R09 (its row of the table above, its simple fonts with a descriptor
@@ -441,9 +440,13 @@ for a sampled or exponential one it is a resampled function, and that loss is na
 rather than invents, the transform: it is what the producer's space paints for that colourant alone.
 ADR 2490 decides it; mitigations `graphics/spot-colourants-appear-in-the-colorants-dictionary`.
 **Built for a PostScript calculator function** (ADR 2690, `archive/spot_separation.rs`): six of the
-seven convert under every shipped profile at both parts. `devicen.pdf`'s transform is sampled
-(FunctionType 0) and stays refused by that name; an `NChannel` space is refused too, since there
-the entry changes what the page draws.
+seven convert under every shipped profile at both parts. **Built for a sampled function** (ADR
+3337): where each absent input lands on a sample, the restriction is the row of the table it names,
+copied bit for bit, exact rather than resampled, so no loss is named; `devicen.pdf` (FunctionType 0,
+`/Size [13 13 13]`) converts under both shipped profiles at 2b and 4, veraPDF 1.30.3 passing, page 1
+pixel-identical. Left: an absent input falling between two samples, the resampling ADR 2490 named,
+which no corpus document reaches; an `NChannel` space is refused too, since there the entry changes
+what the page draws.
 
 **R17 — two press statements `as-if-printed` keeps** (4 documents): `halftone-name` (3) and overprint
 mode 1 under an ICC CMYK space (1). `as-shown` already discards both (ADR 1965). *A company*
@@ -565,7 +568,7 @@ refused at part 2 as a 2.0 source is, by a sentence that names part 2.
 and print it. **Remedy**: write the structure the reader recovered — the catalog and page tree it
 walked — loss `recovered-structure` (new), the report naming what was rebuilt; the photograph is the
 fallback where the recovered objects do not convert. ADR 2490 reopens the declining sentence ("would
-state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (its page's dictionary stops being readable at byte 678) is rebuilt from the seven entries the reader drew the page from, named as read in part (ADR 2551), and refused by other rows; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row. The stated-count refusal is now the named loss `page-not-held` where a profile takes it (A727, ADR 2596): a `/Kids` entry that names no object is §7.3.10's null and is subtracted from the root's `/Count` under `recovered-structure`, and one the cross-reference information places with no dictionary there is a page not held, the root's count and the count carried stated in the report, the JSON and `xmpMM:History`. `as-if-printed` converts `A Defence of the New Tenseless Theory of Time`, `T02-02_003`, `10856087`, `14342427` and `66307685`; `as-shown` converts three and refuses the Defence document and `14342427` by `page-not-held`; `T02-03_006` holds none of the one page it states and is refused under every profile by the sentence the checker fails it with (A775, ADR 2670). `state-every-loss` and `no-data-loss` take `recovered-structure` and `page-not-held`, each stated on the appended page (A757, ADR 2669). The Defence document converts under both at both targets: its flat label tree's range at the thirteenth page, the one not held, labels none of the pages carried and is taken out, and the appended page takes a range of its own (ADR 2671).
+state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (its page's dictionary stops being readable at byte 678) is rebuilt from the seven entries the reader drew the page from, named as read in part (ADR 2551), and refused by other rows; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row. The stated-count refusal is now the named loss `page-not-held` where a profile takes it (A727, ADR 2596): a `/Kids` entry that names no object is §7.3.10's null and is subtracted from the root's `/Count` under `recovered-structure`, and one the cross-reference information places with no dictionary there is a page not held, the root's count and the count carried stated in the report, the JSON and `xmpMM:History`. `as-if-printed` converts `A Defence of the New Tenseless Theory of Time`, `T02-02_003`, `10856087`, `14342427` and `66307685`; `as-shown` converts three and refuses the Defence document and `14342427` by `page-not-held`; `T02-03_006` holds none of the one page it states and is refused under every profile by the sentence the checker fails it with (A775, ADR 2670); the render verb answers it "page 1 is past the end" rather than "has no pages", which `rank.py` now reads as the same answer, so it is filed under X2 with the other documents that show no page. `state-every-loss` and `no-data-loss` take `recovered-structure` and `page-not-held`, each stated on the appended page (A757, ADR 2669). The Defence document converts under both at both targets: its flat label tree's range at the thirteenth page, the one not held, labels none of the pages carried and is taken out, and the appended page takes a range of its own (ADR 2671).
 
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an
@@ -599,7 +602,7 @@ in `xmpMM:History` (`modification-date`), under `as-shown`, `as-if-printed` and 
 (`disagreeing = "discard"`). Left: the stating profiles, whose page would have to state a packet
 property.
 
-**R16 — annotations and forms** (2 documents under `as-if-printed`, 6 at 2b and 9 at 4 under
+**R16 — annotations and forms** (none under `as-if-printed`, 5 at 2b and 8 at 4 under
 `as-shown`). Built: a push button with no appearance dictionary is given the
 constructed one under ADR 2319's state (ADR 2751, `160F-2019`); an appearance dictionary stating no entry,
 or only null ones, is taken away (ADR 2752, `sakula`); a signature widget's compound row takes the answer
@@ -607,10 +610,11 @@ the operator gave the annotation rules it names (ADR 2850); and `as-shown`'s per
 a hidden widget from its page with its field kept in the form, removes a closed popup with the hidden
 markup annotation it belongs to, and reads `Invisible` on a Table 171 subtype as the bits beside it
 (ADR 2851: `160F-2019`, `annotation_hidden_noview`, `widget_hidden_print`, `annotation_hidden_print`,
-`OrphanPopups`, `pr7352`). Left, named per site: a check box with no appearance dictionary
-(`checkbox_no_appearance` — §12.7.5.2.3 makes its state names its values, and the reader refuses its *on*
-widget, which states neither an `/AP` nor Table 192's `/CA`, so what is left is its removal, which touches
-its field); a `FreeText` whose `/DA` names a font `/DR` does not define (`poppler-395-0-fuzzed` — the
+`OrphanPopups`, `pr7352`). A check box or radio button with no appearance dictionary and no caption, which the window draws as
+nothing, is given an `/N` subdictionary of the states its `/AS` and §12.7.5.2.3 name, each drawing
+nothing, under `field-appearances` — a field its producer wrote no appearance for, blank in the
+archive as on paper — after which the flag may go (ADR 3340): `checkbox_no_appearance` converts under
+both shipped profiles at 2b and 4, veraPDF 1.30.3 passing. Left, named per site: a `FreeText` whose `/DA` names a font `/DR` does not define (`poppler-395-0-fuzzed` — the
 window sets it in ADR 0112's stand-in and reports it, so a build is that construction written under a
 loss naming the stand-in face); an appearance kept on an appended page of a document with a structure
 tree (`as-shown`: `PDF-Sample-Document-Fully-Featured-Layout_Redacted` and the two `embedded_video` files
@@ -631,8 +635,10 @@ the character, and `241573_ftp`'s packet below, are named in the report and `xmp
 statement page, and both documents convert under it at 2b and 4. `no-data-loss` and the profiles
 naming no second step keep the face search's refusal. No
 shipped face covers U+2400–U+243F, the control pictures A778's option (a) would set; and
-`JPXTestGrey` at 2b, whose refusal is the extension-schema container
-(a producer's container that does not describe every schema it uses), not the page. `241573_ftp`'s
+`JPXTestGrey` at 2b, whose refusal was the extension-schema container
+(a producer's container that does not describe every schema it uses), not the page: the schemas it
+leaves out are now described as more items of its own bag (ADR 3339), and it converts under both
+shipped profiles at 2b and 4, veraPDF 1.30.3 passing. `241573_ftp`'s
 catalog packet is Flate data its stream states no filter for, so through the filters it states it
 is not text, and no other filter is tried (ADR 2679): `state-every-loss`'s packet rows now take the
 second step, removing a packet no page can lay out and listing it on the statement page (ADR 2678),
@@ -745,7 +751,7 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 `rank.py`'s section 4, with the pack, verbatim:
 
 ```text
-   R01-recovered-structure (3): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf, corpora:T02-03_006_page-object-missing.pdf
+   R01-recovered-structure (2): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf
    R03-photograph (49): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, pdf.js:TAMReview.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue20489.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf
    R03a-notdef-named (5): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf
    R05-press (2): corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:response-to-fiber-concerns[1].pdf
@@ -754,10 +760,9 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
    R09-as-shown-font-losses (12): corpora:All Quiet on the Third Coast.pdf, corpora:T02-04-01_001_resources-basefont-missing.pdf, corpora:T02-04-01_002_resources-basefont-wrong-font.pdf, pdf.js:90ms_rksj_h_sample.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue18099_reduced.pdf, pdf.js:issue2391-2.pdf, pdf.js:issue5470.pdf, pdf.js:issue6069.pdf, pdf.js:issue6106.pdf, pdf.js:issue6108.pdf, pdf.js:issue6286.pdf
    R10-font-refiling (2): corpora:0000490.pdf, pdf.js:issue5470.pdf
    R11-truetype-route (4): corpora:507676.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf
-   R12-spot-colourant (1): pdf.js:devicen.pdf
-   R14-appended-page-composition (3): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf
+   R14-appended-page-composition (2): corpora:241573_ftp.pdf, corpora:balloon_a1b_jp2k.pdf
    R15-embedded-files (7): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
-   R16-annotations-and-forms (9): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf
+   R16-annotations-and-forms (8): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf
    X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf
-   X2-no-page-to-see (6): corpora:PDFBOX-6041-example.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf
+   X2-no-page-to-see (7): corpora:PDFBOX-6041-example.pdf, corpora:T02-03_006_page-object-missing.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf
 ```

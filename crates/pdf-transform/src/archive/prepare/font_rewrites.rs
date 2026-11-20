@@ -271,10 +271,11 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
                 .cut_program
                 .map_or_default(|cut| format!("; {}", cut.describe()));
             format!(
-                "{} (resource {}) was not embedded and {} was embedded in its place, {}, taking \
+                "{} (resource {}) {} and {} was embedded in its place, {}, taking \
                  the {} route{described}{lost}{fitting}{layout}{empty}{twins}{cut}",
                 font.requested,
                 font.resource,
+                font.what_the_file_held(),
                 font.face,
                 font.authority.describe(),
                 font.route.word()

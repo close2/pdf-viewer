@@ -306,6 +306,27 @@ fn a_program_refused_outright_or_disowned_by_its_checksum_is_substituted() {
         let dropped = entry.and_then(|entry| entry.cut_program);
         assert_eq!(dropped.and_then(|cut| cut.damage), Some(damage));
         assert!(draws_the_text_drawn(&source, &output));
+        // The file's own history says what the file held: a program removed, never a font that
+        // "was not embedded"; and of a program its checksum disowns, that it decoded to its end
+        // rather than that the file held only its front (ADR 3338).
+        let recorded = conversion(&report)
+            .recorded
+            .clone()
+            .expect("the substitution is recorded");
+        assert!(
+            recorded.contains("carried a program this conversion removed")
+                && !recorded.contains("was not embedded"),
+            "{recorded}"
+        );
+        let front = recorded.contains("held only the front");
+        assert_eq!(
+            front,
+            damage != pdf_syntax::filter::Damage::CheckValue,
+            "{recorded}"
+        );
+        if damage == pdf_syntax::filter::Damage::CheckValue {
+            assert!(recorded.contains("decodes to its end"), "{recorded}");
+        }
     }
 }
 

@@ -1701,6 +1701,7 @@ impl Prepared {
                 document,
                 plan.target,
                 forbidden_annotations.as_ref().ok(),
+                plan.authorised.grants(Loss::FieldAppearances),
                 (&mut spare, &mut subset_names),
             )
         });
