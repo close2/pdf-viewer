@@ -20,6 +20,7 @@
 
 mod convert;
 pub mod helper;
+mod window;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -30,6 +31,7 @@ pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted};
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
 use viewer_core::{DocumentId, SoundData};
+pub use window::{LOOK, Sounds};
 
 /// Where the converted samples go: a device, or a test's record of what reached it.
 ///

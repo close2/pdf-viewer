@@ -95,7 +95,7 @@ fn remove_written(path: &str) {
 fn an_embedded_clip_is_owed_to_the_host_by_its_path() {
     let (mut window, pdf) = window("embedded", MediaFiles::Open);
     let document = window.state.documents.focused();
-    window.media(document, Some("audio/wav"), embedded());
+    window.media(document, Some("audio/wav"), embedded(), None);
     let records = owed(&mut window);
     let opened: Vec<&String> = records
         .iter()
@@ -122,7 +122,7 @@ fn an_embedded_clip_is_owed_to_the_host_by_its_path() {
 fn at_ask_the_clip_is_owed_only_after_a_yes() {
     let (mut window, pdf) = window("ask", MediaFiles::Ask);
     let document = window.state.documents.focused();
-    window.media(document, Some("audio/wav"), embedded());
+    window.media(document, Some("audio/wav"), embedded(), None);
     let asked = owed(&mut window);
     assert!(
         asked.iter().any(|(kind, _)| *kind == OwedKind::Question),
@@ -149,6 +149,7 @@ fn a_url_is_owed_and_a_failure_to_open_it_is_said() {
         document,
         None,
         viewer_core::Media::Url("https://example.org/clip.mp4".to_owned()),
+        None,
     );
     let records = owed(&mut window);
     assert!(

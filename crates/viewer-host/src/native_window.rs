@@ -344,6 +344,10 @@ pub struct WindowState {
     /// The desktop portal's calls out, a media clip each, looked for on the timer that looks for
     /// a server's answers so that a failure after the call is said here (ADR 3219).
     pub portal_calls: crate::policy::PortalCalls,
+    /// §13.3's sounds this window plays itself, where it does ([`NativeWindow::plays_sounds`]):
+    /// no player, thread, worker or helper until the first, looked for on the same timer while
+    /// one is decoded or sounds (ADR 3329).
+    pub sounds: crate::sound::Sounds,
     /// §6.3.2.2: who draws §12.7's widgets — the toolkit's controls, or the document's own
     /// pictures.
     ///
@@ -406,6 +410,12 @@ impl WindowState {
         if self.showing.uncentred {
             notes.push_str(" — ");
             notes.push_str(NOT_CENTRED_TITLE);
+        }
+        // A sound sounding, with the key that stops it, or one refused: the window's own word
+        // while it holds (ADR 3329).
+        if let Some(sounds) = self.sounds.title() {
+            notes.push_str(" — ");
+            notes.push_str(sounds);
         }
         notes
     }
@@ -477,6 +487,7 @@ impl WindowState {
             trusting: crate::Trusting::default(),
             refresher: crate::trusted_list_fetch::Refresher::new(),
             portal_calls: crate::policy::PortalCalls::new(),
+            sounds: crate::sound::Sounds::new(),
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
@@ -510,14 +521,14 @@ impl WindowState {
 
     /// Whether anything this window runs on a thread of its own is still out, so that the
     /// timer looking for it keeps running: a server's answer, a conversion, the trusted lists'
-    /// refresh, or a call to the desktop portal.
+    /// refresh, a call to the desktop portal, or a sound being decoded or sounding.
     #[must_use]
     pub fn looking(&self) -> bool {
         self.answers_interval().is_some()
     }
 
     /// How long a window's timer waits before [`NativeWindow::take_the_answers`] looks again: the
-    /// interval of whichever of [`Self::looking`]'s four is out, or `None` where none is.
+    /// interval of whichever of [`Self::looking`]'s five is out, or `None` where none is.
     #[must_use]
     pub fn answers_interval(&self) -> Option<std::time::Duration> {
         self.submitter
@@ -525,6 +536,7 @@ impl WindowState {
             .or(self.converter.interval())
             .or(self.refresher.interval())
             .or(self.portal_calls.interval())
+            .or(self.sounds.interval())
     }
 
     /// When the window should look at its pages again: the drawing thread's interval or the
@@ -663,6 +675,22 @@ pub trait NativeWindow {
     /// Arms whatever looks for a thread's answer on this toolkit's loop, where nothing was being
     /// looked for until now: a server's, or a conversion's report (ADRs 1291, 1954).
     fn look_for_answers(&mut self);
+
+    /// Whether this window plays §13.3's sound itself, through [`WindowState::sounds`], rather
+    /// than handing the sound's file to this machine's player as any other clip. `false` unless a
+    /// toolkit says otherwise: the C ABI's window hands a sound to the program hosting it, whose
+    /// sink is RFC 0015 section 5's step 5 (ADR 3329).
+    fn plays_sounds(&self) -> bool {
+        false
+    }
+
+    /// What wakes this toolkit's loop from the sound player's thread, asked once, at the first
+    /// sound. Nothing by default: the timer [`Self::look_for_answers`] arms, or the one
+    /// [`WindowState::answers_interval`] sets, looks at the player while a sound is out, and that
+    /// look is the guarantee either way (ADR 3329).
+    fn sound_wake(&self) -> crate::sound::Wake {
+        Box::new(|| {})
+    }
 
     /// `CLAUDE.md`'s *ask* level over an operation the document restricts, held as
     /// [`Asked::Restricted`]: the words are `crate::restriction`'s and the dialogue the toolkit's
@@ -898,14 +926,14 @@ pub trait NativeWindow {
             Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
             Event::Beep { document, sound } => self.beep(document, sound),
             Event::Console { document, request } => self.console(document, request),
-            // A sound's own samples are for a window that plays it here; this one hands it off
-            // (ADR 3301).
+            // A sound's own samples are for a window that plays it here; one that does not hands
+            // its file over as any other clip (ADRs 3301, 3329).
             Event::Media {
                 document,
                 content_type,
                 media,
-                ..
-            } => self.media(document, content_type.as_deref(), media),
+                sound,
+            } => self.media(document, content_type.as_deref(), media, sound),
             Event::AttachmentsChanged { .. } => self.attachments_changed(),
         }
     }
@@ -1099,34 +1127,85 @@ pub trait NativeWindow {
 
     /// §13.2.4.2's clip, a movie's or a sound's file, under the level the window holds: handed to
     /// this machine's player through the desktop portal, put to the person first, or declined, and
-    /// said in each case (ADR 3201).
+    /// said in each case (ADR 3201) — and a sound holding its own samples, in a window that plays
+    /// sounds, played here at the same level (ADR 3329).
     fn media(
         &mut self,
         document: DocumentId,
         content_type: Option<&str>,
         media: viewer_core::Media,
+        sound: Option<Box<viewer_core::SoundData>>,
     ) {
         let label = self.state().documents.label_of(document);
-        let decided = crate::handing(
+        let sound = sound.filter(|_| self.plays_sounds()).map(|sound| *sound);
+        let decided = crate::handing_here(
             &label,
             self.state().showing.directory.as_deref(),
             content_type,
             media,
+            sound,
             self.state().restrictions.media_files(),
         );
         match decided {
+            crate::Handing::Hand {
+                handed: crate::Handed::Here { name, sound },
+                note,
+            } => self.play_here(document, &label, &name, sound, note.as_deref()),
             crate::Handing::Hand { handed, note } => {
                 self.hand_media_over(&label, &handed, note.as_deref());
             }
             crate::Handing::Ask { handed, question } => self.ask(
                 Asked::Media {
-                    document: label,
+                    id: document,
                     handed,
                 },
                 &question,
             ),
             crate::Handing::Refuse(said) => self.say(&said),
         }
+    }
+
+    /// §13.3's sound the level or the person let through, played in this window: handed to the
+    /// player, which the first sound makes with this toolkit's wake, and which starts the media
+    /// worker and the sound helper on its own thread (ADRs 3301, 3317, 3329). The window links no
+    /// audio library; the helper does.
+    fn play_here(
+        &mut self,
+        id: DocumentId,
+        document: &str,
+        name: &str,
+        sound: viewer_core::SoundData,
+        note: Option<&str>,
+    ) {
+        let first = !self.state().looking();
+        let wake = (!self.state().sounds.started()).then(|| self.sound_wake());
+        self.state_mut().sounds.play(
+            crate::sound::Played {
+                document: id,
+                label: format!("{document}: the sound {name:?}"),
+                sound,
+            },
+            || wake.unwrap_or_else(|| Box::new(|| {})),
+        );
+        if let Some(note) = note {
+            self.say(&format!("{document}: the sound {name:?} {note}"));
+        }
+        if first && self.state().looking() {
+            self.look_for_answers();
+        }
+    }
+
+    /// What the player has said since the last look: each sentence said, and the last that holds
+    /// in the title (ADR 3329).
+    fn take_the_sounds(&mut self) {
+        let heard = self.state_mut().sounds.heard();
+        if heard.is_empty() {
+            return;
+        }
+        for said in &heard {
+            self.say(said.sentence());
+        }
+        self.retitle();
     }
 
     /// Hands a clip the level or the person let through to this machine's player and says what
@@ -2244,6 +2323,7 @@ pub trait NativeWindow {
         for failed in self.state_mut().portal_calls.collect() {
             self.say(&failed);
         }
+        self.take_the_sounds();
         self.take_the_conversions();
     }
 

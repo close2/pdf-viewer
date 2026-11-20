@@ -63,6 +63,8 @@ mod input;
 mod notes;
 mod opening;
 mod panels;
+#[cfg(test)]
+mod played_here;
 mod presentation;
 mod printing;
 mod questions;
@@ -70,6 +72,7 @@ mod react;
 mod requests;
 mod restrictions;
 mod rich_text;
+mod sounds;
 mod stand_in;
 mod tabs;
 #[cfg(test)]
@@ -680,6 +683,16 @@ impl NativeWindow for Host {
 
     fn look_for_answers(&mut self) {
         Self::look_for_answers(self);
+    }
+
+    /// This window plays §13.3's sound itself, through the sound helper (ADR 3329).
+    fn plays_sounds(&self) -> bool {
+        true
+    }
+
+    /// GTK's main context, invoked from the player's thread (ADR 3329).
+    fn sound_wake(&self) -> viewer_host::sound::Wake {
+        sounds::wake(self.me.clone())
     }
 
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {

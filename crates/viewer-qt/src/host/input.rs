@@ -29,6 +29,12 @@ impl Host {
         self.state
             .trace
             .say(Topic::Events, format_args!("key {stated:?} arrives"));
+        // **A sound that sounds takes Escape**, before the table gives the key its other meanings:
+        // the one key a person reaches for to silence a window (ADRs 3301, 3329). It arrives
+        // through the find bar's close action, which hands it here ([`keys::ESCAPE`]).
+        if matches!(stated, viewer_host::Key::Escape) && self.state.sounds.stop() {
+            return;
+        }
         let mode = viewer_host::Mode::of(&self.state.presenting);
         let waiting = self.waiting();
         let held = viewer_host::Modifiers {

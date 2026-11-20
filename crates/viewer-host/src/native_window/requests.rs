@@ -98,10 +98,12 @@ pub enum Asked {
         /// What followed `ef` in the fragment, which applies to it.
         fragment: Option<String>,
     },
-    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201).
+    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201), or by
+    /// playing a sound in this window (ADR 3329).
     Media {
-        /// The document's label, for the sentence either answer says.
-        document: String,
+        /// Which document: its label is the sentence's, and a sound played on a `yes` stops when
+        /// it closes.
+        id: DocumentId,
         /// What would be handed over.
         handed: crate::Handed,
     },
@@ -245,7 +247,7 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
         // decides whether it is handed over at all (ADR 2171).
         // Clause 13: the act is the host's own, starting this machine's player on a file a document
         // supplied, so the answer decides whether it is handed over at all (ADR 3201).
-        Asked::Media { document, handed } => media_answered(window, &document, &handed, proceed),
+        Asked::Media { id, handed } => media_answered(window, id, handed, proceed),
         Asked::LaunchedDocument { name, path } => {
             if proceed {
                 window.hand_launched_over(&name, &path, &crate::policy::handed(&name));
@@ -256,18 +258,22 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
     }
 }
 
-/// Clause 13's question answered: a `yes` hands the clip to this machine's player, a `no` keeps
-/// it here, and either is said (ADR 3201).
+/// Clause 13's question answered: a `yes` hands the clip to this machine's player or plays the
+/// sound here, a `no` keeps it, and either is said (ADRs 3201, 3329).
 fn media_answered<W: NativeWindow + ?Sized>(
     window: &mut W,
-    document: &str,
-    handed: &crate::Handed,
+    id: DocumentId,
+    handed: crate::Handed,
     proceed: bool,
 ) {
-    if proceed {
-        window.hand_media_over(document, handed, None);
-    } else {
-        window.say(&crate::policy::media_declined(document, handed));
+    let document = window.state().documents.label_of(id);
+    if !proceed {
+        window.say(&crate::policy::media_declined(&document, &handed));
+        return;
+    }
+    match handed {
+        crate::Handed::Here { name, sound } => window.play_here(id, &document, &name, sound, None),
+        handed => window.hand_media_over(&document, &handed, None),
     }
 }
 

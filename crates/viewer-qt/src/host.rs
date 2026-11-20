@@ -581,6 +581,17 @@ impl NativeWindow for Host {
     /// conversion's report whenever one is out (ADRs 1291, 1954).
     fn look_for_answers(&mut self) {}
 
+    /// This window plays §13.3's sound itself, through the sound helper (ADR 3329).
+    ///
+    /// **No wake**: what the player says is taken in on the timer `Host::drawing_wait` sets,
+    /// which [`WindowState::answers_interval`] holds at `viewer_host::sound::LOOK` while a sound is
+    /// decoded or sounds. A wake from the player's thread into `QApplication::exec` would cost
+    /// this crate a second hand-written `unsafe` token — `drawing`'s `device_lane`'s reason — so
+    /// the trait's own wake, which wakes nothing, stands.
+    fn plays_sounds(&self) -> bool {
+        true
+    }
+
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {
         Self::ask_for_a_script(self, document, question);
     }

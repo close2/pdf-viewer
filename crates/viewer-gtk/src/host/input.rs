@@ -42,6 +42,11 @@ impl Host {
         self.state
             .trace
             .say(Topic::Events, format_args!("key {stated:?} arrives"));
+        // **A sound that sounds takes Escape**, before the table gives the key its other meanings:
+        // the one key a person reaches for to silence a window (ADRs 3301, 3329).
+        if matches!(stated, viewer_host::Key::Escape) && self.state.sounds.stop() {
+            return true;
+        }
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since no
         // toolkit button stands over one to take them (ADR 1357) — unless one of this host's own
         // controls has the keyboard, which has had the key first and whose Enter GTK may pass on.

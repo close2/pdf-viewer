@@ -404,6 +404,7 @@ pub(super) fn build_window(
     // and the strip and status line above and below (ADR 3105).
     window.set_default_size(1000, 1100);
     window.set_title(Some(&named(path)));
+    super::sounds::end_on_close(&window, me);
     // Whether a screen reader is told this is the window a person is in (ADR 1565). On the idle
     // queue for `connect_search_mode_enabled_notify`'s reason below: GTK raises the notification
     // from inside calls that can be holding the host borrowed.

@@ -210,12 +210,18 @@ impl Host {
         self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         match self.state.documents.close(closing, &mut self.state.showing) {
-            viewer_host::Close::Last => self.closing = true,
+            viewer_host::Close::Last => {
+                // The window goes with its last document, and its sounds with it (ADR 3329).
+                self.state.sounds.end();
+                self.closing = true;
+            }
             viewer_host::Close::Unknown => {}
             viewer_host::Close::Done { state, focused } => {
                 self.state
                     .restrictions
                     .depart(self.state.showing.departures);
+                // Its sound ends with it; a sound of another document sounds on (ADR 3329).
+                self.state.sounds.closed(closing);
                 self.playing = None;
                 self.bring_the_presentation_forward(false);
                 let label = viewer_host::documents::label(&state.path);
