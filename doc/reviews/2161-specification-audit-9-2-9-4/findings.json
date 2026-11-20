@@ -1,0 +1,72 @@
+[
+ {
+  "id": "2161-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.4.1",
+   "9.3.6",
+   "11.7.4.4"
+  ],
+  "summary": "A second BT before an ET discards what the text object it interrupts owes at its end, and says nothing. run_text_object_op resets the whole TextObject at BT, so the glyph outlines a clipping mode accumulated never become a clip (BT /F1 48 Tf 10 10 Td 7 Tr (A) Tj BT 0 Tr ET 0 0 100 100 re f leaves the rectangle unclipped, unsupported empty) and the \u00a711.7.4.4 fill-and-stroke pairs of modes 2 and 6 are dropped with the knockout bookkeeping (/Half gs BT 2 Tr (A) Tj BT ET ET draws a flat fill and stroke where the control draws one knockout group). An unclosed BT at the end of a stream is reported (TEXT_OBJECT_LEFT_OPEN) for the same loss; a nested one is not. The BT comment says the outlines are 'the only state a second BT could otherwise carry'.",
+  "source": "ISO 32000-2 Table 105: \"Text objects shall not be nested; a second BT shall not appear before an ET.\" \u00a79.3.6: \"Glyphs shall accumulate until the text object is ended by an ET operator\". \u00a711.7.4.4: \"In all other cases, a non-isolated knockout group shall be established.\"",
+  "code": "crates/pdf-model/src/content/run/text_ops.rs:57 (Operator::BeginText resets TextObject without end_text_object); crates/pdf-model/src/content/text/end_object.rs:39 (end_text_object, the only consumer of clip, combined and knockout_owed)",
+  "change": "At a BT inside an open text object, either end the open object as ET would (its clip, its \u00a711.7.4.4 pairs and its \u00a79.3.8 group realised) and report the nesting, or keep the object open and report it; in no reading may the glyphs already shown lose their clip or their implicit group in silence. Correct the BT comment and the 9.4.1 row's 'it restarts the text object'.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_second_bt_does_not_discard_what_the_open_text_object_owes_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2161-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.4.3"
+  ],
+  "summary": "TJ reads every pending operand as an element of its array. The content lexer flattens arrays and leaves each bracket as a null; set_dash splits on those nulls, but ShowTextAdjusted iterates all operands, so a leftover number before the [ is applied as a position adjustment (5000 [(A) (A)] TJ draws the first glyph at x -40 where [(A) (A)] TJ draws it at 10), a string outside any array is shown ((A) -1000 (A) TJ draws two glyphs with no array), and a string inside an array nested in the operand is shown ([(A) [(A)] (A)] TJ draws three). Nothing is reported. The comment says the flattened operands are 'enough to render them correctly'.",
+  "source": "ISO 32000-2 Table 107, TJ: \"Each element of array shall be either a string or a number. If the element is a string, this operator shall show the string. If it is a number, the operator shall adjust the text position by that amount\".",
+  "code": "crates/pdf-model/src/content/run/text_ops.rs:209 (Operator::ShowTextAdjusted iterates operands); crates/pdf-model/src/content/run/steps.rs:66 (brackets pushed as nulls); compare crates/pdf-model/src/content.rs:3401 (set_dash splits on them)",
+  "change": "Read TJ's operand as the last bracketed run of the pending operands, as set_dash does; an operand outside it is a leftover (reported like any other operator's), and an element that is neither a string nor a number (a nested array, a name) is not shown and is reported. One shared reading of a flattened array for d and TJ.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::tj_reads_only_the_elements_of_its_array_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2161-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.3.1",
+   "9.3.6"
+  ],
+  "summary": "A text state operand of the wrong type is dropped without a report. run_text_state_op reads each operand with number_at or integer_at and does nothing on None: BT /F1 (x) Tf 50 50 Td (A) Tj ET leaves the size at its unset 0, draws nothing and reports nothing \u2014 the failure ADR 0303 closed for a missing size, reached through a size of the wrong type \u2014 and after an earlier /F1 10 Tf the same operator keeps the old size for the new font in silence. 1.5 Tr and /X Tr keep the previous mode in silence, where -1 Tr is reported. (x) Tc and (x) Tz are ignored the same way. The 9.3.1 row says a malformed size 'is a reported loss'.",
+  "source": "ISO 32000-2 Table 103: Tf \"size shall be a number representing a scale factor. There is no initial value for either font or size; they shall be specified explicitly by using Tf before any text is shown.\" Tr: \"Set the text rendering mode, T mode , to render , which shall be an integer.\"",
+  "code": "crates/pdf-model/src/content/run/text_ops.rs:99 (Tf), :114-:134 (Tc, Tw, Tz, TL, Ts), :136 (Tr: only an integer out of range is noted); crates/pdf-model/src/content/run/operands.rs:174 (integer_at)",
+  "change": "Report an operand of the wrong type for Table 103's operators as the operand shortfall is reported (Unsupported::OperandShortfall's sibling), and decide in one place what the state holds after such a Tf: unset (the show a reported loss) rather than the previous size under a new font.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_text_state_operand_of_the_wrong_type_is_reported_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2161-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.4.1",
+   "9.4.3"
+  ],
+  "summary": "A text-showing operator after ET is drawn at the text matrix ET discarded, and nothing is reported. ET calls end_text_object and leaves TextObject.matrix and .line as they were, and run_text_showing_op does not look at in_text: BT /F1 10 Tf 50 50 Td ET (A) Tj draws the A at (50, 50). A stray ET and a Td outside a text object are run in silence too. An unclosed BT is reported; an operator the clause confines to a text object, standing outside one, is not.",
+  "source": "ISO 32000-2 Table 105, ET: \"End a text object, discarding the text matrix.\" \u00a79.4.3: \"The text-showing operators shall only appear within text objects.\" \u00a79.4.2: \"The text-positioning operators shall only appear within text objects.\"",
+  "code": "crates/pdf-model/src/content/run/text_ops.rs:80 (EndText keeps the matrices), :194 (run_text_showing_op ignores in_text), :158 (run_text_positioning_op likewise)",
+  "change": "Discard Tm and Tlm at ET (the identity a later BT would set), and report a text-showing or text-positioning operator outside a text object; whether such a show is drawn is a robustness choice to write down, but it is not placed by a discarded matrix and not silent.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_show_after_et_is_not_placed_by_the_discarded_text_matrix_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2161-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.4.1",
+   "9.6.4"
+  ],
+  "summary": "A text object inside a Type 3 glyph description puts a word break into the page's text. read_back is gated on glyph_depth, but separate_text and advance_past's text_cursor are not, so the description's own text object moves the readback cursor to its own coordinates and the outer show's next separation reads a gap the page never placed: BT /FT3T 10 Tf 10 10 Td (aa) Tj /F1 10 Tf (A) Tj ET reads 'aa A' where the square Type 3 glyph of the same width reads 'aaA', and the A is placed at x 30 in both.",
+  "source": "ISO 32000-2 \u00a79.4.1 NOTE: \"text can be shown using a Type 3 font whose glyph descriptions include any graphics objects, including another text object.\" \u00a79.4.4: \"After the glyph is painted, the text matrix shall be updated according to the glyph displacement and any spacing parameters that apply\" \u2014 the outer position is the glyph's width alone.",
+  "code": "crates/pdf-model/src/content/text/readback.rs:133 (read_back gated on glyph_depth) against :217 (separate_text, not gated); crates/pdf-model/src/content/text/show.rs:593 (advance_past sets text_cursor); crates/pdf-model/src/content/text/type3.rs:110-:136 (the nested run saves uncoloured and shape_only_glyph, not the cursor)",
+  "change": "Save and restore text_cursor (and the word-gap state) around draw_type3_glyph's nested run, or gate separate_text and the cursor update on glyph_depth as read_back is.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_type3_glyphs_own_text_object_adds_no_word_break_to_the_page_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
+  "status": "open"
+ }
+]

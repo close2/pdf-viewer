@@ -45,6 +45,7 @@ mod substituted_shapes;
 mod text_clip_pixels_spec_audit;
 mod text_clipping_audit;
 mod text_layer;
+mod text_objects_spec_audit;
 mod text_positioning_audit;
 mod text_render_modes;
 mod text_state;

@@ -1,0 +1,36 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2161 on main 7e990758",
+ "failures": [
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "text_objects_spec_audit::a_second_bt_does_not_discard_what_the_open_text_object_owes_spec_audit",
+   "finding": "2161-B01",
+   "log": "round-2161 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "text_objects_spec_audit::tj_reads_only_the_elements_of_its_array_spec_audit",
+   "finding": "2161-B02",
+   "log": "round-2161 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "text_objects_spec_audit::a_text_state_operand_of_the_wrong_type_is_reported_spec_audit",
+   "finding": "2161-B03",
+   "log": "round-2161 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "text_objects_spec_audit::a_show_after_et_is_not_placed_by_the_discarded_text_matrix_spec_audit",
+   "finding": "2161-B04",
+   "log": "round-2161 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "text_objects_spec_audit::a_type3_glyphs_own_text_object_adds_no_word_break_to_the_page_spec_audit",
+   "finding": "2161-B05",
+   "log": "round-2161 nextest of pdf-model"
+  }
+ ]
+}
