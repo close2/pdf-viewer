@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # The suite's adapter protocol (README.md) answered by this program: pages drawn by
 # `quorra-transform render` (the oracle rasteriser, render-cpu), text and questions by
 # `portable-adapter`. Both are found on PATH, or in $QUORRA_BIN when it is set.

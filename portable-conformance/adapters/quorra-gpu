@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# The suite's adapter protocol (README.md) answered by this program on the graphics device: pages
+# drawn by `quorra-draw` (render-raster, the path the window draws its pages with), text and
+# questions by `portable-adapter`, as for the `quorra` adapter, since neither is drawn. Both are
+# found on PATH, or in $QUORRA_BIN when it is set. The device is the one the environment selects,
+# and `quorra-draw` holds the shared adapter's lock itself: never wrap a run in a lock (ADR 3314).
+set -eu
+bin=${QUORRA_BIN:+$QUORRA_BIN/}
+request=$1; pdf=$2
+case "$request" in
+render)
+    exec "${bin}quorra-draw" "$pdf" --page "$(( $3 + 1 ))" --dpi "$4" -o "$5" ;;
+text|query)
+    exec "${bin}portable-adapter" "$@" ;;
+*) exit 3 ;;
+esac

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "10.4.2.2-grey-is-neutral"
 clause = "10.4.2.2"
 title = "A DeviceGray level is drawn as an RGB value with its three components equal"

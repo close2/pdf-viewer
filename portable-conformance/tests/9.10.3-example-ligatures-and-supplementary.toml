@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "9.10.3-example-ligatures-and-supplementary"
 clause = "9.10.3"
 title = "Section 9.10.3's own EXAMPLE CMap: a range, a code that is a ligature's two letters, and a code past the Basic Multilingual Plane"

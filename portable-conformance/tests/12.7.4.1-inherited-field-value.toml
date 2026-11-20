@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "12.7.4.1-inherited-field-value"
 clause = "12.7.4.1"
 title = "A terminal field without V takes its value from its parent"

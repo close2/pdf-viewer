@@ -1,0 +1,26 @@
+[package]
+name = "quorra-draw"
+description = "Draws one page of a PDF to a PNG through render-raster, the graphics-device path the viewer draws its pages with."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The viewer's own readings and its own device path, and nothing written for this command:
+# `pdf-model` interprets the page as the window does, `render-raster` draws it on the device the
+# window draws on, and `pdf-render` holds the target's arithmetic both share with the processor's
+# oracle. `raster-gpu` is named for one thing, the device-section hook the shared adapter's lock is
+# installed through (`tools/conformance/test-support/gpu_lock_hook.rs`, ADRs 2664, 3093, 3314).
+# `png` is the encoder `quorra-transform render` writes with, so both commands write the same kind
+# of file. No argument-parsing dependency: three options and a file name (ADR 3314).
+[dependencies]
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-syntax.workspace = true
+png.workspace = true
+raster-gpu.workspace = true
+render-raster.workspace = true
+
+[lints]
+workspace = true

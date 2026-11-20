@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "8.5.4-clip"
 clause = "8.5.4"
 title = "A clipping path keeps marks outside it off the page"

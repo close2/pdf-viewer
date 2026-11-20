@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Runs the suite's checks against one or more processors, each driven through an adapter.
 
 An adapter is any executable that answers three requests (README.md, "The adapter protocol"):

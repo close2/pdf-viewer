@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # The suite's adapter protocol (README.md) answered by poppler's command-line programs. Evidence
 # only: a verdict here is a reading of the clause by poppler's authors, never a reference.
 set -eu

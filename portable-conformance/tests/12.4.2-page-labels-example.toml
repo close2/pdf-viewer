@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "12.4.2-page-labels-example"
 clause = "12.4.2"
 title = "Section 12.4.2's own EXAMPLE: pages labelled i, ii, iii, iv, 1, 2, 3, A-8, A-9"

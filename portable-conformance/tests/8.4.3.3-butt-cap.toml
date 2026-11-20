@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "8.4.3.3-butt-cap"
 clause = "8.4.3.3"
 title = "Line cap 0, the butt cap, stops at the endpoint"

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "8.5.3.3.2-non-zero"
 clause = "8.5.3.3.2"
 title = "The non-zero winding number rule fills two nested squares drawn in one direction"

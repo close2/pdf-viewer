@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "12.3.2.4-named-destination-in-dests"
 clause = "12.3.2.4"
 title = "A name in the catalog's Dests dictionary resolves to its destination's page"

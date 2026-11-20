@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "7.3.7-null-entry-is-absent"
 clause = "7.3.7"
 title = "A null entry is absent, so an inheritable attribute is inherited past it"

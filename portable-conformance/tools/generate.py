@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Builds each test's PDF from the readable source in its manifest.
 
 A manifest's `[[object]]` tables are the file's indirect objects in order, numbered from 1; the
@@ -21,14 +22,20 @@ import tomllib
 
 SUITE = pathlib.Path(__file__).resolve().parent.parent
 
+# What every generated file is under (README.md, "Licence"; LICENSES/CC0-1.0.txt), in the form
+# REUSE and SPDX tools read from a file's own text.
+LICENCE_LINE = "% SPDX-License-Identifier: CC0-1.0"
+
 
 def build(manifest: dict) -> bytes:
     """The bytes of the manifest's file."""
     source = manifest["pdf"]
     version = source.get("version", "2.0")
     # Section 7.5.2: the header, then a comment of four bytes above 127 so that a transfer that
-    # treats the file as text can tell it is not.
-    out = bytearray(f"%PDF-{version}\n%\xe2\xe3\xcf\xd3\n".encode("latin-1"))
+    # treats the file as text can tell it is not. Then the file's licence, as a comment: section
+    # 7.2.4 gives a comment "no semantics", so the line tells a person who finds the file alone
+    # what it is under and tells a processor nothing (ADR 3313).
+    out = bytearray(f"%PDF-{version}\n%\xe2\xe3\xcf\xd3\n{LICENCE_LINE}\n".encode("latin-1"))
     offsets = []
     for number, obj in enumerate(source["object"], start=1):
         offsets.append(len(out))

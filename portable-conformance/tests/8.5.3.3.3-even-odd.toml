@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "8.5.3.3.3-even-odd"
 clause = "8.5.3.3.3"
 title = "The even-odd rule leaves the hole between two nested squares"

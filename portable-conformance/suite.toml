@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 # The suite's version and the edition of the standard every expected value is derived from.
 name = "portable-conformance"
 version = "0.1.0"

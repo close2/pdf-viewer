@@ -1,0 +1,22 @@
+# The licence of every file in the suite, by kind, in the REUSE specification's form (version 3.2):
+# the texts are under LICENSES/, and each file also states its own identifier in its first comment,
+# so a file copied out of the suite alone still says what it is under. The suite is laid out as a
+# REUSE root of its own so that it stays one if it is ever moved out of this tree (ADR 3313).
+version = 1
+
+# The tests: each manifest, the suite's version file and the description of the format. The PDFs
+# the generator writes from the manifests are under the same dedication and carry the identifier
+# as their third line (`tools/generate.py`). The sentences of ISO 32000-2 that a manifest quotes are
+# ISO's, quoted as citation, and are not dedicated by anybody here (README.md, "Licence").
+[[annotations]]
+path = ["tests/**", "suite.toml", "README.md", "REUSE.toml"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The pdf-viewer project's contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+# The programs: the generator, the runner and the adapters, under the repository's own licence.
+[[annotations]]
+path = ["tools/**", "adapters/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The pdf-viewer project's contributors"
+SPDX-License-Identifier = "Apache-2.0"

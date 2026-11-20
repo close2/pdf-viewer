@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "9.10.2-glyph-name-from-differences"
 clause = "9.10.2"
 title = "Without ToUnicode, a simple font's glyph name, from its Differences array, gives the character"

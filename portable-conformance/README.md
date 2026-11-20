@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: CC0-1.0 -->
 # A portable conformance suite for ISO 32000-2
 
 Test files whose expected outcomes are derived from ISO 32000-2 (PDF 2.0) and from nothing else —
@@ -53,29 +54,48 @@ An adapter is an executable that answers:
 ```
 
 It exits 0 with an answer, 3 for a request its processor cannot be asked (shown as `n/a`, not as a
-failure), and anything else for an error. `adapters/` holds three: `quorra` (this program),
-and `poppler` and `mupdf`, which are **evidence only** — a processor that agrees with the
-expected value raises confidence that the clause was read right, and one that disagrees is a
-question to take back to the clause, never a reason to change an expected value.
+failure), and anything else for an error. `adapters/` holds six: `quorra` (this program, its
+pages drawn by `quorra-transform render` on the processor's oracle, `render-cpu`), `quorra-gpu`
+(this program, its pages drawn by `quorra-draw` on the graphics device through `render-raster`, the
+path the window draws with; text and questions are not drawn, so both answer them alike), and
+`poppler`, `mupdf` and `ghostscript`, which are **evidence only** — a processor that agrees with
+the expected value raises confidence that the clause was read right, and one that disagrees is a
+question to take back to the clause, never a reason to change an expected value. Where `quorra`
+and `quorra-gpu` disagree, the clause decides which backend is wrong, and the device is not the
+reference for the oracle nor the oracle for the device.
 
 ## Running
 
 ```sh
 tools/generate.py /tmp/suite
-tools/run.py --pdfs /tmp/suite --adapter adapters/quorra --adapter adapters/poppler --adapter adapters/mupdf
+tools/run.py --pdfs /tmp/suite --adapter adapters/quorra --adapter adapters/quorra-gpu --adapter adapters/poppler --adapter adapters/mupdf
 ```
 
 The table is printed per clause; `--json <file>` keeps every verdict and its detail. The `quorra`
-adapter finds `quorra-transform` and `portable-adapter` on `PATH`, or in `$QUORRA_BIN`.
+and `quorra-gpu` adapters find `quorra-transform`, `quorra-draw` and `portable-adapter` on `PATH`, or
+in `$QUORRA_BIN`. `quorra-draw` draws on the device the environment selects and prints that
+adapter on its standard error; on a machine whose adapter is shared it takes the adapter's lock
+itself, so a run is never wrapped in one.
 
 ## Licence
 
-The manifests and the PDFs generated from them are dedicated to the public domain under CC0 1.0
-(`SPDX-License-Identifier: CC0-1.0`); the generator, the runner and the adapters are under the
-repository's Apache-2.0 licence. The quoted sentences are ISO's, quoted as citation: a sentence or
-two per test, each attributed to its clause of ISO 32000-2:2020, and never the clause entire. The
-standard itself is not in this directory and is not needed to run the suite. `doc/questions/Q948`
-asks the owner to confirm both licences.
+Stated once per file kind, in the REUSE specification's form: `REUSE.toml` maps each path to its
+licence, `LICENSES/` holds the two texts, and each file names its own in its first comment, so that
+a file copied out of the suite alone still says what it is under.
+
+| file kind | licence | stated in the file as |
+|---|---|---|
+| the manifests (`tests/*.toml`), `suite.toml`, this file | CC0 1.0, a dedication to the public domain (`LICENSES/CC0-1.0.txt`) | `# SPDX-License-Identifier: CC0-1.0` |
+| the PDFs generated from the manifests | CC0 1.0 | `% SPDX-License-Identifier: CC0-1.0`, the file's third line: a comment, which §7.2.4 gives no semantics, so the line tells a processor nothing |
+| the generator, the runner and the adapters (`tools/`, `adapters/`) | Apache-2.0, this repository's licence (`LICENSES/Apache-2.0.txt`) | `# SPDX-License-Identifier: Apache-2.0` |
+
+The quoted sentences are ISO's, quoted as citation: a sentence or two per test, each attributed to
+its clause of ISO 32000-2:2020, and never the clause entire. Nobody here dedicates them, and CC0
+covers what the suite adds around them. The standard itself is not in this directory and is not
+needed to run the suite. The owner chose both licences (`doc/questions/A948`).
+
+The suite stays in this repository, at `portable-conformance/`, until the owner says otherwise
+(A948). It is laid out as a REUSE root of its own so that it stays one if it moves.
 
 ## Version
 

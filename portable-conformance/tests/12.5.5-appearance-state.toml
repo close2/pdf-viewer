@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "12.5.5-appearance-state"
 clause = "12.5.5"
 title = "The appearance state AS selects the stream from an appearance subdictionary"

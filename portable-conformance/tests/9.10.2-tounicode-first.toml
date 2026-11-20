@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC0-1.0
 id = "9.10.2-tounicode-first"
 clause = "9.10.2"
 title = "A font's ToUnicode CMap is the first route from a code to Unicode, ahead of its encoding"

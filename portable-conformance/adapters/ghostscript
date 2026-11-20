@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # The suite's adapter protocol (README.md) answered by Ghostscript. Evidence only: a verdict here
 # is a reading of the clause by Ghostscript's authors, never a reference.
 set -eu

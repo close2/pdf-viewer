@@ -808,7 +808,7 @@ commit_batch() {
 # because each is a whole-graph fat link and Cargo runs them beside each other where separate
 # commands run them one after another (ADR 0222); a second for the libraries, which `--bin` cannot
 # name. The build directory is asked of Cargo in the worktree, never written down (trap 15).
-install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorra-transform-worker quorrafs pdf-vfs-worker pdf-media-worker"
+install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorra-draw quorra-transform-worker quorrafs pdf-vfs-worker pdf-media-worker"
 install_libraries="viewer-ffi pdf-vfs-ffi"
 # A program behind a feature no window is built with, as `name:features`: each is built in a Cargo
 # run of its own, so that feature unification puts nothing of it into a window's build. The script
