@@ -837,13 +837,13 @@ fn the_value_a_click_decides_on_reaches_the_field_and_comes_back() {
     };
     let mut viewer = opened(bytes);
     let at = widgets_down_the_page(&viewer)[0];
-    let Clicked::Toggles { name, value } = viewer_host::clicked(&viewer, at) else {
+    let Clicked::Toggles { name, entered, .. } = viewer_host::clicked(&viewer, at) else {
         panic!("the first widget is a check box that is off, with an on state named");
     };
     viewer
         .handle(Command::Edit(viewer_core::Edit::SetField {
             field: name.qualified,
-            value: viewer_core::Entered::Text(value),
+            value: entered,
         }))
         .for_each(drop);
     // §12.7.5.2.3: "[t]he value of the V key shall also be the value of the AS key", so the widget
@@ -860,7 +860,100 @@ fn the_value_a_click_decides_on_reaches_the_field_and_comes_back() {
                 alternative: Some("Check box, unchecked".to_owned()),
             },
             value: "Off".to_owned(),
+            entered: viewer_core::Entered::Text("Off".to_owned()),
         }
+    );
+}
+
+/// A document of numbered objects, with its cross-reference table, as `%PDF-2.0`.
+fn written(objects: &[&str]) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let number = index.saturating_add(1);
+        let _ = write!(out, "{number} 0 obj\n{body}\nendobj\n");
+    }
+    let at = out.len();
+    let size = objects.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §12.7.5.2.4: "selecting any of the buttons automatically deselects all the others" — and a click
+/// on the *second* of two radio buttons that share the on-state name `Yes` selects the second.
+///
+/// The name cannot say which of the two a person clicked: with `RadiosInUnison` clear, §12.7.5.2.3
+/// turns on only the button selected. So the click names its widget ([`Clicked::Toggles`]'
+/// `entered`, ADRs 3311 and 3362), and that is what every window sends; the field's own answer
+/// afterwards is what each window's controls are written back from.
+#[test]
+fn a_click_on_the_second_of_two_same_named_radio_buttons_turns_on_that_button() {
+    let mut viewer = opened(written(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R] >>",
+        // Table 229 bits 15 and 16: NoToggleToOff and Radio, RadiosInUnison (bit 26) clear.
+        "<< /FT /Btn /T (r) /Ff 49152 /V /Off /Kids [5 0 R 6 0 R] >>",
+        "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [10 10 30 30] /F 4 /AS /Off \
+         /AP << /N << /Yes 7 0 R /Off 7 0 R >> >> >>",
+        "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [40 10 60 30] /F 4 /AS /Off \
+         /AP << /N << /Yes 7 0 R /Off 7 0 R >> >> >>",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\nstream\n\nendstream",
+    ]));
+    let second = pdf_syntax::ObjectId::new(6, 0);
+    let widgets_on = |viewer: &Viewer| -> Vec<(pdf_syntax::ObjectId, bool)> {
+        let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+            panic!("a viewer with a document open answers Query::Fields");
+        };
+        fields
+            .iter()
+            .flat_map(|field| field.widgets.iter())
+            .map(|widget| (widget.annotation, widget.on))
+            .collect()
+    };
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("a viewer with a document open answers Query::Fields");
+    };
+    let at = fields
+        .iter()
+        .flat_map(|field| field.widgets.iter())
+        .find(|widget| widget.annotation == second)
+        .map(|widget| middle(widget.quad))
+        .expect("the second button is on the page");
+    let Clicked::Toggles {
+        name,
+        value,
+        entered,
+    } = viewer_host::clicked(&viewer, at)
+    else {
+        panic!("a radio button that is off, with an on state named, toggles");
+    };
+    assert_eq!(value, "Yes", "the state said to a person is the name");
+    assert_eq!(
+        entered,
+        viewer_core::Entered::Selected(second),
+        "the edit names the button clicked"
+    );
+    viewer
+        .handle(Command::Edit(viewer_core::Edit::SetField {
+            field: name.qualified,
+            value: entered,
+        }))
+        .for_each(drop);
+    assert_eq!(
+        widgets_on(&viewer),
+        [(pdf_syntax::ObjectId::new(5, 0), false), (second, true)],
+        "the button clicked is the one on, and only it"
     );
 }
 

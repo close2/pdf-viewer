@@ -1216,6 +1216,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "inherited-descriptors"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "inout"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1797,7 +1804,7 @@ name = "pdf-media-worker"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
- "libc",
+ "inherited-descriptors",
  "pdf-sandbox",
  "thiserror",
 ]
@@ -1857,6 +1864,7 @@ version = "0.1.0"
 dependencies = [
  "hayro-jbig2",
  "hayro-jpeg2000",
+ "inherited-descriptors",
  "landlock",
  "libc",
  "mozjpeg-rs",
@@ -1880,7 +1888,7 @@ name = "pdf-script-worker"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
- "libc",
+ "inherited-descriptors",
  "pdf-model",
  "pdf-sandbox",
  "pdf-script",
@@ -2952,7 +2960,7 @@ name = "viewer-confined"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
- "libc",
+ "inherited-descriptors",
  "pdf-font",
  "pdf-model",
  "pdf-render",

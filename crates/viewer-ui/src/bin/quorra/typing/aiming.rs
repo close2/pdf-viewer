@@ -1,6 +1,6 @@
 //! Which control a press or a focus addresses, and whether it takes characters at all.
 
-use viewer_core::{Answer, Command, Edit, Entered, Query};
+use viewer_core::{Answer, Command, Edit, Query};
 use viewer_host::form::{Clicked, ControlKind, control_kind};
 
 use super::{Aim, Pressed, Target, Typing};
@@ -263,11 +263,15 @@ impl App {
             println!("note: {said}");
         }
         match clicked {
-            Clicked::Toggles { name, value } => {
+            Clicked::Toggles {
+                name,
+                value,
+                entered,
+            } => {
                 println!("note: setting the field {} to {value}", name.shown());
                 self.dispatch(Command::Edit(Edit::SetField {
                     field: name.qualified,
-                    value: Entered::Text(value),
+                    value: entered,
                 }));
             }
             // Each of these has already been said by `note` above, or is not this method's:

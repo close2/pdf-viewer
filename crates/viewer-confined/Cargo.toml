@@ -34,6 +34,9 @@ rayon.workspace = true
 render-cpu.workspace = true
 thiserror.workspace = true
 viewer-core.workspace = true
+# The first statement of the program this crate builds closes the descriptors it inherited; the
+# close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361).
+inherited-descriptors.workspace = true
 
 [dev-dependencies]
 # The population `tests/awkward_classes.rs` sweeps, shared with `pdf-vfs`'s read walk so that the
@@ -46,11 +49,6 @@ png.workspace = true
 # links no host crate (ADR 1871); its tests hold the two statements equal (ADR 2016). A test may
 # link what the worker may not.
 viewer-host.workspace = true
-
-# `pdf-view-worker`'s first statement closes the descriptors it inherited, by number, which only
-# `libc::close_range` can say (ADR 1945).
-[target.'cfg(target_os = "linux")'.dependencies]
-libc.workspace = true
 
 [lints]
 workspace = true

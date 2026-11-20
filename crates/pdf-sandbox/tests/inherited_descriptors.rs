@@ -1,93 +1,13 @@
-//! The three workers' first statement closes the descriptors they inherited, and that statement is
-//! the one `unsafe` each of them holds (ADR 1945, `doc/questions/A430`).
+//! The decoder's worker closes the descriptors it inherited before it reads a byte (ADR 1945,
+//! `doc/questions/A430`).
 //!
-//! Two kinds of evidence, for two claims. **Where the permission is** is read off the sources, as
-//! `viewer-qt`'s `unsafe_position.rs` reads its own: each worker's root denies `unsafe_code` and
-//! lifts the denial once, on the function that closes, whose one `unsafe` block is the one call; and
-//! that function is `main`'s first statement. **What it does** is asked of the decoder's worker: a
-//! write end it inherits, as `GLib`'s `dbus-launch` pipes reach it (ADR 1907), is let go before it
-//! reads a byte, so the reader on the other end sees its end of file.
+//! **What the close does** is asked of a running worker here: a write end it inherits, as `GLib`'s
+//! `dbus-launch` pipes reach it (ADR 1907), is let go before it reads a byte, so the reader on the
+//! other end sees its end of file. **Where the close is** — one `unsafe` call in
+//! `inherited-descriptors`, called as `main`'s first statement by each helper — is read off the
+//! sources by that crate's `tests/callers.rs` (ADR 3361).
 
 #![forbid(unsafe_code)]
-
-use std::path::{Path, PathBuf};
-
-/// The three workers, each started with exactly standard input, output and error.
-fn workers() -> [PathBuf; 3] {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    [
-        crates.join("pdf-sandbox/src/bin/pdf-sandbox-worker.rs"),
-        crates.join("viewer-confined/src/bin/pdf-view-worker.rs"),
-        crates.join("pdf-script-worker/src/bin/pdf-script-worker.rs"),
-    ]
-}
-
-/// A line with its comment removed and the lint's own name taken out, so that only a use of the
-/// permission is left to find: the attributes that name `unsafe_code` state the rule.
-fn code_only(line: &str) -> String {
-    let code = line.find("//").map_or(line, |at| &line[..at]);
-    code.replace("unsafe_code", "")
-}
-
-#[test]
-fn each_worker_lifts_the_denial_once_on_the_close_and_calls_it_first() {
-    for path in workers() {
-        let source = std::fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("{} is a worker: {error}", path.display()));
-        let named = path.display();
-        assert_eq!(
-            source.matches("#![deny(unsafe_code)]").count(),
-            1,
-            "{named}: the root denies it"
-        );
-        let lines: Vec<&str> = source.lines().collect();
-        let lifts: Vec<usize> = lines
-            .iter()
-            .enumerate()
-            .filter(|(at, line)| {
-                line.trim() == "#[expect("
-                    && lines
-                        .get(at.saturating_add(1))
-                        .is_some_and(|next| next.trim() == "unsafe_code,")
-            })
-            .map(|(at, _)| at)
-            .collect();
-        let [lift] = lifts.as_slice() else {
-            panic!("{named}: the denial is lifted exactly once, not at {lifts:?}");
-        };
-        let lifted = lines
-            .iter()
-            .skip(lift.saturating_add(1))
-            .map(|line| line.trim())
-            .find(|line| line.starts_with("fn "));
-        assert_eq!(
-            lifted,
-            Some("fn keep_only_the_standard_descriptors() -> std::io::Result<()> {"),
-            "{named}: and it is lifted on the close"
-        );
-        let uses: Vec<String> = lines
-            .iter()
-            .map(|line| code_only(line))
-            .filter(|line| line.contains("unsafe"))
-            .map(|line| line.trim().to_owned())
-            .collect();
-        assert_eq!(
-            uses,
-            vec!["let closed = unsafe { libc::close_range(3, u32::MAX, 0) };".to_owned()],
-            "{named}: the one `unsafe` is the one call"
-        );
-        let first = lines
-            .iter()
-            .skip_while(|line| !line.starts_with("fn main()"))
-            .nth(1)
-            .map(|line| line.trim());
-        assert_eq!(
-            first,
-            Some("if let Err(error) = keep_only_the_standard_descriptors() {"),
-            "{named}: and it is `main`'s first statement"
-        );
-    }
-}
 
 /// The decoder's worker, handed a write end it was not meant to have, closes it before it reads.
 ///

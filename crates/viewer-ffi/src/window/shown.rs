@@ -240,6 +240,7 @@ impl Window {
         };
         let clicked = viewer_host::toggling(
             &field.name,
+            annotation,
             field.read_only,
             on,
             no_toggle_to_off,
@@ -248,10 +249,10 @@ impl Window {
         if let Some(said) = clicked.note() {
             self.say(&said);
         }
-        if let viewer_host::Clicked::Toggles { name, value } = clicked {
+        if let viewer_host::Clicked::Toggles { name, entered, .. } = clicked {
             self.dispatch(Command::Edit(Edit::SetField {
                 field: name.qualified,
-                value: Entered::Text(value),
+                value: entered,
             }));
         }
         self.settle();

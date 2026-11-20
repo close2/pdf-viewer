@@ -987,8 +987,9 @@ pass.
   the characters a script needs — and its broker matches, reads and answers; the allow-list did
   not move for it, and declining is the default everywhere. The allow-list admits one *command* for
   the descriptor rather than one call — `fcntl(fd, F_GETFD)`, which `OwnedFd::drop` asks — and
-  every other command of that call still kills (ADR 0888); it, `pdf-sandbox-worker` and
-  `pdf-script-worker` close every descriptor they inherited before reading a byte (ADR 1945). **A window uses it** —
+  every other command of that call still kills (ADR 0888); it, `pdf-sandbox-worker`,
+  `pdf-script-worker`, `pdf-media-worker` and `quorra-sound` close every descriptor they inherited
+  before reading a byte, through `inherited-descriptors`' one `unsafe` call (ADRs 1945, 3361). **A window uses it** —
   `quorra-confined`, the one host on that boundary and not a fourth toolkit: it holds no `Viewer`,
   no document bytes and no parser, so what it owes is decided by the operation it can perform
   rather than by its size (ADR 1190). Escape ends the worker and the in-flight draw together (ADR

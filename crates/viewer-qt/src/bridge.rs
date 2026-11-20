@@ -22,8 +22,9 @@
 //! `forbid` cannot be lifted by an inner `allow`, which is the whole point of `forbid` and the
 //! reason it is the attribute every crate touching PDF bytes carries. So the crate root denies
 //! and `crate::bridge` is one of the `#[expect(unsafe_code)]` the workspace names — the others are
-//! the two C ABIs, `viewer_ffi::abi` and `pdf_vfs_ffi::abi`, and the three workers' close of what
-//! they inherited (ADR 1945); `tests/unsafe_position.rs`'s
+//! the two C ABIs, `viewer_ffi::abi` and `pdf_vfs_ffi::abi`, the confined helpers' shared close of
+//! what they inherited in `inherited-descriptors` (ADRs 1945, 3361), and the macOS display link;
+//! `tests/unsafe_position.rs`'s
 //! `only_the_named_crates_in_the_tree_lift_the_denial` is the list.
 //!
 //! **One `unsafe` token in this crate is written by hand**, and it is the `unsafe extern "C++"`

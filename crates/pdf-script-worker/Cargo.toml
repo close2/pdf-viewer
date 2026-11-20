@@ -23,11 +23,9 @@ thiserror.workspace = true
 # `FormCalc`, which the worker runs beside the ECMAScript engine (ADR 2524); a crate with no
 # dependencies of its own, behind `engine` because only the worker program evaluates.
 pdf-formcalc = { workspace = true, optional = true }
-
-# `pdf-script-worker`'s first statement closes the descriptors it inherited, by number, which only
-# `libc::close_range` can say (ADR 1945).
-[target.'cfg(target_os = "linux")'.dependencies]
-libc.workspace = true
+# The first statement of the program this crate builds closes the descriptors it inherited; the
+# close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361).
+inherited-descriptors.workspace = true
 
 [dev-dependencies]
 pdf-syntax.workspace = true

@@ -190,8 +190,9 @@ fn a_saved_radio_set_keeps_at_most_one_button_on_spec_audit() {
 }
 
 /// §12.7.5.2.4: "selecting any of the buttons automatically deselects all the others". A host
-/// selects a button by sending its [`form::Widget::on_state`]; for the *second* of two buttons
-/// sharing a name, the first goes on, and nothing a host can send turns the second on alone.
+/// selects a button by naming its widget ([`Entered::Selected`], ADR 3311, `doc/questions/A974`):
+/// for the *second* of two buttons sharing an on-state name, the second goes on alone, which the
+/// name by itself cannot say.
 #[test]
 fn selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit() {
     let document = opened(shared_name_radios());
@@ -207,7 +208,7 @@ fn selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit() {
         .clone()
         .expect("the second button has an on state");
     assert_eq!(state, "Yes");
-    view.set_field(&document, "r", &Entered::Text(state));
+    view.set_field(&document, "r", &Entered::Selected(second.annotation));
     let on = buttons_on(&document, &view);
     // Control: exactly one button is on, which the RadiosInUnison rule asks.
     assert_eq!(on.iter().filter(|on| **on).count(), 1, "{on:?}");

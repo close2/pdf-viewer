@@ -530,6 +530,7 @@ fn toggle(
     let name = field.name.clone();
     let read_only = field.read_only;
     let on_state = widget.on_state.clone();
+    let annotation = widget.annotation;
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
     button.connect_toggled(move |button| {
@@ -538,6 +539,7 @@ fn toggle(
         }
         let clicked = viewer_host::toggling(
             &name,
+            annotation,
             read_only,
             button.is_active(),
             no_toggle_to_off,
@@ -549,9 +551,9 @@ fn toggle(
             eprintln!("note: {said}");
         }
         match clicked {
-            Clicked::Toggles { name, value } => change(FieldChange::Set {
+            Clicked::Toggles { name, entered, .. } => change(FieldChange::Set {
                 field: name.qualified,
-                value: Entered::Text(value),
+                value: entered,
             }),
             // Undo what GTK already did to the picture. Written as the inverse of what the button
             // now shows rather than as the field's own state, because the field is exactly what

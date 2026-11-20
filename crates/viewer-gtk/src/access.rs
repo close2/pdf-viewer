@@ -287,14 +287,18 @@ impl Host {
             eprintln!("note: {said}");
         }
         match clicked {
-            viewer_host::Clicked::Toggles { name, value } => {
+            viewer_host::Clicked::Toggles {
+                name,
+                value,
+                entered,
+            } => {
                 self.state.trace.say(
                     Topic::Access,
                     format_args!("setting the field {} to {value}", name.shown()),
                 );
                 self.dispatch(Command::Edit(viewer_core::Edit::SetField {
                     field: name.qualified,
-                    value: viewer_core::Entered::Text(value),
+                    value: entered,
                 }));
             }
             viewer_host::Clicked::Aimed { name, annotation } => self.aim(&name, annotation),

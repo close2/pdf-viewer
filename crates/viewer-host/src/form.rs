@@ -419,11 +419,19 @@ pub enum Clicked {
     /// `/V` — "a name object representing the check box's appearance state, which shall be used to
     /// select the appropriate appearance from the appearance dictionary" — or `Off`, which
     /// §12.7.5.2.3 names and §12.7.5.2.4 gives as the default value.
+    ///
+    /// **What a host sends is `entered`, not the name.** Turning a button on
+    /// names the *widget* selected ([`viewer_core::Entered::Selected`]), because two buttons of one
+    /// field may share an on-state name and §12.7.5.2.4's "selecting any of the buttons
+    /// automatically deselects all the others" is about the button a person selected, which a name
+    /// cannot say (ADRs 3311, 3362). Turning one off names `Off`, which belongs to no widget.
     Toggles {
         /// The field to address the edit to, and to name in a report.
         name: FieldName,
-        /// The appearance state to set.
+        /// The appearance state the field goes to, to say to a person.
         value: String,
+        /// The edit's value: the widget selected, or `Off` by name.
+        entered: viewer_core::Entered,
     },
     /// Table 227 bit 1: "the field shall not be modified by the user".
     ReadOnly {
@@ -525,9 +533,12 @@ impl Clicked {
 /// > If set, exactly one radio button shall be selected at all times; selecting the currently
 /// > selected button has no effect. If clear, clicking the selected button deselects it, leaving
 /// > no button selected.
+///
+/// `annotation` is the widget the click reached, which turning a button on names (ADR 3362).
 #[must_use]
 pub fn toggling(
     name: &FieldName,
+    annotation: pdf_syntax::ObjectId,
     read_only: bool,
     wanted: bool,
     no_toggle_to_off: bool,
@@ -546,6 +557,7 @@ pub fn toggling(
         return Clicked::Toggles {
             name: name.clone(),
             value: OFF.to_owned(),
+            entered: viewer_core::Entered::Text(OFF.to_owned()),
         };
     }
     let Some(state) = on_state else {
@@ -554,6 +566,7 @@ pub fn toggling(
     Clicked::Toggles {
         name: name.clone(),
         value: state.to_owned(),
+        entered: viewer_core::Entered::Selected(annotation),
     }
 }
 
@@ -625,6 +638,7 @@ pub fn clicked(viewer: &Viewer, at: (f32, f32)) -> Clicked {
     };
     toggling(
         &field.name,
+        widget.annotation,
         field.read_only,
         !widget.on,
         no_toggle_to_off,
@@ -717,6 +731,12 @@ pub fn pressed(viewer: &Viewer, key: crate::Key, held: crate::Modifiers) -> Opti
 mod tests {
     use super::{Clicked, toggling};
     use pdf_model::view::FieldName;
+    use viewer_core::Entered;
+
+    /// The widget the click reached.
+    fn widget() -> pdf_syntax::ObjectId {
+        pdf_syntax::ObjectId::new(9, 0)
+    }
 
     /// A field with both of §14.9.3's names, so that a note is checked against the one it shows.
     fn named() -> FieldName {
@@ -726,14 +746,16 @@ mod tests {
         }
     }
 
-    /// §12.7.5.2.3: the on state is a name the file invented, and it is what `/V` becomes.
+    /// §12.7.5.2.3: the on state is a name the file invented, and it is what `/V` becomes; the edit
+    /// names the widget, which the model makes that name (ADR 3362).
     #[test]
-    fn turning_a_box_on_sends_the_name_its_appearance_dictionary_is_keyed_by() {
+    fn turning_a_box_on_selects_the_widget_whose_appearance_dictionary_names_it() {
         assert_eq!(
-            toggling(&named(), false, true, false, Some("Yes")),
+            toggling(&named(), widget(), false, true, false, Some("Yes")),
             Clicked::Toggles {
                 name: named(),
                 value: "Yes".to_owned(),
+                entered: Entered::Selected(widget()),
             }
         );
     }
@@ -742,10 +764,11 @@ mod tests {
     #[test]
     fn turning_a_box_off_sends_the_name_the_clause_states() {
         assert_eq!(
-            toggling(&named(), false, false, false, Some("Yes")),
+            toggling(&named(), widget(), false, false, false, Some("Yes")),
             Clicked::Toggles {
                 name: named(),
                 value: "Off".to_owned(),
+                entered: Entered::Text("Off".to_owned()),
             }
         );
     }
@@ -757,16 +780,17 @@ mod tests {
     #[test]
     fn a_radio_button_with_no_toggle_to_off_stays_on() {
         assert_eq!(
-            toggling(&named(), false, false, true, Some("1")),
+            toggling(&named(), widget(), false, false, true, Some("1")),
             Clicked::Stays { name: named() }
         );
         // And it does not stand in the way of turning one *on*, which is the half of the flag a
         // refusal keyed on the flag alone would have broken.
         assert_eq!(
-            toggling(&named(), false, true, true, Some("1")),
+            toggling(&named(), widget(), false, true, true, Some("1")),
             Clicked::Toggles {
                 name: named(),
                 value: "1".to_owned(),
+                entered: Entered::Selected(widget()),
             }
         );
     }
@@ -775,11 +799,11 @@ mod tests {
     #[test]
     fn a_read_only_field_is_refused_before_the_clause_is_asked() {
         assert_eq!(
-            toggling(&named(), true, true, false, Some("Yes")),
+            toggling(&named(), widget(), true, true, false, Some("Yes")),
             Clicked::ReadOnly { name: named() }
         );
         assert_eq!(
-            toggling(&named(), true, false, true, None),
+            toggling(&named(), widget(), true, false, true, None),
             Clicked::ReadOnly { name: named() }
         );
     }
@@ -788,7 +812,7 @@ mod tests {
     #[test]
     fn a_widget_that_names_no_on_state_is_reported_rather_than_invented() {
         assert_eq!(
-            toggling(&named(), false, true, false, None),
+            toggling(&named(), widget(), false, true, false, None),
             Clicked::Unnamed { name: named() }
         );
     }
@@ -809,6 +833,7 @@ mod tests {
             Clicked::Toggles {
                 name: named(),
                 value: "Yes".to_owned(),
+                entered: Entered::Selected(widget()),
             }
             .note()
             .is_none()

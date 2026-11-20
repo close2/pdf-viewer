@@ -8,14 +8,7 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [
-  {
-   "binary": "pdf-model::forms_suite",
-   "test": "forms_values_spec_audit::selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit",
-   "finding": "2148-B04",
-   "log": "round-2148 nextest of pdf-model"
-  }
- ],
+ "failures": [],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",

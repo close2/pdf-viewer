@@ -55,7 +55,7 @@
   "code": "crates/pdf-model/src/view/fields.rs:254 (ViewState::set_field: every widget of the name takes one entry); crates/pdf-model/src/appearance.rs:5779; crates/viewer-host/src/form.rs:575 (clicked's promise)",
   "change": "Let an edit name the widget a person selected (an Entered variant or a set_field argument), and have is_on/write_state keep that widget on; the first-kid rule stays for a value the file states.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open (model fixed by ADR 3311: Entered::Selected names the widget, forms_values_read_back::the_button_selected_is_the_one_shown_and_saved passes; viewer_host::clicked and the hosts still send the name; the audit test sends the name and contradicts B03 control, Q974)"
+  "status": "fixed (ADR 3311 and A974; the audit test selects the second button by its widget, Entered::Selected, and passes; viewer_host::clicked's Clicked::Toggles carries the widget and the hosts send Selected, ADR 3362)"
  },
  {
   "id": "2148-B05",

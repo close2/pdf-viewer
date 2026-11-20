@@ -157,12 +157,12 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// And no crate the workspace does not name gained the permission alongside it.
 ///
 /// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters is
-/// the one that would notice another exemption appearing somewhere else. The list has **six**
-/// names on it — this crate, `viewer-ffi` (ADR 0247), `pdf-vfs-ffi` (ADR 0868) and the three
-/// workers' crates (ADR 1945) — each with a test of its own on where its `unsafe` sits — this file,
-/// `crates/viewer-ffi/tests/unsafe_position.rs`, which additionally asserts that every crate
-/// touching PDF bytes still *forbids* the permission, and
-/// `crates/pdf-vfs-ffi/tests/unsafe_position.rs`.
+/// the one that would notice another exemption appearing somewhere else. The list has **five**
+/// names on it — this crate, `viewer-ffi` (ADR 0247), `pdf-vfs-ffi` (ADR 0868),
+/// `inherited-descriptors` (ADRs 1945, 3361) and `viewer-display-link` (ADR 2857) — each with a
+/// test of its own on where its `unsafe` sits: this file, `crates/viewer-ffi/tests/unsafe_position.rs`,
+/// which additionally asserts that every crate touching PDF bytes still *forbids* the permission,
+/// `crates/pdf-vfs-ffi/tests/unsafe_position.rs`, and `crates/inherited-descriptors/tests/callers.rs`.
 ///
 /// **Why `pdf-vfs-ffi` is the third name.** It is RFC 0003's C ABI over `pdf-vfs` — the boundary a
 /// KIO worker forwards over, because RFC 0003 section 7 records that KF6 admits no Rust worker and
@@ -173,20 +173,22 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 ///
 /// The rule this list enforces is unchanged and is worth restating rather than assuming: **no
 /// crate that touches PDF bytes lifts the denial in the code that reads them**, and none of these
-/// three does — `pdf-vfs-ffi` parses nothing at all, because RFC 0003 section 6 puts every byte of
+/// five does — `pdf-vfs-ffi` parses nothing at all, because RFC 0003 section 6 puts every byte of
 /// parsing in a confined process.
 ///
-/// **The other three names are the workers' programs, and the owner's answer is why**
-/// (`doc/questions/A430`, ADR 1945): `pdf-sandbox-worker`, `pdf-view-worker` and
-/// `pdf-script-worker` each close the descriptors they inherited as `main`'s first statement,
-/// before a byte of input, in one `close_range` that only an `unsafe` call can make; each library
-/// still forbids the permission, and `pdf-sandbox`'s `tests/inherited_descriptors.rs` pins where
-/// the three lifts are.
+/// **The fourth name is every confined helper's first statement, and the owner's answers are why**
+/// (`doc/questions/A430`, `doc/questions/A979`, ADRs 1945 and 3361): `pdf-sandbox-worker`,
+/// `pdf-view-worker`, `pdf-script-worker`, `pdf-media-worker` and `quorra-sound` each close the
+/// descriptors they inherited as `main`'s first statement, before a byte of input, in one
+/// `close_range` that only an `unsafe` call can make. The call is `inherited-descriptors`' alone,
+/// so each program forbids the permission, and a new helper that closes what it inherited calls the
+/// same function rather than adding a name here; that crate's `tests/callers.rs` pins where its one
+/// lift is and that every call is a helper's first statement.
 ///
-/// **The seventh name is `viewer-display-link`, and ADR 2857 is its record**: `CADisplayLink` is
+/// **The fifth name is `viewer-display-link`, and ADR 2857 is its record**: `CADisplayLink` is
 /// reached only by Objective-C messages, which are `unsafe` calls, so its `macos` module lifts the
 /// denial and the crate's root denies it everywhere else. It reads no PDF bytes — it counts the
-/// display's refreshes and wakes a window — so the rule above is untouched. An eighth name is a
+/// display's refreshes and wakes a window — so the rule above is untouched. A sixth name is a
 /// change to a rule the project owner stated, and it belongs in an ADR rather than in a commit
 /// that widens this list.
 #[test]
@@ -235,15 +237,13 @@ fn only_the_named_crates_in_the_tree_lift_the_denial() {
     assert_eq!(
         lifting,
         vec![
-            "pdf-sandbox".to_owned(),
-            "pdf-script-worker".to_owned(),
+            "inherited-descriptors".to_owned(),
             "pdf-vfs-ffi".to_owned(),
-            "viewer-confined".to_owned(),
             "viewer-display-link".to_owned(),
             "viewer-ffi".to_owned(),
             "viewer-qt".to_owned(),
         ],
-        "only the two C ABIs, the crate with the C++ bridge, the three workers' close and the \
+        "only the two C ABIs, the crate with the C++ bridge, the helpers' shared close and the \
          macOS display link lift it"
     );
 }

@@ -12,18 +12,16 @@ repository.workspace = true
 # so gets the wire and the client alone: neither `cpal` nor the C library under it reaches a
 # window's graph, which is what keeps `libasound` out of the window's `NEEDED` list (ADR 3317).
 default = ["device"]
-device = ["dep:cpal", "dep:libc"]
+device = ["dep:cpal", "dep:inherited-descriptors"]
 
 [dependencies]
 thiserror.workspace = true
 # The audio output, for the helper program alone (`doc/stack.md`, ADR 3317); the workspace manifest
 # prices it.
 cpal = { workspace = true, optional = true }
-
-# The helper's first statement closes the descriptors it inherited, by number, which only
-# `libc::close_range` can say (ADR 1945, as in `pdf-media-worker`).
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = { workspace = true, optional = true }
+# The helper's first statement closes the descriptors it inherited; the close and its one `unsafe`
+# are that crate's, so the helper has none of its own (ADRs 1945, 3361).
+inherited-descriptors = { workspace = true, optional = true }
 
 [[bin]]
 name = "quorra-sound"

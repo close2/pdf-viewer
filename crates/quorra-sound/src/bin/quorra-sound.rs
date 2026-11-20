@@ -9,7 +9,7 @@
 //! Each sound is one output stream, built when it is sent and dropped at a stop, at the next sound
 //! and at the end; the device's configuration is read once at the opening.
 
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +18,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use quorra_sound::{Device, Format, Progress, Report};
 
 fn main() -> std::process::ExitCode {
-    if let Err(error) = keep_only_the_standard_descriptors() {
+    if let Err(error) = inherited_descriptors::keep_only_the_standard_descriptors() {
         eprintln!(
             "{}: cannot close the descriptors it inherited: {error}",
             quorra_sound::HELPER_PROGRAM
@@ -156,30 +156,4 @@ where
             None,
         )
         .map_err(|error| format!("no output stream: {error}"))
-}
-
-/// Closes every descriptor this process inherited past standard input, output and error (ADR 1945),
-/// for `pdf-media-worker`'s reason: a descriptor leaked to this child by a library in the window is
-/// an end of file somebody waits for while the helper lives.
-#[cfg(target_os = "linux")]
-#[expect(
-    unsafe_code,
-    reason = "closes by number the descriptors no object in this process owns (ADR 1945)"
-)]
-fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
-    // SAFETY: `main`'s first statement, before anything in this process has opened a descriptor
-    // or made an object that owns one past the standard three, so no owner is left to use or close
-    // what this closes; and `close_range` reads and writes none of this process's memory.
-    let closed = unsafe { libc::close_range(3, u32::MAX, 0) };
-    if closed == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-/// Nothing to close where `close_range` is not the system's call.
-#[cfg(not(target_os = "linux"))]
-fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
-    Ok(())
 }

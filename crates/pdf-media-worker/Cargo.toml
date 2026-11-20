@@ -16,11 +16,9 @@ confined-transport.workspace = true
 # the host waits for each request under (ADRs 3133, 3297).
 pdf-sandbox.workspace = true
 thiserror.workspace = true
-
-# `pdf-media-worker`'s first statement closes the descriptors it inherited, by number, which only
-# `libc::close_range` can say (ADR 1945).
-[target.'cfg(target_os = "linux")'.dependencies]
-libc.workspace = true
+# The first statement of the program this crate builds closes the descriptors it inherited; the
+# close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361).
+inherited-descriptors.workspace = true
 
 [[bin]]
 name = "pdf-media-worker"

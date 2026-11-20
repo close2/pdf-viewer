@@ -86,8 +86,10 @@ by no manifest, so a machine with no KDE builds and tests the whole workspace un
 `forbid(unsafe_code)` is load-bearing: it makes "untrusted bytes never reach unsafe code"
 compiler-enforced rather than conventional. Every crate that a document's bytes reach forbids it.
 The crates that only `deny` it are the three a foreign ABI passes through — `viewer-qt`'s `cxx`
-bridge, `viewer-ffi` and `pdf-vfs-ffi` — and beside them the three workers' programs lift it for
-one `close_range` before a byte of input while each library still forbids it (ADR 1945);
+bridge, `viewer-ffi` and `pdf-vfs-ffi` — and beside them `inherited-descriptors`, whose one
+`close_range` every confined helper calls as `main`'s first statement, before a byte of input,
+while each helper's program and library forbid it (ADRs 1945, 3361), and `viewer-display-link`'s
+macOS module (ADR 2857);
 `viewer-qt`'s `only_the_named_crates_in_the_tree_lift_the_denial` is the list, asserted rather
 than written down, so another crate lifting the denial fails a test instead of editing a document.
 `render-gpu`'s header permits `unsafe` for the day a surface from a raw window handle needs it,

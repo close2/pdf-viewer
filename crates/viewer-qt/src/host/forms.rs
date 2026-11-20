@@ -193,6 +193,7 @@ impl Host {
         };
         let clicked = viewer_host::toggling(
             &placed.name,
+            placed.annotation,
             placed.read_only,
             on,
             placed.no_toggle_to_off,
@@ -204,10 +205,10 @@ impl Host {
             self.say(&said);
         }
         match clicked {
-            viewer_host::Clicked::Toggles { name, value } => {
+            viewer_host::Clicked::Toggles { name, entered, .. } => {
                 self.dispatch(Command::Edit(Edit::SetField {
                     field: name.qualified,
-                    value: Entered::Text(value),
+                    value: entered,
                 }));
             }
             // A refusal leaves the field alone, and the `QAbstractButton` goes back to whatever
