@@ -75,6 +75,9 @@ pdf-script = { path = "../crates/pdf-script", features = ["engine"] }
 # FormCalc, XFA 3.3 chapter 25's calculation language, which `formcalc` fuzzes (ADR 2482).
 pdf-formcalc = { path = "../crates/pdf-formcalc" }
 pdf-script-worker = { path = "../crates/pdf-script-worker" }
+# A sound's samples, decoded as the confined media worker decodes them, and its wire both ways
+# (`media_sound`, ADR 3297).
+pdf-media-worker = { path = "../crates/pdf-media-worker" }
 
 [profile.release]
 debug = true
@@ -306,6 +309,13 @@ bench = false
 [[bin]]
 name = "script_wire"
 path = "fuzz_targets/script_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "media_sound"
+path = "fuzz_targets/media_sound.rs"
 test = false
 doc = false
 bench = false

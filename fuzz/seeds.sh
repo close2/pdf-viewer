@@ -160,6 +160,8 @@ seed() {
     # A document's script at every site: each member the bridge carries and refuses, the library,
     # every budget at its number and one past it, and the malformed.
     script) python3 "$here/seed_script.py" "$root/$t" > /dev/null ;;
+    # One request of every encoding and width §13.3 names, built rather than taken from a document.
+    media_sound) python3 "$here/seed_media_sound.py" "$root/$t" > /dev/null ;;
     # The script worker's wire both ways, written by the encoders the host and the worker use.
     script_wire)
         (cd "$tree" && cargo build -q -p pdf-script-worker --example wire_seeds)

@@ -57,7 +57,7 @@ pub(crate) enum Whose {
 
 /// Why a wait ended without an answer: the work's own budget, or the machine's ceiling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Ended {
+pub enum Ended {
     /// The processor budget was spent: the image's refusal.
     Spent,
     /// The wall-clock ceiling passed first, after this long: the machine's refusal.
@@ -79,7 +79,7 @@ impl From<Ended> for SandboxError {
 
 /// The allowance one request is waited for under.
 #[derive(Debug)]
-pub(crate) struct Allowance {
+pub struct Allowance {
     /// The worker or the thread whose processor time is read, and its reading when the request
     /// began; `None` where it cannot be read, and the wall clock is then the whole bound.
     reading: Option<(Whose, Duration)>,
@@ -94,7 +94,8 @@ pub(crate) struct Allowance {
 impl Allowance {
     /// Starts the allowance of a request sent now to the worker `pid`, which may spend
     /// `processor` of processor time on it.
-    pub(crate) fn start(pid: u32, processor: Duration) -> Self {
+    #[must_use]
+    pub fn start(pid: u32, processor: Duration) -> Self {
         let whose = Whose::Process(pid);
         let reading = processor_time(whose).map(|at_start| (whose, at_start));
         Self::since(reading, processor, Instant::now())
@@ -133,7 +134,11 @@ impl Allowance {
     /// overshoot it; an idle parent wakes once per budget it could have been spent in, not on a
     /// timer. The floor is one tick of the clock `/proc` counts in, below which a reading cannot
     /// have moved and a shorter wait would only spin.
-    pub(crate) fn next_wait(&self) -> Result<Duration, Ended> {
+    ///
+    /// # Errors
+    ///
+    /// [`Ended`], saying which bound ended the request.
+    pub fn next_wait(&self) -> Result<Duration, Ended> {
         let wall_left = self.wall_deadline.saturating_duration_since(Instant::now());
         if wall_left.is_zero() {
             return Err(Ended::Ceiling { after: self.wall });

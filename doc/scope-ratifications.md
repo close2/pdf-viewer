@@ -17,21 +17,40 @@ amendment or a new reopening trigger is added here in the same commit as the sen
 
 ## The exclusions
 
-### Clause 13, the playing of multimedia and the rendering of 3D artwork
+### Clause 13, the playing of video and the rendering of 3D artwork
 
-**Clause 13, the playing of multimedia and the rendering of 3D artwork** — a media engine,
-not a rendering question. **In scope**: what a still page shows of a media object — a
-movie's stream-form poster, every producer-supplied appearance, §13.2.2's viability computed
-and reported in the clause's own terms — and the media file saved or handed to this machine's
-own player under *A document's restrictions are the reader's to set*, `ask` by default.
-**Excluded still**, each with the trigger that reopens it: decoding or presenting audio and
-video (the owner's decision to build the player, on an H.264 and an AAC decoder admissible under
-`deny.toml` — RFC 0012 audits two that are, and ADR 2428 records the build and the order a
-reopening takes — or on C in a confined media worker accepted in writing under ADR 0014), and
-rendering U3D or PRC artwork (a U3D reader in Rust that reads ECMA-363's fourth edition whole and
-is fuzzed, or the owner's decision to write one in-tree; ADR 2400).
-Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2
-adopted as written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading.
+**Clause 13, the playing of video and the rendering of 3D artwork** — a media engine, not a
+rendering question. **In scope**: what a still page shows of a media object — a movie's
+stream-form poster, every producer-supplied appearance, §13.2.2's viability computed and reported
+in the clause's own terms — the media file saved or handed to this machine's own player under *A
+document's restrictions are the reader's to set*, `ask` by default, and **audio decoded and
+presented by this program**: one object's bytes, already unfiltered, decoded in `pdf-media-worker`
+under `pdf_sandbox::lockdown::Profile::Media` (no filesystem, no network, no descriptor, no
+executable memory, an address-space ceiling and a processor-time budget per request), started on
+first play and never at open, the host given samples and never the document's bytes; built in RFC
+0015 section 5's order, §13.3's own sample formats first, and the window's audio sink on the output
+side (ADR 3297). **Excluded still**, each with the trigger that reopens it:
+
+- **decoding or presenting video** — reopened when audio has shipped and its clock and sinks are
+  measured in use, and the owner then decides to open RFC 0015 section 6's order, on an H.264 decoder
+  admissible under `deny.toml` (RFC 0012 audits one that is) or on C in a confined media worker
+  accepted in writing under ADR 0014;
+- **rendering U3D artwork** — a U3D reader in Rust that reads ECMA-363's **third** edition whole and
+  is fuzzed, or the owner's decision to write one in-tree (ADR 2400; ISO 32000-2 cites the third
+  edition and says it does not cite the fourth, RFC 0015 section 7);
+- **rendering PRC artwork** — the project holds ISO 14739-1, and a PRC reader in Rust reads it whole
+  and is fuzzed, or the owner's decision to write one in-tree (RFC 0015 section 8).
+
+Rich media (§13.7) and §12.6.4.16's Go-To-3D-View follow the parts they are made of and carry no
+trigger of their own; §12.6.4.18's Rich-Media-Execute and §13.7's run time stay with the script
+exclusion's ISO 21757-1 clause; §13.5's alternate presentations are planned by no part, on the
+clause's own release of the reader.
+
+Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2 adopted as
+written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading. Amended on 2026-11-20
+(`doc/questions/Q946`, `A946`: RFC 0015 section 12's six recommendations adopted) — audio opened
+alone, video kept closed behind audio, U3D's trigger restated to the edition the standard cites,
+PRC's trigger written; RFC 0015 is the argument and ADR 3297 the first build.
 
 ### JavaScript and script-driven form behaviour beyond this document and this viewer
 

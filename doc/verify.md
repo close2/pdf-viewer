@@ -979,6 +979,11 @@ cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_lim
   # longer matches, so the disk corpus's `INITED` falls far under fresh seeds' and `seeds.sh check
   # script_wire` says STALE. `wire_seeds` names its files by what they carry, so a re-seed after
   # the bump overwrites the old seeds rather than adding beside them (ADR 1694).
+cd fuzz && cargo +nightly fuzz run media_sound -- -max_total_time=600   # the media worker's
+  # entry point and wire (ADR 3297): a request decoded and §13.3's samples decoded from it as the
+  # confined worker does, and a reply as the unconfined host reads it. The decoder answers exactly
+  # the samples the request's bytes hold, and what the worker encodes the host reads back the same.
+  # Seeded by `fuzz/seed_media_sound.py`, every encoding and width §13.3 names.
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field

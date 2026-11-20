@@ -452,6 +452,30 @@ fn a_confined_script_worker_reaches_none_of_what_its_profile_denies() {
     }
 }
 
+/// None of what a media worker is denied is reachable either: the same file, socket, descriptor,
+/// thread and executable memory, under `Profile::Media` (ADR 3297).
+///
+/// The positive half — that the worker reads, allocates, decodes and writes inside the filter — is
+/// `pdf-media-worker`'s own `end_to_end.rs`, run in the worker itself.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_media_worker_reaches_none_of_what_its_profile_denies() {
+    for probe in [
+        "media-open",
+        "media-socket",
+        "media-fcntl",
+        "media-thread",
+        "media-exec",
+    ] {
+        let status = run_probe(probe);
+        assert_ne!(status.code(), Some(ALLOWED), "{probe}: permitted");
+        assert!(
+            refused(&status),
+            "{probe}: expected a refusal or the filter's kill, got {status:?}"
+        );
+    }
+}
+
 /// Runs one probe in a fresh child and waits for it.
 ///
 /// The child is this same test binary, re-executed with a filter that selects the one test
@@ -490,7 +514,10 @@ fn confined_probe() {
     }
 
     if let Some(denied) = probe.strip_prefix("script-") {
-        script_probe(denied);
+        script_probe(pdf_sandbox::lockdown::Profile::Script, denied);
+    }
+    if let Some(denied) = probe.strip_prefix("media-") {
+        script_probe(pdf_sandbox::lockdown::Profile::Media, denied);
     }
 
     pdf_sandbox::lockdown::apply().expect("a probe that cannot confine itself proves nothing");
@@ -510,8 +537,9 @@ fn confined_probe() {
     std::process::exit(if permitted { ALLOWED } else { REFUSED });
 }
 
-/// The script worker's probes: confine with `Profile::Script`, then do one thing and say how it
-/// went in the exit code.
+/// The script and media workers' probes: confine with `profile` — `Profile::Script`, or
+/// `Profile::Media`, which shares its list (ADR 3297) — then do one thing and say how it went in the
+/// exit code.
 #[cfg(target_os = "linux")]
 #[expect(
     clippy::expect_used,
@@ -520,8 +548,8 @@ fn confined_probe() {
               confine itself, or is asked for a probe it does not have, should fail as loudly as \
               the test that started it"
 )]
-fn script_probe(probe: &str) -> ! {
-    pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Script)
+fn script_probe(profile: pdf_sandbox::lockdown::Profile, probe: &str) -> ! {
+    pdf_sandbox::lockdown::apply_for(profile)
         .expect("a probe that cannot confine itself proves nothing");
     let permitted = match probe {
         "open" => std::fs::File::open("/proc/self/maps").is_ok(),

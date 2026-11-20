@@ -98,6 +98,9 @@ mod lockdown_linux;
 mod protocol;
 mod worker;
 
+// The processor-time allowance a host waits for a confined worker's answer under (ADR 3133), public
+// because `pdf-media-worker`'s host waits for its worker the way this crate waits for its own.
+pub use clock::{Allowance, Ended};
 pub use in_process::{decode_here, decode_here_within};
 pub use protocol::{
     Bilevel, CcittParameters, Colour, DctComponents, DctParameters, MAX_PRECISION, Raster, Request,
@@ -774,7 +777,7 @@ impl Connection {
     /// it was measured on the very binary this arrangement exists to name.
     fn read_handshake(&mut self, program: &Path) -> Result<Confinement, SandboxError> {
         let mut greeting = [0u8; protocol::HANDSHAKE_LEN];
-        let allowance = clock::Allowance::start(self.child.id(), REQUEST_TIMEOUT);
+        let allowance = Allowance::start(self.child.id(), REQUEST_TIMEOUT);
         let (magic, rest) = greeting.split_at_mut(protocol::MAGIC_LEN);
         self.read_exactly(magic, &allowance)?;
         if !protocol::is_our_magic(magic) {
@@ -799,7 +802,7 @@ impl Connection {
     fn exchange(&mut self, request: &Request<'_>, bounds: Bounds) -> Result<Decoded, SandboxError> {
         // Started before the write, so that a worker that stops reading mid-request is held to
         // the same allowance as one that stops answering.
-        let allowance = clock::Allowance::start(self.child.id(), bounds.processor);
+        let allowance = Allowance::start(self.child.id(), bounds.processor);
 
         let encoded = protocol::encode_request(request);
         self.to_worker
@@ -837,7 +840,7 @@ impl Connection {
     fn read_exactly(
         &mut self,
         buffer: &mut [u8],
-        allowance: &clock::Allowance,
+        allowance: &Allowance,
     ) -> Result<(), SandboxError> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
@@ -892,7 +895,7 @@ impl Connection {
     fn read_exactly(
         &mut self,
         buffer: &mut [u8],
-        allowance: &clock::Allowance,
+        allowance: &Allowance,
     ) -> Result<(), SandboxError> {
         let mut filled = 0;
         while filled < buffer.len() {

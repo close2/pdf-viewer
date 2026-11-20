@@ -105,6 +105,13 @@ impl Canceller {
         }
     }
 
+    /// The worker's process id while it is held, for a host that reads the worker's processor time
+    /// from outside it (`pdf_sandbox::Allowance`, ADR 3133); `None` once it has been reaped.
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        self.0.worker().as_ref().map(Child::id)
+    }
+
     /// Whether the worker has ended, without waiting for it to.
     #[must_use]
     pub fn ended(&self) -> Option<String> {

@@ -3917,7 +3917,7 @@ title = "3D and RichMedia annotations"
 status = "implemented"
 code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence", "crates/pdf-model/tests/raster_golden.rs::the_first_page_of_every_tracked_document_draws_what_it_drew"]
-note = "The clause's whole text is a pointer — \"3D and RichMedia annotations are defined in 13.6.2\" and 13.7.2 — so it states no requirement of its own and takes the status of the two clauses it names, §13.6.2 and §13.7.2.1, both `implemented` for the normal appearance the amended clause 13 entry admits, with the artwork's rendering on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (`doc/questions/A254`, ADR 1946). Their appearance streams are drawn where they exist, like any other annotation's, because nothing in the placement path switches on subtype. What is refused when one does not exist says so in those clauses' own terms: §13.6.2 says \"a 3D annotation shall provide an appearance stream in its AP entry\" — §13.7.2.1 differing only in the subtype's name — and §13.6.2 then makes that stream what the annotation shows before it is activated, \"Inactive (the default initial state): the annotation displays the annotation's normal appearance\". So the stream is the only thing a processor that does not render the artwork can show, and the artwork is the excluded half. ADR 0906."
+note = "The clause's whole text is a pointer — \"3D and RichMedia annotations are defined in 13.6.2\" and 13.7.2 — so it states no requirement of its own and takes the status of the two clauses it names, §13.6.2 and §13.7.2.1, both `implemented` for the normal appearance the amended clause 13 entry admits, with the artwork's rendering on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (`doc/questions/A254`, ADR 1946). Their appearance streams are drawn where they exist, like any other annotation's, because nothing in the placement path switches on subtype. What is refused when one does not exist says so in those clauses' own terms: §13.6.2 says \"a 3D annotation shall provide an appearance stream in its AP entry\" — §13.7.2.1 differing only in the subtype's name — and §13.6.2 then makes that stream what the annotation shows before it is activated, \"Inactive (the default initial state): the annotation displays the annotation's normal appearance\". So the stream is the only thing a processor that does not render the artwork can show, and the artwork is the excluded half. ADR 0906."
 
 [[clause]]
 clause = "12.6"
@@ -4069,7 +4069,7 @@ title = "Rendition actions"
 status = "implemented"
 code = ["crates/pdf-model/src/action.rs", "crates/viewer-core/src/interact.rs", "crates/pdf-model/src/view/script_sites.rs", "crates/pdf-model/src/view/scripts.rs"]
 test = ["crates/pdf-model/tests/actions.rs::every_action_type_table_201_names_is_performed_read_or_refused_by_name", "crates/viewer-core/tests/renditions.rs::a_screen_annotation_its_page_does_not_list_executes_nothing", "crates/pdf-model/tests/rendition_scripts.rs::a_runner_is_handed_the_rendition_script_and_the_op_is_not_performed", "crates/pdf-model/tests/rendition_scripts.rs::without_a_runner_the_op_is_the_fallback_performed"]
-note = "**Implemented for everything the amended clause 13 entry leaves in scope; the playing is excluded** (ADRs 1946, 1960). \"A rendition action ( PDF 1.5 ) controls the playing of multimedia content\", and `pdf_model::action` reads Table 218 into `Action::Rendition`. The precondition is checked before anything else — \"Before a rendition action is executed, the interactive PDF processor shall make sure that the P entry of the screen annotation dictionary references a valid page object and that the annotation is present in the page object's Annots array\" — and the half that failed is said. A play, /OP 0 or 4, has its rendition judged by §13.2.2 and its first viable clip handed to the host at the reader's level (ADR 1961). Stop, pause and resume act on a rendition already playing, and none ever is: a stop has \"no effect\" and says so, and a pause or a resume carries the clause's own \"the user should be notified of the failure to perform the operation\". The /JS half: the script \"shall be executed when the action is triggered\", so it is handed to the runner a host supplies, in its place in the chain, and \"[i]f both are present, OP is considered a fallback that shall be executed if the interactive PDF processor is unable to execute ECMAScripts\" — /OP is performed where no runner is supplied and not beside one, and a /JS alone with no runner is said rather than dropped (ADR 2988, `crates/pdf-model/tests/rendition_scripts.rs`). Playing a rendition in a screen annotation's rectangle is `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork."
+note = "**Implemented for everything the amended clause 13 entry leaves in scope; the playing is excluded** (ADRs 1946, 1960). \"A rendition action ( PDF 1.5 ) controls the playing of multimedia content\", and `pdf_model::action` reads Table 218 into `Action::Rendition`. The precondition is checked before anything else — \"Before a rendition action is executed, the interactive PDF processor shall make sure that the P entry of the screen annotation dictionary references a valid page object and that the annotation is present in the page object's Annots array\" — and the half that failed is said. A play, /OP 0 or 4, has its rendition judged by §13.2.2 and its first viable clip handed to the host at the reader's level (ADR 1961). Stop, pause and resume act on a rendition already playing, and none ever is: a stop has \"no effect\" and says so, and a pause or a resume carries the clause's own \"the user should be notified of the failure to perform the operation\". The /JS half: the script \"shall be executed when the action is triggered\", so it is handed to the runner a host supplies, in its place in the chain, and \"[i]f both are present, OP is considered a fallback that shall be executed if the interactive PDF processor is unable to execute ECMAScripts\" — /OP is performed where no runner is supplied and not beside one, and a /JS alone with no runner is said rather than dropped (ADR 2988, `crates/pdf-model/tests/rendition_scripts.rs`). Playing a rendition in a screen annotation's rectangle is `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork."
 
 [[clause]]
 clause = "12.6.4.15"
@@ -4084,7 +4084,7 @@ clause = "12.6.4.16"
 title = "Go-To-3D-View actions"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork: \"A go-to-3D-view action ( PDF 1.6 ) identifies a 3D annotation and specifies a view for the annotation to use\", and the view is §13.6's. `action.rs` refuses `GoTo3DView` by that name whatever the target annotation is. Errata Collection 3's Issue #265 repairs Table 220's `/S` row, which described the type it defines as 'a transition action', and Issue #282 widens the action to a RichMedia annotation as well as a 3D one and lets `/V` name a view in the `Views` array of a `/RichMediaContent` dictionary (Table 341); both amendments are §13.6's and §13.7's ground, which the exclusion already names. `spec-errata emit` files all six annotations under §12.6.4.17, which is the next subclause: the attribution is the outline's section for the page, and page 541 opens §12.6.4.16 and reaches §12.6.4.17 before it ends."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork: \"A go-to-3D-view action ( PDF 1.6 ) identifies a 3D annotation and specifies a view for the annotation to use\", and the view is §13.6's. `action.rs` refuses `GoTo3DView` by that name whatever the target annotation is. Errata Collection 3's Issue #265 repairs Table 220's `/S` row, which described the type it defines as 'a transition action', and Issue #282 widens the action to a RichMedia annotation as well as a 3D one and lets `/V` name a view in the `Views` array of a `/RichMediaContent` dictionary (Table 341); both amendments are §13.6's and §13.7's ground, which the exclusion already names. `spec-errata emit` files all six annotations under §12.6.4.17, which is the next subclause: the attribution is the outline's section for the page, and page 541 opens §12.6.4.16 and reaches §12.6.4.17 before it ends."
 
 [[clause]]
 clause = "12.6.4.17"
@@ -4099,7 +4099,7 @@ clause = "12.6.4.18"
 title = "Rich-Media-Execute actions"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork: the action \"identifies a rich media annotation and specifies a command to be sent to that annotation's handler\", which is §13.7's. The command is a script call as well — Table 223's `/C` is \"A text string specifying the script command (a primitive ECMAScript function name)\" — so the script exclusion would reach it too; the multimedia entry is the one the row names because the handler is the rich media annotation's."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork: the action \"identifies a rich media annotation and specifies a command to be sent to that annotation's handler\", which is §13.7's. The command is a script call as well — Table 223's `/C` is \"A text string specifying the script command (a primitive ECMAScript function name)\" — so the script exclusion would reach it too; the multimedia entry is the one the row names because the handler is the rich media annotation's."
 
 [[clause]]
 clause = "12.7"
@@ -4818,7 +4818,7 @@ clause = "13.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"This clause describes those features of PDF that support embedding and playing multimedia content\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"This clause describes those features of PDF that support embedding and playing multimedia content\". Audio's decoding and presentation are in scope (`doc/questions/A946`) and are built in RFC 0015 section 5's order, §13.3's own samples first in `pdf-media-worker` (ADR 3297); the engine this row describes plays video as well, which the exclusion still holds, so the row stays out of scope until video is opened."
 
 [[clause]]
 clause = "13.2"
@@ -4826,14 +4826,14 @@ title = "Multimedia"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::a_media_criterion_binds_from_either_dictionary_and_an_unknown_one_only_from_mh"]
-note = "**Implemented: a heading with no text of its own**, whose status is derived from its subclauses' (ADR 1599), `implemented` or out of scope on `CLAUDE.md`'s clause 13 entry. What they execute is §13.2.2's viability for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960); the playing rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376)."
+note = "**Implemented: a heading with no text of its own**, whose status is derived from its subclauses' (ADR 1599), `implemented` or out of scope on `CLAUDE.md`'s clause 13 entry. What they execute is §13.2.2's viability for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960); the playing rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376)."
 
 [[clause]]
 clause = "13.2.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Embedded media, as well as referenced media outside a PDF file, may be played with a variety of player software\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Embedded media, as well as referenced media outside a PDF file, may be played with a variety of player software\". Audio's decoding and presentation are in scope (`doc/questions/A946`) and are built in RFC 0015 section 5's order, §13.3's own samples first in `pdf-media-worker` (ADR 3297); the engine this row describes plays video as well, which the exclusion still holds, so the row stays out of scope until video is opened."
 
 [[clause]]
 clause = "13.2.2"
@@ -4841,7 +4841,7 @@ title = "Viability"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs", "crates/pdf-model/src/action.rs", "crates/viewer-core/src/interact.rs"]
 test = ["crates/pdf-model/src/media.rs::an_option_must_honour_makes_the_rendition_non_viable_and_best_effort_does_not", "crates/pdf-model/src/media.rs::a_selector_plays_the_first_viable_rendition_and_says_why_the_others_were_passed", "crates/pdf-model/src/media.rs::a_language_criterion_is_met_by_the_stated_language_or_its_primary_code", "crates/viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level"]
-note = "**Implemented: the viewer determines viability, for the one player this program has** (ADR 1960). The clause's requirement: \"In making these decisions, the viewer shall determine the viability of the objects used.\" `pdf_model::media::judge` walks §13.2.3.3's rendition tree depth-first and judges every media rendition by the rules this clause states for the two dictionaries — an unrecognised entry in MH makes the object non-viable, one in BE is ignored, an entry in both is read from MH — and by each table's own condition: Table 277's and Table 284's /S, Table 279's media criteria against what a host stated about its reader, Table 285's /D, Table 286's /P, Table 287's /BU, Table 289's /B and /E, and §13.2.7.2.2's player algorithm. **The player is the hand-off**: whichever program this machine starts for the clip's content type, told nothing but the file. So every option a player would have to be told is honoured in BE's sense and fails in MH's, which is the clause's own consequence — \"otherwise, the containing object shall be considered non-viable\" — and a criterion whose fact nobody stated, a bandwidth or a monitor's depth, is one this processor cannot show to be met. The report is said where §13.2.1 says playing begins, the rendition action; the first viable clip is handed to the host at the reader's level for Table 286's /TF (ADR 1961); and the playing stays `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADR 1946)."
+note = "**Implemented: the viewer determines viability, for the one player this program has** (ADR 1960). The clause's requirement: \"In making these decisions, the viewer shall determine the viability of the objects used.\" `pdf_model::media::judge` walks §13.2.3.3's rendition tree depth-first and judges every media rendition by the rules this clause states for the two dictionaries — an unrecognised entry in MH makes the object non-viable, one in BE is ignored, an entry in both is read from MH — and by each table's own condition: Table 277's and Table 284's /S, Table 279's media criteria against what a host stated about its reader, Table 285's /D, Table 286's /P, Table 287's /BU, Table 289's /B and /E, and §13.2.7.2.2's player algorithm. **The player is the hand-off**: whichever program this machine starts for the clip's content type, told nothing but the file. So every option a player would have to be told is honoured in BE's sense and fails in MH's, which is the clause's own consequence — \"otherwise, the containing object shall be considered non-viable\" — and a criterion whose fact nobody stated, a bandwidth or a monitor's depth, is one this processor cannot show to be met. The report is said where §13.2.1 says playing begins, the rendition action; the first viable clip is handed to the host at the reader's level for Table 286's /TF (ADR 1961); and the playing stays `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADR 1946)."
 
 [[clause]]
 clause = "13.2.3"
@@ -4849,7 +4849,7 @@ title = "Renditions"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::a_media_rendition_is_viable_only_if_its_clip_and_its_parameters_are", "crates/pdf-model/src/media.rs::a_selector_plays_the_first_viable_rendition_and_says_why_the_others_were_passed"]
-note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.3.1's common entries and media criteria, §13.2.3.2's media rendition and §13.2.3.3's selector, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960). The playing of the rendition chosen rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376)."
+note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.3.1's common entries and media criteria, §13.2.3.2's media rendition and §13.2.3.3's selector, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960). The playing of the rendition chosen rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376)."
 
 [[clause]]
 clause = "13.2.3.1"
@@ -4865,7 +4865,7 @@ title = "Media renditions"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::a_media_rendition_is_viable_only_if_its_clip_and_its_parameters_are", "crates/pdf-model/src/media.rs::an_embedded_clip_with_a_content_type_is_viable_and_never_permits_a_temporary_file"]
-note = "**Implemented, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** \"A media rendition object shall be viable if and only if the objects referenced by its C , P , and SP entries are viable\": `Walk::media_rendition` judges /P by §13.2.5, /SP by §13.2.6.1 and /C by §13.2.4, and the rendition is viable only where all three are. A rendition with no /C names a player that \"takes no meaningful input\", which the clause requires to be found by a media players dictionary's /MU or /A, and the hand-off is named by no software identifier, so such a rendition is non-viable and the report says why. Table 282's defaults are the empty dictionaries, which state nothing to honour. What the rendition plays, how and where is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376)."
+note = "**Implemented, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** \"A media rendition object shall be viable if and only if the objects referenced by its C , P , and SP entries are viable\": `Walk::media_rendition` judges /P by §13.2.5, /SP by §13.2.6.1 and /C by §13.2.4, and the rendition is viable only where all three are. A rendition with no /C names a player that \"takes no meaningful input\", which the clause requires to be found by a media players dictionary's /MU or /A, and the hand-off is named by no software identifier, so such a rendition is non-viable and the report says why. Table 282's defaults are the empty dictionaries, which state nothing to honour. What the rendition plays, how and where is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376)."
 
 [[clause]]
 clause = "13.2.3.3"
@@ -4881,7 +4881,7 @@ title = "Media clip objects"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::a_section_is_viable_with_its_next_level_clip_and_a_must_honour_offset_is_not"]
-note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.4.1's common entries, §13.2.4.2's media clip data and §13.2.4.3's section, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960), a section's offsets against its clip's own container (ADR 2452). The playing of the clip chosen rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376)."
+note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.4.1's common entries, §13.2.4.2's media clip data and §13.2.4.3's section, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960), a section's offsets against its clip's own container (ADR 2452). The playing of the clip chosen rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376)."
 
 [[clause]]
 clause = "13.2.4.1"
@@ -4905,7 +4905,7 @@ title = "Media clip section"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs", "crates/pdf-model/src/media/container.rs", "crates/pdf-model/src/media/container/swf.rs", "crates/pdf-model/src/media/container/asf.rs", "crates/pdf-model/src/media/container/program_stream.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::a_flash_a_windows_media_and_a_program_stream_clip_are_judged_by_their_own_headers", "crates/pdf-model/tests/media_viability.rs::a_section_is_viable_with_its_next_level_clip_and_a_must_honour_offset_is_not", "crates/pdf-model/tests/media_viability.rs::an_offset_over_a_still_image_is_ignored_with_no_effect_on_viability", "crates/pdf-model/tests/media_viability.rs::a_must_honour_begin_at_the_clips_start_is_honoured_by_the_hand_off", "crates/pdf-model/tests/media_viability.rs::an_end_past_the_clips_own_length_is_the_end_and_has_no_effect_on_viability", "crates/pdf-model/tests/media_viability.rs::a_marker_the_clip_lacks_is_ignored_and_one_it_names_inside_the_clip_is_not", "crates/pdf-model/tests/media_viability.rs::an_unrecognised_offset_subtype_makes_the_rendition_non_viable_from_either_dictionary"]
-note = "**Implemented: every offset rule is judged, the two that need the next-level clip's own timeline from its container's headers** (ADR 2452). Executed by `Walk::clip` for the one player this program has, the hand-off, which plays its file from the beginning to the end and is named by no software identifier (ADR 1960): \"If the next-level media object is non-viable, the media clip section shall be also non-viable\"; a section with no /D, or whose chain does not reach media clip data within 32 levels, is non-viable, as \"the linked list formed by the D entries of media clip sections shall terminate in a media clip data object\" requires; \"For media types where an offset makes no sense (such as JPEG images), B and E shall be ignored, with no effect on viability\", decided from the terminal data's Table 285 /CT by `media::timeless` (ADR 2392); and otherwise, under \"Any B or E entry in a media clip section's MH dictionary shall be honoured at play-time in order for the media clip section to be considered viable\", `Walk::bound` asks of each /B and /E whether it holds for a player handed the whole file. A /B \"specified by time or frames\" is \"relative to the start of the next-level media clip\", so zero seconds or frame 0 holds where `Walk::span` finds the next-level clip begins at the file's start (ADR 2431); \"if E specifies an offset beyond the end of the next-level media clip, the end value shall be used instead, and there is no effect on viability\", so an /E at or past the clip's length holds where the next-level clip is the whole file, the length read by `media::container` in seconds or in a picture track's frames; and a marker holds where \"the marker is not present in the underlying media clip\" or its offset \"is not within the range defined by the next-level media clip\", or where it falls at the file's start for a /B or its end for an /E. `Walk::span` applies the same rules one level down, so a deeper /B or /E moves the clip whatever dictionary holds it, as \"all B or E entries, respectively, at deeper levels (closer to the media clip data), shall be evaluated as if they were in an MH dictionary\" requires of one in an MH. Every other value is a place the player would have to be told, an MH one making the section non-viable and a BE one reported as not honoured — except an unrecognised Table 296 or Table 300 /S, which makes the rendition non-viable from either dictionary in those tables' own words (ADR 2447) — NOTE 2's \"The entry cannot be honoured if its value was not viable or if the player did not support its value\". `media::container` reads RIFF WAVE, AVI, AIFF and the ISO base media file format with QuickTime's chapter tracks (ADR 2452), SWF and ASF, each by its own published specification, and an MPEG-2 program stream by H.222.0's pack header, which states no length and no offset (ADRs 2488, 2489), bounded and fuzzed, and decodes no sample; an MP3 or MPEG-1 clip stays unread because ISO/IEC 11172 and 13818-3 are not held by this tree, and a clip of another type, a URL or an outside file the judgement does not fetch, and an embedded file cut short or decoded only in part each leave an end or a marker nobody here can place, so the entry is one this player cannot be shown to honour and the report says why. Reading the container's headers is §13.2.2's viability computed in the clause's own terms, which `CLAUDE.md`'s clause 13 entry puts in scope; seeking within the clip is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 2376, 2392)."
+note = "**Implemented: every offset rule is judged, the two that need the next-level clip's own timeline from its container's headers** (ADR 2452). Executed by `Walk::clip` for the one player this program has, the hand-off, which plays its file from the beginning to the end and is named by no software identifier (ADR 1960): \"If the next-level media object is non-viable, the media clip section shall be also non-viable\"; a section with no /D, or whose chain does not reach media clip data within 32 levels, is non-viable, as \"the linked list formed by the D entries of media clip sections shall terminate in a media clip data object\" requires; \"For media types where an offset makes no sense (such as JPEG images), B and E shall be ignored, with no effect on viability\", decided from the terminal data's Table 285 /CT by `media::timeless` (ADR 2392); and otherwise, under \"Any B or E entry in a media clip section's MH dictionary shall be honoured at play-time in order for the media clip section to be considered viable\", `Walk::bound` asks of each /B and /E whether it holds for a player handed the whole file. A /B \"specified by time or frames\" is \"relative to the start of the next-level media clip\", so zero seconds or frame 0 holds where `Walk::span` finds the next-level clip begins at the file's start (ADR 2431); \"if E specifies an offset beyond the end of the next-level media clip, the end value shall be used instead, and there is no effect on viability\", so an /E at or past the clip's length holds where the next-level clip is the whole file, the length read by `media::container` in seconds or in a picture track's frames; and a marker holds where \"the marker is not present in the underlying media clip\" or its offset \"is not within the range defined by the next-level media clip\", or where it falls at the file's start for a /B or its end for an /E. `Walk::span` applies the same rules one level down, so a deeper /B or /E moves the clip whatever dictionary holds it, as \"all B or E entries, respectively, at deeper levels (closer to the media clip data), shall be evaluated as if they were in an MH dictionary\" requires of one in an MH. Every other value is a place the player would have to be told, an MH one making the section non-viable and a BE one reported as not honoured — except an unrecognised Table 296 or Table 300 /S, which makes the rendition non-viable from either dictionary in those tables' own words (ADR 2447) — NOTE 2's \"The entry cannot be honoured if its value was not viable or if the player did not support its value\". `media::container` reads RIFF WAVE, AVI, AIFF and the ISO base media file format with QuickTime's chapter tracks (ADR 2452), SWF and ASF, each by its own published specification, and an MPEG-2 program stream by H.222.0's pack header, which states no length and no offset (ADRs 2488, 2489), bounded and fuzzed, and decodes no sample; an MP3 or MPEG-1 clip stays unread because ISO/IEC 11172 and 13818-3 are not held by this tree, and a clip of another type, a URL or an outside file the judgement does not fetch, and an embedded file cut short or decoded only in part each leave an end or a marker nobody here can place, so the entry is one this player cannot be shown to honour and the report says why. Reading the container's headers is §13.2.2's viability computed in the clause's own terms, which `CLAUDE.md`'s clause 13 entry puts in scope; seeking within the clip is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 2376, 2392)."
 
 [[clause]]
 clause = "13.2.5"
@@ -4913,7 +4913,7 @@ title = "Media play parameters"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::play_parameters_are_viable_on_their_best_effort_options_and_their_players", "crates/pdf-model/src/media.rs::an_option_must_honour_makes_the_rendition_non_viable_and_best_effort_does_not"]
-note = "**Implemented for the one question viability asks of the dictionary, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** Table 290's /PL takes part in §13.2.7.2.2's algorithm beside the clip's own — \"If this object is non-viable, the media play parameters dictionary shall be considered non-viable\" — and every Table 291 entry in /MH is a volume, a controller, a fit, a duration, an autoplay or a repeat count a player handed only the file cannot be told, so it makes the rendition non-viable while one in /BE is ignored, as §13.2.2 permits, except that a media duration's explicit `/T` whose Table 300 `/S` is not recognised makes the rendition non-viable from a /BE as well, in that table's words (ADR 2472). The remaining sentences — the intrinsic duration, the freeze past it, the repeat count — are how the player plays, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork; \"It shall be referenced from a media rendition\" binds a writer (ADRs 1960, 2376)."
+note = "**Implemented for the one question viability asks of the dictionary, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** Table 290's /PL takes part in §13.2.7.2.2's algorithm beside the clip's own — \"If this object is non-viable, the media play parameters dictionary shall be considered non-viable\" — and every Table 291 entry in /MH is a volume, a controller, a fit, a duration, an autoplay or a repeat count a player handed only the file cannot be told, so it makes the rendition non-viable while one in /BE is ignored, as §13.2.2 permits, except that a media duration's explicit `/T` whose Table 300 `/S` is not recognised makes the rendition non-viable from a /BE as well, in that table's words (ADR 2472). The remaining sentences — the intrinsic duration, the freeze past it, the repeat count — are how the player plays, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork; \"It shall be referenced from a media rendition\" binds a writer (ADRs 1960, 2376)."
 
 [[clause]]
 clause = "13.2.6"
@@ -4921,7 +4921,7 @@ title = "Media screen parameters"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::screen_parameters_must_honour_make_the_rendition_non_viable_and_best_effort_do_not"]
-note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.6.1's screen parameters, §13.2.6.2's media offset and §13.2.6.3's timespan, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960). Where the window is drawn and the clip is played rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376)."
+note = "**Implemented: a heading with no text of its own, over three `implemented` subclauses** — §13.2.6.1's screen parameters, §13.2.6.2's media offset and §13.2.6.3's timespan, each judged by `pdf_model::media::judge` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960). Where the window is drawn and the clip is played rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376)."
 
 [[clause]]
 clause = "13.2.6.1"
@@ -4929,7 +4929,7 @@ title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::screen_parameters_must_honour_make_the_rendition_non_viable_and_best_effort_do_not", "crates/pdf-model/tests/media_viability.rs::a_media_rendition_is_viable_only_if_its_clip_and_its_parameters_are"]
-note = "**Implemented for the dictionary's viability, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** Its MH and BE dictionaries \"shall function as discussed in 13.2.2\": every Table 294 entry — a window type, a background colour and opacity, a monitor, Table 295's floating window — is one a player handed only the file cannot be told, so in /MH it makes the rendition non-viable and in /BE it is ignored. The rest is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork: where the window is drawn, and \"All media clips that are being played shall be associated with a particular document and shall be stopped when the document is closed\", which binds the processor that plays the clip — the hand-off gives the file to another program as an attachment is opened, and this one plays nothing (ADRs 1946, 1961, 2376)."
+note = "**Implemented for the dictionary's viability, judged for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960).** Its MH and BE dictionaries \"shall function as discussed in 13.2.2\": every Table 294 entry — a window type, a background colour and opacity, a monitor, Table 295's floating window — is one a player handed only the file cannot be told, so in /MH it makes the rendition non-viable and in /BE it is ignored. The rest is the playing, on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork: where the window is drawn, and \"All media clips that are being played shall be associated with a particular document and shall be stopped when the document is closed\", which binds the processor that plays the clip — the hand-off gives the file to another program as an attachment is opened, and this one plays nothing (ADRs 1946, 1961, 2376)."
 
 [[clause]]
 clause = "13.2.6.2"
@@ -4953,7 +4953,7 @@ title = "Other multimedia objects"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_required"]
-note = "**Implemented: a heading with no text of its own**, over §13.2.7.1, §13.2.7.2, §13.2.7.3 and §13.2.7.4, `implemented` for the viability `pdf_model::media` judges for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960), and §13.2.7.5's monitor specifier, which is where a clip is played and rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376, 2392)."
+note = "**Implemented: a heading with no text of its own**, over §13.2.7.1, §13.2.7.2, §13.2.7.3 and §13.2.7.4, `implemented` for the viability `pdf_model::media` judges for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960), and §13.2.7.5's monitor specifier, which is where a clip is played and rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376, 2392)."
 
 [[clause]]
 clause = "13.2.7.1"
@@ -4969,7 +4969,7 @@ title = "Media players dictionary"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/tests/media_viability.rs::the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_required"]
-note = "**Implemented: a heading with no text of its own, over two `implemented` subclauses** — §13.2.7.2.1's arrays with their non-viable entries set aside, and §13.2.7.2.2's algorithm, each executed by `media::players` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960); the playing rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADRs 1946, 2376, 2392)."
+note = "**Implemented: a heading with no text of its own, over two `implemented` subclauses** — §13.2.7.2.1's arrays with their non-viable entries set aside, and §13.2.7.2.2's algorithm, each executed by `media::players` for the one player this program has, the hand-off, told nothing but the file and named by no software identifier (ADR 1960); the playing rests on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADRs 1946, 2376, 2392)."
 
 [[clause]]
 clause = "13.2.7.2.1"
@@ -5040,15 +5040,15 @@ clause = "13.2.7.5"
 title = "Monitor specifier"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A monitor specifier is an integer that shall identify a physical monitor attached to a system\". RFC 0012 audits the H.264 and AAC decoders this exclusion's trigger names, against published conformance streams; on the owner's answer to `doc/questions/Q649` the exclusion stands until the owner decides to build the player, and ADR 2428 records the two decoders and the order a reopening takes."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A monitor specifier is an integer that shall identify a physical monitor attached to a system\". RFC 0012 audits the H.264 and AAC decoders this exclusion's trigger names, against published conformance streams; on the owner's answer to `doc/questions/Q649` the exclusion stands until the owner decides to build the player, and ADR 2428 records the two decoders and the order a reopening takes."
 
 [[clause]]
 clause = "13.3"
 title = "Sounds"
 status = "implemented"
-code = ["crates/pdf-model/src/media/deprecated.rs", "crates/pdf-model/src/media/wave.rs", "crates/viewer-core/src/viewer/media.rs", "crates/viewer-core/src/interact/deprecated_media.rs"]
-test = ["crates/viewer-core/tests/movies_and_sounds.rs::a_sound_is_handed_over_by_its_file", "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file", "crates/pdf-model/src/media/wave.rs::packed_twelve_bit_samples_are_unpacked_into_the_high_bits"]
-note = "**Implemented as far as the amended clause 13 entry admits: a sound's file is handed to this machine's own player, whether the sound names it or holds its own samples** (`doc/questions/A631`, ADRs 2382, 2398). The clause opens \"The features described in this subclause are deprecated with PDF 2.0. They are superseded by the general multimedia framework described in 13.2\", whose entry excludes the playing. \"[I]f it contains an F (file specification) entry, the sound shall be defined in an external file. This sound file shall be selfdescribing\" — so `pdf_model::media::sound` reads Table 5's /F of either file specification form and §12.6.4.9's action and §12.5.6.16's annotation hand it over as `Event::Media`. \"If no F entry is present, the sound object itself shall contain the sample data and all other information needed to define the sound\" — so Table 305's /R, /C, /B and /E are read and the hand-off writes the decoded samples as a RIFF WAVE file, the form the NOTE names: \"Sample values shall be stored in the stream with the most significant bits first\" and packed, so each is unpacked, set in the high bits of whole bytes, written least significant byte first and re-biased where the signedness rules differ; µ-law and A-law cross unchanged under RFC 2361's tags 7 and 6. \"No standard values have been defined for the CO and CP entries\", so a /CO hands nothing over and says so, as do an unnamed /E and a size a WAVE header cannot state (trap 5). The portability list and the muLaw rate rule are a producer's `should` and `shall`; the file carries whatever rate and channels the sound states. `doc/md/`'s Table 305 drops the printed `ALaw` row and `Default value: Raw.`; the code follows the printed table."
+code = ["crates/pdf-model/src/media/deprecated.rs", "crates/pdf-model/src/media/wave.rs", "crates/viewer-core/src/viewer/media.rs", "crates/viewer-core/src/interact/deprecated_media.rs", "crates/pdf-media-worker/src/sound.rs", "crates/pdf-media-worker/src/client.rs"]
+test = ["crates/viewer-core/tests/movies_and_sounds.rs::a_sound_is_handed_over_by_its_file", "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file", "crates/pdf-model/src/media/wave.rs::packed_twelve_bit_samples_are_unpacked_into_the_high_bits", "crates/pdf-media-worker/src/sound.rs::mu_law_codes_decode_to_g711_table_2_values", "crates/pdf-media-worker/src/sound.rs::a_law_codes_decode_to_g711_table_1_values", "crates/pdf-media-worker/tests/end_to_end.rs::a_long_sound_is_cut_on_frames_and_decoded_whole"]
+note = "**Implemented as far as the amended clause 13 entry admits: a sound's file is handed to this machine's own player, whether the sound names it or holds its own samples** (`doc/questions/A631`, ADRs 2382, 2398). The clause opens \"The features described in this subclause are deprecated with PDF 2.0. They are superseded by the general multimedia framework described in 13.2\", whose entry excludes the playing. \"[I]f it contains an F (file specification) entry, the sound shall be defined in an external file. This sound file shall be selfdescribing\" — so `pdf_model::media::sound` reads Table 5's /F of either file specification form and §12.6.4.9's action and §12.5.6.16's annotation hand it over as `Event::Media`. \"If no F entry is present, the sound object itself shall contain the sample data and all other information needed to define the sound\" — so Table 305's /R, /C, /B and /E are read and the hand-off writes the decoded samples as a RIFF WAVE file, the form the NOTE names: \"Sample values shall be stored in the stream with the most significant bits first\" and packed, so each is unpacked, set in the high bits of whole bytes, written least significant byte first and re-biased where the signedness rules differ; µ-law and A-law cross unchanged under RFC 2361's tags 7 and 6. \"No standard values have been defined for the CO and CP entries\", so a /CO hands nothing over and says so, as do an unnamed /E and a size a WAVE header cannot state (trap 5). The portability list and the muLaw rate rule are a producer's `should` and `shall`; the file carries whatever rate and channels the sound states. `doc/md/`'s Table 305 drops the printed `ALaw` row and `Default value: Raw.`; the code follows the printed table. Since `doc/questions/A946` this program also decodes a sound holding its own samples, as the first step of playing it here: \"Sound players shall convert between formats, downsample rates, and combine channels as necessary to render sound on the target platform\", and the conversion between formats is `pdf_media_worker::sound`'s — Raw, Signed, and G.711's µ-law and A-law codes into one sample format, in a worker confined by `Profile::Media` (ADR 3297); downsampling and combining channels are the window's sink's, which no window has yet, so the hand-off stays the player every window uses."
 
 [[clause]]
 clause = "13.4"
@@ -5056,28 +5056,28 @@ title = "Movies"
 status = "implemented"
 code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/media/deprecated.rs", "crates/viewer-core/src/interact/deprecated_media.rs"]
 test = ["crates/pdf-model/tests/movie_poster.rs::a_stream_poster_is_drawn_fitted_and_centred_in_the_rectangle", "crates/pdf-model/tests/movie_poster.rs::a_poster_retrieved_from_the_movie_file_is_refused_and_reported", "crates/pdf-model/tests/movie_poster.rs::a_false_poster_draws_nothing_and_owes_nothing", "crates/pdf-model/tests/movie_poster.rs::an_absent_poster_is_the_default_false", "crates/pdf-model/tests/movie_poster.rs::a_poster_stream_that_is_not_an_image_is_reported", "crates/viewer-core/tests/movies_and_sounds.rs::an_activated_movie_annotation_hands_its_movie_over_and_says_what_the_player_is_not_told"]
-note = "**Implemented: every requirement the amended clause 13 entry leaves in scope is executed, and the playing rests on that entry rather than on a departure** (`doc/questions/A254`, ADR 1946). **The movie file is handed over** (`doc/questions/A631`, ADR 2382): Table 306's /F, \"A file specification identifying a self-describing movie file\", is read by `pdf_model::media::movie` in either file specification form — embedded, with Table 44's /Subtype as the type because the clause leaves the format unspecified, a URL, or a name — and §12.5.6.17's activation and §12.6.4.10's Play cross it as `Event::Media` through the hand-off a rendition's clip uses; Table 307's activation entries, and a non-zero /Rotate, are each said as something the player is not told. `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork names a movie's stream-form poster in scope and the decoding or presenting of video excluded, so Table 307's activation dictionary, and Table 306's /Poster `true`, \"[i]f it is the boolean value true , the poster image shall be retrieved from the movie file\", are the closed list's: a frame taken from the movie file is the decoder the entry excludes. The clause opens \"The features described in this subclause are deprecated with PDF 2.0\". What a still page shows of a movie is drawn. \"[I]f this value is a stream, it shall contain an image XObject\" to be displayed as the poster, and `appearance::construct`'s `Movie` arm draws it: `movie_poster` reads Table 189's required /Movie and its /Poster, and paints the image with `Do` through `Stream::form`, the construction §12.5.6.19's /MK /I icon uses. `false` and an absent entry are \"if it is false , no poster shall be displayed\" and draw nothing, owing nothing; `true` is refused and reported by name; a stream that is not an image `XObject`, an image with no positive /Width and /Height, and an annotation with no movie dictionary are each refused by name. **Where in /Rect the image goes is this program's choice**: neither table states it, so Table 250's defaults fit it — scaled proportionally until it meets the width or the height, and centred — and the report says the placement is the program's, under `doc/questions/A72`'s rule (ADR 1561). Table 306's /Aspect describes the movie being played and is not read. A movie whose producer relied on the poster being retrieved from the movie file shows nothing and says why."
+note = "**Implemented: every requirement the amended clause 13 entry leaves in scope is executed, and the playing rests on that entry rather than on a departure** (`doc/questions/A254`, ADR 1946). **The movie file is handed over** (`doc/questions/A631`, ADR 2382): Table 306's /F, \"A file specification identifying a self-describing movie file\", is read by `pdf_model::media::movie` in either file specification form — embedded, with Table 44's /Subtype as the type because the clause leaves the format unspecified, a URL, or a name — and §12.5.6.17's activation and §12.6.4.10's Play cross it as `Event::Media` through the hand-off a rendition's clip uses; Table 307's activation entries, and a non-zero /Rotate, are each said as something the player is not told. `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork names a movie's stream-form poster in scope and the decoding or presenting of video excluded, so Table 307's activation dictionary, and Table 306's /Poster `true`, \"[i]f it is the boolean value true , the poster image shall be retrieved from the movie file\", are the closed list's: a frame taken from the movie file is the decoder the entry excludes. The clause opens \"The features described in this subclause are deprecated with PDF 2.0\". What a still page shows of a movie is drawn. \"[I]f this value is a stream, it shall contain an image XObject\" to be displayed as the poster, and `appearance::construct`'s `Movie` arm draws it: `movie_poster` reads Table 189's required /Movie and its /Poster, and paints the image with `Do` through `Stream::form`, the construction §12.5.6.19's /MK /I icon uses. `false` and an absent entry are \"if it is false , no poster shall be displayed\" and draw nothing, owing nothing; `true` is refused and reported by name; a stream that is not an image `XObject`, an image with no positive /Width and /Height, and an annotation with no movie dictionary are each refused by name. **Where in /Rect the image goes is this program's choice**: neither table states it, so Table 250's defaults fit it — scaled proportionally until it meets the width or the height, and centred — and the report says the placement is the program's, under `doc/questions/A72`'s rule (ADR 1561). Table 306's /Aspect describes the movie being played and is not read. A movie whose producer relied on the poster being retrieved from the movie file shows nothing and says why."
 
 [[clause]]
 clause = "13.5"
 title = "Alternate presentations"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 1.4, a PDF document may contain alternate presentations , which specify alternative ways in which the document may be viewed\". **The clause gives its own reason as well, and it is the stronger one**: \"The features described in this clause are deprecated with PDF 2.0.\", and it releases a processor in so many words — \"Since PDF processors are not required to support alternate presentations, authors of documents containing alternate presentations should define the files such that something useful and meaningful can be displayed and printed.\" — so the duty is the author's, and the static form it asks for is what every page here draws (review 1768 finding 10)."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 1.4, a PDF document may contain alternate presentations , which specify alternative ways in which the document may be viewed\". **The clause gives its own reason as well, and it is the stronger one**: \"The features described in this clause are deprecated with PDF 2.0.\", and it releases a processor in so many words — \"Since PDF processors are not required to support alternate presentations, authors of documents containing alternate presentations should define the files such that something useful and meaningful can be displayed and printed.\" — so the duty is the author's, and the static form it asks for is what every page here draws (review 1768 finding 10)."
 
 [[clause]]
 clause = "13.6"
 title = "3D Artwork"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.6.2, `implemented` for the normal appearance the entry admits (ADR 1946)."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.6.2, `implemented` for the normal appearance the entry admits (ADR 1946)."
 
 [[clause]]
 clause = "13.6.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Starting with PDF 1.6, collections of three-dimensional objects, such as those used by CAD software, may be embedded in PDF files\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Starting with PDF 1.6, collections of three-dimensional objects, such as those used by CAD software, may be embedded in PDF files\"."
 
 [[clause]]
 clause = "13.6.2"
@@ -5085,203 +5085,203 @@ title = "3D annotations"
 status = "implemented"
 code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence", "crates/pdf-model/tests/raster_golden.rs::the_first_page_of_every_tracked_document_draws_what_it_drew"]
-note = "**Implemented for the normal appearance the amended clause 13 entry admits, and the artwork's rendering rests on that entry** (`doc/questions/A254`, ADR 1946). \"3D annotations ( PDF 1.6 ) are a way to include 3D artwork in PDF documents\", and of the two states the clause gives one the first is the default and is the appearance stream: \"Inactive (the default initial state): the annotation displays the annotation's normal appearance.\" Every 3D annotation here stays inactive, and its /AP is placed under §12.5.5 like any other annotation's: `3D` is in `annotation.rs`'s `STANDARD_SUBTYPES` and nothing in the placement path switches on subtype, which `raster_golden` holds on the two rich media annotations of `multimedia_annotations.pdf`, §13.7.2.1's same shape. Where the stream is absent that the clause requires — \"a 3D annotation shall provide an appearance stream in its AP entry\" — `appearance::construct` refuses the annotation by that requirement rather than drawing nothing quietly. **The rest is the closed list's**: the active state, \"Active: the annotation displays a rendering of the 3D artwork\", with Table 310's activation, the view box and the views, is the rendering of U3D or PRC artwork that `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork still excludes until there is a U3D reader in Rust; an annotation this program cannot activate stays in the state the clause makes its default. ADR 0906 for the refusal's sentence."
+note = "**Implemented for the normal appearance the amended clause 13 entry admits, and the artwork's rendering rests on that entry** (`doc/questions/A254`, ADR 1946). \"3D annotations ( PDF 1.6 ) are a way to include 3D artwork in PDF documents\", and of the two states the clause gives one the first is the default and is the appearance stream: \"Inactive (the default initial state): the annotation displays the annotation's normal appearance.\" Every 3D annotation here stays inactive, and its /AP is placed under §12.5.5 like any other annotation's: `3D` is in `annotation.rs`'s `STANDARD_SUBTYPES` and nothing in the placement path switches on subtype, which `raster_golden` holds on the two rich media annotations of `multimedia_annotations.pdf`, §13.7.2.1's same shape. Where the stream is absent that the clause requires — \"a 3D annotation shall provide an appearance stream in its AP entry\" — `appearance::construct` refuses the annotation by that requirement rather than drawing nothing quietly. **The rest is the closed list's**: the active state, \"Active: the annotation displays a rendering of the 3D artwork\", with Table 310's activation, the view box and the views, is the rendering of U3D or PRC artwork that `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork still excludes until there is a U3D reader in Rust; an annotation this program cannot activate stays in the state the clause makes its default. ADR 0906 for the refusal's sentence."
 
 [[clause]]
 clause = "13.6.3"
 title = "3D streams"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.6.3.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The specification of 3D artwork shall be contained in a 3D stream\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The specification of 3D artwork shall be contained in a 3D stream\"."
 
 [[clause]]
 clause = "13.6.3.2"
 title = "3D animation style dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D animation style dictionary ( PDF 1.7 ) specifies the method that interactive PDF processors should use to apply timeline scaling to keyframe animations\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D animation style dictionary ( PDF 1.7 ) specifies the method that interactive PDF processors should use to apply timeline scaling to keyframe animations\"."
 
 [[clause]]
 clause = "13.6.3.3"
 title = "3D reference dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"More than one 3D annotation may be associated with the same 3D artwork\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"More than one 3D annotation may be associated with the same 3D artwork\"."
 
 [[clause]]
 clause = "13.6.4"
 title = "3D views"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.6.4.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D view (or simply view) specifies parameters that shall be applied to the virtual camera associated with a 3D annotation\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D view (or simply view) specifies parameters that shall be applied to the virtual camera associated with a 3D annotation\"."
 
 [[clause]]
 clause = "13.6.4.2"
 title = "Projection dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"defines the mapping of 3D camera coordinates onto the target coordinate system of the annotation\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"defines the mapping of 3D camera coordinates onto the target coordinate system of the annotation\"."
 
 [[clause]]
 clause = "13.6.4.3"
 title = "3D background dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D background dictionary defines the background over which a 3D view shall be drawn\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D background dictionary defines the background over which a 3D view shall be drawn\"."
 
 [[clause]]
 clause = "13.6.4.4"
 title = "3D render mode dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D render mode dictionary ( PDF 1.7 ) specifies the style in which the 3D artwork shall be rendered\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D render mode dictionary ( PDF 1.7 ) specifies the style in which the 3D artwork shall be rendered\"."
 
 [[clause]]
 clause = "13.6.4.5"
 title = "3D lighting scheme dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D lighting scheme dictionary ( PDF 1.7 ) specifies the lighting to apply to 3D artwork\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D lighting scheme dictionary ( PDF 1.7 ) specifies the lighting to apply to 3D artwork\"."
 
 [[clause]]
 clause = "13.6.4.6"
 title = "3D cross section dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D cross section dictionary ( PDF 1.7 ) specifies how a portion of the 3D artwork shall be clipped for the purpose of showing artwork cross sections\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D cross section dictionary ( PDF 1.7 ) specifies how a portion of the 3D artwork shall be clipped for the purpose of showing artwork cross sections\"."
 
 [[clause]]
 clause = "13.6.4.7"
 title = "3D node dictionaries"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The 3D artwork shall be contained in the parent 3D stream object\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The 3D artwork shall be contained in the parent 3D stream object\"."
 
 [[clause]]
 clause = "13.6.5"
 title = "Coordinate systems for 3D"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"3D artwork is a collection of objects whose positions and geometry shall be specified using threedimensional coordinates\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"3D artwork is a collection of objects whose positions and geometry shall be specified using threedimensional coordinates\"."
 
 [[clause]]
 clause = "13.6.6"
 title = "3D markup"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 1.7, users may comment on specific views of 3D artwork by using markup annotations\". The markup annotation itself is §12.5.6.2's and is drawn like any other from its own appearance; what this clause adds is its association with a view of the 3D artwork, which is the excluded half."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 1.7, users may comment on specific views of 3D artwork by using markup annotations\". The markup annotation itself is §12.5.6.2's and is drawn like any other from its own appearance; what this clause adds is its association with a view of the 3D artwork, which is the excluded half."
 
 [[clause]]
 clause = "13.6.7"
 title = "Persistence of 3D measurements and markups"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.6.7.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 2.0, it is possible to add 3D measurement data to an instance of a 3D artwork\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Beginning with PDF 2.0, it is possible to add 3D measurement data to an instance of a 3D artwork\"."
 
 [[clause]]
 clause = "13.6.7.2"
 title = "The 3D units dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"For viewing purposes, the interactive PDF processor shall define a camera to map these coordinates onto a view surface\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"For viewing purposes, the interactive PDF processor shall define a camera to map these coordinates onto a view surface\"."
 
 [[clause]]
 clause = "13.6.7.3"
 title = "3D measurement/markup dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.6.7.3.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"where each dictionary represents an instance of a 3D measurement to be displayed in the context of this view\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"where each dictionary represents an instance of a 3D measurement to be displayed in the context of this view\"."
 
 [[clause]]
 clause = "13.6.7.3.2"
 title = "3D linear dimension measurement"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D linear measurement is a markup showing the distance between two arbitrary points on a 3D model\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A 3D linear measurement is a markup showing the distance between two arbitrary points on a 3D model\"."
 
 [[clause]]
 clause = "13.6.7.3.3"
 title = "3D perpendicular dimension measurement"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A perpendicular measurement is used to denote the perpendicular distance between two geometric entities\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A perpendicular measurement is used to denote the perpendicular distance between two geometric entities\"."
 
 [[clause]]
 clause = "13.6.7.3.4"
 title = "3D angular dimension measurement"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"An angular measurement is used to denote the angle between two linear entities\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"An angular measurement is used to denote the angle between two linear entities\"."
 
 [[clause]]
 clause = "13.6.7.3.5"
 title = "3D radial dimension"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The radial measurement is used to define the radius or diameter of a circular 3D entity\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The radial measurement is used to define the radius or diameter of a circular 3D entity\"."
 
 [[clause]]
 clause = "13.6.7.3.6"
 title = "3D comment note"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"3D comment notes let users connect a comment to a specific piece of geometry in the 3D model\". Its projection annotation is §12.5.6.24's, drawn where it carries an /AP; the measurement and the scene it is placed in are the excluded half."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"3D comment notes let users connect a comment to a specific piece of geometry in the 3D model\". Its projection annotation is §12.5.6.24's, drawn where it carries an /AP; the measurement and the scene it is placed in are the excluded half."
 
 [[clause]]
 clause = "13.6.7.4"
 title = "3D measurements and projection annotations"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Associations between a 3D measurement and a projection annotation are created by defining an indirect reference to a dictionary in both the projection annotation and the 3D measurement\". The projection annotation is §12.5.6.24's and is drawn where it carries an /AP; the association with a 3D measurement is the excluded half."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"Associations between a 3D measurement and a projection annotation are created by defining an indirect reference to a dictionary in both the projection annotation and the 3D measurement\". The projection annotation is §12.5.6.24's and is drawn where it carries an /AP; the association with a 3D measurement is the excluded half."
 
 [[clause]]
 clause = "13.7"
 title = "Rich media"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.1, `implemented` for the normal appearance the entry admits (ADR 1946)."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.1, `implemented` for the normal appearance the entry admits (ADR 1946)."
 
 [[clause]]
 clause = "13.7.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"PDF 2.0 introduces rich media annotations providing a common framework for video, audio, animations and other multimedia presentations\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"PDF 2.0 introduces rich media annotations providing a common framework for video, audio, animations and other multimedia presentations\"."
 
 [[clause]]
 clause = "13.7.2"
 title = "RichMedia annotations"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.1, `implemented` for the normal appearance the entry admits (ADR 1946), and §13.7.2.3's first two subclauses, `implemented` for the assets it admits saving (ADRs 2399, 2410)."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.1, `implemented` for the normal appearance the entry admits (ADR 1946), and §13.7.2.3's first two subclauses, `implemented` for the assets it admits saving (ADRs 2399, 2410)."
 
 [[clause]]
 clause = "13.7.2.1"
@@ -5289,63 +5289,63 @@ title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence", "crates/pdf-model/tests/raster_golden.rs::the_first_page_of_every_tracked_document_draws_what_it_drew"]
-note = "**Implemented for the normal appearance the amended clause 13 entry admits, and the artwork's presentation rests on that entry** (`doc/questions/A254`, ADR 1946). \"The annotation subtype RichMedia shares many low-level structural similarities with the 3D Artwork defined in 13.6\", and its two states are §13.6.2's: \"Inactive : (the default initial state) The annotation displays the normal appearance of the annotation.\" Every rich media annotation here stays inactive and its /AP is placed under §12.5.5 like any other annotation's: `RichMedia` is in `annotation.rs`'s `STANDARD_SUBTYPES`, and `raster_golden` holds the two on `multimedia_annotations.pdf`'s one page drawn. Where the stream is absent — \"a RichMedia annotation shall provide an appearance stream in its AP entry\" — `appearance::construct` refuses the annotation by that requirement. **The rest is the closed list's**: \"Active : The annotation displays a rendering of the artwork\", whose configurations Table 342 makes 3D, Sound and Video, is the rendering of 3D artwork and the presenting of audio and video that `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork still excludes. ADR 0906 for the refusal's sentence."
+note = "**Implemented for the normal appearance the amended clause 13 entry admits, and the artwork's presentation rests on that entry** (`doc/questions/A254`, ADR 1946). \"The annotation subtype RichMedia shares many low-level structural similarities with the 3D Artwork defined in 13.6\", and its two states are §13.6.2's: \"Inactive : (the default initial state) The annotation displays the normal appearance of the annotation.\" Every rich media annotation here stays inactive and its /AP is placed under §12.5.5 like any other annotation's: `RichMedia` is in `annotation.rs`'s `STANDARD_SUBTYPES`, and `raster_golden` holds the two on `multimedia_annotations.pdf`'s one page drawn. Where the stream is absent — \"a RichMedia annotation shall provide an appearance stream in its AP entry\" — `appearance::construct` refuses the annotation by that requirement. **The rest is the closed list's**: \"Active : The annotation displays a rendering of the artwork\", whose configurations Table 342 makes 3D, Sound and Video, is the rendering of 3D artwork and the presenting of audio and video that `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork still excludes. ADR 0906 for the refusal's sentence."
 
 [[clause]]
 clause = "13.7.2.2"
 title = "RichMediaSettings dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.7.2.2.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaSettings dictionary stores the conditions and responses that occur in response to certain events\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaSettings dictionary stores the conditions and responses that occur in response to certain events\"."
 
 [[clause]]
 clause = "13.7.2.2.2"
 title = "RichMediaActivation dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaActivation dictionary specifies the style of presentation, default script behavior, default view information, and animation style when the annotation is activated\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaActivation dictionary specifies the style of presentation, default script behavior, default view information, and animation style when the annotation is activated\"."
 
 [[clause]]
 clause = "13.7.2.2.3"
 title = "RichMediaDeactivation dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"which specifies the condition that causes deactivation of the annotation\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"which specifies the condition that causes deactivation of the annotation\"."
 
 [[clause]]
 clause = "13.7.2.2.4"
 title = "RichMediaAnimation dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A RichMediaAnimation dictionary specifies the preferred method that interactive PDF processors should use to apply timeline scaling to keyframe animations\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"A RichMediaAnimation dictionary specifies the preferred method that interactive PDF processors should use to apply timeline scaling to keyframe animations\"."
 
 [[clause]]
 clause = "13.7.2.2.5"
 title = "RichMediaPresentation dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaPresentation dictionary contains information about how the annotation and user interface elements should be visually laid out and drawn by an interactive PDF processor\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaPresentation dictionary contains information about how the annotation and user interface elements should be visually laid out and drawn by an interactive PDF processor\"."
 
 [[clause]]
 clause = "13.7.2.2.6"
 title = "RichMediaWindow dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaWindow dictionary stores the dimensions and position of the floating window that an interactive PDF processor may present\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaWindow dictionary stores the dimensions and position of the floating window that an interactive PDF processor may present\"."
 
 [[clause]]
 clause = "13.7.2.3"
 title = "RichMediaContent dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.3.1 and §13.7.2.3.2, `implemented` for the assets the entry admits saving: Table 341's /Assets is read and its files listed and saved, never handed to a player (ADRs 2399, 2410)."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence, except §13.7.2.3.1 and §13.7.2.3.2, `implemented` for the assets the entry admits saving: Table 341's /Assets is read and its files listed and saved, never handed to a player (ADRs 2399, 2410)."
 
 [[clause]]
 clause = "13.7.2.3.1"
@@ -5353,7 +5353,7 @@ title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/attachment/rich_media.rs"]
 test = ["crates/pdf-model/src/attachment/rich_media.rs::table_341s_assets_are_read_and_its_configurations_and_views_give_no_file", "crates/viewer-core/tests/rich_media_assets.rs::a_pages_rich_media_assets_are_listed_and_extracted_by_name"]
-note = "**Implemented for the one entry `CLAUDE.md`'s clause 13 entry admits, the media file saved, and the artwork's entries rest on that entry** (ADR 2410). \"The RichMediaContent dictionary contains content that is present within the annotation as referenced by the RichMediaSettings dictionary\", and Table 341 states its entries: /Assets, \"[a] name tree of embedded file specification dictionaries as detailed in 7.11.3\", is what `pdf_model::attachment::rich_media::assets` walks into attachments, listed and saved under the reader's level for embedded files and never handed to a player (§13.7.2.3.2's row, `doc/questions/A631`, ADR 2399). /Configurations and /Views, with /Views' rule that \"default values shall be used for the components of a view dictionary\", are the presentation of the artwork, and rest on principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork (ADR 1946); /Type's \"[i]f present, it shall be RichMediaContent\" is the producer's."
+note = "**Implemented for the one entry `CLAUDE.md`'s clause 13 entry admits, the media file saved, and the artwork's entries rest on that entry** (ADR 2410). \"The RichMediaContent dictionary contains content that is present within the annotation as referenced by the RichMediaSettings dictionary\", and Table 341 states its entries: /Assets, \"[a] name tree of embedded file specification dictionaries as detailed in 7.11.3\", is what `pdf_model::attachment::rich_media::assets` walks into attachments, listed and saved under the reader's level for embedded files and never handed to a player (§13.7.2.3.2's row, `doc/questions/A631`, ADR 2399). /Configurations and /Views, with /Views' rule that \"default values shall be used for the components of a view dictionary\", are the presentation of the artwork, and rest on principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork (ADR 1946); /Type's \"[i]f present, it shall be RichMediaContent\" is the producer's."
 
 [[clause]]
 clause = "13.7.2.3.2"
@@ -5368,49 +5368,49 @@ clause = "13.7.2.3.3"
 title = "RichMediaConfiguration dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaConfiguration dictionary describes a set of instances that are loaded for a given scene configuration\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The RichMediaConfiguration dictionary describes a set of instances that are loaded for a given scene configuration\"."
 
 [[clause]]
 clause = "13.7.2.3.4"
 title = "RichMediaInstance dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"describes a single instance of an asset with settings to populate the artwork of an annotation\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"describes a single instance of an asset with settings to populate the artwork of an annotation\"."
 
 [[clause]]
 clause = "13.7.2.3.5"
 title = "View dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"View dictionaries specify a unique view of the artwork that may be used when the annotation is activated or selected\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"View dictionaries specify a unique view of the artwork that may be used when the annotation is activated or selected\"."
 
 [[clause]]
 clause = "13.7.2.3.6"
 title = "View params dictionary"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
+note = "A heading with no text of its own, and out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. Each of its subclauses rests on the same entry and quotes its own clause's sentence."
 
 [[clause]]
 clause = "13.7.2.3.6.1"
 title = "General"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The View Params dictionary provides a reference to a RichMediaInstance dictionary within the Instances array, and additional Data that is passed to the instance\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"The View Params dictionary provides a reference to a RichMediaInstance dictionary within the Instances array, and additional Data that is passed to the instance\"."
 
 [[clause]]
 clause = "13.7.2.3.6.2"
 title = "Saving state data"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"When the View is created, the run time shall iterate through all active instances for the current configuration and query them for state data\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"When the View is created, the run time shall iterate through all active instances for the current configuration and query them for state data\"."
 
 [[clause]]
 clause = "13.7.2.3.6.3"
 title = "Loading state data"
 status = "out-of-scope"
 exclusion = "clause-13-multimedia"
-note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"When the View is activated, the run time shall iterate through each View Params dictionary and load the state data for each instance referenced\"."
+note = "Out of scope on `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork — a media engine, not a rendering question. What the clause describes is that engine's: \"When the View is activated, the run time shall iterate through each View Params dictionary and load the state data for each instance referenced\"."
 
 [[clause]]
 clause = "14.1"
@@ -6186,7 +6186,7 @@ title = "Multi-language text arrays"
 status = "implemented"
 code = ["crates/pdf-model/src/media.rs"]
 test = ["crates/pdf-model/src/media.rs::a_multi_language_text_array_is_searched_as_the_clause_states", "crates/viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level"]
-note = "**Implemented: the array is read and searched as the clause states, by the report the amended clause 13 entry admits** (ADRs 1946, 1960). \"A multi-language text array ( PDF 1.5 ) allows multiple text strings to be specified, each in association with a language identifier\", and `pdf_model::media::alternate` reads the /Alt of Table 285's media clip data and of Table 288's media clip section in pairs and searches them as the clause requires: \"it shall look for an exact (though caseinsensitive) match between the given language's identifier and the language identifiers in the array\", then by prefix in array order, then the default text whose identifier is the empty string. The language is the one a host stated (`--interface-language`, ADR 1106), and the clause's own EXAMPLE array is the test's input. The text found is the first sentence the media report says of a clip, viable or not, because Table 285 gives it \"in case it cannot be played\" and nothing here plays. Table 295's /TT, a floating window's title, is the third place an array sits, and it stays with the floating window `CLAUDE.md` principle 5's exclusion of clause 13's playing of multimedia and rendering of 3D artwork keeps."
+note = "**Implemented: the array is read and searched as the clause states, by the report the amended clause 13 entry admits** (ADRs 1946, 1960). \"A multi-language text array ( PDF 1.5 ) allows multiple text strings to be specified, each in association with a language identifier\", and `pdf_model::media::alternate` reads the /Alt of Table 285's media clip data and of Table 288's media clip section in pairs and searches them as the clause requires: \"it shall look for an exact (though caseinsensitive) match between the given language's identifier and the language identifiers in the array\", then by prefix in array order, then the default text whose identifier is the empty string. The language is the one a host stated (`--interface-language`, ADR 1106), and the clause's own EXAMPLE array is the test's input. The text found is the first sentence the media report says of a clip, viable or not, because Table 285 gives it \"in case it cannot be played\" and nothing here plays. Table 295's /TT, a floating window's title, is the third place an array sits, and it stays with the floating window `CLAUDE.md` principle 5's exclusion of clause 13's playing of video and rendering of 3D artwork keeps."
 
 [[clause]]
 clause = "14.9.3"

@@ -745,7 +745,7 @@ executable the viewer spawns for JBIG2 and JPEG 2000, with deliberately no in-pr
 is RFC 0003's mount, and it opens no document without `pdf-vfs-worker` — the same relationship, and
 trap 10 one directory over. `pdf-script-worker` is the confined engine every window spawns at the
 first script the reader's `Scripts` level lets run, and without it that script is refused with the
-sentence saying the worker was not found (ADR 1616). `quorra-retrieve` is not a window but a program whose whole output is
+sentence saying the worker was not found (ADR 1616). `pdf-media-worker` decodes a sound's samples, started at the first sound a window plays, and is built alone for the sandbox worker's reason (ADR 3297). `quorra-retrieve` is not a window but a program whose whole output is
 text a caller pipes (ADR 0257).
 
 **`libviewer_ffi.so` and `libpdf_vfs_ffi.so` are there because a person links against them**: a C

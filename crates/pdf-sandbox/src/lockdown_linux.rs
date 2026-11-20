@@ -122,6 +122,17 @@ const DESCRIPTOR_LIMIT: u64 = 8;
 /// would ever let through (ADR 1608).
 const SCRIPT_DESCRIPTOR_LIMIT: u64 = 0;
 
+/// Ceiling on a media worker's address space, in bytes.
+///
+/// Sized from a measurement rather than chosen (ADR 3297). The worker holds one request at a time:
+/// a frame of at most `pdf_media_worker::wire::MAX_REQUEST_BYTES` (256 KiB and a header) and its
+/// decoded samples, whose worst case is one-bit samples — thirty-two bytes out for each byte in,
+/// 8 MiB — written once more as the reply's bytes. Measured in a debug build, the worker's address
+/// space is 4.1 MiB at its greeting and peaks at 20.3 MiB over that worst-case request, so
+/// sixty-four mebibytes is three times the peak — room for the allocator's slack and a stack grown
+/// to its 8 MiB, and still a refusal of anything a sound does not need.
+const MEDIA_ADDRESS_SPACE_LIMIT: u64 = 64 << 20;
+
 /// Confines the calling thread. There is no way to undo this.
 ///
 /// # Errors
@@ -135,6 +146,8 @@ pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement,
         Profile::Decoder => (ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
         Profile::Interpreter => (INTERPRETER_ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
         Profile::Script => (SCRIPT_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
+        // A media worker is handed no descriptor either: its frames arrive on standard input.
+        Profile::Media => (MEDIA_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
     };
     let address_space_limit = wider.map_or(own, |wider| wider.max(own));
     limit_resources(address_space_limit)?;
@@ -469,7 +482,9 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
     let (base, extra): (&[i64], &[i64]) = match profile {
         Profile::Decoder => (PERMITTED, &[]),
         Profile::Interpreter => (PERMITTED, PERMITTED_INTERPRETER_EXTRA),
-        Profile::Script => (PERMITTED_SCRIPT, &[]),
+        // The media worker reads frames, allocates on one thread and writes frames, which is the
+        // script list's whole shape (ADR 3297).
+        Profile::Script | Profile::Media => (PERMITTED_SCRIPT, &[]),
     };
     // An empty rule vector means "this call, unconditionally", which is what every entry of
     // these lists is: each is permitted for every argument the worker could pass.
@@ -478,7 +493,7 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
         .chain(extra)
         .map(|number| (*number, Vec::new()))
         .collect();
-    if profile == Profile::Script {
+    if matches!(profile, Profile::Script | Profile::Media) {
         // [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`]'s condition: the protection masked by
         // `PROT_EXEC` is zero. `Dword` for the reason the `fcntl` rule below gives: the kernel
         // reads `prot` as flags in its low 32 bits, and the executable bit is among them.
