@@ -1,8 +1,7 @@
 # veraPDF reads a JPEG 2000 file's opacity channel as a colour channel — an upstream issue, drafted for the owner to file
 
-Status: **a draft, not filed.** Written by session 1843 under `doc/questions/A691` ("the clause's
-text governs"; "shouldn't we open an issue with verapdf?"). Nothing here has been sent; the owner
-files it, or says not to. It is indexed from `doc/pdfa-blocking-issues.md` section 9.
+Status: **filed 2026-11-20** as https://github.com/veraPDF/veraPDF-library/issues/1666 (drafted
+by session 1843 under `doc/questions/A691`). Indexed from `doc/pdfa-blocking-issues.md`.
 
 ## Where it goes
 

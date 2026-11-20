@@ -78,7 +78,7 @@ in sessions 2110's, 2113's, 2118's, 2123's, 2127's, 2134's, 2138's, 2156's and 2
 
 Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
 opacity channel of another depth) fail veraPDF at ISO 19005-2 6.2.8.3 and -4 6.2.7.3 on veraPDF's
-reading of the codestream header, not the standard's; the draft of the upstream issue, its two
+reading of the codestream header, not the standard's; the upstream issue (filed 2026-11-20 as https://github.com/veraPDF/veraPDF-library/issues/1666), its two
 reproducers and the clauses it cites (cited, not quoted) are indexed here:
 [`pdfa-blocking-issues/verapdf-jpeg2000-issue.md`](pdfa-blocking-issues/verapdf-jpeg2000-issue.md),
 files under `pdfa-blocking-issues/verapdf-jpeg2000/`.
