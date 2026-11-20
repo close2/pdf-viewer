@@ -34,9 +34,9 @@ use crate::parser::Limits;
 
 /// Why a filter stage produced no decoded bytes.
 ///
-/// Three statements about one stream, and keeping them apart is what
+/// Four statements about one stream, and keeping them apart is what
 /// [`decode_with_parms_reported`] exists for. A caller that only needs bytes takes
-/// [`decode_with_parms`] and gets `None` for all three.
+/// [`decode_with_parms`] and gets `None` for each of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterRefusal {
     /// The filter is not one this module decodes: an image codec, or a name from no table.
@@ -60,6 +60,18 @@ pub enum FilterRefusal {
     TooLarge {
         /// The bound, in bytes.
         limit: usize,
+    },
+    /// A parameter the filter reads is present with a type or a value its table does not admit.
+    ///
+    /// **Refused rather than read as its default, because the default is a statement the file did
+    /// not make.** `/Predictor 12.0` read as absent hands back PNG rows with their tags in them as
+    /// the decoded data, and a `/BitsPerComponent` of 3 un-predicted at a depth Table 8 does not
+    /// list draws noise; either would be a decode the file never stated, without a word (trap 5).
+    /// Not [`Self::Corrupt`], because nothing is wrong with the data: the file named the decode
+    /// and named it in a form no reader can run. ADR 3273.
+    Parameter {
+        /// The key, as Table 8 spells it.
+        key: &'static str,
     },
 }
 
@@ -200,65 +212,147 @@ pub fn decode_with_parms(
         .map(|decoded| decoded.data)
 }
 
-/// The same, saying which of [`FilterRefusal`]'s three answers it is.
+/// The same, saying which of [`FilterRefusal`]'s four answers it is.
 ///
 /// # Errors
 ///
-/// [`FilterRefusal`], whose variants are the three reasons.
+/// [`FilterRefusal`], whose variants are the four reasons.
 pub fn decode_with_parms_reported(
     filter: &[u8],
     data: &[u8],
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Result<Decoded, FilterRefusal> {
+    // The parameters are read before the data is, so that a stage the file states in a form no
+    // reader can run costs nothing to refuse.
+    let prediction = prediction(filter, parms)?;
     let decoded = decode_reported(filter, data, parms, limits)?;
-
-    let Some(parms) = parms else {
+    let Some(prediction) = prediction else {
         return Ok(decoded);
     };
-    let predictor = parms
-        .get("Predictor")
-        .and_then(Object::as_integer)
-        .unwrap_or(1);
-    if predictor <= 1 {
-        return Ok(decoded);
-    }
 
-    let colors = parms
-        .get("Colors")
-        .and_then(Object::as_integer)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(1);
-    let bits = parms
-        .get("BitsPerComponent")
-        .and_then(Object::as_integer)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(8);
-    let columns = parms
-        .get("Columns")
-        .and_then(Object::as_integer)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(1);
-
-    // An undefined predictor is data this reader cannot reverse, which is the `Corrupt` case:
-    // it has all the bytes and no rule for them.
-    //
     // The stage's own damage survives the predictor rather than being replaced by it: a
     // truncated inflate whose prefix un-predicts cleanly is still a truncated stream, and the
     // rows that came out of it are still short of the rows the file states.
-    let unpredicted = apply_predictor(&decoded.data, predictor, colors, bits, columns)
-        .ok_or(FilterRefusal::Corrupt)?;
+    let unpredicted = apply_predictor(
+        &decoded.data,
+        prediction.predictor,
+        prediction.colors,
+        prediction.bits,
+        prediction.columns,
+    )
+    .ok_or(FilterRefusal::Corrupt)?;
     Ok(Decoded {
         data: unpredicted,
         damage: decoded.damage,
     })
 }
 
+/// §7.4.4.4's predictor as one stage's Table 8 parameters state it, every value checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Prediction {
+    /// Table 10's code: 2 for TIFF, 10 to 15 for PNG.
+    predictor: i64,
+    /// `/Colors`, at least one.
+    colors: usize,
+    /// `/BitsPerComponent`, one of Table 8's five depths.
+    bits: usize,
+    /// `/Columns`, at least one.
+    columns: usize,
+}
+
+/// The predictor a stage of `filter` runs after it, from that stage's own `parms`.
+///
+/// **Only `LZWDecode` and `FlateDecode` have one.** Table 8 is headed "Optional parameters for
+/// `LZWDecode` and `FlateDecode` filters", and §7.4.4.4 begins "LZW and Flate encoding compress
+/// more compactly if their input data are highly predictable"; Table 6 gives `ASCIIHexDecode`,
+/// `ASCII85Decode` and `RunLengthDecode` no parameters at all. So a `/Predictor` in the
+/// parameters of any other stage is read by nothing, rather than run over that stage's output.
+///
+/// **Every entry is checked against Table 8, and one it does not admit is refused by name**
+/// ([`FilterRefusal::Parameter`], ADR 3273): `/Predictor` is an integer Table 10 lists (1, 2,
+/// 10 to 15); `/Colors` is "1 or greater"; `/BitsPerComponent`'s "Valid values are 1, 2, 4, 8,
+/// and (PDF 1.5) 16"; `/Columns` is "\[t]he number of samples in each row", which a row of none
+/// is not. The last three "\[m]ay be used only if Predictor is greater than 1", so they are read
+/// only then. An absent entry is Table 8's default; a present one is the file's statement, and
+/// reading a statement of the wrong type as absent is what this function exists not to do.
+///
+/// # Errors
+///
+/// [`FilterRefusal::Parameter`] naming the first entry Table 8 does not admit.
+pub(crate) fn prediction(
+    filter: &[u8],
+    parms: Option<&Dictionary>,
+) -> Result<Option<Prediction>, FilterRefusal> {
+    if !matches!(filter, b"FlateDecode" | b"Fl" | b"LZWDecode" | b"LZW") {
+        return Ok(None);
+    }
+    let Some(parms) = parms else {
+        return Ok(None);
+    };
+    let predictor = table_8_integer(parms, "Predictor", 1)?;
+    match predictor {
+        1 => return Ok(None),
+        2 | 10..=15 => {}
+        _ => return Err(FilterRefusal::Parameter { key: "Predictor" }),
+    }
+    let at_least_one = |key: &'static str, default: i64| -> Result<usize, FilterRefusal> {
+        let value = table_8_integer(parms, key, default)?;
+        usize::try_from(value)
+            .ok()
+            .filter(|value| *value >= 1)
+            .ok_or(FilterRefusal::Parameter { key })
+    };
+    let colors = at_least_one("Colors", 1)?;
+    let columns = at_least_one("Columns", 1)?;
+    let bits = match table_8_integer(parms, "BitsPerComponent", 8)? {
+        1 => 1,
+        2 => 2,
+        4 => 4,
+        8 => 8,
+        16 => 16,
+        _ => {
+            return Err(FilterRefusal::Parameter {
+                key: "BitsPerComponent",
+            });
+        }
+    };
+    Ok(Some(Prediction {
+        predictor,
+        colors,
+        bits,
+        columns,
+    }))
+}
+
+/// A Table 8 entry whose type is integer: its default when absent, refused when present as
+/// anything else.
+///
+/// `null` is an absent entry (§7.3.9). `Document::stated_chain` has resolved every indirect value
+/// but a stream's, so a reference still here names a stream, which no Table 8 entry is; on a
+/// cross-reference stream's direct-only route (§7.5.8.2) it names an object that route cannot
+/// read. Neither is the integer the entry states, so both are refused with the other types.
+fn table_8_integer(
+    parms: &Dictionary,
+    key: &'static str,
+    default: i64,
+) -> Result<i64, FilterRefusal> {
+    match parms.get(key) {
+        None | Some(Object::Null) => Ok(default),
+        Some(Object::Integer(value)) => Ok(*value),
+        Some(_) => Err(FilterRefusal::Parameter { key }),
+    }
+}
+
 /// Reverses a PNG or TIFF predictor.
 ///
 /// Returns `None` for a predictor code that is not defined, rather than passing the data
 /// through: unpredicted data read as predicted is silently wrong, and for a
-/// cross-reference stream that means fabricated byte offsets.
+/// cross-reference stream that means fabricated byte offsets. `None` too for a
+/// `/BitsPerComponent` Table 8 does not list — "1, 2, 4, 8, and (PDF 1.5) 16" — for both
+/// function groups: a PNG row's length and its bytes per pixel are computed from the depth, so
+/// rows predicted at a depth nobody can state cannot be split at a guessed one (ADR 2729 for the
+/// TIFF group, ADR 3273 for both).
 #[must_use]
 pub fn apply_predictor(
     data: &[u8],
@@ -267,6 +361,9 @@ pub fn apply_predictor(
     bits: usize,
     columns: usize,
 ) -> Option<Arc<[u8]>> {
+    if !matches!(bits, 1 | 2 | 4 | 8 | 16) {
+        return None;
+    }
     // Bytes per pixel, at least one: a sub-byte pixel still shifts by one byte.
     let bpp = colors.saturating_mul(bits).saturating_add(7) / 8;
     let bpp = bpp.max(1);
@@ -537,6 +634,30 @@ pub fn is_image_codec(filter: &[u8]) -> bool {
     )
 }
 
+/// Whether ISO 32000-2 Table 6 gives `filter` parameters: its "Parameters" column, yes or no.
+///
+/// `LZWDecode`, `FlateDecode`, `CCITTFaxDecode`, `JBIG2Decode`, `DCTDecode` and `Crypt` take a
+/// parameter dictionary; `ASCIIHexDecode`, `ASCII85Decode`, `RunLengthDecode` and `JPXDecode` take
+/// none. §8.9.7's abbreviations are the same filters. A name from no table takes none this reader
+/// knows of. Read by `Document::stated_chain` to decide which filter one `/DecodeParms`
+/// dictionary over a longer chain can belong to (ADR 3274).
+#[must_use]
+pub fn takes_parameters(filter: &[u8]) -> bool {
+    matches!(
+        filter,
+        b"LZWDecode"
+            | b"LZW"
+            | b"FlateDecode"
+            | b"Fl"
+            | b"CCITTFaxDecode"
+            | b"CCF"
+            | b"JBIG2Decode"
+            | b"DCTDecode"
+            | b"DCT"
+            | b"Crypt"
+    )
+}
+
 /// Decodes one filter stage.
 ///
 /// `parms` is the stage's own `/DecodeParms`, needed by exactly one filter: `LZWDecode`'s
@@ -557,11 +678,11 @@ pub fn decode(
         .map(|decoded| decoded.data)
 }
 
-/// Decodes one filter stage, saying which of [`FilterRefusal`]'s three answers a failure is.
+/// Decodes one filter stage, saying which of [`FilterRefusal`]'s four answers a failure is.
 ///
 /// # Errors
 ///
-/// [`FilterRefusal`], whose variants are the three reasons.
+/// [`FilterRefusal`], whose variants are the four reasons.
 pub fn decode_reported(
     filter: &[u8],
     data: &[u8],
@@ -570,7 +691,7 @@ pub fn decode_reported(
 ) -> Result<Decoded, FilterRefusal> {
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
-        b"LZWDecode" | b"LZW" => lzw(data, early_change(parms), limits),
+        b"LZWDecode" | b"LZW" => lzw(data, early_change(parms)?, limits),
         b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex(data)),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
@@ -1226,12 +1347,16 @@ pub enum Stage {
 /// since §7.4.4.4 reverses each row against its predecessor and that is not a transformation a
 /// few thousand bytes at a time can apply; `Document::filtered_extent` does not care, because a
 /// predictor runs over a stage's *output* and so moves no byte of its input.
+///
+/// `None` as well for an `LZWDecode` whose `/EarlyChange` Table 8 does not admit, which the whole
+/// decode refuses by name ([`FilterRefusal::Parameter`]); a window over it would decode the bits
+/// at a guessed width.
 #[must_use]
 pub fn stage(filter: &[u8], parms: Option<&Dictionary>) -> Option<Stage> {
     Some(match filter {
         b"FlateDecode" | b"Fl" => Stage::Inflate,
         b"LZWDecode" | b"LZW" => Stage::Lzw {
-            early_change: early_change(parms),
+            early_change: early_change(parms).ok()?,
         },
         b"ASCIIHexDecode" | b"AHx" => Stage::AsciiHex,
         b"ASCII85Decode" | b"A85" => Stage::Ascii85,
@@ -1246,12 +1371,16 @@ pub fn stage(filter: &[u8], parms: Option<&Dictionary>) -> Option<Stage> {
 /// Zero postpones a code-length increase as long as possible and one takes it a code early; the
 /// default is one, which is the *incorrect* behaviour of a widely-copied encoder and is
 /// therefore what almost every file needs.
-fn early_change(parms: Option<&Dictionary>) -> bool {
-    parms
-        .and_then(|parms| parms.get("EarlyChange"))
-        .and_then(Object::as_integer)
-        .unwrap_or(1)
-        != 0
+///
+/// Table 8 gives the entry two values and their meanings, 0 and 1, and no third, so any other
+/// value, or a value that is not an integer, is refused by name rather than read as the default
+/// (ADR 3273): the two settings decode the same bits to different data.
+fn early_change(parms: Option<&Dictionary>) -> Result<bool, FilterRefusal> {
+    match parms.map_or(Ok(1), |parms| table_8_integer(parms, "EarlyChange", 1))? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(FilterRefusal::Parameter { key: "EarlyChange" }),
+    }
 }
 
 /// The chain of stages a [`Pump`] runs, in Table 5's application order — ISO 32000-2 §7.3.8.2:

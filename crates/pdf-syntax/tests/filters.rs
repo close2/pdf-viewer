@@ -16,7 +16,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_syntax::Document;
+use pdf_syntax::{Document, FilterRefusal, MalformedChain, StreamRefusal};
 
 /// A one-page document whose object 4 is a stream with the given dictionary entries and data.
 fn document_with_stream(entries: &str, data: &[u8]) -> Document {
@@ -122,6 +122,114 @@ fn each_stage_takes_its_own_entry_of_a_decodeparms_array() {
         decoded(&document),
         vec![10, 20, 30, 40, 11, 21, 31, 41],
         "the predictor belongs to the second filter and is undone inside the decode"
+    );
+}
+
+/// Object 4's decode, refused or not, as `decoded_stream_data_reported` answers it.
+fn reported(document: &Document) -> Result<Vec<u8>, StreamRefusal> {
+    let object = document.get(pdf_syntax::ObjectId {
+        number: 4,
+        generation: 0,
+    });
+    let stream = object.as_stream().expect("object 4 is a stream").clone();
+    document
+        .decoded_stream_data_reported(&stream)
+        .map(|decoded| decoded.data.to_vec())
+}
+
+/// ISO 32000-2 Table 8: an entry of a type or a value the table does not admit is refused by
+/// name, never read as its default (ADR 3273).
+///
+/// `/Predictor` is an integer from Table 10 (1, 2, 10 to 15); `/Colors` is "1 or greater";
+/// `/BitsPerComponent`'s "Valid values are 1, 2, 4, 8, and (PDF 1.5) 16"; `/Columns` is a number
+/// of samples in a row; `/EarlyChange` is 0 or 1. The control states each in the table's form.
+#[test]
+fn a_table_8_entry_the_table_does_not_admit_is_refused_by_name() {
+    let rows: Vec<u8> = vec![2, 10, 20, 30, 40, 2, 1, 1, 1, 1];
+    let encoded = deflate(&rows);
+    let control = document_with_stream(
+        "/Filter /FlateDecode \
+         /DecodeParms << /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 4 >>",
+        &encoded,
+    );
+    assert_eq!(reported(&control), Ok(vec![10, 20, 30, 40, 11, 21, 31, 41]));
+
+    for (parms, key) in [
+        ("/Predictor 12.0 /Columns 4", "Predictor"),
+        ("/Predictor 3 /Columns 4", "Predictor"),
+        ("/Predictor 0", "Predictor"),
+        ("/Predictor 12 /Colors -1 /Columns 4", "Colors"),
+        ("/Predictor 12 /Colors 1.0 /Columns 4", "Colors"),
+        (
+            "/Predictor 12 /BitsPerComponent -8 /Columns 4",
+            "BitsPerComponent",
+        ),
+        ("/Predictor 12 /Columns 0", "Columns"),
+        ("/Predictor 12 /Columns /Four", "Columns"),
+    ] {
+        let document = document_with_stream(
+            &format!("/Filter /FlateDecode /DecodeParms << {parms} >>"),
+            &encoded,
+        );
+        assert_eq!(
+            reported(&document),
+            Err(StreamRefusal::Filter {
+                name: "FlateDecode".to_owned(),
+                why: FilterRefusal::Parameter { key },
+            }),
+            "{parms}"
+        );
+    }
+
+    // `/EarlyChange` is `LZWDecode`'s; the data is never reached, so any bytes will do.
+    let lzw = document_with_stream(
+        "/Filter /LZWDecode /DecodeParms << /EarlyChange 2 >>",
+        b"\x80",
+    );
+    assert_eq!(
+        reported(&lzw),
+        Err(StreamRefusal::Filter {
+            name: "LZWDecode".to_owned(),
+            why: FilterRefusal::Parameter { key: "EarlyChange" },
+        })
+    );
+}
+
+/// ISO 32000-2 Table 5: one `/DecodeParms` dictionary over a longer chain belongs to the one
+/// filter Table 6 gives parameters, and is refused where two or more take them (ADR 3274).
+///
+/// "If there are multiple filters and any of the filters has parameters set to nondefault
+/// values, `DecodeParms` shall be an array", so the single dictionary is malformed and its reading
+/// is this reader's: in `[/ASCII85Decode /FlateDecode]` only `FlateDecode` can take it, and in
+/// `[/FlateDecode /FlateDecode]` the file has not said which stage it is.
+#[test]
+fn one_parameter_dictionary_over_a_chain_belongs_to_the_one_filter_that_takes_parameters() {
+    let rows: Vec<u8> = vec![2, 10, 20, 30, 40, 2, 1, 1, 1, 1];
+    let parms = "/DecodeParms << /Predictor 12 /Columns 4 >>";
+    let owned = document_with_stream(
+        &format!("/Filter [/ASCII85Decode /FlateDecode] {parms}"),
+        &ascii85(&deflate(&rows)),
+    );
+    assert_eq!(reported(&owned), Ok(vec![10, 20, 30, 40, 11, 21, 31, 41]));
+
+    let shared = document_with_stream(
+        &format!("/Filter [/FlateDecode /FlateDecode] {parms}"),
+        &deflate(&deflate(&rows)),
+    );
+    assert_eq!(
+        reported(&shared),
+        Err(StreamRefusal::Chain(MalformedChain::SharedParms))
+    );
+
+    let entry = document_with_stream(
+        "/Filter [/ASCII85Decode /FlateDecode] /DecodeParms [null 12]",
+        &ascii85(&deflate(&rows)),
+    );
+    assert_eq!(
+        reported(&entry),
+        Err(StreamRefusal::Chain(MalformedChain::ParmsEntry {
+            index: 1
+        }))
     );
 }
 

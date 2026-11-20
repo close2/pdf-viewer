@@ -53,7 +53,10 @@ impl Document {
         stream: &Stream,
         limits: Limits,
     ) -> Result<Decoded, StreamRefusal> {
-        self.decoded_chain(stream, self.chain_with_parms(&stream.dict), limits)
+        let chain = self
+            .stated_chain(&stream.dict)
+            .map_err(StreamRefusal::Chain)?;
+        self.decoded_chain(stream, chain, limits)
     }
 
     /// The same again, over a chain the caller has already read out of the dictionary.
@@ -81,21 +84,6 @@ impl Document {
         }
 
         self.chain_over(&stream.data, chain, limits)
-    }
-
-    /// §7.4's chain over one stream dictionary, each filter beside its own `/DecodeParms`.
-    ///
-    /// **Half of what identifies a decode**, the other half being the bytes — see
-    /// [`super::cache::DecodedEntry::chain`] — so it is built in one place and the memo's key and the work
-    /// the memo remembers come from the same call. The parameters are read here rather than
-    /// inside [`Self::chain_over`]'s loop for that reason: an entry has to be keyed on all of
-    /// what produced it, and `decode_parms` was already called once per filter either way.
-    fn chain_with_parms(&self, dict: &Dictionary) -> Vec<(Vec<u8>, Option<Dictionary>)> {
-        self.filter_chain(dict)
-            .into_iter()
-            .enumerate()
-            .map(|(index, filter)| (filter, self.decode_parms(dict, index)))
-            .collect()
     }
 
     /// Runs one filter chain over one buffer, through [`super::cache::DecodedStreams`].
@@ -206,14 +194,12 @@ impl Document {
                 .is_some_and(|length| length == 0)
     }
 
-    /// Returns the `/DecodeParms` entry for the filter at `index`.
+    /// §7.4's chain as Table 5 states it: each filter beside its own `/DecodeParms`, every
+    /// indirect value resolved.
     ///
-    /// The key may hold a single dictionary or an array with one entry per filter, and
-    /// either may be indirect.
-    ///
-    /// **So may every value inside the dictionary**, and it is resolved here, once, so that no
-    /// filter reads a `/Predictor` or a `/Columns` with a bare `get` and takes a reference for
-    /// an absent entry. ISO 32000-2 §7.3.10:
+    /// **So may every value inside a parameter dictionary be indirect**, and it is resolved here,
+    /// once, so that no filter reads a `/Predictor` or a `/Columns` with a bare `get` and takes a
+    /// reference for an absent entry. ISO 32000-2 §7.3.10:
     ///
     /// > Except where documented to the contrary, any object value may be a direct or an
     /// > indirect reference; the semantics are equivalent.
@@ -221,16 +207,35 @@ impl Document {
     /// A value that resolves to a stream (Table 12's `/JBIG2Globals`) stays the reference it
     /// was, because a stream is only ever read through [`Self::get_key`], which resolves it, and
     /// copying its dictionary into every stage's parameters would buy nothing.
-    pub(crate) fn decode_parms(&self, dict: &Dictionary, index: usize) -> Option<Dictionary> {
-        let parms = match self.get_key(dict, "DecodeParms") {
-            Object::Dictionary(parms) => parms,
-            Object::Array(items) => items
-                .get(index)
-                .map(|item| self.resolve(item))
-                .and_then(|item| item.as_dict().cloned())?,
-            _ => return None,
-        };
-        Some(self.with_values_resolved(parms))
+    ///
+    /// **Half of what identifies a decode**, the other half being the bytes — see
+    /// [`super::cache::DecodedEntry::chain`] — so it is built in one place and the memo's key and
+    /// the work the memo remembers come from the same call: an entry has to be keyed on all of
+    /// what produced it.
+    ///
+    /// # Errors
+    ///
+    /// [`MalformedChain`] where `/Filter` or `/DecodeParms` is stated in a form Table 5 does not
+    /// admit — see [`chain_of`].
+    pub(crate) fn stated_chain(&self, dict: &Dictionary) -> Result<Chain, MalformedChain> {
+        let chain = chain_of(
+            &self.get_key(dict, "Filter"),
+            &self.get_key(dict, "DecodeParms"),
+            |object| self.resolve(object),
+        )?;
+        Ok(chain
+            .into_iter()
+            .map(|(filter, parms)| (filter, parms.map(|parms| self.with_values_resolved(parms))))
+            .collect())
+    }
+
+    /// The filter names alone, in application order, as [`Self::stated_chain`] reads them.
+    ///
+    /// # Errors
+    ///
+    /// [`MalformedChain`], as there.
+    pub(crate) fn filter_chain(&self, dict: &Dictionary) -> Result<Vec<Vec<u8>>, MalformedChain> {
+        filter_names(&self.get_key(dict, "Filter"), |object| self.resolve(object))
     }
 
     /// `parms` with each indirect value replaced by the object it names, streams excepted.
@@ -247,18 +252,128 @@ impl Document {
         }
         parms
     }
+}
 
-    /// Returns the filter names for a stream, in application order.
-    pub(crate) fn filter_chain(&self, dict: &Dictionary) -> Vec<Vec<u8>> {
-        let filter = self.get_key(dict, "Filter");
-        match filter {
-            Object::Name(name) => vec![name.as_bytes().to_vec()],
-            Object::Array(items) => items
-                .iter()
-                .map(|item| self.resolve(item))
-                .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-                .collect(),
-            _ => Vec::new(),
-        }
+/// §7.4's chain as Table 5 states it: each filter's name beside its own parameter dictionary, in
+/// application order.
+pub(crate) type Chain = Vec<(Vec<u8>, Option<Dictionary>)>;
+
+/// How a stream's `/Filter` or `/DecodeParms` fails to state a chain in Table 5's form.
+///
+/// ISO 32000-2 §7.3.8.2, Table 5: `/Filter` is "\[t]he name, or an array of zero, one or several
+/// names, of filter(s) that shall be applied", and `/DecodeParms` is "\[a] parameter dictionary or
+/// an array of such dictionaries, used by the filters specified by Filter, respectively", whose
+/// array holds "either the parameter dictionary for that filter, or the null object". A chain
+/// stated otherwise names no decode a reader can run as stated, and running what is left of it —
+/// a chain with an element dropped, or no chain at all — hands back bytes the file did not state
+/// as a whole decode (trap 5). So it is refused, by what is wrong with it. ADR 3274.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MalformedChain {
+    /// `/Filter` is present and is neither a name nor an array.
+    Filter,
+    /// The `/Filter` array's element at `index` is not a name.
+    FilterEntry {
+        /// Its position in the array, from zero.
+        index: usize,
+    },
+    /// `/DecodeParms` is present and is neither a dictionary, an array nor `null`.
+    Parms,
+    /// The `/DecodeParms` array's element at `index` is neither a dictionary nor `null`.
+    ParmsEntry {
+        /// Its position in the array, from zero.
+        index: usize,
+    },
+    /// One `/DecodeParms` dictionary for a chain in which more than one filter takes parameters.
+    ///
+    /// Table 5: "If there are multiple filters and any of the filters has parameters set to
+    /// nondefault values, `DecodeParms` shall be an array with one entry for each filter". Where
+    /// only one filter of the chain takes parameters at all (Table 6's Parameters column), the
+    /// dictionary can parameterise that filter and no other, and is read as its own; where two
+    /// or more do, the file has not said which it is, and either answer would be a guess.
+    SharedParms,
+}
+
+/// The filter names of a `/Filter` value, each element resolved by `resolve`.
+///
+/// # Errors
+///
+/// [`MalformedChain::Filter`] or [`MalformedChain::FilterEntry`].
+pub(crate) fn filter_names(
+    filter: &Object,
+    resolve: impl Fn(&Object) -> Object,
+) -> Result<Vec<Vec<u8>>, MalformedChain> {
+    match filter {
+        // §7.3.9: a null value is the entry omitted, and an omitted `/Filter` is no filter.
+        Object::Null => Ok(Vec::new()),
+        Object::Name(name) => Ok(vec![name.as_bytes().to_vec()]),
+        Object::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| match resolve(item) {
+                Object::Name(name) => Ok(name.as_bytes().to_vec()),
+                _ => Err(MalformedChain::FilterEntry { index }),
+            })
+            .collect(),
+        _ => Err(MalformedChain::Filter),
     }
+}
+
+/// §7.4's chain of a `/Filter` and a `/DecodeParms` value, each filter beside the parameter
+/// dictionary Table 5 gives it, elements resolved by `resolve`.
+///
+/// A `/DecodeParms` array shorter than the chain leaves the stages past its end their defaults,
+/// as a `null` entry does. A single dictionary is the one filter's for a one-filter chain; for a
+/// longer chain it is the dictionary of the one filter Table 6 gives parameters
+/// ([`crate::filter::takes_parameters`]) and of no other, and refused where more than one takes
+/// them ([`MalformedChain::SharedParms`], ADR 3274).
+///
+/// The cross-reference stream's route (§7.5.8.2's direct-only values) passes a `resolve` that
+/// resolves nothing, so an indirect element there is not the name or dictionary it would have to
+/// be.
+///
+/// # Errors
+///
+/// [`MalformedChain`], naming what Table 5 does not admit.
+pub(crate) fn chain_of(
+    filter: &Object,
+    parms: &Object,
+    resolve: impl Fn(&Object) -> Object,
+) -> Result<Chain, MalformedChain> {
+    let filters = filter_names(filter, &resolve)?;
+    let parms: Vec<Option<Dictionary>> = match parms {
+        Object::Null => Vec::new(),
+        Object::Dictionary(shared) => {
+            let mut taking = filters
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| crate::filter::takes_parameters(name))
+                .map(|(index, _)| index);
+            let owner = if filters.len() == 1 {
+                Some(0)
+            } else {
+                match (taking.next(), taking.next()) {
+                    (owner, None) => owner,
+                    (_, Some(_)) => return Err(MalformedChain::SharedParms),
+                }
+            };
+            (0..filters.len())
+                .map(|index| (Some(index) == owner).then(|| shared.clone()))
+                .collect()
+        }
+        Object::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| match resolve(item) {
+                Object::Null => Ok(None),
+                Object::Dictionary(entry) => Ok(Some(entry)),
+                _ => Err(MalformedChain::ParmsEntry { index }),
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err(MalformedChain::Parms),
+    };
+    Ok(filters
+        .into_iter()
+        .enumerate()
+        .map(|(index, filter)| (filter, parms.get(index).cloned().flatten()))
+        .collect())
 }

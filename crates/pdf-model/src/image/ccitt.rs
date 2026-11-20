@@ -169,23 +169,42 @@ pub(super) fn ccitt_bilevel(
     (width, height): (u32, u32),
 ) -> Result<(pdf_sandbox::Bilevel, u32), ImageError> {
     let parms = source.parms.as_ref();
-    let integer = |key: &str, default: i64| -> i64 {
-        parms
-            .map(|parms| document.get_key(parms, key))
-            .and_then(|value| value.as_integer())
-            .unwrap_or(default)
+    let entry = |key: &str| match parms.map(|parms| document.get_key(parms, key)) {
+        None | Some(Object::Null) => None,
+        Some(value) => Some(value),
     };
-    let flag = |key: &str, default: bool| -> bool {
-        match parms.map(|parms| document.get_key(parms, key)) {
-            Some(Object::Boolean(value)) => value,
-            _ => default,
+    // Table 11's entries are read by ADR 3273's rule, the one Table 8's are: absent or `null`
+    // is the table's default, and a present value of a type or range the table does not admit
+    // is refused by name rather than read as the default, because each of them decides what
+    // the encoded bits decode to and the default is a statement the file did not make (trap 5).
+    let refused = |key: &str, why: &str| ImageError::Malformed {
+        detail: format!("CCITTFaxDecode /{key} {why}, which Table 11 does not admit"),
+    };
+    let integer = |key: &str, default: i64| -> Result<i64, ImageError> {
+        match entry(key) {
+            None => Ok(default),
+            Some(Object::Integer(value)) => Ok(value),
+            Some(_) => Err(refused(key, "is not an integer")),
         }
     };
-
-    let damaged_rows =
-        u32::try_from(integer("DamagedRowsBeforeError", 0).max(0)).unwrap_or(u32::MAX);
-    let k = integer("K", 0);
-    let end_of_line = flag("EndOfLine", false);
+    let flag = |key: &str, default: bool| -> Result<bool, ImageError> {
+        match entry(key) {
+            None => Ok(default),
+            Some(Object::Boolean(value)) => Ok(value),
+            Some(_) => Err(refused(key, "is not a boolean")),
+        }
+    };
+    // A number of rows, which is not negative; one past `u32` tolerates more rows than any
+    // image has, as `u32::MAX` does.
+    let damaged_rows = match integer("DamagedRowsBeforeError", 0)? {
+        rows if rows < 0 => return Err(refused("DamagedRowsBeforeError", "is negative")),
+        rows => u32::try_from(rows).unwrap_or(u32::MAX),
+    };
+    // Table 11: the filter "shall distinguish among negative, zero, and positive values of K
+    // to determine how to interpret the encoded data; however, it shall not distinguish between
+    // different positive K values". So `/K` travels as its sign, which no `i32` overflows.
+    let k = integer("K", 0)?.signum();
+    let end_of_line = flag("EndOfLine", false)?;
 
     // §7.4.6 Table 11 defines `/Columns` and then says what the filter does with it:
     //
@@ -203,7 +222,8 @@ pub(super) fn ccitt_bilevel(
     // Anything wider than the padding *is* a disagreement, because then the runs are for a line
     // this image is not and §7.3.8.2's "[a]ll of these constraints shall be consistent" has been
     // broken in a way that shifts every sample after the first run. That stays a refusal.
-    let columns = u32::try_from(integer("Columns", 1728)).unwrap_or(0);
+    let columns = u32::try_from(integer("Columns", 1728)?)
+        .map_err(|_| refused("Columns", "is not a width in pixels"))?;
     let padded = width.checked_next_multiple_of(8).unwrap_or(width);
     if columns != width && columns != padded {
         return Err(ImageError::Malformed {
@@ -211,17 +231,23 @@ pub(super) fn ccitt_bilevel(
         });
     }
 
-    let end_of_block = flag("EndOfBlock", true);
-    let stated_rows = u32::try_from(integer("Rows", 0)).unwrap_or(0);
+    let end_of_block = flag("EndOfBlock", true)?;
+    // "The height of the image in scan lines", 0 meaning not predetermined; a negative
+    // height is no number of lines.
+    let stated_rows = u32::try_from(integer("Rows", 0)?)
+        .map_err(|_| refused("Rows", "is not a number of scan lines"))?;
+    let encoded_byte_align = flag("EncodedByteAlign", false)?;
+    let black_is_1 = flag("BlackIs1", false)?;
     let parameters = pdf_sandbox::CcittParameters {
-        k: i32::try_from(k).unwrap_or(0),
+        // Infallible: `k` is a sign, -1, 0 or 1, which every `i32` holds.
+        k: i32::try_from(k).unwrap_or_default(),
         columns,
         rows: ccitt_rows(stated_rows, end_of_block, height),
         height,
         end_of_line,
-        encoded_byte_align: flag("EncodedByteAlign", false),
+        encoded_byte_align,
         end_of_block,
-        black_is_1: flag("BlackIs1", false),
+        black_is_1,
         damaged_rows_before_error: damaged_rows,
     };
 

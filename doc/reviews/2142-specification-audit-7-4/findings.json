@@ -11,7 +11,7 @@
   "code": "crates/pdf-syntax/src/document/decoding.rs:252 (filter_chain); read by chain_with_parms, Document::pumping (sources.rs) and image_stream (images.rs)",
   "change": "Refuse a chain with an element that is not a name (or a /Filter of another type) by name, rather than decoding the stages that remain.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_filter_entry_that_is_not_a_name_is_not_skipped_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3274; Document::stated_chain refuses a /Filter element that is not a name, and a /Filter neither name nor array, as StreamRefusal::Chain)"
  },
  {
   "id": "2142-B02",
@@ -40,7 +40,7 @@
   "code": "crates/pdf-syntax/src/filter.rs:219-240 (decode_with_parms_reported), :1249 (early_change); crates/pdf-model/src/image/ccitt.rs:172-184 (integer, flag)",
   "change": "Decide once what a present but invalid parameter is (refused, or reported as damage) and apply it to every Table 8 and Table 11 entry; never read it as absent.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_predictor_that_is_not_an_integer_is_not_read_as_no_predictor_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3273; filter::prediction reads every Table 8 entry once and refuses one of the wrong type or range as FilterRefusal::Parameter; ccitt_bilevel refuses Table 11 entries by name)"
  },
  {
   "id": "2142-B04",
@@ -54,7 +54,7 @@
   "code": "crates/pdf-syntax/src/filter.rs:263 (apply_predictor's PNG arm; tiff_predictor at :448 checks the depth)",
   "change": "Refuse a PNG predictor at a depth outside Table 8, as tiff_predictor does.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_png_predictor_refuses_a_depth_table_8_does_not_list_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3273; /BitsPerComponent outside 1, 2, 4, 8, 16 is refused for both predictor groups)"
  },
  {
   "id": "2142-B05",
@@ -69,7 +69,7 @@
   "code": "crates/pdf-syntax/src/filter.rs:208 (decode_with_parms_reported applies the predictor without asking the filter)",
   "change": "Apply a predictor only after LZWDecode and FlateDecode.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_predictor_is_not_applied_after_a_filter_that_takes_no_parameters_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3273; a predictor belongs to LZWDecode and FlateDecode alone)"
  },
  {
   "id": "2142-B06",
@@ -111,7 +111,7 @@
   "source": "ISO 32000-2 Table 5 /DecodeParms: \"If there are multiple filters and any of the filters has parameters set to nondefault values, DecodeParms shall be an array with one entry for each filter in the same order as the Filter array\"",
   "code": "crates/pdf-syntax/src/document/decoding.rs:224 (decode_parms); crates/pdf-syntax/src/xref.rs:1926 (parms_for)",
   "change": "Document the choice (or refuse the chain) in decode_parms and ledger 7.4.1.",
-  "status": "open"
+  "status": "fixed (ADR 3274; one /DecodeParms dictionary over a longer chain is the one parameter-taking filter's, and refused where two or more take parameters)"
  },
  {
   "id": "2142-D02",

@@ -382,11 +382,15 @@ impl Document {
 
         // §7.6.6: the `/Crypt` filter's own `/DecodeParms` names the filter to use, "if
         // missing, Identity is used".
-        let filters = self.filter_chain(dict);
-        if let Some(index) = filters.iter().position(|name| name == b"Crypt") {
-            let named = self
-                .decode_parms(dict, index)
-                .and_then(|parms| self.get_key(&parms, "Name").as_name().cloned());
+        //
+        // A chain Table 5 does not admit names no `/Crypt` stage here, and every decode of the
+        // stream refuses it by name (`StreamRefusal::Chain`, ADR 3274), so which method the
+        // bytes are decrypted under decides nothing a reader is given.
+        let chain = self.stated_chain(dict).unwrap_or_default();
+        if let Some((_, parms)) = chain.iter().find(|(name, _)| name == b"Crypt") {
+            let named = parms
+                .as_ref()
+                .and_then(|parms| self.get_key(parms, "Name").as_name().cloned());
             return named.map_or(StreamFilter::Method(Method::Identity), StreamFilter::Named);
         }
 

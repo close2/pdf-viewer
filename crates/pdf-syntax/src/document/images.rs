@@ -31,18 +31,17 @@ impl Document {
         if stream.decryption_failed || Self::is_external(stream) {
             return None;
         }
-        let filters = self.filter_chain(&stream.dict);
+        // A chain Table 5 does not admit is refused here as `decoded_under` refuses it (ADR 3274).
+        let mut chain = self.stated_chain(&stream.dict).ok()?;
+        let filters: Vec<Vec<u8>> = chain.iter().map(|(filter, _)| filter.clone()).collect();
         let codec_at = Self::codec_position(&filters);
+        let codec = codec_at.and_then(|index| chain.get(index).cloned());
 
         // The chain in front of the codec, with each stage's own parameters, which is what
         // identifies this decode to the memo — the same construction `decoded_under` makes,
         // over a prefix rather than over the whole of `/Filter`.
-        let prefix: Vec<(Vec<u8>, Option<Dictionary>)> = filters
-            .iter()
-            .enumerate()
-            .take(codec_at.unwrap_or(filters.len()))
-            .map(|(index, filter)| (filter.clone(), self.decode_parms(&stream.dict, index)))
-            .collect();
+        chain.truncate(codec_at.unwrap_or(filters.len()));
+        let prefix: Vec<(Vec<u8>, Option<Dictionary>)> = chain;
         // An empty chain is not memoised, for the reason `decoded_under` returns early on one:
         // there is nothing to remember, and an entry holding a second `Arc` to the bytes it is
         // keyed by would charge the budget twice for a decode that never ran.
@@ -54,11 +53,8 @@ impl Document {
                 .data
         };
 
-        Some(ImageStream {
-            codec: codec_at.and_then(|index| filters.get(index).cloned()),
-            parms: codec_at.and_then(|index| self.decode_parms(&stream.dict, index)),
-            data,
-        })
+        let (codec, parms) = codec.map_or((None, None), |(codec, parms)| (Some(codec), parms));
+        Some(ImageStream { codec, parms, data })
     }
 
     /// Which image codec this stream's `/Filter` ends in, decoding nothing.
@@ -69,10 +65,11 @@ impl Document {
     /// the decode, which is Table 5 read rather than run.
     ///
     /// `None` for a stream whose chain is empty or does not end in one of §7.4's image codecs, in
-    /// which case the decoded bytes *are* the samples.
+    /// which case the decoded bytes *are* the samples — and for a chain Table 5 does not admit,
+    /// which every decode of the stream refuses (ADR 3274), so no report this asks before is owed.
     #[must_use]
     pub fn image_codec(&self, stream: &Stream) -> Option<Vec<u8>> {
-        let filters = self.filter_chain(&stream.dict);
+        let filters = self.filter_chain(&stream.dict).ok()?;
         Self::codec_position(&filters).and_then(|index| filters.get(index).cloned())
     }
 

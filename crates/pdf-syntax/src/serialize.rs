@@ -1940,7 +1940,8 @@ fn recompressed(
     {
         return None;
     }
-    let chain = document.filter_chain(&source.dict);
+    // A chain Table 5 does not admit is carried as its producer wrote it (ADR 3274).
+    let chain = document.stated_chain(&source.dict).ok()?;
     // What survives of `/Filter` and `/DecodeParms` is taken out of the *renumbered* dictionary
     // rather than rebuilt from the source's, because a parameter may name another object —
     // `/JBIG2Globals` is the standing example — and the source's number is not the output's.
@@ -1956,7 +1957,7 @@ fn recompressed(
     let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&source.data);
     let mut stop = chain.len();
     let limits = document.limits();
-    for (index, filter) in chain.iter().enumerate() {
+    for (index, (filter, stage_parms)) in chain.iter().enumerate() {
         if crate::filter::is_image_codec(filter) {
             stop = index;
             break;
@@ -1964,13 +1965,9 @@ fn recompressed(
         if filter.as_slice() == b"Crypt" {
             return None;
         }
-        let stage = crate::filter::decode_with_parms_reported(
-            filter,
-            &data,
-            document.decode_parms(&source.dict, index).as_ref(),
-            limits,
-        )
-        .ok()?;
+        let stage =
+            crate::filter::decode_with_parms_reported(filter, &data, stage_parms.as_ref(), limits)
+                .ok()?;
         if stage.damage.is_some() {
             return None;
         }

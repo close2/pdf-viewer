@@ -417,6 +417,41 @@ fn damaged_rows_is_inert_where_end_of_line_is_false() {
     );
 }
 
+/// A Table 11 entry of a type or range the table does not admit is refused by name, never read as
+/// its default (ADR 3273).
+///
+/// ISO 32000-2 §7.4.6 Table 11 types `/BlackIs1`, `/EndOfBlock`, `/EndOfLine` and
+/// `/EncodedByteAlign` boolean and `/K`, `/Rows` and `/DamagedRowsBeforeError` integer, and each
+/// decides what the encoded bits decode to: `/BlackIs1 1` read as its default `false` would draw
+/// the complement of what the producer meant, without a word (trap 5). The control is the same
+/// page with every entry stated in the table's own types, which decodes.
+#[test]
+fn a_table_11_entry_of_the_wrong_type_is_refused_by_name() {
+    let (_, said) = interpret(page_with_ccitt_image(
+        "/K 0 /Columns 8 /BlackIs1 false /EndOfBlock true",
+        &FOUR_BLACK_LINES,
+    ));
+    assert!(said.is_empty(), "control: {said:?}");
+    for (parms, key) in [
+        ("/K 0 /Columns 8 /BlackIs1 1", "/BlackIs1"),
+        ("/K 0 /Columns 8 /EndOfBlock /true", "/EndOfBlock"),
+        ("/K 0 /Columns 8 /EndOfLine (true)", "/EndOfLine"),
+        ("/K 0 /Columns 8 /EncodedByteAlign 0", "/EncodedByteAlign"),
+        ("/K 0.0 /Columns 8", "/K"),
+        ("/K 0 /Columns 8 /Rows -4", "/Rows"),
+        (
+            "/K 0 /Columns 8 /DamagedRowsBeforeError -1",
+            "/DamagedRowsBeforeError",
+        ),
+    ] {
+        let (_, said) = interpret(page_with_ccitt_image(parms, &FOUR_BLACK_LINES));
+        assert!(
+            said.iter().any(|report| report.contains(key)),
+            "{parms}: the refusal should name {key}, and said {said:?}"
+        );
+    }
+}
+
 /// Four scan lines of eight pels, Group 3 one-dimensional with an end-of-line code before each,
 /// the third damaged: black, white, eight zero bits (which begin no T.4 codeword and are not an
 /// end-of-line code, which needs eleven), black.

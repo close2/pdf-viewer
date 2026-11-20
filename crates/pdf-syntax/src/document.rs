@@ -39,6 +39,8 @@ mod sources;
 
 pub use cache::DecodedStreamCache;
 use cache::DecodedStreams;
+pub use decoding::MalformedChain;
+pub(crate) use decoding::chain_of;
 use encryption::EmbeddedFileStreams;
 pub use encryption::StreamRole;
 pub(crate) use encryption::is_signature_dictionary;
@@ -473,6 +475,9 @@ pub enum StreamRefusal {
     DecryptionFailed,
     /// §7.3.8.1's external file, which the renderer has no filesystem to open (principle 3).
     External,
+    /// Table 5's `/Filter` or `/DecodeParms` states no chain in a form the table admits, so no
+    /// filter was run. ADR 3274.
+    Chain(MalformedChain),
     /// A filter in the chain refused.
     Filter {
         /// Which filter, as the file names it.

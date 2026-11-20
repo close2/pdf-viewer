@@ -1906,34 +1906,21 @@ impl Entry {
 /// Used for cross-reference streams, where indirect values cannot be resolved because the
 /// table being built is what resolving needs.
 fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::sync::Arc<[u8]>> {
-    let filters: Vec<Vec<u8>> = match stream.dict.get("Filter") {
-        None => Vec::new(),
-        Some(Object::Name(name)) => vec![name.as_bytes().to_vec()],
-        Some(Object::Array(items)) => items
-            .iter()
-            .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-            .collect(),
-        // An indirect `/Filter` in a cross-reference stream is malformed for the reason
-        // above; there is no safe way to proceed.
-        Some(_) => return None,
-    };
-
-    if filters.is_empty() {
-        return Some(std::sync::Arc::clone(&stream.data));
-    }
-
-    // `/DecodeParms` may be a single dictionary or one per filter.
-    let parms_for = |index: usize| -> Option<Dictionary> {
-        match stream.dict.get("DecodeParms") {
-            Some(Object::Dictionary(dict)) => Some(dict.clone()),
-            Some(Object::Array(items)) => items.get(index).and_then(Object::as_dict).cloned(),
-            _ => None,
-        }
-    };
+    // §7.5.8.2: `/Filter` and `/DecodeParms` "shall also be direct objects", so nothing is
+    // resolved — an indirect value here is not the name or dictionary Table 5 needs, and the
+    // chain is read by the same rule every other stream's is (ADR 3274), a malformed one
+    // refused rather than decoded in part.
+    let filter = stream.dict.get("Filter").cloned().unwrap_or(Object::Null);
+    let parms = stream
+        .dict
+        .get("DecodeParms")
+        .cloned()
+        .unwrap_or(Object::Null);
+    let chain = crate::document::chain_of(&filter, &parms, Object::clone).ok()?;
 
     let mut data = std::sync::Arc::clone(&stream.data);
-    for (index, filter) in filters.iter().enumerate() {
-        data = crate::filter::decode_with_parms(filter, &data, parms_for(index).as_ref(), limits)?;
+    for (filter, parms) in &chain {
+        data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), limits)?;
     }
     Some(data)
 }

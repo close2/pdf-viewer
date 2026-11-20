@@ -130,7 +130,11 @@ fn inflate(stream: &[u8], length: u32) -> Result<Vec<u8>, String> {
             FilterRefusal::TooLarge { .. } => {
                 "its SWF file's zlib stream inflates past the length its header states".to_owned()
             }
-            FilterRefusal::Corrupt | FilterRefusal::Unsupported => {
+            // `Parameter` cannot answer a decode given no parameters; it is named rather than
+            // matched by a wildcard so that a fifth refusal is a compile error here.
+            FilterRefusal::Corrupt
+            | FilterRefusal::Unsupported
+            | FilterRefusal::Parameter { .. } => {
                 "its SWF file's body is not a zlib stream".to_owned()
             }
         })?;

@@ -227,18 +227,17 @@ impl Document {
         if self.states_no_data(stream) {
             return None;
         }
-        let filters = self.filter_chain(&stream.dict);
-        let mut stages = Vec::with_capacity(filters.len());
-        let mut chain = Vec::with_capacity(filters.len());
-        for (index, filter) in filters.into_iter().enumerate() {
-            // The stage's own parameters, read exactly as `decoded_stream_data_reported` reads
-            // them, so that the two routes cannot disagree about what the stream says.
-            let parms = self.decode_parms(&stream.dict, index);
-            let predicted = parms
-                .as_ref()
-                .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
-                .is_some_and(|predictor| predictor > 1);
-            if predicted {
+        // The chain read exactly as `decoded_stream_data_reported` reads it, so that the two
+        // routes cannot disagree about what the stream says; a chain Table 5 does not admit
+        // pumps nothing, and the whole route refuses it by name.
+        let stated = self.stated_chain(&stream.dict).ok()?;
+        let mut stages = Vec::with_capacity(stated.len());
+        let mut chain = Vec::with_capacity(stated.len());
+        for (filter, parms) in stated {
+            // A predicted stage pumps nothing, and neither does one whose Table 8 parameters
+            // are refused: the whole route refuses it by name, and a window would decode it as
+            // though the refused entry were absent (ADR 3273).
+            if crate::filter::prediction(&filter, parms.as_ref()) != Ok(None) {
                 return None;
             }
             stages.push(crate::filter::stage(&filter, parms.as_ref())?);
@@ -284,11 +283,13 @@ impl Document {
     /// [`crate::Delimiting`]'s.
     #[must_use]
     pub fn filtered_extent(&self, dict: &Dictionary, data: &[u8]) -> EncodedExtent {
-        let chain = self.filter_chain(dict);
-        let Some(first) = chain.first() else {
+        // A chain Table 5 does not admit has no first filter a reader can name (ADR 3274).
+        let Ok(chain) = self.stated_chain(dict) else {
             return EncodedExtent::Unknown;
         };
-        let parms = self.decode_parms(dict, 0);
+        let Some((first, parms)) = chain.first() else {
+            return EncodedExtent::Unknown;
+        };
         let Some(delimiting) = delimiting(first, parms.as_ref()) else {
             return EncodedExtent::Unknown;
         };
@@ -322,20 +323,26 @@ fn delimiting(filter: &[u8], parms: Option<&Dictionary>) -> Option<crate::Delimi
             // data: the filter then "shall stop when it has decoded the number of lines
             // indicated by Rows or when its data has been exhausted", and both of those are
             // facts about the *decode* rather than about the encoded bytes.
-            let stopped_by_rows = parms
-                .and_then(|parms| parms.get("EndOfBlock"))
-                .is_some_and(|flag| matches!(flag, Object::Boolean(false)));
-            if stopped_by_rows {
-                return None;
+            //
+            // A `/EndOfBlock` or `/K` of a type Table 11 does not admit is refused by the
+            // decode (ADR 3273), so it delimits nothing here either.
+            let entry = |key: &str| match parms.and_then(|parms| parms.get(key)) {
+                None | Some(Object::Null) => None,
+                Some(value) => Some(value),
+            };
+            match entry("EndOfBlock") {
+                None | Some(Object::Boolean(true)) => {}
+                Some(_) => return None,
             }
             // Table 11's `/K`: negative is Group 4, which ends on T.6's EOFB — two
             // end-of-line codes; zero and positive are Group 3, which ends on T.4's RTC —
             // six. Table 11 says only "appropriate for the K parameter", and this is what
             // T.4 and T.6 make that.
-            let k = parms
-                .and_then(|parms| parms.get("K"))
-                .and_then(Object::as_integer)
-                .unwrap_or(0);
+            let k = match entry("K") {
+                None => 0,
+                Some(Object::Integer(k)) => *k,
+                Some(_) => return None,
+            };
             crate::Delimiting::EndOfBlock {
                 end_of_lines: if k < 0 { 2 } else { 6 },
             }
