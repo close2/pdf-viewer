@@ -5,11 +5,12 @@ use std::io::{Read, Write};
 use confined_transport::{frame, greeting};
 use pdf_sandbox::lockdown::{self, Profile};
 
-use crate::sound;
 use crate::wire::{
-    FRAME_DECODE, FRAME_REFUSED, FRAME_SAMPLES, MAGIC, MAX_REQUEST_BYTES, MAX_SAMPLES_PER_REQUEST,
-    decode_request, encode_samples,
+    FRAME_DECODE, FRAME_LAYOUT, FRAME_PLACED, FRAME_REFUSED, FRAME_SAMPLES, MAGIC,
+    MAX_REQUEST_BYTES, MAX_SAMPLES_PER_REQUEST, decode_layout_request, decode_request,
+    encode_placed, encode_samples,
 };
+use crate::{sound, wave};
 
 /// Confines this process with [`Profile::Media`], writes the greeting, then decodes each request
 /// read from standard input and writes its reply to standard output.
@@ -29,7 +30,7 @@ pub fn serve() -> Result<(), std::io::Error> {
     output.flush()?;
     while let Some((kind, payload)) = read_frame(&mut input)? {
         let (kind, bytes) = match answer(kind, payload) {
-            Ok(samples) => (FRAME_SAMPLES, samples),
+            Ok(answered) => answered,
             Err(refusal) => (FRAME_REFUSED, refusal.into_bytes()),
         };
         output.write_all(&frame::header(kind, bytes.len()))?;
@@ -39,9 +40,15 @@ pub fn serve() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-/// One request's reply, or the sentence it is refused with.
-fn answer(kind: u8, payload: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
-    if kind != FRAME_DECODE {
+/// One request's reply and its kind, or the sentence it is refused with.
+///
+/// Public for the fuzz target, which runs the worker's whole answer over its input.
+///
+/// # Errors
+///
+/// The refusal's sentence.
+pub fn answer(kind: u8, payload: Option<Vec<u8>>) -> Result<(u8, Vec<u8>), String> {
+    if kind != FRAME_DECODE && kind != FRAME_LAYOUT {
         return Err(format!(
             "a frame of kind {kind}, which this worker does not answer"
         ));
@@ -51,9 +58,13 @@ fn answer(kind: u8, payload: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
             "a request past the {MAX_REQUEST_BYTES} bytes this worker reads"
         ));
     };
+    if kind == FRAME_LAYOUT {
+        let (total, head) = decode_layout_request(&payload)?;
+        return Ok((FRAME_PLACED, encode_placed(&wave::layout(head, total)?)));
+    }
     let (format, run) = decode_request(&payload)?;
     let decoded = sound::decode(&format, run, MAX_SAMPLES_PER_REQUEST)?;
-    Ok(encode_samples(&decoded))
+    Ok((FRAME_SAMPLES, encode_samples(&decoded)))
 }
 
 /// A frame's kind, and its payload or `None` where it was past [`MAX_REQUEST_BYTES`].

@@ -10,8 +10,8 @@ use pdf_sandbox::{Allowance, Ended};
 
 use crate::sound::{Decoded, SoundFormat};
 use crate::wire::{
-    FRAME_DECODE, FRAME_REFUSED, FRAME_SAMPLES, MAGIC, MAX_RUN_BYTES, decode_samples,
-    encode_request, sentence,
+    FRAME_DECODE, FRAME_LAYOUT, FRAME_PLACED, FRAME_REFUSED, FRAME_SAMPLES, MAGIC, MAX_RUN_BYTES,
+    decode_placed, decode_samples, encode_layout_request, encode_request, sentence,
 };
 
 /// Processor time one request may spend in the worker before it is killed (ADR 3133's budget,
@@ -175,8 +175,51 @@ impl MediaWorker {
         })
     }
 
-    /// One request and its checked reply, starting a worker where none runs.
-    fn request(&mut self, format: SoundFormat, run: &[u8]) -> Result<Decoded, MediaError> {
+    /// Decodes a RIFF WAVE file — a rendition's media clip (ADR 3349) — into at most
+    /// `max_samples` samples.
+    ///
+    /// The worker reads the file's header from its first [`MAX_RUN_BYTES`] and answers where the
+    /// samples are and their format; this half checks both against `file` and sends the samples as
+    /// [`Self::decode`] sends a sound object's, so that no byte of the header is read here.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::decode`]'s, and the worker's refusal of the header.
+    pub fn decode_wave(&mut self, file: &[u8], max_samples: usize) -> Result<Sound, MediaError> {
+        let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
+        let head = file.get(..MAX_RUN_BYTES).unwrap_or(file);
+        let payload = encode_layout_request(total, head);
+        let layout = match self.exchange(FRAME_LAYOUT, &payload)? {
+            (FRAME_PLACED, bytes) => decode_placed(&bytes, total).map_err(|wrong| {
+                // A worker that places the samples outside the file is not believed again.
+                self.distrust();
+                MediaError::Refused(wrong)
+            })?,
+            (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
+            (kind, _) => {
+                self.distrust();
+                return Err(MediaError::Refused(format!(
+                    "a reply of kind {kind}, which no layout request is answered with"
+                )));
+            }
+        };
+        // `decode_placed` held the offset and the length inside the file.
+        let start = usize::try_from(layout.offset).unwrap_or(usize::MAX);
+        let end =
+            usize::try_from(layout.offset.saturating_add(layout.length)).unwrap_or(usize::MAX);
+        let samples = file.get(start..end).unwrap_or_default();
+        self.decode(&layout.format, samples, max_samples)
+    }
+
+    /// The running worker dropped and killed: it answered what no request could.
+    fn distrust(&mut self) {
+        if let Some(host) = self.host.take() {
+            host.canceller().cancel();
+        }
+    }
+
+    /// One request and its reply, starting a worker where none runs, under the request's budget.
+    fn exchange(&mut self, kind: u8, payload: &[u8]) -> Result<(u8, Vec<u8>), MediaError> {
         let program = self.program()?;
         let host = if let Some(host) = self.host.take() {
             host
@@ -190,12 +233,11 @@ impl MediaWorker {
         let allowance = canceller
             .process_id()
             .map(|pid| Allowance::start(pid, PROCESSOR_BUDGET));
-        let payload = encode_request(&format, run);
         let (exchanged, ended) = match allowance {
             Some(allowance) => within(&allowance, &canceller, || {
-                host.exchange(FRAME_DECODE, &payload, None)
+                host.exchange(kind, payload, None)
             })?,
-            None => (host.exchange(FRAME_DECODE, &payload, None), None),
+            None => (host.exchange(kind, payload, None), None),
         };
         if let Some(ended) = ended {
             self.host = None;
@@ -205,26 +247,24 @@ impl MediaWorker {
                 Ended::Ceiling { after } => MediaError::Stalled { after },
             });
         }
-        let reply = match exchanged {
-            Ok(reply) => reply,
-            Err(error) => {
-                self.host = None;
-                return Err(error.into());
-            }
-        };
-        match reply {
-            (FRAME_SAMPLES, bytes) => {
-                decode_samples(&bytes, &format, run.len()).map_err(|wrong| {
-                    // A worker that answers what its request cannot hold is not believed again.
-                    self.host = None;
-                    canceller.cancel();
-                    MediaError::Refused(wrong)
-                })
-            }
+        exchanged.map_err(|error| {
+            self.host = None;
+            error.into()
+        })
+    }
+
+    /// One request and its checked reply, starting a worker where none runs.
+    fn request(&mut self, format: SoundFormat, run: &[u8]) -> Result<Decoded, MediaError> {
+        let payload = encode_request(&format, run);
+        match self.exchange(FRAME_DECODE, &payload)? {
+            (FRAME_SAMPLES, bytes) => decode_samples(&bytes, &format, run.len()).map_err(|wrong| {
+                // A worker that answers what its request cannot hold is not believed again.
+                self.distrust();
+                MediaError::Refused(wrong)
+            }),
             (FRAME_REFUSED, bytes) => Err(MediaError::Refused(sentence(&bytes))),
             (kind, _) => {
-                self.host = None;
-                canceller.cancel();
+                self.distrust();
                 Err(MediaError::Refused(format!(
                     "a reply of kind {kind}, which no request is answered with"
                 )))

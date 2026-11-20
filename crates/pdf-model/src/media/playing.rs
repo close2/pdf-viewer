@@ -5,10 +5,10 @@
 //! keeps, and §12.6.4.9's sound action is one of the deprecated objects it supersedes, so Table
 //! 212's entries are read *into* Table 291's: `/Volume` becomes a level, `/Repeat` a repeat count of
 //! zero ("Zero means repeat forever"). A player then honours one set of parameters whichever
-//! object stated them. Today the only sounds this program plays itself are §13.3's sound objects,
-//! which Table 212's action and §12.5.6.16's annotation reach and no rendition does — Table 285's
-//! `/D` is "\[a] full file specification or form `XObject`", never a sound object — so Table 291's
-//! own dictionaries are not yet read into this type (ADR 3341 says what does it).
+//! object stated them. Three sources reach this program's own player: Table 212's action and
+//! §12.5.6.16's annotation, which carry §13.3's sound objects, and a media rendition whose clip is
+//! an embedded RIFF WAVE file, whose Table 291 `MH` and `BE` dictionaries
+//! [`Playing::of_play_parameters`] reads and judges (ADR 3350).
 
 use pdf_syntax::{Dictionary, Document, Object};
 
@@ -139,6 +139,149 @@ impl Playing {
         }
         playing.mix = flag("Mix", &mut notes).unwrap_or(false);
         (playing, notes)
+    }
+}
+
+/// Table 291's `MH` and `BE`, read for this program's own player: how it plays, and what it
+/// cannot honour (ADR 3350).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Honoured {
+    /// The parameters, `MH`'s instance of each entry over `BE`'s.
+    pub playing: Playing,
+    /// Each `MH` entry this player cannot honour, which §13.2.2 makes the rendition non-viable for:
+    /// "The options specified by this entry shall be honoured; otherwise, the containing object
+    /// shall be considered non-viable."
+    pub must: Vec<String>,
+    /// Each `BE` entry set aside, said (trap 5): "if they cannot be honoured, the containing object
+    /// is still considered viable".
+    pub set_aside: Vec<String>,
+}
+
+impl Playing {
+    /// ISO 32000-2 §13.2.5's media play parameters `parameters`, read for this program's own
+    /// player — the one that plays an embedded RIFF WAVE clip in the reader's window.
+    ///
+    /// §13.2.2's rules for the two dictionaries: "If an instance of the same entry is present in
+    /// both MH and BE, the instance in the BE dictionary shall be ignored", an entry in neither is
+    /// "present with its default value … in the BE dictionary", and "If an entry that is
+    /// unrecognised by the viewer is in the MH dictionary, the object shall be considered
+    /// non-viable. If an unrecognised entry is in a BE dictionary, the entry shall be ignored".
+    ///
+    /// What this player honours of Table 291, each argued in ADR 3350: `/V` as a level, `/D`'s
+    /// three durations, `/RC` and `/A` (held at its start, and started by the window's resume
+    /// control); `/F` for an aural clip, because the entry is about "a visual media type that does
+    /// not exactly fit the rectangle in which it plays" and a sound is fitted to nothing; and `/C`
+    /// false. `/C` true asks for "a player-specific controller user interface", which this player
+    /// does not show — a window's keys are not one.
+    #[must_use]
+    pub fn of_play_parameters(document: &Document, parameters: &Dictionary) -> Honoured {
+        let mut honoured = Honoured {
+            playing: Self::default(),
+            must: Vec::new(),
+            set_aside: Vec::new(),
+        };
+        let must = document.get_key(parameters, "MH");
+        let must = must.as_dict();
+        let best = document.get_key(parameters, "BE");
+        for (options, is_must) in [(must, true), (best.as_dict(), false)] {
+            let Some(options) = options else {
+                continue;
+            };
+            for (name, value) in options.iter() {
+                let key = String::from_utf8_lossy(name.as_bytes()).into_owned();
+                if !is_must && must.is_some_and(|must| must.get(&key).is_some()) {
+                    continue;
+                }
+                let value = document.resolve(value);
+                let answer = match key.as_str() {
+                    "V" | "D" | "RC" | "A" | "C" | "F" => {
+                        honoured.playing.honour(document, &key, &value)
+                    }
+                    _ if is_must => Err(format!(
+                        "Table 291 does not define /{key}, and §13.2.2 makes an MH holding an \
+                         unrecognised entry non-viable"
+                    )),
+                    _ => Ok(()),
+                };
+                if let Err(why) = answer {
+                    if is_must {
+                        honoured.must.push(format!(
+                            "it must be played with Table 291's /{key} honoured, and this \
+                             program's player cannot: {why}"
+                        ));
+                    } else {
+                        honoured
+                            .set_aside
+                            .push(format!("Table 291's best-effort /{key}, because {why}"));
+                    }
+                }
+            }
+        }
+        honoured
+    }
+
+    /// One Table 291 entry honoured, or why this player cannot.
+    fn honour(&mut self, document: &Document, key: &str, value: &Object) -> Result<(), String> {
+        let number = || value.as_number().filter(|number| number.is_finite());
+        let flag = || match value {
+            Object::Boolean(flag) => Ok(*flag),
+            _ => Err("its value is not a boolean".to_owned()),
+        };
+        match key {
+            "V" => match number() {
+                // "A zero value shall be equivalent to mute; negative values shall not be
+                // permitted."
+                Some(percent) if percent >= 0.0 => self.level = percent / 100.0,
+                _ => return Err("its value is not a volume of zero or more".to_owned()),
+            },
+            "RC" => match number() {
+                // "Negative values shall be invalid; non-integral values shall be permitted."
+                Some(count) if count >= 0.0 => self.repeat = count,
+                _ => return Err("its value is not a repeat count of zero or more".to_owned()),
+            },
+            "A" => self.auto_play = flag()?,
+            "C" => {
+                if flag()? {
+                    return Err(
+                        "it shows no controller user interface of its own (/C true)".to_owned()
+                    );
+                }
+            }
+            "F" => match value {
+                // Table 291's six fits, each of "a visual media type"; a sound has no rectangle
+                // to fit, so every one of them is honoured by playing it.
+                Object::Integer(0..=5) => {}
+                _ => return Err("its value is none of the fits 0 to 5".to_owned()),
+            },
+            "D" => self.duration = duration(document, value)?,
+            _ => return Err("Table 291 does not define it".to_owned()),
+        }
+        Ok(())
+    }
+}
+
+/// Table 292's media duration `value`, as a simple duration, or why it is none this player knows.
+fn duration(document: &Document, value: &Object) -> Result<SimpleDuration, String> {
+    let Some(duration) = value.as_dict() else {
+        return Err("its value is not a media duration dictionary (Table 292)".to_owned());
+    };
+    // Table 292's `/S`: "The media duration dictionary is non-viable if the interactive PDF
+    // processor does not recognise the value of this entry."
+    match document
+        .get_key(duration, "S")
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+    {
+        Some(b"I") => Ok(SimpleDuration::Intrinsic),
+        Some(b"F") => Ok(SimpleDuration::Infinite),
+        Some(b"T") => match super::read_timespan(document, &document.get_key(duration, "T")) {
+            super::Timespan::Seconds(seconds) => Ok(SimpleDuration::Seconds(seconds)),
+            super::Timespan::Unrecognised | super::Timespan::Unviable => Err(
+                "its explicit duration is not a Table 300 timespan of zero seconds or more"
+                    .to_owned(),
+            ),
+        },
+        _ => Err("its Table 292 /S is not I, F or T".to_owned()),
     }
 }
 

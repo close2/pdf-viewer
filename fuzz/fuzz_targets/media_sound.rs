@@ -15,6 +15,11 @@
 //!   one sample more or fewer would be refused by the host it serves.
 //! - **What the worker encodes the host reads back to the same.**
 //! - **What decodes as a request re-encodes to the same bytes.**
+//!
+//! The same input is then a RIFF WAVE layout request (ADR 3349): its file's header read by
+//! `wave::layout` as the worker's `answer` reads it, with one more property — **the samples the
+//! worker places lie inside the file the request describes**, so the host's own check on the reply
+//! (`decode_placed`) accepts every honest answer.
 
 #![no_main]
 #![expect(
@@ -25,7 +30,8 @@
 use libfuzzer_sys::fuzz_target;
 use pdf_media_worker::sound::{decode, sample_counts};
 use pdf_media_worker::wire::{
-    MAX_SAMPLES_PER_REQUEST, decode_request, decode_samples, encode_request, encode_samples,
+    FRAME_LAYOUT, FRAME_PLACED, MAX_SAMPLES_PER_REQUEST, decode_layout_request, decode_placed,
+    decode_request, decode_samples, encode_request, encode_samples,
 };
 
 fuzz_target!(|data: &[u8]| {
@@ -49,5 +55,19 @@ fuzz_target!(|data: &[u8]| {
         }
         // The same bytes as a reply a subverted worker sent: refused or read, never a panic.
         let _ = decode_samples(run, &format, run.len());
+    }
+    if let Ok((total, head)) = decode_layout_request(data) {
+        if let Ok((kind, reply)) = pdf_media_worker::answer(FRAME_LAYOUT, Some(data.to_vec())) {
+            assert_eq!(kind, FRAME_PLACED, "a layout request is answered with a layout");
+            let placed = decode_placed(&reply, total)
+                .expect("the host accepts the samples the worker placed inside the file");
+            assert_eq!(
+                Ok(placed),
+                pdf_media_worker::wave::layout(head, total),
+                "the reply is the layout the reader found"
+            );
+        }
+        // The same bytes as a layout reply a subverted worker sent: refused or read, never a panic.
+        let _ = decode_placed(head, total);
     }
 });

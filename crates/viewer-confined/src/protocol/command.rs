@@ -160,6 +160,7 @@ pub(super) mod command_kind {
     // document's bytes are and so where the envelope is opened, and the host is the one that read
     // the two files (ADR 1134 decision 2, ADR 2822).
     pub(in crate::protocol) const RECIPIENT: u8 = 53;
+    pub(in crate::protocol) const PLAYS_HERE: u8 = 54;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -473,6 +474,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::NullFontSubstitute(substitute) => {
             writer.u8(k::NULL_FONT_SUBSTITUTE).bool(*substitute);
+        }
+        Command::PlaysHere(plays) => {
+            writer.u8(k::PLAYS_HERE).bool(*plays);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -933,6 +937,9 @@ pub(crate) fn decode_command_holding(
         k::NULL_FONT_SUBSTITUTE => Command::NullFontSubstitute(
             reader.bool("whether a null /Font entry is drawn in a substitute")?,
         ),
+        k::PLAYS_HERE => {
+            Command::PlaysHere(reader.bool("whether the host plays a WAVE clip itself")?)
+        }
         k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
             0 => None,
             1 => Some(reader.document(what)?),

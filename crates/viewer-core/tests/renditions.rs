@@ -199,3 +199,75 @@ fn a_screen_annotation_its_page_does_not_list_executes_nothing() {
         "{said:?}"
     );
 }
+
+/// A page whose screen annotation plays an embedded RIFF WAVE clip under Table 291's `MH` `/V 50`
+/// and `/A false`, with Table 286's `/TF` at `(TEMPNEVER)`.
+fn wave_document() -> Vec<u8> {
+    assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>".to_owned(),
+        "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [0 0 50 50] /A 5 0 R >>".to_owned(),
+        "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>".to_owned(),
+        "<< /Type /Rendition /S /MR /N (chime) /C 7 0 R /P << /MH << /V 50 /A false >> >> >>"
+            .to_owned(),
+        "<< /Type /MediaClip /S /MCD /CT (audio/wav) /D 8 0 R /P << /TF (TEMPNEVER) >> >>"
+            .to_owned(),
+        "<< /Type /Filespec /F (chime.wav) /UF (chime.wav) /EF << /F 9 0 R >> >>".to_owned(),
+        "<< /Type /EmbeddedFile /Length 4 >>\nstream\nRIFF\nendstream".to_owned(),
+    ])
+}
+
+/// ISO 32000-2 §13.2.2: viability is relative to the player. A host that plays a RIFF WAVE clip
+/// itself (`Command::PlaysHere`) has the rendition judged for that player, which honours Table
+/// 291's `MH` `/V` and `/A`: the clip arrives as the sound to play, the file whole and its
+/// parameters read, and Table 286's `/TF` asks nothing of a reader who obeys documents, because
+/// this player writes no temporary file. A host that says nothing judges for the hand-off, which
+/// is told no volume, so the same rendition is non-viable and nothing is handed over (ADR 3350).
+#[test]
+fn a_wave_clip_is_judged_for_the_player_that_plays_it_here() {
+    let (_, events) = activated(wave_document(), RestrictionLevel::On);
+    assert!(handed(&events).is_empty(), "{events:?}");
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("Table 291's /V")),
+        "{:?}",
+        notes(&events)
+    );
+
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::HandOverMedia, RestrictionLevel::On),
+        )))
+        .for_each(drop);
+    viewer.handle(Command::PlaysHere(true)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: wave_document().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(4, 0)))
+        .collect();
+    let sounds: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Media { sound, .. } => sound.clone(),
+            _ => None,
+        })
+        .collect();
+    let [sound] = sounds.as_slice() else {
+        panic!("one sound to play here: {events:?}");
+    };
+    assert_eq!(
+        sound.recording,
+        viewer_core::Recording::Wave(b"RIFF".to_vec())
+    );
+    assert!((sound.playing.level - 0.5).abs() < f64::EPSILON);
+    assert!(!sound.playing.auto_play);
+}

@@ -13,6 +13,7 @@
 //! width.
 
 use crate::sound::{Decoded, Encoding, SoundFormat, sample_counts};
+use crate::wave::Layout;
 
 /// The eight bytes a media worker's greeting begins with.
 ///
@@ -26,6 +27,12 @@ pub const FRAME_DECODE: u8 = 1;
 pub const FRAME_SAMPLES: u8 = 2;
 /// The kind of a refusal: worker to host, one sentence of UTF-8 as the payload.
 pub const FRAME_REFUSED: u8 = 3;
+
+/// The kind of a request: host to worker, the beginning of a RIFF WAVE file and its whole length
+/// (ADR 3349).
+pub const FRAME_LAYOUT: u8 = 4;
+/// The kind of a reply: worker to host, where the file's samples are and their format.
+pub const FRAME_PLACED: u8 = 5;
 
 /// The first byte of every payload.
 pub const VERSION: u8 = 1;
@@ -47,6 +54,14 @@ pub const MAX_REQUEST_BYTES: usize = REQUEST_HEADER_BYTES + MAX_RUN_BYTES;
 
 /// Most samples one request decodes to: a run of one-bit samples, eight to a byte.
 pub const MAX_SAMPLES_PER_REQUEST: usize = MAX_RUN_BYTES * 8;
+
+/// A layout request's bytes before the file's beginning: the version and the file's length as a
+/// `u64`.
+pub const LAYOUT_HEADER_BYTES: usize = 1 + 8;
+
+/// A layout reply's bytes: the version, the format as a decode request states it, and the samples'
+/// offset and length as `u64`s.
+pub const PLACED_BYTES: usize = REQUEST_HEADER_BYTES + 8 + 8;
 
 /// Longest refusal sentence either side keeps, in bytes.
 pub const MAX_SENTENCE_BYTES: usize = 4096;
@@ -103,6 +118,107 @@ pub fn decode_request(payload: &[u8]) -> Result<(SoundFormat, &[u8]), String> {
         encoding,
     };
     Ok((format, run))
+}
+
+/// A layout request's bytes: the version, `total`, then `head` — at most [`MAX_RUN_BYTES`] of the
+/// file's beginning, which the caller cuts.
+#[must_use]
+pub fn encode_layout_request(total: u64, head: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(LAYOUT_HEADER_BYTES.saturating_add(head.len()));
+    bytes.push(VERSION);
+    bytes.extend_from_slice(&total.to_le_bytes());
+    bytes.extend_from_slice(head);
+    bytes
+}
+
+/// A layout request read back: the file's length and its beginning.
+///
+/// # Errors
+///
+/// The sentence a worker refuses with: another version, a header cut short, a beginning past
+/// [`MAX_RUN_BYTES`] or longer than the length it claims.
+pub fn decode_layout_request(payload: &[u8]) -> Result<(u64, &[u8]), String> {
+    let Some((&version, rest)) = payload.split_first() else {
+        return Err("an empty layout request".to_owned());
+    };
+    if version != VERSION {
+        return Err(format!(
+            "a request of version {version}, and this worker reads version {VERSION}"
+        ));
+    }
+    let Some((total, head)) = rest.split_first_chunk::<8>() else {
+        return Err("a layout request cut short before its length".to_owned());
+    };
+    let total = u64::from_le_bytes(*total);
+    if head.len() > MAX_RUN_BYTES || u64::try_from(head.len()).map_or(true, |len| len > total) {
+        return Err(format!(
+            "a file's beginning of {} bytes is past the {MAX_RUN_BYTES} one request carries or \
+             the {total} the file holds",
+            head.len()
+        ));
+    }
+    Ok((total, head))
+}
+
+/// A layout reply's bytes.
+#[must_use]
+pub fn encode_placed(layout: &Layout) -> Vec<u8> {
+    let mut bytes = encode_request(&layout.format, &[]);
+    bytes.extend_from_slice(&layout.offset.to_le_bytes());
+    bytes.extend_from_slice(&layout.length.to_le_bytes());
+    bytes
+}
+
+/// A layout reply read back, checked against the file of `total` bytes the host holds: the
+/// samples lie inside it and their format is one the decoder reads.
+///
+/// # Errors
+///
+/// The sentence the host refuses the reply with.
+pub fn decode_placed(payload: &[u8], total: u64) -> Result<Layout, String> {
+    let Some((format, offsets)) = payload.split_at_checked(REQUEST_HEADER_BYTES) else {
+        return Err("a layout reply cut short before its format".to_owned());
+    };
+    let (format, _) = decode_request(format)?;
+    let [
+        o0,
+        o1,
+        o2,
+        o3,
+        o4,
+        o5,
+        o6,
+        o7,
+        l0,
+        l1,
+        l2,
+        l3,
+        l4,
+        l5,
+        l6,
+        l7,
+    ] = *offsets
+    else {
+        return Err(format!(
+            "a layout reply of {} bytes, where one is {PLACED_BYTES}",
+            payload.len()
+        ));
+    };
+    let offset = u64::from_le_bytes([o0, o1, o2, o3, o4, o5, o6, o7]);
+    let length = u64::from_le_bytes([l0, l1, l2, l3, l4, l5, l6, l7]);
+    if offset.checked_add(length).is_none_or(|end| end > total) {
+        return Err(format!(
+            "a layout reply placing {length} bytes at {offset}, past the {total} the file holds"
+        ));
+    }
+    if let Some(refusal) = format.refusal() {
+        return Err(refusal);
+    }
+    Ok(Layout {
+        format,
+        offset,
+        length,
+    })
 }
 
 /// A reply's bytes: the version, the count of samples after the last whole frame as a `u64`, then

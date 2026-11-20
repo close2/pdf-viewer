@@ -127,6 +127,9 @@ impl Launch {
             for command in supply.commands {
                 events.extend(viewer.handle(command));
             }
+            // GTK's and Qt's windows play a RIFF WAVE clip themselves, so a rendition is judged
+            // for that player (ISO 32000-2 §13.2.2, ADR 3350).
+            events.extend(viewer.handle(Command::PlaysHere(true)));
             for refusal in supply
                 .refused
                 .into_iter()

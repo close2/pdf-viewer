@@ -568,20 +568,50 @@ pub enum Extraction {
     Fragment,
 }
 
-/// A sound object's samples as §13.3 stores them, after Table 5's filters and before any decoding:
-/// what [`Event::Media`] carries beside the written file for a window that plays the sound itself.
+/// A sound as the document holds it, after Table 5's filters and before any decoding: what
+/// [`Event::Media`] carries beside the clip for a window that plays the sound itself.
 ///
 /// Undecoded on purpose: the samples are the document's bytes, and a window decodes them only in
 /// its confined media worker (ADR 3297), so this crate hands them over as they stand (ADR 3301).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoundData {
-    /// Table 305's `/R`, `/C`, `/B` and `/E`, read.
-    pub format: pdf_model::media::SampleFormat,
-    /// The sound object's data after Table 5's filters.
-    pub data: Vec<u8>,
-    /// How it is played: §13.2.5's play parameters, which Table 212's sound action states in its
-    /// own terms and every other source leaves at their defaults (ADR 3341).
+    /// The bytes, and what they are.
+    pub recording: Recording,
+    /// How it is played: §13.2.5's play parameters — Table 291's for a rendition's clip, Table
+    /// 212's for a sound action's sound, the defaults for every other source (ADRs 3341, 3350).
     pub playing: pdf_model::media::Playing,
+}
+
+/// What a [`SoundData`]'s bytes are.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Recording {
+    /// §13.3's sound object holding its own samples.
+    Samples {
+        /// Table 305's `/R`, `/C`, `/B` and `/E`, read.
+        format: pdf_model::media::SampleFormat,
+        /// The sound object's data after Table 5's filters.
+        data: Vec<u8>,
+    },
+    /// §13.2.4.2's embedded RIFF WAVE file, a media rendition's clip: the whole file, whose header
+    /// only the confined media worker reads (ADRs 3349, 3350).
+    Wave(Vec<u8>),
+}
+
+impl Recording {
+    /// How many bytes it is, for a sentence.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Samples { data, .. } => data.len(),
+            Self::Wave(file) => file.len(),
+        }
+    }
+
+    /// Whether it holds no bytes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// What [`Event::Media`] hands over: Table 285's `/D`, in the form a player is given it.

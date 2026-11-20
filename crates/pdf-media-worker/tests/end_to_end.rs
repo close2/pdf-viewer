@@ -128,3 +128,75 @@ fn a_program_that_is_not_the_worker_is_refused() {
         other => panic!("expected a refused greeting, got {other:?}"),
     }
 }
+
+/// A RIFF WAVE file of sixteen-bit stereo PCM, with a `LIST` chunk of odd size before its `fmt `
+/// chunk: the layout of Microsoft's and IBM's *Multimedia Programming Interface and Data
+/// Specifications 1.0* (1991), built here.
+fn wave_file(samples: &[i16]) -> Vec<u8> {
+    let chunk = |out: &mut Vec<u8>, id: &[u8; 4], bytes: &[u8]| {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&u32::try_from(bytes.len()).unwrap_or(u32::MAX).to_le_bytes());
+        out.extend_from_slice(bytes);
+        if bytes.len() % 2 == 1 {
+            out.push(0);
+        }
+    };
+    let mut body = b"WAVE".to_vec();
+    chunk(&mut body, b"LIST", b"INFO1");
+    let mut fields = Vec::new();
+    fields.extend_from_slice(&1u16.to_le_bytes()); // WAVE_FORMAT_PCM
+    fields.extend_from_slice(&2u16.to_le_bytes()); // two channels
+    fields.extend_from_slice(&22_050u32.to_le_bytes());
+    fields.extend_from_slice(&(22_050u32 * 4).to_le_bytes());
+    fields.extend_from_slice(&4u16.to_le_bytes()); // a block of two two-byte samples
+    fields.extend_from_slice(&16u16.to_le_bytes());
+    chunk(&mut body, b"fmt ", &fields);
+    let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+    chunk(&mut body, b"data", &data);
+    let mut file = b"RIFF".to_vec();
+    file.extend_from_slice(&u32::try_from(body.len()).unwrap_or(u32::MAX).to_le_bytes());
+    file.extend_from_slice(&body);
+    file
+}
+
+/// A WAVE file's header is read in the confined worker and its samples come back as a sound
+/// object's would: sixteen-bit little-endian stereo, set in the top of each word, at the rate and
+/// channels the `fmt ` chunk states (ADR 3349).
+#[test]
+fn a_wave_file_is_read_and_decoded_by_the_worker() {
+    let mut media = worker();
+    let file = wave_file(&[1, -1, i16::MAX, i16::MIN]);
+    let sound = media.decode_wave(&file, 16).expect("decoded");
+    assert_eq!((sound.rate, sound.channels), (22_050, 2));
+    assert_eq!(
+        sound.samples,
+        vec![1 << 16, -1 << 16, i32::from(i16::MAX) << 16, i32::MIN]
+    );
+    assert_eq!(
+        media.starts(),
+        1,
+        "one worker read the header and the samples"
+    );
+}
+
+/// A file that is not RIFF WAVE, and one whose format this player does not read, are refused by
+/// the worker with its sentence, and the worker keeps answering.
+#[test]
+fn a_wave_file_the_worker_does_not_read_is_refused_with_its_reason() {
+    let mut media = worker();
+    let refused = media
+        .decode_wave(b"OggS and not a RIFF file", 16)
+        .expect_err("not WAVE");
+    assert!(
+        matches!(&refused, MediaError::Refused(why) if why.contains("RIFF WAVE")),
+        "{refused}"
+    );
+    let mut float = wave_file(&[0, 0]);
+    // The format tag sits after "RIFF", the size, "WAVE", the LIST chunk (8 + 6) and the fmt
+    // chunk's header: 3 is IEEE float, which this player does not decode.
+    float[12 + 14 + 8] = 3;
+    let refused = media.decode_wave(&float, 16).expect_err("float");
+    assert!(format!("{refused}").contains("format tag"), "{refused}");
+    assert!(media.decode_wave(&wave_file(&[5, 6]), 16).is_ok());
+    assert_eq!(media.starts(), 1, "a refusal is an answer, not a death");
+}

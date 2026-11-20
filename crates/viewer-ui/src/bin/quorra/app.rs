@@ -1372,6 +1372,10 @@ impl App {
                      and Escape cancels it",
                 );
             }
+            Some(viewer_host::sound::Heard::Paused(_)) => {
+                drawing.push_str(" — ");
+                drawing.push_str(viewer_host::sound::PAUSED);
+            }
             Some(said) => {
                 drawing.push_str(" — ");
                 drawing.push_str(said.sentence());

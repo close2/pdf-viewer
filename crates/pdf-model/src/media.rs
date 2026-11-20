@@ -48,7 +48,7 @@ mod playing;
 mod wave;
 
 pub use deprecated::{movie, sound};
-pub use playing::{Playing, SimpleDuration};
+pub use playing::{Honoured, Playing, SimpleDuration};
 pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
@@ -72,6 +72,20 @@ const MAX_DEPTH: usize = 32;
 pub struct Processor<'a> {
     /// §14.9.2.2's language tag of the application, where a host was told one.
     pub language: Option<&'a str>,
+    /// The players the host has, which §13.2.2's viability is judged for (ADR 3350).
+    pub players: Players,
+}
+
+/// The players a host has for a media clip (ADR 3350).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Players {
+    /// The hand-off alone: every clip goes to this machine's own player, told nothing but the
+    /// file. What a host that says nothing has.
+    #[default]
+    HandOff,
+    /// The hand-off, and this program's own player for an embedded RIFF WAVE clip — the confined
+    /// media worker decoding it and the host's window sounding it, told every play parameter.
+    AlsoHere,
 }
 
 /// Table 286's `/TF`: when a temporary file may be written to play the clip.
@@ -144,10 +158,16 @@ pub struct Clip {
     /// Entries the hand-off cannot honour, each named — a clip's `BE` entries, which the clause
     /// keeps viable, and a movie's or a sound's playing parameters — and trap 5 keeps the loss said.
     pub unhonoured: Vec<String>,
-    /// How a player that is told — this program, playing a sound object itself — plays it:
-    /// Table 212's entries for a sound action's sound, the defaults for every other clip (ADR
-    /// 3341). A player handed only the file is told none of it, which [`Self::unhonoured`] says.
+    /// How a player that is told — this program, playing a sound object or a RIFF WAVE clip
+    /// itself — plays it: Table 212's entries for a sound action's sound, Table 291's for a clip
+    /// [`Self::played_here`], the defaults for every other clip (ADRs 3341, 3350). A player handed
+    /// only the file is told none of it, which [`Self::unhonoured`] says.
     pub playing: Playing,
+    /// Whether §13.2.2's viability was judged for this program's own player, because the host
+    /// plays here ([`Players::AlsoHere`]) and the clip is an embedded RIFF WAVE file: such a
+    /// clip is played in the window and never handed on, since the hand-off was not the player
+    /// its `MH` entries were judged against (ADR 3350).
+    pub played_here: bool,
 }
 
 /// One media rendition the walk reached, and the clause's answer about it.
@@ -453,17 +473,27 @@ impl Walk<'_> {
         let mut reasons = Vec::new();
         let parameters = document.get_key(dict, "P");
         let parameters = parameters.as_dict();
+        let clip = document.get_key(dict, "C");
+        // §13.2.2's viability is relative to the player: a clip this program plays itself is
+        // judged against what that player honours, every other against the hand-off (ADR 3350).
+        let here = clip.as_dict().is_some_and(|clip| self.played_here(clip));
         // Table 290's `/PL` takes part in §13.2.7.2.2's algorithm beside the clip's own.
         let play_players = parameters.map(|parameters| document.get_key(parameters, "PL"));
+        let mut honoured = None;
         if let Some(parameters) = parameters {
-            unhonourable(document, parameters, "Table 291", &mut reasons);
+            if here {
+                let read = Playing::of_play_parameters(document, parameters);
+                reasons.extend(read.must.iter().cloned());
+                honoured = Some(read);
+            } else {
+                unhonourable(document, parameters, "Table 291", &mut reasons);
+            }
             unrecognised_duration(document, parameters, &mut reasons);
         }
         let screen = document.get_key(dict, "SP");
         if let Some(screen) = screen.as_dict() {
             unhonourable(document, screen, "Table 294", &mut reasons);
         }
-        let clip = document.get_key(dict, "C");
         let Some(clip) = clip.as_dict() else {
             // §13.2.3.2: "C may be omitted only in cases where a referenced player takes no
             // meaningful input", which names a player by its software identifier; the hand-off is
@@ -477,9 +507,36 @@ impl Walk<'_> {
         };
         let clip = self.clip(clip, play_players.as_ref(), 0, &mut reasons, set_aside);
         match clip {
-            Some(clip) if reasons.is_empty() => Ok(clip),
+            Some(mut clip) if reasons.is_empty() => {
+                if here {
+                    clip.played_here = true;
+                    // This player writes no file, so Table 286's `/TF` — "a temporary file in
+                    // order to play a media clip" — governs nothing it does.
+                    clip.temporary_file = None;
+                    if let Some(honoured) = honoured {
+                        clip.playing = honoured.playing;
+                        clip.unhonoured.extend(honoured.set_aside);
+                    }
+                }
+                Ok(clip)
+            }
             _ => Err(reasons),
         }
+    }
+
+    /// Whether this program's own player takes `clip`: the host plays here, and the clip is
+    /// §13.2.4.2's media clip data holding an embedded file whose Table 285 `/CT` names a RIFF
+    /// WAVE file — "If D references a file specification that has an embedded file stream … the
+    /// media clip data dictionary's CT entry shall identify the type of data".
+    fn played_here(&self, clip: &Dictionary) -> bool {
+        let document = self.document;
+        self.processor.players == Players::AlsoHere
+            && document
+                .get_key(clip, "S")
+                .as_name()
+                .is_some_and(|kind| kind.as_bytes() == b"MCD")
+            && content_type(document, clip).is_some_and(|kind| container::is_wave(&kind))
+            && matches!(self.data(clip, &mut Vec::new()), Some(Data::Embedded(_)))
     }
 
     /// Table 284's two subtypes: §13.2.4.2's data and §13.2.4.3's section.
@@ -943,6 +1000,7 @@ impl Walk<'_> {
             temporary_file: Some(temporary_file),
             unhonoured,
             playing: Playing::default(),
+            played_here: false,
         })
     }
 
@@ -1726,9 +1784,16 @@ mod tests {
             FILE,
         ]);
         let judged = |language| {
-            judge(&doc, &rendition(2), Processor { language })
-                .chosen()
-                .is_some()
+            judge(
+                &doc,
+                &rendition(2),
+                Processor {
+                    language,
+                    players: super::Players::HandOff,
+                },
+            )
+            .chosen()
+            .is_some()
         };
         assert!(judged(Some("de")));
         assert!(judged(Some("de-AT")));

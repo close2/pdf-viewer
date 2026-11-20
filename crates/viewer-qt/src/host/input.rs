@@ -35,6 +35,11 @@ impl Host {
         if matches!(stated, viewer_host::Key::Escape) && self.state.sounds.stop() {
             return;
         }
+        // **A sound held at its start takes Space**, which plays it: Table 291's `/A` false
+        // pauses it "when activated", and this is the control that resumes it (ADR 3351).
+        if matches!(stated, viewer_host::Key::Space) && self.state.sounds.resume() {
+            return;
+        }
         // **A synchronous sound holds the reader** until it ends: every other key is refused and
         // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
         if self.state.sounds.holds_the_reader() {

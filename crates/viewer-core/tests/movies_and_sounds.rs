@@ -343,13 +343,15 @@ fn a_sound_holding_its_own_samples_carries_them_beside_the_file() {
     assert_eq!(
         sounds(&signed),
         vec![Some(viewer_core::SoundData {
-            format: pdf_model::media::SampleFormat {
-                rate: 11025,
-                channels: 1,
-                bits: 8,
-                encoding: pdf_model::media::Encoding::Signed,
+            recording: viewer_core::Recording::Samples {
+                format: pdf_model::media::SampleFormat {
+                    rate: 11025,
+                    channels: 1,
+                    bits: 8,
+                    encoding: pdf_model::media::Encoding::Signed,
+                },
+                data: vec![0x00, 0x01, 0x7F, 0x80],
             },
-            data: vec![0x00, 0x01, 0x7F, 0x80],
             playing: pdf_model::media::Playing::default(),
         })],
         "{signed:?}"

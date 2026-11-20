@@ -244,6 +244,20 @@ impl ViewState {
         self.null_font_substitute
     }
 
+    /// Says which players the host has — the hand-off alone, or also this program's own player
+    /// for an embedded RIFF WAVE clip — which ISO 32000-2 §13.2.2's viability is judged for
+    /// ([`crate::media::Processor::players`], ADR 3350). The hand-off alone until a host says
+    /// otherwise. Nothing drawn depends on it.
+    pub fn set_players(&mut self, players: crate::media::Players) {
+        self.players = players;
+    }
+
+    /// The players the host has; see [`Self::set_players`].
+    #[must_use]
+    pub fn players(&self) -> crate::media::Players {
+        self.players
+    }
+
     /// Defers the reading of §14.9's statements a structure element makes over the content it
     /// encloses, for an interpretation wanted for its marks before its text.
     ///

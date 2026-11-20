@@ -6,7 +6,8 @@
 `pdf-media-worker` decodes ISO 32000-2 §13.3's sound samples: Table 305's `Raw` and `Signed` at
 every width from 1 to 32 bits, and G.711's µ-law and A-law codes of eight (ADR 3297). A request is
 `pdf_media_worker::wire`'s layout — a version byte, `/R` as a little-endian `u32`, `/C` as a `u16`,
-`/B`, the encoding's byte (0 Raw, 1 Signed, 2 muLaw, 3 ALaw), then the run — and a fuzzer will not
+`/B`, the encoding's byte (0 Raw, 1 Signed, 2 muLaw, 3 ALaw, 4 a WAVE file's little-endian
+PCM), then the run — and a fuzzer will not
 invent a header whose width and channels agree, so each seed states one: every encoding at each
 width §13.3 recommends and a few it permits, mono and stereo and three channels, with runs that
 end on a frame and runs that do not. The samples are a ramp built here; no document's sound is
@@ -40,11 +41,22 @@ def main():
     os.makedirs(out, exist_ok=True)
     ramp = bytes(range(256))
     written = 0
-    for encoding, widths in ((0, (1, 4, 8, 12, 16, 24, 32)), (1, (1, 8, 12, 16, 24, 32)), (2, (8,)), (3, (8,))):
+    for encoding, widths in ((0, (1, 4, 8, 12, 16, 24, 32)), (1, (1, 8, 12, 16, 24, 32)), (2, (8,)), (3, (8,)), (4, (16, 24, 32))):
         for bits in widths:
             for channels, rate in ((1, 8000), (2, 22050), (3, 11025)):
                 for length in (0, 1, 9, 64, 255):
                     written += write(out, request(rate, channels, bits, encoding, ramp[:length]))
+    # RIFF WAVE layout requests (ADR 3349): a version byte, the file's length as a `u64`, then the
+    # file — PCM at three widths, A-law and µ-law, with and without a chunk before the format.
+    for tag, channels, bits in ((1, 1, 8), (1, 2, 16), (1, 1, 24), (6, 1, 8), (7, 2, 8)):
+        for before in (b"", b"LIST" + struct.pack("<I", 3) + b"abc\0"):
+            container = (bits + 7) // 8
+            fmt = struct.pack("<HHIIHH", tag, channels, 8000, 8000 * channels * container,
+                              channels * container, bits)
+            body = b"WAVE" + before + b"fmt " + struct.pack("<I", len(fmt)) + fmt
+            body += b"data" + struct.pack("<I", 8) + ramp[:8]
+            wave = b"RIFF" + struct.pack("<I", len(body)) + body
+            written += write(out, struct.pack("<BQ", VERSION, len(wave)) + wave)
     print(f"{written} seeds written to {out}")
 
 

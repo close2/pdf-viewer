@@ -31,11 +31,12 @@
 
 mod client;
 pub mod sound;
+pub mod wave;
 pub mod wire;
 mod worker;
 
 pub use client::{MediaError, MediaWorker, PROCESSOR_BUDGET, Sound};
-pub use worker::serve;
+pub use worker::{answer, serve};
 
 /// The worker program's name, which is also the name its diagnostics are reported under.
 pub const WORKER_PROGRAM: &str = "pdf-media-worker";

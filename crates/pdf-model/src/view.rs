@@ -276,6 +276,8 @@ pub struct ViewState {
     /// read, so drawing it at all is a guess, and the guess is the reader's to ask for (A35,
     /// A738). ADR 2612.
     null_font_substitute: bool,
+    /// The players the host has, which §13.2.2's viability is judged for (ADR 3350).
+    players: crate::media::Players,
     /// Whether an interpretation under this state leaves §14.9's structure-element statements
     /// unread, for a reading wanted only for its marks; see
     /// [`Self::set_structure_deferred`].
@@ -1095,6 +1097,7 @@ impl ViewState {
             separation_simulation: false,
             guidelines: false,
             null_font_substitute: false,
+            players: crate::media::Players::HandOff,
             structure: StructureReading::Asked,
             added: Vec::new(),
             retyped: BTreeMap::new(),

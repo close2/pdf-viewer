@@ -119,13 +119,15 @@ fn played(samples: &[u8], playing: Playing) -> Played {
         document: DocumentId(1),
         label: "the sound".to_owned(),
         sound: SoundData {
-            format: pdf_model::media::SampleFormat {
-                rate: 8000,
-                channels: 1,
-                bits: 8,
-                encoding: pdf_model::media::Encoding::Signed,
+            recording: viewer_core::Recording::Samples {
+                format: pdf_model::media::SampleFormat {
+                    rate: 8000,
+                    channels: 1,
+                    bits: 8,
+                    encoding: pdf_model::media::Encoding::Signed,
+                },
+                data: samples.to_vec(),
             },
-            data: samples.to_vec(),
             playing,
         },
     }
@@ -390,6 +392,104 @@ fn a_sound_action_s_parameters_reach_the_device_and_hold_the_reader() {
         std::thread::sleep(Duration::from_millis(1));
     }
     assert!(!sounds.holds_the_reader());
+    sounds.end();
+}
+
+/// A rendition's RIFF WAVE clip, end to end (ADRs 3349 to 3351): a host that plays here has the
+/// rendition judged for its own player, which honours Table 291's `MH` `/V 50` and `/A false`; the
+/// file crosses `Event::Media` whole, the window's [`Sounds`] holds it at its start and its title
+/// says Space plays it; Space — [`Sounds::resume`] — starts it, and the device is handed the
+/// file's sixteen-bit `±½` at half its level, `±¼`.
+#[test]
+fn a_rendition_s_wave_clip_is_held_at_its_start_until_resumed() {
+    // RIFF, 40 bytes of WAVE: a 16-byte fmt chunk (PCM, mono, 8000 Hz, 16000 bytes a second, a
+    // two-byte block, 16 bits) and a 4-byte data chunk of 0x4000 and 0xC000, least significant
+    // byte first.
+    let wave = "52494646280000005741564566 6D74201000000001000100401F0000803E0000020010006461746104000000004000C0>";
+    let file = format!(
+        "<< /Type /EmbeddedFile /Filter /ASCIIHexDecode /Length {} >>\nstream\n{wave}\nendstream",
+        wave.len()
+    );
+    let document = assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+        "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [0 0 9 9] /A 5 0 R >>",
+        "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>",
+        "<< /Type /Rendition /S /MR /N (chime) /C 7 0 R /P << /MH << /V 50 /A false >> >> >>",
+        "<< /Type /MediaClip /S /MCD /CT (audio/wav) /D 8 0 R >>",
+        "<< /Type /Filespec /F (chime.wav) /UF (chime.wav) /EF << /F 9 0 R >> >>",
+        &file,
+    ]);
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer.handle(Command::PlaysHere(true)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DocumentId(1),
+            bytes: document.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(4, 0)))
+        .collect();
+    let Some((media, sound)) = events.iter().find_map(|event| match event {
+        Event::Media { media, sound, .. } => Some((media.clone(), sound.clone().map(|s| *s))),
+        _ => None,
+    }) else {
+        panic!("the rendition hands its clip over: {events:?}");
+    };
+    let Handing::Hand {
+        handed: Handed::Here { name, sound },
+        ..
+    } = viewer_host::handing_here(
+        "doc.pdf",
+        None,
+        Some("audio/wav"),
+        media,
+        sound,
+        MediaFiles::Open,
+    )
+    else {
+        panic!("at open a WAVE clip judged for this player is played here");
+    };
+    let kept = Arc::new(Mutex::new(Record::default()));
+    let shared = Arc::clone(&kept);
+    let mut sounds = Sounds::opening_with(Box::new(move || {
+        Ok(Box::new(Recording {
+            record: Arc::clone(&shared),
+            device: Device::Halfway,
+        }) as Box<dyn Sink>)
+    }));
+    assert!(!sounds.resume(), "nothing is held before a sound");
+    sounds.play(
+        Played {
+            document: DocumentId(1),
+            label: name,
+            sound,
+        },
+        || Box::new(|| {}),
+    );
+    let deadline = Instant::now()
+        .checked_add(Duration::from_secs(30))
+        .unwrap_or_else(Instant::now);
+    let mut said = Vec::new();
+    while sounds.title() != Some(viewer_host::sound::PAUSED) && Instant::now() < deadline {
+        said.extend(sounds.heard());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(sounds.title(), Some(viewer_host::sound::PAUSED), "{said:?}");
+    assert!(
+        record(&kept).started.is_empty(),
+        "held, so the device has nothing"
+    );
+    assert!(sounds.resume(), "Space plays the sound held at its start");
+    while record(&kept).started.is_empty() && Instant::now() < deadline {
+        sounds.heard();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(record(&kept).started, vec![vec![0.25, -0.25]]);
     sounds.end();
 }
 

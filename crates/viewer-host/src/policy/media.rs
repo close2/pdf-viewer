@@ -157,7 +157,7 @@ impl Handed {
             Self::File { name, path } => format!("the file {name:?} ({})", path.display()),
             Self::Url(url) => url.clone(),
             Self::Here { name, sound } => {
-                format!("{name:?}, {} bytes of samples", sound.data.len())
+                format!("{name:?}, {} bytes of samples", sound.recording.len())
             }
         }
     }

@@ -1317,6 +1317,17 @@ impl App {
         false
     }
 
+    /// Plays the sound held at its start — Table 291's `/A` false — and answers whether there was
+    /// one: the window's resume control (ADR 3351).
+    pub(crate) fn resume_the_sound(&mut self) -> bool {
+        let held = matches!(self.sounding, Some(viewer_host::sound::Heard::Paused(_)));
+        if let (true, Some(player)) = (held, self.player.as_mut()) {
+            player.resume();
+            return true;
+        }
+        false
+    }
+
     /// Whether a synchronous sound holds the reader — ISO 32000-2 §12.6.4.9's Table 212
     /// `/Synchronous`, "allowing no further user interaction other than cancelling the sound" —
     /// so that every key but Escape and every click is refused (ADR 3343).

@@ -110,6 +110,19 @@ fn media_of(
                 });
                 return None;
             };
+            if clip.played_here {
+                // Judged for this program's own player (ADR 3350): the file goes to the window's
+                // player with Table 291's parameters, and the clip beside it names what it is.
+                let sound = crate::SoundData {
+                    recording: crate::Recording::Wave(bytes.to_vec()),
+                    playing: clip.playing,
+                };
+                let media = crate::Media::Embedded {
+                    name,
+                    bytes: bytes.to_vec(),
+                };
+                return Some((media, Some(Box::new(sound))));
+            }
             crate::Media::Embedded {
                 name,
                 bytes: bytes.to_vec(),
@@ -118,8 +131,10 @@ fn media_of(
         Data::Samples(samples) => {
             let (wave, data) = wrapped(id, document, samples, events)?;
             let sound = crate::SoundData {
-                format: samples.format,
-                data,
+                recording: crate::Recording::Samples {
+                    format: samples.format,
+                    data,
+                },
                 playing: clip.playing,
             };
             let media = crate::Media::Embedded {

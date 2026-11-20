@@ -201,13 +201,15 @@ fn every_carried_event_round_trips() {
                 bytes: b"RIFF".to_vec(),
             },
             sound: Some(Box::new(viewer_core::SoundData {
-                format: pdf_model::media::SampleFormat {
-                    rate: 8000,
-                    channels: 2,
-                    bits: 8,
-                    encoding: pdf_model::media::Encoding::ALaw,
+                recording: viewer_core::Recording::Samples {
+                    format: pdf_model::media::SampleFormat {
+                        rate: 8000,
+                        channels: 2,
+                        bits: 8,
+                        encoding: pdf_model::media::Encoding::ALaw,
+                    },
+                    data: b"ab".to_vec(),
                 },
-                data: b"ab".to_vec(),
                 playing: pdf_model::media::Playing {
                     level: 0.5,
                     duration: pdf_model::media::SimpleDuration::Seconds(1.25),

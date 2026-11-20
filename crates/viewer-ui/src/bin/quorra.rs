@@ -222,6 +222,9 @@ fn open_document(
     for command in supply.commands {
         drop(viewer.handle(command));
     }
+    // This window plays a RIFF WAVE clip itself, so a rendition is judged for that player
+    // (ISO 32000-2 §13.2.2, ADR 3350).
+    drop(viewer.handle(Command::PlaysHere(true)));
     for refusal in supply
         .refused
         .into_iter()

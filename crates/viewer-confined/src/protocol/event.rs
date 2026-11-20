@@ -834,16 +834,25 @@ const ENCODINGS: [pdf_model::media::Encoding; 4] = [
     pdf_model::media::Encoding::ALaw,
 ];
 
-/// A sound's own samples beside [`Event::Media`]'s clip: a presence byte, then Table 305's four
-/// entries and the data (ADR 3301).
+/// A sound beside [`Event::Media`]'s clip: a byte saying which kind — none, a sound object's own
+/// samples with Table 305's four entries (ADR 3301), or a RIFF WAVE file (ADR 3350) — then its
+/// bytes and §13.2.5's play parameters.
 fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
     let Some(sound) = sound else {
         writer.u8(0);
         return;
     };
+    let (format, data) = match &sound.recording {
+        viewer_core::Recording::Samples { format, data } => (format, data),
+        viewer_core::Recording::Wave(file) => {
+            writer.u8(2).bytes(file);
+            write_playing(writer, &sound.playing);
+            return;
+        }
+    };
     // [`ENCODINGS`]' order, matched exhaustively so that an encoding added to Table 305's reader
     // cannot cross this wire unnumbered.
-    let encoding = match sound.format.encoding {
+    let encoding = match format.encoding {
         pdf_model::media::Encoding::Raw => 0,
         pdf_model::media::Encoding::Signed => 1,
         pdf_model::media::Encoding::MuLaw => 2,
@@ -851,11 +860,11 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
     };
     writer
         .u8(1)
-        .u32(sound.format.rate)
-        .u32(u32::from(sound.format.channels))
-        .u8(sound.format.bits)
+        .u32(format.rate)
+        .u32(u32::from(format.channels))
+        .u8(format.bits)
         .u8(encoding)
-        .bytes(&sound.data);
+        .bytes(data);
     write_playing(writer, &sound.playing);
 }
 
@@ -925,8 +934,21 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
 fn read_sound(
     reader: &mut Reader<'_>,
 ) -> Result<Option<Box<viewer_core::SoundData>>, ProtocolError> {
-    if reader.u8("whether a media clip carries a sound's samples")? == 0 {
-        return Ok(None);
+    match reader.u8("whether a media clip carries a sound")? {
+        0 => return Ok(None),
+        1 => {}
+        2 => {
+            return Ok(Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Wave(reader.owned_bytes("a sound's WAVE file")?),
+                playing: read_playing(reader)?,
+            })));
+        }
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "the kind of a media clip's sound",
+                value: u32::from(other),
+            });
+        }
     }
     let rate = reader.u32("a sound's rate")?;
     let channels = reader.u32("a sound's channels")?;
@@ -943,13 +965,15 @@ fn read_sound(
             value: u32::from(code),
         })?;
     Ok(Some(Box::new(viewer_core::SoundData {
-        format: pdf_model::media::SampleFormat {
-            rate,
-            channels,
-            bits,
-            encoding,
+        recording: viewer_core::Recording::Samples {
+            format: pdf_model::media::SampleFormat {
+                rate,
+                channels,
+                bits,
+                encoding,
+            },
+            data: reader.owned_bytes("a sound's samples")?,
         },
-        data: reader.owned_bytes("a sound's samples")?,
         playing: read_playing(reader)?,
     })))
 }

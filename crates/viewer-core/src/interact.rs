@@ -583,6 +583,7 @@ fn rendered(
         &rendition.rendition,
         pdf_model::media::Processor {
             language: open.view.audience().language.as_deref(),
+            players: open.view.players(),
         },
     );
     for line in report.notes() {

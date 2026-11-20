@@ -27,6 +27,9 @@ pub const HELD: &str = "a sound is playing synchronously (ISO 32000-2 §12.6.4.9
                         /Synchronous), so nothing but Escape, which cancels it, is taken until it \
                         ends";
 
+/// What the title says while a sound is held at its start (ADR 3351).
+pub const PAUSED: &str = "a sound is held at its start, Space plays it and Escape stops it";
+
 /// A window's sounds: none, and no thread, worker or helper, until the first (`CLAUDE.md`'s
 /// startup rules).
 pub struct Sounds {
@@ -131,6 +134,20 @@ impl Sounds {
         heard
     }
 
+    /// Starts the sound held at its start — Table 291's `/A` false, "the media shall be initially
+    /// paused when activated" — and answers whether there was one: the window's resume control,
+    /// which a toolkit gives the space bar while a sound is held (ADR 3351).
+    pub fn resume(&mut self) -> bool {
+        match (&self.sounding, self.player.as_mut()) {
+            (Some(Heard::Paused(_)), Some(player)) => {
+                player.resume();
+                self.awaiting = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Stops the sound that sounds, and answers whether there was one — Escape's question, which
     /// a window with nothing sounding leaves to the key table.
     pub fn stop(&mut self) -> bool {
@@ -169,6 +186,7 @@ impl Sounds {
                 "playing a sound synchronously, nothing but Escape is taken until it ends, and \
                  Escape cancels it",
             ),
+            Some(Heard::Paused(_)) => Some(PAUSED),
             Some(said) => Some(said.sentence()),
             None => None,
         }

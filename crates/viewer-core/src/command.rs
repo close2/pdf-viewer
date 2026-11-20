@@ -431,6 +431,20 @@ pub enum Command {
     /// Applies to every open document and to every one opened afterwards, until it is sent
     /// again, which is [`Self::Separations`]' rule for its reason. ADR 2612.
     NullFontSubstitute(bool),
+    /// Whether this host plays an embedded RIFF WAVE clip in its own window — the confined media
+    /// worker decoding it and the window's sink sounding it — rather than handing every clip to
+    /// this machine's player.
+    ///
+    /// **A value only a host has**: ISO 32000-2 §13.2.2's viability is relative to the player,
+    /// and a rendition's `MH` play parameters are honourable by a player that is told them and by
+    /// no player handed a file (ADR 3350). With `true`, a media rendition whose clip is an
+    /// embedded WAVE file is judged for this program's player, and the clip it chooses carries
+    /// the samples' file in [`crate::Event::Media`]'s `sound` and is never handed on. Nothing
+    /// changes for a host that never sends this: every clip is judged for the hand-off.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Separations`]' rule for its reason.
+    PlaysHere(bool),
     /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
     ///
     /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**

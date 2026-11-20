@@ -38,8 +38,8 @@ pub use quorra_sound::{Progress, Report};
 pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted};
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
-use viewer_core::{DocumentId, SoundData};
-pub use window::{HELD, LOOK, Sounds};
+use viewer_core::{DocumentId, Recording, SoundData};
+pub use window::{HELD, LOOK, PAUSED, Sounds};
 
 /// Where the converted samples go: a device, or a test's record of what reached it.
 ///
@@ -78,7 +78,7 @@ pub struct Played {
     pub document: DocumentId,
     /// The document's label and the sound's name, for the sentences.
     pub label: String,
-    /// The sound object's samples as §13.3 stores them.
+    /// The sound as the document holds it: §13.3's samples or a rendition's RIFF WAVE clip.
     pub sound: SoundData,
 }
 
@@ -426,11 +426,15 @@ impl Thread {
     /// The sound decoded in the worker and converted for the sink, which is opened here at the
     /// first sound; the sentence for the window beside the samples.
     fn prepared(&mut self, played: &Played) -> Result<(Vec<f32>, String), String> {
-        let format = worker_format(played.sound.format);
-        let decoded = self
-            .media
-            .decode(&format, &played.sound.data, MAX_PLAYED_SAMPLES)
-            .map_err(|error| error.to_string())?;
+        let decoded = match &played.sound.recording {
+            Recording::Samples { format, data } => {
+                self.media
+                    .decode(&worker_format(*format), data, MAX_PLAYED_SAMPLES)
+            }
+            // A rendition's clip: the worker reads the file's header too (ADR 3349).
+            Recording::Wave(file) => self.media.decode_wave(file, MAX_PLAYED_SAMPLES),
+        }
+        .map_err(|error| error.to_string())?;
         if self.sink.is_none() {
             self.sink = Some((self.open)().map_err(|why| format!("the audio device: {why}"))?);
         }
@@ -446,9 +450,14 @@ impl Thread {
             MAX_PLAYED_SAMPLES,
         )
         .map_err(|error| error.to_string())?;
+        // §13.3 for a sound object's samples, §13.2.4.2 for a rendition's clip.
+        let clause = match played.sound.recording {
+            Recording::Samples { .. } => "§13.3",
+            Recording::Wave(_) => "§13.2.4.2, a RIFF WAVE clip",
+        };
         let mut said = format!(
             "{} is playing: {} Hz, {} channel(s), converted for the device's {} Hz, {} channel(s) \
-             (ISO 32000-2 §13.3)",
+             (ISO 32000-2 {clause})",
             played.label, decoded.rate, decoded.channels, device.rate, device.channels
         );
         for note in &decoded.notes {
@@ -724,7 +733,8 @@ fn supersedes(order: &Order, document: DocumentId) -> bool {
     }
 }
 
-/// Table 305's entries as `pdf_model` read them, in the worker's vocabulary.
+/// Table 305's entries as `pdf_model` read them, in the worker's vocabulary. `Little` is the
+/// worker's reading of a WAVE file's own header and no Table 305 entry names it.
 fn worker_format(format: pdf_model::media::SampleFormat) -> SoundFormat {
     SoundFormat {
         rate: format.rate,

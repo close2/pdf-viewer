@@ -48,6 +48,10 @@ pub enum Encoding {
     /// 32000-2's printed Table 305 lists it beside `muLaw`, and the text extraction in `doc/md/`
     /// drops the line (`pdf_model::media::wave::Encoding::ALaw`).
     ALaw,
+    /// A RIFF WAVE file's PCM sample of sixteen bits or more: whole bytes, least significant
+    /// first, two's complement (`crate::wave`, ADR 3349). Eight-bit WAVE samples are unsigned and
+    /// cross as [`Self::Raw`].
+    Little,
 }
 
 impl Encoding {
@@ -59,6 +63,7 @@ impl Encoding {
             Self::Signed => 1,
             Self::MuLaw => 2,
             Self::ALaw => 3,
+            Self::Little => 4,
         }
     }
 
@@ -70,6 +75,7 @@ impl Encoding {
             1 => Some(Self::Signed),
             2 => Some(Self::MuLaw),
             3 => Some(Self::ALaw),
+            4 => Some(Self::Little),
             _ => None,
         }
     }
@@ -119,6 +125,14 @@ impl SoundFormat {
             // section 3.1); the rate and the channels do not change how a code is read.
             return Some(format!(
                 "a G.711 code is eight bits, and the sound states {}-bit codes",
+                self.bits
+            ));
+        }
+        if self.encoding == Encoding::Little && !matches!(self.bits, 16 | 24 | 32) {
+            // A WAVE sample of nine bits or more sits in two, three or four whole bytes (`crate::wave`).
+            return Some(format!(
+                "a little-endian WAVE sample is two, three or four whole bytes, and the sound \
+                 states {} bits",
                 self.bits
             ));
         }
@@ -222,6 +236,10 @@ fn convert(format: SoundFormat, code: u32) -> i32 {
     match format.encoding {
         // The code in the top bits, read as two's complement.
         Encoding::Signed => (code << shift).cast_signed(),
+        // The reader took the bytes most significant first; a WAVE sample's first byte is its
+        // least significant, so the bytes are reversed into the top of the word, which is where
+        // the sample's amplitude sits, and read as two's complement.
+        Encoding::Little => ((code << shift).swap_bytes() << shift).cast_signed(),
         // Offset binary: an unsigned code less half its range is the same top-aligned word with
         // its most significant bit flipped.
         Encoding::Raw => ((code << shift) ^ 0x8000_0000).cast_signed(),
@@ -502,6 +520,21 @@ mod tests {
 
     /// The unit a host cuts a sound at holds whole frames: three channels of twelve bits make a
     /// thirty-six-bit frame, and nine bytes are two of them.
+    /// A RIFF WAVE sample is least significant byte first: `0x01 0x80` is `0x8001`, the most
+    /// negative sixteen-bit value but one, and three bytes `0x56 0x34 0x12` are `0x123456` — each
+    /// set in the top of the word.
+    #[test]
+    fn little_endian_wave_samples_are_read_least_significant_byte_first() {
+        let sixteen = samples(mono(16, Encoding::Little), &[0x01, 0x80, 0xFF, 0x7F]);
+        assert_eq!(sixteen, vec![0x8001_0000_u32.cast_signed(), 0x7FFF_0000]);
+        let twenty_four = samples(mono(24, Encoding::Little), &[0x56, 0x34, 0x12]);
+        assert_eq!(twenty_four, vec![0x1234_5600]);
+        let thirty_two = samples(mono(32, Encoding::Little), &[4, 3, 2, 1]);
+        assert_eq!(thirty_two, vec![0x0102_0304]);
+        assert!(mono(12, Encoding::Little).refusal().is_some());
+        assert!(mono(8, Encoding::Little).refusal().is_some());
+    }
+
     #[test]
     fn the_cutting_unit_ends_on_a_frame() {
         let format = SoundFormat {

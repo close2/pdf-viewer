@@ -190,6 +190,13 @@ fn family(content_type: &str) -> Option<Family> {
     }
 }
 
+/// Whether `content_type` names a RIFF WAVE file, the one container this program plays itself
+/// (ADR 3350).
+#[must_use]
+pub fn is_wave(content_type: &str) -> bool {
+    family(content_type) == Some(Family::Wave)
+}
+
 /// Whether this reader reads the container `content_type` names.
 #[must_use]
 pub fn is_read(content_type: &str) -> bool {

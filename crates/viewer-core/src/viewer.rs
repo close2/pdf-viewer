@@ -270,6 +270,9 @@ pub struct Viewer {
     /// [`pdf_model::view::ViewState`] by [`Command::NullFontSubstitute`]. `false` until a host says
     /// otherwise, under which such text draws nothing and the page says why. ADR 2612.
     null_font_substitute: bool,
+    /// Whether the host plays a RIFF WAVE clip itself, held for `separations`' reason and pushed
+    /// into each document's [`pdf_model::view::ViewState`] by [`Command::PlaysHere`] (ADR 3350).
+    plays_here: bool,
     /// The name the next document opened **beside** the one showing would be called by.
     ///
     /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
@@ -344,6 +347,7 @@ impl Viewer {
             separations: false,
             guidelines: false,
             null_font_substitute: false,
+            plays_here: false,
             beside: None,
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -596,6 +600,14 @@ impl Viewer {
                     }
                 }
             }
+            // Which player §13.2.2's viability is judged for, on `Separations`' rule; nothing
+            // drawn depends on it (ADR 3350).
+            Command::PlaysHere(plays) => {
+                self.plays_here = plays;
+                for open in self.documents.values_mut() {
+                    open.view.set_players(players_of(plays));
+                }
+            }
             // A name and nothing else: nothing is opened, nothing is drawn and no document is
             // touched, because what this carries is what the window *could* do rather than
             // something it has been asked to do (ADR 1263).
@@ -742,6 +754,15 @@ enum Standing {
     Warn(Vec<String>),
     /// Hold it and ask these.
     Ask(Vec<String>),
+}
+
+/// [`Command::PlaysHere`]'s answer as the players §13.2.2's viability is judged for (ADR 3350).
+fn players_of(plays_here: bool) -> pdf_model::media::Players {
+    if plays_here {
+        pdf_model::media::Players::AlsoHere
+    } else {
+        pdf_model::media::Players::HandOff
+    }
 }
 
 #[cfg(test)]

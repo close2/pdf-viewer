@@ -181,13 +181,15 @@ fn played(document: u64, samples: &[u8]) -> Played {
         document: DocumentId(document),
         label: format!("sound {document}"),
         sound: SoundData {
-            format: pdf_model::media::SampleFormat {
-                rate: 8000,
-                channels: 1,
-                bits: 8,
-                encoding: pdf_model::media::Encoding::Signed,
+            recording: viewer_core::Recording::Samples {
+                format: pdf_model::media::SampleFormat {
+                    rate: 8000,
+                    channels: 1,
+                    bits: 8,
+                    encoding: pdf_model::media::Encoding::Signed,
+                },
+                data: samples.to_vec(),
             },
-            data: samples.to_vec(),
             playing: pdf_model::media::Playing::default(),
         },
     }
@@ -323,7 +325,9 @@ fn a_refused_sound_is_said_and_opens_no_device() {
         false,
     );
     let mut refused = played(1, &[0; 8]);
-    refused.sound.format.bits = 33;
+    if let viewer_core::Recording::Samples { format, .. } = &mut refused.sound.recording {
+        format.bits = 33;
+    }
     player.play(refused);
     let said = heard(&mut player, &woken, 1);
     assert!(

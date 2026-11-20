@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_model::media::{Processor, Report, judge};
+use pdf_model::media::{Players, Processor, Report, judge};
 use pdf_syntax::{Document, Object, ObjectId};
 
 /// Assembles a document from object bodies numbered from 1, with object 1 the catalog.
@@ -105,9 +105,11 @@ fn a_media_criterion_binds_from_either_dictionary_and_an_unknown_one_only_from_m
         format!("<< /S /MR /MH << /C << /L [(fr)] >> >> /BE << /C << /L [(en)] >> >> /C {clip} >>");
     let english = Processor {
         language: Some("en"),
+        players: Players::HandOff,
     };
     let french = Processor {
         language: Some("fr"),
+        players: Players::HandOff,
     };
     assert!(judged(&both, english).chosen().is_none());
     assert!(judged(&both, french).chosen().is_some());
@@ -1053,4 +1055,81 @@ fn a_data_base_url_is_required_for_must_honour_and_reported_for_best_effort() {
     let ordinary = judged(&rendition(""), Processor::default());
     let (_, clip) = ordinary.chosen().expect("no URL preference is viable");
     assert!(clip.unhonoured.is_empty(), "{clip:?}");
+}
+
+/// §13.2.2's viability is relative to the player, and Table 291's `MH` is judged against the player
+/// a clip reaches (ADR 3350).
+///
+/// > MH ("must honour"): The options specified by this entry shall be honoured; otherwise, the
+/// > containing object shall be considered non-viable.
+///
+/// An embedded clip whose `/CT` names a RIFF WAVE file, in a host that plays it itself, is judged
+/// for that player: `/V`, `/D`, `/RC`, `/A` and an aural clip's `/F` are honoured, so an `MH`
+/// stating them leaves the rendition viable, carries its parameters and is marked played here; the
+/// same rendition is non-viable for the hand-off, which is told nothing. `/C` true — "a
+/// player-specific controller user interface" — and an entry Table 291 does not define stay
+/// non-viable for both, and a `BE` instance of an entry `MH` states is ignored.
+#[test]
+fn table_291_must_honour_is_judged_for_the_player_the_clip_reaches() {
+    let wave = format!("<< /S /MCD /CT (audio/wav) /D {EMBEDDED} >>");
+    let here = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let parameters = "/P << /MH << /V 50 /RC 2 /A false /F 3 /D << /S /T /T << /S /S /V 1.5 >> >> >> \
+                      /BE << /V 80 /C true >> >>";
+    let body = format!("<< /S /MR {parameters} /C {wave} >>");
+    assert!(!viable(&body), "the hand-off is told none of Table 291");
+    let report = judged(&body, here);
+    let (_, chosen) = report.chosen().expect("viable for this program's player");
+    assert!(chosen.played_here);
+    assert!(
+        chosen.temporary_file.is_none(),
+        "this player writes no file"
+    );
+    assert!(
+        (chosen.playing.level - 0.5).abs() < f64::EPSILON,
+        "MH's /V over BE's"
+    );
+    assert!((chosen.playing.repeat - 2.0).abs() < f64::EPSILON);
+    assert!(!chosen.playing.auto_play);
+    assert_eq!(
+        chosen.playing.duration,
+        pdf_model::media::SimpleDuration::Seconds(1.5)
+    );
+    assert!(
+        chosen.unhonoured.iter().any(|entry| entry.contains("/C")),
+        "BE's /C true is set aside and said: {:?}",
+        chosen.unhonoured
+    );
+    // A controller in MH, and an entry Table 291 does not define, are honoured by neither player.
+    for must in ["/C true", "/Unknown 1", "/V -5"] {
+        let body = format!("<< /S /MR /P << /MH << {must} >> >> /C {wave} >>");
+        assert!(judged(&body, here).chosen().is_none(), "{must}");
+    }
+    // A clip of another type is the hand-off's, whatever the host plays.
+    let body = format!("<< /S /MR /P << /MH << /V 50 >> >> /C {} >>", clip());
+    assert!(judged(&body, here).chosen().is_none());
+    let report = judged(&format!("<< /S /MR /C {} >>", clip()), here);
+    assert!(!report.chosen().expect("viable").1.played_here);
+}
+
+/// §13.2.3.3's search falls to the next rendition when the first is non-viable for the player
+/// that would play it: a selector of a WAVE clip whose `MH` asks for a controller, then one whose
+/// `MH` asks only for a volume, chooses the second here and neither for the hand-off.
+#[test]
+fn a_rendition_non_viable_for_this_player_falls_to_the_next() {
+    let wave = format!("<< /S /MCD /CT (audio/vnd.wave) /D {EMBEDDED} >>");
+    let first = format!("<< /S /MR /N (controlled) /P << /MH << /C true >> >> /C {wave} >>");
+    let second = format!("<< /S /MR /N (quiet) /P << /MH << /V 25 >> >> /C {wave} >>");
+    let body = format!("<< /S /SR /R [{first} {second}] >>");
+    let here = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let report = judged(&body, here);
+    let (considered, chosen) = report.chosen().expect("the second is viable here");
+    assert_eq!(considered.name.as_deref(), Some("quiet"));
+    assert!((chosen.playing.level - 0.25).abs() < f64::EPSILON);
+    assert!(judged(&body, Processor::default()).chosen().is_none());
 }
