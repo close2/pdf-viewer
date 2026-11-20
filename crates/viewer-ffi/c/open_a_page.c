@@ -437,6 +437,26 @@ static void exercise_the_other_half(quorra_viewer *viewer)
                 }
             }
             printf(", %zu decorated, %zu raised or lowered", decorated, shifted);
+            /* Table 379's alignment and Table 378's background, which a text interface sets on
+             * the same lines; here counted, and a node past the last refused by name. */
+            size_t aligned = 0;
+            size_t filled = 0;
+            for (size_t node = 0; node < nodes; ++node) {
+                uint32_t alignment = QUORRA_ALIGNMENT_NONE;
+                float background[3] = {0};
+                bool has_background = false;
+                if (quorra_structure_layout(structure, entry, node, &alignment, background,
+                                            &has_background) == QUORRA_OK) {
+                    aligned += alignment != QUORRA_ALIGNMENT_NONE;
+                    filled += has_background;
+                }
+            }
+            printf(", %zu aligned, %zu on a stated background, layout past the last node %s",
+                   aligned, filled,
+                   quorra_structure_layout(structure, entry, nodes, NULL, NULL, NULL) ==
+                           QUORRA_OUT_OF_RANGE
+                       ? "refused"
+                       : "ANSWERED");
             printf("\n");
         }
         quorra_structure_free(structure);

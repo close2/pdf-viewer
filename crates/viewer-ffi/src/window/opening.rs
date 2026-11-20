@@ -1,8 +1,8 @@
 //! A file or a URL handed to the program hosting this window, which opens it with the platform's
 //! own opener (ADR 3217).
 //!
-//! The GTK and Qt windows hand a clip to the desktop portal and a launched document to
-//! `xdg-open` (ADRs 3202, 2171). A `quorra_window` is hosted by a program that is the platform's
+//! The GTK and Qt windows hand a clip to the desktop portal, and a launched document and
+//! §12.6.4.8's link to `xdg-open` (ADRs 3202, 2171, 1155). A `quorra_window` is hosted by a program that is the platform's
 //! own — the `WinUI` window, through `Windows.System.Launcher` — and it has the opener this library
 //! does not, so every hand-off becomes a record the host carries out: [`super::Owed::OpenFile`] or
 //! [`super::Owed::OpenUri`]. What is decided before the hand-off — the level, the question, the
@@ -89,6 +89,16 @@ impl Window {
             }
             Err(why) => self.say(&format!("Launch: {name} could not be handed over — {why}")),
         }
+    }
+
+    /// [`viewer_host::native_window::NativeWindow::hand_link_over`] for a window whose host opens
+    /// URIs: §12.6.4.8's link, which the level or the person let through, owed as the record a
+    /// media clip's URL is (ADR 3280). The schemes handed over are every window's, checked here
+    /// before the host is given anything.
+    pub(super) fn link_for_the_host(&mut self, uri: &str) -> Result<(), String> {
+        viewer_host::handable_uri(uri)?;
+        self.owing.owe(Owed::OpenUri(uri.to_owned()));
+        Ok(())
     }
 
     /// The host's opener answered that it did not open `handed`, an `OpenFile` record's path or

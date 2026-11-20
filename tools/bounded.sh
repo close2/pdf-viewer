@@ -880,20 +880,49 @@ if [ -n "$self_test" ]; then
     granted_at_once() { [ -n "$1" ] && [ "$(printf '%s\n' "$1" | sed -n 's/.* behind=\([^ ]*\) kind=.*/\1/p')" = - ]; }
 
     # 1. A flat tree of 100 000 children under the root, beside 500 strangers: the total is the
-    #    root's 100 plus 100 000 tens, every child is listed once, and the whole walk costs well
-    #    under the sampler's interval. The quadratic walk this replaced needed minutes here. The cost
-    #    is the walk's processor time, which is the algorithm's; its wall time on a loaded machine is
-    #    the load's, and is printed beside it.
-    awk 'BEGIN { print 1000, 1, 100; for (i = 1; i <= 100000; i++) print 1000 + i, 1000, 10
-                 for (i = 1; i <= 500; i++) print 200000 + i, 1, 5 }' > "$scratch/flat"
-    started_ns=$(date +%s%N)
-    cpu=$( { TIMEFORMAT='%3U %3S'; time walk_table 1000 < "$scratch/flat" > "$scratch/flat.out"; } 2>&1 )
-    wall_ms=$(( ($(date +%s%N) - started_ns) / 1000000 ))
-    cost_ms=$(awk -v t="$cpu" 'BEGIN { split(t, f, " "); printf "%d", (f[1] + f[2]) * 1000 }')
+    #    root's 100 plus 100 000 tens, and every child is listed once. **What the cost is held to is
+    #    the walk's shape, read as two ratios of processor times taken side by side, never a count of
+    #    milliseconds** (ADR 3277). A sample's absolute cost is the machine's: 1195 ms of processor
+    #    time at a merge's load, 350 ms idle, for the same walk. The two defects this case exists for
+    #    are each a ratio: a walk that costs the table's size times the tree's — the quadratic one
+    #    this replaced, minutes here — costs about a hundred times a tenth of the table where a
+    #    linear walk costs about ten, and a per-row cost that grows with the table — the
+    #    concatenated pid string, a second and a half by itself — costs tens of times one plain read
+    #    of the same rows where the indexed walk costs about six. Each pair runs back to back, three
+    #    times, and the least of each is compared, so that a load that rises between two runs makes
+    #    neither the verdict; the absolute figures are printed beside it.
+    flat_rows() {
+        awk -v n="$1" 'BEGIN { print 1000, 1, 100; for (i = 1; i <= n; i++) print 1000 + i, 1000, 10
+                               for (i = 1; i <= 500; i++) print 200000 + i, 1, 5 }'
+    }
+    flat_rows 100000 > "$scratch/flat"
+    flat_rows 10000 > "$scratch/flat-tenth"
+    # `processor_ms COMMAND...` runs COMMAND with standard output discarded and prints the user and
+    # system time it took, in milliseconds.
+    processor_ms() {
+        local t
+        t=$( { TIMEFORMAT='%3U %3S'; time "$@" > /dev/null; } 2>&1 )
+        awk -v t="$t" 'BEGIN { split(t, f, " "); printf "%d", (f[1] + f[2]) * 1000 }'
+    }
+    walk_table 1000 < "$scratch/flat" > "$scratch/flat.out"
     [ "$(head -n 1 "$scratch/flat.out")" = 1000100 ] || fail "flat tree: total $(head -n 1 "$scratch/flat.out"), wanted 1000100"
     [ "$(tail -n +2 "$scratch/flat.out" | wc -l)" = 100000 ] || fail "flat tree: $(tail -n +2 "$scratch/flat.out" | wc -l) descendants listed, wanted 100000"
-    [ "$cost_ms" -lt 1000 ] || fail "flat tree: one sample cost ${cost_ms} ms, which is not a fraction of the interval it has to fit"
-    echo "bounded --self-test: a flat tree of 100000 sampled correctly in ${cost_ms} ms of processor time (${wall_ms} ms of wall)"
+    whole_ms= tenth_ms= read_ms=
+    for _ in 1 2 3; do
+        w=$(processor_ms walk_table 1000 < "$scratch/flat")
+        t=$(processor_ms walk_table 1000 < "$scratch/flat-tenth")
+        r=$(processor_ms awk '{ rss[$1] = $3 } END { print NR }' < "$scratch/flat")
+        [ -z "$whole_ms" ] || [ "$w" -lt "$whole_ms" ] && whole_ms=$w
+        [ -z "$tenth_ms" ] || [ "$t" -lt "$tenth_ms" ] && tenth_ms=$t
+        [ -z "$read_ms" ] || [ "$r" -lt "$read_ms" ] && read_ms=$r
+    done
+    # A clock's tick is a millisecond here; a run under one reads as one, so neither ratio divides by
+    # nothing.
+    [ "$tenth_ms" -ge 1 ] || tenth_ms=1
+    [ "$read_ms" -ge 1 ] || read_ms=1
+    [ "$whole_ms" -le $(( 30 * tenth_ms )) ] || fail "flat tree: 100000 children cost ${whole_ms} ms of processor time and 10000 cost ${tenth_ms} ms — more than thirty times a tenth of the table, which is a walk that grows faster than the table"
+    [ "$whole_ms" -le $(( 20 * read_ms )) ] || fail "flat tree: the walk cost ${whole_ms} ms of processor time and one plain read of the same rows ${read_ms} ms — more than twenty reads, which is work per row that walking an index does not need"
+    echo "bounded --self-test: a flat tree of 100000 sampled correctly in ${whole_ms} ms of processor time, against ${tenth_ms} ms for a tenth of it and ${read_ms} ms for one read of its rows"
 
     # 2. A chain 50 000 deep, and a table holding a cycle and a duplicated row: the walk ends,
     #    and every pid counts once.

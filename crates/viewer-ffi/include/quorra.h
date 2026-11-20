@@ -611,6 +611,14 @@ extern "C" {
 #define QUORRA_POSITION_SUPERSCRIPT  1u
 #define QUORRA_POSITION_SUBSCRIPT    2u
 
+/* Table 379's /TextAlign as a side of the page, which `quorra_structure_layout` answers with: the
+ * start and end edges turned by Table 378's /WritingMode (ADR 3191). */
+#define QUORRA_ALIGNMENT_NONE     0u
+#define QUORRA_ALIGNMENT_LEFT     1u
+#define QUORRA_ALIGNMENT_RIGHT    2u
+#define QUORRA_ALIGNMENT_CENTER   3u
+#define QUORRA_ALIGNMENT_JUSTIFY  4u
+
 /* Table 153's /View: how §12.3.5's collection is first presented. HIDDEN is the one value that is
  * load-bearing rather than a preference — §7.6.7's unencrypted wrapper requires it, because the
  * wrapper's own page says the payload is encrypted and a file browser over it would hide that. */
@@ -1956,6 +1964,16 @@ int32_t quorra_structure_character(const quorra_structure *structure, size_t ent
 int32_t quorra_structure_style(const quorra_structure *structure, size_t entry, size_t node,
                              uint32_t *decoration, uint32_t *position, float *colour,
                              bool *has_colour);
+/* Table 379's alignment and Table 378's background as they reach the element's own text: a
+ * QUORRA_ALIGNMENT_*, and /BackgroundColor as three floats in 0..1. ALIGNMENT_NONE is nothing
+ * stated on the way up, not the cell's Start default, which parameterises a layout process we do
+ * not run; it is also an edge a vertical writing mode leaves with no page side. The background is
+ * the element's own fill or the nearest stated above it, which shows through an element "treated
+ * as if its background were transparent"; `has_background` false writes nothing into `background`
+ * and means the page shows through. SET THEM ON THE ELEMENT'S OWN LINES, as
+ * quorra_structure_style's (ADRs 3191, 3278). */
+int32_t quorra_structure_layout(const quorra_structure *structure, size_t entry, size_t node,
+                              uint32_t *alignment, float *background, bool *has_background);
 
 /* §12.3.5's portable collection, where the catalogue states one — QUORRA_NO_ANSWER otherwise, which
  * is every document in this project's corpora. The clause is a `shall` on a viewer: "[i]f this
@@ -2108,8 +2126,9 @@ typedef struct quorra_owed quorra_owed;
                                      * name; quorra_window_opened_list once shown (ADR 2791) */
 #define QUORRA_OWED_OPEN_FILE 18u   /* quorra_owed_text: a file's path, for the platform's opener;
                                      * quorra_window_open_failed where it was not opened (ADR 3217) */
-#define QUORRA_OWED_OPEN_URI  19u   /* quorra_owed_text: a media clip's URL, for the platform's
-                                     * opener; quorra_window_open_failed where not opened */
+#define QUORRA_OWED_OPEN_URI  19u   /* quorra_owed_text: a media clip's URL or a §12.6.4.8 link's
+                                     * URI, for the platform's opener; quorra_window_open_failed
+                                     * where not opened (ADRs 3217, 3280) */
 #define QUORRA_OWED_KIND_COUNT 20u
 
 /* What a REPAINT record changed since the caller was last told, quorra_owed_repaint's bits

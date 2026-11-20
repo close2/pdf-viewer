@@ -442,3 +442,45 @@ pub unsafe extern "C" fn quorra_structure_style(
     }
     Status::Ok.code()
 }
+
+/// Table 379's alignment and Table 378's background as they reach the element's own text (ADRs
+/// 3191, 3278).
+///
+/// `alignment` is a `QUORRA_ALIGNMENT_*`, `QUORRA_ALIGNMENT_NONE` where nothing on the way up
+/// states one — the cell's `Start` default parameterises a layout process this program does not
+/// run — or where a vertical writing mode leaves the stated edge with no page side. `background`
+/// receives `/BackgroundColor` as three floats in `0.0..=1.0` and `has_background` says whether it
+/// did: the element's own fill, or the nearest one stated above it, which shows through an
+/// element that "shall be treated as if its background were transparent". **Set them on the
+/// element's own lines**, as `quorra_structure_style`'s. Any out-parameter may be null.
+///
+/// # Safety
+///
+/// See the module documentation. `background` is writable for three floats, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_structure_layout(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    alignment: *mut u32,
+    background: *mut f32,
+    has_background: *mut bool,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (aligned, filled) = match structure.layout(entry, node) {
+        Ok(layout) => layout,
+        Err(status) => return status.code(),
+    };
+    if let Some(alignment) = alignment.as_mut() {
+        *alignment = aligned as u32;
+    }
+    if let (Some(fill), false) = (filled, background.is_null()) {
+        core::slice::from_raw_parts_mut(background, fill.len()).copy_from_slice(&fill);
+    }
+    if let Some(has_background) = has_background.as_mut() {
+        *has_background = filled.is_some();
+    }
+    Status::Ok.code()
+}

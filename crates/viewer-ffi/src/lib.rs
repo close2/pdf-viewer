@@ -150,8 +150,8 @@ pub use events::{Events, ScriptQuestionNumbers, Searched, TransitionNumbers};
 pub use form::Form;
 pub use keyboard::{ActKind, KeyKind};
 pub use kinds::{
-    AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
-    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AlignmentKind, AnsweredKind,
+    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
     DataFormatKind, DecorationKind, DelegateKind, DirectionKind, DuplexKind, ElementKind,
     EventKind, FocusKind, FolderTextKind, InitialKind, LayoutKind, LevelKind, MarkupKind,
     MeasurePart, MethodKind, NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind,

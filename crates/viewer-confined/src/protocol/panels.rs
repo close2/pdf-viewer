@@ -1986,6 +1986,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             decoration_colour,
             position,
             alignment,
+            background,
         } = node;
         writer
             .option_usize(*parent)
@@ -2053,6 +2054,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             decoration_colour.as_ref(),
             *position,
             *alignment,
+            background.as_ref(),
         );
         writer.usize(quads.len());
         for quad in quads {
@@ -2157,9 +2159,10 @@ pub(super) fn decode_accessibility(
                 other => other,
             },
             decoration: read_decoration(reader)?,
-            decoration_colour: read_decoration_colour(reader)?,
+            decoration_colour: read_colour(reader, "a node's text decoration colour")?,
             position: read_position(reader)?,
             alignment: read_alignment(reader)?,
+            background: read_colour(reader, "a node's background colour")?,
             quads: super::wire::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
             interleaving: reader.list("a node's child positions", |reader| {
@@ -2250,17 +2253,27 @@ fn encode_rectangle(writer: &mut Writer, rectangle: Option<&[f32; 4]>) {
     }
 }
 
-/// Table 380's decoration, its colour and the text's position, and Table 379's alignment, which
-/// `viewer_core` resolves down the tree by each cell's own reach — §14.8.4.1's categories and
-/// §14.7.6's attribute objects, neither of which a host holds (ADRs 2384, 3191).
+/// Table 380's decoration, its colour and the text's position, Table 379's alignment and Table
+/// 378's background, which `viewer_core` resolves down the tree by each cell's own reach —
+/// §14.8.4.1's categories and §14.7.6's attribute objects, neither of which a host holds (ADRs
+/// 2384, 3191, 3278).
 fn encode_drawn_as(
     writer: &mut Writer,
     decoration: TextDecoration,
     colour: Option<&[f32; 3]>,
     position: TextPosition,
     alignment: Option<LineAlignment>,
+    background: Option<&[f32; 3]>,
 ) {
     writer.u8(decoration_kind(decoration));
+    encode_colour(writer, colour);
+    writer.u8(position_kind(position));
+    writer.u8(alignment_kind(alignment));
+    encode_colour(writer, background);
+}
+
+/// A structure attribute's RGB colour, or its absence, as [`read_colour`] reads it.
+fn encode_colour(writer: &mut Writer, colour: Option<&[f32; 3]>) {
     match colour {
         Some(colour) => {
             writer.u8(1).numbers(colour);
@@ -2269,8 +2282,6 @@ fn encode_drawn_as(
             writer.u8(0);
         }
     }
-    writer.u8(position_kind(position));
-    writer.u8(alignment_kind(alignment));
 }
 
 /// Table 380's `/TextDecorationType`, as one byte: the standard's closed set of four.
@@ -2294,10 +2305,13 @@ fn read_decoration(reader: &mut Reader<'_>) -> Result<TextDecoration, ProtocolEr
     })
 }
 
-/// Table 380's `/TextDecorationColor`, held to the entry's own range on the side of the wire where
-/// the producer is not trusted: "three numbers in the range 0.0 to 1.0".
-fn read_decoration_colour(reader: &mut Reader<'_>) -> Result<Option<[f32; 3]>, ProtocolError> {
-    let what = "a node's text decoration colour";
+/// Table 380's `/TextDecorationColor` or Table 378's `/BackgroundColor`, held to the entries' own
+/// range on the side of the wire where the producer is not trusted: "three numbers in the range
+/// 0.0 to 1.0".
+fn read_colour(
+    reader: &mut Reader<'_>,
+    what: &'static str,
+) -> Result<Option<[f32; 3]>, ProtocolError> {
     match reader.u8(what)? {
         0 => Ok(None),
         1 => {
@@ -2309,7 +2323,7 @@ fn read_decoration_colour(reader: &mut Reader<'_>) -> Result<Option<[f32; 3]>, P
                 Ok(Some(colour))
             } else {
                 Err(unrecognised(
-                    "a node's text decoration colour, which must lie in 0.0 to 1.0",
+                    "a node's colour, which must lie in 0.0 to 1.0",
                     1,
                 ))
             }

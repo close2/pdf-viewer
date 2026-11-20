@@ -169,7 +169,7 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
         }
         // §12.6.4.8: the act is the host's own rather than an edit the core is holding, so what
         // the answer decides is whether the URI reaches another program (ADR 1155).
-        Asked::Link { uri } => window.say(&crate::answered(&uri, proceed)),
+        Asked::Link { uri } => link_answered(window, &uri, proceed),
         // RFC 0008 section 6.3: the viewer holds the document's scripts, so the answer goes to it
         // whichever it is (ADR 1616).
         Asked::Scripts { document } => {
@@ -414,10 +414,18 @@ fn start_refresh<W: NativeWindow + ?Sized>(
 /// person, at the level the window holds (ADR 1155).
 pub(super) fn link<W: NativeWindow + ?Sized>(window: &mut W, uri: &str) {
     let uri = crate::resolve_uri(Some(&window.state().showing.path), uri);
-    match crate::link(&uri, window.state().links) {
+    let level = window.state().links;
+    match crate::link_through(&uri, level, |uri| window.hand_link_over(uri)) {
         crate::Link::Say(note) => window.say(&note),
         crate::Link::Ask(words) => window.ask(Asked::Link { uri }, &words),
     }
+}
+
+/// The person's answer to a §12.6.4.8 link's question, carried out through the window's own
+/// opener (ADR 3280) and said.
+fn link_answered<W: NativeWindow + ?Sized>(window: &mut W, uri: &str, proceed: bool) {
+    let said = crate::answered_through(uri, proceed, |uri| window.hand_link_over(uri));
+    window.say(&said);
 }
 
 /// A file a *document* named, routed by which policy decides it: a second PDF to parse under the

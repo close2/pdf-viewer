@@ -1014,6 +1014,11 @@ impl NativeWindow for Window {
         self.launched_for_the_host(name, path);
     }
 
+    /// Owed to the host, which opens it with the platform's opener (ADR 3280).
+    fn hand_link_over(&mut self, uri: &str) -> Result<(), String> {
+        self.link_for_the_host(uri)
+    }
+
     fn dispatch(&mut self, command: Command) {
         self.drain(VecDeque::from([command]));
     }

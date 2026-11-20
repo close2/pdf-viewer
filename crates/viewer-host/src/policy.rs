@@ -1568,13 +1568,25 @@ pub fn asked_to_open(uri: &str) -> crate::restriction::Question {
 /// The sentence to say to the person, where nothing was started at all: a scheme this reader does
 /// not hand over, or a machine with no [`URI_HANDLER`] on its path.
 pub fn open_uri(uri: &str) -> Result<(), String> {
-    if !scheme_of(uri).is_some_and(|scheme| LINK_SCHEMES.contains(&scheme.as_str())) {
-        return Err(format!(
+    handable_uri(uri)?;
+    start_handler(std::ffi::OsStr::new(uri), uri.to_owned())
+}
+
+/// Whether `uri` names a scheme in [`LINK_SCHEMES`], the ones this reader hands to another
+/// program at all — asked before any opener, [`URI_HANDLER`] or a host's, is given it (ADR 3280).
+///
+/// # Errors
+///
+/// The sentence to say to the person, naming the schemes that are handed over.
+pub fn handable_uri(uri: &str) -> Result<(), String> {
+    if scheme_of(uri).is_some_and(|scheme| LINK_SCHEMES.contains(&scheme.as_str())) {
+        Ok(())
+    } else {
+        Err(format!(
             "{uri} names no scheme this reader hands to another program ({})",
             LINK_SCHEMES.join(", ")
-        ));
+        ))
     }
-    start_handler(std::ffi::OsStr::new(uri), uri.to_owned())
 }
 
 /// Starts [`URI_HANDLER`] on one argument, and waits for it on a thread of its own so that its
@@ -1624,9 +1636,21 @@ pub enum Link {
 /// which is what keeps *ask* from being the level a window forgets to implement.
 #[must_use]
 pub fn link(uri: &str, level: Links) -> Link {
+    link_through(uri, level, open_uri)
+}
+
+/// [`link`] with the opener a host supplies: [`open_uri`] for a window on this machine's desktop,
+/// and a record its host carries out for a window hosted through the C ABI, whose host has the
+/// platform's own opener (ADR 3280). The level and every sentence are this function's either way.
+#[must_use]
+pub fn link_through(
+    uri: &str,
+    level: Links,
+    open: impl FnOnce(&str) -> Result<(), String>,
+) -> Link {
     match may_open_uri(uri, level) {
-        Opening::Proceed => Link::Say(handed_over(uri, None)),
-        Opening::Warn(note) => Link::Say(handed_over(uri, Some(&note))),
+        Opening::Proceed => Link::Say(handed_over(uri, None, open)),
+        Opening::Warn(note) => Link::Say(handed_over(uri, Some(&note), open)),
         Opening::Ask(question) => Link::Ask(question),
         Opening::Refuse(why) => Link::Say(uri_note(uri, Some(&why))),
     }
@@ -1639,8 +1663,18 @@ pub fn link(uri: &str, level: Links) -> Link {
 /// clause over.
 #[must_use]
 pub fn answered(uri: &str, proceed: bool) -> String {
+    answered_through(uri, proceed, open_uri)
+}
+
+/// [`answered`] with the opener a host supplies, as [`link_through`] takes it (ADR 3280).
+#[must_use]
+pub fn answered_through(
+    uri: &str,
+    proceed: bool,
+    open: impl FnOnce(&str) -> Result<(), String>,
+) -> String {
     if proceed {
-        return handed_over(uri, None);
+        return handed_over(uri, None, open);
     }
     uri_note(
         uri,
@@ -1648,13 +1682,18 @@ pub fn answered(uri: &str, proceed: bool) -> String {
     )
 }
 
-/// [`open_uri`], with the one line the person is owed about what happened.
+/// `open` — [`open_uri`] or a host's opener — with the one line the person is owed about what
+/// happened.
 ///
 /// `note` is what the level adds after the fact — [`Links::Warn`]'s sentence — and it is appended
 /// only where the URI actually went somewhere, because a warning about an act that did not happen
 /// would be a sentence about nothing.
-fn handed_over(uri: &str, note: Option<&str>) -> String {
-    match open_uri(uri) {
+fn handed_over(
+    uri: &str,
+    note: Option<&str>,
+    open: impl FnOnce(&str) -> Result<(), String>,
+) -> String {
+    match open(uri) {
         Ok(()) => match note {
             Some(note) => format!("{} — {note}", uri_note(uri, None)),
             None => uri_note(uri, None),

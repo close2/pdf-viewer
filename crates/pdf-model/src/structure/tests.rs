@@ -1953,6 +1953,155 @@ fn a_print_field_attribute_is_read_only_from_the_owners_its_clause_admits() {
     );
 }
 
+/// §14.8.5.5's owner sentence on the reading side (ADR 3279): Table 382's `/ContinuedList` and
+/// `/ContinuedFrom` are read from a `List` object, and from no `Layout`, `Table`, `PrintField` or
+/// `Artifact` one, though §14.8.5.3 alone would take the later object.
+#[test]
+fn a_list_attribute_is_read_only_from_the_owners_its_clause_admits() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R 6 0 R] >>",
+        "<< /Type /StructElem /S /L /A [<< /O /List /ContinuedFrom (first) >> \
+         << /O /Table /ContinuedFrom (cell) >>] >>",
+        "<< /Type /StructElem /S /L /A [<< /O /Layout /ContinuedList true >> \
+         << /O /Table /ContinuedList true >> << /O /PrintField /ContinuedList true >> \
+         << /O /Artifact /ContinuedList true >>] >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let lists: Vec<_> = tree
+        .children(&doc, None)
+        .into_iter()
+        .filter_map(|child| match child {
+            Child::Element(dict) => Some(dict),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        tree.attribute(&doc, &lists[0], "ContinuedFrom"),
+        Some(Object::String(b"cell".to_vec().into())),
+        "the control: §14.8.5.3 alone takes the later object, the Table one"
+    );
+    assert_eq!(
+        tree.list_continuation(&doc, &lists[0]),
+        Some(ListContinuation::From(b"first".to_vec())),
+        "the Table object's /ContinuedFrom is refused, and the List object's answers"
+    );
+    assert!(
+        tree.attribute(&doc, &lists[1], "ContinuedList").is_some(),
+        "the control: §14.8.5.3 alone reads a /ContinuedList here"
+    );
+    assert_eq!(
+        tree.list_continuation(&doc, &lists[1]),
+        None,
+        "no owner the clause admits says the list continues"
+    );
+}
+
+/// §14.8.5.7's owner sentence on the reading side (ADR 3279): Table 384's `/Scope`, `/RowSpan`,
+/// `/Summary` and `/Short` are read from a `Table` object, and from no `Layout`, `List`,
+/// `PrintField` or `Artifact` one, though §14.8.5.3 alone would take the later object.
+#[test]
+fn a_table_attribute_is_read_only_from_the_owners_its_clause_admits() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R 6 0 R] >>",
+        "<< /Type /StructElem /S /TH /A [<< /O /Table /Scope /Row /RowSpan 2 >> \
+         << /O /Layout /Scope /Column /RowSpan 3 >> << /O /List /Short (List) >>] >>",
+        "<< /Type /StructElem /S /Table /A [<< /O /PrintField /Summary (Field) >> \
+         << /O /Artifact /Summary (Artifact) >>] >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let elements: Vec<_> = tree
+        .children(&doc, None)
+        .into_iter()
+        .filter_map(|child| match child {
+            Child::Element(dict) => Some(dict),
+            _ => None,
+        })
+        .collect();
+    let (header, table) = (&elements[0], &elements[1]);
+    assert_eq!(
+        tree.attribute(&doc, header, "Scope")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec())),
+        Some(b"Column".to_vec()),
+        "the control: §14.8.5.3 alone takes the later object, the Layout one"
+    );
+    assert_eq!(
+        tree.header_scope(&doc, header),
+        Some(HeaderScope::Row),
+        "the Layout object's /Scope is refused, and the Table object's answers"
+    );
+    assert_eq!(
+        tree.cell_span(&doc, header),
+        (2, 1),
+        "the Layout object's /RowSpan is refused"
+    );
+    assert!(
+        tree.attribute(&doc, header, "Short").is_some(),
+        "the control: §14.8.5.3 alone reads the List object's /Short"
+    );
+    assert_eq!(
+        tree.header_short(&doc, header),
+        None,
+        "the List object's /Short is refused"
+    );
+    assert!(
+        tree.attribute(&doc, table, "Summary").is_some(),
+        "the control: §14.8.5.3 alone reads a /Summary here"
+    );
+    assert_eq!(
+        tree.table_summary(&doc, table),
+        None,
+        "the PrintField and Artifact objects' /Summary are refused"
+    );
+}
+
+/// Table 378's `/BackgroundColor`, read from §14.8.5.4.1's owners as three numbers in
+/// `0.0..=1.0` (ADR 3278): the `Layout` object's value and not the later `Table` object's, which
+/// §14.8.5.3 alone would take; a component outside the range states no colour.
+#[test]
+fn a_background_colour_is_read_from_a_layout_owner() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R 6 0 R] >>",
+        "<< /Type /StructElem /S /TD /A [<< /O /Layout /BackgroundColor [1 0.5 0] >> \
+         << /O /Table /BackgroundColor [0 0 1] >>] >>",
+        "<< /Type /StructElem /S /P /A << /O /Layout /BackgroundColor [2 0 0] >> >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let elements: Vec<_> = tree
+        .children(&doc, None)
+        .into_iter()
+        .filter_map(|child| match child {
+            Child::Element(dict) => Some(dict),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        matches!(
+            tree.attribute(&doc, &elements[0], "BackgroundColor"),
+            Some(Object::Array(ref items)) if items.len() == 3
+                && items[2] == Object::Integer(1)
+        ),
+        "the control: §14.8.5.3 alone takes the later object, the Table one"
+    );
+    assert_eq!(
+        tree.background_colour(&doc, &elements[0]),
+        Some([1.0, 0.5, 0.0])
+    );
+    assert_eq!(
+        tree.background_colour(&doc, &elements[1]),
+        None,
+        "a component of 2 is outside the cell's range"
+    );
+}
+
 /// Table 379's `/TextAlign`, read from §14.8.5.4.1's owners: the `Layout` object's value, not the
 /// later `Table` object's, which §14.8.5.3 alone would take; and a name the cell does not define
 /// states nothing.

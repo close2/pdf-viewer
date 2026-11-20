@@ -77,9 +77,10 @@ pub enum OwedKind {
     /// it through: `quorra_owed_text` is its path, and `quorra_window_open_failed` is called where
     /// the opener answers that it did not open it (ADR 3217).
     OpenFile = 18,
-    /// §7.11.5's URL of a media clip, to hand to the platform's opener for its scheme:
-    /// `quorra_owed_text` is the URL, and `quorra_window_open_failed` is called where it was not
-    /// opened (ADR 3217).
+    /// §7.11.5's URL of a media clip, or §12.6.4.8's resolved URI of a link the level or the
+    /// person let through, to hand to the platform's opener for its scheme: `quorra_owed_text` is
+    /// the URL, and `quorra_window_open_failed` is called where it was not opened (ADRs 3217,
+    /// 3280).
     OpenUri = 19,
 }
 

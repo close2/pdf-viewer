@@ -204,6 +204,24 @@ impl Tree {
             .and_then(|name| TextAlign::read(name.as_bytes()))
     }
 
+    /// §14.8.5.4.2's `/BackgroundColor` (Table 378) as this element states it, under
+    /// §14.8.5.4.1's owners.
+    ///
+    /// ISO 32000-2 §14.8.5.4.2, Table 378:
+    ///
+    /// > The colour to be used to fill the background of a table cell or any element's content
+    /// > rectangle (possibly adjusted by the Padding attribute).
+    ///
+    /// The element's own statement only: the entry is "not inheritable", and an element stating
+    /// none "shall be treated as if its background were transparent" — which is a statement
+    /// about what shows through it, and the caller that walks the tree decides what that is
+    /// (ADR 3278). `None` too for a value that is not three numbers in `0.0..=1.0`.
+    #[must_use]
+    pub fn background_colour(&self, document: &Document, element: &Dictionary) -> Option<[f32; 3]> {
+        self.layout_attribute(document, element, "BackgroundColor")
+            .and_then(|object| super::inline::rgb_colour(document, &object))
+    }
+
     /// [`Self::layout_attribute`] with §14.8.5.3's fourth priority: this element's value, or its
     /// nearest ancestor's, for an attribute Table 377 marks inheritable.
     ///
@@ -356,6 +374,57 @@ impl Tree {
             bbox: self.bounds(document, element),
             attached: [false; 4],
         }
+    }
+
+    /// One Table 382 attribute, under the owners §14.8.5.5's first paragraph permits.
+    ///
+    /// > These attributes may only be defined in attribute objects whose O (owner) entry has the
+    /// > value List or whose owner is any other owner excluding Layout, Table, PrintField and
+    /// > Artifact.
+    ///
+    /// The narrowing [`Self::print_field_attribute`] applies for §14.8.5.6 (ADR 3189), with this
+    /// clause's four exclusions, applied to [`AttributeObject::effective_owner`]: a
+    /// `/ContinuedList` in a `Table` object is not Table 382's entry, because the owner
+    /// "determines the interpretation of the attributes defined in the object" (§14.8.5.2), and a
+    /// list said to continue reaches a screen reader as a fact (ADR 3279). The ranking among the
+    /// admitted objects is §14.8.5.3's unchanged.
+    pub(crate) fn list_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let attached = self.attributes(document, element);
+        ranked(document, &attached, name, |owner| {
+            !matches!(
+                owner,
+                Owner::Layout | Owner::Table | Owner::PrintField | Owner::Artifact
+            )
+        })
+    }
+
+    /// One Table 384 attribute, under the owners §14.8.5.7's first paragraph permits.
+    ///
+    /// > The table attributes, as described in "Table 384 -Standard table attributes", may only be
+    /// > defined in attribute objects whose O (owner) entry has the value Table or whose owner is
+    /// > any other owner excluding Layout, List, PrintField and Artifact.
+    ///
+    /// [`Self::list_attribute`]'s narrowing with this clause's four exclusions: a `/Scope` or a
+    /// `/RowSpan` in a `Layout` object is not Table 384's entry, and a header's scope or a cell's
+    /// span read from it would move which header a screen reader speaks for a cell (ADR 3279).
+    pub(crate) fn table_attribute(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+        name: &str,
+    ) -> Option<Object> {
+        let attached = self.attributes(document, element);
+        ranked(document, &attached, name, |owner| {
+            !matches!(
+                owner,
+                Owner::Layout | Owner::List | Owner::PrintField | Owner::Artifact
+            )
+        })
     }
 
     /// One Table 383 attribute, under the owners §14.8.5.6's last sentence permits.

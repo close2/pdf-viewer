@@ -55,6 +55,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         decoration_colour: None,
         position: TextPosition::Normal,
         alignment: None,
+        background: None,
     }
 }
 
@@ -944,6 +945,30 @@ fn an_alignment_reaches_the_platform_on_the_runs() {
     );
     let plain = built(view(&[typed("plain", (0.0, 0.0), 5.0)], &[]));
     assert_eq!(node(&plain, NodeId(2_000_000)).text_align(), None);
+}
+
+/// Table 378's `/BackgroundColor`, as `viewer_core` resolved what shows behind an element's text,
+/// reaches the platform on the element's runs, where AT-SPI's `bg-color` is read from, and not on
+/// its node; an element under no stated colour has none set (ADR 3278).
+#[test]
+fn a_background_colour_reaches_the_platform_on_the_runs() {
+    let nodes = [AccessibilityNode {
+        background: Some([1.0, 0.5, 0.0]),
+        ..typed("on yellow", (0.0, 0.0), 5.0)
+    }];
+    let update = built(view(&nodes, &[]));
+    assert_eq!(node(&update, NodeId(16)).background_color(), None);
+    assert_eq!(
+        node(&update, NodeId(2_000_000)).background_color(),
+        Some(accesskit::Color {
+            red: 255,
+            green: 128,
+            blue: 0,
+            alpha: 255
+        })
+    );
+    let plain = built(view(&[typed("plain", (0.0, 0.0), 5.0)], &[]));
+    assert_eq!(node(&plain, NodeId(2_000_000)).background_color(), None);
 }
 
 /// The page is the node that carries the text, and that is a platform's requirement.

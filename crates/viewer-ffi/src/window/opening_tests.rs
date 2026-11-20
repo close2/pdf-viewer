@@ -1,5 +1,6 @@
-//! A `quorra_window` hands a clip and a launched document to the program hosting it, which opens
-//! them with the platform's own opener — the `WinUI` window's `Windows.System.Launcher` (ADR 3217).
+//! A `quorra_window` hands a clip, a launched document and a link to the program hosting it,
+//! which opens them with the platform's own opener — the `WinUI` window's
+//! `Windows.System.Launcher` (ADRs 3217, 3280).
 //!
 //! What these hold is the library's half: the level decides as in every window, the clip is
 //! written into its private directory, and the hand-off is a `QUORRA_OWED_OPEN_FILE` or
@@ -186,5 +187,42 @@ fn a_launched_document_is_owed_to_the_host() {
         "{records:?}"
     );
     let _ = std::fs::remove_file(letter);
+    let _ = std::fs::remove_file(pdf);
+}
+
+/// §12.6.4.8's link goes to the host as a `QUORRA_OWED_OPEN_URI` record, never to `xdg-open`,
+/// which Windows lacks; a scheme no window hands over is refused before the host is given
+/// anything (ADR 3280).
+#[test]
+fn a_link_is_owed_to_the_host_and_a_scheme_not_handed_over_is_refused() {
+    let (mut window, pdf) = window("link", MediaFiles::Ask);
+    window.state.links = viewer_host::Links::Open;
+    window.follow_the_link("https://example.org/a%20page");
+    let records = owed(&mut window);
+    assert!(
+        records.iter().any(
+            |(kind, text)| *kind == OwedKind::OpenUri && text == "https://example.org/a%20page"
+        ),
+        "{records:?}"
+    );
+    assert!(
+        records
+            .iter()
+            .any(|(kind, text)| *kind == OwedKind::Said
+                && text == "link: https://example.org/a%20page"),
+        "{records:?}"
+    );
+    window.follow_the_link("ftp://example.org/file");
+    let refused = owed(&mut window);
+    assert!(
+        !refused.iter().any(|(kind, _)| *kind == OwedKind::OpenUri),
+        "the control: a scheme outside the list reaches no opener: {refused:?}"
+    );
+    assert!(
+        refused.iter().any(|(kind, text)| *kind == OwedKind::Said
+            && text.contains("ftp://example.org/file")
+            && text.contains("declined")),
+        "{refused:?}"
+    );
     let _ = std::fs::remove_file(pdf);
 }

@@ -322,6 +322,18 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     );
 
     what_it_printed(&said);
+    // `quorra_structure_layout` (ADR 3278) reached from C: a node past the last is refused by
+    // name on every page of structure the program walked, and a page it walked says so.
+    if said.contains("page(s) of structure") {
+        assert!(
+            said.contains("layout past the last node refused"),
+            "no page of structure was read for its layout:\n{said}"
+        );
+    }
+    assert!(
+        !said.contains("layout past the last node ANSWERED"),
+        "a node past the last answered a layout:\n{said}"
+    );
 }
 
 /// The numbers the C program printed, checked here rather than in the C.

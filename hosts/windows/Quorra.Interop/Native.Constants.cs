@@ -371,6 +371,12 @@ internal static partial class Native
     internal const uint QUORRA_POSITION_SUPERSCRIPT = 1;
     internal const uint QUORRA_POSITION_SUBSCRIPT = 2;
 
+    internal const uint QUORRA_ALIGNMENT_NONE = 0;
+    internal const uint QUORRA_ALIGNMENT_LEFT = 1;
+    internal const uint QUORRA_ALIGNMENT_RIGHT = 2;
+    internal const uint QUORRA_ALIGNMENT_CENTER = 3;
+    internal const uint QUORRA_ALIGNMENT_JUSTIFY = 4;
+
     internal const uint QUORRA_COLLECTION_DETAILS = 0;
     internal const uint QUORRA_COLLECTION_TILE = 1;
     internal const uint QUORRA_COLLECTION_HIDDEN = 2;

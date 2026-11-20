@@ -690,7 +690,8 @@ mod tests {
               /A << /O /Layout /TextDecorationType /LineThrough /TextDecorationColor [1 0 0] >> >>\
               \nendobj\n\
              10 0 obj\n<< /Type /StructElem /S /Div /P 6 0 R /Pg 3 0 R /K [11 0 R] \
-              /A << /O /Layout /TextDecorationType /Underline >> >>\nendobj\n\
+              /A << /O /Layout /TextDecorationType /Underline /TextAlign /Center \
+              /BackgroundColor [0 0 1] >> >>\nendobj\n\
              11 0 obj\n<< /Type /StructElem /S /P /P 10 0 R /Pg 3 0 R /K [3] >>\nendobj\n",
             content.len(),
         );
@@ -770,6 +771,46 @@ mod tests {
             "a block inside the underlined Div is not underlined"
         );
         assert_eq!(structure.style(0, nodes), Err(Status::OutOfRange));
+    }
+
+    /// Table 379's `/TextAlign` and Table 378's `/BackgroundColor` reach a C caller as
+    /// `viewer-core`'s walk resolved them (ADRs 3191, 3278): the `Div`'s centring is inherited by
+    /// the paragraph inside it, and its fill shows through that paragraph, which states none;
+    /// the paragraph outside the `Div` has neither, rather than the cell's `Start` default.
+    #[test]
+    fn table_379s_alignment_and_table_378s_background_cross_on_each_elements_own_text() {
+        use crate::kinds::AlignmentKind;
+        let mut session = Session::new(400, 300, 1.0);
+        let events = session.open(1, with_inline_attributes(), None, None);
+        let asked = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("opening a document asks for its first page");
+        let request = events.render_request(asked).expect("that is the kind");
+        let raster = rasterise(&request).expect("the page draws");
+        drop(session.render_ready_raster(&request, raster));
+
+        let structure = session.structure().expect("the page is tagged");
+        let (_, nodes) = structure.page(0).expect("one page on the screen");
+        let layout_of = |name: &str| {
+            let node = (0..nodes)
+                .find(|node| {
+                    structure
+                        .text(0, *node, crate::kinds::ElementKind::Name)
+                        .is_ok_and(|text| text.trim() == name)
+                })
+                .unwrap_or_else(|| panic!("{name} is on the page"));
+            structure.layout(0, node).expect("in range")
+        };
+        assert_eq!(
+            layout_of("plain"),
+            (AlignmentKind::Center, Some([0.0, 0.0, 1.0]))
+        );
+        assert_eq!(
+            layout_of("E = mc"),
+            (AlignmentKind::None, None),
+            "the control: nothing above the first paragraph states either"
+        );
+        assert_eq!(structure.layout(0, nodes), Err(Status::OutOfRange));
     }
 
     /// §12.3.3's outline crosses owned, which is ADR 0247's second amendment from the C side.

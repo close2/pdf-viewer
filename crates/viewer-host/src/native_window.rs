@@ -1152,6 +1152,17 @@ pub trait NativeWindow {
         }
     }
 
+    /// Hands §12.6.4.8's resolved URI, which the level or the person let through, to this
+    /// machine's [`crate::URI_HANDLER`]. The C ABI's window owes it to the program hosting it
+    /// instead, whose platform has an opener of its own and may have no `xdg-open` (ADR 3280).
+    ///
+    /// # Errors
+    ///
+    /// The sentence to say where nothing was handed over.
+    fn hand_link_over(&mut self, uri: &str) -> Result<(), String> {
+        crate::open_uri(uri)
+    }
+
     /// Takes whatever the drawing thread has finished and answers the viewer for it.
     ///
     /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why

@@ -1735,6 +1735,29 @@ pub enum PositionKind {
     Subscript = 2,
 }
 
+/// Which side of the page a block's lines are aligned to: Table 379's `/TextAlign`, its start and
+/// end edges turned into page edges by Table 378's `/WritingMode` (ADR 3191).
+///
+/// `None` where nothing on the way up states an alignment, although the cell's default is
+/// `Start`: the default parameterises a layout process this program does not run, and a heading
+/// whose producer stated nothing is not left-aligned text. `None` too for an edge under a vertical
+/// writing mode, which no platform's alignment names.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AlignmentKind {
+    /// Nothing stated, or an edge a vertical writing mode leaves with no page side.
+    #[default]
+    None = 0,
+    /// The page's left edge.
+    Left = 1,
+    /// The page's right edge.
+    Right = 2,
+    /// Centred between the start and end edges.
+    Center = 3,
+    /// Aligned with both edges.
+    Justify = 4,
+}
+
 /// Table 153's `/View`: how §12.3.5's collection is first presented.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
@@ -1993,6 +2016,33 @@ impl DecorationKind {
             1 => Self::Underline,
             2 => Self::Overline,
             3 => Self::LineThrough,
+            _ => return None,
+        })
+    }
+}
+
+impl AlignmentKind {
+    /// The alignment `viewer-core`'s walk resolved.
+    #[must_use]
+    pub const fn of(alignment: Option<viewer_core::LineAlignment>) -> Self {
+        match alignment {
+            None => Self::None,
+            Some(viewer_core::LineAlignment::Left) => Self::Left,
+            Some(viewer_core::LineAlignment::Right) => Self::Right,
+            Some(viewer_core::LineAlignment::Center) => Self::Center,
+            Some(viewer_core::LineAlignment::Justify) => Self::Justify,
+        }
+    }
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::None,
+            1 => Self::Left,
+            2 => Self::Right,
+            3 => Self::Center,
+            4 => Self::Justify,
             _ => return None,
         })
     }

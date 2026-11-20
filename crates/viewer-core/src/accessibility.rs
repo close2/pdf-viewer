@@ -673,6 +673,17 @@ pub struct AccessibilityNode {
     /// colour. `None` too for `Start` and `End` under a vertical writing mode, whose start edge is
     /// the top or the bottom of the page, which no platform's alignment names (ADR 3191).
     pub alignment: Option<LineAlignment>,
+    /// Table 378's `/BackgroundColor` behind this element's own text: the element's own
+    /// statement, or else its nearest ancestor's.
+    ///
+    /// The entry is "not inheritable", and an element stating none "shall be treated as if its
+    /// background were transparent". **Taking the nearest statement above is a reading this
+    /// program chooses, of that sentence and not of inheritance**: a transparent element shows
+    /// what is drawn behind it, and §14.8.3's block layout lays a child inside its parent's
+    /// content rectangle, so a paragraph in a coloured `TD` — the Tagged PDF guide's own example
+    /// of the entry — is read on that cell's colour. `None` where nothing on the way up states
+    /// one: the page shows through, and the page's colour is no attribute's (ADR 3278).
+    pub background: Option<[f32; 3]>,
 }
 
 /// Which side of the page a block's lines are aligned to: Table 379's `/TextAlign` with its
@@ -753,6 +764,7 @@ impl AccessibilityNode {
             decoration_colour: None,
             position: TextPosition::Normal,
             alignment: None,
+            background: None,
         }
     }
 }
@@ -1186,7 +1198,8 @@ fn walk(
                     .enter(kind.as_ref(), tree.inline_statements(document, &dict))
                     .aligned(tree.text_align(document, &dict), || {
                         tree.writing_mode(document, &dict)
-                    });
+                    })
+                    .backed(tree.background_colour(document, &dict));
                 // ISO 32000-1 Table 333's `Private`, which only the PDF 1.7 namespace defines:
                 // "[n]either the Private element nor any of its descendants shall be interpreted or
                 // exported to other document formats". So neither is gathered — no node, no text,
@@ -1577,6 +1590,9 @@ pub(crate) struct Inline {
     align: Option<TextAlign>,
     /// [`Self::align`] under this element's writing mode.
     alignment: Option<LineAlignment>,
+    /// Table 378's `/BackgroundColor` stated here or by the nearest element above that states
+    /// one: [`AccessibilityNode::background`]'s reading.
+    background: Option<[f32; 3]>,
 }
 
 impl Inline {
@@ -1616,6 +1632,7 @@ impl Inline {
             position,
             align: self.align,
             alignment: self.alignment,
+            background: self.background,
         }
     }
 
@@ -1632,6 +1649,15 @@ impl Inline {
         Self {
             align,
             alignment: align.and_then(|align| LineAlignment::of(align, mode())),
+            ..self
+        }
+    }
+
+    /// The colour behind the text of the element [`Self::enter`] entered, which states `stated`:
+    /// its own, or what shows through it from above (ADR 3278).
+    fn backed(self, stated: Option<[f32; 3]>) -> Self {
+        Self {
+            background: stated.or(self.background),
             ..self
         }
     }
@@ -1822,6 +1848,7 @@ pub(crate) fn finish(
         decoration_colour: gathered.inline.colour,
         position: gathered.inline.position,
         alignment: gathered.inline.alignment,
+        background: gathered.inline.background,
     }
 }
 
@@ -2216,6 +2243,7 @@ mod tests {
             decoration_colour: None,
             position: pdf_model::structure::TextPosition::Normal,
             alignment: None,
+            background: None,
         }
     }
 
@@ -2285,6 +2313,44 @@ mod tests {
             super::Inline::default().alignment,
             None,
             "nothing stated is not the cell's Start"
+        );
+    }
+
+    /// Table 378's `/BackgroundColor` is "not inheritable", and an element stating none "shall be
+    /// treated as if its background were transparent": a paragraph in a coloured cell is read on
+    /// the cell's colour, an element's own statement replaces it, and nothing stated is no colour
+    /// (ADR 3278).
+    #[test]
+    fn a_background_shows_through_the_elements_inside_until_one_states_its_own() {
+        use pdf_model::structure::StandardType;
+        let cell = entered(
+            super::Inline::default(),
+            &StandardType::TableData,
+            super::InlineStatements::default(),
+        )
+        .backed(Some([1.0, 1.0, 0.0]));
+        let paragraph = entered(
+            cell,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        )
+        .backed(None);
+        assert_eq!(paragraph.background, Some([1.0, 1.0, 0.0]));
+        let marked = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements::default(),
+        )
+        .backed(Some([0.0, 0.0, 1.0]));
+        assert_eq!(
+            marked.background,
+            Some([0.0, 0.0, 1.0]),
+            "the control: an element's own fill is what lies behind its text"
+        );
+        assert_eq!(
+            super::Inline::default().backed(None).background,
+            None,
+            "nothing stated is no colour"
         );
     }
 

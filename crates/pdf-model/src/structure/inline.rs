@@ -14,7 +14,7 @@
 //! element's §14.8.4.1 category — which for some types depends on where the element sits — can only be resolved by a
 //! caller walking the tree: `viewer_core`'s walk does it.
 
-use pdf_syntax::{Dictionary, Document};
+use pdf_syntax::{Dictionary, Document, Object};
 
 use super::attributes::layout_owner;
 use super::{Tree, ranked};
@@ -131,21 +131,8 @@ impl Tree {
                 .filter(|number| number.is_finite())
                 .map_or(0.0, narrowed)
         });
-        let decoration_colour = stated("TextDecorationColor").and_then(|object| {
-            let components = object.as_array()?;
-            let [red, green, blue] = components else {
-                return None;
-            };
-            let mut colour = [0.0; 3];
-            for (into, component) in colour.iter_mut().zip([red, green, blue]) {
-                let value = document.resolve(component).as_number()?;
-                if !(0.0..=1.0).contains(&value) {
-                    return None;
-                }
-                *into = narrowed(value);
-            }
-            Some(colour)
-        });
+        let decoration_colour =
+            stated("TextDecorationColor").and_then(|object| rgb_colour(document, &object));
         InlineStatements {
             decoration,
             decoration_colour,
@@ -153,6 +140,27 @@ impl Tree {
             position,
         }
     }
+}
+
+/// A structure attribute's colour: "an array of three numbers in the range 0.0 to 1.0,
+/// representing the red, green, and blue values, respectively, of an RGB colour space", the
+/// wording Table 378's `/BackgroundColor` and Table 380's `/TextDecorationColor` share.
+///
+/// `None` for an array of another shape or a component outside the range, which is not a colour
+/// either cell defines.
+pub(super) fn rgb_colour(document: &Document, object: &Object) -> Option<[f32; 3]> {
+    let [red, green, blue] = object.as_array()? else {
+        return None;
+    };
+    let mut colour = [0.0; 3];
+    for (into, component) in colour.iter_mut().zip([red, green, blue]) {
+        let value = document.resolve(component).as_number()?;
+        if !(0.0..=1.0).contains(&value) {
+            return None;
+        }
+        *into = narrowed(value);
+    }
+    Some(colour)
 }
 
 /// A PDF number as the `f32` the rest of the structure reading keeps.

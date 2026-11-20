@@ -30,8 +30,8 @@
 use viewer_core::{AccessibilityNode, PageStructure, PopupWindow};
 
 use crate::kinds::{
-    BoxKind, ColumnKind, ColumnTextKind, DecorationKind, ElementKind, FolderTextKind, NoteKind,
-    PositionKind, ScopeKind,
+    AlignmentKind, BoxKind, ColumnKind, ColumnTextKind, DecorationKind, ElementKind,
+    FolderTextKind, NoteKind, PositionKind, ScopeKind,
 };
 use crate::status::Status;
 
@@ -495,6 +495,10 @@ pub type NodeFacts = (Option<usize>, bool, Option<ScopeKind>);
 /// ancestor states one, and the raised or lowered position of the element's own text.
 pub type NodeStyle = (DecorationKind, Option<[f32; 3]>, PositionKind);
 
+/// What [`Structure::layout`] answers: Table 379's alignment of the block the element's own text
+/// is laid in, and the Table 378 background behind that text where one is stated.
+pub type NodeLayout = (AlignmentKind, Option<[f32; 3]>);
+
 /// §14.7's logical structure for every page the arrangement is showing.
 ///
 /// **Two indices, and the standard is why.** [`viewer_core::PageStructure`] carries one tree per
@@ -598,6 +602,23 @@ impl Structure {
             node.decoration_colour,
             PositionKind::of(node.position),
         ))
+    }
+
+    /// Table 379's alignment and Table 378's background as they reach the element's own text
+    /// (ADRs 3191, 3278).
+    ///
+    /// **They belong on [`Self::lines`]**, as [`Self::style`]'s do: `viewer-core` resolved the
+    /// alignment by `/TextAlign`'s inheritance and turned its start and end edges into page sides
+    /// by the element's writing mode, and the background as the nearest stated fill behind the
+    /// text. A background of `None` is the page showing through, which is no colour an attribute
+    /// states, and it crosses as an absence.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such page or node.
+    pub fn layout(&self, entry: usize, index: usize) -> Result<NodeLayout, Status> {
+        let node = self.node(entry, index)?;
+        Ok((AlignmentKind::of(node.alignment), node.background))
     }
 
     /// One of the node's three strings, and `""` for a language no ancestor states.

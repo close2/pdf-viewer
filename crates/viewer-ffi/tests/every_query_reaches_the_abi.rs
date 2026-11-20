@@ -124,6 +124,7 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_structure_line",
             "quorra_structure_character",
             "quorra_structure_style",
+            "quorra_structure_layout",
         ],
         Query::Reports => &[
             "quorra_reported_pages",

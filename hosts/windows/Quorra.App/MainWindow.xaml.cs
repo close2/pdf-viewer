@@ -420,9 +420,10 @@ public sealed partial class MainWindow : Window
                     Commit("a drop-down list gone", window => window.OpenedList(owed.Text));
                 }
                 break;
-            // A clip or a launched document the level or the person let through, written and
-            // checked by the library as every window's is, and handed here to the platform's
-            // own opener, which this window has and the library does not (ADR 3217).
+            // A clip, a launched document or a §12.6.4.8 link the level or the person let through,
+            // decided by the library as every window's is, and handed here to the platform's own
+            // opener, which this window has and the library does not: Windows has no xdg-open
+            // (ADRs 3217, 3280).
             case Native.QUORRA_OWED_OPEN_FILE:
             case Native.QUORRA_OWED_OPEN_URI:
                 Launch(owed.Kind, owed.Text);

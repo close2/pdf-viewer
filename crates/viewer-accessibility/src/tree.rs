@@ -714,8 +714,12 @@ fn runs(
     ids
 }
 
-/// Table 380's decoration and position, and Table 379's alignment, as `viewer_core` resolved them
-/// for this element's text, on one of its runs.
+/// Table 380's decoration and position, Table 379's alignment and Table 378's background, as
+/// `viewer_core` resolved them for this element's text, on one of its runs.
+///
+/// The background goes where `accesskit_atspi_common` reads it, the run, which publishes it as
+/// AT-SPI's `bg-color` text attribute; `None` sets nothing, because a page showing through is no
+/// colour any attribute states (ADR 3278).
 fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
     let line = accesskit::TextDecoration {
         style: TextDecorationStyle::Solid,
@@ -740,6 +744,9 @@ fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
             LineAlignment::Justify => TextAlign::Justify,
         });
     }
+    if let Some(background) = node.background {
+        run.set_background_color(opaque(background));
+    }
 }
 
 /// Table 380's `/TextDecorationColor` as the platform's colour, or opaque black where the element
@@ -751,7 +758,13 @@ fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
 /// state starts a page with, and no bridge this tree links reads it — `accesskit_atspi_common`
 /// publishes an underline as `single` and a line-through as `true` (ADR 2384).
 fn decoration_colour(stated: Option<[f32; 3]>) -> Color {
-    let [red, green, blue] = stated.unwrap_or([0.0; 3]).map(|component| {
+    opaque(stated.unwrap_or([0.0; 3]))
+}
+
+/// A structure attribute's RGB colour, three components in `0.0..=1.0`, as an opaque platform
+/// colour.
+fn opaque(components: [f32; 3]) -> Color {
+    let [red, green, blue] = components.map(|component| {
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,

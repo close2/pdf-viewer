@@ -22,7 +22,7 @@ impl Tree {
     /// > spanned by the cell.
     ///
     /// and the same sentence for columns, both with "Default value: 1". *Not inheritable* is why
-    /// this asks [`Self::attribute`] rather than [`Self::inherited_attribute`] — a cell inside a
+    /// this asks `Tree::table_attribute` rather than [`Self::inherited_attribute`] — a cell inside a
     /// spanned cell's table would otherwise take its enclosing cell's span.
     ///
     /// A value below 1 is read as 1: the entry is a number of rows or columns, and a cell
@@ -33,7 +33,7 @@ impl Tree {
     #[must_use]
     pub fn cell_span(&self, document: &Document, element: &Dictionary) -> (usize, usize) {
         let span = |name: &str| {
-            self.attribute(document, element, name)
+            self.table_attribute(document, element, name)
                 .and_then(|value| value.as_integer())
                 .and_then(|value| usize::try_from(value).ok())
                 .filter(|value| *value >= 1)
@@ -48,14 +48,12 @@ impl Tree {
     /// standard's own answer and needs the cell's place in the grid — and for a value outside the
     /// table's three names, which is a document stating something §14.8.5.7 does not define.
     ///
-    /// The clause's condition on which attribute objects may carry it is
-    /// [`Self::attribute`]'s already: the table attributes "may only be defined in attribute
-    /// objects whose `O` (owner) entry has the value `Table` or whose owner is any other owner
-    /// excluding `Layout`, `List`, `PrintField` and `Artifact`" — a paraphrase in this crate's own
-    /// spelling of the names — and a format-specific owner's value is never consulted.
+    /// The clause's condition on which attribute objects may carry it — the `Table` owner, or any
+    /// other but `Layout`, `List`, `PrintField` and `Artifact` — is `Tree::table_attribute`'s
+    /// (ADR 3279), and a format-specific owner's value is never consulted.
     #[must_use]
     pub fn header_scope(&self, document: &Document, element: &Dictionary) -> Option<HeaderScope> {
-        self.attribute(document, element, "Scope")
+        self.table_attribute(document, element, "Scope")
             .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()))
             .as_deref()
             .and_then(HeaderScope::read)
@@ -253,13 +251,13 @@ impl Tree {
     /// them to be worked out. 2 of the corpus's 281 cells that state the entry state an empty
     /// array — measured by `examples/cell_header_census`.
     ///
-    /// Not inheritable, which is why this asks [`Self::attribute`]: a cell inside a cell's own
+    /// Not inheritable, which is why this asks `Tree::table_attribute`: a cell inside a cell's own
     /// table would otherwise take the enclosing cell's headers.
     ///
     /// [`TableStack`]: crate::structure::TableStack
     #[must_use]
     pub fn cell_headers(&self, document: &Document, element: &Dictionary) -> Option<Vec<Vec<u8>>> {
-        let stated = self.attribute(document, element, "Headers")?;
+        let stated = self.table_attribute(document, element, "Headers")?;
         let items = stated.as_array()?;
         Some(
             items
@@ -289,7 +287,7 @@ impl Tree {
     /// standard type an element maps to is §14.7.3's question, answered where the role is
     /// already in hand, and this reader would otherwise re-derive it per ask.
     ///
-    /// *Not inheritable* is why this asks [`Self::attribute`] rather than
+    /// *Not inheritable* is why this asks `Tree::table_attribute` rather than
     /// [`Self::inherited_attribute`]: a table nested inside a summarised table's cell has not
     /// been summarised by its host's sentence.
     ///
@@ -299,7 +297,7 @@ impl Tree {
     /// in a listener's ear is a pause rather than an answer.
     #[must_use]
     pub fn table_summary(&self, document: &Document, element: &Dictionary) -> Option<String> {
-        match self.attribute(document, element, "Summary") {
+        match self.table_attribute(document, element, "Summary") {
             Some(Object::String(bytes)) => {
                 Some(pdf_syntax::text_string(&bytes)).filter(|text| !text.is_empty())
             }
@@ -320,13 +318,13 @@ impl Tree {
     /// "This entry shall only have an effect for structure elements of type of TH" is the
     /// caller's condition to apply, for the reason [`Self::table_summary`] gives.
     ///
-    /// *Not inheritable*, so this asks [`Self::attribute`]: a `TH` under a shortened one has
+    /// *Not inheritable*, so this asks `Tree::table_attribute`: a `TH` under a shortened one has
     /// its own content and the enclosing cell's abbreviation is not a statement about it.
     ///
     /// `None` for the same three shapes as [`Self::table_summary`], for the same reasons.
     #[must_use]
     pub fn header_short(&self, document: &Document, element: &Dictionary) -> Option<String> {
-        match self.attribute(document, element, "Short") {
+        match self.table_attribute(document, element, "Short") {
             Some(Object::String(bytes)) => {
                 Some(pdf_syntax::text_string(&bytes)).filter(|text| !text.is_empty())
             }
@@ -378,7 +376,7 @@ impl Tree {
     ///
     /// Both cells read `(Optional; PDF 2.0)` as printed. Errata Collection 3's Issue #346 carets
     /// *not inheritable; * into each of them — and into neither of Table 382's `/ListNumbering`,
-    /// which stays inheritable — so this asks [`Self::attribute`] rather than
+    /// which stays inheritable — so this asks `Tree::list_attribute` rather than
     /// [`Self::inherited_attribute`]. A list nested inside a continuing list has not been said to
     /// continue anything.
     ///
@@ -398,8 +396,8 @@ impl Tree {
         document: &Document,
         element: &Dictionary,
     ) -> Option<ListContinuation> {
-        let flag = self.attribute(document, element, "ContinuedList");
-        let from = self.attribute(document, element, "ContinuedFrom");
+        let flag = self.list_attribute(document, element, "ContinuedList");
+        let from = self.list_attribute(document, element, "ContinuedFrom");
         match flag {
             Some(Object::Boolean(true)) => {}
             None if from.is_some() => {}

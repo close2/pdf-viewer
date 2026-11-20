@@ -21,8 +21,8 @@
 //! the channel that measures the limit could stop, and nothing said so.
 //!
 //! The self-test's cases are the script's own (`tools/bounded.sh --self-test` prints one line
-//! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
-//! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
+//! each): a synthetic table of a hundred thousand children sampled at a cost that grows with the
+//! table and no faster (ADR 3277), a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
 //! the stated number of missed samples, a fork loop of at most 128 children refused under a
 //! task limit of 64, and the heavy-walk lock on a file of the case's own — a run queued behind a

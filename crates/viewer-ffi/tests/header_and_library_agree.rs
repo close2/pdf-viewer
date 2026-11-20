@@ -25,14 +25,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    AcceptKind, ActKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind,
-    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
-    DataFormatKind, DecorationKind, DelegateKind, DirectionKind, DuplexKind, ElementKind,
-    EventKind, FocusKind, FolderTextKind, InitialKind, KeyKind, LevelKind, MarkupKind, MeasurePart,
-    MethodKind, NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind,
-    PixelFormat, PointerKind, PolicyKind, PositionKind, PreferenceKey, PresentKind,
-    PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind, ScriptAnswerKind,
-    ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, Status, TextKind,
+    AcceptKind, ActKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AlignmentKind,
+    AnsweredKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind,
+    ColumnTextKind, ControlKind, DataFormatKind, DecorationKind, DelegateKind, DirectionKind,
+    DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind, InitialKind, KeyKind, LevelKind,
+    MarkupKind, MeasurePart, MethodKind, NavigatorKind, NoteKind, OrderKind, OversizeKind,
+    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PolicyKind, PositionKind,
+    PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind,
+    ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind,
+    Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -151,7 +152,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        384,
+        385,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -1141,6 +1142,15 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_POSITION_NORMAL", PositionKind::Normal),
         ("QUORRA_POSITION_SUPERSCRIPT", PositionKind::Superscript),
         ("QUORRA_POSITION_SUBSCRIPT", PositionKind::Subscript),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("QUORRA_ALIGNMENT_NONE", AlignmentKind::None),
+        ("QUORRA_ALIGNMENT_LEFT", AlignmentKind::Left),
+        ("QUORRA_ALIGNMENT_RIGHT", AlignmentKind::Right),
+        ("QUORRA_ALIGNMENT_CENTER", AlignmentKind::Center),
+        ("QUORRA_ALIGNMENT_JUSTIFY", AlignmentKind::Justify),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
