@@ -856,6 +856,69 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
         .u8(sound.format.bits)
         .u8(encoding)
         .bytes(&sound.data);
+    write_playing(writer, &sound.playing);
+}
+
+/// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
+/// and seconds, the repeat count, and the three flags.
+fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
+    use pdf_model::media::SimpleDuration;
+    let (kind, seconds) = match playing.duration {
+        SimpleDuration::Intrinsic => (0, 0.0),
+        SimpleDuration::Infinite => (1, 0.0),
+        SimpleDuration::Seconds(seconds) => (2, seconds),
+    };
+    writer
+        .f64(playing.level)
+        .u8(kind)
+        .f64(seconds)
+        .f64(playing.repeat)
+        .bool(playing.auto_play)
+        .bool(playing.synchronous)
+        .bool(playing.mix);
+}
+
+/// [`write_playing`]'s other half. The confined side is the less trusted one, so each number is
+/// held to what `pdf_model::media::Playing` promises — finite and never negative — before a player
+/// does arithmetic with it.
+fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, ProtocolError> {
+    use pdf_model::media::SimpleDuration;
+    let unsigned = |value: f64, what: &'static str| {
+        if value.is_finite() && value >= 0.0 {
+            Ok(value)
+        } else {
+            Err(ProtocolError::Unbuildable {
+                what,
+                why: "it is not a finite number at or above zero",
+            })
+        }
+    };
+    let level = unsigned(reader.f64("a sound's level")?, "a sound's level")?;
+    let kind = reader.u8("a sound's duration")?;
+    let seconds = unsigned(reader.f64("a sound's duration")?, "a sound's duration")?;
+    let duration = match kind {
+        0 => SimpleDuration::Intrinsic,
+        1 => SimpleDuration::Infinite,
+        2 => SimpleDuration::Seconds(seconds),
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a sound's duration",
+                value: u32::from(other),
+            });
+        }
+    };
+    let repeat = unsigned(
+        reader.f64("a sound's repeat count")?,
+        "a sound's repeat count",
+    )?;
+    Ok(pdf_model::media::Playing {
+        level,
+        duration,
+        repeat,
+        auto_play: reader.bool("whether a sound plays at once")?,
+        synchronous: reader.bool("whether a sound plays synchronously")?,
+        mix: reader.bool("whether a sound is mixed")?,
+    })
 }
 
 /// [`write_sound`]'s other half.
@@ -887,5 +950,6 @@ fn read_sound(
             encoding,
         },
         data: reader.owned_bytes("a sound's samples")?,
+        playing: read_playing(reader)?,
     })))
 }

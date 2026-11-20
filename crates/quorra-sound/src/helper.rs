@@ -3,6 +3,7 @@
 use std::io::{Read, Write};
 use std::sync::mpsc::{Sender, channel};
 
+use crate::Progress;
 use crate::wire::{self, Format, Order, Reply, WireError};
 
 /// The audio device the helper plays on: `cpal`'s default output in the program, a recording double
@@ -11,13 +12,15 @@ pub trait Device {
     /// The device's rate and channel count, which the window converts each sound to.
     fn format(&self) -> Format;
 
-    /// Starts `samples`, interleaved at [`Self::format`], in place of whatever sounds; `ended` is
-    /// called once, from whichever thread the device runs on, when the last has been written.
+    /// Starts `samples`, interleaved at [`Self::format`], in place of whatever sounds; `report` is
+    /// told, from whichever thread the device runs on, how many frames have been written as they
+    /// are — often enough to time against, every twentieth of a second at most — and once that
+    /// the last has been (ADR 3342).
     ///
     /// # Errors
     ///
     /// The sentence to say where the device would not start.
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String>;
+    fn start(&mut self, samples: Vec<f32>, report: crate::Report) -> Result<(), String>;
 
     /// Stops what sounds; nothing where nothing does.
     fn stop(&mut self);
@@ -63,7 +66,7 @@ pub fn serve<D: Device>(
         }
     };
     drop(replies);
-    // The writer ends when the last sender has gone: this one and every sound's `ended`, which the
+    // The writer ends when the last sender has gone: this one and every sound's `report`, which the
     // device dropped with its stream above.
     let _ = writer.join();
     read
@@ -80,11 +83,14 @@ fn played(
             Order::Stop => device.stop(),
             Order::Play { serial, samples } => {
                 device.stop();
-                let ended = replies.clone();
+                let progress = replies.clone();
                 let reply = match device.start(
                     samples,
-                    Box::new(move || {
-                        let _ = ended.send(Reply::Ended(serial));
+                    Box::new(move |said| {
+                        let _ = progress.send(match said {
+                            Progress::Played(frames) => Reply::Played { serial, frames },
+                            Progress::Ended => Reply::Ended(serial),
+                        });
                     }),
                 ) {
                     Ok(()) => Reply::Started(serial),

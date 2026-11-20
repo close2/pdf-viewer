@@ -21,6 +21,12 @@ use super::{Heard, OpenSink, Played, Player, Wake};
 /// drain, which costs nothing a person sees at four times a second.
 pub const LOOK: Duration = Duration::from_millis(250);
 
+/// What a window says of a key or a click refused while a synchronous sound holds the reader
+/// ([`Sounds::holds_the_reader`]).
+pub const HELD: &str = "a sound is playing synchronously (ISO 32000-2 §12.6.4.9, Table 212's \
+                        /Synchronous), so nothing but Escape, which cancels it, is taken until it \
+                        ends";
+
 /// A window's sounds: none, and no thread, worker or helper, until the first (`CLAUDE.md`'s
 /// startup rules).
 pub struct Sounds {
@@ -116,7 +122,7 @@ impl Sounds {
         for said in &heard {
             match said {
                 Heard::Ended(_) | Heard::Stopped(_) => self.sounding = None,
-                Heard::Playing(_) | Heard::Refused(_) => {
+                Heard::Playing(_) | Heard::Holding(_) | Heard::Paused(_) | Heard::Refused(_) => {
                     self.awaiting = false;
                     self.sounding = Some(said.clone());
                 }
@@ -128,7 +134,7 @@ impl Sounds {
     /// Stops the sound that sounds, and answers whether there was one — Escape's question, which
     /// a window with nothing sounding leaves to the key table.
     pub fn stop(&mut self) -> bool {
-        let sounding = matches!(self.sounding, Some(Heard::Playing(_)));
+        let sounding = self.in_hand();
         match (sounding, self.player.as_mut()) {
             (true, Some(player)) => {
                 player.stop();
@@ -159,6 +165,10 @@ impl Sounds {
     pub fn title(&self) -> Option<&str> {
         match &self.sounding {
             Some(Heard::Playing(_)) => Some("playing a sound, Escape stops it"),
+            Some(Heard::Holding(_)) => Some(
+                "playing a sound synchronously, nothing but Escape is taken until it ends, and \
+                 Escape cancels it",
+            ),
             Some(said) => Some(said.sentence()),
             None => None,
         }
@@ -169,7 +179,25 @@ impl Sounds {
     /// ended wakes for it never.
     #[must_use]
     pub fn interval(&self) -> Option<Duration> {
-        (self.awaiting || matches!(self.sounding, Some(Heard::Playing(_)))).then_some(LOOK)
+        (self.awaiting || self.in_hand()).then_some(LOOK)
+    }
+
+    /// Whether a synchronous sound holds the reader: ISO 32000-2 §12.6.4.9's Table 212
+    /// `/Synchronous`, "allowing no further user interaction other than cancelling the sound,
+    /// until the sound has been completely played". While it does, the window takes Escape — which
+    /// [`Self::stop`] answers — and refuses every other key and click with [`HELD`] (ADR 3343).
+    #[must_use]
+    pub fn holds_the_reader(&self) -> bool {
+        matches!(self.sounding, Some(Heard::Holding(_)))
+    }
+
+    /// Whether a sound is in hand that Escape stops: sounding, holding the reader, or held at its
+    /// start.
+    fn in_hand(&self) -> bool {
+        matches!(
+            self.sounding,
+            Some(Heard::Playing(_) | Heard::Holding(_) | Heard::Paused(_))
+        )
     }
 
     /// Whether the first sound has made the player.

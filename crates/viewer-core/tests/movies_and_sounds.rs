@@ -350,6 +350,7 @@ fn a_sound_holding_its_own_samples_carries_them_beside_the_file() {
                 encoding: pdf_model::media::Encoding::Signed,
             },
             data: vec![0x00, 0x01, 0x7F, 0x80],
+            playing: pdf_model::media::Playing::default(),
         })],
         "{signed:?}"
     );
@@ -385,4 +386,45 @@ fn a_click_on_a_movie_annotation_hands_its_movie_over() {
         events.extend(viewer.handle(Command::Pointer { at, action }));
     }
     assert_eq!(handed(&events), [the_movie()], "{events:?}");
+}
+
+/// §12.6.4.9's Table 212 crosses with the samples, read into §13.2.5's terms, for a window that
+/// plays the sound itself: `/Volume 0.5` a level of one half, `/Synchronous true` kept because no
+/// `/Repeat` is present, `/Mix` at its default `false` (ADR 3341). A `/Volume` that is not a number
+/// is said and leaves Table 212's default 1.0. The wrong answers excluded: the parameters dropped
+/// at the event, and the volume read as Table 291's percentage.
+#[test]
+fn a_sound_action_s_parameters_cross_with_its_samples() {
+    let playing = |action: &str| {
+        let events = activated(document("", action), RestrictionLevel::Off, 5);
+        let found = events.iter().find_map(|event| match event {
+            Event::Media {
+                sound: Some(sound), ..
+            } => Some(sound.playing),
+            _ => None,
+        });
+        (found, notes(&events))
+    };
+    let (Some(stated), _) = playing("<< /S /Sound /Sound 13 0 R /Volume 0.5 /Synchronous true >>")
+    else {
+        panic!("the sound action's samples cross");
+    };
+    assert_eq!(
+        stated,
+        pdf_model::media::Playing {
+            level: 0.5,
+            synchronous: true,
+            ..pdf_model::media::Playing::default()
+        }
+    );
+    let (Some(named), notes) = playing("<< /S /Sound /Sound 13 0 R /Volume /Loud >>") else {
+        panic!("the sound action's samples cross");
+    };
+    assert_eq!(named, pdf_model::media::Playing::default());
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("/Volume is not a number")),
+        "{notes:?}"
+    );
 }

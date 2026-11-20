@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::Progress;
 use crate::wire::{self, Format, Reply, WireError};
 
 /// How long the helper has to open the device and say its format, and to answer each sound.
@@ -25,7 +26,7 @@ const EXIT_WITHIN: Duration = Duration::from_secs(2);
 const LOADER_REFUSED: i32 = 127;
 
 /// A sound's end, waited for: its serial and what to call.
-type Waiting = Arc<Mutex<Option<(u64, Box<dyn FnOnce() + Send>)>>>;
+type Waiting = Arc<Mutex<Option<(u64, crate::Report)>>>;
 
 /// Why the helper could not play a sound.
 #[derive(Debug, thiserror::Error)]
@@ -196,22 +197,18 @@ impl Helper {
         self.format
     }
 
-    /// Plays `samples` in place of whatever sounds; `ended` is called once, on the helper's reader
-    /// thread, when the helper says the last has been written.
+    /// Plays `samples` in place of whatever sounds; `report` is told on the helper's reader thread
+    /// each count of frames the helper says has been written, and once that the last has been.
     ///
     /// # Errors
     ///
     /// [`HelperError::Refused`] with the device's reason, or the helper's having ended, gone
     /// silent, or broken its pipe.
-    pub fn play(
-        &mut self,
-        samples: &[f32],
-        ended: Box<dyn FnOnce() + Send>,
-    ) -> Result<(), HelperError> {
+    pub fn play(&mut self, samples: &[f32], report: crate::Report) -> Result<(), HelperError> {
         self.serial = self.serial.wrapping_add(1);
         let serial = self.serial;
         // Set before the order is written: a short sound's end may arrive before its start.
-        *self.waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some((serial, ended));
+        *self.waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some((serial, report));
         let written = match self.input.as_mut() {
             Some(input) => wire::write_play(input, serial, samples).map_err(HelperError::from),
             None => Err(HelperError::Ended(None)),
@@ -228,7 +225,10 @@ impl Helper {
                     }
                     // A reply to an earlier sound, superseded before it was read.
                     Reply::Started(_) | Reply::Refused { .. } => {}
-                    Reply::Opened(_) | Reply::Failed(_) | Reply::Ended(_) => {
+                    Reply::Opened(_)
+                    | Reply::Failed(_)
+                    | Reply::Ended(_)
+                    | Reply::Played { .. } => {
                         break Err(HelperError::OutOfTurn);
                     }
                 }
@@ -240,7 +240,7 @@ impl Helper {
         answered.map_err(|error| self.with_status(error))
     }
 
-    /// Stops whatever sounds; its `ended` is not called. Nothing where the helper has gone, since
+    /// Stops whatever sounds; its `report` is told nothing more. Nothing where the helper has gone, since
     /// then nothing sounds.
     pub fn stop(&mut self) {
         self.forget();
@@ -317,16 +317,31 @@ fn read_replies(mut output: impl Read, said: &std::sync::mpsc::Sender<Reply>, wa
     // An end of the pipe or a malformed reply both end the helper as far as this side is concerned;
     // the sender's drop is what tells the window's side so.
     while let Ok(Some(reply)) = wire::read_reply(&mut output) {
-        if let Reply::Ended(serial) = reply {
-            let mut slot = waiting.lock().unwrap_or_else(PoisonError::into_inner);
-            if slot.as_ref().is_some_and(|(waited, _)| *waited == serial)
-                && let Some((_, ended)) = slot.take()
-            {
-                drop(slot);
-                ended();
+        match reply {
+            Reply::Ended(serial) => {
+                let mut slot = waiting.lock().unwrap_or_else(PoisonError::into_inner);
+                if slot.as_ref().is_some_and(|(waited, _)| *waited == serial)
+                    && let Some((_, mut report)) = slot.take()
+                {
+                    drop(slot);
+                    report(Progress::Ended);
+                }
             }
-        } else if said.send(reply).is_err() {
-            return;
+            // Reported under the lock, so that a stop's `forget` cannot interleave with it: once
+            // `forget` has returned, no report of the forgotten sound follows.
+            Reply::Played { serial, frames } => {
+                let mut slot = waiting.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some((waited, report)) = slot.as_mut()
+                    && *waited == serial
+                {
+                    report(Progress::Played(frames));
+                }
+            }
+            reply => {
+                if said.send(reply).is_err() {
+                    return;
+                }
+            }
         }
     }
 }

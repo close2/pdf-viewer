@@ -117,7 +117,7 @@ pub fn media_files(word: &str) -> Result<MediaFiles, String> {
 }
 
 /// What would be given to this machine's opener, once the checks before the level have passed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Handed {
     /// An embedded clip, or a sound's samples written as RIFF WAVE, to be written to a private
     /// temporary file of this program's own naming.
@@ -168,7 +168,7 @@ impl Handed {
 /// [`super::Launched`]'s arms for its reason: four levels answer in three ways once *warn* is a
 /// hand-over with a sentence, and a host matching fewer would have a level that silently behaved
 /// like another.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Handing {
     /// Hand it to [`hand_media`] now, then say the sentence it returns, with `note` after it.
     Hand {

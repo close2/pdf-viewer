@@ -573,12 +573,15 @@ pub enum Extraction {
 ///
 /// Undecoded on purpose: the samples are the document's bytes, and a window decodes them only in
 /// its confined media worker (ADR 3297), so this crate hands them over as they stand (ADR 3301).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SoundData {
     /// Table 305's `/R`, `/C`, `/B` and `/E`, read.
     pub format: pdf_model::media::SampleFormat,
     /// The sound object's data after Table 5's filters.
     pub data: Vec<u8>,
+    /// How it is played: §13.2.5's play parameters, which Table 212's sound action states in its
+    /// own terms and every other source leaves at their defaults (ADR 3341).
+    pub playing: pdf_model::media::Playing,
 }
 
 /// What [`Event::Media`] hands over: Table 285's `/D`, in the form a player is given it.

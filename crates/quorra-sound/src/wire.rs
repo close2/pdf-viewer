@@ -16,6 +16,7 @@
 //! | [`FAILED`] | why the device was not opened (text), once, in place of [`OPENED`]; the helper then exits |
 //! | [`STARTED`] | the serial of the sound now sounding |
 //! | [`REFUSED`] | the serial of a sound the device would not start, and why (text) |
+//! | [`PLAYED`] | the serial of a sound and how many of its frames (`u64`) have been written — the media clock's master |
 //! | [`ENDED`] | the serial of a sound whose last sample has been written |
 //!
 //! Text is a `u32` byte count and that many bytes of UTF-8, at most [`MAX_TEXT`]. Every count is
@@ -38,6 +39,8 @@ pub const STARTED: u8 = 3;
 pub const REFUSED: u8 = 4;
 /// The sound with this serial came to its end.
 pub const ENDED: u8 = 5;
+/// This many frames of the sound with this serial have been written to the device (ADR 3342).
+pub const PLAYED: u8 = 6;
 
 /// The most samples one sound may carry: `viewer_host::sound::MAX_PLAYED_SAMPLES`, which bounds
 /// what the window converts, held by the helper as its own bound on what it reads (64 MiB of
@@ -92,6 +95,13 @@ pub enum Reply {
     },
     /// The sound with this serial came to its end.
     Ended(u64),
+    /// This many frames of the sound with this serial have been written to the device.
+    Played {
+        /// Its serial.
+        serial: u64,
+        /// Frames written since it started.
+        frames: u64,
+    },
 }
 
 /// Why a message could not be read or written.
@@ -221,6 +231,11 @@ pub fn write_reply(to: &mut impl Write, reply: &Reply) -> Result<(), WireError> 
             to.write_all(&[ENDED])?;
             to.write_all(&serial.to_le_bytes())?;
         }
+        Reply::Played { serial, frames } => {
+            to.write_all(&[PLAYED])?;
+            to.write_all(&serial.to_le_bytes())?;
+            to.write_all(&frames.to_le_bytes())?;
+        }
     }
     to.flush()?;
     Ok(())
@@ -248,6 +263,10 @@ pub fn read_reply(from: &mut impl Read) -> Result<Option<Reply>, WireError> {
             why: read_text(from)?,
         },
         ENDED => Reply::Ended(u64::from_le_bytes(read_array(from)?)),
+        PLAYED => Reply::Played {
+            serial: u64::from_le_bytes(read_array(from)?),
+            frames: u64::from_le_bytes(read_array(from)?),
+        },
         other => return Err(WireError::UnknownTag(other)),
     };
     Ok(Some(reply))
@@ -336,6 +355,10 @@ mod tests {
                 why: "busy".to_owned(),
             },
             Reply::Ended(3),
+            Reply::Played {
+                serial: 3,
+                frames: 4800,
+            },
         ];
         let mut pipe = Vec::new();
         for reply in &replies {

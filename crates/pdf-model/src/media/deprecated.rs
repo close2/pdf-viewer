@@ -20,7 +20,7 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-use super::{Clip, Data};
+use super::{Clip, Data, Playing};
 use crate::file_spec::FileSpec;
 
 /// Table 307's entries, in the table's order: how a movie is to be presented, which a player
@@ -105,6 +105,7 @@ pub fn movie(
         data,
         temporary_file: None,
         unhonoured,
+        playing: Playing::default(),
     })
 }
 
@@ -154,6 +155,7 @@ pub fn sound(
             data: Data::Samples(Box::new(samples)),
             temporary_file: None,
             unhonoured: unhonoured.chain(rounded).collect(),
+            playing: Playing::default(),
         });
     }
     let Some(data) = file(document, &specification, "sound") else {
@@ -168,6 +170,7 @@ pub fn sound(
         data,
         temporary_file: None,
         unhonoured: unhonoured.collect(),
+        playing: Playing::default(),
     })
 }
 

@@ -194,7 +194,10 @@ same hand-off, a sound holding its own samples written as a RIFF WAVE file first
 — or, in the `quorra`, GTK and Qt windows at the same level, played there: decoded in the confined
 media worker, converted to the audio device's rate and channels, and played by the sound helper
 `quorra-sound` started at the first sound, so that no window links an audio library (ADRs 3297,
-3301, 3317, 3329),
+3301, 3317, 3329), as its play parameters ask — §13.2.5's level, duration and silent freeze, repeat
+count and auto-play, with Table 212's `/Volume` and `/Repeat` read into them and its `/Synchronous`
+holding the reader until Escape (ADRs 3341, 3343) — on a media clock driven by the audio device's
+own count of frames (ADR 3342),
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
 and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),

@@ -121,11 +121,21 @@ pub(super) fn sound_requested(
     subject: &str,
     outcome: &mut Outcome,
 ) {
-    handed(
-        pdf_model::media::sound(&open.document, &sound.sound, "Table 212", &sound.stated),
-        &format!("{subject} plays a sound"),
-        outcome,
+    let subject = format!("{subject} plays a sound");
+    outcome.notes.extend(
+        sound
+            .misread
+            .iter()
+            .map(|misread| format!("{subject} — {misread}")),
     );
+    // Table 212's entries travel with the clip, for a window that plays the sound itself and so is
+    // told them (ADR 3341); a player handed the file is still told none, which `handed` says.
+    let clip = pdf_model::media::sound(&open.document, &sound.sound, "Table 212", &sound.stated)
+        .map(|clip| pdf_model::media::Clip {
+            playing: sound.playing,
+            ..clip
+        });
+    handed(clip, &subject, outcome);
 }
 
 /// The clip kept for the hand-off and said, or the reason there is none said.

@@ -25,7 +25,7 @@ use crate::typing::{Choosing, Drawing, Typing};
 /// operation `viewer-core` is holding until an answer comes back, or §12.6.4.8's URI, which no
 /// core is holding at all because starting a program on this machine is the host's own act.
 /// Closed, so that a third subject cannot be answered by the wrong branch (ADR 1155).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Pending {
     /// An edit the viewer is holding, answered by `viewer_core::Command::Answer`.
     Restricted {
@@ -1365,6 +1365,12 @@ impl App {
         match &self.sounding {
             Some(viewer_host::sound::Heard::Playing(_)) => {
                 drawing.push_str(" — playing a sound, Escape stops it");
+            }
+            Some(viewer_host::sound::Heard::Holding(_)) => {
+                drawing.push_str(
+                    " — playing a sound synchronously, nothing but Escape is taken until it ends, \
+                     and Escape cancels it",
+                );
             }
             Some(said) => {
                 drawing.push_str(" — ");

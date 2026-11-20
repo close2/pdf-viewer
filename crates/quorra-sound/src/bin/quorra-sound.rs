@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use quorra_sound::{Device, Format};
+use quorra_sound::{Device, Format, Progress, Report};
 
 fn main() -> std::process::ExitCode {
     if let Err(error) = keep_only_the_standard_descriptors() {
@@ -69,15 +69,15 @@ impl Device for Output {
         }
     }
 
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String> {
+    fn start(&mut self, samples: Vec<f32>, report: Report) -> Result<(), String> {
         self.stop();
         let config = self.config.config();
         let stream = match self.config.sample_format() {
-            cpal::SampleFormat::F32 => stream::<f32>(&self.device, config, samples, ended),
-            cpal::SampleFormat::I16 => stream::<i16>(&self.device, config, samples, ended),
-            cpal::SampleFormat::U16 => stream::<u16>(&self.device, config, samples, ended),
-            cpal::SampleFormat::I32 => stream::<i32>(&self.device, config, samples, ended),
-            cpal::SampleFormat::F64 => stream::<f64>(&self.device, config, samples, ended),
+            cpal::SampleFormat::F32 => stream::<f32>(&self.device, config, samples, report),
+            cpal::SampleFormat::I16 => stream::<i16>(&self.device, config, samples, report),
+            cpal::SampleFormat::U16 => stream::<u16>(&self.device, config, samples, report),
+            cpal::SampleFormat::I32 => stream::<i32>(&self.device, config, samples, report),
+            cpal::SampleFormat::F64 => stream::<f64>(&self.device, config, samples, report),
             other => Err(format!(
                 "the device takes samples as {other}, which this player does not write"
             )),
@@ -101,13 +101,19 @@ fn stream<T>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
     samples: Vec<f32>,
-    ended: Box<dyn FnOnce() + Send>,
+    mut report: Report,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let mut at = 0_usize;
-    let mut ended = Some(ended);
+    let mut ended = false;
+    // The media clock's master is this count (ADR 3342): reported each time it has moved a
+    // twentieth of a second's frames, which bounds the replies to twenty a second whatever the
+    // device's period, and at the end.
+    let channels = usize::from(config.channels.max(1));
+    let step = u64::from(config.sample_rate / 20).max(1);
+    let mut reported = 0_u64;
     let said = Arc::new(AtomicBool::new(false));
     device
         .build_output_stream::<T, _, _>(
@@ -118,10 +124,23 @@ where
                     *slot = T::from_sample_(sample);
                     at = at.saturating_add(1);
                 }
-                if at >= samples.len()
-                    && let Some(ended) = ended.take()
-                {
-                    ended();
+                if ended {
+                    return;
+                }
+                let finished = at >= samples.len();
+                let frames = u64::try_from(
+                    at.min(samples.len())
+                        .checked_div(channels)
+                        .unwrap_or_default(),
+                )
+                .unwrap_or(u64::MAX);
+                if finished || frames.saturating_sub(reported) >= step {
+                    reported = frames;
+                    report(Progress::Played(frames));
+                }
+                if finished {
+                    ended = true;
+                    report(Progress::Ended);
                 }
             },
             // The device's own failure, mid-sound, on its own thread: said once, on the standard

@@ -382,6 +382,10 @@ impl App {
 
     /// A wheel notch: the About card, the panel's list, or the page — and under Ctrl, a zoom.
     pub(crate) fn wheel(&mut self, delta: winit::event::MouseScrollDelta) {
+        // A synchronous sound holds the reader; the title already says so (ADR 3343).
+        if self.held_by_a_sound() {
+            return;
+        }
         // A line is not a pixel and winit reports whichever the device produced. Sixteen logical
         // pixels a line is about one row of this program's own text, which is what a line means
         // on a list; a touchpad reports pixels and needs no conversion. **Both axes**, because a

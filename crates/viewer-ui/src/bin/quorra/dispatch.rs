@@ -1302,12 +1302,36 @@ impl App {
 
     /// Escape while a sound sounds: the sound stops, and the key goes no further (ADR 3301).
     pub(crate) fn stop_the_sound(&mut self) -> bool {
-        let sounding = matches!(self.sounding, Some(viewer_host::sound::Heard::Playing(_)));
+        let sounding = matches!(
+            self.sounding,
+            Some(
+                viewer_host::sound::Heard::Playing(_)
+                    | viewer_host::sound::Heard::Holding(_)
+                    | viewer_host::sound::Heard::Paused(_)
+            )
+        );
         if let (true, Some(player)) = (sounding, self.player.as_mut()) {
             player.stop();
             return true;
         }
         false
+    }
+
+    /// Whether a synchronous sound holds the reader — ISO 32000-2 §12.6.4.9's Table 212
+    /// `/Synchronous`, "allowing no further user interaction other than cancelling the sound" —
+    /// so that every key but Escape and every click is refused (ADR 3343).
+    pub(crate) fn held_by_a_sound(&self) -> bool {
+        matches!(self.sounding, Some(viewer_host::sound::Heard::Holding(_)))
+    }
+
+    /// [`Self::held_by_a_sound`], saying so on the terminal where `said` — a press, not the rest
+    /// of the gesture it began.
+    pub(crate) fn refused_while_held(&self, said: bool) -> bool {
+        let held = self.held_by_a_sound();
+        if held && said {
+            println!("note: {}", viewer_host::sound::HELD);
+        }
+        held
     }
 
     /// A media clip under the level this window holds, which the restrictions menu changes

@@ -59,9 +59,9 @@ impl Sink for HelperSink {
         DeviceFormat { rate, channels }
     }
 
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String> {
+    fn start(&mut self, samples: Vec<f32>, report: super::Report) -> Result<(), String> {
         self.0
-            .play(&samples, ended)
+            .play(&samples, report)
             .map_err(|error| error.to_string())
     }
 

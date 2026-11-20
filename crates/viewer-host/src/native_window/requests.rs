@@ -27,7 +27,7 @@ use super::NativeWindow;
 ///
 /// **Closed**, so that a subject cannot be answered by another's branch (ADR 1155), and carried by
 /// value to the dialogue and back, so that the answer acts on exactly what was asked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Asked {
     /// An operation the viewer is holding, answered by `viewer_core::Command::Answer`.
     Restricted {

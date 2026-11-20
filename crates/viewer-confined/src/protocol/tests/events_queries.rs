@@ -208,6 +208,13 @@ fn every_carried_event_round_trips() {
                     encoding: pdf_model::media::Encoding::ALaw,
                 },
                 data: b"ab".to_vec(),
+                playing: pdf_model::media::Playing {
+                    level: 0.5,
+                    duration: pdf_model::media::SimpleDuration::Seconds(1.25),
+                    repeat: 0.0,
+                    synchronous: true,
+                    ..pdf_model::media::Playing::default()
+                },
             })),
         },
         Event::Media {

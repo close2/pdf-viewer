@@ -18,20 +18,28 @@
 //! What crosses it is samples this program decoded, never the document's bytes, which is the
 //! standing ADR 3297 gave the C on the output side.
 
+pub mod clock;
 mod convert;
 pub mod helper;
+mod passes;
 mod window;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use clock::MediaClock;
+use passes::{Pass, Passes, levelled};
+pub use quorra_sound::{Progress, Report};
 
 pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted};
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
 use viewer_core::{DocumentId, SoundData};
-pub use window::{LOOK, Sounds};
+pub use window::{HELD, LOOK, Sounds};
 
 /// Where the converted samples go: a device, or a test's record of what reached it.
 ///
@@ -43,13 +51,14 @@ pub trait Sink {
     fn format(&self) -> DeviceFormat;
 
     /// Starts `samples`, interleaved at [`Self::format`] as fractions of full scale, in place of
-    /// whatever was sounding; `ended` is called once, from whichever thread the device runs on,
-    /// when the last of them has been written.
+    /// whatever was sounding; `report` is told, from whichever thread the device runs on, how many
+    /// frames have been written as they are, and once that the last has been — the count the
+    /// media clock is read from ([`clock`], ADR 3342).
     ///
     /// # Errors
     ///
     /// The sentence to say where the device would not start.
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String>;
+    fn start(&mut self, samples: Vec<f32>, report: Report) -> Result<(), String>;
 
     /// Stops what is sounding; nothing where nothing is.
     fn stop(&mut self);
@@ -63,7 +72,7 @@ pub type OpenSink = Box<dyn FnMut() -> Result<Box<dyn Sink>, String> + Send>;
 pub type Wake = Box<dyn Fn() + Send>;
 
 /// One sound to play, from [`viewer_core::Event::Media`]'s `sound`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Played {
     /// Which document asked for it, so that closing that document stops it.
     pub document: DocumentId,
@@ -78,6 +87,14 @@ pub struct Played {
 pub enum Heard {
     /// A sound is sounding; the sentence says which, and what it was converted to.
     Playing(String),
+    /// A sound is sounding synchronously — Table 212's `/Synchronous` — and holds the reader:
+    /// "allowing no further user interaction other than cancelling the sound, until the sound has
+    /// been completely played" (ISO 32000-2 §12.6.4.9). The window refuses every key and click but
+    /// the one that stops it (ADR 3343).
+    Holding(String),
+    /// A sound was decoded and is held at its start, not sounding: Table 291's `/A` false, "the
+    /// media shall be initially paused when activated". [`Player::resume`] starts it.
+    Paused(String),
     /// The sound came to its end.
     Ended(String),
     /// The sound was stopped: by [`Player::stop`], a second sound, or its document closing.
@@ -92,9 +109,12 @@ impl Heard {
     #[must_use]
     pub fn sentence(&self) -> &str {
         match self {
-            Self::Playing(said) | Self::Ended(said) | Self::Stopped(said) | Self::Refused(said) => {
-                said
-            }
+            Self::Playing(said)
+            | Self::Holding(said)
+            | Self::Paused(said)
+            | Self::Ended(said)
+            | Self::Stopped(said)
+            | Self::Refused(said) => said,
         }
     }
 }
@@ -107,17 +127,23 @@ enum Order {
     Stop,
     /// This document closed; stop its sound if it is the one sounding.
     Closed(DocumentId),
-    /// The sound numbered so reached its end (sent by the sink's `ended`).
-    Ended(u64),
+    /// Start the sound held at its start.
+    Resume,
+    /// What the device said of the pass numbered so (sent by the sink's report).
+    Progress(u64, Progress),
     /// The window is closing.
     Quit,
 }
 
 /// The window's handle on its sounds: one at a time, on a thread of its own from the first.
 ///
-/// A second sound stops the first, which is Table 210's `/Mix` at its default `false`: "If
-/// `false`, stop any other sounds being played" is the behaviour this player has for every sound
-/// until §13.2.5's play parameters are carried (RFC 0015 section 5, step 7).
+/// Each sound is played as §13.2.5's play parameters ask (ADR 3341): its level, its passes — the
+/// simple duration, repeated as the repeat count says — and whether it starts at once; and its
+/// time is the [`MediaClock`] the device's count drives (ADR 3342), which [`Self::position`] reads.
+///
+/// A second sound stops the first, which is Table 212's `/Mix` at its default `false`: "If
+/// `false`, any previously playing sound shall be stopped before starting this sound". A `/Mix`
+/// `true` is not mixed — the device takes one sound — and the sentence for the sound says so.
 pub struct Player {
     /// The sink's maker and the waker, until the first sound takes them to the thread.
     unstarted: Option<(OpenSink, Wake)>,
@@ -127,6 +153,8 @@ pub struct Player {
     running: Option<Running>,
     /// What was said before a thread existed to say it — a thread that would not start.
     early: Vec<Heard>,
+    /// The clock of the sound now sounding, which the thread moves and the window reads.
+    clock: Arc<Mutex<Option<MediaClock>>>,
 }
 
 /// The player's thread, and the two directions of talk with it.
@@ -156,6 +184,7 @@ impl Player {
             worker: None,
             running: None,
             early: Vec::new(),
+            clock: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -190,6 +219,23 @@ impl Player {
         self.send(Order::Closed(document));
     }
 
+    /// Starts the sound [`Heard::Paused`] said is held at its start; nothing where none is.
+    pub fn resume(&mut self) {
+        self.send(Order::Resume);
+    }
+
+    /// Where the sound in hand is in its time, read from the device's count of frames (ADR 3342):
+    /// every pass sounded and frozen so far and the device's count in this one. `None` where no
+    /// sound is in hand.
+    #[must_use]
+    pub fn position(&self) -> Option<Duration> {
+        self.clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|clock| clock.time(Instant::now()))
+    }
+
     /// What the player has said since the last call, oldest first.
     pub fn heard(&mut self) -> Vec<Heard> {
         let mut heard = std::mem::take(&mut self.early);
@@ -218,6 +264,7 @@ impl Player {
         let (say, heard) = channel();
         let ended = orders.clone();
         let worker = self.worker.clone();
+        let clock = Arc::clone(&self.clock);
         let spawned = std::thread::Builder::new()
             .name("media-player".to_owned())
             .spawn(move || {
@@ -231,6 +278,7 @@ impl Player {
                     sink: None,
                     sounding: None,
                     serial: 0,
+                    clock,
                 }
                 .run();
             });
@@ -263,17 +311,41 @@ impl Drop for Player {
     }
 }
 
-/// What sounds now: its number, its document and its label.
+/// Where the sound now in hand is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// Decoded and held at its start: Table 291's `/A` false.
+    Held,
+    /// A pass's frames are at the device.
+    Sounding,
+    /// A pass's frames have sounded and its freeze lasts.
+    Frozen,
+}
+
+/// The sound now in hand: its document and label, the whole of it converted and levelled, and
+/// where its passes are.
 struct Sounding {
+    /// The number of the pass now at the device, which its reports carry.
     serial: u64,
     document: DocumentId,
     label: String,
+    /// Every sample of the sound, converted for the device and scaled to its level; each pass
+    /// sounds the first of them.
+    samples: Vec<f32>,
+    /// The device's channels, so that a pass's frames are counted in samples.
+    channels: usize,
+    passes: Passes,
+    /// The pass now held, sounding or frozen.
+    pass: Pass,
+    stage: Stage,
+    /// Whether it holds the reader (Table 212's `/Synchronous`).
+    synchronous: bool,
 }
 
 /// The player's thread's state.
 struct Thread {
     inbox: Receiver<Order>,
-    /// A sender to its own inbox, which each sound's `ended` posts through.
+    /// A sender to its own inbox, which each pass's report posts through.
     ended: Sender<Order>,
     say: Sender<Heard>,
     wake: Wake,
@@ -282,6 +354,8 @@ struct Thread {
     sink: Option<Box<dyn Sink>>,
     sounding: Option<Sounding>,
     serial: u64,
+    /// The clock of the sound in hand, shared with [`Player::position`].
+    clock: Arc<Mutex<Option<MediaClock>>>,
 }
 
 impl Thread {
@@ -290,9 +364,22 @@ impl Thread {
         loop {
             let order = match queued.pop_front() {
                 Some(order) => order,
-                None => match self.inbox.recv() {
-                    Ok(order) => order,
-                    Err(_) => return,
+                None => match self.thaws_at() {
+                    None => match self.inbox.recv() {
+                        Ok(order) => order,
+                        Err(_) => return,
+                    },
+                    Some(at) => match self
+                        .inbox
+                        .recv_timeout(at.saturating_duration_since(Instant::now()))
+                    {
+                        Ok(order) => order,
+                        Err(RecvTimeoutError::Timeout) => {
+                            self.thawed();
+                            continue;
+                        }
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    },
                 },
             };
             match order {
@@ -307,19 +394,8 @@ impl Thread {
                         self.silence();
                     }
                 }
-                Order::Ended(serial) => {
-                    if self
-                        .sounding
-                        .as_ref()
-                        .is_some_and(|sounding| sounding.serial == serial)
-                        && let Some(sounding) = self.sounding.take()
-                    {
-                        self.tell(Heard::Ended(format!(
-                            "{} came to its end (ISO 32000-2 §13.3)",
-                            sounding.label
-                        )));
-                    }
-                }
+                Order::Resume => self.resumed(),
+                Order::Progress(serial, progress) => self.progressed(serial, progress),
                 Order::Play(played) => {
                     self.silence();
                     let samples = match self.prepared(&played) {
@@ -382,31 +458,195 @@ impl Thread {
         Ok((samples, said))
     }
 
-    fn sound(&mut self, played: Played, (samples, said): (Vec<f32>, String)) {
-        self.serial = self.serial.wrapping_add(1);
-        let serial = self.serial;
-        let ended = self.ended.clone();
-        let Some(sink) = self.sink.as_mut() else {
+    /// The sound in hand from now: levelled, cut into its passes, its clock at zero, and its first
+    /// pass started — or held, where it does not play at once.
+    fn sound(&mut self, played: Played, (mut samples, mut said): (Vec<f32>, String)) {
+        let playing = played.sound.playing;
+        let Some(format) = self.sink.as_ref().map(|sink| sink.format()) else {
             return;
         };
-        match sink.start(
-            samples,
-            Box::new(move || {
-                let _ = ended.send(Order::Ended(serial));
-            }),
-        ) {
-            Ok(()) => {
-                self.sounding = Some(Sounding {
-                    serial,
-                    document: played.document,
-                    label: played.label,
-                });
-                self.tell(Heard::Playing(said));
-            }
-            Err(why) => self.tell(Heard::Refused(format!(
-                "{} was not played: the audio device: {why}",
+        levelled(&mut samples, playing.level);
+        for note in described(&playing) {
+            said.push_str("; ");
+            said.push_str(&note);
+        }
+        let channels = usize::from(format.channels.max(1));
+        let intrinsic = u64::try_from(samples.len().checked_div(channels).unwrap_or_default())
+            .unwrap_or(u64::MAX);
+        let mut passes = Passes::new(&playing, intrinsic, format.rate);
+        let Some(pass) = passes.next_pass() else {
+            self.tell(Heard::Ended(format!(
+                "{} has a duration of nothing (Table 292, Table 291's /RC), so nothing sounded",
                 played.label
-            ))),
+            )));
+            return;
+        };
+        *self.clock.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(MediaClock::new(format.rate));
+        self.sounding = Some(Sounding {
+            serial: 0,
+            document: played.document,
+            label: played.label,
+            samples,
+            channels,
+            passes,
+            pass,
+            stage: Stage::Held,
+            synchronous: playing.synchronous,
+        });
+        if !playing.auto_play {
+            said.push_str(
+                "; it is held at its start, because Table 291's /A is false: \"the media shall be \
+                 initially paused when activated\"",
+            );
+            self.tell(Heard::Paused(said));
+            return;
+        }
+        match self.start_pass() {
+            Ok(()) => self.tell(if playing.synchronous {
+                Heard::Holding(format!(
+                    "{said}; it plays synchronously (Table 212's /Synchronous), so until it ends \
+                     this window takes no key or click but Escape, which cancels it"
+                ))
+            } else {
+                Heard::Playing(said)
+            }),
+            Err(why) => self.refused(&why),
+        }
+    }
+
+    /// The pass in hand to the device, or straight to its freeze where it sounds nothing.
+    fn start_pass(&mut self) -> Result<(), String> {
+        self.serial = self.serial.wrapping_add(1);
+        let serial = self.serial;
+        let report = self.ended.clone();
+        let (Some(sounding), Some(sink)) = (self.sounding.as_mut(), self.sink.as_mut()) else {
+            return Ok(());
+        };
+        sounding.serial = serial;
+        let frames = usize::try_from(sounding.pass.sounding).unwrap_or(usize::MAX);
+        let end = frames
+            .saturating_mul(sounding.channels)
+            .min(sounding.samples.len());
+        if end == 0 {
+            sounding.stage = Stage::Frozen;
+            self.with_clock(|clock| clock.freeze(Instant::now()));
+            return Ok(());
+        }
+        sounding.stage = Stage::Sounding;
+        let samples = sounding.samples.get(..end).unwrap_or_default().to_vec();
+        sink.start(
+            samples,
+            Box::new(move |progress| {
+                let _ = report.send(Order::Progress(serial, progress));
+            }),
+        )
+    }
+
+    /// The device's word on the pass numbered `serial`; a word on an earlier pass, or on a sound
+    /// since stopped, moves nothing.
+    fn progressed(&mut self, serial: u64, progress: Progress) {
+        let Some(sounding) = self.sounding.as_ref() else {
+            return;
+        };
+        if sounding.serial != serial || sounding.stage != Stage::Sounding {
+            return;
+        }
+        let pass = sounding.pass;
+        match progress {
+            Progress::Played(frames) => self.with_clock(|clock| clock.played(frames)),
+            Progress::Ended => {
+                self.with_clock(|clock| clock.sounded(pass.sounding));
+                if pass.frozen == Some(0) {
+                    self.next_pass();
+                } else {
+                    if let Some(sounding) = self.sounding.as_mut() {
+                        sounding.stage = Stage::Frozen;
+                    }
+                    self.with_clock(|clock| clock.freeze(Instant::now()));
+                }
+            }
+        }
+    }
+
+    /// When the freeze in hand ends, by the clock; `None` where nothing is frozen or the freeze is
+    /// for ever (Table 292's `/S /F`), which only an order ends.
+    fn thaws_at(&self) -> Option<Instant> {
+        let sounding = self.sounding.as_ref()?;
+        if sounding.stage != Stage::Frozen {
+            return None;
+        }
+        let frames = sounding.pass.frozen?;
+        self.clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()?
+            .thaws_at(frames)
+    }
+
+    /// The freeze in hand has lasted its length: the clock moves by exactly it, and the next pass
+    /// starts.
+    fn thawed(&mut self) {
+        let Some(frames) = self
+            .sounding
+            .as_ref()
+            .and_then(|sounding| sounding.pass.frozen)
+        else {
+            return;
+        };
+        self.with_clock(|clock| clock.thawed(frames));
+        self.next_pass();
+    }
+
+    /// The next pass started, or the sound's end said where the repeat count is spent.
+    fn next_pass(&mut self) {
+        let Some(sounding) = self.sounding.as_mut() else {
+            return;
+        };
+        match sounding.passes.next_pass() {
+            Some(pass) => {
+                sounding.pass = pass;
+                if let Err(why) = self.start_pass() {
+                    self.refused(&why);
+                }
+            }
+            None => {
+                if let Some(sounding) = self.sounding.take() {
+                    *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                    self.tell(Heard::Ended(format!(
+                        "{} came to its end (ISO 32000-2 §13.3, §13.2.5)",
+                        sounding.label
+                    )));
+                }
+            }
+        }
+    }
+
+    /// The sound held at its start, started.
+    fn resumed(&mut self) {
+        let Some(sounding) = self.sounding.as_ref() else {
+            return;
+        };
+        if sounding.stage != Stage::Held {
+            return;
+        }
+        let said = format!("{} is playing, resumed from its start", sounding.label);
+        let synchronous = sounding.synchronous;
+        match self.start_pass() {
+            Ok(()) if synchronous => self.tell(Heard::Holding(said)),
+            Ok(()) => self.tell(Heard::Playing(said)),
+            Err(why) => self.refused(&why),
+        }
+    }
+
+    /// The device would not start a pass: the sound is dropped and that is said.
+    fn refused(&mut self, why: &str) {
+        if let Some(sounding) = self.sounding.take() {
+            *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            self.tell(Heard::Refused(format!(
+                "{} was not played: the audio device: {why}",
+                sounding.label
+            )));
         }
     }
 
@@ -416,7 +656,19 @@ impl Thread {
             sink.stop();
         }
         if let Some(sounding) = self.sounding.take() {
+            *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
             self.tell(Heard::Stopped(format!("{} was stopped", sounding.label)));
+        }
+    }
+
+    fn with_clock(&self, move_it: impl FnOnce(&mut MediaClock)) {
+        if let Some(clock) = self
+            .clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            move_it(clock);
         }
     }
 
@@ -427,13 +679,48 @@ impl Thread {
     }
 }
 
+/// The parameters that differ from their defaults, each a sentence, so that a person told a sound
+/// plays is told how (trap 5).
+fn described(playing: &pdf_model::media::Playing) -> Vec<String> {
+    use pdf_model::media::SimpleDuration;
+    let mut said = Vec::new();
+    if (playing.level - 1.0).abs() >= f64::EPSILON {
+        said.push(format!(
+            "at {:.0} % of its recorded level",
+            playing.level * 100.0
+        ));
+    }
+    match playing.duration {
+        SimpleDuration::Intrinsic => {}
+        SimpleDuration::Infinite => {
+            said.push("for an infinite duration, frozen silent after its end".to_owned());
+        }
+        SimpleDuration::Seconds(seconds) => {
+            said.push(format!("for a duration of {seconds} s (Table 292)"));
+        }
+    }
+    if playing.repeat == 0.0 {
+        said.push("repeated until it is stopped".to_owned());
+    } else if (playing.repeat - 1.0).abs() >= f64::EPSILON {
+        said.push(format!("{} times (Table 291's /RC)", playing.repeat));
+    }
+    if playing.mix {
+        said.push(
+            "Table 212's /Mix asks for it to be mixed with any sound already playing, and this \
+             player plays one sound at a time, so any other was stopped"
+                .to_owned(),
+        );
+    }
+    said
+}
+
 /// Whether `order`, queued while a sound of `document` was being decoded, means that sound is not
 /// to start.
 fn supersedes(order: &Order, document: DocumentId) -> bool {
     match order {
         Order::Play(_) | Order::Stop | Order::Quit => true,
         Order::Closed(closed) => *closed == document,
-        Order::Ended(_) => false,
+        Order::Resume | Order::Progress(..) => false,
     }
 }
 

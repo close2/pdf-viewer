@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use viewer_host::sound::{DeviceFormat, OpenSink, Sink};
+use viewer_host::sound::{DeviceFormat, OpenSink, Report, Sink};
 
 /// The sound annotation's object.
 pub(super) const ANNOTATION: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(4, 0);
@@ -43,7 +43,7 @@ impl Sink for Recording {
         FORMAT
     }
 
-    fn start(&mut self, samples: Vec<f32>, _ended: Box<dyn FnOnce() + Send>) -> Result<(), String> {
+    fn start(&mut self, samples: Vec<f32>, _report: Report) -> Result<(), String> {
         record(&self.0).started.push(samples);
         Ok(())
     }

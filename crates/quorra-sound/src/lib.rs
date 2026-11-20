@@ -33,6 +33,22 @@ pub use client::{Helper, HelperError};
 pub use helper::{Device, serve};
 pub use wire::Format;
 
+/// What a device says of the sound it plays, as it plays it: the media clock's master (ADR 3342).
+///
+/// Frames are counted as the device takes them, so a clock read from them runs at the device's
+/// rate and not the processor's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    /// This many of the sound's frames have been written to the device since it started.
+    Played(u64),
+    /// The sound's last frame has been written.
+    Ended,
+}
+
+/// Where a device reports a sound's [`Progress`], from whichever thread it runs on. Called with
+/// [`Progress::Ended`] at most once, and never after it.
+pub type Report = Box<dyn FnMut(Progress) + Send>;
+
 /// The helper program's name, which is also the name its diagnostics are reported under.
 pub const HELPER_PROGRAM: &str = "quorra-sound";
 

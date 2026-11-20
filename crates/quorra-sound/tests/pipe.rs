@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use quorra_sound::{Device, Format, Helper, HelperError};
+use quorra_sound::{Device, Format, Helper, HelperError, Progress, Report};
 
 /// What the recording device saw.
 #[derive(Debug, Default)]
@@ -16,7 +16,8 @@ struct Record {
     stops: usize,
 }
 
-/// The device's double: it ends a sound at once when `ends` holds, and refuses an empty one.
+/// The device's double: when `ends` holds it plays a sound at once — half its frames reported,
+/// then all of them, then its end — and it refuses an empty one.
 struct Recording {
     record: Arc<Mutex<Record>>,
     ends: bool,
@@ -30,13 +31,16 @@ impl Device for Recording {
         }
     }
 
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String> {
+    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
         if samples.is_empty() {
             return Err("nothing to play".to_owned());
         }
+        let frames = u64::try_from(samples.len() / 2).unwrap_or(u64::MAX);
         recorded(&self.record).started.push(samples);
         if self.ends {
-            ended();
+            report(Progress::Played(frames / 2));
+            report(Progress::Played(frames));
+            report(Progress::Ended);
         }
         Ok(())
     }
@@ -74,14 +78,25 @@ fn served(ends: bool) -> Result<Served, Box<dyn std::error::Error>> {
     Ok((helper, record, serving))
 }
 
-fn ended_into(sender: std::sync::mpsc::Sender<u32>, which: u32) -> Box<dyn FnOnce() + Send> {
-    Box::new(move || {
-        let _ = sender.send(which);
+/// A report that sends `which` with every count of frames, and with `u64::MAX` at the end.
+fn ended_into(sender: std::sync::mpsc::Sender<(u32, u64)>, which: u32) -> Report {
+    Box::new(move |said| {
+        let _ = sender.send(match said {
+            Progress::Played(frames) => (which, frames),
+            Progress::Ended => (which, u64::MAX),
+        });
     })
 }
 
-fn next(ends: &Receiver<u32>) -> Option<u32> {
-    ends.recv_timeout(Duration::from_secs(10)).ok()
+/// The next sound to end, with the frame counts reported for it on the way.
+fn next(ends: &Receiver<(u32, u64)>) -> Option<(u32, Vec<u64>)> {
+    let mut played = Vec::new();
+    loop {
+        match ends.recv_timeout(Duration::from_secs(10)).ok()? {
+            (which, u64::MAX) => return Some((which, played)),
+            (_, frames) => played.push(frames),
+        }
+    }
 }
 
 #[test]
@@ -101,11 +116,13 @@ fn a_sound_crosses_whole_and_its_end_comes_back() {
     helper
         .play(&samples, ended_into(ends.clone(), 1))
         .expect("started");
-    assert_eq!(next(&ended), Some(1));
+    // 100,000 samples of two channels are 50,000 frames: the device's counts cross the wire as
+    // the media clock reads them (ADR 3342).
+    assert_eq!(next(&ended), Some((1, vec![25_000, 50_000])));
     helper
         .play(&[0.5, -0.5], ended_into(ends, 2))
         .expect("started");
-    assert_eq!(next(&ended), Some(2));
+    assert_eq!(next(&ended), Some((2, vec![0, 1])));
     drop(helper);
     serving
         .join()
@@ -144,8 +161,10 @@ fn a_sound_the_device_refuses_is_said() {
         "{refused:?}"
     );
     // The helper is still there for the next sound.
-    helper.play(&[1.0], ended_into(ends, 2)).expect("started");
-    assert_eq!(next(&ended), Some(2));
+    helper
+        .play(&[1.0, 1.0], ended_into(ends, 2))
+        .expect("started");
+    assert_eq!(next(&ended), Some((2, vec![0, 1])));
     drop(helper);
     serving
         .join()

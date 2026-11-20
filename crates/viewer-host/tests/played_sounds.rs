@@ -19,7 +19,7 @@ use viewer_core::{
     Command, DocumentId, Event, RestrictionLevel, RestrictionPolicy, RestrictionScope, SoundData,
     Viewer,
 };
-use viewer_host::sound::{DeviceFormat, Heard, Played, Player, Sink};
+use viewer_host::sound::{DeviceFormat, Heard, Played, Player, Progress, Report, Sink};
 use viewer_host::{Handed, Handing, MediaFiles};
 
 /// What the recording sink saw.
@@ -46,14 +46,25 @@ impl Sink for Recording {
         self.format
     }
 
-    fn start(&mut self, samples: Vec<f32>, ended: Box<dyn FnOnce() + Send>) -> Result<(), String> {
+    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
+        let frames = u64::try_from(
+            samples
+                .len()
+                .checked_div(usize::from(self.format.channels))
+                .unwrap_or_default(),
+        )
+        .unwrap_or(u64::MAX);
         self.record
             .lock()
             .map_err(|_| "the record is poisoned".to_owned())?
             .started
             .push(samples);
+        // The device's count, as the sound helper reports it: half the frames, then all of them,
+        // then the end — the media clock's master (ADR 3342).
         if self.ends {
-            ended();
+            report(Progress::Played(frames / 2));
+            report(Progress::Played(frames));
+            report(Progress::Ended);
         }
         Ok(())
     }
@@ -177,6 +188,7 @@ fn played(document: u64, samples: &[u8]) -> Played {
                 encoding: pdf_model::media::Encoding::Signed,
             },
             data: samples.to_vec(),
+            playing: pdf_model::media::Playing::default(),
         },
     }
 }

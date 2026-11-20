@@ -120,6 +120,7 @@ fn media_of(
             let sound = crate::SoundData {
                 format: samples.format,
                 data,
+                playing: clip.playing,
             };
             let media = crate::Media::Embedded {
                 name: samples.name.clone(),

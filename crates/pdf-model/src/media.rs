@@ -44,9 +44,11 @@ use crate::file_spec::FileSpec;
 
 pub mod container;
 mod deprecated;
+mod playing;
 mod wave;
 
 pub use deprecated::{movie, sound};
+pub use playing::{Playing, SimpleDuration};
 pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
@@ -142,6 +144,10 @@ pub struct Clip {
     /// Entries the hand-off cannot honour, each named — a clip's `BE` entries, which the clause
     /// keeps viable, and a movie's or a sound's playing parameters — and trap 5 keeps the loss said.
     pub unhonoured: Vec<String>,
+    /// How a player that is told — this program, playing a sound object itself — plays it:
+    /// Table 212's entries for a sound action's sound, the defaults for every other clip (ADR
+    /// 3341). A player handed only the file is told none of it, which [`Self::unhonoured`] says.
+    pub playing: Playing,
 }
 
 /// One media rendition the walk reached, and the clause's answer about it.
@@ -936,6 +942,7 @@ impl Walk<'_> {
             data: data?,
             temporary_file: Some(temporary_file),
             unhonoured,
+            playing: Playing::default(),
         })
     }
 

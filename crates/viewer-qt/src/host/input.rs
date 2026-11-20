@@ -35,6 +35,12 @@ impl Host {
         if matches!(stated, viewer_host::Key::Escape) && self.state.sounds.stop() {
             return;
         }
+        // **A synchronous sound holds the reader** until it ends: every other key is refused and
+        // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
+        if self.state.sounds.holds_the_reader() {
+            self.say(viewer_host::sound::HELD);
+            return;
+        }
         let mode = viewer_host::Mode::of(&self.state.presenting);
         let waiting = self.waiting();
         let held = viewer_host::Modifiers {
@@ -184,6 +190,10 @@ impl Host {
     /// `viewer_host::WheelTravel::distance` gives both windows (ADR 2291). Device pixels out, because that is what `Command::Scroll` speaks, and
     /// turned towards the person, which is the boundary's positive.
     pub(crate) fn scrolled(&mut self, dx: f32, dy: f32, pixels: bool) {
+        // A synchronous sound holds the reader; the title already says so (ADR 3343).
+        if self.state.sounds.holds_the_reader() {
+            return;
+        }
         let travel = if pixels {
             viewer_host::WheelTravel::Pixels { x: dx, y: dy }
         } else {
@@ -223,6 +233,9 @@ impl Host {
     /// y)` is the pointer in device pixels of the viewport, the point `quorra` and `quorra-gtk`
     /// keep still too.
     pub(crate) fn wheel_zoom(&mut self, amount: f32, pixels: bool, x: f32, y: f32) {
+        if self.state.sounds.holds_the_reader() {
+            return;
+        }
         let travel = if pixels {
             viewer_host::WheelTravel::Pixels { x: 0.0, y: amount }
         } else {
@@ -284,6 +297,14 @@ impl Host {
                 return;
             }
         };
+        // A synchronous sound holds the reader: a press is refused and said, and the rest of a
+        // gesture it began goes nowhere (ADR 3343).
+        if self.state.sounds.holds_the_reader() {
+            if matches!(action, PointerAction::Pressed) {
+                self.say(viewer_host::sound::HELD);
+            }
+            return;
+        }
         // §12.9's mode takes the press before the text selection does, which is the one thing
         // it takes away: the two gestures are the same gesture and a window cannot tell them
         // apart from the pointer alone (ADR 1191).

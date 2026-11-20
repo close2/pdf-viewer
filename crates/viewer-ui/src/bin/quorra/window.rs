@@ -417,6 +417,10 @@ impl ApplicationHandler for App {
                 if self.about.shown || self.password.shown {
                     return;
                 }
+                // A synchronous sound holds the reader: a press is refused and said (ADR 3343).
+                if self.refused_while_held(element == ElementState::Pressed) {
+                    return;
+                }
                 // The strip of open documents, over everything the page area holds and answered
                 // on the press for the panel's reason: a strip acting on both ends of one click
                 // would change tabs twice (ADR 1264).
@@ -594,6 +598,12 @@ impl App {
         // **A sound that is sounding takes Escape**, before the table turns it into "clear the
         // selection": the one key a person reaches for to silence a window (ADR 3301).
         if matches!(key, Key::Named(NamedKey::Escape)) && self.stop_the_sound() {
+            return;
+        }
+        // **A synchronous sound holds the reader** until it ends: every other key is refused and
+        // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
+        if self.held_by_a_sound() {
+            println!("note: {}", viewer_host::sound::HELD);
             return;
         }
         // **And the up and down arrows, which move its selection** (ADR 1786): the keys a native

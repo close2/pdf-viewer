@@ -289,6 +289,11 @@ pub struct SoundAction {
     /// each a parameter of playing the sound, which a player handed only the file is told nothing
     /// of, so each is said.
     pub stated: Vec<&'static str>,
+    /// The same entries read into §13.2.5's play parameters, for a window that plays the sound
+    /// itself and so is told them ([`crate::media::Playing::of_sound_action`], ADR 3341).
+    pub playing: crate::media::Playing,
+    /// What could not be read of them as Table 212 states them, each a sentence.
+    pub misread: Vec<String>,
 }
 
 /// §12.6.4.10's action, read.
@@ -330,7 +335,10 @@ fn movie(document: &Document, dict: &Dictionary) -> Action {
 
 /// §12.6.4.9's action, read.
 fn sound(document: &Document, dict: &Dictionary) -> Action {
+    let (playing, misread) = crate::media::Playing::of_sound_action(document, dict);
     Action::Sound(SoundAction {
+        playing,
+        misread,
         sound: dict.get("Sound").cloned().unwrap_or(Object::Null),
         stated: ["Volume", "Synchronous", "Repeat", "Mix"]
             .into_iter()
