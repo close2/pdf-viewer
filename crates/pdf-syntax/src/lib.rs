@@ -45,7 +45,7 @@ pub use crypt::{Permissions, RecipientKey};
 pub use date::Date;
 pub use document::{
     CompressedRecovery, DecodedStreamCache, Decoding, Document, ImageStream, ObjectsLost,
-    StreamRefusal, StreamSource,
+    StreamRefusal, StreamRole, StreamSource,
 };
 pub use error::{SyntaxError, SyntaxResult};
 pub use file::{FileBytes, NoRoom, read_file};

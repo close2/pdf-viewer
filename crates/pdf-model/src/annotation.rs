@@ -41,7 +41,7 @@
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream, StreamRole};
 
 use crate::optional_content::Purpose;
 
@@ -675,12 +675,15 @@ fn contains_appearance_streams(document: &Document, annotation: &Dictionary) -> 
     };
     ["N", "R", "D"].iter().any(|key| {
         let entry = appearances.get(key).cloned().unwrap_or(Object::Null);
-        match document.resolve(&entry) {
+        match document.resolve_as(&entry, StreamRole::Appearance) {
             resolved if resolved.as_stream().is_some() => true,
             resolved => resolved.as_dict().is_some_and(|states| {
-                states
-                    .iter()
-                    .any(|(_, state)| document.resolve(state).as_stream().is_some())
+                states.iter().any(|(_, state)| {
+                    document
+                        .resolve_as(state, StreamRole::Appearance)
+                        .as_stream()
+                        .is_some()
+                })
             }),
         }
     })
@@ -1521,10 +1524,10 @@ fn stored_appearance(
     // it is, and resolving first throws that identity away. The same reason, and the same
     // shape, as `Interpreter::draw_xobject`'s unresolved lookup.
     let asked = appearances.get(key).cloned().unwrap_or(Object::Null);
-    let (entry, normal) = match document.resolve(&asked) {
+    let (entry, normal) = match document.resolve_as(&asked, StreamRole::Appearance) {
         Object::Null => {
             let fallback = appearances.get("N").cloned().unwrap_or(Object::Null);
-            let resolved = document.resolve(&fallback);
+            let resolved = document.resolve_as(&fallback, StreamRole::Appearance);
             (fallback, resolved)
         }
         resolved => (asked, resolved),
@@ -1547,7 +1550,9 @@ fn stored_appearance(
     // §12.5.5 keys `/AP`'s subdictionary by the appearance states the *file* names, so the
     // probe is §7.3.5's exact binary match on the bytes `/AS` states (ADR 0439).
     let state = selected.and_then(|name| states.get_by_name(&Name::new(name)).cloned());
-    let resolved = state.as_ref().map(|state| document.resolve(state));
+    let resolved = state
+        .as_ref()
+        .map(|state| document.resolve_as(state, StreamRole::Appearance));
     match resolved.as_ref().and_then(|state| state.as_stream()) {
         Some(stream) => Normal::Stream(
             state.as_ref().and_then(Object::as_reference),

@@ -24,6 +24,7 @@ mod deep_number_tree_spec_audit;
 mod deep_page_tree;
 mod deep_page_tree_order_spec_audit;
 mod direct_info_spec_audit;
+mod embedded_file_scan_launch;
 mod function_faults;
 mod hostile_budgets;
 mod hostile_functions;

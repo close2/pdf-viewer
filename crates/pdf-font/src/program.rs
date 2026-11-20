@@ -12,7 +12,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pdf_syntax::{Damage, Dictionary, Document};
+use pdf_syntax::{Damage, Dictionary, Document, StreamRole};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::{FontRef, MetadataProvider};
 
@@ -73,7 +73,7 @@ pub(crate) fn embedded_program(
     // `/FontFile2` is TrueType and `/FontFile3` is CFF or OpenType, both of which skrifa
     // reads. `/FontFile` is bare Type1, which it does not.
     for key in ["FontFile2", "FontFile3"] {
-        let object = document.get_key(descriptor, key);
+        let object = document.get_key_as(descriptor, key, StreamRole::FontProgram);
         let Some(stream) = object.as_stream() else {
             continue;
         };
@@ -175,7 +175,10 @@ pub(crate) fn embedded_program(
     // only one of the FontFile , FontFile2 , and FontFile3 entries shall be present" and a
     // file writing two has said nothing about which it means — preferring the formats with
     // a self-identifying signature keeps that choice from turning on the key's spelling.
-    if let Some(stream) = document.get_key(descriptor, "FontFile").as_stream() {
+    if let Some(stream) = document
+        .get_key_as(descriptor, "FontFile", StreamRole::FontProgram)
+        .as_stream()
+    {
         let decoded =
             document
                 .decoded_stream_data_reported(stream)

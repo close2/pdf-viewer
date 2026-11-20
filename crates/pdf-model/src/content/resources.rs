@@ -26,7 +26,7 @@
 //! Text is still what a *report* wants, and that conversion belongs at the report rather than at
 //! the lookup — [`Interpreter::note_missing_resource`] is where it happens, once.
 
-use pdf_syntax::{Dictionary, Name, Object};
+use pdf_syntax::{Dictionary, Name, Object, StreamRole};
 
 use super::Interpreter;
 use super::report::Unsupported;
@@ -121,6 +121,11 @@ impl Interpreter<'_> {
     ) -> Option<Object> {
         let entry = self.resource_entry_unrecorded(resources, category, name);
         self.record_selection(category, name, entry.as_ref());
+        // Table 34's three categories whose entries are streams, none of them an embedded file
+        // (ADR 3241).
+        if let (Some(entry), b"XObject" | b"Pattern" | b"Shading") = (&entry, category.as_bytes()) {
+            self.document.reached_as(entry, StreamRole::Resource);
+        }
         entry
     }
 

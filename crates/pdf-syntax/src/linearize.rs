@@ -485,15 +485,15 @@ impl Graph {
     }
 }
 
-/// Every reference inside `value`, with how each was reached, and the embedded file streams it
-/// names.
+/// Every reference inside `value`, with how each was reached, and the `/EF` and `/RF` entries of
+/// the file specifications inside it, as written.
 fn collect(
     value: &Object,
     via: Via,
     count: usize,
     depth: usize,
     out: &mut Vec<Edge>,
-    embedded: &mut Vec<usize>,
+    embedded: &mut Vec<FileEntry>,
 ) {
     if depth >= MAX_VALUE_DEPTH {
         return;
@@ -534,7 +534,7 @@ fn collect_dict(
     depth: usize,
     stream: bool,
     out: &mut Vec<Edge>,
-    embedded: &mut Vec<usize>,
+    embedded: &mut Vec<FileEntry>,
 ) {
     // Table 123's Nonsymbolic flag is bit 6, which §F.3.7 (g) names as what makes a font
     // substitutable.
@@ -547,15 +547,10 @@ fn collect_dict(
         if stream && key == b"Length" {
             continue;
         }
-        if key == b"EF"
-            && let Some(files) = item.as_dict()
-        {
-            for (_, file) in files.iter() {
-                let mut found = Vec::new();
-                let mut nested = Vec::new();
-                collect(file, via, count, depth, &mut found, &mut nested);
-                embedded.extend(found.iter().map(|edge| edge.to));
-            }
+        match key {
+            b"EF" => embedded.push(FileEntry::Embedded(item.clone())),
+            b"RF" => embedded.push(FileEntry::Related(item.clone())),
+            _ => {}
         }
         let item_via = match (via, key) {
             (Via::Plain, b"FontFile" | b"FontFile2") if nonsymbolic => Via::FontFile,
@@ -1152,6 +1147,61 @@ fn reachable(objects: &[Object], roots: &[usize]) -> Vec<bool> {
     reached
 }
 
+/// A file specification's `/EF` or `/RF` as written, which [`graph_of`] resolves against the
+/// assembly.
+///
+/// Table 44 makes an embedded file stream's `/Type` "(Optional)", and a stream may state it
+/// where no file specification names it, so §F.3.10's embedded file streams are the streams
+/// Table 43's two entries name — the reader's own test (ADR 3234, ADR 3242).
+#[derive(Debug)]
+enum FileEntry {
+    /// `/EF`: a dictionary whose every value is an embedded file stream.
+    Embedded(Object),
+    /// `/RF`: a dictionary whose every value is §7.11.4.2's related files array, each pair of
+    /// which ends in an embedded file stream.
+    Related(Object),
+}
+
+impl FileEntry {
+    /// The indices of the streams this entry names.
+    fn streams(&self, objects: &[Object]) -> Vec<usize> {
+        let resolve = |value: &Object| -> Option<Object> {
+            match value {
+                Object::Reference(id) => usize::try_from(id.number)
+                    .ok()
+                    .and_then(|number| number.checked_sub(1))
+                    .and_then(|index| objects.get(index))
+                    .cloned(),
+                other => Some(other.clone()),
+            }
+        };
+        let index_of = |value: &Object| match value {
+            Object::Reference(id) => usize::try_from(id.number)
+                .ok()
+                .and_then(|number| number.checked_sub(1)),
+            _ => None,
+        };
+        let (Self::Embedded(entry) | Self::Related(entry)) = self;
+        let Some(Object::Dictionary(table)) = resolve(entry) else {
+            return Vec::new();
+        };
+        match self {
+            Self::Embedded(_) => table
+                .iter()
+                .filter_map(|(_, file)| index_of(file))
+                .collect(),
+            Self::Related(_) => table
+                .iter()
+                .filter_map(|(_, files)| match resolve(files) {
+                    Some(Object::Array(pairs)) => Some(pairs),
+                    _ => None,
+                })
+                .flat_map(|pairs| pairs.iter().filter_map(index_of).collect::<Vec<_>>())
+                .collect(),
+        }
+    }
+}
+
 /// The objects and every reference between them.
 fn graph_of(objects: Vec<Object>) -> Graph {
     let count = objects.len();
@@ -1163,7 +1213,7 @@ fn graph_of(objects: Vec<Object>) -> Graph {
         let mut out = Vec::new();
         let mut files = Vec::new();
         collect(object, Via::Plain, count, 0, &mut out, &mut files);
-        for file in files {
+        for file in files.iter().flat_map(|entry| entry.streams(&objects)) {
             if let Some(flag) = embedded.get_mut(file) {
                 *flag = true;
             }
@@ -1175,15 +1225,10 @@ fn graph_of(objects: Vec<Object>) -> Graph {
                     .and_then(Object::as_name)
                     .is_some_and(|name| name.as_bytes() == value)
             };
-            if matches!(object, Object::Stream(_)) {
-                if let Some(flag) = image.get_mut(index) {
-                    *flag = named("Subtype", b"Image");
-                }
-                if named("Type", b"EmbeddedFile")
-                    && let Some(flag) = embedded.get_mut(index)
-                {
-                    *flag = true;
-                }
+            if matches!(object, Object::Stream(_))
+                && let Some(flag) = image.get_mut(index)
+            {
+                *flag = named("Subtype", b"Image");
             }
             if named("Type", b"DPart")
                 && let Some(flag) = dpart.get_mut(index)
@@ -3551,7 +3596,70 @@ impl std::fmt::Write for Text<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BitWriter, bits};
+    use std::sync::Arc;
+
+    use super::{BitWriter, bits, graph_of};
+    use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
+
+    /// A dictionary of `entries`.
+    fn dict(entries: Vec<(&str, Object)>) -> Dictionary {
+        let mut out = Dictionary::new();
+        for (key, value) in entries {
+            out.insert(Name::new(key.as_bytes()), value);
+        }
+        out
+    }
+
+    /// A reference to object `number`.
+    fn to(number: u32) -> Object {
+        Object::Reference(ObjectId::new(number, 0))
+    }
+
+    /// A stream whose dictionary holds `entries`.
+    fn stream(entries: Vec<(&str, Object)>) -> Object {
+        Object::Stream(Arc::new(Stream {
+            dict: dict(entries),
+            data: Arc::from(&b"bytes"[..]),
+            decryption_failed: false,
+        }))
+    }
+
+    /// §F.3.10's embedded file streams are the streams a file specification's `/EF` or `/RF`
+    /// names (Table 43), reached through an indirect `/EF` dictionary and an indirect related
+    /// files array alike; Table 44's optional `/Type` neither makes nor unmakes one (ADR 3242).
+    #[test]
+    fn an_embedded_file_stream_is_one_ef_or_rf_names_whatever_its_type() {
+        let objects = vec![
+            // 1: a file specification whose `/EF` is indirect and whose `/RF` holds an
+            // indirect related files array.
+            Object::Dictionary(dict(vec![
+                ("Type", Object::Name(Name::new(&b"Filespec"[..]))),
+                ("EF", to(2)),
+                ("RF", Object::Dictionary(dict(vec![("F", to(4))]))),
+            ])),
+            // 2: the `/EF` dictionary.
+            Object::Dictionary(dict(vec![("F", to(3))])),
+            // 3: an untyped embedded file stream.
+            stream(vec![]),
+            // 4: §7.11.4.2's related files array: a string, then an embedded file stream.
+            Object::Array(vec![Object::String(Arc::from(&b"a.txt"[..])), to(5)]),
+            // 5: an untyped related file's stream.
+            stream(vec![]),
+            // 6: a stream stating `/Type /EmbeddedFile` that no file specification names.
+            stream(vec![(
+                "Type",
+                Object::Name(Name::new(&b"EmbeddedFile"[..])),
+            )]),
+            // 7: an untyped stream nothing names.
+            stream(vec![]),
+        ];
+        let graph = graph_of(objects);
+        assert_eq!(
+            graph.embedded,
+            vec![false, false, true, false, true, false, false],
+            "objects 3 and 5 are named by /EF and /RF; 6 states the type and is named by nothing"
+        );
+    }
 
     /// §F.4.1: "this byte stream shall be treated as a bit stream, high-order bit first".
     #[test]

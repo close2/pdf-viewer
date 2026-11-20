@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use pdf_syntax::{
     Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, Stream, StreamRefusal,
-    StreamSource, Token,
+    StreamRole, StreamSource, Token,
 };
 
 use crate::page::{ContentIssue, Page, filter_names};
@@ -541,13 +541,20 @@ impl<'a> ContentReader<'a> {
     #[must_use]
     pub fn for_page(document: &'a Document, page: &Page) -> Self {
         let stated = page.dict.get("Contents").cloned().unwrap_or(Object::Null);
-        let listed: Vec<(Object, Object)> = match document.resolve(&stated) {
-            Object::Array(items) => items
-                .iter()
-                .map(|item| (item.clone(), document.resolve(item)))
-                .collect(),
-            other => vec![(stated, other)],
-        };
+        // Reached as `/Contents`, so the role decides the crypt filter (ADR 3241).
+        let listed: Vec<(Object, Object)> =
+            match document.resolve_as(&stated, StreamRole::PageContents) {
+                Object::Array(items) => items
+                    .iter()
+                    .map(|item| {
+                        (
+                            item.clone(),
+                            document.resolve_as(item, StreamRole::PageContents),
+                        )
+                    })
+                    .collect(),
+                other => vec![(stated, other)],
+            };
 
         let mut window = Window::new(document.limits().max_stream_len);
         for (index, (named, part)) in listed.iter().enumerate() {

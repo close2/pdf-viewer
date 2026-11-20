@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::thread::ThreadId;
 
-use super::{Document, write};
+use super::{Document, read, write};
 use crate::crypt::{Encryption, Method, Permissions, RecipientKey, StreamFilter};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -103,6 +103,64 @@ impl Document {
     #[must_use]
     pub fn is_encrypted(&self) -> bool {
         self.encryption.is_some()
+    }
+
+    /// Resolves `object` as a stream reached in `role`: [`Self::resolve`], told where the
+    /// reference came from.
+    ///
+    /// ISO 32000-2 §7.6.6 Table 20's `/EFF` governs "embedded file streams that do not have
+    /// their own crypt filter specifier", and Table 44 makes such a stream's `/Type`
+    /// "(Optional)", so an untyped stream is an embedded file stream only if a file
+    /// specification's `/EF` or `/RF` names it (Table 43). Answering that for a stream reached by
+    /// number alone takes a pass over every indirect object (ADR 3234). A stream reached in one
+    /// of [`StreamRole`]'s roles is not one Table 43 names, so in a document whose `/EFF` departs
+    /// from `/StmF` it takes `/StmF` without the pass, and page one is decided without reading
+    /// the rest of the file (ADR 3241).
+    ///
+    /// The role is recorded before the stream is loaded, and it decides only where the stream is
+    /// not already in the cache. A file naming one stream in a role and from `/EF` both has
+    /// written one ciphertext for two filters, so one of the two readings is noise whichever is
+    /// taken; ADR 3241 states the choice.
+    ///
+    /// Every role answers the same; the caller names its role so that the claim can be checked
+    /// against Table 43 where it is made.
+    #[must_use]
+    pub fn resolve_as(&self, object: &Object, role: StreamRole) -> Object {
+        self.reached_as(object, role);
+        self.resolve(object)
+    }
+
+    /// Records that `object`, where it is a reference, was reached in `role`, for a caller that
+    /// resolves it later; see [`Self::resolve_as`].
+    ///
+    /// Nothing is recorded where the answer cannot depend on it: a document that is not
+    /// encrypted, or whose `/EFF` names `/StmF`'s method.
+    pub fn reached_as(&self, object: &Object, _role: StreamRole) {
+        if let Object::Reference(id) = object
+            && self.encryption.as_ref().is_some_and(|encryption| {
+                encryption.embedded_file_method() != encryption.stream_method()
+            })
+        {
+            write(&self.embedded_files.reached_in_role).insert(id.number);
+        }
+    }
+
+    /// [`Self::get_key`] for a value reached in `role`; see [`Self::resolve_as`].
+    #[must_use]
+    pub fn get_key_as(&self, dict: &Dictionary, key: &str, role: StreamRole) -> Object {
+        dict.get(key)
+            .map_or(Object::Null, |object| self.resolve_as(object, role))
+    }
+
+    /// Whether the pass over every indirect object that finds the embedded file streams (ADR
+    /// 3234) has run on this document.
+    ///
+    /// The pass is the one cost of §7.6.6's `/EFF` that grows with the file, so it is a report:
+    /// page one reaches its streams in roles that decide their filter without it (ADR 3241),
+    /// and this is what a test of that asks.
+    #[must_use]
+    pub fn embedded_file_streams_collected(&self) -> bool {
+        self.embedded_files.found.get().is_some()
     }
 
     /// Applies §7.6.2 to one freshly parsed indirect object.
@@ -289,7 +347,8 @@ impl Document {
     /// - **An embedded file stream** (§7.11.4), the one kind with a default of its own, Table
     ///   20's `/EFF`. Its `/Type` is "(Optional)" in Table 44, so what makes a stream one is the
     ///   file specification's `/EF` naming it, and an untyped stream is looked up in
-    ///   [`Self::embedded_file_streams`]. The order is the entry's own: it applies to embedded
+    ///   [`Self::embedded_file_streams`] unless a caller reached it in a [`StreamRole`], which
+    ///   Table 43 never gives an embedded file (ADR 3241). The order is the entry's own: it applies to embedded
     ///   file streams "that do not have their own crypt filter specifier", so the `/Crypt`
     ///   filter is asked first and `/EFF` decides what is left. §7.6.6's "related files ( RF )
     ///   shall use the same crypt filter as the embedded file ( EF )" holds because `/RF`'s
@@ -338,8 +397,11 @@ impl Document {
             Some(_) => false,
             // The lookup is a pass over the file, and it decides nothing where `/EFF` and
             // `/StmF` agree — which is every document that states no `/EFF`.
+            // A stream reached in a role Table 43 does not give an embedded file is decided by
+            // that role, and the pass is left for a stream reached in none (ADR 3241).
             None => {
                 encryption.embedded_file_method() != encryption.stream_method()
+                    && !read(&self.embedded_files.reached_in_role).contains(&id.number)
                     && self.embedded_file_streams(id)
             }
         };
@@ -459,12 +521,37 @@ impl Document {
     }
 }
 
+/// Where a caller reached a stream, in the roles that decide it is not an embedded file stream.
+///
+/// ISO 32000-2 Table 43 names the one route to an embedded file stream: a file specification's
+/// `/EF`, and `/RF`'s related files arrays. Every variant here is another route, by the clause
+/// that defines it, and a stream reached through one is decrypted under `/StmF` without the pass
+/// over the file that finds `/EF`'s streams (`Document::resolve_as`, ADR 3241).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamRole {
+    /// A page's `/Contents`, or an element of its array: §7.7.3.3 Table 31's content stream.
+    PageContents,
+    /// A resource dictionary's `/XObject`, `/Pattern` or `/Shading` entry (§7.8.3 Table 34): a
+    /// form or image `XObject` (§8.10, §8.9.5), a tiling pattern (§8.7.3.1) or a stream shading
+    /// (§8.7.4.5).
+    Resource,
+    /// A font descriptor's `/FontFile`, `/FontFile2` or `/FontFile3` (§9.8.1 Table 120): an
+    /// embedded font program (§9.9).
+    FontProgram,
+    /// An appearance dictionary's `/N`, `/R` or `/D`, or a state of one (§12.5.5 Table 170): an
+    /// appearance stream, which is a form `XObject`.
+    Appearance,
+}
+
 /// The embedded file streams of one document, found once (see
 /// `Document::embedded_file_streams`).
 #[derive(Default)]
 pub(super) struct EmbeddedFileStreams {
     /// Every object number a file specification's `/EF` or `/RF` names.
     found: OnceLock<BTreeSet<u32>>,
+    /// The streams a caller reached in a role that is not an embedded file's, before they were
+    /// loaded (`Document::resolve_as`).
+    reached_in_role: RwLock<HashSet<u32>>,
     /// The threads running the scan now, so that a stream the scan reads does not wait for it.
     scanning: RwLock<HashSet<ThreadId>>,
 }

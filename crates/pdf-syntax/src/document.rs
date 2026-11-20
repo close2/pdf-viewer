@@ -40,6 +40,7 @@ mod sources;
 pub use cache::DecodedStreamCache;
 use cache::DecodedStreams;
 use encryption::EmbeddedFileStreams;
+pub use encryption::StreamRole;
 pub(crate) use encryption::is_signature_dictionary;
 use reports::LostToDamage;
 pub use reports::{CompressedRecovery, ObjectsLost};
