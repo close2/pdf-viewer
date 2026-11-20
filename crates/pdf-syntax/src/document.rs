@@ -39,6 +39,7 @@ mod sources;
 
 pub use cache::DecodedStreamCache;
 use cache::DecodedStreams;
+use encryption::EmbeddedFileStreams;
 pub(crate) use encryption::is_signature_dictionary;
 use reports::LostToDamage;
 pub use reports::{CompressedRecovery, ObjectsLost};
@@ -187,6 +188,9 @@ pub struct Document {
     encryption: Option<Encryption>,
     /// The object number holding the encryption dictionary, whose strings §7.6.2 exempts.
     encrypt_object: Option<u32>,
+    /// Which streams a file specification's `/EF` or `/RF` names, found the first time an
+    /// untyped stream's crypt filter depends on it. See [`EmbeddedFileStreams`].
+    embedded_files: EmbeddedFileStreams,
     /// What a crate above this one derived from these bytes and keeps for the document's life,
     /// one memo per type. See [`Document::derived`].
     derived: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
@@ -375,6 +379,7 @@ impl Document {
             recovered_compressed: CompressedRecovery::default(),
             encryption: None,
             encrypt_object: None,
+            embedded_files: EmbeddedFileStreams::default(),
             derived: RwLock::new(HashMap::new()),
         }
     }

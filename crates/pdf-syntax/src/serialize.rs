@@ -380,6 +380,17 @@ pub enum SerializeError {
     /// panicked on a dependency's edge would take the caller's process with it.
     #[error("§7.6.3.3's cipher refused a string or stream this writer built")]
     Cipher,
+    /// A stream's `/Crypt` filter names a crypt filter the output's `/CF` does not define.
+    ///
+    /// Table 20's `/CF`: "Every crypt filter used in the document shall have an entry in this
+    /// dictionary, except for the standard crypt filter names". The name is a source's, carried
+    /// with the stream, and the output's own `/CF` holds one filter; writing the stream would
+    /// write one no reader can decrypt, so the write stops and says which name it was.
+    #[error("a stream's /Crypt filter names /{name}, which the output's /CF does not define")]
+    UndefinedCryptFilter {
+        /// The name the stream's decode parameters state.
+        name: String,
+    },
 }
 
 /// What §7.5.5's `/Root` finds at the end of its chain, in the file about to be written.
@@ -996,10 +1007,9 @@ pub struct Written {
     /// How many streams an encrypted output holds in the clear.
     ///
     /// Zero for an unencrypted file, where the question does not arise. In an encrypted one it
-    /// counts the streams §7.6.6 leaves to a crypt filter this output does not carry — a
-    /// `/Crypt` entry in a `/Filter` array naming `Identity`, or naming a filter that was a
-    /// source's and is not this file's — and §14.3.2's metadata stream where the caller asked
-    /// for [`Protection::encrypt_metadata`] false. Each is what a reader of the output will
+    /// counts the streams §7.6.6 leaves to the `Identity` crypt filter — a `/Crypt` entry in a
+    /// `/Filter` array naming it or naming nothing — and §14.3.2's document-level metadata
+    /// stream where the caller asked for [`Protection::encrypt_metadata`] false. Each is what a reader of the output will
     /// expect; counting them is how a caller can say which parts of a protected file are not.
     pub cleartext: u64,
 }
@@ -1073,10 +1083,10 @@ impl<'e> Protected<'e> {
             Name::new(&b"AuthEvent"[..]),
             Object::Name(Name::new(&b"DocOpen"[..])),
         );
-        // Table 25's `/Length`: the key length "in bits or bytes, depending on the
-        // application", which for `AESV3` is the 256-bit key Table 20's `/V` 5 fixes. Written
-        // in bytes, as every revision 6 producer this reader has met writes it, and read by
-        // nothing here — `key_length` is asked only for the revisions where `/V` leaves it open.
+        // Table 25's `/Length`, for the 256-bit key Table 20's `/V` 5 fixes: "The standard
+        // security handler expresses the Length entry in bytes (e.g., 32 means a length of 256
+        // bits)". Read by nothing here — `key_length` is asked only for the revisions where `/V`
+        // leaves the length open.
         filter.insert(Name::new(&b"Length"[..]), Object::Integer(32));
         let mut filters = Dictionary::new();
         filters.insert(
@@ -1163,7 +1173,7 @@ impl<'e> Protected<'e> {
             )),
             Object::Stream(stream) => {
                 let mut dict = self.dictionary_of(assembly, id, &stream.dict, depth, tally)?;
-                let method = self.method(assembly, &stream.dict);
+                let method = self.method(assembly, id, &stream.dict)?;
                 // A stream the output's crypt filters leave alone consumes no initialisation
                 // vector, because §7.6.3.3 asks for one per *encrypted* string and stream.
                 let data = if method == crypt::Method::Identity {
@@ -1288,21 +1298,36 @@ impl<'e> Protected<'e> {
     /// > have a Crypt entry in their Filter array …, shall be decrypted by the security
     /// > handler, using this crypt filter.
     ///
-    /// — and Table 21's `/EncryptMetadata` the third. A cross-reference stream never reaches
-    /// this function: [`cross_reference_stream`] writes its own, after every object.
+    /// — and Table 21's `/EncryptMetadata` the third, which is about the document-level
+    /// metadata stream alone (Algorithm 2's NOTE 1: "This provision pertains only to
+    /// document-level XMP metadata"), so it is asked whether `id` is the one the output's
+    /// catalog names. A cross-reference stream never reaches this function:
+    /// [`cross_reference_stream`] writes its own, after every object. An embedded file stream
+    /// needs no question of its own, because this file's `/EFF` names the filter `/StmF` does.
     ///
     /// A `/Crypt` entry a source stated survives into the output, so the filter it names is
-    /// asked of *this* file's `/CF`, which holds one name. A `/Crypt` naming anything else —
-    /// including §7.6.6's default of `Identity` where its `/DecodeParms` states no `/Name` —
-    /// leaves the stream in the clear, which is what a reader of the output will expect of it,
-    /// and [`Written::cleartext`] counts it so that a caller can say so.
-    fn method(&self, assembly: &Assembly<'_>, dict: &Dictionary) -> crypt::Method {
+    /// asked of *this* file's `/CF`, which holds one name. `Identity` — and §7.6.6's default of
+    /// it where the `/DecodeParms` states no `/Name` — leaves the stream in the clear, which is
+    /// what a reader of the output will expect of it, and [`Written::cleartext`] counts it so
+    /// that a caller can say so. A name this file's `/CF` does not define is refused
+    /// ([`SerializeError::UndefinedCryptFilter`]): Table 20's `/CF` requires "\[e]very crypt
+    /// filter used in the document" to have an entry there, and a reader — this one included —
+    /// refuses the stream such a name governs.
+    fn method(
+        &self,
+        assembly: &Assembly<'_>,
+        id: ObjectId,
+        dict: &Dictionary,
+    ) -> Result<crypt::Method, SerializeError> {
         let kind = assembly
             .through(dict.get("Type"))
             .as_name()
             .map(|name| name.as_bytes().to_vec());
-        if kind.as_deref() == Some(b"Metadata") && !self.encryption.encrypt_metadata() {
-            return crypt::Method::Identity;
+        if kind.as_deref() == Some(b"Metadata")
+            && !self.encryption.encrypt_metadata()
+            && Self::is_document_metadata(assembly, id)
+        {
+            return Ok(crypt::Method::Identity);
         }
 
         let filters = assembly.filter_names(dict);
@@ -1310,15 +1335,34 @@ impl<'e> Protected<'e> {
             let named = assembly
                 .parms_at(dict, index)
                 .and_then(|parms| assembly.through(parms.get("Name")).as_name().cloned());
-            return named.map_or(crypt::Method::Identity, |name| {
-                self.encryption.named_method(&name)
-            });
+            return match named {
+                None => Ok(crypt::Method::Identity),
+                Some(name) => self.encryption.named_method(&name).ok_or_else(|| {
+                    SerializeError::UndefinedCryptFilter {
+                        name: String::from_utf8_lossy(name.as_bytes()).into_owned(),
+                    }
+                }),
+            };
         }
 
         if kind.as_deref() == Some(b"EmbeddedFile") {
-            return self.encryption.embedded_file_method();
+            return Ok(self.encryption.embedded_file_method());
         }
-        self.encryption.stream_method()
+        Ok(self.encryption.stream_method())
+    }
+
+    /// Whether the output's object `id` is the stream the output's catalog names as its
+    /// `/Metadata` (§14.3.2, Table 29).
+    fn is_document_metadata(assembly: &Assembly<'_>, id: ObjectId) -> bool {
+        let Some(root) = assembly.root else {
+            return false;
+        };
+        assembly
+            .through(Some(&Object::Reference(root)))
+            .as_dict()
+            .and_then(|catalog| catalog.get("Metadata"))
+            .and_then(Object::as_reference)
+            .is_some_and(|metadata| metadata.number == id.number)
     }
 }
 

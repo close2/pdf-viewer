@@ -3,12 +3,15 @@
 //! Authentication against a password, the permissions the handler states, and the cipher applied
 //! to an object read from the file or to one written into an update.
 
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashSet};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::thread::ThreadId;
 
 use super::{Document, write};
 use crate::crypt::{Encryption, Method, Permissions, RecipientKey, StreamFilter};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
+use crate::xref::Location;
 
 impl Document {
     /// Reads the trailer's `/Encrypt` entry and derives the file encryption key.
@@ -140,8 +143,15 @@ impl Document {
                 Object::Dictionary(self.decrypt_dict(encryption, id, &dict))
             }
             Object::Stream(stream) => {
-                let dict = self.decrypt_dict(encryption, id, &stream.dict);
-                let filter = self.stream_filter(encryption, &stream.dict);
+                let dict = if self.is_cross_reference_stream(&stream.dict) {
+                    // §7.5.8.2: "strings appearing in the cross-reference stream dictionary
+                    // shall not be encrypted". That dictionary is the trailer, so its `/ID` is
+                    // also §7.6.2's first exception.
+                    stream.dict.clone()
+                } else {
+                    self.decrypt_dict(encryption, id, &stream.dict)
+                };
+                let filter = self.stream_filter(encryption, id, &stream.dict);
                 let decrypted = encryption.decrypt_stream(&filter, id, &stream.data);
                 let decryption_failed = decrypted.is_none();
                 let data = decrypted.map_or_else(|| Arc::from(&[][..]), Arc::from);
@@ -214,8 +224,12 @@ impl Document {
                 .encrypt_dict(encryption, id, dict)
                 .map(Object::Dictionary),
             Object::Stream(stream) => {
-                let mut dict = self.encrypt_dict(encryption, id, &stream.dict)?;
-                let filter = self.stream_filter(encryption, &stream.dict);
+                let mut dict = if self.is_cross_reference_stream(&stream.dict) {
+                    stream.dict.clone()
+                } else {
+                    self.encrypt_dict(encryption, id, &stream.dict)?
+                };
+                let filter = self.stream_filter(encryption, id, &stream.dict);
                 let data = encryption.encrypt_stream(&filter, id, &stream.data)?;
                 // §7.3.8.2's `/Length` is "[t]he number of bytes from the beginning of the
                 // line following the keyword stream to the last byte just before the keyword
@@ -257,7 +271,7 @@ impl Document {
         Some(out)
     }
 
-    /// Chooses the crypt filter for one stream's data.
+    /// Chooses the crypt filter for the data of the stream `id`.
     ///
     /// §7.6.6 states the `/Crypt` override; the two exclusions are Table 20's, in §7.6.2:
     ///
@@ -265,17 +279,30 @@ impl Document {
     /// > have a Crypt entry in their Filter array …, shall be decrypted by the security
     /// > handler, using this crypt filter.
     ///
-    /// An embedded file stream (§7.11.4) is the one kind with a default of its own, Table
-    /// 20's `/EFF`, and the order below is the entry's own: it applies to embedded file
-    /// streams "that do not have their own crypt filter specifier", so the `/Crypt` filter
-    /// is asked first and `/EFF` decides what is left. §7.6.6 puts a related file under the
-    /// same filter — "related files ( RF ) shall use the same crypt filter as the embedded
-    /// file ( EF )" — which holds here by construction, since both are `/Type
-    /// /EmbeddedFile` streams and neither is reached by any other route.
+    /// Two kinds of stream are decided by *which* stream they are rather than by what their
+    /// dictionary says, because the clause names them that way:
+    ///
+    /// - **The document-level metadata stream**, the one Table 21's `/EncryptMetadata` leaves in
+    ///   the clear. Algorithm 2's NOTE 1: "This provision pertains only to document-level XMP
+    ///   metadata." A page's or an image's `/Type /Metadata` stream is encrypted like every
+    ///   other, so the exemption asks whether `id` is the catalog's `/Metadata`.
+    /// - **An embedded file stream** (§7.11.4), the one kind with a default of its own, Table
+    ///   20's `/EFF`. Its `/Type` is "(Optional)" in Table 44, so what makes a stream one is the
+    ///   file specification's `/EF` naming it, and an untyped stream is looked up in
+    ///   [`Self::embedded_file_streams`]. The order is the entry's own: it applies to embedded
+    ///   file streams "that do not have their own crypt filter specifier", so the `/Crypt`
+    ///   filter is asked first and `/EFF` decides what is left. §7.6.6's "related files ( RF )
+    ///   shall use the same crypt filter as the embedded file ( EF )" holds because `/RF`'s
+    ///   streams are found by the same lookup. ADR 3234.
     ///
     /// A `/Crypt` filter is returned by its name rather than its method, because under a
     /// public-key handler it may hold a key of its own (Table 27, [`StreamFilter`]).
-    fn stream_filter(&self, encryption: &Encryption, dict: &Dictionary) -> StreamFilter {
+    fn stream_filter(
+        &self,
+        encryption: &Encryption,
+        id: ObjectId,
+        dict: &Dictionary,
+    ) -> StreamFilter {
         let stream_type = self
             .get_key(dict, "Type")
             .as_name()
@@ -284,9 +311,11 @@ impl Document {
             // A cross-reference stream has to be readable before any key exists, so it is
             // never encrypted.
             Some(b"XRef") => return StreamFilter::Method(Method::Identity),
-            // Table 21's `/EncryptMetadata`, which §14.3.2's metadata stream is the subject
-            // of.
-            Some(b"Metadata") if !encryption.encrypt_metadata() => {
+            // Table 21's `/EncryptMetadata`, whose subject is §14.3.2's document-level
+            // metadata stream and no other.
+            Some(b"Metadata")
+                if !encryption.encrypt_metadata() && self.is_document_metadata(id) =>
+            {
                 return StreamFilter::Method(Method::Identity);
             }
             _ => {}
@@ -302,12 +331,142 @@ impl Document {
             return named.map_or(StreamFilter::Method(Method::Identity), StreamFilter::Named);
         }
 
-        if stream_type.as_deref() == Some(b"EmbeddedFile") {
+        let embedded_file = match stream_type.as_deref() {
+            Some(b"EmbeddedFile") => true,
+            // Table 44: if present, the entry "shall be EmbeddedFile for an embedded file
+            // stream", so a stream that states another type is taken at its word.
+            Some(_) => false,
+            // The lookup is a pass over the file, and it decides nothing where `/EFF` and
+            // `/StmF` agree — which is every document that states no `/EFF`.
+            None => {
+                encryption.embedded_file_method() != encryption.stream_method()
+                    && self.embedded_file_streams(id)
+            }
+        };
+        if embedded_file {
             return StreamFilter::Method(encryption.embedded_file_method());
         }
 
         StreamFilter::Method(encryption.stream_method())
     }
+
+    /// Whether `dict` is a cross-reference stream's (§7.5.8), by Table 17's required `/Type`.
+    fn is_cross_reference_stream(&self, dict: &Dictionary) -> bool {
+        self.get_key(dict, "Type")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"XRef")
+    }
+
+    /// Whether the stream `id` is §14.3.2's document-level metadata stream: the one the
+    /// catalog's `/Metadata` names (Table 29).
+    ///
+    /// The catalog is a dictionary and is read through [`Document::get`]; a file whose `/Root`
+    /// is this very stream meets `get`'s own guard against a load that reaches itself, reads
+    /// null, and has no document-level metadata stream.
+    fn is_document_metadata(&self, id: ObjectId) -> bool {
+        let Some(root) = self.trailer().get("Root").and_then(Object::as_reference) else {
+            return false;
+        };
+        self.get(root)
+            .as_dict()
+            .and_then(|catalog| catalog.get("Metadata"))
+            .and_then(Object::as_reference)
+            .is_some_and(|metadata| metadata.number == id.number)
+    }
+
+    /// Whether the stream `id` is an embedded file stream: one a file specification's `/EF` or
+    /// `/RF` names (§7.11.3 Table 43, §7.11.4).
+    ///
+    /// Decryption is one object at a time, and an embedded file stream is defined by the
+    /// reference to it rather than by anything it says about itself, so the references are
+    /// collected once, by [`Self::scan_embedded_file_streams`], the first time an untyped stream
+    /// in a document whose `/EFF` departs from `/StmF` asks. ADR 3234 argues the design and
+    /// prices it.
+    ///
+    /// A stream this question is asked of *while the scan runs on this thread* — one the scan
+    /// itself has to read, such as an object stream with no `/Type` — is answered `false`, as
+    /// before the scan existed: waiting would wait for itself.
+    fn embedded_file_streams(&self, id: ObjectId) -> bool {
+        let streams = &self.embedded_files;
+        if let Some(found) = streams.found.get() {
+            return found.contains(&id.number);
+        }
+        let me = std::thread::current().id();
+        if !write(&streams.scanning).insert(me) {
+            return false;
+        }
+        let found = streams
+            .found
+            .get_or_init(|| self.scan_embedded_file_streams());
+        write(&streams.scanning).remove(&me);
+        found.contains(&id.number)
+    }
+
+    /// Every object number a file specification's `/EF` or `/RF` names.
+    ///
+    /// Table 43's `/EF`: "If this entry is present, the Type entry is required and the file
+    /// specification dictionary shall be indirectly referenced", so the file specifications are
+    /// among the file's indirect objects and no deeper. Each is read as the file holds it,
+    /// without decryption ([`Self::parse_plain_at`]): only names and references are wanted, which
+    /// §7.6.2 never encrypts, and decrypting would ask the question this answers. `/EF`'s values
+    /// are the embedded file streams; `/RF`'s are §7.11.4.2's related files arrays, whose second
+    /// element of each pair "shall be an embedded file stream".
+    fn scan_embedded_file_streams(&self) -> BTreeSet<u32> {
+        let mut found = BTreeSet::new();
+        let mut take = |value: &Object| {
+            if let Object::Reference(stream) = value {
+                found.insert(stream.number);
+            }
+        };
+        for number in self.xref.object_numbers() {
+            let Some(Object::Dictionary(dict)) = self.plain_object(number) else {
+                continue;
+            };
+            if let Some(Object::Dictionary(files)) = dict.get("EF").map(|ef| self.plain(ef)) {
+                files.iter().for_each(|(_, value)| take(value));
+            }
+            if let Some(Object::Dictionary(related)) = dict.get("RF").map(|rf| self.plain(rf)) {
+                for (_, value) in related.iter() {
+                    if let Object::Array(pairs) = self.plain(value) {
+                        pairs.iter().for_each(&mut take);
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    /// One indirect object as the file holds it: at an offset without decryption, or out of
+    /// its object stream, whose members §7.6.2 already leaves alone.
+    fn plain_object(&self, number: u32) -> Option<Object> {
+        match self.xref.location(number)? {
+            Location::Offset(offset) => self
+                .parse_plain_at(offset)
+                .filter(|(found, _)| found.number == number)
+                .map(|(_, object)| object),
+            Location::InStream { stream, .. } => {
+                self.expand_object_stream(stream)?.get(&number).cloned()
+            }
+        }
+    }
+
+    /// `value`, or the object it refers to as [`Self::plain_object`] reads it.
+    fn plain(&self, value: &Object) -> Object {
+        match value {
+            Object::Reference(id) => self.plain_object(id.number).unwrap_or(Object::Null),
+            other => other.clone(),
+        }
+    }
+}
+
+/// The embedded file streams of one document, found once (see
+/// `Document::embedded_file_streams`).
+#[derive(Default)]
+pub(super) struct EmbeddedFileStreams {
+    /// Every object number a file specification's `/EF` or `/RF` names.
+    found: OnceLock<BTreeSet<u32>>,
+    /// The threads running the scan now, so that a stream the scan reads does not wait for it.
+    scanning: RwLock<HashSet<ThreadId>>,
 }
 
 /// Whether §7.6.2's fourth exception applies to this dictionary's `/Contents`.

@@ -14,6 +14,16 @@ impl Document {
     /// the object identifier of the string or stream to be encrypted" — that is, from the
     /// object as written.
     pub(super) fn parse_at(&self, offset: usize) -> Option<(ObjectId, Object)> {
+        let (found, object) = self.parse_plain_at(offset)?;
+        Some((found, self.decrypt_object(found, object)))
+    }
+
+    /// [`Self::parse_at`] without §7.6.2's decryption: the object as the file holds it.
+    ///
+    /// For a reader that wants only what encryption leaves alone — names, numbers and
+    /// references — and must not decide how a stream is decrypted while asking, which is
+    /// `Document::embedded_file_streams`. Nothing parsed here is cached.
+    pub(super) fn parse_plain_at(&self, offset: usize) -> Option<(ObjectId, Object)> {
         // The bytes from `offset`, which is the rest of the file in memory and a window that
         // grows to what the parse examined on disk — the same slice either way, which is what
         // keeps the object a function of the bytes alone (ADR 0809). The parser's positions are
@@ -38,7 +48,7 @@ impl Document {
         if let Some(padding) = padding {
             write(&self.padded).insert(found.number, padding.bytes);
         }
-        Some((found, self.decrypt_object(found, object)))
+        Some((found, object))
     }
 
     /// Applies a `/Length` the parser could not follow, §7.3.8.2.

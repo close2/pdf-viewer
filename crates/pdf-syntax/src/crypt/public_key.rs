@@ -343,7 +343,7 @@ fn filter_lists(
     let named = |key: &str| {
         get(key)
             .as_name()
-            .filter(|name| name.as_bytes() != b"Identity")
+            .filter(|name| !super::is_standard_filter_name(name))
             .cloned()
     };
     // Neither default filter encrypting leaves the document's strings and streams plaintext,
@@ -368,6 +368,11 @@ fn filter_lists(
     let mut own = Vec::new();
     for (other, value) in entries.iter() {
         if Some(other) == name.as_ref() || Some(other) == string_name.as_ref() {
+            continue;
+        }
+        // Table 20's `/CF`: an entry under a Table 26 name "shall be ignored by a PDF
+        // processor", recipients and all, so it neither carries a list nor refuses one.
+        if super::is_standard_filter_name(other) {
             continue;
         }
         let Some(dict) = resolve(value).as_dict().cloned() else {

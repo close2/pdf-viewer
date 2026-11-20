@@ -10,7 +10,8 @@
   "source": "ISO 32000-2 §7.6.4.2 Table 21 /EncryptMetadata: \"Indicates whether the document-level metadata stream (see 14.3.2, \"Metadata streams\") shall be encrypted.\" §7.6.4.3.2 step (f) NOTE 1: \"This provision pertains only to document-level XMP metadata.\" Table 27 /EncryptMetadata says the same for the public-key handler.",
   "code": "crates/pdf-syntax/src/document/encryption.rs:289 (stream_filter: Some(b\"Metadata\") if !encrypt_metadata)",
   "change": "Exempt only the stream the catalog's /Metadata names (the object number read from the catalog after authentication, kept beside encrypt_object); every other /Type /Metadata stream takes /StmF or its own /Crypt filter. Apply the same rule in encrypt_for_update and serialize.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::only_the_document_level_metadata_stream_is_left_in_the_clear_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::only_the_document_level_metadata_stream_is_left_in_the_clear_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3234; Document::is_document_metadata and the writer's mirror)"
  },
  {
   "id": "2131-B02",
@@ -24,7 +25,8 @@
   "source": "ISO 32000-2 §7.6.2 Table 20 /CF: \"Any keys in the CF dictionary that are listed in \"Table 26 - Standard crypt filter names\" shall be ignored by a PDF processor.\" Table 20 /V 4: \"... using 7.6.3.2, \"Algorithm 1: Encryption of data using the RC4 or AES algorithms\" (deprecated in PDF 2.0) with a file encryption key length of 128 bits.\"",
   "code": "crates/pdf-syntax/src/crypt.rs:1422-1431 (key_length's from_filter: find_map over every /CF entry)",
   "change": "Skip Table 26's names in key_length as crypt_filters does, and read the /Length of the filter /StmF (else /StrF) names; at /V 4 hold the result to Table 20's 128 bits (or refuse by name a filter stating another width).",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::an_identity_cf_entry_does_not_set_the_key_length_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::an_identity_cf_entry_does_not_set_the_key_length_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3233; key_length skips Table 26 names and reads the filter /StmF or /StrF names)"
  },
  {
   "id": "2131-B03",
@@ -37,7 +39,8 @@
   "source": "ISO 32000-2 §7.6.6: \"The stream's DecodeParms entry shall contain a Crypt filter decode parameters dictionary (see \"Table 14 -Optional parameters for Crypt filters\") whose Name entry specifies the particular crypt filter that shall be used (if missing, Identity is used).\" Table 20 /CF: \"Every crypt filter used in the document shall have an entry in this dictionary, except for the standard crypt filter names\".",
   "code": "crates/pdf-syntax/src/crypt.rs:526-531 (named_method); crates/pdf-syntax/src/crypt.rs:603-606 (decrypt_stream's Named arm)",
   "change": "An undefined, non-standard name decrypts nothing: decrypt_stream returns None (decryption_failed, the stream refuses by itself), and encrypt_stream refuses likewise; Identity stays the answer for an absent /Name and for /Identity.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_crypt_filter_name_cf_does_not_define_is_not_identity_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_crypt_filter_name_cf_does_not_define_is_not_identity_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3233; named_method returns None for a name /CF does not define, and the stream is refused)"
  },
  {
   "id": "2131-B04",
@@ -51,7 +54,8 @@
   "source": "ISO 32000-2 §7.6.2 Table 20 /CF: \"Any keys in the CF dictionary that are listed in \"Table 26 - Standard crypt filter names\" shall be ignored by a PDF processor. Instead, the PDF processor shall use properties of the respective standard crypt filters.\"",
   "code": "crates/pdf-syntax/src/crypt/public_key.rs:369-399 (filter_lists' loop over entries)",
   "change": "Skip Table 26's names in filter_lists' loop (and in StringLists::read), as crypt_filters does.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_public_key_identity_cf_entry_is_ignored_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_public_key_identity_cf_entry_is_ignored_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3233; filter_lists ignores a /CF entry under a Table 26 name)"
  },
  {
   "id": "2131-B05",
@@ -64,7 +68,8 @@
   "source": "ISO 32000-2 §7.5.8.2: \"The cross-reference stream shall not be encrypted and strings appearing in the cross-reference stream dictionary shall not be encrypted.\" §7.6.2: \"The values for the ID entry in the trailer\" are exempt from encryption.",
   "code": "crates/pdf-syntax/src/document/encryption.rs:142-153 (decrypt_value's Stream arm decrypts the dictionary before stream_filter is asked); the mirror at encryption.rs:216",
   "change": "Ask the stream's /Type first: a /Type /XRef stream's dictionary and data both pass through unchanged, on the way in and on the way out.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_cross_reference_stream_dictionarys_strings_are_not_decrypted_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::a_cross_reference_stream_dictionarys_strings_are_not_decrypted_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3234; a /Type /XRef stream's dictionary is carried undecrypted)"
  },
  {
   "id": "2131-B06",
@@ -77,7 +82,8 @@
   "source": "ISO 32000-2 §7.6.2 Table 20 /EFF: \"The name of the crypt filter that shall be used when encrypting embedded file streams that do not have their own crypt filter specifier\". §7.11.4 Table 44 /Type: \"(Optional) The type of PDF object that this dictionary describes; if present, shall be EmbeddedFile for an embedded file stream.\" §7.6.6: \"related files ( RF ) shall use the same crypt filter as the embedded file ( EF )\".",
   "code": "crates/pdf-syntax/src/document/encryption.rs:305 (stream_filter: stream_type == EmbeddedFile); encryption.rs:270-274 (the by-construction comment)",
   "change": "Recognise an embedded file stream by the reference that makes it one: collect the object numbers /EF and /RF entries of file specifications name (lazily, the first time a stream with no /Type and no /Crypt is decrypted under an /EFF that differs from /StmF), or decrypt such a stream on demand from the file specification's side. Only files whose /EFF differs from /StmF are affected.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::an_embedded_file_stream_without_a_type_takes_the_eff_filter_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/encryption_spec_audit.rs::an_embedded_file_stream_without_a_type_takes_the_eff_filter_spec_audit — round 2131, scratch logs r2131/t1.log, t2.log",
+  "status": "fixed (ADR 3234; Document::embedded_file_streams, the streams a file specification's /EF or /RF names)"
  },
  {
   "id": "2131-T01",
@@ -100,7 +106,8 @@
   "summary": "Ledger row 7.6.3.2 says key_length \"refuses anything outside Table 20's \"a multiple of 8, in the range 40 to 128\"\". It checks the byte count only: /Length 44 is read as 5 bytes and /Length 129 to 135 as 16, each accepted. The public-key filter_key_length does check the multiple of 8.",
   "source": "ISO 32000-2 Table 20 /Length: \"The value shall be a multiple of 8, in the range 40 to 128.\"",
   "code": "crates/pdf-syntax/src/crypt.rs:1412-1445; doc/conformance/ledger.toml row 7.6.3.2",
-  "change": "Either check bits % 8 == 0 and 40..=128 before dividing (as filter_key_length does), or narrow the note to what is checked."
+  "change": "Either check bits % 8 == 0 and 40..=128 before dividing (as filter_key_length does), or narrow the note to what is checked.",
+  "status": "fixed (ADR 3233; a bit count that is not a multiple of 8 is refused, so the ledger note holds)"
  },
  {
   "id": "2131-D02",
@@ -111,7 +118,8 @@
   "summary": "crypt.rs's module doc lists as refused \"[a] public-key recipient list encrypted under one of §7.6.5.3's deprecated ciphers — RC4, DES, Triple DES or RC2 — or transported under a key algorithm other than RSA's\". pdf_pki::enveloped decrypts all seven of §7.6.5.3's ciphers and opens RFC 5753 key agreement (ADR 3157).",
   "source": "ISO 32000-2 §7.6.5.3's list of enveloped-data algorithms.",
   "code": "crates/pdf-syntax/src/crypt.rs:65-67; crates/pdf-pki/src/enveloped.rs:1-30",
-  "change": "Delete the bullet or restate it as what pdf_pki refuses (recipient kinds that name no certificate, unknown object identifiers)."
+  "change": "Delete the bullet or restate it as what pdf_pki refuses (recipient kinds that name no certificate, unknown object identifiers).",
+  "status": "fixed (crypt.rs module doc restated after pdf_pki::enveloped)"
  },
  {
   "id": "2131-D03",
@@ -122,7 +130,8 @@
   "summary": "serialize.rs quotes Table 25's /Length as the key length \"in bits or bytes, depending on the application\"; neither ISO 32000-2's text in doc/md/ nor ISO 32000-1 prints that phrase. Table 25 says the standard security handler expresses it in bytes (and Errata Collection 3 Issue #184 says 32 for AESV3), which is what the writer writes.",
   "source": "ISO 32000-2 Table 25 /Length: \"The standard security handler expresses the Length entry in bytes (e.g., 32 means a length of 256 bits)\".",
   "code": "crates/pdf-syntax/src/serialize.rs:1076-1079",
-  "change": "Quote Table 25's sentence or drop the quotation marks."
+  "change": "Quote Table 25's sentence or drop the quotation marks.",
+  "status": "fixed (serialize.rs quotes Table 25 as doc/md prints it)"
  },
  {
   "id": "2131-D04",
@@ -133,6 +142,7 @@
   "summary": "Encryption::named_method's doc argues that a name in neither /CF nor Table 26 is Identity because \"the alternative is to decrypt with a filter the document did not name\"; Identity is itself a filter the document did not name there, and crypt_filters' own comment calls the same reading for /StmF \"how a document comes to be drawn from its own ciphertext with nothing said (trap 5)\" (B03).",
   "source": "ISO 32000-2 §7.6.6 (\"if missing, Identity is used\").",
   "code": "crates/pdf-syntax/src/crypt.rs:518-531",
-  "change": "Rewrite with B03's fix."
+  "change": "Rewrite with B03's fix.",
+  "status": "fixed (ADR 3233; named_method's doc restated)"
  }
 ]

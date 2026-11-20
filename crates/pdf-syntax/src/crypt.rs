@@ -62,9 +62,10 @@
 //!
 //! Refused, each with a named reason rather than a guess:
 //!
-//! - **A public-key recipient list encrypted under one of §7.6.5.3's deprecated ciphers** — RC4,
-//!   DES, Triple DES or RC2 — or transported under a key algorithm other than RSA's: each is
-//!   named by `pdf_pki::enveloped`.
+//! - **A public-key recipient whose key is transported or agreed by an algorithm RFC 5652's
+//!   recipient kinds do not name with a certificate, or by one `pdf_pki::enveloped` does not
+//!   implement** — each named there by its object identifier. All seven of §7.6.5.3's ciphers for
+//!   the enveloped data, the four deprecated ones included, are opened (ADRs 2809, 3157).
 //! - **`/CFM /None`**, which Table 25 defines as "The application shall not decrypt data
 //!   but shall direct the input stream to the security handler for decryption": there is
 //!   no such handler here.
@@ -515,19 +516,29 @@ impl Encryption {
         self.embedded_file
     }
 
-    /// The method a `/Crypt` filter's `/Name` selects (§7.6.6, Table 14).
+    /// The method a `/Crypt` filter's `/Name` selects (§7.6.6, Table 14), or `None` where the
+    /// name selects no filter.
     ///
     /// > The stream's DecodeParms entry shall contain a Crypt filter decode parameters
     /// > dictionary … whose Name entry specifies the particular crypt filter that shall be
     /// > used (if missing, Identity is used).
     ///
-    /// A name that is in neither `/CF` nor Table 26 is `Identity` for the same reason: the
-    /// alternative is to decrypt with a filter the document did not name.
-    pub(crate) fn named_method(&self, name: &Name) -> Method {
-        if name.as_bytes() == b"Identity" {
-            return Method::Identity;
+    /// Identity is the default for a *missing* name, and a missing name never reaches here.
+    /// A name that is in neither `/CF` nor Table 26 breaks Table 20's "\[e]very crypt filter
+    /// used in the document shall have an entry in this dictionary, except for the standard
+    /// crypt filter names", and reading it as Identity would hand the stream's ciphertext out
+    /// as its data with nothing said (trap 5) — the outcome [`crypt_filters`] refuses for
+    /// `/StmF` by name. So it names no filter, and the stream it governs is refused where it is
+    /// read, as §7.6.6's failed authorization is.
+    ///
+    /// `/V` 5's single method is not inferred for it as it is for `/StmF`: that row states how
+    /// the document's default filters encrypt, and a `/Crypt` entry is exactly the stream that
+    /// departs from them.
+    pub(crate) fn named_method(&self, name: &Name) -> Option<Method> {
+        if is_standard_filter_name(name) {
+            return Some(Method::Identity);
         }
-        self.filters.get(name).copied().unwrap_or(Method::Identity)
+        self.filters.get(name).copied()
     }
 
     /// Whether Table 21's `/EncryptMetadata` leaves the document-level metadata stream in
@@ -591,7 +602,8 @@ impl Encryption {
     /// Decrypts one stream's data under the filter [`StreamFilter`] names: the document's key,
     /// or, for a filter with recipients of its own (Table 27), that filter's key — and where the
     /// reader is not one of them, nothing, which is §7.6.6's "treat any attempt to access a stream
-    /// for which authorization has failed as an error".
+    /// for which authorization has failed as an error". A name that selects no filter
+    /// ([`Self::named_method`]) is nothing too.
     pub(crate) fn decrypt_stream(
         &self,
         filter: &StreamFilter,
@@ -600,10 +612,13 @@ impl Encryption {
     ) -> Option<Vec<u8>> {
         match filter {
             StreamFilter::Method(method) => self.decrypt(*method, id, data),
-            StreamFilter::Named(name) => match self.own_keys.get(name) {
-                Some(own) => decrypt_under(own.as_deref()?, self.named_method(name), id, data),
-                None => self.decrypt(self.named_method(name), id, data),
-            },
+            StreamFilter::Named(name) => {
+                let method = self.named_method(name)?;
+                match self.own_keys.get(name) {
+                    Some(own) => decrypt_under(own.as_deref()?, method, id, data),
+                    None => self.decrypt(method, id, data),
+                }
+            }
         }
     }
 
@@ -617,10 +632,13 @@ impl Encryption {
     ) -> Option<Vec<u8>> {
         match filter {
             StreamFilter::Method(method) => self.encrypt(*method, id, data),
-            StreamFilter::Named(name) => match self.own_keys.get(name) {
-                Some(own) => encrypt_under(own.as_deref()?, self.named_method(name), id, data),
-                None => self.encrypt(self.named_method(name), id, data),
-            },
+            StreamFilter::Named(name) => {
+                let method = self.named_method(name)?;
+                match self.own_keys.get(name) {
+                    Some(own) => encrypt_under(own.as_deref()?, method, id, data),
+                    None => self.encrypt(method, id, data),
+                }
+            }
         }
     }
 
@@ -1211,7 +1229,7 @@ fn crypt_filters(
             // not read at all, so an `/Identity` entry whose `/CFM` this reader does not know
             // cannot refuse the document; `select` and `named_method` answer the name with the
             // standard filter's own properties.
-            if name.as_bytes() == b"Identity" {
+            if is_standard_filter_name(name) {
                 continue;
             }
             let Some(entry) = resolve(value).as_dict().cloned() else {
@@ -1249,9 +1267,8 @@ fn crypt_filters(
         };
         // Table 20's `/CF`: "Any keys in the CF dictionary that are listed in "Table 26 -
         // Standard crypt filter names" shall be ignored by a PDF processor. Instead, the PDF
-        // processor shall use properties of the respective standard crypt filters." Table 26
-        // lists one name, so this is that whole sentence.
-        if name.as_bytes() == b"Identity" {
+        // processor shall use properties of the respective standard crypt filters."
+        if is_standard_filter_name(&name) {
             return Ok(Method::Identity);
         }
         if let Some(method) = filters.get(&name) {
@@ -1357,6 +1374,18 @@ fn crypt_filters(
     })
 }
 
+/// Whether `name` is one of Table 26's standard crypt filter names.
+///
+/// Table 20's `/CF`: "Any keys in the CF dictionary that are listed in "Table 26 - Standard
+/// crypt filter names" shall be ignored by a PDF processor. Instead, the PDF processor shall use
+/// properties of the respective standard crypt filters." Table 26 lists one name, `Identity`.
+/// Every reader of a crypt filter name asks this one question, so that a `/CF` entry under the
+/// name is ignored wherever a name is read — the key length, the default filters, a stream's
+/// `/Crypt` entry and the public-key handler's recipient lists alike.
+fn is_standard_filter_name(name: &Name) -> bool {
+    name.as_bytes() == b"Identity"
+}
+
 /// Table 25's `/CFM`.
 fn method_from_cfm(name: Option<&Name>) -> SyntaxResult<Method> {
     match name.map(Name::as_bytes) {
@@ -1409,30 +1438,64 @@ fn key_length(
         return Ok(5);
     }
 
-    let in_bits =
-        |value: i64| -> Option<usize> { usize::try_from(value).ok().map(|value| value / 8) };
-    let normalise = |value: i64| -> Option<usize> {
+    // A bit count is a whole number of bytes or it is no key length at all: Table 20's
+    // `/Length` "shall be a multiple of 8, in the range 40 to 128", and Table 25's "shall be a
+    // multiple of 8 in the range of 40 to 256". Rounding one down would derive a key the
+    // producer did not, so a count that is not a multiple of 8 is refused below rather than
+    // read. `None` is an entry this lexer cannot read as a count at all — a negative one —
+    // which takes the default as an absent entry does.
+    let in_bits = |value: i64| -> Option<Result<usize, i64>> {
+        let bits = usize::try_from(value).ok()?;
+        Some(if bits % 8 == 0 {
+            Ok(bits / 8)
+        } else {
+            Err(value)
+        })
+    };
+    let normalise = |value: i64| -> Option<Result<usize, i64>> {
         if value >= 40 {
             in_bits(value)
         } else {
-            usize::try_from(value).ok()
+            usize::try_from(value).ok().map(Ok)
         }
     };
 
-    let from_filter = get("CF")
-        .as_dict()
-        .and_then(|filters| {
-            filters
-                .iter()
-                .find_map(|(_, value)| resolve(value).as_dict().cloned())
-        })
-        .and_then(|entry| entry.get("Length").map(resolve))
-        .and_then(|object| object.as_integer())
-        .and_then(normalise);
+    // Table 20's `/CF`: an entry under a Table 26 name "shall be ignored by a PDF processor", so
+    // an `/Identity << /Length 40 >>` states nothing about the key. Of the rest, the filter the
+    // document's own defaults name is the one whose key this is; `/StmF`'s, then `/StrF`'s, and
+    // a `/CF` whose filters reach only streams that name them is read by its first entry.
+    let from_filter = get("CF").as_dict().and_then(|filters| {
+        let usable = |name: &Name| !is_standard_filter_name(name);
+        let named = ["StmF", "StrF"]
+            .into_iter()
+            .filter_map(|key| get(key).as_name().cloned())
+            .filter(|name| usable(name))
+            .find_map(|name| filters.get_by_name(&name).cloned());
+        named
+            .or_else(|| {
+                filters
+                    .iter()
+                    .find(|(name, _)| usable(name))
+                    .map(|(_, value)| value.clone())
+            })
+            .and_then(|value| resolve(&value).as_dict().cloned())
+            .and_then(|entry| entry.get("Length").map(resolve))
+            .and_then(|object| object.as_integer())
+            .and_then(normalise)
+    });
 
-    let length = from_filter
-        .or_else(|| get("Length").as_integer().and_then(in_bits))
-        .unwrap_or(5); // Table 20: "Default value: 40" bits.
+    let length = match from_filter.or_else(|| get("Length").as_integer().and_then(in_bits)) {
+        Some(Ok(length)) => length,
+        Some(Err(bits)) => {
+            return Err(SyntaxError::UnsupportedEncryption {
+                detail: format!(
+                    "a file encryption key of {bits} bits is not the multiple of 8 Table 20 \
+                     requires"
+                ),
+            });
+        }
+        None => 5, // Table 20: "Default value: 40" bits.
+    };
 
     // Table 20 bounds `/Length` at "a multiple of 8, in the range 40 to 128", and Algorithm
     // 1 step (d) caps the derived key at 16 bytes in any case.
@@ -2282,6 +2345,15 @@ mod tests {
                 with_length(Some(out_of_range)).is_err(),
                 "/Length {out_of_range} is outside Table 20's range and must be refused \
                  rather than used to slice a sixteen-byte digest"
+            );
+        }
+
+        // Table 20's "a multiple of 8": a bit count that is not a whole number of bytes is
+        // refused rather than rounded down to a key the producer did not derive.
+        for not_whole_bytes in [44, 129, 135] {
+            assert!(
+                with_length(Some(not_whole_bytes)).is_err(),
+                "/Length {not_whole_bytes} is not a multiple of 8 and must be refused"
             );
         }
 
