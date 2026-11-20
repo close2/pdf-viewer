@@ -4961,6 +4961,7 @@ pub(crate) fn accepted_prefix(
         FieldValue::Edited {
             value: None,
             indices: None,
+            on: None,
         },
     );
     if field.cyclic || field.kind != Some(FieldKind::Text) || field.flags & FLAG_DO_NOT_SCROLL == 0
@@ -5560,6 +5561,9 @@ pub(crate) struct Field {
     imported: bool,
     /// Table 249's `/RV`, where an import stated one; it replaces Table 228's `/RV`.
     pub(crate) imported_rich: Option<String>,
+    /// Whether a person's selection named this widget's button on or another's: see
+    /// `FieldValue::Edited`'s `on`.
+    selected: Option<bool>,
 }
 
 impl Field {
@@ -5627,6 +5631,10 @@ impl Field {
                 FieldValue::Imported { rich, .. } => rich.map(str::to_owned),
                 _ => None,
             },
+            selected: match source {
+                FieldValue::Edited { on, .. } => on,
+                _ => None,
+            },
         }
     }
 
@@ -5641,13 +5649,12 @@ impl Field {
     ///
     /// Table 231's own rule for bit 25 decides the order: Comb "may be set only if the `MaxLen`
     /// entry is present … and if the Multiline, Password, and `FileSelect` flags are clear",
-    /// so
-    /// a field claiming both is not a comb field.
+    /// so a field claiming Comb beside any of the three is not a comb field.
     fn text_shape(&self, document: &Document, annotation: &Dictionary) -> Shape {
         if self.flags & FLAG_MULTILINE != 0 {
             return Shape::Multiline;
         }
-        if self.flags & FLAG_COMB != 0 && self.flags & FLAG_PASSWORD == 0 {
+        if self.flags & FLAG_COMB != 0 && self.flags & (FLAG_PASSWORD | FLAG_FILE_SELECT) == 0 {
             let sources: Vec<&Dictionary> = self.chain().into_iter().collect();
             let length = sources
                 .iter()
@@ -5732,7 +5739,14 @@ impl Field {
             .map(|appearances| document.get_key(appearances, "N"));
         match states.as_ref().and_then(Object::as_dict) {
             Some(states) if states.get_by_name(&Name::new(named.clone())).is_none() => OFF.to_vec(),
-            _ if self.an_earlier_button_answers_to(document, annotation, &named) => OFF.to_vec(),
+            // A selection that named a widget has said which button is on (ADR 3311); the
+            // first-kid rule below is for a value that names none.
+            _ if self.selected == Some(false) => OFF.to_vec(),
+            _ if self.selected.is_none()
+                && self.an_earlier_button_answers_to(document, annotation, &named) =>
+            {
+                OFF.to_vec()
+            }
             _ => named,
         }
     }

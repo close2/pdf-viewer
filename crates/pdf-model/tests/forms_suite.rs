@@ -33,6 +33,7 @@ mod form_actions_spec_audit;
 mod form_font_once;
 mod form_limits_and_commits;
 mod forms_data;
+mod forms_values_read_back;
 mod forms_values_spec_audit;
 mod inherited_reset_defaults_audit;
 mod javascript_text_stream_spec_audit;

@@ -298,6 +298,7 @@ impl ViewState {
                 None => written,
             },
             indices: None,
+            on: None,
         };
         for widget in widgets {
             self.reset.remove(widget);

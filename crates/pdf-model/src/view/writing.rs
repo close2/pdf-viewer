@@ -178,7 +178,7 @@ impl ViewState {
                 self.scripted(widget),
             );
             if toggling {
-                update.write_state(document, widget, entered.value.as_ref());
+                update.write_state(document, widget, &dict, value, entered.value.as_ref());
             }
             // Table 166's `/M` is the *annotation's*, so it goes on the widget rather than on
             // whichever ancestor §12.7.4.1 keeps the value on.
@@ -395,7 +395,13 @@ impl ViewState {
                 self.scripted(widget),
             );
             if toggling {
-                update.write_state(document, widget, default.as_ref());
+                update.write_state(
+                    document,
+                    widget,
+                    &dict,
+                    FieldValue::Default,
+                    default.as_ref(),
+                );
             }
             update.stamp_annotation(document, widget);
         }
@@ -510,7 +516,7 @@ impl ViewState {
                 );
             }
             if toggling {
-                update.write_state(document, widget, import.value.as_ref());
+                update.write_state(document, widget, &dict, value, import.value.as_ref());
             }
             update.stamp_annotation(document, widget);
         }
@@ -1167,7 +1173,20 @@ impl Update {
     /// — which is how one widget of a radio set is on and its siblings, sharing the field's
     /// value, are off. A widget whose `/N` is not a dictionary of states has nothing to select
     /// among and is left as it is.
-    fn write_state(&mut self, document: &Document, widget: ObjectId, value: Option<&Object>) {
+    fn write_state(
+        &mut self,
+        document: &Document,
+        widget: ObjectId,
+        as_read: &Dictionary,
+        source: FieldValue<'_>,
+        value: Option<&Object>,
+    ) {
+        // The `/AS` the view drew is the one written (ADR 3310): `Field::is_on` is where the view
+        // decides which button of a set is on — §12.7.5.2.3's "at most one radio button in a
+        // field shall be set at a time" where `RadiosInUnison` is clear — and a save that tested
+        // only the `/AP` key would write the state on every button sharing the name.
+        let drawn_on =
+            crate::appearance::Field::read(document, as_read, source).is_on(document, as_read);
         let Some(mut widget_dict) = self.current(document, widget) else {
             return;
         };
@@ -1182,7 +1201,9 @@ impl Update {
             .map(state_name)
             .and_then(|name| name.as_name().cloned())
             .filter(|name| {
-                name.as_bytes() != b"Off" && states.iter().any(|(state, _)| state == name)
+                drawn_on
+                    && name.as_bytes() != b"Off"
+                    && states.iter().any(|(state, _)| state == name)
             });
         let state = on.unwrap_or_else(|| Name::new(&b"Off"[..]));
         widget_dict.insert(Name::new(&b"AS"[..]), Object::Name(state));
@@ -1746,10 +1767,14 @@ fn inherited_value(document: &Document, update: Option<&Update>, widget: ObjectI
 
 /// A `/V` in the terms an XFA data value needs; `None` for a value of a type no field states.
 ///
-/// A button's name is turned into the export value of the widget it turns on: §12.7.5.2.3's
-/// Table 230 `/Opt`, "an array of text strings representing the export value of each annotation
-/// in the field", indexed by the widget whose `/AP` `/N` holds the state, and the state's own name
-/// where the field states no `/Opt`.
+/// The data value is the value a submission exports, by the same two mappings
+/// (`crate::submission`'s `button_export` and `choice_export`, ADR 3312): a button's name becomes
+/// Table 230's `/Opt` element for the widget whose `/AP` `/N` holds the state, and a choice's
+/// displayed label becomes §12.7.5.4's export value. XFA 3.3's `items` element is why the second
+/// is the export value — where a choice list has two lists, "the value in the first column with
+/// \[save] set is saved" (Template Reference, `items`) — and reading a two-element `/Opt` entry's
+/// export value as that column is this program's reading of a hybrid form, which XFA 3.3 does not
+/// state.
 fn xfa_change(
     document: &Document,
     update: &Update,
@@ -1761,7 +1786,36 @@ fn xfa_change(
         Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
         _ => None,
     };
-    Some(match value {
+    let choice = || {
+        let first = widgets.first()?;
+        let dict = update.current(document, *first)?;
+        let field = crate::appearance::Field::read(document, &dict, FieldValue::Stored);
+        if !matches!(
+            field.kind,
+            Some(crate::appearance::FieldKind::Choice { .. })
+        ) {
+            return None;
+        }
+        let indices: Option<Vec<usize>> = inherited_entry(document, update, *first, "I")
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        item.as_integer()
+                            .and_then(|index| usize::try_from(index).ok())
+                    })
+                    .collect()
+            });
+        Some(crate::submission::choice_export(
+            document,
+            &crate::form::options(document, &field),
+            value,
+            indices.as_deref(),
+        ))
+    };
+    let exported = choice().unwrap_or_else(|| value.clone());
+    Some(match &exported {
         Object::Null => Change::Cleared,
         Object::String(bytes) => Change::Text(pdf_syntax::text_string(bytes)),
         Object::Array(items) => Change::Choices(items.iter().map(text).collect::<Option<_>>()?),
@@ -1782,13 +1836,14 @@ fn xfa_change(
                     })
                 })
             };
-            let export = widgets.iter().position(has_state).and_then(|index| {
-                let first = widgets.first()?;
-                let options = inherited_entry(document, update, *first, "Opt");
-                options
-                    .as_array()
-                    .and_then(|options| text(options.get(index)?))
+            let options = widgets.first().map_or(Object::Null, |first| {
+                inherited_entry(document, update, *first, "Opt")
             });
+            let export = crate::submission::button_export(
+                document,
+                &options,
+                widgets.iter().position(has_state),
+            );
             Change::On(
                 export.unwrap_or_else(|| String::from_utf8_lossy(state.as_bytes()).into_owned()),
             )

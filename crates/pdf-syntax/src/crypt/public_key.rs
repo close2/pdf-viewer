@@ -244,6 +244,9 @@ impl Encryption {
             own_keys,
             encrypt_metadata,
             permissions,
+            // §7.6.5's handler writes no `/Perms` block; its permissions arrive inside the
+            // enveloped seed, under the recipient's own key.
+            unbound: None,
         })
     }
 }

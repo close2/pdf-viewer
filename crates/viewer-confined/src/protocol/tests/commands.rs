@@ -202,6 +202,11 @@ fn every_carried_command_round_trips() {
             field: "A.NOM".to_owned(),
             value: Entered::Chosen(vec![0, 2, 5]),
         }),
+        // §12.7.5.2.4's button, named by its widget (ADR 3311).
+        Command::Edit(Edit::SetField {
+            field: "A.R".to_owned(),
+            value: Entered::Selected(ObjectId::new(12, 0)),
+        }),
         Command::Edit(Edit::Markup {
             kind: Markup::Squiggly,
             colour: [1.0, 0.5, 0.0],

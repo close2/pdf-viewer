@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/submission.rs:835 (chosen: the entry's value is field.value as read); :2084 (urlencoded) and :1206 (text_bytes); crates/pdf-model/src/form.rs:350 (Choice::export's doc claims the export)",
   "change": "Map each selected label to its /Opt entry's export value (by /I where labels repeat) before a submission body is written, in every format.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_choice_is_submitted_by_its_export_value_not_its_label_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3312; submission::choice_export maps a label to its /Opt export value, by /I where labels repeat, in HTML Form, FDF and XFDF and in xfa_change; forms_values_spec_audit::a_choice_is_submitted_by_its_export_value_not_its_label_spec_audit and forms_values_read_back::fdf_and_xfdf_carry_the_export_values pass)"
  },
  {
   "id": "2148-B02",
@@ -26,7 +26,7 @@
   "code": "crates/pdf-model/src/submission.rs:1206 (text_bytes: a name's bytes are the value); compare crates/pdf-model/src/view/writing.rs:1753 (xfa_change)",
   "change": "Export Opt[index of the widget that is on] where the field states /Opt, in every submission format; share the mapping with xfa_change.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_check_box_with_opt_is_submitted_by_its_export_value_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3312; submission::button_export gives Table 230 /Opt of the widget shown on; forms_values_spec_audit::a_check_box_with_opt_is_submitted_by_its_export_value_spec_audit and forms_values_read_back::fdf_and_xfdf_carry_the_export_values pass)"
  },
  {
   "id": "2148-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-model/src/view/writing.rs:1170 (Update::write_state); crates/pdf-model/src/appearance.rs:5779 (an_earlier_button_answers_to, which the save does not consult)",
   "change": "Write /AS from the same reading the view draws (Field::is_on / replacement_state) rather than from the /AP key alone.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_saved_radio_set_keeps_at_most_one_button_on_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3310; Update::write_state writes the /AS Field::is_on draws; forms_values_spec_audit::a_saved_radio_set_keeps_at_most_one_button_on_spec_audit passes)"
  },
  {
   "id": "2148-B04",
@@ -55,7 +55,7 @@
   "code": "crates/pdf-model/src/view/fields.rs:254 (ViewState::set_field: every widget of the name takes one entry); crates/pdf-model/src/appearance.rs:5779; crates/viewer-host/src/form.rs:575 (clicked's promise)",
   "change": "Let an edit name the widget a person selected (an Entered variant or a set_field argument), and have is_on/write_state keep that widget on; the first-kid rule stays for a value the file states.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "open (model fixed by ADR 3311: Entered::Selected names the widget, forms_values_read_back::the_button_selected_is_the_one_shown_and_saved passes; viewer_host::clicked and the hosts still send the name; the audit test sends the name and contradicts B03 control, Q974)"
  },
  {
   "id": "2148-B05",
@@ -68,7 +68,7 @@
   "code": "crates/pdf-model/src/view/fields.rs:254 (set_field: no field-type check for Entered::Text); crates/pdf-model/src/view.rs:663 (Entered::Text's documented domain)",
   "change": "Refuse Entered::Text (0 widgets) for a choice field without Combo+Edit, as chosen() refuses Chosen for a non-choice.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::typed_text_is_not_a_value_of_a_choice_without_edit_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3311; set_field refuses typed text that is no option label in a list box or a combo box with Edit clear; forms_values_spec_audit::typed_text_is_not_a_value_of_a_choice_without_edit_spec_audit passes)"
  },
  {
   "id": "2148-B06",
@@ -81,7 +81,7 @@
   "code": "crates/pdf-model/src/view/fields.rs:254 (set_field); crates/pdf-model/src/view/writing.rs:97 (save writes /V for any edited widget)",
   "change": "Refuse a value for a push-button (and for a signature field, whose /V §12.7.5.5 makes a signature dictionary) in set_field.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_push_button_takes_no_value_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3311; set_field refuses every value for a push-button; forms_values_spec_audit::a_push_button_takes_no_value_spec_audit passes)"
  },
  {
   "id": "2148-B07",
@@ -94,7 +94,7 @@
   "code": "crates/pdf-model/src/appearance.rs:5646 (Field::text_shape)",
   "change": "Add FLAG_FILE_SELECT to the comb condition.",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_file_select_field_is_not_a_comb_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (text_shape reads FileSelect beside Multiline and Password; forms_values_spec_audit::a_file_select_field_is_not_a_comb_spec_audit passes)"
  },
  {
   "id": "2148-B08",
@@ -107,7 +107,7 @@
   "code": "crates/pdf-model/src/view/field_tree.rs:362 (qualified_name: `Some(prefix) if !prefix.is_empty()`)",
   "change": "Join with the PERIOD whenever a prefix exists (Some(prefix)), and the same in any name builder that strips an empty prefix (xfdf.rs, forms_data).",
   "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_child_of_a_field_named_by_an_empty_string_keeps_its_separator_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
-  "status": "open"
+  "status": "fixed (qualified_name keeps the PERIOD after an empty partial name; forms_values_spec_audit::a_child_of_a_field_named_by_an_empty_string_keeps_its_separator_spec_audit passes)"
  },
  {
   "id": "2148-D01",

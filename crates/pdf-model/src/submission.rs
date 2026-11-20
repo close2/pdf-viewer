@@ -932,14 +932,162 @@ fn chosen(
             file_entry(format, name, selected, &mut chosen.entries, owed);
             continue;
         }
+        let widgets = table.get(name).map_or(&[][..], Vec::as_slice);
         chosen.entries.push(Entry {
             name: name.clone(),
-            value: Some(value),
+            value: Some(exported(document, view, widgets, &field, value)),
             file: None,
         });
     }
 
     chosen
+}
+
+/// A field's value in the terms it is exported in, for every format a submission composes.
+///
+/// Two clauses give a value an export form distinct from what `/V` holds:
+///
+/// - §12.7.5.4 makes a two-element `/Opt` entry's first element "a text string representing the
+///   export value that shall be used when exporting interactive form field data from the
+///   document", while `/V` names the second, the displayed text — so a choice is exported by
+///   [`choice_export`];
+/// - Table 230's `/Opt` for a check box or a radio button is "an array of text strings
+///   representing the export value of each annotation in the field", while `/V` is the
+///   appearance-state name — so a button that is on is exported by [`button_export`], from the
+///   widget the view shows on.
+///
+/// Every other value is exported as it stands.
+fn exported(
+    document: &Document,
+    view: &ViewState,
+    widgets: &[ObjectId],
+    field: &Field,
+    value: Object,
+) -> Object {
+    match field.kind {
+        Some(FieldKind::Choice { .. }) => {
+            let edited = widgets
+                .first()
+                .and_then(|widget| match view.annotation(*widget).value {
+                    crate::view::FieldValue::Edited { indices, .. } => {
+                        indices.map(<[usize]>::to_vec)
+                    }
+                    _ => None,
+                });
+            let indices = edited.or_else(|| stated_indices(document, field));
+            choice_export(
+                document,
+                &crate::form::options(document, field),
+                &value,
+                indices.as_deref(),
+            )
+        }
+        Some(FieldKind::Button { toggling: true }) => {
+            let on = widgets.iter().position(|widget| {
+                let object = document.get(*widget);
+                object.as_dict().is_some_and(|dict| {
+                    Field::read(document, dict, view.annotation(*widget).value)
+                        .is_on(document, dict)
+                })
+            });
+            let options = field
+                .chain()
+                .into_iter()
+                .map(|source| document.get_key(source, "Opt"))
+                .find(|options| options.as_array().is_some())
+                .unwrap_or(Object::Null);
+            button_export(document, &options, on).map_or(value, |export| {
+                Object::String(pdf_syntax::text_string::encode_text_string(&export).into())
+            })
+        }
+        _ => value,
+    }
+}
+
+/// Table 234's `/I` as the field states it, up §12.7.4.1's chain: the selected options' indices.
+fn stated_indices(document: &Document, field: &Field) -> Option<Vec<usize>> {
+    let stated = field
+        .chain()
+        .into_iter()
+        .map(|source| document.get_key(source, "I"))
+        .find(|entry| entry.as_array().is_some())?;
+    stated
+        .as_array()?
+        .iter()
+        .map(|index| {
+            document
+                .resolve(index)
+                .as_integer()
+                .and_then(|index| usize::try_from(index).ok())
+        })
+        .collect()
+}
+
+/// §12.7.5.4: a choice field's `/V` — one text string or an array of them — with each displayed
+/// label turned into its option's export value.
+///
+/// Table 234's `/I` is "the zero-based indices in the Opt array of the currently selected option
+/// items", and "\[i]f the items identified by this entry differ from those in the V entry of the
+/// field dictionary … the V entry shall be used". So an option `/I` names is exported where its
+/// label is the value's, which is how two options sharing a label export their own values, and
+/// otherwise the first option carrying the label stands for it. A label no option carries is an
+/// editable combo box's typed text, which has no export value but itself.
+pub(crate) fn choice_export(
+    document: &Document,
+    options: &[crate::form::Choice],
+    value: &Object,
+    indices: Option<&[usize]>,
+) -> Object {
+    let named: Vec<&crate::form::Choice> = indices
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|index| options.get(*index))
+        .collect();
+    let export = |label: &str, position: usize| -> Option<String> {
+        let option = named
+            .get(position)
+            .filter(|option| option.label == label)
+            .or_else(|| named.iter().find(|option| option.label == label))
+            .copied()
+            .or_else(|| options.iter().find(|option| option.label == label))?;
+        option.export.clone()
+    };
+    let one = |item: &Object, position: usize| -> Object {
+        let resolved = document.resolve(item);
+        let Some(bytes) = resolved.as_string() else {
+            return resolved;
+        };
+        match export(&pdf_syntax::text_string(bytes), position) {
+            Some(export) => {
+                Object::String(pdf_syntax::text_string::encode_text_string(&export).into())
+            }
+            None => resolved,
+        }
+    };
+    match document.resolve(value) {
+        Object::Array(items) => Object::Array(
+            items
+                .iter()
+                .enumerate()
+                .map(|(position, item)| one(item, position))
+                .collect(),
+        ),
+        other => one(&other, 0),
+    }
+}
+
+/// Table 230: the export value of the check box or radio button that is on — the `/Opt` element
+/// at that widget's position among the field's widgets, which is the order §12.7.5.2.4's `/Kids`
+/// gives them — or `None` where the field states no `/Opt`, no widget is on, or the element is no
+/// text string, and the state name is then its own export value.
+pub(crate) fn button_export(
+    document: &Document,
+    options: &Object,
+    on: Option<usize>,
+) -> Option<String> {
+    let options = document.resolve(options);
+    let option = document.resolve(options.as_array()?.get(on?)?);
+    option.as_string().map(pdf_syntax::text_string)
 }
 
 /// §12.7.5.3's file-select control, written the way the format it is going into can carry it.

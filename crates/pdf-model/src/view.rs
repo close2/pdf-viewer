@@ -622,6 +622,11 @@ pub enum FieldValue<'a> {
         /// text typed into a field, a button's state, or a clear — and it is what says the entry
         /// must not survive into the file beside the new `/V`.
         indices: Option<&'a [usize]>,
+        /// Which button of a set the edit turned on, where it named one: `Some(true)` on the
+        /// widget [`Entered::Selected`] named, `Some(false)` on the buttons §12.7.5.2.3's "at
+        /// most one radio button in a field shall be set at a time" then turns off, and `None`
+        /// where the edit named no widget and the value alone decides (ADR 3311).
+        on: Option<bool>,
     },
     /// §12.7.8: a value from an FDF file, which replaces `/V` (§12.7.8.3.2).
     Imported {
@@ -685,6 +690,15 @@ pub enum Entered {
     /// field whose `MultiSelect` flag is clear is cut to the first — Table 233 bit 22's "at most
     /// one item shall be selected" binds this program because this program is what selects.
     Chosen(Vec<usize>),
+    /// §12.7.5.2.3's check box or §12.7.5.2.4's radio button that a person selected, by its
+    /// widget annotation: the field's value becomes that widget's on-state name.
+    ///
+    /// A widget rather than the name because two buttons of one field may share an on-state
+    /// name, and §12.7.5.2.4's "selecting any of the buttons automatically deselects all the
+    /// others" is about the button selected: with `RadiosInUnison` clear, a name cannot say which
+    /// of them a person clicked, and the widget does (ADR 3311). A widget that is not one of the
+    /// field's toggling buttons, or states no on state, is no edit.
+    Selected(ObjectId),
 }
 
 /// A file a person chose for §12.7.5.3's file-select control, with the bytes behind the pathname.
@@ -727,6 +741,9 @@ struct Entry {
     value: Option<Object>,
     /// Table 234's `/I`, where the edit chose among §12.7.5.4's options.
     indices: Option<Vec<usize>>,
+    /// Whether this widget is the button a person selected (`Some(true)`), one the selection
+    /// turned off (`Some(false)`), or neither said (`None`); see [`FieldValue::Edited::on`].
+    on: Option<bool>,
 }
 
 /// What one import of one FDF file did to this document.
@@ -1131,6 +1148,7 @@ impl Entry {
         FieldValue::Edited {
             value: self.value.as_ref(),
             indices: self.indices.as_deref(),
+            on: self.on,
         }
     }
 }

@@ -322,6 +322,26 @@ pub(crate) struct Encryption {
     encrypt_metadata: bool,
     /// Table 22's flags, and which password opened the document.
     permissions: Permissions,
+    /// Why a revision 6 document's flags are its plaintext `/P` rather than its verified
+    /// `/Perms` block, or `None` where the block verified or the handler writes none.
+    unbound: Option<UnboundPermissions>,
+}
+
+/// Why a revision 6 document's permissions are not bound to its file encryption key.
+///
+/// §7.6.4.3.3 step (f) is the one place a revision 6 file's key is checked once it has been
+/// unwrapped from `/UE` or `/OE`: the 16-byte `/Perms` string is decrypted under the file
+/// encryption key, and the step says to "Verify that bytes 9-11 of the result are the characters
+/// "a", "d", "b"." Where that fails the document is still opened, under the `/P`
+/// written in the clear beside it (A953, ADR 3309), and this is what a reader is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnboundPermissions {
+    /// The encryption dictionary has no `/Perms` string, which Table 21 requires at revision 6.
+    Absent,
+    /// The `/Perms` string is shorter than the 16-byte block Algorithm 10 writes.
+    Short,
+    /// The block decrypts without the "adb" marker under the retrieved key.
+    Unverified,
 }
 
 /// The crypt filter one stream's data is under (§7.6.6).
@@ -468,9 +488,15 @@ impl Encryption {
         // which the standard's Algorithm 13 restates unchanged, marker bytes and all;
         // `issue21579.pdf` is the witness that it decodes — its block gives back exactly the
         // `/P -1084` and the `/EncryptMetadata true` written in the clear beside it.
-        if revision >= 5
-            && let Some(block) = perms_block(&key, get("Perms").as_string().unwrap_or_default())
-        {
+        //
+        // Where the block does not verify, the document still opens under the plaintext `/P`
+        // and `/EncryptMetadata` — the owner's answer to Q953 (A953, ADR 3309) — and at
+        // revision 6, where Table 21 makes the entry "(Required if R is 6 (PDF 2.0 ))" and the
+        // block is the only thing that checks a key unwrapped from `/UE` or `/OE`, the failure
+        // is kept as [`UnboundPermissions`] so that a reader is told the flags are not bound to
+        // the key. A document opened without a key has no block to verify and says nothing.
+        let (block, unbound) = verified_perms(&key, revision, &get("Perms"));
+        if let Some(block) = block {
             flags = i64::from(block.flags);
             encrypt_metadata = block.encrypt_metadata;
         }
@@ -485,6 +511,7 @@ impl Encryption {
             string_key: None,
             own_keys: BTreeMap::new(),
             encrypt_metadata,
+            unbound,
             // The match above admits 2 to 6 and refuses everything else, so this conversion
             // cannot fail; `unwrap_or` names an impossible revision rather than panicking on
             // it, and 0 is a revision Table 22 gives no meaningful bit at all.
@@ -550,6 +577,12 @@ impl Encryption {
     /// The permissions Table 22 grants whoever opened the document.
     pub(crate) fn permissions(&self) -> Permissions {
         self.permissions
+    }
+
+    /// Why the permissions are the plaintext `/P` of a revision 6 document whose `/Perms`
+    /// block did not verify, or `None`; see [`UnboundPermissions`].
+    pub(crate) fn unbound_permissions(&self) -> Option<UnboundPermissions> {
+        self.unbound
     }
 
     /// Decrypts one string or stream belonging to the indirect object `id`.
@@ -719,6 +752,7 @@ impl Encryption {
             own_keys: BTreeMap::new(),
             encrypt_metadata,
             permissions: Permissions::from_flags(i64::from(flags), true, 6),
+            unbound: None,
         }
     }
 
@@ -1803,6 +1837,32 @@ struct PermsBlock {
     encrypt_metadata: bool,
 }
 
+/// The `/Perms` block of an AES-256 revision, where it verifies, and why a revision 6 file's
+/// permissions are not bound to its key where it does not (A953, ADR 3309).
+///
+/// A document opened without a key (`key` empty) has no block to verify and is neither.
+fn verified_perms(
+    key: &[u8],
+    revision: i64,
+    perms: &Object,
+) -> (Option<PermsBlock>, Option<UnboundPermissions>) {
+    if revision < 5 || key.is_empty() {
+        return (None, None);
+    }
+    match perms_block(key, perms.as_string().unwrap_or_default()) {
+        Some(block) => (Some(block), None),
+        None if revision == 6 => (
+            None,
+            Some(match perms.as_string() {
+                None => UnboundPermissions::Absent,
+                Some(bytes) if bytes.len() < AES_BLOCK => UnboundPermissions::Short,
+                Some(_) => UnboundPermissions::Unverified,
+            }),
+        ),
+        None => (None, None),
+    }
+}
+
 /// §7.6.4.4.12, Algorithm 13: decrypts and validates the encrypted permissions block.
 ///
 /// The block is the tamper-evident copy of what `/P` and `/EncryptMetadata` say, and
@@ -2185,6 +2245,7 @@ mod tests {
             own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
+            unbound: None,
         };
         let id = ObjectId::new(258, 7);
 
@@ -2213,6 +2274,7 @@ mod tests {
             own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
+            unbound: None,
         };
         let id = ObjectId::new(1, 0);
         assert_ne!(

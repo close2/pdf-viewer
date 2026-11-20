@@ -28,6 +28,10 @@ pub(super) fn encode_edit(writer: &mut Writer, edit: &Edit) {
                         writer.usize(*index);
                     }
                 }
+                // §12.7.5.2.4's button, named by its widget. ADR 3311.
+                Entered::Selected(widget) => {
+                    writer.u8(3).object(*widget);
+                }
             }
         }
         Edit::Markup { kind, colour } => {
@@ -121,6 +125,7 @@ pub(super) fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError
                     2 => Entered::Chosen(
                         reader.list("a chosen option", |reader| reader.usize("a chosen option"))?,
                     ),
+                    3 => Entered::Selected(reader.object("a selected button")?),
                     value => {
                         return Err(ProtocolError::Unrecognised {
                             what,

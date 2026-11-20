@@ -104,6 +104,28 @@ fn cut_chain_note(document: &Document) -> Option<String> {
     ))
 }
 
+/// What a reader is told where a revision 6 document's permissions are its plaintext `/P`
+/// because §7.6.4.3.3 step (f)'s `/Perms` check did not pass (A953, ADR 3309).
+///
+/// The step is the one check of a key unwrapped from `/UE` or `/OE`, and the document opens
+/// without it, so the sentence says what was not checked rather than that anything is wrong:
+/// the page decrypts either way, and the restrictions are the ones written beside the block.
+fn unbound_permissions_note(document: &Document) -> Option<String> {
+    use pdf_syntax::UnboundPermissions;
+    let why = match document.unbound_permissions()? {
+        UnboundPermissions::Absent => "states no /Perms block",
+        UnboundPermissions::Short => "states a /Perms block shorter than 16 bytes",
+        UnboundPermissions::Unverified => {
+            "states a /Perms block that does not decrypt to its \"adb\" marker under the key"
+        }
+    };
+    Some(format!(
+        "this file's encryption {why} (§7.6.4.3.3 step (f)), so its permissions are not bound to \
+         its encryption key: they are read from the /P entry as written, and nothing checked \
+         that the key was the one its producer used"
+    ))
+}
+
 /// Everything worth saying about a document the moment it opens, with the copies of its
 /// signatures' policy documents a host has fetched so far.
 pub(crate) fn about(
@@ -149,6 +171,7 @@ pub(crate) fn about(
     }
 
     notes.extend(cut_chain_note(document));
+    notes.extend(unbound_permissions_note(document));
 
     // §7.7.3.1's page tree "defines the ordering of pages in the document", and where it yields
     // no page `pdf_model::Pages` finds them by Table 31's `/Type /Page` instead, in ascending

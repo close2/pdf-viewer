@@ -268,6 +268,14 @@ impl ViewState {
             .copied()
             .filter(|widget| !read_only.unwrap_or_else(|| is_read_only(document, *widget)))
             .collect();
+        // A selected button is its on-state name, with the widget kept beside it, and a value of a
+        // shape the field's type cannot hold is no edit of it (ADR 3311).
+        let Some((selection, selected)) =
+            admitted(document, &taking, value, |widget| self.scripted(widget))
+        else {
+            return 0;
+        };
+        let value = selection.as_ref().unwrap_or(value);
         // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
         // a keystroke script judges the characters before any widget takes them, and a refusal
         // leaves the field as it was (ADR 1579). The entry's trigger is also when the user
@@ -291,7 +299,8 @@ impl ViewState {
                     &rewritten
                 }
             },
-            Entered::Cleared => value,
+            // `Selected` was made its state's `Text` above.
+            Entered::Cleared | Entered::Selected(_) => value,
         };
         // What of typed characters the field's `DoNotScroll` room takes, measured once: the
         // value written and whether the typing filled the field both read it.
@@ -300,9 +309,10 @@ impl ViewState {
             _ => None,
         };
         let entry = match value {
-            Entered::Cleared => Entry {
+            Entered::Cleared | Entered::Selected(_) => Entry {
                 value: None,
                 indices: None,
+                on: None,
             },
             Entered::Text(text) => Entry {
                 // §7.9.2.2's text string, which is what Table 226 makes `/V` for a text field and
@@ -327,6 +337,7 @@ impl ViewState {
                     }
                 },
                 indices: None,
+                on: None,
             },
             Entered::Chosen(indices) => {
                 let scripted = taking
@@ -342,38 +353,16 @@ impl ViewState {
         // any other way takes them with it: a pathname and bytes that no longer belong to it
         // would be the wrong file submitted under the right name.
         self.chosen.remove(name);
-        // Characters are typed and a choice is selected, and either is committed later; a clear
-        // is whole when it is made. ISO 32000-2 §12.7.5.4, Table 233 bit 27 (`CommitOnSelChange`)
-        // makes a selection a value that waits for its commit like typed text does:
-        //
-        // > If clear, the new value is not committed until the user exits the field.
-        //
-        // and with the bit set a host commits at once, so the commit — and the `/V` validation it
-        // runs — is the same commit either way (ADR 2816). The whole text, before `accepted` cuts
-        // it to the field's room, is XFA's `fullText`.
-        match value {
-            Entered::Text(whole) => {
-                self.begin_typing(document, name, &taking);
-                let full =
-                    scripts::fills(document, &taking, whole, taken.as_deref().unwrap_or(whole));
-                self.hold_typing(name, Some((whole, full)));
-            }
-            Entered::Chosen(_) => {
-                self.begin_typing(document, name, &taking);
-                self.hold_typing(name, None);
-            }
-            Entered::Cleared => {
-                self.uncommitted.remove(name);
-                self.hold_typing(name, None);
-            }
-        }
+        self.hold_entered(document, name, &taking, value, taken.as_deref());
         let mut applied = 0_usize;
         for widget in &taking {
             // The four statements about a value answer one question, so a widget belongs to
             // exactly one of them: what a person typed is the latest of the four.
             self.reset.remove(widget);
             self.imported.remove(widget);
-            self.edited.insert(*widget, entry.clone());
+            let mut entry = entry.clone();
+            entry.on = selected.map(|chosen| goes_on(document, chosen, *widget));
+            self.edited.insert(*widget, entry);
             applied = applied.saturating_add(1);
         }
         // Table 224's `/CO` orders the recalculation "when the value of any field changes".
@@ -381,6 +370,41 @@ impl ViewState {
             self.recalculate(document, &table);
         }
         applied
+    }
+
+    /// Holds an edit for its commit: characters are typed and a choice is selected, and either is
+    /// committed later; a clear is whole when it is made. ISO 32000-2 §12.7.5.4, Table 233 bit 27
+    /// (`CommitOnSelChange`) makes a selection a value that waits for its commit like typed text
+    /// does:
+    ///
+    /// > If clear, the new value is not committed until the user exits the field.
+    ///
+    /// and with the bit set a host commits at once, so the commit — and the `/V` validation it
+    /// runs — is the same commit either way (ADR 2816). The whole text, before `accepted` cuts it
+    /// to the field's room, is XFA's `fullText`.
+    fn hold_entered(
+        &mut self,
+        document: &Document,
+        name: &str,
+        taking: &[ObjectId],
+        value: &Entered,
+        taken: Option<&str>,
+    ) {
+        match value {
+            Entered::Text(whole) => {
+                self.begin_typing(document, name, taking);
+                let full = scripts::fills(document, taking, whole, taken.unwrap_or(whole));
+                self.hold_typing(name, Some((whole, full)));
+            }
+            Entered::Chosen(_) => {
+                self.begin_typing(document, name, taking);
+                self.hold_typing(name, None);
+            }
+            Entered::Cleared | Entered::Selected(_) => {
+                self.uncommitted.remove(name);
+                self.hold_typing(name, None);
+            }
+        }
     }
 
     /// Fills §12.7.5.3's file-select control with a file a person chose.
@@ -678,6 +702,108 @@ pub(super) fn named_field(document: &Document, widget: ObjectId) -> ObjectId {
 /// The widget is any one of the field's: §12.7.4.1 makes `/Opt`, `/Ff` and the value the *field's*,
 /// so every widget of it walks to the same ancestry. `scripted` is what scripts set on it, read so
 /// that an index names an option of the list a script rewrote (ADR 1737).
+/// Whether a field of `widget`'s type can take `value` from a person at all.
+///
+/// Two of §12.7.5's types refuse what [`Entered`] can carry:
+///
+/// - §12.7.5.2.2's push-button "retains no permanent value, it shall not use the V and DV
+///   entries in the field dictionary", so it takes nothing, a clear included;
+/// - §12.7.5.4's list box, and its combo box whose Table 233 bit 19 Edit is clear ("if clear, it
+///   shall include only a drop-down list"), hold one or more of their own options, so typed
+///   characters are a value of theirs only where they are one of the options' labels.
+///
+/// Every other shape is the field's own, and what the field then does with it is
+/// [`ViewState::set_field`]'s.
+fn takes(document: &Document, widget: ObjectId, scripted: &[Property], value: &Entered) -> bool {
+    use crate::appearance::{FLAG_EDIT, Field, FieldKind};
+    let object = document.get(widget);
+    let Some(stored) = object.as_dict() else {
+        return true;
+    };
+    let annotation = crate::appearance::with_rewritten_options(document, stored, scripted);
+    let field = Field::read(document, &annotation, FieldValue::Stored);
+    match (field.kind, value) {
+        (Some(FieldKind::Button { toggling: false }), _) => false,
+        (Some(FieldKind::Choice { combo }), Entered::Text(text))
+            if !(combo && field.flags & FLAG_EDIT != 0) =>
+        {
+            crate::form::options(document, &field)
+                .iter()
+                .any(|option| option.label == *text)
+        }
+        _ => true,
+    }
+}
+
+/// What [`ViewState::set_field`] takes of `value` from a person, or `None` where it takes nothing.
+///
+/// [`Entered::Selected`] becomes its widget's on-state name, returned with the widget; a widget
+/// that is not one of the field's toggling buttons is no edit. Then [`takes`] judges the shape.
+fn admitted<'s>(
+    document: &Document,
+    taking: &[ObjectId],
+    value: &Entered,
+    scripted: impl Fn(ObjectId) -> &'s [Property],
+) -> Option<(Option<Entered>, Option<ObjectId>)> {
+    let (selection, selected) = match value {
+        Entered::Selected(widget) => (
+            Some(Entered::Text(selected_state(document, taking, *widget)?)),
+            Some(*widget),
+        ),
+        _ => (None, None),
+    };
+    let shape = selection.as_ref().unwrap_or(value);
+    match taking.first() {
+        Some(widget) if !takes(document, *widget, scripted(*widget), shape) => None,
+        _ => Some((selection, selected)),
+    }
+}
+
+/// Whether `widget` is on after a person selected `chosen`: the button selected, and the buttons
+/// answering to its name where the set is not [`exclusive`].
+fn goes_on(document: &Document, chosen: ObjectId, widget: ObjectId) -> bool {
+    chosen == widget || !exclusive(document, widget) && answers_alike(document, chosen, widget)
+}
+
+/// The on-state name of `widget`, where it is one of `taking` and a toggling button's: the name
+/// of its `/AP` `/N` that is not `Off`, as [`crate::form::Widget::on_state`] gives it.
+fn selected_state(document: &Document, taking: &[ObjectId], widget: ObjectId) -> Option<String> {
+    if !taking.contains(&widget) {
+        return None;
+    }
+    let object = document.get(widget);
+    let dict = object.as_dict()?;
+    if !toggles(document, dict) {
+        return None;
+    }
+    crate::form::on_state(document, dict)
+}
+
+/// Whether `widget`'s button is one of a set at most one of which is on: §12.7.5.2.3's "If it is
+/// not set, at most one radio button in a field shall be set at a time", for a radio button
+/// whose field has `RadiosInUnison` clear.
+fn exclusive(document: &Document, widget: ObjectId) -> bool {
+    use crate::appearance::{FLAG_RADIO, FLAG_RADIOS_IN_UNISON, Field};
+    let object = document.get(widget);
+    object.as_dict().is_some_and(|dict| {
+        let field = Field::read(document, dict, FieldValue::Stored);
+        field.flags & FLAG_RADIO != 0 && field.flags & FLAG_RADIOS_IN_UNISON == 0
+    })
+}
+
+/// Whether two widgets answer to the same on-state name, and so go on together where the set is
+/// not [`exclusive`]: Table 229 bit 26's buttons that "use the same value for the on state will
+/// turn on and off in unison", and §12.7.5.2.3's "the same behaviour" for check boxes.
+fn answers_alike(document: &Document, one: ObjectId, other: ObjectId) -> bool {
+    let state = |widget: ObjectId| {
+        let object = document.get(widget);
+        object
+            .as_dict()
+            .and_then(|dict| crate::form::on_state(document, dict))
+    };
+    state(one).is_some_and(|name| state(other) == Some(name))
+}
+
 pub(super) fn chosen(
     document: &Document,
     widget: Option<ObjectId>,
@@ -721,17 +847,20 @@ pub(super) fn chosen(
         0 => Entry {
             value: None,
             indices: None,
+            on: None,
         },
         // "V is a text string representing the selected item, as given in the field dictionary's
         // Opt array."
         1 => Entry {
             value: labels.into_iter().next(),
             indices: Some(wanted),
+            on: None,
         },
         // "If multiple items are selected, V is an array of such strings."
         _ => Entry {
             value: Some(Object::Array(labels)),
             indices: Some(wanted),
+            on: None,
         },
     })
 }

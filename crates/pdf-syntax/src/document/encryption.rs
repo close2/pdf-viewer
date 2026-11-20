@@ -8,7 +8,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::thread::ThreadId;
 
 use super::{Document, read, write};
-use crate::crypt::{Encryption, Method, Permissions, RecipientKey, StreamFilter};
+use crate::crypt::{
+    Encryption, Method, Permissions, RecipientKey, StreamFilter, UnboundPermissions,
+};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::xref::Location;
@@ -97,6 +99,19 @@ impl Document {
     #[must_use]
     pub fn permissions(&self) -> Option<Permissions> {
         self.encryption.as_ref().map(Encryption::permissions)
+    }
+
+    /// Why a revision 6 document's permissions are the plaintext `/P` rather than the `/Perms`
+    /// block §7.6.4.3.3 step (f) verifies under the file encryption key, or `None` where the
+    /// block verified, the handler writes none, or the document is not encrypted.
+    ///
+    /// The document opens either way (A953, ADR 3309); this is what a reader is told so that
+    /// the step's failure is never silent.
+    #[must_use]
+    pub fn unbound_permissions(&self) -> Option<UnboundPermissions> {
+        self.encryption
+            .as_ref()
+            .and_then(Encryption::unbound_permissions)
     }
 
     /// Returns `true` if the document carries an `/Encrypt` dictionary.

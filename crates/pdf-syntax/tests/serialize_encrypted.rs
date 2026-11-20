@@ -680,3 +680,115 @@ fn r6_writer_entries_match_an_independent_algorithms_8_to_10_vector() {
         hex_bytes("54f203d0d762eae496de957fb2819587")
     );
 }
+
+/// Replaces the one occurrence of `from` in `bytes` with `to`, which is as long, so that every
+/// offset the cross-reference table states still names its object.
+fn replaced(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    assert_eq!(from.len(), to.len(), "a same-length edit keeps the offsets");
+    let at = bytes
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("the fixture holds the bytes the edit names");
+    let mut out = bytes.to_vec();
+    out.get_mut(at..at.saturating_add(from.len()))
+        .expect("the window is in range")
+        .copy_from_slice(to);
+    out
+}
+
+/// The `/Perms` entry of a written file as it stands in the bytes: the key and its hex string.
+fn perms_entry(written: &[u8]) -> Vec<u8> {
+    let at = written
+        .windows(6)
+        .position(|window| window == b"/Perms")
+        .expect("Table 21: a revision 6 file states /Perms");
+    let rest = written.get(at..).expect("the key is in range");
+    let open = rest
+        .iter()
+        .position(|&byte| byte == b'<')
+        .expect("the block is written as a hexadecimal string");
+    let close = rest
+        .iter()
+        .position(|&byte| byte == b'>')
+        .expect("the hexadecimal string closes");
+    rest.get(..=close)
+        .filter(|entry| {
+            entry
+                .get(6..open)
+                .is_some_and(|gap| gap.iter().all(u8::is_ascii_whitespace))
+        })
+        .expect("the value follows the key")
+        .to_vec()
+}
+
+/// 2131-T01, under the owner's answer A953: a revision 6 file whose `/Perms` does not verify
+/// opens under `/P` as written, and says that its permissions are not bound to the key.
+///
+/// §7.6.4.3.3 step (f): "Verify that bytes 9-11 of the result are the characters "a", "d",
+/// "b". Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer, are the user
+/// permissions. They shall match the value in the P key." Each case states `/P -8`, which
+/// clears Table 22's bit 3 where the block this writer wrote grants it, so the flags read say
+/// which copy was used.
+#[test]
+fn a_revision_6_perms_block_that_does_not_verify_opens_under_p_as_written() {
+    use pdf_syntax::UnboundPermissions;
+
+    let source = open(source_bytes());
+    let written = protect_simple(&source, "", "keeper");
+    let verified = Document::open_with_password(written.clone(), Limits::DEFAULT, "")
+        .expect("the default user password opens it");
+    assert_eq!(
+        verified.unbound_permissions(),
+        None,
+        "the block this writer wrote verifies"
+    );
+
+    let entry = perms_entry(&written);
+    let hex_start = entry
+        .iter()
+        .position(|&byte| byte == b'<')
+        .expect("the entry holds a hexadecimal string");
+    let lead = entry.get(..hex_start).expect("the key precedes the string");
+
+    let absent = {
+        let mut renamed = entry.clone();
+        renamed
+            .get_mut(..6)
+            .expect("the key is six bytes")
+            .copy_from_slice(b"/Xerms");
+        renamed
+    };
+    let short = {
+        let mut cut = lead.to_vec();
+        cut.extend_from_slice(b"<0011>");
+        cut.resize(entry.len(), b' ');
+        cut
+    };
+    let unmarked = {
+        let mut zeroed = lead.to_vec();
+        zeroed.push(b'<');
+        zeroed.resize(entry.len().saturating_sub(1), b'0');
+        zeroed.push(b'>');
+        zeroed
+    };
+
+    for (edit, expected) in [
+        (absent, UnboundPermissions::Absent),
+        (short, UnboundPermissions::Short),
+        (unmarked, UnboundPermissions::Unverified),
+    ] {
+        let tampered = replaced(&replaced(&written, &entry, &edit), b"/P -4", b"/P -8");
+        let opened = Document::open_with_password(tampered, Limits::DEFAULT, "")
+            .unwrap_or_else(|error| panic!("{expected:?}: A953 opens it, and it said {error}"));
+        assert_eq!(opened.unbound_permissions(), Some(expected));
+        let permissions = opened.permissions().expect("an encrypted file has some");
+        assert!(
+            !permissions.print,
+            "{expected:?}: with no verified block the flags are /P as written"
+        );
+        assert!(
+            page_content(&opened).starts_with(b"0 0 1 rg 10 10 50 50 re f"),
+            "{expected:?}: the key from /UE still decrypts the page"
+        );
+    }
+}

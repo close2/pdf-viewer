@@ -576,7 +576,7 @@ fn widget(
 /// takes the first in the dictionary's own order, which `pdf_syntax::Dictionary` makes the name
 /// order — a choice, because the standard gives no second on state a meaning and a host has to be
 /// handed one name.
-fn on_state(document: &Document, annotation: &Dictionary) -> Option<String> {
+pub(crate) fn on_state(document: &Document, annotation: &Dictionary) -> Option<String> {
     let appearances = document.get_key(annotation, "AP");
     let normal = document.get_key(appearances.as_dict()?, "N");
     let states = normal.as_dict()?;

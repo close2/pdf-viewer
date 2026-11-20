@@ -95,7 +95,8 @@
   "summary": "No test opens a revision 6 (or 5) document whose /Perms is absent, short, or decrypts without the \"adb\" marker. perms_block then returns None and Encryption::new opens the document under the plaintext /P and /EncryptMetadata with nothing reported; at revision 6 /Perms is the only value that checks the file encryption key unwrapped from /UE or /OE. What the reader should do is Q953.",
   "source": "ISO 32000-2 §7.6.4.3.3 step (f): \"Verify that bytes 9-11 of the result are the characters \"a\", \"d\", \"b\". ... They shall match the value in the P key.\" Table 21 /Perms: \"(Required if R is 6 (PDF 2.0 ))\".",
   "code": "crates/pdf-syntax/src/crypt.rs:470-475; crates/pdf-syntax/src/crypt.rs:1755-1775",
-  "change": "After Q953 is answered, a test per case (absent, short, no marker) pinning the chosen behaviour."
+  "change": "After Q953 is answered, a test per case (absent, short, no marker) pinning the chosen behaviour.",
+  "status": "fixed (A953, ADR 3309; serialize_encrypted::a_revision_6_perms_block_that_does_not_verify_opens_under_p_as_written pins absent, short and unmarked /Perms opening under /P as written with Document::unbound_permissions, and viewer-core unbound_permissions_note the report note)"
  },
  {
   "id": "2131-D01",

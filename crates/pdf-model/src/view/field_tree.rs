@@ -365,7 +365,10 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: Option<&str>) 
     };
     let partial = pdf_syntax::text_string(&bytes);
     Some(match prefix {
-        Some(prefix) if !prefix.is_empty() => format!("{prefix}.{partial}"),
-        _ => partial,
+        // §12.7.4.2: "appending the child field's partial name to the parent's fully qualified
+        // name, separated by a PERIOD" — a parent named by the empty string still has a name, so
+        // the PERIOD is kept and its child `a` is `.a`, not the top-level `a` beside it.
+        Some(prefix) => format!("{prefix}.{partial}"),
+        None => partial,
     })
 }
