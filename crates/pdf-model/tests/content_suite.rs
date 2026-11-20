@@ -30,6 +30,7 @@ mod extgstate_font_valid_consumer_spec_audit;
 mod extgstate_missing_line_keys_audit;
 mod form_xobjects_audit;
 mod graphics_stack_paths_audit;
+mod graphics_state_paths_spec_audit;
 mod gwg_output_suite;
 mod hostile_geometry;
 mod leftover_operands;

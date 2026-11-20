@@ -1,0 +1,73 @@
+[
+ {
+  "id": "2155-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.4.3.2"
+  ],
+  "summary": "A zero-width line is one device pixel wide only in the direction the transform stretches most. Stroke::device_width substitutes thinnest_line(to_device), one device pixel divided by Transform::max_stretch, so under a CTM of 4 0 0 1 a zero-width vertical line is one pixel (1.00 per row) and a zero-width horizontal line a quarter of one (0.25 per column). The doc comment answers this with \u00a78.4.3.2's orientation sentence, which is about a width stated in user space; a zero width is stated at device resolution. All three backends take the width from device_width.",
+  "source": "ISO 32000-2 \u00a78.4.3.2: \"A line width of 0 shall denote the thinnest line that can be rendered at device resolution: 1 device pixel wide.\"",
+  "code": "crates/pdf-render/src/paint.rs:271 (Stroke::device_width) and :303 (thinnest_line, by max_stretch); read by crates/render-cpu/src/convert.rs:258, crates/render-raster (scene-space width, encoded per placement) and crates/render-gpu/src/scene.rs:282",
+  "change": "Make a zero-width (and a \u00a710.7.5-substituted) stroke one device pixel across in every direction: under an anisotropic transform no single path-space width does that, so the backend strokes the zero-width path in device space (a hairline of the transformed path) rather than by a path-space width.",
+  "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_zero_width_line_is_one_device_pixel_wide_in_every_direction_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2155-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.4.3.6",
+   "8.5.3.2"
+  ],
+  "summary": "A valid dash pattern fine enough to pass tiny-skia's dash limit erases the stroke. tiny-skia's dash_impl gives up past 1 000 000 dashes a path (MAX_DASH_COUNT) and returns None; tiny-skia's stroke then returns None and render-cpu draws nothing, without a report. An 80-unit line under [0.00001 0.00001] 0 d inks 0, where [0.01 0.01] inks half the solid line. convert.rs's comment says a refused dash 'yields a solid line', which is true of StrokeDash::new's refusal and not of this one.",
+  "source": "ISO 32000-2 \u00a78.4.3.6: \"The dash array's elements shall be numbers that specify the lengths of alternating dashes and gaps; the numbers shall be nonnegative and not all zero.\" and \"it simply shall dispense dashes and gaps along the path in the pattern defined by the dash array\"; \u00a78.5.3.2: \"The line may be painted either solid or with a dash pattern, as specified by the current line dash pattern\".",
+  "code": "crates/render-cpu/src/convert.rs:270 (the dash handed to tiny-skia, and the comment); tiny-skia-path 0.12 src/dash.rs:199 (MAX_DASH_COUNT); the GPU backends dash through kurbo, which has no such limit and was not run",
+  "change": "Decide the case in pdf-render for all backends: a pattern whose dash count passes a stated bound is drawn as the coverage it implies (the solid stroke at the pattern's on-fraction, the reading \u00a710.7.4 allows a sub-pixel mark), and a dasher's refusal is never a stroke drawn as nothing.",
+  "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_dash_pattern_finer_than_a_pixel_still_paints_its_stroke_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2155-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.4.3.5",
+   "8.4.3.2"
+  ],
+  "summary": "A zero-width line is mitred. \u00a78.4.3.5 makes the mitre length of a zero-width line zero, but the one-pixel width device_width substitutes is handed to the stroker with the state's miter join and limit, so a 14-degree corner of a 0 w line grows the mitre spike of a one-pixel line (2.07 pixels of ink beyond the vertex, against 0.06 bevelled).",
+  "source": "ISO 32000-2 \u00a78.4.3.5: \"When the line width is zero, the miter length is zero.\"",
+  "code": "crates/render-cpu/src/convert.rs:256 (stroke: width from device_width, miter_limit and join from the state); the same pair in crates/render-raster/src/stroke.rs:268 and crates/render-gpu/src/scene.rs:282-293 (read, not run)",
+  "change": "Where the stated width is zero, stroke the substituted pixel without a mitre (a bevel, or a limit of 1), decided once beside Stroke::device_width so the three backends cannot differ.",
+  "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_zero_width_line_has_no_mitre_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2155-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.4.3.6",
+   "8.4.5",
+   "8.4.1"
+  ],
+  "summary": "A dash array with an element that is not a number is read as the array of its remaining numbers: [3 (x) 1] 0 d and Table 57's /D [[3 (x) 1] 0] both set the pattern [3 1], in which the third length (a dash) has become a gap. apply_dash draws an array that breaks the clause's range (negative, all zero) solid because it 'describes no pattern at all'; one that breaks its type is reshaped into a pattern the file did not state.",
+  "source": "ISO 32000-2 \u00a78.4.3.6: \"The dash array's elements shall be numbers that specify the lengths of alternating dashes and gaps\"; Table 57 D: \"where dashArray shall be itself an array and dashPhase shall be a number\"; \u00a78.4.1: \"Most parameters shall be of the correct type or have values that fall within a certain range.\"",
+  "code": "crates/pdf-model/src/content.rs:3411 (set_dash: filter_map(Object::as_number)); crates/pdf-model/src/content/ext_gstate.rs:295 (/D: the same filter_map)",
+  "change": "Treat an array with a non-number element as no pattern, by the rule apply_dash already applies to an array outside the range (or leave the previous pattern in force), in both routes and once.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/graphics_state_paths_spec_audit.rs::a_dash_array_with_a_non_number_is_not_read_as_another_pattern_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2155-D01",
+  "kind": "decision-qualification",
+  "clauses": [
+   "8.4.1",
+   "8.4.3.3",
+   "8.4.3.4"
+  ],
+  "summary": "line_cap and line_join send every code outside 0..=2 to the initial value (3 J is a butt cap, and 1 J 7 J undoes the round cap), and their comment presents that as \u00a78.4.1's answer. \u00a78.4.1 states the range requirement and, for numeric parameters, that they 'shall be clipped into valid range'; whether a categorical code is such a parameter is not said, and 'the initial value' is said nowhere. The choice may be right; it is a choice, and it is written as a derivation.",
+  "source": "ISO 32000-2 \u00a78.4.1: \"Parameters that are numeric values, such as the current colour, line width, and miter limit, shall be clipped into valid range, if necessary.\"",
+  "code": "crates/pdf-model/src/content.rs:3421-3445 (line_cap, line_join and their comment)",
+  "change": "Either clip a code into 0..=2 (3 J a projecting square cap) by \u00a78.4.1's sentence, or keep the initial value and say in the comment, under an ADR, that it is a choice the clause does not make.",
+  "execution": "not a test: read; the behaviour is pinned by crates/pdf-model/tests/line_parameters.rs::a_code_outside_the_clauses_three_is_the_initial_value",
+  "status": "open"
+ }
+]

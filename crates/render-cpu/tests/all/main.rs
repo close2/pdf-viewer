@@ -51,6 +51,7 @@ mod stripe_rows;
 mod stroke_cuts;
 mod stroke_fill_geometry_spec_audit;
 mod stroke_join_shapes_audit;
+mod stroke_parameters_spec_audit;
 mod stroke_wider_than_its_curve;
 mod stroke_width;
 mod stroked_shading_background;

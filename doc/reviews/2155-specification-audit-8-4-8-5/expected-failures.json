@@ -1,0 +1,30 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2155 on main 0b93d22f",
+ "failures": [
+  {
+   "binary": "render-cpu::all",
+   "test": "stroke_parameters_spec_audit::a_zero_width_line_is_one_device_pixel_wide_in_every_direction_spec_audit",
+   "finding": "2155-B01",
+   "log": "round-2155 nextest of pdf-model and render-cpu"
+  },
+  {
+   "binary": "render-cpu::all",
+   "test": "stroke_parameters_spec_audit::a_dash_pattern_finer_than_a_pixel_still_paints_its_stroke_spec_audit",
+   "finding": "2155-B02",
+   "log": "round-2155 nextest of pdf-model and render-cpu"
+  },
+  {
+   "binary": "render-cpu::all",
+   "test": "stroke_parameters_spec_audit::a_zero_width_line_has_no_mitre_spec_audit",
+   "finding": "2155-B03",
+   "log": "round-2155 nextest of pdf-model and render-cpu"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "graphics_state_paths_spec_audit::a_dash_array_with_a_non_number_is_not_read_as_another_pattern_spec_audit",
+   "finding": "2155-B04",
+   "log": "round-2155 nextest of pdf-model and render-cpu"
+  }
+ ]
+}
