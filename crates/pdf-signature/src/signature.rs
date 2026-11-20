@@ -157,7 +157,7 @@ pub struct Signature {
     /// Read because it decides which of §12.8.3's profiles applies, and because two of its
     /// values tighten `/ByteRange` from a *should* into a *shall*: with `ETSI.CAdES.detached` or
     /// `ETSI.RFC3161` it "shall cover the entire PDF file". [`Signature::must_cover_whole_file`]
-    /// is that distinction.
+    /// is that distinction, and it adds a document timestamp whatever its sub-filter.
     pub sub_filter: Option<String>,
     /// `/ByteRange`, "an array of pairs of integers (starting byte offset, length in bytes)".
     pub byte_range: Vec<(u64, u64)>,
@@ -809,7 +809,13 @@ pub enum PadesDeparture {
     /// the signature dictionary or the signing-time attribute may be used, but not both."
     BothSigningTimesStated,
     /// §12.8.3.4.3 (a): "content-type: shall be present and shall always have the value
-    /// \"id-data\"."
+    /// \"id-data\"." — the *presence* half: the signed attributes state no content-type.
+    ///
+    /// RFC 5652 section 11.1 is why it is the signed set that is searched: "\[t]he content-type
+    /// attribute MUST be a signed attribute or an authenticated attribute".
+    NoContentTypeAttribute,
+    /// §12.8.3.4.3 (a)'s *value* half: the content-type attribute is present and does not state
+    /// `id-data` as its one value, or the `eContentType` it describes is not `id-data`.
     ContentTypeIsNotData,
     /// §12.8.3.4.3 (d): "exactly one single `SignerInfo` attribute shall be present."
     NotExactlyOneSigner,
@@ -997,9 +1003,10 @@ pub enum PadesDeparture {
 ///
 /// The table states a cardinality for every attribute of a `CAdES-E-BES` or `CAdES-E-EPES`
 /// signature, and for all of these it is *0 or 1* — except `content-type` and `message-digest`,
-/// whose cardinality is *1* and whose presence §12.8.3.4.3 (a) and (e) already require. What this
-/// enumeration is for is the other half of each: a file that states one of them twice has broken
-/// the table whichever of §12.8.3.4.4's profiles it means to follow.
+/// whose cardinality is *1* and whose presence §12.8.3.4.3 (a) and (e) already require, reported
+/// as [`PadesDeparture::NoContentTypeAttribute`] and [`PadesDeparture::NoMessageDigest`]. What
+/// this enumeration is for is the other half of each: a file that states one of them twice has
+/// broken the table whichever of §12.8.3.4.4's profiles it means to follow.
 ///
 /// Three attributes the table also admits at most once are missing here, and deliberately:
 /// `content-hints`, `content-reference` and `content-identifier` are forbidden outright by
@@ -1152,17 +1159,26 @@ impl Signature {
         pdf_syntax::Date::parse(self.signed_at.as_deref()?)
     }
 
-    /// Whether `/SubFilter` makes whole-file coverage a requirement rather than a recommendation.
+    /// Whether the dictionary makes whole-file coverage a requirement rather than a
+    /// recommendation.
     ///
-    /// Table 255 says that for those two sub-filters "the `ByteRange` shall cover the entire PDF
-    /// file". For every other value §12.8.1's "should" stands, and a range that stops short is a
-    /// document with a later revision rather than a defective signature.
+    /// Table 255 says that for the sub-filters `ETSI.CAdES.detached` and `ETSI.RFC3161` "the
+    /// `ByteRange` shall cover the entire PDF file". A document timestamp (`/Type /DocTimeStamp`)
+    /// is held to it whatever its `/SubFilter`: Table 255's `Contents` entry says that "\[f]or
+    /// document timestamp signatures ... the `ByteRange` shall specify the complete PDF file
+    /// contents", and §12.8.5.2 that "\[t]he `ByteRange` key shall cover the entire PDF file",
+    /// both keyed on the dictionary's kind, while `ETSI.RFC3161` is only what such a dictionary
+    /// "should" state (ADR 3229). For every other dictionary §12.8.1's "should" stands.
+    ///
+    /// "The entire PDF file" is the revision the signature's update terminates, which is how
+    /// §12.8.1 reads it once a file holds several: see [`Signature::pades_departures`].
     #[must_use]
     pub fn must_cover_whole_file(&self) -> bool {
-        matches!(
-            self.sub_filter.as_deref(),
-            Some("ETSI.CAdES.detached" | "ETSI.RFC3161")
-        )
+        self.timestamp
+            || matches!(
+                self.sub_filter.as_deref(),
+                Some("ETSI.CAdES.detached" | "ETSI.RFC3161")
+            )
     }
 
     /// Whether the file marks its signature reference dictionary critical to validating this
@@ -1178,6 +1194,31 @@ impl Signature {
     #[must_use]
     pub fn reference_is_critical(&self) -> bool {
         self.format_version == Some(1)
+    }
+
+    /// Whether the range covers "the entire PDF file" in the sense §12.8.1 gives it once a file
+    /// holds more than one revision.
+    ///
+    /// > In case of multiple digital signatures this range shall be the sequence of bytes
+    /// > starting from the "%PDF-" comment at the beginning of the PDF document to the end of the
+    /// > "%%EOF" comment, possibly followed by an optional EOL marker, terminating the incremental
+    /// > update that adds the digital signature dictionary to the document.
+    ///
+    /// So the range covers its file when it ends at the file's end ([`Coverage::WholeFile`]), and
+    /// equally when it leaves a tail but stops at an end-of-file marker
+    /// ([`SignedEnd::AtAnEndOfFileMarker`]): that tail is later revisions, which §12.8.4.3 itself
+    /// prescribes for a DSS — "the DSS/VRI update shall be done later than the signature update".
+    /// A range that stops anywhere else, or describes no range, does not (ADR 3230).
+    ///
+    /// This is the reading [`Signature::must_cover_whole_file`]'s `shall` is asked against; for
+    /// the other sub-filters it answers the same question as a `should`.
+    #[must_use]
+    pub fn covers_its_revision(&self, file: &FileBytes) -> bool {
+        match self.coverage(file.len() as u64) {
+            Coverage::WholeFile => true,
+            Coverage::Unsigned { .. } => self.signed_end(file) == SignedEnd::AtAnEndOfFileMarker,
+            Coverage::Malformed => false,
+        }
     }
 
     /// What this signature's range covers of a file `length` bytes long.
@@ -1866,7 +1907,6 @@ impl Signature {
         if self.sub_filter.as_deref() != Some("ETSI.CAdES.detached") {
             return Vec::new();
         }
-        let file_length = file.len() as u64;
         let mut out = Vec::new();
         // The subclause's first sentence, and the only one of its rules that is about the value's
         // *encoding* rather than about the dictionary around it. An unreadable value produces no
@@ -1875,7 +1915,9 @@ impl Signature {
         if let Ok(Some(rule)) = der::is_canonical(&self.contents) {
             out.push(PadesDeparture::ValueNotDerEncoded(rule));
         }
-        if self.coverage(file_length) != Coverage::WholeFile {
+        // §12.8.3.4.2's "entire PDF file" is §12.8.1's revision once later ones follow it: a DSS
+        // update appended after the signature is §12.8.4.3's own shape, not a short range.
+        if !self.covers_its_revision(file) {
             out.push(PadesDeparture::RangeDoesNotCoverTheFile);
         }
         if self.certificate_chain {
@@ -1884,8 +1926,23 @@ impl Signature {
         if self.signed_at.is_some() && cms.has_signed_attribute(cms::ID_SIGNING_TIME) {
             out.push(PadesDeparture::BothSigningTimesStated);
         }
-        if cms.content_type != cms::ID_DATA {
-            out.push(PadesDeparture::ContentTypeIsNotData);
+        // (a) is about the content-type *attribute*: RFC 5652 section 11.1 makes it a signed
+        // attribute stating the eContentType, so the rule is asked of the signed attribute, its
+        // one value, and the encapsulated content type it must agree with (ADR 3231).
+        match cms
+            .attribute(cms::ID_CONTENT_TYPE)
+            .filter(|attribute| attribute.signed)
+        {
+            None => out.push(PadesDeparture::NoContentTypeAttribute),
+            Some(attribute) => {
+                let states_data = attribute.values == 1
+                    && attribute.first.is_some_and(|value| {
+                        value.identifier == der::OBJECT_IDENTIFIER && value.contents == cms::ID_DATA
+                    });
+                if !states_data || cms.content_type != cms::ID_DATA {
+                    out.push(PadesDeparture::ContentTypeIsNotData);
+                }
+            }
         }
         if cms.signers != 1 {
             out.push(PadesDeparture::NotExactlyOneSigner);
@@ -2879,8 +2936,9 @@ pub struct UsageRights {
     /// > The value shall be 2.2 . If an unknown version is present, no rights shall be enabled.
     /// > NOTE This value is a name object, not a number. Default value: 2.2 .
     ///
-    /// False means the version was stated and was something else, which the clause turns into
-    /// *no rights at all* rather than into a parse failure.
+    /// False means the version was stated and was something else - another name, or a value of
+    /// another type such as the number the NOTE warns of - which the clause turns into *no rights
+    /// at all* rather than into a parse failure.
     pub version_understood: bool,
     /// Table 258's `/P`: "If false , any possible restriction may be ignored."
     ///
@@ -3708,10 +3766,14 @@ fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRigh
             form: names("Form"),
             signature: names("Signature"),
             embedded_files: names("EF"),
-            version_understood: document
-                .get_key(parameters, "V")
-                .as_name()
-                .is_none_or(|version| version.as_bytes() == b"2.2"),
+            // Absent (or null, which §7.3.9 makes the same) takes the default; anything else
+            // present that is not the name `2.2` - a number included, which the table's NOTE
+            // names as the wrong type - is an unknown version (ADR 3229).
+            version_understood: match document.get_key(parameters, "V") {
+                Object::Null => true,
+                Object::Name(version) => version.as_bytes() == b"2.2",
+                _ => false,
+            },
             restrictive: matches!(document.get_key(parameters, "P"), Object::Boolean(true)),
         });
     }
@@ -3935,30 +3997,34 @@ fn indirect_values(dict: &Dictionary) -> Vec<String> {
     keys
 }
 
-/// Table 255's `/ByteRange`, as the pairs the clause states.
+/// ISO 32000-2 §12.8.1, Table 255's `/ByteRange`, as the pairs the clause states:
 ///
-/// An array of more than [`MAX_BYTE_RANGE_PAIRS`] pairs is refused whole rather than read to the
-/// bound: a range with its tail cut off would describe a different digest from the one the file
-/// states, and answering a question with a silently shortened input is the failure this project
-/// keeps finding elsewhere.
+/// > An array of pairs of integers (starting byte offset, length in bytes) that shall describe
+/// > the exact byte range for the digest calculation.
+///
+/// An array that is not that is refused whole, and the empty answer reads as
+/// [`Coverage::Malformed`]: an odd trailing member, a member that is no non-negative integer, or
+/// more than [`MAX_BYTE_RANGE_PAIRS`] pairs. Dropping the offending member and reading the rest
+/// would describe a range the file did not state, and answering a question with a silently
+/// shortened input is the failure this project keeps finding elsewhere (ADR 3229).
 fn byte_range(document: &Document, dict: &Dictionary) -> Vec<(u64, u64)> {
     let range = document.get_key(dict, "ByteRange");
     let Some(range) = range.as_array() else {
         return Vec::new();
     };
-    if range.len() > MAX_BYTE_RANGE_PAIRS.saturating_mul(2).saturating_add(1) {
+    if range.len() > MAX_BYTE_RANGE_PAIRS.saturating_mul(2) {
         return Vec::new();
     }
-    range
-        .as_chunks::<2>()
-        .0
+    let (pairs, odd) = range.as_chunks::<2>();
+    if !odd.is_empty() {
+        return Vec::new();
+    }
+    let offset = |member: &Object| u64::try_from(document.resolve(member).as_integer()?).ok();
+    pairs
         .iter()
-        .filter_map(|pair| {
-            let start = document.resolve(pair.first()?).as_integer()?;
-            let length = document.resolve(pair.get(1)?).as_integer()?;
-            Some((u64::try_from(start).ok()?, u64::try_from(length).ok()?))
-        })
-        .collect()
+        .map(|[start, length]| Some((offset(start)?, offset(length)?)))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
 }
 
 /// Table 255's `/Cert`, "a byte string if the chain has only one entry" or an array of them.
@@ -6270,20 +6336,23 @@ mod tests {
 
     /// §12.8.3.4's structural requirements on a `PAdES` signature, which no corpus document has.
     ///
-    /// The fixture breaks three of them at once and meets the rest: its `/ByteRange` stops short
-    /// of the file's end (§12.8.3.4.2), it states a `/Cert` (§12.8.3.4.2), and it states both an
-    /// `/M` and a `signing-time` attribute (§12.8.3.4.2 again, which permits "but not both").
-    /// Content type, signer count and message digest are all as §12.8.3.4.3 requires, so their
-    /// absence from the answer is as much of the test as the three that are there.
+    /// The fixture breaks two of them at once and meets the rest: it states a `/Cert`
+    /// (§12.8.3.4.2), and it states both an `/M` and a `signing-time` attribute (§12.8.3.4.2
+    /// again, which permits "but not both"). Content type, signer count and message digest are
+    /// all as §12.8.3.4.3 requires, and its range stops at the `%%EOF` ending its revision with a
+    /// byte after it unsigned, which §12.8.1 reads as covering the file; their absence from the
+    /// answer is as much of the test as what is there.
+    /// `a_pades_range_that_stops_inside_its_revision_is_a_departure` is the range's other side.
     ///
-    /// §12.8.3.4.3 (f) is here too, and it is why the fixture's departures are four rather than
-    /// three: `cms::fixtures::detached` carries no signing-certificate attribute, and the clause
+    /// §12.8.3.4.3 (f) is here too, and it is why the fixture's departures are three rather than
+    /// two: `cms::fixtures::detached` carries no signing-certificate attribute, and the clause
     /// requires one. `a_pades_signature_is_held_to_every_attribute_rule_that_needs_no_certificate`
     /// is the calibration — the same fixture with one, and the departure gone.
     #[test]
     fn a_pades_signature_is_held_to_the_rules_that_need_no_certificate() {
-        // One byte past the end of what `/ByteRange` names — a LINE FEED after `%%EOF`, which
-        // §7.5.5 permits a file to end with and which the range therefore leaves unsigned.
+        // One byte past the end of what `/ByteRange` names — a LINE FEED after the `%%EOF` line.
+        // The range ends at "the end of the \"%%EOF\" comment, possibly followed by an optional
+        // EOL marker" (§12.8.1), so the byte it leaves unsigned is not a short range.
         let mut bytes = signed_document(
             "ETSI.CAdES.detached",
             "/M (D:20260807000000Z) /Cert <00>",
@@ -6303,7 +6372,6 @@ mod tests {
         assert_eq!(
             signature.pades_departures(&cms, document.bytes()),
             vec![
-                PadesDeparture::RangeDoesNotCoverTheFile,
                 PadesDeparture::CertEntryPresent,
                 PadesDeparture::BothSigningTimesStated,
                 PadesDeparture::NoSigningCertificateAttribute,
@@ -6337,7 +6405,7 @@ mod tests {
             "the clause's first sentence is about the value's encoding, and this value is BER"
         );
 
-        // And an `adbe.pkcs7.detached` signature with the same three faults has none of these
+        // And an `adbe.pkcs7.detached` signature with the same faults has none of these
         // departures, because §12.8.3.4.1 scopes the whole subclause to ETSI.CAdES.detached.
         let mut other = signed_document(
             "adbe.pkcs7.detached",
@@ -6351,6 +6419,46 @@ mod tests {
         assert_eq!(
             other_signature.pades_departures(&other_cms, other_document.bytes()),
             [] as [PadesDeparture; 0]
+        );
+    }
+
+    /// §12.8.3.4.2's "\[t]he `ByteRange` shall cover the entire PDF file", on the side where it is
+    /// broken: a range that stops inside its own revision, two bytes short of the `%%EOF` line's
+    /// end, has signed a prefix of a revision rather than the file §12.8.1 describes, and a later
+    /// revision appended to the same file does not mend it. The other side, a range ending at its
+    /// revision's `%%EOF` with a later revision after it, is
+    /// `signature_value_spec_audit::a_revision_appended_after_a_pades_signature_is_not_a_short_range_spec_audit`.
+    #[test]
+    fn a_pades_range_that_stops_inside_its_revision_is_a_departure() {
+        let mut bytes = signed_document(
+            "ETSI.CAdES.detached",
+            "",
+            Digest::Sha256,
+            fixtures::detached,
+        );
+        let placeholder_tail = bytes
+            .windows(b"] /Contents <".len())
+            .position(|window| window == b"] /Contents <")
+            .expect("the /ByteRange closes before /Contents");
+        let digits = placeholder_tail.saturating_sub(10)..placeholder_tail;
+        let stated: u64 = std::str::from_utf8(&bytes[digits.clone()])
+            .expect("ten ASCII digits")
+            .parse()
+            .expect("a length");
+        let shorter = format!("{:010}", stated.saturating_sub(2));
+        bytes.splice(digits, shorter.bytes());
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.coverage(document.bytes().len() as u64),
+            Coverage::Unsigned { tail: 2 }
+        );
+        assert_eq!(signature.signed_end(document.bytes()), SignedEnd::Elsewhere);
+        assert!(!signature.covers_its_revision(document.bytes()));
+        let cms = signature.signed_data().expect("a SignedData");
+        assert!(
+            signature
+                .pades_departures(&cms, document.bytes())
+                .contains(&PadesDeparture::RangeDoesNotCoverTheFile)
         );
     }
 

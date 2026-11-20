@@ -37,7 +37,8 @@
   "source": "ISO 32000-2 §12.8.3.4.3: \"The attributes in the SignedData object used as the value of the signature dictionary Contents key shall obey the following rules: a) content-type: shall be present and shall always have the value \\\"id-data\\\".\"",
   "code": "crates/pdf-signature/src/signature.rs:1840 (ContentTypeIsNotData from cms.content_type); crates/pdf-signature/src/cms.rs:702",
   "change": "Read the content-type signed attribute; report its absence and a value other than id-data as departures (a new variant or ContentTypeIsNotData widened), and keep the eContentType check.",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_pades_value_without_a_content_type_attribute_is_a_departure_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_pades_value_without_a_content_type_attribute_is_a_departure_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3231; pades_departures reads the signed content-type attribute: PadesDeparture::NoContentTypeAttribute where absent, ContentTypeIsNotData where it or eContentType is not id-data; signature_value_spec_audit::a_pades_value_without_a_content_type_attribute_is_a_departure_spec_audit passes)"
  },
  {
   "id": "2128-B04",
@@ -49,7 +50,8 @@
   "source": "ISO 32000-2 Table 255, ByteRange: \"An array of pairs of integers (starting byte offset, length in bytes) that shall describe the exact byte range for the digest calculation.\"",
   "code": "crates/pdf-signature/src/signature.rs:3865 (byte_range)",
   "change": "Refuse the whole array (an empty range, read as Coverage::Malformed) when its length is odd or any member is not a non-negative integer, as the function already does for an array past MAX_BYTE_RANGE_PAIRS.",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_byte_range_that_is_not_pairs_of_integers_describes_no_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_byte_range_that_is_not_pairs_of_integers_describes_no_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3229; byte_range refuses an array with an odd member or a member that is no non-negative integer, read as Coverage::Malformed; signature_value_spec_audit::a_byte_range_that_is_not_pairs_of_integers_describes_no_range_spec_audit passes)"
  },
  {
   "id": "2128-B05",
@@ -61,7 +63,8 @@
   "source": "ISO 32000-2 Table 258, V: \"The UR transform parameters dictionary version. The value shall be 2.2 . If an unknown version is present, no rights shall be enabled. NOTE This value is a name object, not a number.\"",
   "code": "crates/pdf-signature/src/signature.rs:3631-3634 (usage_rights version_understood)",
   "change": "Understood only when /V is absent or the name 2.2; any other value present, whatever its type, enables no rights.",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_unknown_usage_rights_version_enables_no_rights_whatever_its_type_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::an_unknown_usage_rights_version_enables_no_rights_whatever_its_type_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3229; version_understood is /V absent or the name 2.2, any other value present enables no rights; signature_value_spec_audit::an_unknown_usage_rights_version_enables_no_rights_whatever_its_type_spec_audit passes)"
  },
  {
   "id": "2128-B06",
@@ -74,7 +77,8 @@
   "source": "ISO 32000-2 Table 255, Contents: \"For document timestamp signatures, Contents shall be the TimeStampToken ... the ByteRange shall specify the complete PDF file contents (excepting the Contents value)\"; §12.8.5.2: \"The ByteRange key shall cover the entire PDF file\"; Table 255, SubFilter: for DocTimeStamp the value \"should be\" ETSI.RFC3161.",
   "code": "crates/pdf-signature/src/signature.rs:1139 (must_cover_whole_file)",
   "change": "Add self.timestamp to the condition.",
-  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_document_timestamp_must_cover_the_whole_file_whatever_its_sub_filter_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/pdf-signature/tests/signature_value_spec_audit.rs::a_document_timestamp_must_cover_the_whole_file_whatever_its_sub_filter_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3229; must_cover_whole_file holds a /Type /DocTimeStamp whatever its /SubFilter; signature_value_spec_audit::a_document_timestamp_must_cover_the_whole_file_whatever_its_sub_filter_spec_audit passes)"
  },
  {
   "id": "2128-B07",
@@ -88,7 +92,8 @@
   "source": "ISO 32000-2 §12.8.1: \"In case of multiple digital signatures this range shall be the sequence of bytes starting from the \\\"%PDF-\\\" comment ... to the end of the \\\"%%EOF\\\" comment ... terminating the incremental update that adds the digital signature dictionary to the document.\" §12.8.4.3: \"If the signature dictionary to which a VRI dictionary applies is itself in an incremental update section, the DSS/VRI update shall be done later than the signature update.\"",
   "code": "crates/viewer-core/src/notes.rs:1408-1428; crates/pdf-signature/src/signature.rs:1831 (pades_departures, coverage != WholeFile)",
   "change": "Read 'the entire PDF file' as the revision the signature's update terminates (Signature::signed_end's AtAnEndOfFileMarker): a tail made of later revisions is §12.8.1's ordinary case and is said as such; the departure sentence is kept for a range that stops anywhere else.",
-  "execution": "FAIL (expected): crates/viewer-core/tests/pades_appended_update_spec_audit.rs::a_dss_update_after_a_pades_signature_is_not_reported_as_a_departure_spec_audit; crates/pdf-signature/tests/signature_value_spec_audit.rs::a_revision_appended_after_a_pades_signature_is_not_a_short_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log"
+  "execution": "FAIL (expected): crates/viewer-core/tests/pades_appended_update_spec_audit.rs::a_dss_update_after_a_pades_signature_is_not_reported_as_a_departure_spec_audit; crates/pdf-signature/tests/signature_value_spec_audit.rs::a_revision_appended_after_a_pades_signature_is_not_a_short_range_spec_audit — round 2128, scratch log r2128/t1.log, t2.log, t3.log",
+  "status": "fixed (ADR 3230; Signature::covers_its_revision reads the entire file as the revision ending at the signature update's %%EOF, and pades_departures and viewer-core's report ask it; signature_value_spec_audit::a_revision_appended_after_a_pades_signature_is_not_a_short_range_spec_audit and pades_appended_update_spec_audit::a_dss_update_after_a_pades_signature_is_not_reported_as_a_departure_spec_audit pass)"
  },
  {
   "id": "2128-T01",
@@ -111,7 +116,8 @@
   "summary": "The whole-file departure sentence in viewer-core's report (notes.rs:1418) is exercised by no test in either direction; the corpus documents with a PAdES signature followed by a DSS revision are the case it misreports (B07), and a range that genuinely stops short of its revision's %%EOF has no test either.",
   "source": "ISO 32000-2 §12.8.3.4.2 (\"The ByteRange shall cover the entire PDF file\"), read with §12.8.1's multiple-signature sentence.",
   "code": "crates/viewer-core/src/notes.rs:1418",
-  "change": "With B07's fix, a test of each side: a later revision (no departure) and a range ending before its own %%EOF (departure)."
+  "change": "With B07's fix, a test of each side: a later revision (no departure) and a range ending before its own %%EOF (departure).",
+  "status": "fixed (ADR 3230; viewer-core tests/pades_range_end.rs tests both sides: a later revision draws no departure, a range ending inside its %%EOF line draws it)"
  },
  {
   "id": "2128-D01",
@@ -146,7 +152,8 @@
   "summary": "PadesDeparture::ContentTypeIsNotData quotes rule (a)'s \"shall be present\" and ProfileAttribute's doc says content-type's presence is what \"§12.8.3.4.3 (a) ... already require[s]\", implying presence is checked; only eContentType is (B03).",
   "source": "ISO 32000-2 §12.8.3.4.3 (a).",
   "code": "crates/pdf-signature/src/signature.rs:789-791; crates/pdf-signature/src/signature.rs:978",
-  "change": "Correct both with B03's fix."
+  "change": "Correct both with B03's fix.",
+  "status": "fixed (ADR 3231; PadesDeparture::ContentTypeIsNotData and ProfileAttribute's comment restated with the new NoContentTypeAttribute)"
  },
  {
   "id": "2128-D04",

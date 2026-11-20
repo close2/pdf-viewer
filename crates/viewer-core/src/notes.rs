@@ -1406,21 +1406,34 @@ fn about_one(
         ));
         match signature.coverage(length) {
             pdf_signature::signature::Coverage::WholeFile => {}
-            // **Two different things wear one shape here, and Table 255 separates them.**
-            // §12.8.1's NOTE 1 makes an uncovered tail the ordinary mechanism — an incremental
-            // update appended after signing, which is how a signature stays meaningful while a
-            // document goes on being used. But for `ETSI.CAdES.detached` and `ETSI.RFC3161` the
-            // table says the range "shall cover the entire PDF file", so for those two the same
-            // tail is a file breaking a `shall`. `Signature::must_cover_whole_file` draws that
-            // distinction and this is the caller that asks it. It is still not a verdict on the
-            // signature: this program has no trust store and says what the file states.
+            // **An uncovered tail is §12.8.1's ordinary case, and the `shall` is about where the
+            // range stops.** §12.8.1's NOTE 1 makes the tail an incremental update appended after
+            // signing, and its multiple-signature sentence says what "the entire PDF file" is
+            // once there are several revisions: the bytes up to the `%%EOF` "terminating the
+            // incremental update that adds the digital signature dictionary". §12.8.4.3 even
+            // requires such a tail for a DSS. So for the dictionaries Table 255 holds to the whole
+            // file (`Signature::must_cover_whole_file`), the tail is a departure only where the
+            // range does not stop at an end-of-file marker (`Signature::covers_its_revision`,
+            // ADR 3230). It is still not a verdict on the signature: this program has no trust
+            // store and says what the file states.
             pdf_signature::signature::Coverage::Unsigned { tail } => {
-                if signature.must_cover_whole_file() {
+                if signature.must_cover_whole_file()
+                    && !signature.covers_its_revision(document.bytes())
+                {
+                    let held_by = if signature.timestamp {
+                        "a document timestamp's".to_owned()
+                    } else {
+                        format!(
+                            "/SubFilter {}'s",
+                            signature.sub_filter.as_deref().unwrap_or("")
+                        )
+                    };
                     notes.push(format!(
-                        "{tail} bytes were appended after that signature and are not covered by \
-                         it — and its /SubFilter {} requires the signed range to cover the whole \
-                         file (Table 255), so this file breaks that requirement",
-                        signature.sub_filter.as_deref().unwrap_or("")
+                        "{tail} bytes at the end of this file are not covered by that signature, \
+                         and its signed range does not stop at the %%EOF of a revision — Table \
+                         255 requires {held_by} signed range to cover the entire file, which \
+                         §12.8.1 reads as up to the %%EOF ending the update that added it, so \
+                         this file breaks that requirement"
                     ));
                 } else {
                     notes.push(format!(
@@ -1599,6 +1612,9 @@ fn about_one(
                             "§12.8.3.4.2 says its dictionary shall not contain a /Cert entry",
                         PadesDeparture::BothSigningTimesStated =>
                             "§12.8.3.4.2 permits either its /M or a signing-time attribute, not both",
+                        PadesDeparture::NoContentTypeAttribute =>
+                            "§12.8.3.4.3 (a) requires a content-type signed attribute, and it \
+                             states none",
                         PadesDeparture::ContentTypeIsNotData =>
                             "§12.8.3.4.3 (a) requires its content-type to be id-data",
                         PadesDeparture::NotExactlyOneSigner =>
@@ -4629,8 +4645,10 @@ mod tests {
     /// §12.8.1's NOTE 1 makes bytes appended after signing the *mechanism* by which a signed
     /// document goes on being used, so the plain note says what happened and judges nothing.
     /// Table 255 says that for `ETSI.CAdES.detached` and `ETSI.RFC3161` the range "shall cover
-    /// the entire PDF file", and then the same tail is the file breaking a requirement — which
-    /// is worth saying to somebody deciding whether to trust what they are looking at.
+    /// the entire PDF file", and then the same tail, where the range does not stop at the `%%EOF`
+    /// of a revision (this one stops at byte 300 of a longer file), is the file breaking a
+    /// requirement — which is worth saying to somebody deciding whether to trust what they are
+    /// looking at. `tests/pades_range_end.rs` has the later-revision side (ADR 3230).
     ///
     /// **No corpus document exercises this**: all six signatures in the 974 are `adbe.pkcs7.*`.
     /// That is trap 8 exactly — a corpus finds what documents contain, not what the standard
@@ -4671,7 +4689,10 @@ mod tests {
 
         let required = said("ETSI.CAdES.detached");
         assert!(
-            required.contains("requires the signed range to cover the whole file (Table 255)"),
+            required.contains(
+                "Table 255 requires /SubFilter ETSI.CAdES.detached's signed range to cover the \
+                 entire file"
+            ),
             "Table 255 turns the same tail into a broken requirement: {required}"
         );
     }
