@@ -360,6 +360,7 @@ struct ImportedFrame<'a> {
     image_masks: crate::image::MaskCache,
     image_rasters: crate::image::RasterCache,
     structure: std::sync::Arc<crate::structure::ParentTree>,
+    enclosing: std::cell::RefCell<crate::structure::EnclosingMemo>,
     stream_structures: std::collections::BTreeMap<
         pdf_syntax::ObjectId,
         std::sync::Arc<crate::structure::ParentTree>,
@@ -673,6 +674,8 @@ impl<'a> Interpreter<'a> {
                 &mut self.structure,
                 std::sync::Arc::new(crate::structure::ParentTree::default()),
             ),
+            // Its answers name the containing document's objects by number.
+            enclosing: std::mem::take(&mut self.enclosing),
             stream_structures: std::mem::take(&mut self.stream_structures),
             // §14.11.5's output intent describes the document whose colours it calibrates, and
             // the imported page's colours are the target document's.
@@ -720,6 +723,7 @@ impl<'a> Interpreter<'a> {
             image_masks,
             image_rasters,
             structure,
+            enclosing,
             stream_structures,
             output_intent,
             grey,
@@ -741,6 +745,7 @@ impl<'a> Interpreter<'a> {
         self.image_masks = image_masks;
         self.image_rasters = image_rasters;
         self.structure = structure;
+        self.enclosing = enclosing;
         self.stream_structures = stream_structures;
         self.output_intent = output_intent;
         self.grey = grey;

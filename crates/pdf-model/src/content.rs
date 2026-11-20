@@ -1607,6 +1607,7 @@ impl<'a> Interpreter<'a> {
             image_rasters: crate::image::RasterCache::default(),
             solid_colours: colour::SolidColours::default(),
             structure: Arc::new(crate::structure::ParentTree::for_page(document, &page.dict)),
+            enclosing: std::cell::RefCell::default(),
             // §14.8.1's claim first, because it is one dictionary lookup and it is false for all
             // but a sixth of the corpus; the tree only for a document that made it.
             tagged: crate::structure::MarkInfo::read(document)
@@ -1691,6 +1692,7 @@ impl<'a> Interpreter<'a> {
             page: _,
             page_resources: _,
             structure: _,
+            enclosing: _,
             tagged: _,
             output_intent: _,
             grey: _,
@@ -2962,6 +2964,11 @@ struct Interpreter<'a> {
     /// marked-content identifier to its structure element — happens per `BDC` and the tree is
     /// a number tree walk. 87 of the 974 corpus documents have a structure tree at all.
     structure: Arc<crate::structure::ParentTree>,
+    /// What §14.9.2.3's `/Lang` and §14.9.4's `/ActualText` come to over each structure element
+    /// a marked-content sequence has named, so that each ancestor is fetched once (ADR 3261).
+    ///
+    /// Keyed by object identity, so it is one document's: an imported page sets it aside.
+    enclosing: std::cell::RefCell<crate::structure::EnclosingMemo>,
     /// The same tree for each *other* content stream that stated a `/StructParents` of its own.
     ///
     /// §14.7.5.4 gives every content stream holding structure content items its own entry, so a

@@ -3129,3 +3129,53 @@ fn an_element_states_its_decoration_its_colour_its_shift_and_its_position() {
         ]
     );
 }
+
+/// A remembered ancestor answers exactly what the walk would have read, whichever element asks
+/// first (ADR 3261).
+///
+/// §14.9.2.3 makes `/Lang` the nearest statement and §14.9.4 makes `/ActualText` the outermost,
+/// so the fixture states both at two depths: the root-most element `/ActualText (outer)` and
+/// `/Lang (de)`, the middle one `/ActualText (inner)` and `/Lang (fr)`, and two leaves under it,
+/// one stating `/Lang (en)`. Every element is asked through one memo, leaves first and then in
+/// the other order, and each answer is compared with the unremembered walk's.
+#[test]
+fn a_remembered_ancestor_answers_what_the_walk_reads() {
+    let doc = document(&[
+        "<< /Type /Catalog /StructTreeRoot 2 0 R >>",
+        "<< /Type /StructTreeRoot /K 3 0 R >>",
+        "<< /S /Document /P 2 0 R /K 4 0 R /Lang (de) /ActualText (outer) >>",
+        "<< /S /P /P 3 0 R /K [5 0 R 6 0 R] /Lang (fr) /ActualText (inner) >>",
+        "<< /S /Span /P 4 0 R /K 0 /Lang (en) >>",
+        "<< /S /Span /P 4 0 R /K 1 >>",
+    ]);
+    let id = |number| pdf_syntax::ObjectId {
+        number,
+        generation: 0,
+    };
+    let element = |number| match doc.get(id(number)) {
+        Object::Dictionary(dict) => dict,
+        other => panic!("object {number} is {other:?}"),
+    };
+    for order in [[5, 6, 4, 3], [3, 4, 6, 5]] {
+        let mut memo = super::EnclosingMemo::default();
+        for number in order {
+            let walked = super::enclosing_unremembered(&doc, &element(number), Some(id(number)));
+            for _ in 0..2 {
+                let remembered =
+                    super::enclosing(&doc, &element(number), Some(id(number)), &mut memo);
+                assert_eq!(remembered.language, walked.language, "object {number}");
+                assert_eq!(
+                    remembered.actual_text, walked.actual_text,
+                    "object {number}"
+                );
+            }
+        }
+    }
+    let leaf = super::enclosing_unremembered(&doc, &element(6), Some(id(6)));
+    assert_eq!(leaf.language.as_deref(), Some("fr"));
+    assert_eq!(
+        leaf.actual_text
+            .map(|(owner, bytes)| (owner, bytes.to_vec())),
+        Some((Some(id(3)), b"outer".to_vec()))
+    );
+}

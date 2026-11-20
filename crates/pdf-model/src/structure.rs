@@ -3507,7 +3507,7 @@ pub fn expansion(document: &Document, element: &Dictionary) -> Option<String> {
 /// ancestor's or the catalog's (ADR 2976).
 #[must_use]
 pub fn language(document: &Document, element: &Dictionary) -> Option<String> {
-    enclosing(document, element, None).language
+    enclosing_unremembered(document, element, None).language
 }
 
 /// What a structure element and its ancestors state over one content item, in one walk up `/P`.
@@ -3530,10 +3530,117 @@ pub(crate) struct Enclosing {
     pub(crate) actual_text: Option<(Option<ObjectId>, std::sync::Arc<[u8]>)>,
 }
 
-/// Walks from `element` (whose own identity is `id`, where known) up `/P` for [`Enclosing`].
+/// What [`enclosing`] has already answered for the elements of one document, by identity.
+///
+/// An element's [`Enclosing`] is its own two statements laid over its parent's — its `/Lang`
+/// before the parent's answer, the parent's `/ActualText` before its own — so the answer for an
+/// ancestor is the same whichever of its descendants' content items asks. Every marked-content
+/// sequence of a tagged page walks to the root, and every step of that walk is a
+/// [`Document::get`] of an ancestor, which hands back a copy of the whole dictionary with its
+/// `/K` array. On `PDF20_AN001-BPC.pdf`'s first page, 92 sequences each copying their chain
+/// cost 1.53 M of the first frame's 12.26 M instructions; held here, each ancestor is fetched
+/// once a page (ADR 3261).
+///
+/// Each answer is kept with the length of the chain it was read over, so that a walk reaching
+/// one past [`MAX_ANCESTRY`] in total is read again in full rather than answered with more of
+/// the chain than the bound lets one walk see. Only a chain that ended — at the structure tree
+/// root, or at a `/P` that is not a dictionary — is kept: a walk the bound cut answers for its
+/// first element alone.
+#[derive(Debug, Default)]
+pub(crate) struct EnclosingMemo(BTreeMap<ObjectId, (Enclosing, usize)>);
+
+/// One element's own `/Lang` and `/ActualText`, before its ancestors are laid under them.
+fn stated_on(
+    document: &Document,
+    element: &Dictionary,
+) -> (Option<String>, Option<std::sync::Arc<[u8]>>) {
+    let language = match document.get_key(element, "Lang") {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    let actual_text = match document.get_key(element, "ActualText") {
+        Object::String(bytes) => Some(bytes),
+        _ => None,
+    };
+    (language, actual_text)
+}
+
+/// Walks from `element` (whose own identity is `id`, where known) up `/P` for [`Enclosing`],
+/// answering from `memo` for an ancestor it has already read and keeping what it reads there.
 ///
 /// Bounded by `MAX_ANCESTRY`, for the reason given there.
 pub(crate) fn enclosing(
+    document: &Document,
+    element: &Dictionary,
+    id: Option<ObjectId>,
+    memo: &mut EnclosingMemo,
+) -> Enclosing {
+    if let Some(id) = id
+        && let Some((answer, _)) = memo.0.get(&id)
+    {
+        return answer.clone();
+    }
+    // The chain read so far, nearest first: each element's identity and its own statements.
+    let mut chain = vec![(id, stated_on(document, element))];
+    let mut parent_id = element.get("P").and_then(Object::as_reference);
+    let mut current: Option<Dictionary> = None;
+    // The answer above the chain's last element, and how many elements that answer was read over;
+    // `None` where the bound cut the walk.
+    let above = loop {
+        if let Some(parent) = parent_id
+            && let Some((answer, depth)) = memo.0.get(&parent)
+        {
+            if chain.len().saturating_add(*depth) > MAX_ANCESTRY {
+                // The bound would have cut this walk inside the remembered chain; the bounded
+                // walk is read again rather than told more than it could see.
+                return enclosing_unremembered(document, element, id);
+            }
+            break Some((answer.clone(), *depth));
+        }
+        if chain.len() == MAX_ANCESTRY {
+            break None;
+        }
+        // The structure tree root is the one parent that is not an element, and it states no
+        // language of its own — §14.9.2.3 puts the document's default in the catalog instead.
+        let Some(parent) = owned_dict(document.get_key(current.as_ref().unwrap_or(element), "P"))
+        else {
+            break Some((Enclosing::default(), 0));
+        };
+        chain.push((parent_id, stated_on(document, &parent)));
+        parent_id = parent.get("P").and_then(Object::as_reference);
+        current = Some(parent);
+    };
+    let ended = above.is_some();
+    let (mut found, mut depth) = above.unwrap_or_default();
+    for (element_id, (language, actual_text)) in chain.into_iter().rev() {
+        // §14.9.2.3: the nearest `/Lang` wins, so an element's own stands over its parent's.
+        if language.is_some() {
+            found.language = language;
+        }
+        // §14.9.4: the outermost `/ActualText` wins, so a parent's stands over the element's.
+        if found.actual_text.is_none() {
+            found.actual_text = actual_text.map(|bytes| (element_id, bytes));
+        }
+        depth = depth.saturating_add(1);
+        if ended && let Some(element_id) = element_id {
+            memo.0.insert(element_id, (found.clone(), depth));
+        }
+    }
+    found
+}
+
+/// `object`'s dictionary, taken rather than copied where it is a dictionary — a stream's
+/// included, as [`Object::as_dict`] includes it, at the price of a copy of a shared stream's.
+fn owned_dict(object: Object) -> Option<Dictionary> {
+    match object {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Stream(stream) => Some(stream.dict.clone()),
+        _ => None,
+    }
+}
+
+/// [`enclosing`] with nothing remembered: the walk itself, up to `MAX_ANCESTRY` elements.
+fn enclosing_unremembered(
     document: &Document,
     element: &Dictionary,
     id: Option<ObjectId>,
@@ -3542,18 +3649,15 @@ pub(crate) fn enclosing(
     let mut current = element.clone();
     let mut current_id = id;
     for _ in 0..MAX_ANCESTRY {
-        if found.language.is_none()
-            && let Object::String(bytes) = document.get_key(&current, "Lang")
-        {
-            found.language = Some(pdf_syntax::text_string(&bytes));
+        let (language, actual_text) = stated_on(document, &current);
+        if found.language.is_none() {
+            found.language = language;
         }
-        if let Object::String(bytes) = document.get_key(&current, "ActualText") {
+        if let Some(bytes) = actual_text {
             found.actual_text = Some((current_id, bytes));
         }
-        // The structure tree root is the one parent that is not an element, and it states no
-        // language of its own — §14.9.2.3 puts the document's default in the catalog instead.
         current_id = current.get("P").and_then(Object::as_reference);
-        let Some(parent) = document.get_key(&current, "P").as_dict().cloned() else {
+        let Some(parent) = owned_dict(document.get_key(&current, "P")) else {
             break;
         };
         current = parent;

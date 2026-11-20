@@ -457,7 +457,10 @@ open_kinstructions = 2179 .. 2224
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
 # less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 10840.2 thousand in
 # four children of HEAD on 2026-11-17, this file's rule.
-frame_kinstructions = 10731 .. 10949
+# Moved for ADR 3262: 10853.3 to 11085.5 thousand from bf59984d, the tree the band was taken on, to
+# this one (ToUnicode's code lengths, the object-stream reader, a borrowed face's outline cache),
+# this file's rule around the second figure.
+frame_kinstructions = 10974 .. 11197
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -521,7 +524,10 @@ open_kinstructions = 55063 .. 56176
 # 159060.7 thousand in four children of HEAD built by Rust 1.100.0 on 2026-11-17, this file's rule. The
 # compiler moved it: the open's inflate and cross-reference loops above, less 1.6 million in
 # `image::unpack::sample_rgba` (ADR 2915, ADR 2950).
-frame_kinstructions = 157469 .. 160652
+# Moved for ADR 3262: 159061.3 to 169113.2 thousand from bf59984d, the tree the band was taken on,
+# to this one (§14.9.4's walk to the structure root, each ancestor read once by ADR 3261), this
+# file's rule around the second figure.
+frame_kinstructions = 167421 .. 170805
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -552,7 +558,10 @@ read_calls = 23 .. 27
 # They left the program's open too: a window's open has no viewport either, and `/PV` is raised at
 # its first `Resize`, inside the first-page clocks. A counted child given a viewport interprets page
 # one in the open, 66839.3 thousand here, so the child keeps none (ADR 2926).
-open_kinstructions = 1726 .. 1762
+# Moved for ADR 3262: 1752.2 to 1761.7 thousand from bf59984d, the tree the band was taken on, to
+# this one (the object-stream reader and the open's audit checks), this file's rule around the
+# second figure.
+open_kinstructions = 1744 .. 1780
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
 # window, rayon's pool at one thread. 63482.1 to 63482.2 thousand in four children of HEAD built by
@@ -592,13 +601,19 @@ read_kib = 85 .. 90
 read_calls = 22 .. 26
 # What this program's own object executes (ADR 2666): 272.3 to 272.4 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
-open_kinstructions = 269 .. 276
+# Moved for ADR 3262: 272.1 to 282.5 thousand from bf59984d, the tree the band was taken on, to this
+# one (the object-stream reader and the open's audit checks), this file's rule around the second
+# figure.
+open_kinstructions = 279 .. 286
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
 # window, rayon's pool at one thread. 3266.7 to 3266.8 thousand in four children of HEAD built by Rust
 # 1.100.0 on 2026-11-17, this file's rule. The compiler moved it: `pdf_render::geom::Path::bounds`
 # executes a third more for the same paths (ADR 2915, ADR 2950).
-frame_kinstructions = 3234 .. 3300
+# Moved for ADR 3262: 3266.7 to 3340.3 thousand from bf59984d, the tree the band was taken on, to
+# this one (the open below, a borrowed face's outline cache, ToUnicode's code lengths), this file's
+# rule around the second figure.
+frame_kinstructions = 3306 .. 3374
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"
 
 [[document]]
@@ -629,10 +644,16 @@ read_calls = 29 .. 33
 # 2026-11-16, this file's rule — the observed range widened by one per cent, rounded outwards. It was
 # 429.7 to 431.0, and moved for the reason the font-walk row gives: 42.9 thousand of `raise` (ADR 2916),
 # raised now at the window's first `Resize` rather than in its open (ADR 2926).
-open_kinstructions = 392 .. 401
+# Moved for ADR 3262: 396.8 to 404.9 thousand from bf59984d, the tree the band was taken on, to this
+# one (the object-stream reader and the open's audit checks), this file's rule around the second
+# figure.
+open_kinstructions = 400 .. 409
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
 # window, rayon's pool at one thread. 3094.7 to 3094.8 thousand in four children of HEAD on
 # 2026-11-17, this file's rule.
-frame_kinstructions = 3063 .. 3126
+# Moved for ADR 3262: 3079.6 to 3150.5 thousand from bf59984d, the tree the band was taken on, to
+# this one (the whole AGL algorithm's `lookup_char`, a borrowed face's outline cache), this file's
+# rule around the second figure.
+frame_kinstructions = 3118 .. 3183
 why = "a document whose open sequence runs a script, so the launch gate times the third confined process where a window starts it: after page one's frame, at the open sequence's first trigger (RFC 0008 section 6.6). Every other row hands its viewer the same runner and starts no worker before its frame either"

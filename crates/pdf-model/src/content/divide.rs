@@ -1260,6 +1260,7 @@ impl Interpreter<'_> {
         drop(std::mem::take(&mut self.icc_spaces));
         drop(std::mem::take(&mut self.resource_tables));
         drop(std::mem::take(&mut self.stream_structures));
+        drop(std::mem::take(&mut self.enclosing));
         self.clip_extents.clear();
     }
 

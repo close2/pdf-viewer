@@ -505,8 +505,12 @@ impl Interpreter<'_> {
             // `/Lang` is inherited from the nearest ancestor that states one (§14.9.2.3), and
             // `/ActualText` covers everything its element encloses (§14.9.4), so both are read
             // in one walk up `/P` — see `structure::Enclosing`.
-            let enclosing =
-                crate::structure::enclosing(document, &element, self.structure.element_id(mcid));
+            let enclosing = crate::structure::enclosing(
+                document,
+                &element,
+                self.structure.element_id(mcid),
+                &mut self.enclosing.borrow_mut(),
+            );
             if actual_text.is_none() {
                 actual_text = enclosing
                     .actual_text
