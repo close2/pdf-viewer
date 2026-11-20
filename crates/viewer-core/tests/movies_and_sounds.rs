@@ -322,6 +322,41 @@ fn a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file() {
     );
 }
 
+/// §13.3's samples cross beside the written file, as the sound object stores them after Table 5's
+/// filters and before any decoding — `00 01 7F 80` from the `ASCIIHexDecode`d stream, `/R 11025`
+/// and `/E /Signed` read — so that a window playing the sound itself decodes the document's samples
+/// in its own confined worker (ADR 3301). The wrong answers excluded: the samples withheld, the
+/// stream handed over still filtered, and a sound named by its `/F` carrying samples it does not
+/// hold.
+#[test]
+fn a_sound_holding_its_own_samples_carries_them_beside_the_file() {
+    let sounds = |events: &[Event]| -> Vec<Option<viewer_core::SoundData>> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Media { sound, .. } => Some(sound.as_deref().cloned()),
+                _ => None,
+            })
+            .collect()
+    };
+    let signed = activated(document("", "null"), RestrictionLevel::Off, 12);
+    assert_eq!(
+        sounds(&signed),
+        vec![Some(viewer_core::SoundData {
+            format: pdf_model::media::SampleFormat {
+                rate: 11025,
+                channels: 1,
+                bits: 8,
+                encoding: pdf_model::media::Encoding::Signed,
+            },
+            data: vec![0x00, 0x01, 0x7F, 0x80],
+        })],
+        "{signed:?}"
+    );
+    let named = activated(document("", "null"), RestrictionLevel::Off, 9);
+    assert_eq!(sounds(&named), vec![None], "{named:?}");
+}
+
 /// A press and a release on the movie annotation — the path a window's click takes — hand the movie
 /// over: §12.5.1's "exhibits its associated object, such as … by playing a sound or a movie" for an
 /// annotation that is not a link.

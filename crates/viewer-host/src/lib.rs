@@ -168,6 +168,7 @@ pub mod report;
 pub mod restriction;
 pub mod script_asks;
 pub mod script_timers;
+pub mod sound;
 pub mod stand_in;
 pub mod status;
 pub mod submit;
@@ -222,7 +223,9 @@ pub use policy::{
     supply_note, trust_anchors, trusted_lists, unanswerable, under_remote_documents, uri_note,
     warned,
 };
-pub use policy::{Handed, Handing, MEDIA_FILES, MediaFiles, hand_over_media, handing};
+pub use policy::{
+    Handed, Handing, MEDIA_FILES, MediaFiles, hand_over_media, handing, handing_here,
+};
 pub use policy::{LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments};
 pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};

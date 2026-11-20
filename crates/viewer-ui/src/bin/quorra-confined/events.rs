@@ -318,10 +318,13 @@ impl Host {
             }
             // §13.2.4.2's clip, which the worker judged and this window was handed, under
             // `--media-files=` (ADR 3201).
+            // A sound's own samples are for a window that plays it here; this one hands it off
+            // (ADR 3301).
             Event::Media {
                 document,
                 content_type,
                 media,
+                ..
             } => self.media(document, content_type.as_deref(), media),
             // Pinned to `off` as for a sound; the arm says so rather than receiving a newer
             // worker's event in silence (ADR 1771).

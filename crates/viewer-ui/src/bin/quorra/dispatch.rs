@@ -926,7 +926,13 @@ answers in two places"
                 document,
                 content_type,
                 media,
-            } => self.media(document, content_type.as_deref(), media),
+                sound,
+            } => self.media(
+                document,
+                content_type.as_deref(),
+                media,
+                sound.map(|sound| *sound),
+            ),
             // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
             // (ADR 2329).
             Event::ScriptQuestionWithdrawn { document } => {
@@ -1207,20 +1213,101 @@ impl App {
             }
             // Clause 13: handing a clip to this machine's player is the host's own act, so the
             // answer decides whether it is handed over at all (ADR 3201).
-            crate::app::Pending::Media { document, handed } => {
-                Self::media_answered(&document, &handed, proceed);
-            }
+            crate::app::Pending::Media {
+                id,
+                document,
+                handed,
+            } => self.media_answered(id, &document, handed, proceed),
         }
     }
 
-    /// Clause 13's question answered: a `yes` hands the clip over, a `no` keeps it here (ADR 3201).
-    fn media_answered(document: &str, handed: &viewer_host::Handed, proceed: bool) {
-        let said = if proceed {
-            viewer_host::hand_over_media(document, handed, None)
-        } else {
-            viewer_host::policy::media_declined(document, handed)
+    /// Clause 13's question answered: a `yes` hands the clip over or plays the sound here, a `no`
+    /// keeps it (ADRs 3201, 3301).
+    fn media_answered(
+        &mut self,
+        id: viewer_core::DocumentId,
+        document: &str,
+        handed: viewer_host::Handed,
+        proceed: bool,
+    ) {
+        if !proceed {
+            println!(
+                "note: {}",
+                viewer_host::policy::media_declined(document, &handed)
+            );
+            return;
+        }
+        match handed {
+            viewer_host::Handed::Here { name, sound } => {
+                self.play(id, document, &name, sound, None);
+            }
+            handed => println!(
+                "note: {}",
+                viewer_host::hand_over_media(document, &handed, None)
+            ),
+        }
+    }
+
+    /// §13.3's sound, played in this window: handed to the player, which is made here at the first
+    /// sound with its thread, and which opens the audio device and starts the media worker on that
+    /// thread (ADR 3301).
+    fn play(
+        &mut self,
+        id: viewer_core::DocumentId,
+        document: &str,
+        name: &str,
+        sound: viewer_core::SoundData,
+        note: Option<&str>,
+    ) {
+        let player = self.player.get_or_insert_with(|| {
+            let waker = self.waker.clone();
+            viewer_host::sound::Player::new(
+                Box::new(crate::sound::open),
+                Box::new(move || {
+                    if let Some(waker) = &waker {
+                        let _ = waker.send_event(());
+                    }
+                }),
+            )
+        });
+        player.play(viewer_host::sound::Played {
+            document: id,
+            label: format!("{document}: the sound {name:?}"),
+            sound,
+        });
+        if let Some(note) = note {
+            println!("note: {document}: the sound {name:?} {note}");
+        }
+    }
+
+    /// What the player has said since the last wake: each sentence on the terminal, and the last
+    /// one in the title while it holds — a sound sounding, or one refused (ADR 3301).
+    pub(crate) fn take_the_sounds(&mut self) {
+        let Some(player) = self.player.as_mut() else {
+            return;
         };
-        println!("note: {said}");
+        let heard = player.heard();
+        if heard.is_empty() {
+            return;
+        }
+        for said in heard {
+            println!("note: {}", said.sentence());
+            self.sounding = match said {
+                viewer_host::sound::Heard::Ended(_) | viewer_host::sound::Heard::Stopped(_) => None,
+                holds => Some(holds),
+            };
+        }
+        self.retitle();
+    }
+
+    /// Escape while a sound sounds: the sound stops, and the key goes no further (ADR 3301).
+    pub(crate) fn stop_the_sound(&mut self) -> bool {
+        let sounding = matches!(self.sounding, Some(viewer_host::sound::Heard::Playing(_)));
+        if let (true, Some(player)) = (sounding, self.player.as_mut()) {
+            player.stop();
+            return true;
+        }
+        false
     }
 
     /// A media clip under the level this window holds, which the restrictions menu changes
@@ -1230,21 +1317,30 @@ impl App {
         document: viewer_core::DocumentId,
         content_type: Option<&str>,
         media: viewer_core::Media,
+        sound: Option<viewer_core::SoundData>,
     ) {
         let label = self.documents.label_of(document);
-        match viewer_host::handing(
+        // This window plays a sound holding its own samples itself, at the same level; every
+        // other clip is handed to this machine's player (ADRs 3201, 3301).
+        match viewer_host::handing_here(
             &label,
             self.directory.as_deref(),
             content_type,
             media,
+            sound,
             self.restrictions.media_files(),
         ) {
+            viewer_host::Handing::Hand {
+                handed: viewer_host::Handed::Here { name, sound },
+                note,
+            } => self.play(document, &label, &name, sound, note.as_deref()),
             viewer_host::Handing::Hand { handed, note } => println!(
                 "note: {}",
                 viewer_host::hand_over_media(&label, &handed, note.as_deref())
             ),
             viewer_host::Handing::Ask { handed, question } => self.put_a_question(
                 crate::app::Pending::Media {
+                    id: document,
                     document: label,
                     handed,
                 },

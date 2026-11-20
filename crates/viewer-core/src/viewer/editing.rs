@@ -415,10 +415,12 @@ impl Viewer {
             crate::open::Held::Media {
                 content_type,
                 media,
+                sound,
             } => events.push(Event::Media {
                 document,
                 content_type,
                 media,
+                sound,
             }),
             crate::open::Held::Print(sheet) => {
                 let policy = self.restrictions.under(open.restrictions);

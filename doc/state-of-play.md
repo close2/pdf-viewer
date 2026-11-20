@@ -190,7 +190,10 @@ reported with its §14.9.2.4 alternate text and handed to the host at the reader
 286's `/TF`, then given to this machine's player through the XDG desktop portal at the window's
 `--media-files=` level, `ask` by default (ADRs 1960, 1961, 3201, 3202), a media clip section's §13.2.4.3 offsets judged
 against the clip's own container headers, which no sample is decoded to read (ADR 2452), a play parameters' `BE` duration's timespan read by the one Table 300 reading an offset's is (ADR 2472), and a movie's or a sound's file through the
-same hand-off, a sound holding its own samples written as a RIFF WAVE file first (ADRs 2382, 2398),
+same hand-off, a sound holding its own samples written as a RIFF WAVE file first (ADRs 2382, 2398)
+— or, in the `quorra` window at the same level, played there: decoded in the confined media worker,
+converted to the audio device's rate and channels, and written to `cpal`'s output opened at the
+first sound (ADRs 3297, 3301),
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
 and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),

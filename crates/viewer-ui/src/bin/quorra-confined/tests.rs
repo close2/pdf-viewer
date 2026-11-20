@@ -202,6 +202,7 @@ fn a_clip() -> Event {
             name: "intro.wav".to_owned(),
             bytes: b"RIFF\x24\x00\x00\x00WAVE".to_vec(),
         },
+        sound: None,
     }
 }
 

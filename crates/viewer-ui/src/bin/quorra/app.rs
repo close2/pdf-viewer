@@ -84,8 +84,11 @@ pub(crate) enum Pending {
         /// Where `viewer_host::resolve_import` put it, which is what would be handed over.
         path: PathBuf,
     },
-    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201).
+    /// Clause 13's media file, answered by handing it to this machine's player (ADR 3201), or by
+    /// playing a sound in this window (ADR 3301).
     Media {
+        /// Which document, so that a sound played on a `yes` stops when it closes.
+        id: viewer_core::DocumentId,
         /// The document's label, for the sentence either answer prints.
         document: String,
         /// What would be handed over.
@@ -252,6 +255,13 @@ pub(crate) struct App {
     /// it goes where [`Self::still_drawing`] goes, the title, and is written only when the answer
     /// changes — a page the device refuses once is one sentence, not one per frame (ADR 1466).
     pub(crate) on_the_processor: Option<String>,
+    /// The sounds this window plays itself (ADR 3301): `None` until the first, so that the player's
+    /// thread, its worker and the audio device are all made by a sound and never by the launch.
+    pub(crate) player: Option<viewer_host::sound::Player>,
+    /// The player's last word while it holds — a sound sounding, or one refused — which the title
+    /// carries for [`Self::on_the_processor`]'s reason: a line on standard output is not said to a
+    /// person looking at the window. `None` once a sound ends or is stopped.
+    pub(crate) sounding: Option<viewer_host::sound::Heard>,
     /// The bar of how much of the frame in flight the processor has drawn, or nothing — ADR 1811's
     /// bar carrying the draw's share once the read is over (ADR 1831), in the title for
     /// [`Self::still_drawing`]'s reason. Written only when the bar changes.
@@ -878,6 +888,8 @@ impl App {
             caption: String::new(),
             still_drawing: None,
             on_the_processor: None,
+            player: None,
+            sounding: None,
             drawn_so_far: None,
             measuring: viewer_host::Measuring::default(),
             measured: String::new(),
@@ -1315,6 +1327,10 @@ impl App {
                 drop(state);
                 self.kept.forget(closing);
                 self.restrip();
+                // Its sound ends with it; a sound of another document sounds on (ADR 3301).
+                if let Some(player) = self.player.as_mut() {
+                    player.closed(closing);
+                }
                 self.dispatch(Command::Close(closing));
                 self.dispatch(Command::Focus(focused));
                 self.bring_the_presentation_forward();
@@ -1345,6 +1361,16 @@ impl App {
         if let Some(said) = &self.on_the_processor {
             drawing.push_str(" — ");
             drawing.push_str(said);
+        }
+        match &self.sounding {
+            Some(viewer_host::sound::Heard::Playing(_)) => {
+                drawing.push_str(" — playing a sound, Escape stops it");
+            }
+            Some(said) => {
+                drawing.push_str(" — ");
+                drawing.push_str(said.sentence());
+            }
+            None => {}
         }
         if self.measured.is_empty() {
             drawing

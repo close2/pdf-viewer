@@ -231,6 +231,10 @@ pub enum Event {
     /// `pdf_model::restriction::Operation::HandOverMedia` let it through. A host that starts no
     /// player says so; the [`Self::Reported`] before this one has already said what the clip is and
     /// why it was chosen. ADR 1961.
+    ///
+    /// A sound whose object holds its own samples carries them as well, in `sound`: a window that
+    /// plays §13.3's sounds itself, behind the same level, decodes those rather than the file
+    /// written for a player (ADR 3301).
     Media {
         /// Which document.
         document: DocumentId,
@@ -238,6 +242,9 @@ pub enum Event {
         content_type: Option<String>,
         /// The clip's data.
         media: Media,
+        /// §13.3's own samples, where the clip is a sound object holding them — `None` for every
+        /// other clip. Boxed so that a field most clips leave empty does not widen every event.
+        sound: Option<Box<SoundData>>,
     },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).
@@ -559,6 +566,19 @@ pub enum Extraction {
     /// Annex O's `ef` parameter: the URI the document was opened from named the file, and nobody
     /// pressed anything.
     Fragment,
+}
+
+/// A sound object's samples as §13.3 stores them, after Table 5's filters and before any decoding:
+/// what [`Event::Media`] carries beside the written file for a window that plays the sound itself.
+///
+/// Undecoded on purpose: the samples are the document's bytes, and a window decodes them only in
+/// its confined media worker (ADR 3297), so this crate hands them over as they stand (ADR 3301).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SoundData {
+    /// Table 305's `/R`, `/C`, `/B` and `/E`, read.
+    pub format: pdf_model::media::SampleFormat,
+    /// The sound object's data after Table 5's filters.
+    pub data: Vec<u8>,
 }
 
 /// What [`Event::Media`] hands over: Table 285's `/D`, in the form a player is given it.

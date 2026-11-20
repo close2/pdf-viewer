@@ -59,6 +59,9 @@ thiserror.workspace = true
 # native hosts ask their own toolkits and name nothing here (ADR 0519); the workspace manifest
 # prices the dependency and says why its two optional halves are off.
 arboard.workspace = true
+# The audio device `quorra` plays §13.3's sounds on, opened at the first sound and never at start
+# (`viewer_host::sound::Sink`, ADR 3301); the workspace manifest prices it.
+cpal.workspace = true
 
 # The interactive spike example needs a scene, a target and a device. These are
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`

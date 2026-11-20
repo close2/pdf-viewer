@@ -336,6 +336,7 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             document,
             content_type,
             media,
+            sound,
         } => {
             writer
                 .u8(k::MEDIA)
@@ -352,6 +353,7 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     writer.u8(2).str(name);
                 }
             }
+            write_sound(&mut writer, sound.as_deref());
         }
         Event::Console { document, request } => {
             let command = match request.command {
@@ -662,10 +664,12 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                     });
                 }
             };
+            let sound = read_sound(&mut reader)?;
             Event::Media {
                 document,
                 content_type,
                 media,
+                sound,
             }
         }
         k::SIGNATURE_POLICIES_PUBLISHED => Event::SignaturePoliciesPublished {
@@ -820,4 +824,68 @@ fn decode_transition(reader: &mut Reader<'_>) -> Result<Transition, ProtocolErro
         scale: reader.f32("a transition's scale")?,
         opaque: reader.bool("a transition's opacity")?,
     })
+}
+
+/// Table 305's encodings, in the order this wire numbers them.
+const ENCODINGS: [pdf_model::media::Encoding; 4] = [
+    pdf_model::media::Encoding::Raw,
+    pdf_model::media::Encoding::Signed,
+    pdf_model::media::Encoding::MuLaw,
+    pdf_model::media::Encoding::ALaw,
+];
+
+/// A sound's own samples beside [`Event::Media`]'s clip: a presence byte, then Table 305's four
+/// entries and the data (ADR 3301).
+fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
+    let Some(sound) = sound else {
+        writer.u8(0);
+        return;
+    };
+    // [`ENCODINGS`]' order, matched exhaustively so that an encoding added to Table 305's reader
+    // cannot cross this wire unnumbered.
+    let encoding = match sound.format.encoding {
+        pdf_model::media::Encoding::Raw => 0,
+        pdf_model::media::Encoding::Signed => 1,
+        pdf_model::media::Encoding::MuLaw => 2,
+        pdf_model::media::Encoding::ALaw => 3,
+    };
+    writer
+        .u8(1)
+        .u32(sound.format.rate)
+        .u32(u32::from(sound.format.channels))
+        .u8(sound.format.bits)
+        .u8(encoding)
+        .bytes(&sound.data);
+}
+
+/// [`write_sound`]'s other half.
+fn read_sound(
+    reader: &mut Reader<'_>,
+) -> Result<Option<Box<viewer_core::SoundData>>, ProtocolError> {
+    if reader.u8("whether a media clip carries a sound's samples")? == 0 {
+        return Ok(None);
+    }
+    let rate = reader.u32("a sound's rate")?;
+    let channels = reader.u32("a sound's channels")?;
+    let channels = u16::try_from(channels).map_err(|_| ProtocolError::Unrecognised {
+        what: "a sound's channels",
+        value: channels,
+    })?;
+    let bits = reader.u8("a sound's bits per sample")?;
+    let code = reader.u8("a sound's encoding")?;
+    let encoding = *ENCODINGS
+        .get(usize::from(code))
+        .ok_or(ProtocolError::Unrecognised {
+            what: "a sound's encoding",
+            value: u32::from(code),
+        })?;
+    Ok(Some(Box::new(viewer_core::SoundData {
+        format: pdf_model::media::SampleFormat {
+            rate,
+            channels,
+            bits,
+            encoding,
+        },
+        data: reader.owned_bytes("a sound's samples")?,
+    })))
 }

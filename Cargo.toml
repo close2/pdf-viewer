@@ -51,6 +51,7 @@ pdf-vfs = { path = "crates/pdf-vfs", version = "0.1.0" }
 pdf-formcalc = { path = "crates/pdf-formcalc", version = "0.1.0" }
 pdf-script = { path = "crates/pdf-script", version = "0.1.0" }
 pdf-script-worker = { path = "crates/pdf-script-worker", version = "0.1.0" }
+pdf-media-worker = { path = "crates/pdf-media-worker", version = "0.1.0" }
 # The population two confined sweeps share. `pdf-vfs`'s read walk and `viewer-confined`'s sweep
 # ask different questions of two different confined programs and need the *same* documents to ask
 # them of, so the roots, the stride and the ten classes are one crate rather than a helper in each
@@ -211,6 +212,15 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # wrong price, and the entry is worth revisiting if this program is ever asked to run without
 # XWayland.
 arboard = { version = "3.6.1", default-features = false }
+# The audio output of the one window that plays §13.3's sounds itself, `quorra` (RFC 0015 section 5,
+# ADR 3301). With no features, which leaves ALSA alone on Linux: `alsa`, and `alsa-sys` linking
+# `libasound` — C in the host, on the output side, handed samples this program decoded in its
+# confined media worker and parsing nothing a document wrote, the standing ADR 3297 gave it.
+# `pulseaudio`, `pipewire` and `jack` are each a second sound-server client for a machine whose
+# ALSA already reaches the server through its plug-in, and `realtime` asks the scheduler for a
+# priority this viewer has no use for. 105 KiB of stripped release binary by RFC 0015 section 9;
+# ADR 3301 has this tree's own measurement.
+cpal = { version = "0.18.2", default-features = false }
 
 # §12.7.6.2's submission, sent by `viewer-host` and by nothing else (the owner's answer to
 # `doc/questions/Q98`; ADR 1291 is the price). `ureq` is blocking and needs no async runtime,

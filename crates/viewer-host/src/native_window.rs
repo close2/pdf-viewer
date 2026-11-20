@@ -898,10 +898,13 @@ pub trait NativeWindow {
             Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
             Event::Beep { document, sound } => self.beep(document, sound),
             Event::Console { document, request } => self.console(document, request),
+            // A sound's own samples are for a window that plays it here; this one hands it off
+            // (ADR 3301).
             Event::Media {
                 document,
                 content_type,
                 media,
+                ..
             } => self.media(document, content_type.as_deref(), media),
             Event::AttachmentsChanged { .. } => self.attachments_changed(),
         }

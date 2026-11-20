@@ -117,6 +117,8 @@ impl ApplicationHandler for App {
     /// at the next unrelated event, which for a person using only a screen reader is never.
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, (): ()) {
         self.act();
+        // And the sound player's thread, with what it has to say about a sound (ADR 3301).
+        self.take_the_sounds();
         // §12.7.6.2's `submit-form` thread wakes the loop the same way (ADR 1291).
         self.take_the_answers();
         // And so does the thread reading what page one did not need (ADR 1543).
@@ -587,6 +589,11 @@ impl App {
             && matches!(key, Key::Named(NamedKey::Escape))
             && self.close_choices()
         {
+            return;
+        }
+        // **A sound that is sounding takes Escape**, before the table turns it into "clear the
+        // selection": the one key a person reaches for to silence a window (ADR 3301).
+        if matches!(key, Key::Named(NamedKey::Escape)) && self.stop_the_sound() {
             return;
         }
         // **And the up and down arrows, which move its selection** (ADR 1786): the keys a native

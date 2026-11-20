@@ -1,9 +1,11 @@
 //! ISO 32000-2 clause 13's media file handed to this machine's own player, at the level the reader
 //! set (ADR 3201).
 //!
-//! `CLAUDE.md`'s clause 13 entry keeps decoding and presenting audio and video out of this program,
-//! and admits "the media file saved or handed to this machine's own player (`ask` by default, under
-//! *A document's restrictions are the reader's to set*)". `viewer_core` has already done the
+//! `CLAUDE.md`'s clause 13 entry keeps playing video out of this program, admits audio decoded and
+//! presented by it (`doc/questions/A946`), and admits "the media file saved or handed to this
+//! machine's own player (`ask` by default, under *A document's restrictions are the reader's to
+//! set*)". A window that plays §13.3's sounds itself asks the same level through
+//! [`handing_here`] (ADR 3301). `viewer_core` has already done the
 //! document's half by the time a host sees [`viewer_core::Event::Media`]: §13.2.2's viability
 //! judged the rendition for the one player this program has, Table 286's `/TF` was asked at the
 //! restrictions level, and an embedded clip's stream was decoded. What is left is this machine's
@@ -64,16 +66,17 @@ pub const MEDIA_SCHEMES: [&str; 2] = ["http", "https"];
 pub enum MediaFiles {
     /// Hand nothing over, and say what the document asked to play.
     Refuse,
-    /// Put the clip to the person first, and hand it over on a `yes`.
+    /// Put the clip to the person first, and hand it over — or play it, in a window that plays
+    /// it ([`handing_here`]) — on a `yes`.
     ///
     /// The default, as `CLAUDE.md`'s clause 13 entry states it and A254 settled it: a document
     /// never starts a program on this machine by itself, and a reader is not refused the act the
     /// clause describes.
     #[default]
     Ask,
-    /// Hand it over, and say afterwards that it was handed over without asking.
+    /// Hand it over or play it, and say afterwards that it was done without asking.
     Warn,
-    /// Hand it over.
+    /// Hand it over or play it.
     Open,
 }
 
@@ -135,6 +138,14 @@ pub enum Handed {
     },
     /// §7.11.5's URL, under one of [`MEDIA_SCHEMES`].
     Url(String),
+    /// A sound object's own samples, played in this window rather than handed to anything
+    /// ([`handing_here`], ADR 3301).
+    Here {
+        /// What the document called it.
+        name: String,
+        /// Table 305's entries and the samples as §13.3 stores them.
+        sound: viewer_core::SoundData,
+    },
 }
 
 impl Handed {
@@ -145,6 +156,9 @@ impl Handed {
             Self::Written { name, bytes, .. } => format!("{name:?}, {} bytes", bytes.len()),
             Self::File { name, path } => format!("the file {name:?} ({})", path.display()),
             Self::Url(url) => url.clone(),
+            Self::Here { name, sound } => {
+                format!("{name:?}, {} bytes of samples", sound.data.len())
+            }
         }
     }
 }
@@ -226,6 +240,72 @@ pub fn handing(
             Handed::Url(url)
         }
     };
+    leveled(document, content_type, handed, level)
+}
+
+/// What becomes of a media clip in a window that plays §13.3's sounds itself (ADR 3301).
+///
+/// A clip carrying a sound object's own samples is **played here, under the same four levels**:
+/// the level is the reader's one answer to whether a document's media is played at all, and
+/// playing it in this window starts no program on this machine, so the route needs no switch of
+/// its own (RFC 0015 section 4.2). Nothing is checked before the level, because nothing is handed
+/// to a program and no file or URL is followed: the samples go to the confined media worker. Every
+/// other clip — a file, a URL, an embedded clip in a format this program does not decode — is
+/// [`handing`]'s.
+#[must_use]
+pub fn handing_here(
+    document: &str,
+    directory: Option<&Path>,
+    content_type: Option<&str>,
+    media: viewer_core::Media,
+    sound: Option<viewer_core::SoundData>,
+    level: MediaFiles,
+) -> Handing {
+    let Some(sound) = sound else {
+        return handing(document, directory, content_type, media, level);
+    };
+    let name = match media {
+        viewer_core::Media::Embedded { name, .. }
+        | viewer_core::Media::Url(name)
+        | viewer_core::Media::File(name) => name,
+    };
+    leveled(document, content_type, Handed::Here { name, sound }, level)
+}
+
+/// [`MediaFiles`]' four answers over what would be handed over or played.
+fn leveled(
+    document: &str,
+    content_type: Option<&str>,
+    handed: Handed,
+    level: MediaFiles,
+) -> Handing {
+    if matches!(handed, Handed::Here { .. }) {
+        return match level {
+            MediaFiles::Refuse => Handing::Refuse(not_played(
+                document,
+                &handed.describe(),
+                &format!(
+                    "this reader is set to play no media a document asks for ({MEDIA_FILES}{}); \
+                     {MEDIA_FILES}{} puts it to you first",
+                    MediaFiles::Refuse.as_str(),
+                    MediaFiles::Ask.as_str()
+                ),
+            )),
+            MediaFiles::Ask => Handing::Ask {
+                question: asked_to_play(document, content_type, &handed),
+                handed,
+            },
+            MediaFiles::Warn => Handing::Hand {
+                handed,
+                note: Some(format!(
+                    "it was played without asking you first, because this reader is set to \
+                     {MEDIA_FILES}{}",
+                    MediaFiles::Warn.as_str()
+                )),
+            },
+            MediaFiles::Open => Handing::Hand { handed, note: None },
+        };
+    }
     match level {
         MediaFiles::Refuse => Handing::Refuse(declined(
             document,
@@ -251,6 +331,12 @@ pub fn handing(
         },
         MediaFiles::Open => Handing::Hand { handed, note: None },
     }
+}
+
+/// The sentence a window says where a sound is not played here.
+#[must_use]
+pub fn not_played(document: &str, what: &str, why: &str) -> String {
+    format!("{document} plays a sound — {what} (ISO 32000-2 §13.3); not played: {why}")
 }
 
 /// The sentence a window says where a clip is not handed over.
@@ -287,6 +373,28 @@ pub fn asked_to_play(
             "This reader would hand that URL to this machine's opener (the desktop portal), which \
              starts the program this machine opens such a URL with."
         }
+        Handed::Here { .. } => {
+            return crate::restriction::Question {
+                reasons: format!(
+                    "{document} asks to play a sound{kind}: {}. This reader would play it in this \
+                     window, its samples decoded in a confined worker of its own and converted \
+                     for this machine's audio device (ISO 32000-2 §13.3); no other program is \
+                     started.",
+                    handed.describe()
+                ),
+                choice: format!(
+                    "You have set this reader to ask before a document's media is played \
+                     ({MEDIA_FILES}{}). \"{}\" plays this one and leaves the level where it is; \
+                     \"{}\" keeps it silent. {MEDIA_FILES}{} stops the question being asked, and \
+                     {MEDIA_FILES}{} stops media being played at all.",
+                    MediaFiles::Ask.as_str(),
+                    crate::restriction::GO_AHEAD,
+                    crate::restriction::DO_NOT,
+                    MediaFiles::Open.as_str(),
+                    MediaFiles::Refuse.as_str()
+                ),
+            };
+        }
     };
     crate::restriction::Question {
         reasons: format!(
@@ -311,6 +419,13 @@ pub fn asked_to_play(
 /// The sentence a window says where a person answered [`crate::restriction::DO_NOT`].
 #[must_use]
 pub fn media_declined(document: &str, handed: &Handed) -> String {
+    if matches!(handed, Handed::Here { .. }) {
+        return not_played(
+            document,
+            &handed.describe(),
+            &format!("you answered \"{}\"", crate::restriction::DO_NOT),
+        );
+    }
     declined(
         document,
         &handed.describe(),
@@ -541,6 +656,14 @@ pub fn hand_media(
             opener.open_file(file, path).map_err(not_handed)?;
         }
         Handed::Url(url) => opener.open_uri(url).map_err(not_handed)?,
+        // `handing_here`'s route: a window that plays the sound hands it to its player instead,
+        // and one that does not was never given this (ADR 3301).
+        Handed::Here { .. } => {
+            return Err(not_handed(
+                "it is a sound for a window that plays it here, and this one hands nothing over"
+                    .to_owned(),
+            ));
+        }
     }
     let mut said = format!(
         "{document}: the media clip {} was handed to {}, which starts this machine's player \

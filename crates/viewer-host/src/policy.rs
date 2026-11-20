@@ -101,7 +101,7 @@ pub use media::{
     Handed, Handing, MEDIA_DIRECTORY_PREFIX, MEDIA_ENDINGS, MEDIA_FILES, MEDIA_SCHEMES, MediaFiles,
     Opener, Portal, PortalCalls, SWEPT_AFTER, Told, asked_to_play, declined as media_note,
     file_name_for, gvariant_string, hand_media, hand_over_media, hand_over_media_to, handing,
-    media_declined, media_directory, media_files, not_opened, sweep,
+    handing_here, media_declined, media_directory, media_files, not_opened, not_played, sweep,
 };
 pub use recipient::{
     RECIPIENT_CERTIFICATE, RECIPIENT_KEY, RecipientRefusal, recipient_key, recipient_required,

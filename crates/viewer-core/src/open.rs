@@ -821,6 +821,8 @@ pub(crate) enum Held {
         content_type: Option<String>,
         /// The clip's data, decoded when the question was asked.
         media: crate::Media,
+        /// A sound's own samples, as [`crate::Event::Media`] carries them.
+        sound: Option<Box<crate::SoundData>>,
     },
     /// A save an XFA form's `preSave` script declined — `crate::Command::Save`, asked as
     /// `pdf_model::restriction::Operation::Save` (ADR 2763).

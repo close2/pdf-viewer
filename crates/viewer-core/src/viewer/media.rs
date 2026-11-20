@@ -42,7 +42,7 @@ impl Viewer {
             });
             return;
         }
-        let Some(media) = media_of(id, &open.document, &clip, events) else {
+        let Some((media, sound)) = media_of(id, &open.document, &clip, events) else {
             return;
         };
         let content_type = clip.content_type;
@@ -52,12 +52,14 @@ impl Viewer {
                 document: id,
                 content_type,
                 media,
+                sound,
             }),
             Verdict::Warn(restrictions) => {
                 events.push(Event::Media {
                     document: id,
                     content_type,
                     media,
+                    sound,
                 });
                 events.push(Event::Warned {
                     document: id,
@@ -69,6 +71,7 @@ impl Viewer {
                 open.asking = Some(crate::open::Held::Media {
                     content_type,
                     media,
+                    sound,
                 });
                 events.push(Event::Asking {
                     document: id,
@@ -82,13 +85,14 @@ impl Viewer {
 
 /// What [`Event::Media`] hands over for one clip, its embedded data decoded here for
 /// [`hand_over`]'s reason: a host that had to undo §7.4's filters would be a second reader of the
-/// document.
+/// document. A sound holding its own samples also answers them as they stand, for a window that
+/// plays the sound itself (ADR 3301).
 fn media_of(
     id: DocumentId,
     document: &pdf_syntax::Document,
     clip: &pdf_model::media::Clip,
     events: &mut Vec<Event>,
-) -> Option<crate::Media> {
+) -> Option<(crate::Media, Option<Box<crate::SoundData>>)> {
     use pdf_model::media::Data;
     let media = match &clip.data {
         Data::Embedded(file) => {
@@ -111,19 +115,28 @@ fn media_of(
                 bytes: bytes.to_vec(),
             }
         }
-        Data::Samples(samples) => crate::Media::Embedded {
-            name: samples.name.clone(),
-            bytes: wrapped(id, document, samples, events)?,
-        },
+        Data::Samples(samples) => {
+            let (wave, data) = wrapped(id, document, samples, events)?;
+            let sound = crate::SoundData {
+                format: samples.format,
+                data,
+            };
+            let media = crate::Media::Embedded {
+                name: samples.name.clone(),
+                bytes: wave,
+            };
+            return Some((media, Some(Box::new(sound))));
+        }
         Data::Url(url) => crate::Media::Url(url.clone()),
         Data::File(name) => crate::Media::File(name.clone()),
         // `interact::rendered` keeps a form XObject back: its player is this processor.
         Data::Form => return None,
     };
-    Some(media)
+    Some((media, None))
 }
 
-/// §13.3's samples, decoded and written as the RIFF WAVE file a player is handed (ADR 2398).
+/// §13.3's samples, decoded and written as the RIFF WAVE file a player is handed (ADR 2398), with
+/// the stream's data after its filters, which a window playing the sound itself decodes (ADR 3301).
 ///
 /// Here rather than in the judgement for [`media_of`]'s reason: the stream is decoded only once
 /// the reader's level has let the file through. Every sentence the writer owes is reported, and a
@@ -133,7 +146,7 @@ fn wrapped(
     document: &pdf_syntax::Document,
     samples: &pdf_model::media::Samples,
     events: &mut Vec<Event>,
-) -> Option<Vec<u8>> {
+) -> Option<(Vec<u8>, Vec<u8>)> {
     let report = |notes: Vec<String>, events: &mut Vec<Event>| {
         events.push(Event::Reported {
             document: id,
@@ -157,7 +170,7 @@ fn wrapped(
             if !wave.notes.is_empty() {
                 report(wave.notes, events);
             }
-            Some(wave.bytes)
+            Some((wave.bytes, decoded.to_vec()))
         }
         Err(why) => {
             report(vec![format!("{why}, so nothing was handed over")], events);

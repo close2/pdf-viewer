@@ -190,16 +190,37 @@ fn every_carried_event_round_trips() {
                 name: "clip.mp4".to_owned(),
                 bytes: b"moov".to_vec(),
             },
+            sound: None,
+        },
+        // §13.3's own samples beside the written file, Table 305's four entries on the wire.
+        Event::Media {
+            document,
+            content_type: Some("audio/vnd.wave; codec=7".to_owned()),
+            media: viewer_core::Media::Embedded {
+                name: "sound.wav".to_owned(),
+                bytes: b"RIFF".to_vec(),
+            },
+            sound: Some(Box::new(viewer_core::SoundData {
+                format: pdf_model::media::SampleFormat {
+                    rate: 8000,
+                    channels: 2,
+                    bits: 8,
+                    encoding: pdf_model::media::Encoding::ALaw,
+                },
+                data: b"ab".to_vec(),
+            })),
         },
         Event::Media {
             document,
             content_type: None,
             media: viewer_core::Media::Url("https://example.org/clip.mp4".to_owned()),
+            sound: None,
         },
         Event::Media {
             document,
             content_type: Some("audio/mpeg".to_owned()),
             media: viewer_core::Media::File("clip.mp3".to_owned()),
+            sound: None,
         },
         Event::Extracted {
             document,
