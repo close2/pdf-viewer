@@ -72,7 +72,7 @@ pub(crate) use grid_fit::{ALIKE, ALONG_AN_AXIS, FIT_BELOW, grid_fit};
 pub(crate) use meet::{RowEdges, Work as MeetWork, area_in_pixel};
 #[cfg(test)]
 pub(crate) use stroke::stroke_polylines;
-pub(crate) use stroke::{dot_pieces, resolve_width, stroke_pieces};
+pub(crate) use stroke::{as_drawn, dot_pieces, resolve_width, stroke_pieces};
 
 #[cfg(test)]
 mod tests;

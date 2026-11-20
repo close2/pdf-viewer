@@ -125,6 +125,25 @@ impl CpuRasterizer {
         let (path, stroke) = fitted
             .as_ref()
             .map_or((path, stroke), |f| (&f.path, &f.stroke));
+        // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
+        // coverage it implies, decided there for all three backends (trap 2, ADR 3334): never
+        // `tiny-skia`'s refusal, which returned no dashed path and drew the stroke as nothing.
+        let rest_coverage = pdf_render::past_the_dash_bound(path, stroke, stroke.device_width(at));
+        // §8.4.3.5's zero mitre length of the thinnest line, stated once in `pdf-render` (ADR
+        // 3333), so every route below — the long mitres and the outline among them — sees a bevel.
+        let drawn = stroke.as_drawn(at);
+        let solid;
+        let stroke: &Stroke = if rest_coverage.is_some() {
+            solid = Stroke {
+                dash_array: Vec::new(),
+                dash_phase: 0.0,
+                ..(*drawn).clone()
+            };
+            &solid
+        } else {
+            &drawn
+        };
+        let rest_coverage = rest_coverage.unwrap_or(1.0);
         // A straight stroke whose ink lies in two by two pixels — §8.5.3.2's round dot among them,
         // the same set at length zero, so it never reaches `split_degenerate` below — is painted
         // from its closed-form area before any outline, edge or pipeline is built for it. The
@@ -132,7 +151,10 @@ impl CpuRasterizer {
         // (trap 2), and the composition `thin_segment::draw`'s, on the page's own grid as the strip
         // planner asks (ADRs 1829, 1847, 1857).
         let (mark, site) = ((path, stroke, paint), (transform, to_device));
-        let closed_form = self.anti_alias && blend == tiny_skia::BlendMode::SourceOver;
+        // The closed forms paint a mark at its whole coverage, so a stroke drawn at a pattern's
+        // coverage takes the general route.
+        let closed_form =
+            self.anti_alias && blend == tiny_skia::BlendMode::SourceOver && rest_coverage >= 1.0;
         if closed_form && thin_segment::draw(pixmap, mark, site, clip) {
             return Ok(());
         }
@@ -194,9 +216,16 @@ impl CpuRasterizer {
                 convert::path(&dots)
             },
             coverage,
+            rest_coverage,
         };
         let site_of_marks = ((transform, page_to_path, to_device), (at, site, placed));
-        if marks.rest.is_some() && marks.dots.is_some() && !Self::composites_as_one(paint, blend) {
+        // A rest drawn at a pattern's coverage carries it in its own brush, which only the
+        // separate draw has.
+        if marks.rest.is_some()
+            && marks.dots.is_some()
+            && rest_coverage >= 1.0
+            && !Self::composites_as_one(paint, blend)
+        {
             self.draw_once(
                 pixmap,
                 (path, &marks, stroke),
@@ -293,13 +322,21 @@ impl CpuRasterizer {
     ) -> Result<(), CpuRasterError> {
         let (mut levels, mut scratch) = (None, None);
         let rest_brush = match marks.rest {
-            Some(geometry) => Some(self.mark_brush(
-                (paint, blend),
-                || ink_extent(geometry, stroke, placed),
-                (transform, page_to_path, to_device),
-                (pixmap.width(), pixmap.height()),
-                (&mut levels, &mut scratch),
-            )?),
+            Some(geometry) => {
+                let mut brush = self.mark_brush(
+                    (paint, blend),
+                    || ink_extent(geometry, stroke, placed),
+                    (transform, page_to_path, to_device),
+                    (pixmap.width(), pixmap.height()),
+                    (&mut levels, &mut scratch),
+                )?;
+                // A dash pattern past `pdf_render::MAX_DASHES`, drawn solid at the share of the
+                // line its dashes cover (ADR 3334).
+                if marks.rest_coverage < 1.0 {
+                    brush.shader.apply_opacity(marks.rest_coverage);
+                }
+                Some(brush)
+            }
             None => None,
         };
         let (mut dot_levels, mut dot_scratch) = (None, None);
@@ -357,6 +394,16 @@ impl CpuRasterizer {
             if marks.dashed {
                 style.dash = None;
             }
+            // §8.4.3.2's thinnest line under unequal scales is one device pixel in every
+            // direction, which no path-space width is (`Stroke::strokes_in_device_space`, ADR
+            // 3333): it is the library's hairline, which `tiny-skia` strokes on the device's own
+            // grid after dashing in the path's space, with no join to mitre.
+            if stroke.strokes_in_device_space(at) {
+                style.width = 0.0;
+                scan::stroke(pixmap, &converted, rest_brush, &style, placed, clip);
+                Self::draw_dots(pixmap, marks, placed, dot_brush, clip);
+                return Ok(());
+            }
             let outline = SolidOutline::of(&converted, &style, at);
             let outlined = (&converted, &outline);
             if !draw_sub_pixel_rule(
@@ -378,6 +425,18 @@ impl CpuRasterizer {
                 scan::stroke(pixmap, &converted, rest_brush, &style, placed, clip);
             }
         }
+        Self::draw_dots(pixmap, marks, placed, dot_brush, clip);
+        Ok(())
+    }
+
+    /// Fills §8.5.3.2's dots of `marks`, after its rest.
+    fn draw_dots(
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        marks: &Marks<'_>,
+        placed: Placed,
+        dot_brush: &tiny_skia::Paint<'_>,
+        clip: scan::Clip<'_>,
+    ) {
         // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
         // centred at the single point", and the stroking paint is what fills it.
         if let Some(converted) = &marks.dots {
@@ -392,7 +451,6 @@ impl CpuRasterizer {
                 clip,
             );
         }
-        Ok(())
     }
 
     /// The brush one of a stroke's marks is painted with: a filtered shading's raster where
@@ -505,6 +563,9 @@ struct Marks<'g> {
     dots: Option<tiny_skia::Path>,
     /// The opacity the dots carry for the area a substituted mark gave up.
     coverage: f32,
+    /// The opacity the rest carries: below one only for a dash pattern past
+    /// `pdf_render::MAX_DASHES`, drawn solid at the coverage it implies (ADR 3334).
+    rest_coverage: f32,
 }
 
 /// The pixels a ramp's cells cover for a stroke of `path` under `stroke`, placed by `placed` (ADR

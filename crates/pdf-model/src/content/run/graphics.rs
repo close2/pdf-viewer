@@ -106,7 +106,13 @@ impl Interpreter<'_> {
                     state.stroke.miter_limit = miter_limit(limit);
                 }
             }
-            Operator::Dash => set_dash(operands, &mut state.stroke),
+            Operator::Dash => {
+                if !set_dash(operands, &mut state.stroke) {
+                    self.note(Unsupported::Operator {
+                        operator: format!("d{}", crate::content::report::DASH_NOT_NUMBERS),
+                    });
+                }
+            }
             // Rendering intent and flatness affect nothing this renderer does.
             Operator::RenderingIntent => {
                 // §8.6.5.8's first route to the intent: "Rendering intents shall be

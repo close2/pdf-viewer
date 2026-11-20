@@ -136,6 +136,12 @@ pub fn thin_segment(
     if !stroke.dash_array.is_empty() || !to_device.preserves_axes() {
         return None;
     }
+    // The thinnest line under unequal scales is one pixel in every direction, a pen no
+    // path-space width states, so it is stroked in device space (ADR 3333) rather than by the
+    // ellipse this module's frame divides by.
+    if stroke.strokes_in_device_space(to_device) {
+        return None;
+    }
     let (start, end) = segment_ends(path)?;
     let determinant = to_device.determinant();
     if !(determinant.is_finite() && determinant != 0.0) {

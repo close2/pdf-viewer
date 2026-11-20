@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 
-use crate::geom::Transform;
+use crate::geom::{Path, Transform};
 
 /// Source samples above which [`Image::area_averaged`] divides its output rows across
 /// rayon's pool rather than walking them.
@@ -274,15 +274,116 @@ impl Stroke {
         let Some(one_pixel) = thinnest_line(to_device) else {
             return self.width;
         };
-        // §10.7.5's "less than half a pixel", asked in the path's own space rather than in
-        // device space, because that is the space both sides of the comparison are already in
-        // and it costs no second decomposition of the transform.
-        if self.width <= 0.0 || (self.adjust && self.width < 0.5 * one_pixel) {
+        if self.is_thinnest_line(to_device) {
             one_pixel
         } else {
             self.width
         }
     }
+
+    /// Whether this stroke is drawn as the device's thinnest line under `to_device`: a width of
+    /// zero (ISO 32000-2 §8.4.3.2), or one §10.7.5's stroke adjustment promotes because it is
+    /// under half a pixel. [`Self::device_width`] substitutes one device pixel for exactly these.
+    ///
+    /// `false` under a transform with no stretch to measure a pixel by, where
+    /// [`Self::device_width`] keeps the stated width.
+    #[must_use]
+    pub fn is_thinnest_line(&self, to_device: Transform) -> bool {
+        let Some(one_pixel) = thinnest_line(to_device) else {
+            return false;
+        };
+        // §10.7.5's "less than half a pixel", asked in the path's own space rather than in
+        // device space, because that is the space both sides of the comparison are already in
+        // and it costs no second decomposition of the transform.
+        self.width <= 0.0 || (self.adjust && self.width < 0.5 * one_pixel)
+    }
+
+    /// The stroke a backend draws under `to_device`: this one, except that the thinnest line
+    /// has no mitre.
+    ///
+    /// ISO 32000-2 §8.4.3.5:
+    ///
+    /// > When the line width is zero, the miter length is zero.
+    ///
+    /// A mitre of length zero puts nothing beyond the bevel, so a mitred join of the thinnest
+    /// line is drawn as the bevel. §10.7.5's promoted stroke takes the same answer, because its
+    /// NOTE makes it "equivalent to the effect produced by setting the line width to 0". The
+    /// width is left as stated: [`Self::device_width`] still resolves it, and a backend that
+    /// resolves widths per placement keeps doing so (ADR 3333).
+    #[must_use]
+    pub fn as_drawn(&self, to_device: Transform) -> Cow<'_, Self> {
+        if self.join == LineJoin::Miter && self.is_thinnest_line(to_device) {
+            Cow::Owned(Self {
+                join: LineJoin::Bevel,
+                ..self.clone()
+            })
+        } else {
+            Cow::Borrowed(self)
+        }
+    }
+
+    /// Whether this stroke has to be stroked in device space to be what §8.4.3.2 asks: the
+    /// thinnest line under a transform that stretches some direction more than another.
+    ///
+    /// ISO 32000-2 §8.4.3.2 states the thinnest line at device resolution — "1 device pixel
+    /// wide" — so its thickness is one pixel in every direction. A width stated in the path's
+    /// own space is multiplied by the transform's stretch across each segment, so under a
+    /// similarity [`Self::device_width`]'s one path-space width is one pixel everywhere, and
+    /// under any other transform no single path-space width is: under `4 0 0 1` the pixel along
+    /// the stretched axis is a quarter of one across the other. The orientation sentence of the
+    /// same clause, "the thickness of stroked lines in device space shall vary according to
+    /// their orientation", is about a width stated in user space, which this one is not. Where
+    /// this holds, a backend strokes the path's device image one pixel wide, as
+    /// [`device_hairline`] states it (ADR 3333).
+    #[must_use]
+    pub fn strokes_in_device_space(&self, to_device: Transform) -> bool {
+        self.is_thinnest_line(to_device) && !crate::grid_fit::stretches_alike(to_device)
+    }
+}
+
+/// A stroke's geometry restated in device pixels, for the thinnest line
+/// [`Stroke::strokes_in_device_space`] says no path-space width can draw.
+#[derive(Debug, Clone)]
+pub struct DeviceHairline {
+    /// The path mapped by the linear part of the path-to-device transform: device pixels, less
+    /// the translation.
+    pub path: Path,
+    /// What the backend draws `path` under in place of the command's transform: the command's
+    /// transform with its linear part undone, so that path-to-device is the translation alone.
+    pub transform: Transform,
+    /// The linear part the path was mapped by, which a paint stated in the command's own space
+    /// is composed with to stay where it was (trap 2).
+    pub linear: Transform,
+}
+
+/// The device-space restatement of `path` for a stroke [`Stroke::strokes_in_device_space`]
+/// holds of, or `None` where it does not hold or the transform has no inverse.
+///
+/// `path` is the command's path, already dashed by the backend's dasher where the stroke has a
+/// dash pattern: §8.4.3.6's lengths are in user space, so the cuts are made before the map, and
+/// what is stroked here is solid. `transform` is the command's path-to-page transform and
+/// `to_device` its path-to-device transform. Stroked one device pixel wide (with
+/// [`Stroke::as_drawn`]'s join) under the returned transform, the result is §8.4.3.2's line in
+/// every direction, on every backend alike (ADR 3333).
+#[must_use]
+pub fn device_hairline(
+    path: &Path,
+    stroke: &Stroke,
+    transform: Transform,
+    to_device: Transform,
+) -> Option<DeviceHairline> {
+    if !stroke.strokes_in_device_space(to_device) {
+        return None;
+    }
+    let linear = Transform::new(to_device.a, to_device.b, to_device.c, to_device.d, 0.0, 0.0);
+    let undo = linear.invert()?;
+    let mut mapped = Path::new();
+    mapped.extend_transformed(path, linear);
+    Some(DeviceHairline {
+        path: mapped,
+        transform: undo.then(transform),
+        linear,
+    })
 }
 
 /// One device pixel, expressed in the space of a path that `to_device` maps to the device.
@@ -2080,6 +2181,77 @@ mod device_scale {
         let other = super::DeferredImage::new(Arc::new(AsAsked));
         assert_eq!(one, same);
         assert_ne!(one, other);
+    }
+}
+
+#[cfg(test)]
+mod thinnest_line {
+    use super::{LineJoin, Stroke, Transform, device_hairline};
+    use crate::geom::{Path, PathCommand, Point};
+
+    /// §8.4.3.5: "When the line width is zero, the miter length is zero." The thinnest line is
+    /// drawn bevelled, a stated width keeps its mitre, and §10.7.5's promoted stroke takes the
+    /// zero width's answer.
+    #[test]
+    fn the_thinnest_line_has_no_mitre() {
+        let zero = Stroke {
+            width: 0.0,
+            ..Stroke::default()
+        };
+        assert_eq!(zero.as_drawn(Transform::IDENTITY).join, LineJoin::Bevel);
+        let one = Stroke {
+            width: 1.0,
+            ..Stroke::default()
+        };
+        assert_eq!(one.as_drawn(Transform::IDENTITY).join, LineJoin::Miter);
+        let promoted = Stroke {
+            width: 0.1,
+            adjust: true,
+            ..Stroke::default()
+        };
+        assert_eq!(promoted.as_drawn(Transform::IDENTITY).join, LineJoin::Bevel);
+        let round = Stroke {
+            join: LineJoin::Round,
+            ..zero
+        };
+        assert_eq!(round.as_drawn(Transform::IDENTITY).join, LineJoin::Round);
+    }
+
+    /// §8.4.3.2 states the thinnest line at device resolution: under a similarity one path-space
+    /// width is one pixel in every direction, and under `4 0 0 1` none is, so the path is restated
+    /// in device pixels and drawn under the transform's translation alone.
+    #[test]
+    fn under_unequal_scales_the_thinnest_line_is_stroked_in_device_space() {
+        let zero = Stroke {
+            width: 0.0,
+            ..Stroke::default()
+        };
+        assert!(!zero.strokes_in_device_space(Transform::scale(2.0, 2.0)));
+        let stretched = Transform::new(4.0, 0.0, 0.0, 1.0, 10.0, 20.0);
+        assert!(zero.strokes_in_device_space(stretched));
+        let stated = Stroke {
+            width: 1.0,
+            ..Stroke::default()
+        };
+        assert!(!stated.strokes_in_device_space(stretched));
+
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(1.0, 2.0)));
+        path.push(PathCommand::LineTo(Point::new(3.0, 2.0)));
+        let hairline =
+            device_hairline(&path, &zero, stretched, stretched).expect("an invertible stretch");
+        assert_eq!(
+            hairline.path.commands(),
+            [
+                PathCommand::MoveTo(Point::new(4.0, 2.0)),
+                PathCommand::LineTo(Point::new(12.0, 2.0)),
+            ]
+        );
+        assert_eq!(
+            hairline.transform,
+            Transform::new(1.0, 0.0, 0.0, 1.0, 10.0, 20.0)
+        );
+        assert!(device_hairline(&path, &stated, stretched, stretched).is_none());
     }
 }
 

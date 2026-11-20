@@ -143,6 +143,35 @@ fn a_stray_image_operator_a_nameless_do_and_a_pending_clip_are_faults_of_the_str
     assert_eq!(faults("Frobnicate"), vec![None]);
 }
 
+/// §8.4.3.6: "The dash array's elements shall be numbers"; Table 57 gives `/D` the same pattern.
+/// `[3 (x) 1]` is no dash array, so neither route sets a pattern and each says so (ADR 3335); a
+/// pattern of numbers is said nothing of.
+#[test]
+fn a_dash_array_of_something_other_than_numbers_is_a_fault_of_the_stream() {
+    let faults = |content: &str, resources: &str| -> Vec<Option<StreamSyntaxFault>> {
+        reports(content, resources)
+            .iter()
+            .map(Unsupported::stream_syntax_fault)
+            .collect()
+    };
+    assert_eq!(
+        faults("[3 (x) 1] 0 d 0 0 m 10 0 l S", ""),
+        vec![Some(StreamSyntaxFault::DashNotNumbers)]
+    );
+    assert_eq!(
+        faults("[3 1] /x d 0 0 m 10 0 l S", ""),
+        vec![Some(StreamSyntaxFault::DashNotNumbers)]
+    );
+    assert_eq!(
+        faults(
+            "/G gs 0 0 m 10 0 l S",
+            "/ExtGState << /G << /D [[3 (x) 1] 0] >> >>"
+        ),
+        vec![Some(StreamSyntaxFault::DashNotNumbers)]
+    );
+    assert_eq!(faults("[3 1] 0 d 0 0 m 10 0 l S", ""), vec![]);
+}
+
 /// §7.3.2 makes `true` and `false` boolean objects and §7.3.9 `null` the null object, and §7.8.2
 /// makes a content stream's objects operands, so none of the three is an operator nobody lists.
 /// Read from the back as §7.8.2's "immediately precede" has it, `re` still finds its four numbers.
@@ -164,4 +193,18 @@ fn a_coordinate_past_the_range_of_a_real_is_declined_and_the_page_still_draws() 
     let text = format!("{:?}", list.commands());
     assert!(text.contains("Fill"), "{text}");
     assert!(!text.contains("inf"), "{text}");
+}
+
+/// A dash pattern past `pdf_render::MAX_DASHES` is drawn as its coverage rather than cut (ADR
+/// 3334), so the page names the bound it reached: §8.4.3.6's `[0.00001 0.00001]` along 80 units is
+/// four million dashes, and `[1 1]` forty.
+#[test]
+fn a_dash_pattern_past_the_bound_names_it() {
+    assert_eq!(
+        reports("[0.00001 0.00001] 0 d 10 50 m 90 50 l S", ""),
+        vec![Unsupported::LimitReached {
+            limit: "MAX_DASHES"
+        }]
+    );
+    assert_eq!(reports("[1 1] 0 d 10 50 m 90 50 l S", ""), vec![]);
 }

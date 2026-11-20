@@ -16,6 +16,20 @@ use super::transparency::{Painted, implicit_knockout_group};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
+    /// Names `MAX_DASHES` where a path is stroked and `stroke`'s dash pattern would cut `path` into more dashes than
+    /// a backend cuts one stroke into: such a pattern is drawn as the coverage it implies
+    /// (`pdf_render::past_the_dash_bound`, ADR 3334), which is not the pattern. The count is the
+    /// path's own and asks nothing of the device.
+    fn note_the_dash_bound(&mut self, path: &Path, stroke: Option<&pdf_render::Stroke>) {
+        if let Some(stroke) = stroke
+            && pdf_render::dash_count(path, &stroke.dash_array) > pdf_render::MAX_DASHES
+        {
+            self.note(Unsupported::LimitReached {
+                limit: "MAX_DASHES",
+            });
+        }
+    }
+
     /// Emits the drawing for a completed path and resets it.
     ///
     /// `fill` and `stroke` say what to paint; `close_before_stroke` is already applied by
@@ -46,6 +60,7 @@ impl Interpreter<'_> {
             // `B` fills *and* strokes one path, and both commands then describe the same
             // geometry; sharing it means the copy happens once rather than twice.
             let shared = Arc::new(path.clone());
+            self.note_the_dash_bound(&shared, stroke.and(Some(&state.stroke)));
             // Where the two portions start, for §11.6.2 below.
             let mark = self.list.command_count();
             // Which of §11.6.4.3's readings the portions paint under, for §11.7.4.4's group:

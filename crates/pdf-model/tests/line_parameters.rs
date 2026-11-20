@@ -151,19 +151,29 @@ fn the_later_of_the_two_routes_wins() {
     );
 }
 
-/// A code outside Table 53's or Table 54's three is the initial value, by either route.
+/// A code outside Table 53's or Table 54's three is clipped into them, by either route.
 ///
-/// §8.4.1 requires parameters to "be of the correct type or have values that fall within a
-/// certain range", and states no other recovery.
+/// §8.4.1: "Parameters that are numeric values, such as the current colour, line width, and
+/// miter limit, shall be clipped into valid range, if necessary." The codes are numbers whose
+/// range is 0 to 2, so 7 is clipped to 2 — the projecting square cap, the bevel join — and -1
+/// to 0, the butt cap and the mitre join (ADR 3336).
 #[test]
-fn a_code_outside_the_clauses_three_is_the_initial_value() {
+fn a_code_outside_the_clauses_three_is_clipped_into_range() {
     assert_eq!(
         parameters("7 J -1 j", ""),
-        (LineCap::Butt, LineJoin::Miter, 10.0)
+        (LineCap::Square, LineJoin::Miter, 10.0)
+    );
+    assert_eq!(
+        parameters("-1 J 7 j", ""),
+        (LineCap::Butt, LineJoin::Bevel, 10.0)
     );
     assert_eq!(
         parameters("/GS gs", "/LC 7 /LJ -1"),
-        (LineCap::Butt, LineJoin::Miter, 10.0)
+        (LineCap::Square, LineJoin::Miter, 10.0)
+    );
+    assert_eq!(
+        parameters("/GS gs", "/LC -1 /LJ 7"),
+        (LineCap::Butt, LineJoin::Bevel, 10.0)
     );
 }
 

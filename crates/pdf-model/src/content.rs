@@ -3394,28 +3394,76 @@ struct Interpreter<'a> {
     annotations_clipped_to: Option<ClipId>,
 }
 
-/// Applies the `d` dash operator.
+/// Applies the `d` dash operator, or reports `false` where its operands state no pattern.
 ///
-/// The whole dash array and phase are read, as §8.4.3.6 states them (ADR 0018).
-fn set_dash(operands: &[Object], stroke: &mut Stroke) {
+/// The whole dash array and phase are read, as §8.4.3.6 states them (ADR 0018), by
+/// [`read_dash`], the reading `/D` shares.
+fn set_dash(operands: &[Object], stroke: &mut Stroke) -> bool {
     // `[ 2 1 ] 0 d` arrives as five operands, the two brackets among them as nulls, because
     // the content lexer does not rebuild arrays. Splitting on them gives what is before the
     // opening bracket, the array itself, and what follows the closing one — the phase.
     let mut parts = operands.split(Object::is_null);
     let (Some(_), Some(inside), Some(after)) = (parts.next(), parts.next(), parts.next()) else {
-        return;
+        return true;
     };
-
-    let array: Vec<f32> = inside
-        .iter()
-        .filter_map(Object::as_number)
-        .map(narrow)
-        .collect();
-    let phase = after
-        .first()
-        .and_then(Object::as_number)
-        .map_or(0.0, narrow);
+    let phase = match after.first() {
+        None => DashPhase::Absent,
+        Some(operand) => DashPhase::of(operand.as_number()),
+    };
+    let Some((array, phase)) = read_dash(inside.iter().map(Object::as_number), phase) else {
+        return false;
+    };
     apply_dash(array, phase, stroke);
+    true
+}
+
+/// A dash array's elements and its phase as numbers, ISO 32000-2 §8.4.3.6, or `None` where one of
+/// them is not a number.
+///
+/// > The dash array's elements shall be numbers that specify the lengths of alternating dashes
+/// > and gaps; the numbers shall be nonnegative and not all zero. The dash phase shall be a number
+/// > that specifies the distance into the dash pattern at which to start the dash.
+///
+/// Shared by `d` and Table 57's `/D`, so that the two routes §8.4.1's NOTE 1 allows read one
+/// pattern. An element that is not a number makes the array no dash array at all: dropping it
+/// would read `[3 (x) 1]` as `[3 1]`, a pattern the file never stated in which the `1` that was a
+/// dash has become a gap. §8.4.1 has a parameter "of the correct type", and a value of the wrong
+/// type is not one that clipping into a range could repair, so the caller sets nothing, leaves the
+/// pattern in force and reports the operand — the answer `Unsupported::ColourOperands` gives a
+/// colour operator whose operands state no colour (ADR 3335). A phase that is absent reads as
+/// zero, the value `[] 0 d` states.
+fn read_dash(
+    elements: impl IntoIterator<Item = Option<f64>>,
+    phase: DashPhase,
+) -> Option<(Vec<f32>, f32)> {
+    let array = elements
+        .into_iter()
+        .map(|element| element.map(narrow))
+        .collect::<Option<Vec<f32>>>()?;
+    let phase = match phase {
+        DashPhase::Absent => 0.0,
+        DashPhase::Number(phase) => narrow(phase),
+        DashPhase::NotANumber => return None,
+    };
+    Some((array, phase))
+}
+
+/// A dash pattern's phase operand as [`read_dash`] meets it: absent, a number, or something else.
+#[derive(Debug, Clone, Copy)]
+enum DashPhase {
+    /// No phase follows the array.
+    Absent,
+    /// The phase, as a number.
+    Number(f64),
+    /// An object that is not a number where the phase stands.
+    NotANumber,
+}
+
+impl DashPhase {
+    /// The phase an operand that is present states: a number, or not one.
+    fn of(number: Option<f64>) -> Self {
+        number.map_or(Self::NotANumber, Self::Number)
+    }
 }
 
 /// Table 53's line cap style, ISO 32000-2 §8.4.3.3.
@@ -3425,22 +3473,30 @@ fn set_dash(operands: &[Object], stroke: &mut Stroke) {
 /// and the two ways have to mean the same thing. Three corpus documents set the cap through
 /// `/LC` and it reached nothing at all until §8.4.3 was read as a family.
 ///
-/// The clause defines 0, 1 and 2; §8.4.1 requires values "of the correct type or … within a
-/// certain range", and the initial value is the answer for anything outside it.
+/// The clause defines the codes 0, 1 and 2, and §8.4.1 says what a processor does with a numeric
+/// parameter outside its range:
+///
+/// > Parameters that are numeric values, such as the current colour, line width, and miter
+/// > limit, shall be clipped into valid range, if necessary.
+///
+/// The cap is a number, so a code below 0 is clipped to 0 and one above 2 to 2: `3 J` is the
+/// projecting square cap. The sentence names no initial value, and the clipped code is the one a
+/// range gives (ADR 3336).
 fn line_cap(code: i64) -> LineCap {
-    match code {
+    match code.clamp(0, 2) {
+        0 => LineCap::Butt,
         1 => LineCap::Round,
-        2 => LineCap::Square,
-        _ => LineCap::Butt,
+        _ => LineCap::Square,
     }
 }
 
-/// Table 54's line join style, ISO 32000-2 §8.4.3.4. Set by `j` and by Table 57's `/LJ`.
+/// Table 54's line join style, ISO 32000-2 §8.4.3.4. Set by `j` and by Table 57's `/LJ`, and
+/// clipped into the codes 0 to 2 by §8.4.1's sentence, as [`line_cap`] is.
 fn line_join(code: i64) -> LineJoin {
-    match code {
+    match code.clamp(0, 2) {
+        0 => LineJoin::Miter,
         1 => LineJoin::Round,
-        2 => LineJoin::Bevel,
-        _ => LineJoin::Miter,
+        _ => LineJoin::Bevel,
     }
 }
 

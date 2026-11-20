@@ -525,6 +525,11 @@ pub(super) const TEXT_OBJECT_LEFT_OPEN: &str = "BT without ET";
 /// The sentence an [`Unsupported::Operator`] carries for a `Do` whose operand is not a name.
 pub(super) const DO_WITHOUT_A_NAME: &str = "Do with no name operand";
 
+/// What follows `d` or `/D` in the sentence an [`Unsupported::Operator`] carries for a dash
+/// pattern whose array or phase holds something that is not a number.
+pub(super) const DASH_NOT_NUMBERS: &str =
+    " with a dash array or phase that is not a number, which §8.4.3.6 states as numbers";
+
 /// What follows `W` or `W*` in the sentence an [`Unsupported::Operator`] carries for a clip the
 /// stream ended before painting.
 pub(super) const CLIP_LEFT_PENDING: &str = " without a path-painting operator after it";
@@ -561,6 +566,10 @@ pub enum StreamSyntaxFault {
     /// A `Do` with no name before it: ISO 32000-2 §8.8's Table 86 gives `Do` one operand, `name`,
     /// so there is no `XObject` it can be said to name and nothing is drawn (ADR 2759).
     DoWithoutAName,
+    /// A dash pattern, set by `d` or by an `ExtGState`'s `/D`, whose array or phase holds
+    /// something that is not a number: ISO 32000-2 §8.4.3.6 states both as numbers, so the
+    /// pattern in force is kept (ADR 3335).
+    DashNotNumbers,
 }
 
 impl Unsupported {
@@ -593,6 +602,8 @@ impl Unsupported {
             Some(StreamSyntaxFault::KeywordInsideAnArray)
         } else if operator == DO_WITHOUT_A_NAME {
             Some(StreamSyntaxFault::DoWithoutAName)
+        } else if matches!(operator.strip_suffix(DASH_NOT_NUMBERS), Some("d" | "/D")) {
+            Some(StreamSyntaxFault::DashNotNumbers)
         } else if matches!(operator.strip_suffix(CLIP_LEFT_PENDING), Some("W" | "W*")) {
             Some(StreamSyntaxFault::ClipLeftPending)
         } else if matches!(

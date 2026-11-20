@@ -10,7 +10,7 @@
   "code": "crates/pdf-render/src/paint.rs:271 (Stroke::device_width) and :303 (thinnest_line, by max_stretch); read by crates/render-cpu/src/convert.rs:258, crates/render-raster (scene-space width, encoded per placement) and crates/render-gpu/src/scene.rs:282",
   "change": "Make a zero-width (and a \u00a710.7.5-substituted) stroke one device pixel across in every direction: under an anisotropic transform no single path-space width does that, so the backend strokes the zero-width path in device space (a hairline of the transformed path) rather than by a path-space width.",
   "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_zero_width_line_is_one_device_pixel_wide_in_every_direction_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3333; Stroke::strokes_in_device_space strokes the thinnest line under unequal scales on the device grid on all three backends; stroke_parameters_spec_audit::a_zero_width_line_is_one_device_pixel_wide_in_every_direction_spec_audit passes)"
  },
  {
   "id": "2155-B02",
@@ -24,7 +24,7 @@
   "code": "crates/render-cpu/src/convert.rs:270 (the dash handed to tiny-skia, and the comment); tiny-skia-path 0.12 src/dash.rs:199 (MAX_DASH_COUNT); the GPU backends dash through kurbo, which has no such limit and was not run",
   "change": "Decide the case in pdf-render for all backends: a pattern whose dash count passes a stated bound is drawn as the coverage it implies (the solid stroke at the pattern's on-fraction, the reading \u00a710.7.4 allows a sub-pixel mark), and a dasher's refusal is never a stroke drawn as nothing.",
   "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_dash_pattern_finer_than_a_pixel_still_paints_its_stroke_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3334; pdf_render::past_the_dash_bound draws a pattern past MAX_DASHES solid at its coverage on all three backends, reported as LimitReached; stroke_parameters_spec_audit::a_dash_pattern_finer_than_a_pixel_still_paints_its_stroke_spec_audit passes)"
  },
  {
   "id": "2155-B03",
@@ -38,7 +38,7 @@
   "code": "crates/render-cpu/src/convert.rs:256 (stroke: width from device_width, miter_limit and join from the state); the same pair in crates/render-raster/src/stroke.rs:268 and crates/render-gpu/src/scene.rs:282-293 (read, not run)",
   "change": "Where the stated width is zero, stroke the substituted pixel without a mitre (a bevel, or a limit of 1), decided once beside Stroke::device_width so the three backends cannot differ.",
   "execution": "FAIL (expected): crates/render-cpu/tests/all/stroke_parameters_spec_audit.rs::a_zero_width_line_has_no_mitre_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3333; Stroke::as_drawn bevels the thinnest line's mitre, raster per placement; stroke_parameters_spec_audit::a_zero_width_line_has_no_mitre_spec_audit passes)"
  },
  {
   "id": "2155-B04",
@@ -53,7 +53,7 @@
   "code": "crates/pdf-model/src/content.rs:3411 (set_dash: filter_map(Object::as_number)); crates/pdf-model/src/content/ext_gstate.rs:295 (/D: the same filter_map)",
   "change": "Treat an array with a non-number element as no pattern, by the rule apply_dash already applies to an array outside the range (or leave the previous pattern in force), in both routes and once.",
   "execution": "FAIL (expected): crates/pdf-model/tests/graphics_state_paths_spec_audit.rs::a_dash_array_with_a_non_number_is_not_read_as_another_pattern_spec_audit \u2014 round 2155, scratch log ~/scratch/agent/r2155/t1.log and the nextest log ~/scratch/agent/r2155/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3335; read_dash, shared by d and /D, sets nothing for an element or phase that is not a number and reports StreamSyntaxFault::DashNotNumbers; graphics_state_paths_spec_audit::a_dash_array_with_a_non_number_is_not_read_as_another_pattern_spec_audit passes)"
  },
  {
   "id": "2155-D01",
@@ -68,6 +68,6 @@
   "code": "crates/pdf-model/src/content.rs:3421-3445 (line_cap, line_join and their comment)",
   "change": "Either clip a code into 0..=2 (3 J a projecting square cap) by \u00a78.4.1's sentence, or keep the initial value and say in the comment, under an ADR, that it is a choice the clause does not make.",
   "execution": "not a test: read; the behaviour is pinned by crates/pdf-model/tests/line_parameters.rs::a_code_outside_the_clauses_three_is_the_initial_value",
-  "status": "open"
+  "status": "fixed (ADR 3336; line_cap and line_join clip a code into 0..=2 by \u00a78.4.1's sentence; line_parameters::a_code_outside_the_clauses_three_is_clipped_into_range)"
  }
 ]

@@ -392,6 +392,11 @@ fn from_bez_path(elements: impl Iterator<Item = kurbo::PathEl>) -> Path {
 /// Split out of [`encode`] because ISO 32000-2 §8.5.3.2 turns one command into two draws —
 /// the subpaths that span a distance are stroked, and the ones that do not are *filled*, as
 /// circles this crate states rather than as whatever `kurbo`'s caps would have produced.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one stroke's marks in the order they are drawn — the pattern's bound, §8.5.3.2's \
+              splits, the thinnest line's space, then the draw — each step read beside the next"
+)]
 fn encode_stroke(
     scene: &mut vello::Scene,
     path: &Path,
@@ -404,6 +409,24 @@ fn encode_stroke(
     let at = spaces.at;
     let layer = compose.layer(blend);
     let (brush, brush_at, rastered) = stroke_brush(paint, spaces.page_to_path)?;
+    // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
+    // coverage it implies, decided there for all three backends (trap 2, ADR 3334): `kurbo`'s
+    // dasher has no bound of its own, and would build every dash.
+    let rest_coverage = pdf_render::past_the_dash_bound(path, s, s.device_width(to_path));
+    // §8.4.3.5's zero mitre length of the thinnest line, stated once in `pdf-render` (ADR 3333).
+    let drawn = s.as_drawn(to_path);
+    let solid_stroke;
+    let s: &Stroke = if rest_coverage.is_some() {
+        solid_stroke = Stroke {
+            dash_array: Vec::new(),
+            dash_phase: 0.0,
+            ..(*drawn).clone()
+        };
+        &solid_stroke
+    } else {
+        &drawn
+    };
+    let rest_coverage = rest_coverage.unwrap_or(1.0);
     let width = s.device_width(to_path);
 
     // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
@@ -443,6 +466,16 @@ fn encode_stroke(
         };
     let dots = bez_path(&dots);
     let dot_brush = brush.clone().multiply_alpha(coverage);
+    let rest_brush = if rest_coverage < 1.0 {
+        brush.clone().multiply_alpha(rest_coverage)
+    } else {
+        brush
+    };
+    // §8.4.3.2's thinnest line under unequal scales, stroked in device space (ADR 3333).
+    let hairline = s
+        .strokes_in_device_space(to_path)
+        .then(|| DeviceHairline::of(&shape, &style, to_path))
+        .flatten();
 
     // The stroke width is in the command's own coordinate space, and the transform scales it
     // along with the geometry, as PDF specifies.
@@ -456,11 +489,17 @@ fn encode_stroke(
     let applied_once = !shape.is_empty()
         && !dots.is_empty()
         && coverage >= 1.0
+        && rest_coverage >= 1.0
         && !composites_as_one(paint, blend);
+    // The stroke's own outline, in path space, whichever space it was stroked in.
+    let stroked = |shape: &kurbo::BezPath| match &hairline {
+        Some(hairline) => hairline.outline(),
+        None => kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1),
+    };
     let draw = |scene: &mut vello::Scene| {
         let bounds = applied_once.then(|| {
             use kurbo::Shape as _;
-            let mut reach = kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
+            let mut reach = stroked(&shape);
             reach.extend(dots.iter());
             reach.bounding_box()
         });
@@ -474,7 +513,18 @@ fn encode_stroke(
             );
         }
         if !shape.is_empty() {
-            scene.stroke(&style, at, &brush, brush_at, &shape);
+            match &hairline {
+                // The paint stays where the command's space put it: the brush is carried across
+                // the same linear map the path was (trap 2).
+                Some(hairline) => scene.stroke(
+                    &hairline.style,
+                    hairline.at(at),
+                    &rest_brush,
+                    Some(hairline.brush_at(brush_at)),
+                    &hairline.shape,
+                ),
+                None => scene.stroke(&style, at, &rest_brush, brush_at, &shape),
+            }
         }
         if !dots.is_empty() {
             if bounds.is_some() {
@@ -491,7 +541,7 @@ fn encode_stroke(
     // §11.4.6's knockout need, with the dots — which are already outlines — beside it, so
     // that one shape carries the whole object and §11.6.2 composites it once.
     let outline = |shape: &kurbo::BezPath, dots: &kurbo::BezPath| {
-        let mut outline = kurbo::stroke(shape.iter(), &style, &kurbo::StrokeOpts::default(), 0.1);
+        let mut outline = stroked(shape);
         outline.extend(dots.iter());
         outline
     };
@@ -509,7 +559,7 @@ fn encode_stroke(
         stroke_filtered(
             scene,
             shading,
-            (rest, dots, coverage),
+            (rest, dots, (rest_coverage, coverage)),
             (spaces, target),
             layer,
         );
@@ -529,6 +579,91 @@ fn encode_stroke(
         draw(scene);
     }
     Ok(())
+}
+
+/// §8.4.3.2's thinnest line restated in device pixels, for a stroke
+/// [`Stroke::strokes_in_device_space`] holds of (ADR 3333).
+///
+/// `vello` strokes in the space the shape is stated in and maps the outline after, so a width
+/// there is multiplied by the transform's stretch across each segment and no one width is one
+/// device pixel under unequal scales. The shape is therefore dashed where the command stated it
+/// — §8.4.3.6's lengths are the path's — and then mapped by the transform's linear part, where a
+/// width of one is one device pixel in every direction; [`pdf_render::device_hairline`] states the
+/// same restatement for the display list's own paths.
+struct DeviceHairline {
+    /// The dashed shape in device pixels, less the translation.
+    shape: kurbo::BezPath,
+    /// One device pixel wide, solid, with the command's caps and [`Stroke::as_drawn`]'s join.
+    style: kurbo::Stroke,
+    /// The linear part `shape` was mapped by.
+    linear: kurbo::Affine,
+}
+
+impl DeviceHairline {
+    /// The restatement of `shape` stroked by `style` under `to_device`, or `None` where the
+    /// transform has no inverse.
+    fn of(shape: &kurbo::BezPath, style: &kurbo::Stroke, to_device: Transform) -> Option<Self> {
+        let linear = affine(Transform::new(
+            to_device.a,
+            to_device.b,
+            to_device.c,
+            to_device.d,
+            0.0,
+            0.0,
+        ));
+        if linear.determinant().abs() <= 0.0 || !linear.determinant().is_finite() {
+            return None;
+        }
+        let dashed = if style.dash_pattern.is_empty() {
+            shape.clone()
+        } else {
+            kurbo::dash(shape.iter(), style.dash_offset, &style.dash_pattern).collect()
+        };
+        let mut style = style.clone();
+        style.width = 1.0;
+        style.dash_pattern = kurbo::Dashes::new();
+        let mut shape = dashed;
+        shape.apply_affine(linear);
+        Some(Self {
+            shape,
+            style,
+            linear,
+        })
+    }
+
+    /// The stroked outline, mapped back into the command's path space.
+    fn outline(&self) -> kurbo::BezPath {
+        let mut outline = kurbo::stroke(
+            self.shape.iter(),
+            &self.style,
+            &kurbo::StrokeOpts::default(),
+            0.1,
+        );
+        outline.apply_affine(self.linear.inverse());
+        outline
+    }
+
+    /// What the restated shape is drawn under, given what the command's is: `at` with the
+    /// linear map undone first, so the two reach the same device points.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "composing two affine transforms is floating-point multiplication, which \
+                  cannot overflow"
+    )]
+    fn at(&self, at: kurbo::Affine) -> kurbo::Affine {
+        at * self.linear.inverse()
+    }
+
+    /// The brush transform that keeps the paint where the command's space put it: Vello maps a
+    /// brush by the draw transform after this one, so the linear map is put back first (trap 2).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "composing two affine transforms is floating-point multiplication, which \
+                  cannot overflow"
+    )]
+    fn brush_at(&self, brush_at: Option<kurbo::Affine>) -> kurbo::Affine {
+        self.linear * brush_at.unwrap_or(kurbo::Affine::IDENTITY)
+    }
 }
 
 /// [`brush_for`]'s brush for a stroke, and whether the stroke is drawn without it: Table 77's
@@ -565,7 +700,7 @@ fn stroked_as_a_raster(shading: &pdf_render::Shading) -> bool {
 fn stroke_filtered(
     scene: &mut vello::Scene,
     shading: &pdf_render::Shading,
-    (mut rest, dots, coverage): (kurbo::BezPath, kurbo::BezPath, f32),
+    (mut rest, dots, (rest_coverage, coverage)): (kurbo::BezPath, kurbo::BezPath, (f32, f32)),
     (spaces, target): (Spaces, TargetSpec),
     layer: Option<peniko::BlendMode>,
 ) {
@@ -573,11 +708,11 @@ fn stroke_filtered(
         peniko::Mix::Normal,
         peniko::Compose::SrcOver,
     ));
-    let regions = if coverage >= 1.0 {
+    let regions = if coverage >= 1.0 && rest_coverage >= 1.0 {
         rest.extend(dots);
         [(rest, 1.0), (kurbo::BezPath::new(), 1.0)]
     } else {
-        [(rest, 1.0), (dots, coverage)]
+        [(rest, rest_coverage), (dots, coverage)]
     };
     for (region, alpha) in regions {
         if region.is_empty() {

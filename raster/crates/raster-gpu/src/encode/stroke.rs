@@ -45,6 +45,8 @@ impl Encoder<'_> {
             .outline(outline)
             .ok_or(RenderError::UnknownOutline { outline })?;
         let to_device = compose(transform, self.viewport);
+        // §8.4.3.5's zero mitre length of the thinnest line, decided where its width is.
+        let stroke = raster::as_drawn(stroke, to_device);
         let resolved = self.resolve_clip(clip)?;
         // The device width, resolved here — §8.4.3.2's thinnest line and §10.7.5's
         // adjustment applied where the composed transform is known (ADR 0085) — so

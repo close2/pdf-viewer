@@ -57,6 +57,24 @@ pub(crate) fn encode(
     if thin_line(enc, builder, path, transform, s, paint, (clip, mask, blend))? {
         return Ok(());
     }
+    // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
+    // coverage it implies, decided there for all three backends (trap 2, ADR 3334): `kurbo`'s
+    // dasher has no bound of its own, and would build every dash. The pattern is a statement in
+    // the path's own space, so its count asks nothing of the view.
+    let to_device = transform.then(enc.target().transform);
+    let rest_coverage = pdf_render::past_the_dash_bound(path, s, s.device_width(to_device));
+    let solid_stroke;
+    let s: &Stroke = if rest_coverage.is_some() {
+        solid_stroke = Stroke {
+            dash_array: Vec::new(),
+            dash_phase: 0.0,
+            ..s.clone()
+        };
+        &solid_stroke
+    } else {
+        s
+    };
+    let rest_coverage = rest_coverage.unwrap_or(1.0);
     let fitted = fitted_for_dashing(enc, path, transform, s);
     let fitted_path = fitted.as_ref().map(|fit| Arc::new(fit.path.clone()));
     let path = fitted_path.as_ref().unwrap_or(path);
@@ -73,7 +91,6 @@ pub(crate) fn encode(
     // a sheared or unevenly-scaled stroke must vary its device width with
     // direction (§8.4.3.2's own note), and a scalar cannot. So the transform's
     // anisotropy decides the route below.
-    let to_device = transform.then(enc.target().transform);
     let path_width = s.device_width(to_device);
 
     // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
@@ -130,6 +147,7 @@ pub(crate) fn encode(
         paint: raster_paint,
         dots: &dots,
         coverage,
+        rest_coverage,
     };
     // §11.6.2: "\[p]ortions of an object shall not be composited with one another", and the
     // stroked rest and its dots are portions of one stroke. Where drawing one over the other
@@ -142,6 +160,7 @@ pub(crate) fn encode(
     let applied_once = !solid.is_empty()
         && !dots.is_empty()
         && coverage >= 1.0
+        && rest_coverage >= 1.0
         && !enc.knockout_element()
         && !composites_as_one(paint, blend);
     if applied_once {
@@ -183,6 +202,11 @@ struct Marks<'a> {
     dots: &'a Path,
     /// The coverage the dots carry in their alpha.
     coverage: f32,
+    /// The coverage the rest carries in its alpha: below one only for a dash pattern past
+    /// `pdf_render::MAX_DASHES`, drawn solid at the coverage it implies (ADR 3334). A paint that is
+    /// not a solid colour has no alpha this builder can carry it in, and is drawn at its whole
+    /// coverage, as §10.7.4's substituted dots are.
+    rest_coverage: f32,
 }
 
 /// Draws `marks` under one clip, mask and blend.
@@ -207,9 +231,15 @@ fn draw_marks(
         paint: raster_paint,
         dots,
         coverage,
+        rest_coverage,
     } = *marks;
+    let rest_paint = faint(raster_paint, rest_coverage);
     if !solid.is_empty() {
-        let in_path_space = !scalar_width_holds(to_device, path_width);
+        // §8.4.3.2's thinnest line is one device pixel in every direction, which is what raster's
+        // own expansion draws from the width it resolves per placement (ADR 0085), and what no
+        // path-space width draws under unequal scales (ADR 3333).
+        let in_path_space =
+            !s.is_thinnest_line(to_device) && !scalar_width_holds(to_device, path_width);
         if in_path_space {
             // The expansion below happens in device space, on this view's transform
             // (ADR 0702).
@@ -232,7 +262,7 @@ fn draw_marks(
                 outline,
                 at,
                 raster_scene::FillRule::NonZero,
-                raster_paint,
+                rest_paint,
                 clip,
                 blend_mode(blend),
                 compose(blend),
@@ -274,7 +304,7 @@ fn draw_marks(
                     outline,
                     at,
                     stroke,
-                    raster_paint,
+                    rest_paint,
                     clip,
                     blend_mode(blend),
                     mask,
@@ -949,8 +979,9 @@ fn dash(
 ///
 /// The coverage a substituted mark gave up rides in the paint's alpha — §11.3.7.1 makes shape and
 /// opacity one product — and this builder's `fill` takes no alpha beside the paint. Only a solid
-/// colour is reached: [`encode`] withholds the substitution for every other paint, so `coverage`
-/// is 1 here whenever the paint is not one.
+/// colour is carried: [`encode`] withholds §10.7.4's substitution for every other paint, and a
+/// dash pattern past `pdf_render::MAX_DASHES` under another paint is drawn at its whole coverage
+/// (ADR 3334), which is what this returns for it.
 fn faint(paint: raster_scene::Paint, coverage: f32) -> raster_scene::Paint {
     match paint {
         raster_scene::Paint::Solid(c) if coverage < 1.0 => {

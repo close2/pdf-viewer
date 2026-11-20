@@ -10,9 +10,11 @@ use pdf_render::BlendMode;
 use pdf_syntax::{Dictionary, Document, Object};
 
 use super::colour::{BlackPoint, Intent};
-use super::report::Unsupported;
+use super::report::{DASH_NOT_NUMBERS, Unsupported};
 use super::run::{name_at, narrow};
-use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit};
+use super::{
+    DashPhase, GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit, read_dash,
+};
 use crate::black_generation::BlackGeneration;
 
 pub(crate) use crate::transfer::{Stated, Transfer};
@@ -289,18 +291,21 @@ impl Interpreter<'_> {
             && let Some(items) = entry.first().map(|item| self.document.resolve(item))
             && let Some(items) = items.as_array()
         {
-            let array = items
-                .iter()
-                .map(|item| self.document.resolve(item))
-                .filter_map(|item| item.as_number())
-                .map(narrow)
-                .collect();
-            let phase = entry
-                .get(1)
-                .map(|item| self.document.resolve(item))
-                .and_then(|item| item.as_number())
-                .map_or(0.0, narrow);
-            apply_dash(array, phase, &mut state.stroke);
+            // One reading with `d`'s (`read_dash`): an element or a phase that is not a number
+            // sets nothing and is reported (ADR 3335).
+            match read_dash(
+                items
+                    .iter()
+                    .map(|item| self.document.resolve(item).as_number()),
+                entry.get(1).map_or(DashPhase::Absent, |item| {
+                    DashPhase::of(self.document.resolve(item).as_number())
+                }),
+            ) {
+                Some((array, phase)) => apply_dash(array, phase, &mut state.stroke),
+                None => self.note(Unsupported::Operator {
+                    operator: format!("/D{DASH_NOT_NUMBERS}"),
+                }),
+            }
         }
         // Table 57's `/LC`, `/LJ` and `/ML`: the same three parameters `J`, `j` and `M` set,
         // through the other of §8.4.1 NOTE 1's two routes. `issue16287.pdf`, `issue7878.pdf`

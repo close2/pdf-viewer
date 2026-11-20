@@ -59,11 +59,41 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
     if !stretch.is_finite() || stretch <= 0.0 {
         return stroke.width.max(1.0);
     }
-    let device = stroke.width * stretch;
-    if stroke.width <= 0.0 || (stroke.adjust && device < 0.5) {
+    if is_thinnest_line(stroke, t) {
         1.0
     } else {
-        device
+        stroke.width * stretch
+    }
+}
+
+/// Whether [`resolve_width`] substitutes the thinnest line for `stroke` under `t`: a width of
+/// zero, or one §10.7.5 promotes for being under half a device pixel. `false` where the
+/// transform has no stretch to measure a pixel by.
+fn is_thinnest_line(stroke: Stroke, t: DeviceTransform) -> bool {
+    let stretch = t.max_stretch();
+    stretch.is_finite()
+        && stretch > 0.0
+        && (stroke.width <= 0.0 || (stroke.adjust && stroke.width * stretch < 0.5))
+}
+
+/// `stroke` as it is expanded under `t`: unchanged, except that the thinnest line has no mitre.
+///
+/// ISO 32000-2 §8.4.3.5:
+///
+/// > When the line width is zero, the miter length is zero.
+///
+/// A mitre of length zero reaches no further than the bevel, so a mitred join of the line
+/// [`resolve_width`] makes one device pixel wide is expanded as a bevel, here at the placement
+/// where that width is known — the answer the caller's `Stroke::as_drawn` gives for the other
+/// backends (`raster/doc/adr/0085`; the caller's `doc/adr/3333`).
+pub(crate) fn as_drawn(stroke: Stroke, t: DeviceTransform) -> Stroke {
+    if stroke.join == LineJoin::Miter && is_thinnest_line(stroke, t) {
+        Stroke {
+            join: LineJoin::Bevel,
+            ..stroke
+        }
+    } else {
+        stroke
     }
 }
 

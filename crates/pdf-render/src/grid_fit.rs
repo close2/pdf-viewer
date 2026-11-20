@@ -54,6 +54,16 @@ const ALONG_AN_AXIS: f32 = 1.0 / 64.0;
 /// stroke width to be one device width.
 const ALIKE: f32 = 1.0 / 1024.0;
 
+/// Whether `t` stretches every direction alike to within [`ALIKE`]: a similarity, under which
+/// one width stated in a path's own space is one width in the device.
+///
+/// Shared with [`Stroke::strokes_in_device_space`], which asks the same question of the thinnest
+/// line.
+pub(crate) fn stretches_alike(t: Transform) -> bool {
+    let (widest, narrowest) = (t.max_stretch(), t.min_stretch());
+    widest - narrowest <= ALIKE * widest
+}
+
 /// A stroke fitted to the device grid: the path to stroke in place of the command's and the
 /// stroke parameters to stroke it with.
 #[derive(Debug, Clone)]
@@ -78,8 +88,7 @@ pub fn grid_fit(path: &Path, stroke: &Stroke, to_device: Transform) -> Option<Gr
         return None;
     }
     let one_pixel = thinnest_line(to_device)?;
-    let (widest, narrowest) = (to_device.max_stretch(), to_device.min_stretch());
-    if widest - narrowest > ALIKE * widest {
+    if !stretches_alike(to_device) {
         return None;
     }
     // `device_width` already holds §8.4.3.2's zero width and §10.7.5's half-pixel promotion,

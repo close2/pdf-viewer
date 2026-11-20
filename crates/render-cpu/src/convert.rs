@@ -267,9 +267,11 @@ pub(crate) fn stroke(s: &Stroke, to_device: Transform) -> tiny_skia::Stroke {
             LineJoin::Round => tiny_skia::LineJoin::Round,
             LineJoin::Bevel => tiny_skia::LineJoin::Bevel,
         },
-        // An all-zero or negative dash array is rejected by `StrokeDash::new`, which
-        // returns `None`; that yields a solid line, matching how PDF treats a
-        // degenerate dash array.
+        // `pdf-model` hands over only a pattern §8.4.3.6 admits (`apply_dash` draws any other
+        // solid), and `StrokeDash::new` takes every such pattern. Its dasher has a second
+        // refusal, past a million dashes a path, after which the library strokes nothing at all:
+        // `CpuRasterizer::draw_stroke` never reaches it, because `pdf_render::past_the_dash_bound`
+        // undashes a pattern at half that count first (ADR 3334).
         dash: if s.dash_array.is_empty() {
             None
         } else {

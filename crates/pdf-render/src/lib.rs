@@ -26,6 +26,7 @@ pub mod blending;
 pub mod closing;
 pub mod collapsed;
 pub mod crop;
+pub mod dash_bound;
 pub mod dash_end;
 pub mod degenerate;
 pub mod display_list;
@@ -62,6 +63,7 @@ pub use collapsed::{
     ClipRegion, CollapsedFill, clip_region, collapsed_by_transform, split_collapsed_fill,
 };
 pub use crop::cropped_rectangle;
+pub use dash_bound::{MAX_DASHES, dash_count, past_the_dash_bound, pattern_coverage};
 pub use dash_end::extended_to_a_zero_dash_at_the_end;
 pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
@@ -87,9 +89,9 @@ pub use medium::{
 pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
-    BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,
-    LineCap, LineJoin, Overprint, Paint, Reduction, SampleAlpha, Stroke, paint_space,
-    thinnest_line,
+    BlendMode, Color, DeferredImage, DeviceHairline, FillRule, Grid, Image, ImageAtDeviceScale,
+    ImageSource, LineCap, LineJoin, Overprint, Paint, Reduction, SampleAlpha, Stroke,
+    device_hairline, paint_space, thinnest_line,
 };
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use reach::MarkBounds;
