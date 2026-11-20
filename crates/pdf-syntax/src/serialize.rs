@@ -2200,36 +2200,47 @@ fn cross_reference_stream<W: Write>(
     let number = u32::try_from(size).unwrap_or(u32::MAX);
     let at = sink.at;
 
-    // `/W [1 4 2]`, Table 18's three fields at their widest useful sizes: the type, then a
-    // field that is a four-byte offset for a type 1 entry and an object stream's number for a
-    // type 2 one, then a two-byte generation for a type 1 entry and the member's index for a
-    // type 2 one. Type 0 is a free object, whose second field is "the object number of the
-    // next free object" and whose third is "the generation number to use if this object number
-    // is used again".
-    let mut data = Vec::with_capacity(entries.len().saturating_add(2).saturating_mul(7));
-    row(0, 0, FREE_FOREVER, &mut data);
+    // `/W [1 4 w]`, Table 18's three fields: the type, then a field that is a four-byte offset
+    // for a type 1 entry and an object stream's number for a type 2 one, then a generation for
+    // a type 1 entry and the member's index for a type 2 one. Type 0 is a free object, whose
+    // second field is "the object number of the next free object" and whose third is "the
+    // generation number to use if this object number is used again".
+    //
+    // The third field is two bytes, the width of a generation, unless an object stream holds
+    // more members than two bytes count: `ObjectStreams::Generate`'s `max_objects` is the
+    // caller's, and Table 18's type 2 field 3 is "the index of this object within the object
+    // stream", which a clipped number would state wrongly. So the field is as wide as the
+    // largest index needs (ADR 3251).
+    let widest_index = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::InStream { index, .. } => Some(*index),
+            Entry::InFile(_) => None,
+        })
+        .max()
+        .unwrap_or_default();
+    let third = third_field_width(widest_index);
+    let mut data = Vec::with_capacity(
+        entries
+            .len()
+            .saturating_add(2)
+            .saturating_mul(third.saturating_add(5)),
+    );
+    wide_row(0, 0, u32::from(FREE_FOREVER), third, &mut data);
     for entry in entries {
         match entry {
             Entry::InFile(offset) => {
-                if *offset > u64::from(u32::MAX) {
-                    return Err(SerializeError::OffsetTooLarge { offset: *offset });
-                }
-                row(1, u32::try_from(*offset).unwrap_or(u32::MAX), 0, &mut data);
+                let field = u32::try_from(*offset)
+                    .map_err(|_| SerializeError::OffsetTooLarge { offset: *offset })?;
+                wide_row(1, field, 0, third, &mut data);
             }
             Entry::InStream { stream, index } => {
-                row(
-                    2,
-                    *stream,
-                    u16::try_from(*index).unwrap_or(u16::MAX),
-                    &mut data,
-                );
+                wide_row(2, *stream, *index, third, &mut data);
             }
         }
     }
-    if at > u64::from(u32::MAX) {
-        return Err(SerializeError::OffsetTooLarge { offset: at });
-    }
-    row(1, u32::try_from(at).unwrap_or(u32::MAX), 0, &mut data);
+    let field = u32::try_from(at).map_err(|_| SerializeError::OffsetTooLarge { offset: at })?;
+    wide_row(1, field, 0, third, &mut data);
 
     let mut dict = trailer_dictionary(size.saturating_add(1), root, info, encrypt, sink.digest());
     dict.insert(
@@ -2241,7 +2252,8 @@ fn cross_reference_stream<W: Write>(
         Object::Array(vec![
             Object::Integer(1),
             Object::Integer(4),
-            Object::Integer(2),
+            // At most four, from `third_field_width`.
+            Object::Integer(i64::try_from(third).unwrap_or(4)),
         ]),
     );
     // One subsection, 0 to the stream's own number inclusive.
@@ -2269,6 +2281,28 @@ fn cross_reference_stream<W: Write>(
     );
     buffer.extend_from_slice(b"\nendobj\n");
     sink.put(&buffer)
+}
+
+/// How many bytes the third field of [`cross_reference_stream`] needs: a generation's two, or
+/// as many as the largest member index takes, at most four.
+fn third_field_width(widest_index: u32) -> usize {
+    let bits = widest_index.max(u32::from(FREE_FOREVER)).bit_width();
+    // `bits` is at most 32, so the width is 2, 3 or 4.
+    usize::try_from(bits.div_ceil(8)).unwrap_or(4)
+}
+
+/// One §7.5.8.3 record whose third field is `third` bytes wide, `third` at most four.
+///
+/// "Fields requiring more than one byte are stored with the high-order byte first."
+fn wide_row(kind: u8, second: u32, value: u32, third: usize, out: &mut Vec<u8>) {
+    out.push(kind);
+    out.extend_from_slice(&second.to_be_bytes());
+    let bytes = value.to_be_bytes();
+    out.extend_from_slice(
+        bytes
+            .get(bytes.len().saturating_sub(third)..)
+            .unwrap_or(&bytes),
+    );
 }
 
 /// One §7.5.8.3 record: the type, then the two fields `/W [1 4 2]` gives four and two bytes.

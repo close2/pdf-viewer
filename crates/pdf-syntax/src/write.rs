@@ -66,6 +66,20 @@ pub enum UpdateError {
     /// to every byte of it needs (ADR 0809).
     #[error("the file cannot be held whole to append to it: {0}")]
     CannotHold(crate::NoRoom),
+    /// An offset the update would state does not fit the field its section gives it.
+    ///
+    /// §7.5.4's entry is "exactly 20 bytes" with "a 10-digit number" of offset, and the stream
+    /// this writes gives Table 18's offset four bytes, so a file past 9 999 999 999 bytes (a
+    /// table) or past 4 GiB (a stream) has offsets neither can state. Writing a wider number
+    /// would break the entry and a clipped one would name the wrong byte; the whole-file writer
+    /// refuses the same files by the same reasoning (`SerializeError::OffsetTooLarge`).
+    #[error(
+        "an object at offset {offset} cannot be stated in this update's cross-reference section"
+    )]
+    OffsetTooLarge {
+        /// The offset, counted from the header, that does not fit.
+        offset: u64,
+    },
 }
 
 /// Writes one object in the syntax of clause 7.
@@ -207,8 +221,10 @@ fn real(value: f64) -> String {
 /// Appends ISO 32000-2 §7.5.6's incremental update to a document's own bytes.
 ///
 /// `replacements` are the objects that now read differently. Each is written as an indirect
-/// object with the generation the document's own table gives it, followed by a cross-reference
-/// section covering exactly those objects and a trailer chaining to what was there.
+/// object under the identifier the caller gives it — number and generation both, since the
+/// cross-reference table records no generation for an object in use — followed by a
+/// cross-reference section covering exactly those objects and a trailer chaining to what was
+/// there.
 ///
 /// The result is the **whole file**: the original bytes, unchanged, with the update after them.
 /// That is what §7.5.6 describes and it is what makes this safe — the producer's bytes are still
@@ -217,8 +233,11 @@ fn real(value: f64) -> String {
 ///
 /// # The cross-reference section's form
 ///
-/// The same kind the file already uses. A document whose last section is §7.5.8's cross-reference
-/// *stream* gets one of those, and one with §7.5.4's table gets a table. Nothing in the standard
+/// The same kind as the section the update chains to — the newest one, which `startxref` names
+/// ([`crate::XrefTable::newest_section_is_classic`]). A document whose newest section is §7.5.8's
+/// cross-reference *stream* gets one of those, and one whose newest section is §7.5.4's table
+/// gets a table, a hybrid-reference file's included; the merged trailer's `/Type` does not
+/// decide it, because an older stream section supplies that key under a newer table. Nothing in the standard
 /// requires them to match — a PDF 1.5 reader handles both — but a file whose sections are all one
 /// kind is a file whose next reader has one thing to do, and the cost is forty lines.
 ///
@@ -235,9 +254,18 @@ fn real(value: f64) -> String {
 ///
 /// # Errors
 ///
-/// [`UpdateError`], which names the five documents this refuses: one whose table was rebuilt by
+/// [`UpdateError`], which names the six documents this refuses: one whose table was rebuilt by
 /// scanning, one whose encryption cannot be applied to what is written, one with no `startxref`,
-/// one whose trailer has no `/Root`, and one on disk the process cannot hold whole.
+/// one whose trailer has no `/Root`, one on disk the process cannot hold whole, and one so large
+/// that an offset the update states does not fit its section's field.
+///
+/// # Where offsets count from
+///
+/// ISO 32000-2 §7.5.2: "byte offsets shall be calculated from the PERCENT SIGN (25h)" of the
+/// `%PDF-` header, and NOTE 1 allows bytes before it. Every offset this writes — each new
+/// object's entry and the new `startxref` — is counted from the header the reader counted the
+/// file's own offsets from ([`crate::Document::offset_origin`]), so the update reads back through
+/// its own section however many bytes stand in front of the file (ADR 3249).
 pub fn incremental_update(
     document: &crate::Document,
     replacements: &BTreeMap<ObjectId, Object>,
@@ -319,6 +347,9 @@ pub fn incremental_update_extending(
         .cloned()
         .ok_or(UpdateError::NoRoot)?;
 
+    // §7.5.2's origin: what the reader counted this file's offsets from is what the update's
+    // offsets are counted from.
+    let origin = document.offset_origin();
     let mut out = original.to_vec();
     // §7.5.6's own requirement on what precedes an update: the file it appends to ends with
     // `%%EOF`, and a file that does not end with a line break would run the first new object
@@ -337,7 +368,7 @@ pub fn incremental_update_extending(
         let value = document
             .encrypt_for_update(*id, value)
             .ok_or(UpdateError::Encryption)?;
-        offsets.push((*id, out.len()));
+        offsets.push((*id, out.len().saturating_sub(origin)));
         let mut header = String::new();
         let _ = writeln!(header, "{} {} obj", id.number, id.generation);
         out.extend_from_slice(header.as_bytes());
@@ -355,11 +386,8 @@ pub fn incremental_update_extending(
         .saturating_add(1)
         .max(size_of_document(document));
 
-    let stream_form = document
-        .trailer()
-        .get("Type")
-        .and_then(Object::as_name)
-        .is_some_and(|name| name.as_bytes() == b"XRef");
+    // The section `startxref` names decides the form; see the function's doc.
+    let stream_form = document.xref().newest_section_is_classic() == Some(false);
     // One list of entries, in object-number order, free ones marked: what both forms of
     // section are written from.
     let mut entries: Vec<Entry> = offsets
@@ -377,14 +405,17 @@ pub fn incremental_update_extending(
         .collect();
     entries.sort_unstable_by_key(|entry| entry.number);
 
+    let section = Section {
+        entries: &entries,
+        size,
+        previous,
+        origin,
+        root: &root,
+    };
     if stream_form {
-        cross_reference_stream(
-            &mut out, &entries, size, previous, &root, document, additions,
-        );
+        cross_reference_stream(&mut out, &section, document, additions)?;
     } else {
-        cross_reference_table(
-            &mut out, &entries, size, previous, &root, document, additions,
-        );
+        cross_reference_table(&mut out, &section, document, additions)?;
     }
     Ok(out)
 }
@@ -425,19 +456,33 @@ fn size_of_document(document: &crate::Document) -> u64 {
         .unwrap_or_default()
 }
 
+/// What both forms of section are written from.
+struct Section<'a> {
+    /// The update's entries, in object-number order.
+    entries: &'a [Entry],
+    /// The trailer's `/Size`.
+    size: u64,
+    /// The `/Prev` offset: the `startxref` the file already states.
+    previous: usize,
+    /// Where in the output the header stands that offsets are counted from (§7.5.2).
+    origin: usize,
+    /// The trailer's `/Root`.
+    root: &'a Object,
+}
+
+/// §7.5.4's largest offset: "a 10-digit number".
+const MAX_TABLE_OFFSET: usize = 9_999_999_999;
+
 /// §7.5.4's cross-reference table, in subsections of consecutive object numbers.
 fn cross_reference_table(
     out: &mut Vec<u8>,
-    entries: &[Entry],
-    size: u64,
-    previous: usize,
-    root: &Object,
+    section: &Section<'_>,
     document: &crate::Document,
     additions: &Dictionary,
-) {
-    let at = out.len();
+) -> Result<(), UpdateError> {
+    let at = out.len().saturating_sub(section.origin);
     let mut text = String::from("xref\n");
-    for run in runs(entries) {
+    for run in runs(section.entries) {
         let _ = writeln!(text, "{} {}", run[0].number, run.len());
         for entry in run {
             // §7.5.4's entry is exactly twenty bytes, and the clause spells out both halves:
@@ -446,6 +491,9 @@ fn cross_reference_table(
             // object number of the next free object", which for one outside the list is 0.
             match entry.state {
                 State::InUse { offset } => {
+                    if offset > MAX_TABLE_OFFSET {
+                        return Err(too_large(offset));
+                    }
                     let _ = writeln!(text, "{offset:010} {:05} n ", entry.generation);
                 }
                 State::Free => {
@@ -457,11 +505,14 @@ fn cross_reference_table(
     out.extend_from_slice(text.as_bytes());
 
     let mut trailer = Dictionary::new();
-    trailer.insert(Name::new(&b"Size"[..]), Object::Integer(as_integer(size)));
-    trailer.insert(Name::new(&b"Root"[..]), root.clone());
+    trailer.insert(
+        Name::new(&b"Size"[..]),
+        Object::Integer(as_integer(section.size)),
+    );
+    trailer.insert(Name::new(&b"Root"[..]), section.root.clone());
     trailer.insert(
         Name::new(&b"Prev"[..]),
-        Object::Integer(as_integer(previous as u64)),
+        Object::Integer(as_integer(section.previous as u64)),
     );
     carry_forward(document, &mut trailer);
     extend(additions, &mut trailer);
@@ -472,24 +523,22 @@ fn cross_reference_table(
     let mut tail = String::new();
     let _ = write!(tail, "\nstartxref\n{at}\n%%EOF\n");
     out.extend_from_slice(tail.as_bytes());
+    Ok(())
 }
 
 /// §7.5.8's cross-reference stream, uncompressed, with the three-field entries of Table 18.
 fn cross_reference_stream(
     out: &mut Vec<u8>,
-    entries: &[Entry],
-    size: u64,
-    previous: usize,
-    root: &Object,
+    section: &Section<'_>,
     document: &crate::Document,
     additions: &Dictionary,
-) {
+) -> Result<(), UpdateError> {
     // The stream is itself an object, and its own entry has to be in it — so it takes the next
     // number after everything else, and its offset is where it is about to be written.
-    let stream_number = u32::try_from(size).unwrap_or(u32::MAX);
-    let at = out.len();
+    let stream_number = u32::try_from(section.size).unwrap_or(u32::MAX);
+    let at = out.len().saturating_sub(section.origin);
 
-    let mut entries = entries.to_vec();
+    let mut entries = section.entries.to_vec();
     entries.push(Entry {
         number: stream_number,
         generation: 0,
@@ -510,10 +559,9 @@ fn cross_reference_stream(
             // again" — 0 and 65,535, for the reason `incremental_update_freeing` gives.
             match entry.state {
                 State::InUse { offset } => {
+                    let field = u32::try_from(offset).map_err(|_| too_large(offset))?;
                     data.push(1);
-                    data.extend_from_slice(
-                        &u32::try_from(offset).unwrap_or(u32::MAX).to_be_bytes(),
-                    );
+                    data.extend_from_slice(&field.to_be_bytes());
                 }
                 State::Free => {
                     data.push(0);
@@ -542,10 +590,10 @@ fn cross_reference_stream(
         ]),
     );
     dict.insert(Name::new(&b"Index"[..]), Object::Array(index));
-    dict.insert(Name::new(&b"Root"[..]), root.clone());
+    dict.insert(Name::new(&b"Root"[..]), section.root.clone());
     dict.insert(
         Name::new(&b"Prev"[..]),
-        Object::Integer(as_integer(previous as u64)),
+        Object::Integer(as_integer(section.previous as u64)),
     );
     dict.insert(
         Name::new(&b"Length"[..]),
@@ -569,6 +617,15 @@ fn cross_reference_stream(
     let mut tail = String::new();
     let _ = write!(tail, "\nendobj\nstartxref\n{at}\n%%EOF\n");
     out.extend_from_slice(tail.as_bytes());
+    Ok(())
+}
+
+/// [`UpdateError::OffsetTooLarge`] for an offset into memory, which `usize` holds and `u64`
+/// holds whole on every target this builds for.
+fn too_large(offset: usize) -> UpdateError {
+    UpdateError::OffsetTooLarge {
+        offset: u64::try_from(offset).unwrap_or(u64::MAX),
+    }
 }
 
 /// §14.4's file identifier, updated as the clause requires.

@@ -70,6 +70,12 @@ pub struct XrefTable {
     /// Whether the `/Prev` chain stopped at a section the file names and this reader could not
     /// read. See [`Self::chain_cut`].
     chain_cut: bool,
+    /// Where the header stands that every offset of the chain was counted from. See
+    /// [`Self::offset_origin`].
+    offset_origin: usize,
+    /// Whether the section `startxref` names is §7.5.4's table rather than §7.5.8's stream. See
+    /// [`Self::newest_section_is_classic`].
+    newest_section_classic: Option<bool>,
 }
 
 impl XrefTable {
@@ -290,6 +296,36 @@ impl XrefTable {
     #[must_use]
     pub fn recovered_by_scan(&self) -> bool {
         self.recovered_by_scan
+    }
+
+    /// The position in the file that the chain's offsets were counted from: the `%` of the
+    /// `%PDF-` header.
+    ///
+    /// ISO 32000-2 §7.5.2:
+    ///
+    /// > The PDF file begins with the 5 characters "%PDF-" and byte offsets shall be calculated
+    /// > from the PERCENT SIGN (25h).
+    ///
+    /// NOTE 1 of the same clause allows bytes in front of the header, so the origin is not byte
+    /// zero for every file, and a writer that appends to the file states its new offsets from
+    /// here as the reader read the old ones (ADR 2960 on the way in, ADR 3249 on the way out).
+    /// Zero for a table rebuilt by scanning, which read no stated offset.
+    #[must_use]
+    pub fn offset_origin(&self) -> usize {
+        self.offset_origin
+    }
+
+    /// Whether the newest section — the one `startxref` names — is §7.5.4's cross-reference
+    /// table (`Some(true)`) or §7.5.8's cross-reference stream (`Some(false)`); `None` for a
+    /// table rebuilt by scanning.
+    ///
+    /// A hybrid-reference file's newest section is a table whatever its `/XRefStm` names, and a
+    /// table appended over a file whose older sections are streams is a table too: the merged
+    /// trailer's `/Type` would say otherwise in the second case, because the older stream's
+    /// dictionary supplies a key the table's trailer does not state.
+    #[must_use]
+    pub fn newest_section_is_classic(&self) -> Option<bool> {
+        self.newest_section_classic
     }
 
     /// Files every section's entries at once, the first writer of each number winning.
@@ -562,12 +598,16 @@ pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl Fn
         }
     }
 
-    let mut table = XrefTable::default();
+    let mut table = XrefTable {
+        offset_origin: base,
+        ..XrefTable::default()
+    };
     for (section, hybrid) in chain.into_iter().rev() {
         if let Some(hybrid) = hybrid {
             table.lay_over(&hybrid);
         }
         table.lay_over(&section);
+        table.newest_section_classic = Some(section.classic);
         each(&table);
     }
 }
@@ -702,7 +742,10 @@ fn read_from_startxref(
     mut record: Option<&mut Vec<SectionRecord>>,
 ) -> Option<XrefTable> {
     let mut next = find_startxref(file)?.saturating_add(base);
-    let mut table = XrefTable::default();
+    let mut table = XrefTable {
+        offset_origin: base,
+        ..XrefTable::default()
+    };
     let mut visited = std::collections::BTreeSet::new();
     // Every section's entries in read order — newest first, and a hybrid file's `/XRefStm`
     // between its own section and the older one it precedes. `XrefTable::fill` turns that order
@@ -730,6 +773,7 @@ fn read_from_startxref(
             break;
         };
         named_and_unread = false;
+        table.newest_section_classic.get_or_insert(section.classic);
         if let Some(record) = record.as_mut() {
             record.push(SectionRecord {
                 offset: next,

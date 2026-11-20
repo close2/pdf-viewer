@@ -9,7 +9,8 @@
   "source": "ISO 32000-2 §7.5.7: \"Following the N pairs of integers, the N objects are stored consecutively.\" NOTE 7 (2020): \"Previous editions of this specification incorrectly stated that white-space was required between objects. This document corrects the text to clarify that processing of each object in an object stream starts at the specified byte offset in the decompressed stream and ends prior to the byte offset of the next object or when the end of stream is encountered.\"",
   "code": "crates/pdf-syntax/src/document/object_streams.rs:107 (expand_object_stream: Parser::at(&data, start, ...) over the whole data; stated_end is computed and used only as a bounds check)",
   "change": "Parse each member over data[..stated_end] (the next member's offset, or the end of the data), so the parser cannot read past it.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_object_ends_where_the_next_one_begins_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary)"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_object_ends_where_the_next_one_begins_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary)",
+  "status": "fixed (ADR 3250; expand_object_stream parses each member over the bytes up to the next member's offset)"
  },
  {
   "id": "2136-B02",
@@ -24,7 +25,8 @@
   "source": "ISO 32000-2 §7.5.2: \"The PDF file begins with the 5 characters '%PDF-' and byte offsets shall be calculated from the PERCENT SIGN (25h).\" NOTE 1: \"This provision allows for arbitrary bytes preceding the %PDF- without impacting the viability of the PDF file and its byte offsets.\" §7.5.6: \"When a PDF reader reads the PDF file, it shall build its cross-reference information in such a way that the most recent copy of each object shall be the one accessed from the PDF file.\"",
   "code": "crates/pdf-syntax/src/write.rs:340 (offsets.push((*id, out.len()))), :438 and :490 (let at = out.len(), the new startxref and the stream's own entry)",
   "change": "Subtract the header position the reader used (xref::header_position, exposed through Document) from every offset written and from startxref, in both section forms.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::an_update_to_a_file_with_bytes_before_its_header_counts_from_the_header_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the prefix-0 control passes"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::an_update_to_a_file_with_bytes_before_its_header_counts_from_the_header_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the prefix-0 control passes",
+  "status": "fixed (ADR 3249; Document::offset_origin, and the update writer states every offset and startxref from it)"
  },
  {
   "id": "2136-B03",
@@ -51,7 +53,8 @@
   "source": "ISO 32000-2 §7.5.8.3 Table 18, type 2, field 3: \"The index of this object within the object stream.\" Table 17 /W: \"the value of each integer shall be the number of bytes (in the decoded stream) of the corresponding field.\"",
   "code": "crates/pdf-syntax/src/serialize.rs:2223 (cross_reference_stream)",
   "change": "Size the third /W field from the largest index written (as the offset field could be sized from the largest offset), or cap max_objects at 65 536 when the options are built, or refuse by name as OffsetTooLarge does.",
-  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_entry_states_its_own_index_however_many_members_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the index-9 control passes"
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/file_structure_spec_audit.rs::a_compressed_entry_states_its_own_index_however_many_members_spec_audit — round 2136, scratch log r2136/p4.log (nextest of the test binary); the index-9 control passes",
+  "status": "fixed (ADR 3251; the cross-reference stream's third /W field is as wide as the largest member index)"
  },
  {
   "id": "2136-B05",
@@ -64,7 +67,8 @@
   "source": "ISO 32000-2 §7.5.4: \"The byte offset in the decoded stream shall be a 10-digit number\" and \"the overall length of the entry shall always be exactly 20 bytes\"; Table 18 type 1 field 2: \"The byte offset of the object, starting from the beginning of the PDF file.\"",
   "code": "crates/pdf-syntax/src/write.rs:449, :515",
   "change": "Refuse by name past the field (an UpdateError beside Recovered), or size the stream's offset field from the largest offset.",
-  "execution": "not run: a failing test needs a document of more than 4 GiB held whole by incremental_update; serialize's OffsetTooLarge is the model"
+  "execution": "not run: a failing test needs a document of more than 4 GiB held whole by incremental_update; serialize's OffsetTooLarge is the model",
+  "status": "fixed (ADR 3249; UpdateError::OffsetTooLarge refuses an offset past the table's ten digits or the stream's four bytes)"
  },
  {
   "id": "2136-T01",
@@ -75,7 +79,8 @@
   "summary": "No test pins what a hybrid section's own free entry does beside its own /XRefStm. The reader lets the section's free entry win (it is read first), which is the clause's order read literally (\"if an entry is not found in any given standard cross-reference section\"); the existing test covers only a free entry in the previous section, the one NOTE describes.",
   "source": "ISO 32000-2 §7.5.8.4: \"When the PDF reader searches for an object, if an entry is not found in any given standard cross-reference section, the search shall proceed to a cross-reference stream specified by the XRefStm entry before looking in the previous cross-reference section\"; NOTE: \"The other is a free entry in some previous section, typically the section referenced by the Prev entry.\"",
   "code": "crates/pdf-syntax/src/xref.rs read_from_startxref (section entries, then /XRefStm, then /Prev); crates/pdf-syntax/tests/cross_references.rs a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free",
-  "change": "Add a test that states the literal order for a free entry in the same section, so a change to it is a decision."
+  "change": "Add a test that states the literal order for a free entry in the same section, so a change to it is a decision.",
+  "status": "fixed (cross_references.rs::a_hybrid_sections_own_free_entry_is_found_before_its_own_xrefstm)"
  },
  {
   "id": "2136-D01",
@@ -87,7 +92,8 @@
   "summary": "load's compressed-object branch says the index is \"only a hint about ordering\" and falls back to expanded.values().nth(index) when the stream does not hold the number: the map is keyed by object number, so nth counts in number order, not the stream's order Table 18's index is about (NOTE 6: members need not be in number order). The fallback hands back another member's value under this number, the silent substitution the offset branch beside it refuses.",
   "source": "ISO 32000-2 Table 18 type 2 field 3: \"The index of this object within the object stream.\" §7.5.7 NOTE 6: \"There is no restriction on the order of objects in the object stream; in particular, the objects need not be stored in object-number order.\"",
   "code": "crates/pdf-syntax/src/document/objects.rs:283-288",
-  "change": "Drop the fallback (an entry whose stream does not hold its number reads as null, as the offset branch's mismatch does) or keep the members in stream order for it; say which in the comment."
+  "change": "Drop the fallback (an entry whose stream does not hold its number reads as null, as the offset branch's mismatch does) or keep the members in stream order for it; say which in the comment.",
+  "status": "fixed (ADR 3250; load's index fallback removed, an entry whose stream holds no such member reads as null)"
  },
  {
   "id": "2136-D02",
@@ -99,6 +105,7 @@
   "summary": "incremental_update's doc says a document \"whose last section is §7.5.8's cross-reference stream gets one of those\" and that each object is written \"with the generation the document's own table gives it\". The form is chosen from the merged trailer's /Type, which an older stream section supplies when the newest section is a classic table; and the table records no generation (Location has none) — the caller's ObjectId carries it.",
   "source": "ISO 32000-2 §7.5.6 (the update section), §7.5.8.1",
   "code": "crates/pdf-syntax/src/write.rs:210, :220, :360",
-  "change": "Say what decides each: the newest section's own form (xref::sections()[0].classic) if that is what is meant, and the caller's identifier for the generation."
+  "change": "Say what decides each: the newest section's own form (xref::sections()[0].classic) if that is what is meant, and the caller's identifier for the generation.",
+  "status": "fixed (ADR 3249; the form follows XrefTable::newest_section_is_classic, and the doc names the caller's identifier for the generation)"
  }
 ]

@@ -175,6 +175,57 @@ fn an_update_chains_onto_an_update() {
     assert!(matches!(pages, Object::Dictionary(_)), "{pages:?}");
 }
 
+/// ISO 32000-2 §7.5.2: an update counts its offsets from the header, wherever the header stands.
+///
+/// > The PDF file begins with the 5 characters "%PDF-" and byte offsets shall be calculated from
+/// > the PERCENT SIGN (25h).
+///
+/// > NOTE 1 This provision allows for arbitrary bytes preceding the %PDF- without impacting the
+/// > viability of the PDF file and its byte offsets.
+///
+/// Junk in front of the header must not make a saved file unsaveable: each update is read back
+/// through its own cross-reference section rather than rebuilt by scanning, and the second save
+/// chains onto the first, in both forms of section this writer appends.
+#[test]
+fn a_file_with_bytes_before_its_header_is_saved_twice_and_read_back_each_time() {
+    for (form, fixture) in [
+        ("table", classic()),
+        ("stream", with_cross_reference_stream()),
+    ] {
+        let mut original = b"junk a mail gateway added\r\n".to_vec();
+        original.extend_from_slice(&fixture);
+        let document = Document::open(original.clone()).unwrap();
+        assert!(!document.was_recovered(), "{form}: control, the original");
+        assert_eq!(
+            document.offset_origin(),
+            27,
+            "{form}: the header's position"
+        );
+
+        let once = incremental_update(&document, &marked(&document, "yes")).unwrap();
+        assert!(
+            once.starts_with(&original),
+            "{form}: the first save appends"
+        );
+        let reopened = Document::open(once.clone()).unwrap();
+        assert!(
+            !reopened.was_recovered(),
+            "{form}: the first save is read through its section"
+        );
+        assert_eq!(read_back(&once), "yes", "{form}");
+
+        let twice = incremental_update(&reopened, &marked(&reopened, "again"))
+            .expect("a file saved once can be saved again");
+        assert!(twice.starts_with(&once), "{form}: the second save appends");
+        let reopened = Document::open(twice.clone()).unwrap();
+        assert!(
+            !reopened.was_recovered(),
+            "{form}: the second save is read through its section"
+        );
+        assert_eq!(read_back(&twice), "again", "{form}");
+    }
+}
+
 /// §7.5.6's version rule, over a chain of cross-reference *streams* this writer appended.
 ///
 /// The clause's sentence is one this collection of errata amended (Issue #399): the catalog of

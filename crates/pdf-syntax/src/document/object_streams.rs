@@ -100,11 +100,18 @@ impl Document {
             // object the prefix does not wholly carry is not one of them: a truncated token
             // parses — `/Length 12345` cut short is `/Length 123` — so reading it would put a
             // value the producer never wrote under a number the producer did. ADR 0366.
-            if stated_end.is_none_or(|end| end > data.len()) || start >= data.len() {
+            let Some(extent) = stated_end
+                .filter(|&end| start < end)
+                .and_then(|end| data.get(..end))
+            else {
                 lost.insert(object_number);
                 continue;
-            }
-            let mut parser = Parser::at(&data, start, self.limits);
+            };
+            // The object ends where the next one begins, and the parser is given only the bytes
+            // up to there: the 2020 edition requires no white-space between members, so `57` is
+            // two objects when the second offset is 1, and a parser handed the rest of the
+            // stream would read the first as `57` (ADR 3250).
+            let mut parser = Parser::at(extent, start, self.limits);
             if let Ok(parsed) = parser.parse_object() {
                 objects.insert(object_number, parsed);
             }

@@ -782,6 +782,50 @@ fn a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_f
     assert!(document.get(ObjectId::new(5, 0)).as_stream().is_some());
 }
 
+/// ISO 32000-2 §7.5.8.4: a hybrid section's *own* free entry is found before its `/XRefStm`.
+///
+/// > When the PDF reader searches for an object, if an entry is not found in any given standard
+/// > cross-reference section, the search shall proceed to a cross-reference stream specified by
+/// > the XRefStm entry before looking in the previous cross-reference section (the Prev entry in
+/// > the trailer).
+///
+/// The stream is consulted where the section states no entry, and a free entry is an entry: the
+/// clause's NOTE describes the free entry "in some previous section", which the test above covers,
+/// and says nothing that moves the stream ahead of the section that names it. So where the newest
+/// table itself marks object 4 free and its own stream places the object, the literal order
+/// decides, and the object is deleted. A reader that let the stream win here would have made a
+/// decision the clause does not state, and this test is what makes that change a decision.
+#[test]
+fn a_hybrid_sections_own_free_entry_is_found_before_its_own_xrefstm() {
+    let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+    let main_at = out.len();
+    classic_section(&mut out, &offsets, "");
+
+    let mut bytes = out.into_bytes();
+    let stream_at = bytes.len();
+    let entries = [
+        [1u64, offset_of(offsets[3]), 0], // object 4, where the stream says it is
+        [1, offset_of(stream_at), 0],     // object 5's required self-entry
+    ];
+    bytes.extend_from_slice(&xref_stream_object(5, Some(4), &entries, "", [1, 4, 2]));
+    let table_at = bytes.len();
+    let tail = format!(
+        "xref\n4 1\n0000000000 00001 f \ntrailer\n<< /Size 6 /Root 1 0 R /XRefStm {stream_at} /Prev {main_at} >>\nstartxref\n{table_at}\n%%EOF\n"
+    );
+    bytes.extend_from_slice(tail.as_bytes());
+
+    let document = open(bytes);
+    assert_eq!(
+        object(&document, 4),
+        Object::Null,
+        "the section's own free entry"
+    );
+    assert!(
+        document.get(ObjectId::new(5, 0)).as_stream().is_some(),
+        "control: the stream itself was read"
+    );
+}
+
 /// The skeleton written with a cross-reference stream rather than a classic table.
 ///
 /// `widths` is `/W`, and `stated` decides whether `/Index` is written or left to its default.

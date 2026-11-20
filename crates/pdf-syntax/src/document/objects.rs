@@ -277,15 +277,15 @@ impl Document {
                     _ => self.load_by_header(id),
                 }
             }
-            Location::InStream { stream, index } => {
+            Location::InStream { stream, .. } => {
                 let expanded = self.expand_object_stream(stream)?;
-                // Objects in a stream are addressed by their own number, and `index` is
-                // only a hint about ordering, so the number is authoritative.
-                expanded
-                    .get(&id.number)
-                    .cloned()
-                    .or_else(|| expanded.values().nth(index as usize).cloned())
-                    .map(|object| (0, object))
+                // A member is found by the number the stream's own header pairs with it, and
+                // the entry's index is not consulted. Where the stream holds no member of this
+                // number the entry pointed at the wrong stream, and handing back the member at
+                // that index would put another object's value under this number — the silent
+                // substitution the offset branch above refuses — so the answer is no object,
+                // which §7.3.10 reads as null (ADR 3250).
+                expanded.get(&id.number).cloned().map(|object| (0, object))
             }
         }
     }

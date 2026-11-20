@@ -442,6 +442,17 @@ impl Document {
         &self.bytes
     }
 
+    /// Where in [`Self::bytes`] the `%PDF-` header stands that the file's offsets count from.
+    ///
+    /// ISO 32000-2 §7.5.2 makes the header's PERCENT SIGN the origin of every byte offset, and
+    /// its NOTE 1 allows bytes before it. Every offset a writer appends to this file — an
+    /// update's entries, its `startxref` — is stated from here: see
+    /// [`crate::XrefTable::offset_origin`].
+    #[must_use]
+    pub fn offset_origin(&self) -> usize {
+        self.xref.offset_origin()
+    }
+
     /// Returns the resource bounds in force.
     #[must_use]
     pub fn limits(&self) -> Limits {
