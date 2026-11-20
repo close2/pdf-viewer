@@ -1504,7 +1504,9 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   with no current point, a matrix with no inverse, a stream damaged part-way (the page's own
   `/Contents` as well as a form's), a stream that ends inside a text object and a keyword inside an
   array are drawn as the window draws them; a part of `/Contents` the window drew nothing of, an
-  image or shading this reader cannot build and a drawing stopped at a bound keep the refusal.
+  image or shading this reader cannot build and a drawing stopped at a bound keep the refusal,
+  except the operand cap reached on a page whose own `/Contents` failed its decode and put a keyword
+  inside an array: the operands behind it are the array the damage left open (ADR 3267).
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
   alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph
@@ -1517,7 +1519,9 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   encoding where it stated none, giving the empty glyph no character (ADR 3125). With the file's
   own descriptor and no program, the same two constructions: the symbolic font under a shipped or
   machine's `glyf` face, the named empty glyph under a shipped CFF face, the dictionary restated
-  as `Type1` or kept (ADR 3126). Not offered at Levels U and A; still refused beside a code Annex D
+  as `Type1` or kept (ADR 3126). Where the window drew the font from a machine's face and the
+  shipped face goes in, the proof holds such a code's empty glyph to the nothing the machine's
+  face drew (ADR 3266). Not offered at Levels U and A; still refused beside a code Annex D
   encodes twice, under a face of the Latin-Greek-Cyrillic pack and under a machine's OpenType CFF
   face.
 - **Still refused, by name**: a composite font nobody named a program for that the gate refuses or
@@ -1814,7 +1818,9 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
   stream sending a CID other than 0 to glyph 0, the descriptor it writes states no `/CIDSet`
   (ADR 3239). The check judges a set under a map stream: a CID is present where the stream gives it
   an index the program holds a glyph at, glyph 0 included, by Table 115 and §9.7.6.3 (ADR 3255);
-  veraPDF 1.30.3 agrees but for CID 0, which it skips.
+  veraPDF 1.30.3 agrees but for CID 0, which it skips. The check asks both directions: a set
+  marking a CID the program does not hold identifies an absent CID as present and fails too, as
+  veraPDF fails it, and the same removal answers it (ADR 3265).
 - **By target** — part 4 states no such rule and ISO 32000-2's Table 122 deprecates `/CIDSet`
   outright, so a part 4 target wants the entry *gone* rather than corrected. Confirmed **A**.
 - **From a configuration** — at most `route = "recompute" | "remove"`, and only because an archive

@@ -811,14 +811,54 @@ fn admitted(
             .find(|font| font.mapped);
         return Err(keyed.map_or(Because::NotBuiltYet(TEXT_IS_READABLE), |font| font.refusal));
     }
-    if let Some(report) = interpretation
-        .unsupported
-        .iter()
-        .find(|report| leaves_the_page_undrawn(report, gate))
-    {
+    let reports = &interpretation.unsupported;
+    let array_left_open = gate.anywhere && an_array_left_open_by_damage(reports);
+    if let Some(report) = reports.iter().find(|report| {
+        leaves_the_page_undrawn(report, gate) && !(array_left_open && is_the_operand_cap(report))
+    }) {
         return Err(Because::NotBuiltYet(not_drawn_whole(report)));
     }
     Ok(())
+}
+
+/// Whether `report` is the interpreter's operand cap, which is also where it stops believing an
+/// array the stream opened (`pdf_model::content`'s `MAX_OPERANDS`).
+fn is_the_operand_cap(report: &Unsupported) -> bool {
+    matches!(
+        report,
+        Unsupported::LimitReached {
+            limit: "MAX_OPERANDS"
+        }
+    )
+}
+
+/// Whether a page's reports show the operand cap reached because the page's own damaged bytes
+/// left an array open (`doc/adr/3267`): a part of its `/Contents` failed its own decode, and a
+/// keyword stood where only an array's objects may.
+///
+/// The interpreter keeps an array's elements as operands until its `]`, and believes an array
+/// one cap's worth of tokens far. ISO 32000-2 §7.3.6 admits only objects into an array, so an
+/// array still open when a keyword arrives was not closed where the stream meant it to be; and a
+/// stream that fails its own check value is the file's damage, not this reader's gap (ADR 2759).
+/// With both on the page, the operands piled up behind the cap are the open array's, the stream's
+/// own fault the wider gate bakes in as the window drew it (ADR 2618). A page whose bytes decode
+/// whole reaches the cap only by stating that many objects before one operator, which neither
+/// condition describes, and it stays refused by the bound's sentence.
+fn an_array_left_open_by_damage(reports: &[Unsupported]) -> bool {
+    let damaged = reports.iter().any(|report| {
+        matches!(
+            report,
+            Unsupported::DamagedContentStream { .. }
+                | Unsupported::Content {
+                    issue: ContentIssue::Damaged { .. }
+                }
+        )
+    });
+    let keyword_in_an_array = reports.iter().any(|report| {
+        report.stream_syntax_fault()
+            == Some(pdf_model::content::StreamSyntaxFault::KeywordInsideAnArray)
+    });
+    damaged && keyword_in_an_array && reports.iter().any(is_the_operand_cap)
 }
 
 /// Whether a report leaves the page one the gate does not photograph: anything but the fonts the
@@ -1466,6 +1506,42 @@ mod tests {
         assert_eq!(not_drawn_whole(&image), NOT_DRAWN_AN_IMAGE_OR_SHADING);
         assert_eq!(not_drawn_whole(&part), NOT_DRAWN_A_PART_OF_CONTENTS);
         assert_eq!(not_drawn_whole(&knockout), NOT_DRAWN_WHOLE);
+    }
+
+    /// ADR 3267: the operand cap is the open array's, and baked in, only on a page whose own
+    /// bytes failed their decode and put a keyword inside an array; either alone, or the cap
+    /// alone, leaves the bound's refusal.
+    #[test]
+    fn the_operand_cap_an_array_left_open_by_damage_reached_is_the_stream_s_own_fault() {
+        let cap = Unsupported::LimitReached {
+            limit: "MAX_OPERANDS",
+        };
+        let damaged = Unsupported::Content {
+            issue: ContentIssue::Damaged {
+                index: 2,
+                damage: pdf_syntax::Damage::CheckValue,
+                kept: 12_572,
+                filters: vec![String::from("FlateDecode")],
+            },
+        };
+        let inside = Unsupported::Operator {
+            operator: String::from("m inside an array, which §7.3.6 admits only objects into"),
+        };
+        let other_bound = Unsupported::LimitReached {
+            limit: "MAX_STATE_DEPTH",
+        };
+        let all = [cap.clone(), damaged.clone(), inside.clone()];
+        assert!(an_array_left_open_by_damage(&all));
+        for short in [
+            vec![cap.clone(), damaged.clone()],
+            vec![cap.clone(), inside.clone()],
+            vec![damaged.clone(), inside.clone()],
+            vec![cap.clone()],
+        ] {
+            assert!(!an_array_left_open_by_damage(&short), "{short:?}");
+        }
+        assert!(is_the_operand_cap(&cap));
+        assert!(!is_the_operand_cap(&other_bound));
     }
 
     #[test]

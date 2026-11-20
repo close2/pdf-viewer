@@ -291,7 +291,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
         id: "fonts/cidset-lists-every-cid-in-the-program",
         asks: "Where an embedded CIDFont's descriptor states a CIDSet stream, it shall mark \
-               every CID the font program contains and not only the CIDs the file uses.",
+               every CID the font program contains and not only the CIDs the file uses, and no \
+               CID the program does not contain.",
         clauses: Clauses::only_two("6.2.11.4.2"),
         applies: Applies::Always,
         check: Check::Implemented(cidset_lists_every_cid_in_the_program),
@@ -1961,20 +1962,54 @@ fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut 
             let bit = 7u32.saturating_sub(u32::from(cid) % 8);
             bits.get(at).is_some_and(|byte| byte & (1u8 << bit) != 0)
         };
-        let missing: Vec<u16> = present.into_iter().filter(|cid| !marked(*cid)).collect();
-        if missing.is_empty() {
-            return;
+        let missing: Vec<u16> = present
+            .iter()
+            .copied()
+            .filter(|cid| !marked(*cid))
+            .collect();
+        if let Some(&first) = missing.first() {
+            findings.record(
+                site.place_named("CIDSet"),
+                format!(
+                    "the CIDSet stream leaves {} of the font program's CIDs unmarked, including \
+                     CID {first}",
+                    missing.len(),
+                ),
+            );
         }
-        findings.record(
-            site.place_named("CIDSet"),
-            format!(
-                "the CIDSet stream leaves {} of the font program's CIDs unmarked, including \
-                 CID {}",
-                missing.len(),
-                missing.first().copied().unwrap_or_default()
-            ),
-        );
+        let absent = marked_but_absent(&bits, &present);
+        if let Some(&first) = absent.first() {
+            findings.record(
+                site.place_named("CIDSet"),
+                format!(
+                    "the CIDSet stream marks {} CIDs the font program does not hold, including \
+                     CID {first}",
+                    absent.len(),
+                ),
+            );
+        }
     });
+}
+
+/// The CIDs a `/CIDSet` stream's `bits` mark that are not among `present` (ascending): the other
+/// half of section 6.2.11.4.2's sentence, which asks the set to *identify* the CIDs present in
+/// the program, and Table 124 calls the stream one identifying which CIDs are present in the
+/// `CIDFont` file — so a bit set for a CID the program does not hold identifies an absent CID as
+/// present (`doc/adr/3265`).
+///
+/// A bit past CID 65 535 names a CID no two-byte code can select, and a stream's bytes past that
+/// are not read.
+fn marked_but_absent(bits: &[u8], present: &[u16]) -> Vec<u16> {
+    bits.iter()
+        .enumerate()
+        .flat_map(|(at, byte)| {
+            (0..8_usize)
+                .filter(move |bit| byte & (0x80_u8 >> bit) != 0)
+                .map(move |bit| at.saturating_mul(8).saturating_add(bit))
+        })
+        .map_while(|cid| u16::try_from(cid).ok())
+        .filter(|cid| present.binary_search(cid).is_err())
+        .collect()
 }
 
 /// The CIDs a `/CIDToGIDMap` stream `map` makes present in a program holding `glyphs`: each CID
@@ -4784,6 +4819,36 @@ mod tests {
             present_under_a_map_stream(&[0, 1, 0, 9, 0], &[0, 1, 2]),
             vec![0]
         );
+    }
+
+    /// Section 6.2.11.4.2's other direction: a set *identifies* the CIDs present, so a bit for a
+    /// CID the program does not hold fails it (`doc/adr/3265`). [`cid_page`]'s stream reaches
+    /// CIDs 0 to 36 and no further, so CIDs 37 to 39 are absent; and where CID 36 is sent to
+    /// glyph 60 000, which `maxp`'s 681 glyphs do not reach, CID 36 is absent too.
+    #[test]
+    fn a_cidset_marking_a_cid_the_program_does_not_hold_fails() {
+        use super::{cidset_lists_every_cid_in_the_program, marked_but_absent};
+        let rule = cidset_lists_every_cid_in_the_program;
+        let found = findings(&cid_page_marking(60_000, 0..=36), rule);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("marks 1 CIDs the font program does not hold, including CID 36"),
+            "{found:?}"
+        );
+        let found = findings(&cid_page_marking(36, 0..=39), rule);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("marks 3 CIDs the font program does not hold, including CID 37"),
+            "{found:?}"
+        );
+        // Both directions at once are two findings at the one site.
+        assert_eq!(findings(&cid_page_marking(60_000, [0, 37]), rule).len(), 2);
+
+        // High-order bit first (Table 124); a bit past CID 65 535 is not read.
+        assert_eq!(marked_but_absent(&[0b1010_0000], &[0]), vec![2]);
+        let mut wide = vec![0_u8; 8_193];
+        wide[8_192] = 0x80;
+        assert_eq!(marked_but_absent(&wide, &[]), Vec::<u16>::new());
     }
 
     /// A file holding `objects` as objects 1, 2, …, with object 1 its catalog.

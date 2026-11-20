@@ -243,3 +243,84 @@ fn a_outline(bytes: &[u8]) -> pdf_render::Path {
         path
     }
 }
+
+/// ADR 3266, R08: a font the viewer draws from a machine's face, showing a code
+/// `/WinAnsiEncoding` names nothing for — a line feed, as `219789`'s fonts show on every page —
+/// converts where the profile authorises the shipped face. ISO 32000-2 §9.6.5 sends the code to
+/// `.notdef`, which draws nothing from either face, and ISO 19005-2 section 6.2.11.8 and ISO 19005-4
+/// section 6.2.10.9 forbid showing `.notdef`, so the code is given a glyph of its own that draws
+/// nothing (`super::empty`, A48); the proof holds that glyph to the window's nothing rather than to
+/// a glyph of the shipped face's, which the code has none of.
+#[test]
+fn a_code_on_notdef_drawn_from_a_machines_face_is_given_an_empty_glyph() {
+    let line_feed = pdf_font::Code::single_byte(b'\n');
+    let mut converted = 0;
+    // `219789`'s own font, which the shipped CFF serif stands for: the route whose proof this is.
+    let times = ("TrueType", "TimesNewRomanPS-BoldMT");
+    for (subtype, base_font) in NAMED.into_iter().chain([times]) {
+        let source = Conforming {
+            resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                        [0.9505 1.0 1.089] >>] >>"
+                .to_owned(),
+            contents: Some((
+                String::new(),
+                b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A\\nA) Tj ET".to_vec(),
+            )),
+            objects: vec![
+                format!(
+                    "<< /Type /Font /Subtype /{subtype} /BaseFont /{base_font} /FirstChar 10 \
+                     /LastChar 65 /Widths [250 {} 667] /FontDescriptor 7 0 R \
+                     /Encoding /WinAnsiEncoding >>",
+                    ["0"; 54].join(" ")
+                ),
+                format!(
+                    "<< /Type /FontDescriptor /FontName /{base_font} /Flags 32 \
+                     /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+                     /CapHeight 716 /StemV 80 >>"
+                ),
+            ],
+            ..Conforming::part_two()
+        }
+        .build();
+        if !drawn_from_a_machine_face(&source) {
+            eprintln!("{subtype} {base_font}: this machine has no such face");
+            continue;
+        }
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let (report, output) = convert(&source, target, the_face_losses_authorised());
+            let output = written(&report, output);
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{subtype} {base_font} {target}: what was written is held to the target again"
+            );
+            let document = Document::open(output).expect("it opens");
+            let dict = document
+                .get(ObjectId::new(6, 0))
+                .as_dict()
+                .cloned()
+                .expect("object 6 is the font");
+            let font = pdf_font::LoadedFont::load(&document, &dict, "F1").expect("it loads");
+            assert!(
+                !font.is_substituted(),
+                "{subtype} {base_font}: its own program"
+            );
+            assert!(
+                font.glyph_index(line_feed)
+                    .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH),
+                "{subtype} {base_font} {target}: the line feed reaches a glyph of its own"
+            );
+            assert!(
+                font.outline(line_feed)
+                    .is_none_or(|outline| outline.commands().is_empty()),
+                "{subtype} {base_font} {target}: and it draws nothing"
+            );
+            assert!(
+                (font.advance(line_feed) - 0.25).abs() < 1e-6,
+                "{subtype} {base_font} {target}: at the width the dictionary states"
+            );
+            converted += 1;
+        }
+    }
+    eprintln!("{converted} conversions gave the line feed an empty glyph");
+}

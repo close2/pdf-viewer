@@ -1623,10 +1623,21 @@ fn same_glyph(held_to: &HeldTo<'_>, converted: &LoadedFont, code: Code) -> bool 
             }
         }
         // The same program on both sides, so the same glyph is the same outline.
-        (Drawn::FromAMachineFace, _) => {
-            let glyph = shipped_glyph(face, code);
-            glyph.is_some() && converted.glyph_index(code) == glyph
-        }
+        (Drawn::FromAMachineFace, _) => match shipped_glyph(face, code) {
+            Some(glyph) => converted.glyph_index(code) == Some(glyph),
+            // A code the encoding sends to `.notdef` drew nothing from the machine's face either
+            // ([`drawn_from`]), and the empty glyph it was given draws nothing again
+            // (`super::empty`, `doc/adr/3266`).
+            None => {
+                super::empty::reaches_notdef(source, code)
+                    && converted
+                        .glyph_index(code)
+                        .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH)
+                    && converted
+                        .outline(code)
+                        .is_none_or(|outline| outline.commands().is_empty())
+            }
+        },
     }
 }
 
