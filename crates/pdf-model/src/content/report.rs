@@ -539,6 +539,29 @@ pub(super) const CLIP_LEFT_PENDING: &str = " without a path-painting operator af
 pub(super) const OUTSIDE_AN_INLINE_IMAGE: &str =
     " outside an inline image, which §8.9.7 admits it only inside";
 
+/// The sentence an [`Unsupported::Operator`] carries for a `BT` met inside an open text object.
+pub(super) const TEXT_OBJECT_NESTED: &str = "BT inside a text object, which Table 105 ends first";
+
+/// What follows a text-positioning or text-showing operator, or `ET`, in the sentence an
+/// [`Unsupported::Operator`] carries for one met outside a text object.
+pub(super) const OUTSIDE_A_TEXT_OBJECT: &str =
+    " outside a text object, which §9.4.1 admits it only inside";
+
+/// What follows `d` or `TJ` in the sentence an [`Unsupported::Operator`] carries for operands
+/// standing outside the one array the operator takes.
+pub(super) const OUTSIDE_ITS_ARRAY: &str =
+    " with operands outside its array, which §7.8.2 does not let an operator leave over";
+
+/// What follows `TJ` in the sentence an [`Unsupported::Operator`] carries for an element of its
+/// array that is neither a string nor a number.
+pub(super) const ELEMENT_NEITHER_STRING_NOR_NUMBER: &str =
+    " with an element that is neither a string nor a number, which Table 107 requires";
+
+/// What follows a text state operator in the sentence an [`Unsupported::Operator`] carries for an
+/// operand of a type Table 103 does not give it.
+pub(super) const TEXT_STATE_OPERAND_TYPE: &str =
+    " with an operand of a type Table 103 does not give it";
+
 /// What follows the keyword in the sentence an [`Unsupported::Operator`] carries for a keyword
 /// inside an array.
 pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits only objects into";
@@ -570,6 +593,23 @@ pub enum StreamSyntaxFault {
     /// something that is not a number: ISO 32000-2 §8.4.3.6 states both as numbers, so the
     /// pattern in force is kept (ADR 3335).
     DashNotNumbers,
+    /// A `BT` inside an open text object: ISO 32000-2 Table 105 has "a second BT shall not appear
+    /// before an ET", and the open object is ended as `ET` would end it before the new one begins
+    /// (ADR 3353).
+    TextObjectNested,
+    /// A text-positioning or text-showing operator, or an `ET`, with no text object open: §9.4.2
+    /// and §9.4.3 have each family "only appear within text objects". The operator acts on the
+    /// identity matrices `BT` would set, since `ET` discarded the last object's (ADR 3353).
+    TextOperatorOutsideATextObject,
+    /// A `d` or `TJ` with operands outside the one array it takes, which ISO 32000-2 §7.8.2 does
+    /// not let an operator leave over; only the array is read (ADR 3354).
+    OperandOutsideItsArray,
+    /// A `TJ` array element that is neither a string nor a number, which ISO 32000-2 Table 107
+    /// requires each to be; the element is not shown (ADR 3354).
+    TextArrayElementOfTheWrongType,
+    /// A text state operator's operand of a type ISO 32000-2 Table 103 does not give it; the
+    /// parameter is kept, except `Tf`'s, which are left unset (ADR 3355).
+    TextStateOperandOfTheWrongType,
 }
 
 impl Unsupported {
@@ -611,6 +651,22 @@ impl Unsupported {
             Some("ID" | "EI")
         ) {
             Some(StreamSyntaxFault::ImageOperatorOutsideAnImage)
+        } else if operator == TEXT_OBJECT_NESTED {
+            Some(StreamSyntaxFault::TextObjectNested)
+        } else if matches!(
+            operator.strip_suffix(OUTSIDE_A_TEXT_OBJECT),
+            Some("ET" | "Td" | "TD" | "Tm" | "T*" | "Tj" | "TJ" | "'" | "\"")
+        ) {
+            Some(StreamSyntaxFault::TextOperatorOutsideATextObject)
+        } else if matches!(operator.strip_suffix(OUTSIDE_ITS_ARRAY), Some("d" | "TJ")) {
+            Some(StreamSyntaxFault::OperandOutsideItsArray)
+        } else if operator.strip_suffix(ELEMENT_NEITHER_STRING_NOR_NUMBER) == Some("TJ") {
+            Some(StreamSyntaxFault::TextArrayElementOfTheWrongType)
+        } else if matches!(
+            operator.strip_suffix(TEXT_STATE_OPERAND_TYPE),
+            Some("Tc" | "Tw" | "Tz" | "TL" | "Tf" | "Tr" | "Ts")
+        ) {
+            Some(StreamSyntaxFault::TextStateOperandOfTheWrongType)
         } else {
             None
         }

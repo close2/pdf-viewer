@@ -3394,27 +3394,50 @@ struct Interpreter<'a> {
     annotations_clipped_to: Option<ClipId>,
 }
 
-/// Applies the `d` dash operator, or reports `false` where its operands state no pattern.
+/// What `d`'s operands said beside the pattern [`set_dash`] set from them, for the caller to report.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct DashFaults {
+    /// An element or the phase was not a number, so no pattern was set (ADR 3335).
+    not_numbers: bool,
+    /// Operands stood outside the array and its phase, and were not read (ADR 3354).
+    left_over: bool,
+}
+
+/// Applies the `d` dash operator, saying what its operands held that states no pattern.
 ///
 /// The whole dash array and phase are read, as §8.4.3.6 states them (ADR 0018), by
-/// [`read_dash`], the reading `/D` shares.
-fn set_dash(operands: &[Object], stroke: &mut Stroke) -> bool {
-    // `[ 2 1 ] 0 d` arrives as five operands, the two brackets among them as nulls, because
-    // the content lexer does not rebuild arrays. Splitting on them gives what is before the
-    // opening bracket, the array itself, and what follows the closing one — the phase.
-    let mut parts = operands.split(Object::is_null);
-    let (Some(_), Some(inside), Some(after)) = (parts.next(), parts.next(), parts.next()) else {
-        return true;
+/// [`read_dash`], the reading `/D` shares. The array is [`run::FlatArray`]'s last bracketed run,
+/// the reading `TJ` shares, and the phase is the operand nearest `d` after it, as §7.8.2 has
+/// an operator's operands "immediately precede" it.
+fn set_dash(operands: &[Object], stroke: &mut Stroke) -> DashFaults {
+    let Some(run::FlatArray {
+        before,
+        elements,
+        after,
+    }) = run::FlatArray::last_of(operands)
+    else {
+        // No array at all: nothing states a pattern, and whatever stands there was left over.
+        return DashFaults {
+            not_numbers: false,
+            left_over: !operands.is_empty(),
+        };
     };
-    let phase = match after.first() {
-        None => DashPhase::Absent,
-        Some(operand) => DashPhase::of(operand.as_number()),
+    let (phase, after_rest) = match after.split_last() {
+        None => (DashPhase::Absent, after),
+        Some((operand, rest)) => (DashPhase::of(operand.as_number()), rest),
     };
-    let Some((array, phase)) = read_dash(inside.iter().map(Object::as_number), phase) else {
-        return false;
+    let left_over = !before.is_empty() || !after_rest.is_empty();
+    let Some((array, phase)) = read_dash(elements.iter().map(Object::as_number), phase) else {
+        return DashFaults {
+            not_numbers: true,
+            left_over,
+        };
     };
     apply_dash(array, phase, stroke);
-    true
+    DashFaults {
+        not_numbers: false,
+        left_over,
+    }
 }
 
 /// A dash array's elements and its phase as numbers, ISO 32000-2 §8.4.3.6, or `None` where one of

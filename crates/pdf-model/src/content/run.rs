@@ -34,7 +34,7 @@ mod text_ops;
 mod xobject_ops;
 
 pub(super) use machine::{Composed, Leftover};
-pub(super) use operands::{name_at, narrow, number_at};
+pub(super) use operands::{FlatArray, name_at, narrow, number_at};
 
 use std::sync::Arc;
 

@@ -12,7 +12,7 @@
   "code": "crates/pdf-model/src/content/run/text_ops.rs:57 (Operator::BeginText resets TextObject without end_text_object); crates/pdf-model/src/content/text/end_object.rs:39 (end_text_object, the only consumer of clip, combined and knockout_owed)",
   "change": "At a BT inside an open text object, either end the open object as ET would (its clip, its \u00a711.7.4.4 pairs and its \u00a79.3.8 group realised) and report the nesting, or keep the object open and report it; in no reading may the glyphs already shown lose their clip or their implicit group in silence. Correct the BT comment and the 9.4.1 row's 'it restarts the text object'.",
   "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_second_bt_does_not_discard_what_the_open_text_object_owes_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2161-B02",
@@ -25,7 +25,7 @@
   "code": "crates/pdf-model/src/content/run/text_ops.rs:209 (Operator::ShowTextAdjusted iterates operands); crates/pdf-model/src/content/run/steps.rs:66 (brackets pushed as nulls); compare crates/pdf-model/src/content.rs:3401 (set_dash splits on them)",
   "change": "Read TJ's operand as the last bracketed run of the pending operands, as set_dash does; an operand outside it is a leftover (reported like any other operator's), and an element that is neither a string nor a number (a nested array, a name) is not shown and is reported. One shared reading of a flattened array for d and TJ.",
   "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::tj_reads_only_the_elements_of_its_array_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2161-B03",
@@ -39,7 +39,7 @@
   "code": "crates/pdf-model/src/content/run/text_ops.rs:99 (Tf), :114-:134 (Tc, Tw, Tz, TL, Ts), :136 (Tr: only an integer out of range is noted); crates/pdf-model/src/content/run/operands.rs:174 (integer_at)",
   "change": "Report an operand of the wrong type for Table 103's operators as the operand shortfall is reported (Unsupported::OperandShortfall's sibling), and decide in one place what the state holds after such a Tf: unset (the show a reported loss) rather than the previous size under a new font.",
   "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_text_state_operand_of_the_wrong_type_is_reported_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2161-B04",
@@ -53,7 +53,7 @@
   "code": "crates/pdf-model/src/content/run/text_ops.rs:80 (EndText keeps the matrices), :194 (run_text_showing_op ignores in_text), :158 (run_text_positioning_op likewise)",
   "change": "Discard Tm and Tlm at ET (the identity a later BT would set), and report a text-showing or text-positioning operator outside a text object; whether such a show is drawn is a robustness choice to write down, but it is not placed by a discarded matrix and not silent.",
   "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_show_after_et_is_not_placed_by_the_discarded_text_matrix_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2161-B05",
@@ -67,6 +67,6 @@
   "code": "crates/pdf-model/src/content/text/readback.rs:133 (read_back gated on glyph_depth) against :217 (separate_text, not gated); crates/pdf-model/src/content/text/show.rs:593 (advance_past sets text_cursor); crates/pdf-model/src/content/text/type3.rs:110-:136 (the nested run saves uncoloured and shape_only_glyph, not the cursor)",
   "change": "Save and restore text_cursor (and the word-gap state) around draw_type3_glyph's nested run, or gate separate_text and the cursor update on glyph_depth as read_back is.",
   "execution": "FAIL (expected): crates/pdf-model/tests/text_objects_spec_audit.rs::a_type3_glyphs_own_text_object_adds_no_word_break_to_the_page_spec_audit \u2014 round 2161, scratch log ~/scratch/agent/r2161/t1.log and the nextest log ~/scratch/agent/r2161/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  }
 ]

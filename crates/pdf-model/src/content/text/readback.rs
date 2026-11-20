@@ -223,6 +223,12 @@ impl Interpreter<'_> {
         space: f32,
         run: usize,
     ) {
+        // Not from inside a Type 3 glyph description, for `read_back`'s reason: its text is the
+        // glyph's implementation, and a gap from the page's last glyph to a position inside the
+        // glyph's own text space is no gap of the page's (ADR 3356).
+        if self.glyph_depth > 0 {
+            return;
+        }
         let vertical = font.is_vertical();
         // Taken whatever this step turns out to be: the replacement that asked for it ended a
         // line only if the very next show operation starts another.
@@ -395,6 +401,19 @@ impl Interpreter<'_> {
         }
         for object in &mut self.structural_annotations {
             span(&mut object.range);
+        }
+    }
+
+    /// Leaves the readback's cursor where a glyph of the page's left the pen, which is where
+    /// [`Self::separate_text`] measures the next show's gap from.
+    ///
+    /// Not from inside a Type 3 glyph description: §9.4.4 advances the page's `Tm` by the glyph's
+    /// width alone, and a pen the description's own text object moved is in the glyph's space
+    /// rather than the page's — read as the page's, it put a word break between two glyphs the
+    /// page set side by side (ADR 3356).
+    pub(super) fn move_text_cursor(&mut self, matrix: Transform) {
+        if self.glyph_depth == 0 {
+            self.text_cursor = Some((matrix.e, matrix.f));
         }
     }
 }

@@ -26,14 +26,54 @@ use crate::content::reader::Operator;
 /// number, and for a keyword Table 50 does not list, and
 /// those are given everything: `TJ` and `d` take an array the content lexer flattens into one
 /// operand per element, and `sc`, `scn`, `SC` and `SCN` take as many components as the current
-/// colour space has (§8.6.8, Table 73). A leftover operand in front of one of those is
-/// indistinguishable from one of its own, so nothing here can improve on reading them whole.
+/// colour space has (§8.6.8, Table 73). A leftover operand in front of a colour operator is
+/// indistinguishable from one of its own, so nothing here can improve on reading those whole; the
+/// array of `TJ` and `d` keeps its brackets, and [`FlatArray::last_of`] reads it out of them.
 pub(super) fn operands_before(pending: &[Object], count: Option<usize>) -> &[Object] {
     let Some(count) = count else {
         return pending;
     };
     let start = pending.len().saturating_sub(count);
     pending.get(start..).unwrap_or(pending)
+}
+
+/// The one array operand of `d` or `TJ`, read out of the operands the content lexer flattened.
+///
+/// The lexer does not rebuild arrays: `[(A) -50 (B)] TJ` reaches the operator as five operands,
+/// the two brackets among them as nulls (`token_to_object`). The array is the **last bracketed
+/// run** — what stands between the last null and the null before it — because §7.8.2 has an
+/// operator's operands "immediately precede that operator", so the array an operator takes is the
+/// one nearest it. What stands before the run is no operand of the operator's at all, and
+/// §7.8.2's "operands shall not be left over" makes it the stream's fault, which the caller
+/// reports; what follows it is `d`'s phase, and nothing of `TJ`'s.
+///
+/// A null is a bracket here whatever wrote it, so a `null` element and a nested array both end
+/// the run early and leave what precedes them outside it. Neither is an element either operator
+/// admits — §8.4.3.6 states a dash array's elements as numbers and Table 107 a `TJ` element as a
+/// string or a number — so the reading can only report them, never draw them (ADR 3354).
+#[derive(Debug, Clone, Copy)]
+pub(in crate::content) struct FlatArray<'a> {
+    /// What stands before the array's opening bracket.
+    pub(in crate::content) before: &'a [Object],
+    /// The array's elements.
+    pub(in crate::content) elements: &'a [Object],
+    /// What follows its closing bracket.
+    pub(in crate::content) after: &'a [Object],
+}
+
+impl<'a> FlatArray<'a> {
+    /// The last bracketed run of `operands`, or `None` where they hold no pair of brackets.
+    pub(in crate::content) fn last_of(operands: &'a [Object]) -> Option<Self> {
+        let close = operands.iter().rposition(Object::is_null)?;
+        let (up_to_close, from_close) = operands.split_at(close);
+        let open = up_to_close.iter().rposition(Object::is_null)?;
+        let (before, from_open) = up_to_close.split_at(open);
+        Some(Self {
+            before,
+            elements: from_open.get(1..).unwrap_or_default(),
+            after: from_close.get(1..).unwrap_or_default(),
+        })
+    }
 }
 
 impl Operator {

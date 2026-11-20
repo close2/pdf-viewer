@@ -590,7 +590,7 @@ impl Interpreter<'_> {
             vertical,
         )
         .then(text.matrix);
-        self.text_cursor = Some((text.matrix.e, text.matrix.f));
+        self.move_text_cursor(text.matrix);
     }
 
     /// Moves the pen across a string whose font has no program, drawing and reading nothing.
@@ -646,7 +646,7 @@ impl Interpreter<'_> {
                 vertical,
             )
             .then(text.matrix);
-            self.text_cursor = Some((text.matrix.e, text.matrix.f));
+            self.move_text_cursor(text.matrix);
         }
     }
 }

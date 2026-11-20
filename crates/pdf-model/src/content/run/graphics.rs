@@ -107,9 +107,15 @@ impl Interpreter<'_> {
                 }
             }
             Operator::Dash => {
-                if !set_dash(operands, &mut state.stroke) {
+                let faults = set_dash(operands, &mut state.stroke);
+                if faults.not_numbers {
                     self.note(Unsupported::Operator {
                         operator: format!("d{}", crate::content::report::DASH_NOT_NUMBERS),
+                    });
+                }
+                if faults.left_over {
+                    self.note(Unsupported::Operator {
+                        operator: format!("d{}", crate::content::report::OUTSIDE_ITS_ARRAY),
                     });
                 }
             }

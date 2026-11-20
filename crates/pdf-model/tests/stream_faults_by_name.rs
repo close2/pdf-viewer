@@ -208,3 +208,67 @@ fn a_dash_pattern_past_the_bound_names_it() {
     );
     assert_eq!(reports("[1 1] 0 d 10 50 m 90 50 l S", ""), vec![]);
 }
+
+/// The text object's own faults (ADRs 3353 to 3355), each named as the stream's: Table 105's
+/// "a second BT shall not appear before an ET"; §9.4.2's and §9.4.3's operators "shall only appear
+/// within text objects"; Table 107's `TJ` "array" whose "[e]ach element ... shall be either a
+/// string or a number", with §7.8.2's "operands shall not be left over" for what stands outside
+/// it, and the same of `d`; and Table 103's operand types. A well-formed text object is said
+/// nothing of.
+#[test]
+fn a_text_objects_faults_are_faults_of_the_stream() {
+    const FONT: &str = "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>";
+    let faults = |content: &str| -> Vec<StreamSyntaxFault> {
+        reports(content, FONT)
+            .iter()
+            .filter_map(Unsupported::stream_syntax_fault)
+            .collect()
+    };
+    assert_eq!(
+        faults("BT /F1 10 Tf 0 0 Td [(A) -50 (B)] TJ ET"),
+        vec![],
+        "control: a well-formed text object"
+    );
+    assert_eq!(
+        faults("BT /F1 10 Tf (A) Tj BT (B) Tj ET"),
+        vec![StreamSyntaxFault::TextObjectNested]
+    );
+    for stray in ["ET", "0 0 Td", "(A) Tj", "[(A)] TJ"] {
+        assert_eq!(
+            faults(&format!("/F1 10 Tf {stray}")),
+            vec![StreamSyntaxFault::TextOperatorOutsideATextObject],
+            "{stray}"
+        );
+    }
+    assert_eq!(
+        faults("BT /F1 10 Tf 5 [(A)] TJ ET"),
+        vec![StreamSyntaxFault::OperandOutsideItsArray]
+    );
+    assert_eq!(
+        faults("BT /F1 10 Tf (A) TJ ET"),
+        vec![StreamSyntaxFault::OperandOutsideItsArray]
+    );
+    assert_eq!(
+        faults("BT /F1 10 Tf [(A) /x] TJ ET"),
+        vec![StreamSyntaxFault::TextArrayElementOfTheWrongType]
+    );
+    assert_eq!(
+        faults("7 [3 1] 0 d 0 0 m 10 0 l S"),
+        vec![StreamSyntaxFault::OperandOutsideItsArray]
+    );
+    for wrong in [
+        "/F1 (x) Tf",
+        "(x) Tc",
+        "/x Tw",
+        "(x) Tz",
+        "(x) TL",
+        "(x) Ts",
+        "1.5 Tr",
+    ] {
+        assert_eq!(
+            faults(&format!("BT /F1 10 Tf {wrong} ET")),
+            vec![StreamSyntaxFault::TextStateOperandOfTheWrongType],
+            "{wrong}"
+        );
+    }
+}

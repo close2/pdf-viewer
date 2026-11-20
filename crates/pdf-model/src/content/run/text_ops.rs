@@ -2,7 +2,7 @@
 //! method for the group the table puts each in.
 
 use super::machine::Machine;
-use super::operands::{integer_at, matrix_from, name_at, narrow, number_at, string_at};
+use super::operands::{FlatArray, integer_at, matrix_from, name_at, narrow, number_at, string_at};
 
 use pdf_render::Transform;
 use pdf_syntax::{Dictionary, Object};
@@ -10,7 +10,10 @@ use pdf_syntax::{Dictionary, Object};
 use crate::content::font::Font;
 
 use crate::content::reader::Operator;
-use crate::content::report::Unsupported;
+use crate::content::report::{
+    ELEMENT_NEITHER_STRING_NOR_NUMBER, OUTSIDE_A_TEXT_OBJECT, OUTSIDE_ITS_ARRAY,
+    TEXT_OBJECT_NESTED, TEXT_STATE_OPERAND_TYPE, Unsupported,
+};
 use crate::content::text::TextObject;
 use crate::content::{GraphicsState, Interpreter};
 
@@ -39,7 +42,7 @@ impl Interpreter<'_> {
             Operator::MoveText
             | Operator::MoveTextSetLeading
             | Operator::TextMatrix
-            | Operator::NextLine => Self::run_text_positioning_op(operator, operands, machine),
+            | Operator::NextLine => self.run_text_positioning_op(operator, operands, machine),
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}
         }
@@ -55,18 +58,22 @@ impl Interpreter<'_> {
         } = machine;
         match operator {
             Operator::BeginText => {
-                *in_text = true;
-                // Table 105: `BT` initialises both matrices. Resetting the whole
-                // structure also discards any glyph outlines a malformed stream left
-                // unconsumed by an `ET`, which is the only state a second `BT` could
-                // otherwise carry into the text object it starts.
-                // A `BT` inside a text object that never ended closes that object's record
-                // of §11.6.4.3's readings before this one opens its own.
-                if let Some(outer) = text_object.enclosing_reading.take() {
-                    let (reading, in_force) = self.close_reading_scope(outer);
-                    self.absorb_reading(reading, text_object.start);
-                    self.note_alpha_source(in_force);
+                // Table 105: "Text objects shall not be nested; a second BT shall not appear
+                // before an ET." The clause states no reading of one, and `BT`'s own sentence
+                // decides it: it begins a text object "initializing the text matrix, Tm, and the
+                // text line matrix, Tlm, to the identity matrix", which is only possible once the
+                // open object has ended. So the open object ends here as `ET` would end it —
+                // §9.3.6's clip from the outlines it accumulated, and §11.7.4.4's and §9.3.8's
+                // groups for the glyphs it showed — and the stream's fault is said (ADR 3353).
+                if *in_text {
+                    self.note(Unsupported::Operator {
+                        operator: TEXT_OBJECT_NESTED.to_owned(),
+                    });
+                    self.end_text_object(text_object, state);
                 }
+                *in_text = true;
+                // Resetting the whole structure is Table 105's two matrices and §9.3.6's empty
+                // accumulator in one line.
                 *text_object = TextObject {
                     start: self.list.command_count(),
                     enclosing_reading: Some(if state.text.knockout {
@@ -78,8 +85,21 @@ impl Interpreter<'_> {
                 };
             }
             Operator::EndText => {
+                if !*in_text {
+                    // Nothing is open to end, and nothing is owed: the stray keyword is said and
+                    // acts on nothing.
+                    self.note(Unsupported::Operator {
+                        operator: format!("ET{OUTSIDE_A_TEXT_OBJECT}"),
+                    });
+                    return;
+                }
                 *in_text = false;
                 self.end_text_object(text_object, state);
+                // Table 105: `ET` ends the object "discarding the text matrix", and §9.4.1 has
+                // Tm and Tlm "not persist from one text object to the next". Discarded is the
+                // identity a `BT` would set, which is all a positioning or showing operator the
+                // stream wrongly puts after `ET` can be given (ADR 3353).
+                *text_object = TextObject::default();
             }
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}
@@ -97,43 +117,60 @@ impl Interpreter<'_> {
     ) {
         match operator {
             Operator::Font => {
+                // Table 103: "There is no initial value for either font or size; they shall be
+                // specified explicitly by using Tf before any text is shown". A `Tf` states both
+                // or leaves what it does not state unset — never the previous font's size under
+                // the new font, which nothing in the file states (ADR 0303, ADR 3355).
                 if let Some(name) = name_at(operands, 0) {
                     (state.text.font, state.text.owed_font_report) = self.font(resources, &name);
                     // The trace's label rather than the lookup's key: §7.3.5's "the bytes
                     // making up the name are never treated as text" binds the second, and
                     // `font` above has them.
                     state.text.font_name = String::from_utf8_lossy(name.as_bytes()).into_owned();
+                } else {
+                    state.text.font = None;
+                    state.text.owed_font_report = None;
+                    state.text.font_name.clear();
                 }
-                if let Some(size) = number_at(operands, 1) {
-                    state.text.size = size;
+                // Unset is a size of nought: Table 103's "[z]ero sized text shall not mark or
+                // clip any pixels", which is what a show with no size stated can do.
+                state.text.size = number_at(operands, 1).unwrap_or(0.0);
+                // Judged only when both operands are there: short of one, the loop has said so,
+                // and which of the two the one present was meant to be is not in the file.
+                if let [name, size] = operands
+                    && (name.as_name().is_none() || size.as_number().is_none())
+                {
+                    self.note_operand_type(operator);
                 }
             }
             Operator::CharSpacing => {
-                if let Some(value) = number_at(operands, 0) {
+                if let Some(value) = self.text_state_number(operator, operands) {
                     state.text.char_spacing = value;
                 }
             }
             Operator::WordSpacing => {
-                if let Some(value) = number_at(operands, 0) {
+                if let Some(value) = self.text_state_number(operator, operands) {
                     state.text.word_spacing = value;
                 }
             }
             Operator::HorizontalScaling => {
-                if let Some(percent) = number_at(operands, 0) {
+                if let Some(percent) = self.text_state_number(operator, operands) {
                     state.text.horizontal_scale = percent / 100.0;
                 }
             }
             Operator::Leading => {
-                if let Some(value) = number_at(operands, 0) {
+                if let Some(value) = self.text_state_number(operator, operands) {
                     state.text.leading = value;
                 }
             }
             Operator::Rise => {
-                if let Some(value) = number_at(operands, 0) {
+                if let Some(value) = self.text_state_number(operator, operands) {
                     state.text.rise = value;
                 }
             }
             Operator::RenderMode => {
+                // Table 103: "render ... shall be an integer". An operand that is none — `1.5`,
+                // a name — states no mode, and is said as an integer outside the table is.
                 if let Some(mode) = integer_at(operands, 0) {
                     // Table 104 defines eight modes and no default for anything else.
                     // Silently keeping an out-of-range value would draw nothing at all,
@@ -147,6 +184,8 @@ impl Interpreter<'_> {
                             operator: format!("Tr with mode {mode}"),
                         });
                     }
+                } else if !operands.is_empty() {
+                    self.note_operand_type(operator);
                 }
             }
             // Only this family's operators are sent here, by `run_operator`.
@@ -154,11 +193,52 @@ impl Interpreter<'_> {
         }
     }
 
+    /// The one number operand of `Tc`, `Tw`, `Tz`, `TL` or `Ts`, or `None` with the operand
+    /// reported where it is present and not a number.
+    ///
+    /// Table 103 gives each of the five a number. One of another type states no value, so the
+    /// parameter keeps the one in force — the answer `Tr` gives a mode outside its table — and the
+    /// page says so (ADR 3355). An absent operand was said by the loop as a shortfall.
+    fn text_state_number(&mut self, operator: Operator, operands: &[Object]) -> Option<f32> {
+        if operands
+            .first()
+            .is_some_and(|operand| operand.as_number().is_none())
+        {
+            self.note_operand_type(operator);
+        }
+        number_at(operands, 0)
+    }
+
+    /// Reports a text state operator given an operand of a type Table 103 does not give it.
+    fn note_operand_type(&mut self, operator: Operator) {
+        self.note(Unsupported::Operator {
+            operator: format!(
+                "{}{TEXT_STATE_OPERAND_TYPE}",
+                String::from_utf8_lossy(operator.name())
+            ),
+        });
+    }
+
     /// The text positioning operators of Table 50 (ISO 32000-2 §9.4.2): `Td`, `TD`, `Tm` and `T*`.
-    fn run_text_positioning_op(operator: Operator, operands: &[Object], machine: &mut Machine) {
+    ///
+    /// §9.4.2: "The text-positioning operators shall only appear within text objects." One outside
+    /// is said, and moves the matrices `ET` discarded to the identity — the ones `BT` would set —
+    /// so a stream that never wrote `BT` still places its text where its `Td` says (ADR 3353).
+    fn run_text_positioning_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        machine: &mut Machine,
+    ) {
         let Machine {
-            state, text_object, ..
+            state,
+            text_object,
+            in_text,
+            ..
         } = machine;
+        if !*in_text {
+            self.note_outside_a_text_object(operator);
+        }
         match operator {
             Operator::MoveText => {
                 if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
@@ -198,8 +278,17 @@ impl Interpreter<'_> {
         machine: &mut Machine,
     ) {
         let Machine {
-            state, text_object, ..
+            state,
+            text_object,
+            in_text,
+            ..
         } = machine;
+        // §9.4.3: "The text-showing operators shall only appear within text objects." One outside
+        // is said, and drawn at the identity matrices `ET` left, never at the discarded object's
+        // position (ADR 3353).
+        if !*in_text {
+            self.note_outside_a_text_object(operator);
+        }
         match operator {
             Operator::ShowText => {
                 if let Some(bytes) = string_at(operands, 0) {
@@ -207,32 +296,49 @@ impl Interpreter<'_> {
                 }
             }
             Operator::ShowTextAdjusted => {
-                // The array operand is not reconstructed by the content lexer, so the
-                // strings and the numeric adjustments between them arrive as separate
-                // operands in order — which is enough to render them correctly.
-                for operand in operands {
-                    match operand {
-                        Object::String(bytes) => {
-                            self.show_text(bytes, state, text_object);
-                        }
-                        other => {
-                            if let Some(adjust) = other.as_number() {
-                                // §9.4.3: the amount "shall be subtracted from the current
-                                // horizontal or vertical coordinate, depending on the
-                                // writing mode", in thousandths of an em scaled by the
-                                // size — and by the horizontal scaling only in the
-                                // horizontal mode, which is where §9.4.4's `Th` sits.
-                                let shift = -narrow(adjust) / 1000.0 * state.text.size;
-                                let vertical =
-                                    state.text.font.as_ref().is_some_and(Font::is_vertical);
-                                let step = if vertical {
-                                    Transform::translate(0.0, shift)
-                                } else {
-                                    Transform::translate(shift * state.text.horizontal_scale, 0.0)
-                                };
-                                text_object.matrix = step.then(text_object.matrix);
-                            }
-                        }
+                // Table 107 gives `TJ` one operand, an array, and "[e]ach element of array shall
+                // be either a string or a number". The content lexer flattens it, so the array is
+                // read out of its brackets by the reading `d` shares (ADR 3354): whatever stands
+                // outside it is left over and not read, and an element of another type is not
+                // shown.
+                let Some(FlatArray {
+                    before,
+                    elements,
+                    after,
+                }) = FlatArray::last_of(operands)
+                else {
+                    if !operands.is_empty() {
+                        self.note(Unsupported::Operator {
+                            operator: format!("TJ{OUTSIDE_ITS_ARRAY}"),
+                        });
+                    }
+                    return;
+                };
+                if !before.is_empty() || !after.is_empty() {
+                    self.note(Unsupported::Operator {
+                        operator: format!("TJ{OUTSIDE_ITS_ARRAY}"),
+                    });
+                }
+                for element in elements {
+                    if let Object::String(bytes) = element {
+                        self.show_text(bytes, state, text_object);
+                    } else if let Some(adjust) = element.as_number() {
+                        // §9.4.3: the amount "shall be subtracted from the current horizontal
+                        // or vertical coordinate, depending on the writing mode", in thousandths
+                        // of an em scaled by the size — and by the horizontal scaling only in
+                        // the horizontal mode, which is where §9.4.4's `Th` sits.
+                        let shift = -narrow(adjust) / 1000.0 * state.text.size;
+                        let vertical = state.text.font.as_ref().is_some_and(Font::is_vertical);
+                        let step = if vertical {
+                            Transform::translate(0.0, shift)
+                        } else {
+                            Transform::translate(shift * state.text.horizontal_scale, 0.0)
+                        };
+                        text_object.matrix = step.then(text_object.matrix);
+                    } else {
+                        self.note(Unsupported::Operator {
+                            operator: format!("TJ{ELEMENT_NEITHER_STRING_NOR_NUMBER}"),
+                        });
                     }
                 }
             }
@@ -262,5 +368,15 @@ impl Interpreter<'_> {
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}
         }
+    }
+
+    /// Reports a text-positioning or text-showing operator met with no text object open.
+    fn note_outside_a_text_object(&mut self, operator: Operator) {
+        self.note(Unsupported::Operator {
+            operator: format!(
+                "{}{OUTSIDE_A_TEXT_OBJECT}",
+                String::from_utf8_lossy(operator.name())
+            ),
+        });
     }
 }
