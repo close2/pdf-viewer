@@ -1,0 +1,140 @@
+[
+ {
+  "id": "2142-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.1",
+   "7.3.8"
+  ],
+  "summary": "A /Filter array element that is not a name is dropped by Document::filter_chain (filter_map), and a /Filter that is neither a name nor an array is an empty chain: [/ASCIIHexDecode 7] decodes as the hex stage alone and /Filter 7 returns the raw bytes, both as whole decodes; later stages take the /DecodeParms entry of the stage before them.",
+  "source": "ISO 32000-2 Table 5 /Filter: \"The name, or an array of zero, one or several names, of filter(s) that shall be applied in processing the stream data\"; §7.4.1: \"A PDF reader shall invoke the corresponding decoding filter or filters to convert the information back to its original form.\"",
+  "code": "crates/pdf-syntax/src/document/decoding.rs:252 (filter_chain); read by chain_with_parms, Document::pumping (sources.rs) and image_stream (images.rs)",
+  "change": "Refuse a chain with an element that is not a name (or a /Filter of another type) by name, rather than decoding the stages that remain.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_filter_entry_that_is_not_a_name_is_not_skipped_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.2",
+   "7.4.3",
+   "7.3.8.2"
+  ],
+  "summary": "ASCIIHexDecode and ASCII85Decode data that ends without its EOD marker (> and ~>) is reported whole (damage None), where RunLength, LZW and Flate report Damage::Truncated for a missing marker and Decoded::damage is documented None only where the decode reached the filter's end-of-data; an odd final hex digit is padded by a rule stated only at an EOD.",
+  "source": "ISO 32000-2 §7.4.2: \"A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data).\" §7.4.3: \"with the 2-character sequence ~> (7Eh)(3Eh) as its EOD marker\". §7.3.8.2: \"most filters are defined so that the data shall be self-limiting ... All of these constraints shall be consistent.\"",
+  "code": "crates/pdf-syntax/src/filter.rs:2826 (ascii_hex), :2889 (ascii85), :2356 (AsciiHex::turn, whose comment states the choice), Ascii85::turn",
+  "change": "Report Damage::Truncated when the data ends before the marker, in the whole and windowed routes alike.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::ascii_data_without_its_eod_marker_is_reported_short_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.4.3",
+   "7.4.6"
+  ],
+  "summary": "A Table 8 entry present with the wrong type or range is read as its default: /Predictor 12.0 is read as 1 and the PNG rows come back, tag bytes included, as the decoded data; negative /Colors, /BitsPerComponent or /Columns become their defaults, /EarlyChange 2 becomes 1; in ccitt.rs a non-boolean EndOfBlock/BlackIs1/EndOfLine/EncodedByteAlign or non-integer K takes Table 11's default.",
+  "source": "ISO 32000-2 Table 8 /Predictor (integer): \"If the value is greater than 1, the filter shall assume that the data were differenced before being encoded\"; /Colors \"Valid values are 1 to 4 ( PDF 1.0 ) and 1 or greater ( PDF 1.3 )\"; /EarlyChange values 0 and 1. Table 11's entries are typed integer and boolean.",
+  "code": "crates/pdf-syntax/src/filter.rs:219-240 (decode_with_parms_reported), :1249 (early_change); crates/pdf-model/src/image/ccitt.rs:172-184 (integer, flag)",
+  "change": "Decide once what a present but invalid parameter is (refused, or reported as damage) and apply it to every Table 8 and Table 11 entry; never read it as absent.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_predictor_that_is_not_an_integer_is_not_read_as_no_predictor_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.4.3",
+   "7.4.4.4"
+  ],
+  "summary": "The PNG predictor un-predicts at a /BitsPerComponent Table 8 does not list (3 here) and reports the result whole; the TIFF predictor refuses the same depth (ADR 2729).",
+  "source": "ISO 32000-2 Table 8 /BitsPerComponent: \"Valid values are 1 , 2 , 4 , 8 , and ( PDF 1.5 ) 16 .\"",
+  "code": "crates/pdf-syntax/src/filter.rs:263 (apply_predictor's PNG arm; tiff_predictor at :448 checks the depth)",
+  "change": "Refuse a PNG predictor at a depth outside Table 8, as tiff_predictor does.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_png_predictor_refuses_a_depth_table_8_does_not_list_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.1",
+   "7.4.4.3",
+   "7.4.4.4"
+  ],
+  "summary": "A /Predictor in a stage's parameters is applied after any filter, including RunLengthDecode, ASCIIHexDecode and ASCII85Decode, which Table 6 lists with no parameters: RunLength's 1 2 3 comes out as 1 3 6.",
+  "source": "ISO 32000-2 Table 6: RunLengthDecode, Parameters: no. Table 8 is the optional parameters for LZWDecode and FlateDecode; §7.4.4.4: \"For LZWDecode and FlateDecode , a Predictor value greater than or equal to 10 shall indicate that a PNG predictor is in use\".",
+  "code": "crates/pdf-syntax/src/filter.rs:208 (decode_with_parms_reported applies the predictor without asking the filter)",
+  "change": "Apply a predictor only after LZWDecode and FlateDecode.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_predictor_is_not_applied_after_a_filter_that_takes_no_parameters_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B06",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.8",
+   "7.3.9",
+   "7.3.10"
+  ],
+  "summary": "An /F whose value is a reference to an undefined object makes the stream external and refused (StreamRefusal::External), though such a reference is null and a null entry is an absent one.",
+  "source": "ISO 32000-2 Table 5 /F: \"If this entry is present, the bytes between stream and endstream shall be ignored.\" §7.3.10: \"An indirect reference to an undefined object shall not be considered an error by a PDF processor; it shall be treated as a reference to the null object.\" §7.3.9: \"Specifying the null object as the value of a dictionary entry (7.3.7, \\\"Dictionary objects\\\") shall be equivalent to omitting the entry entirely.\"",
+  "code": "crates/pdf-syntax/src/document/images.rs:108 (is_external: stream.dict.get(\"F\").is_some(), comment 'equally present')",
+  "change": "Resolve /F and treat null as absent; is_external then needs the document.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::an_external_file_entry_that_is_null_is_absent_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-B07",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.4.10",
+   "7.6.6"
+  ],
+  "summary": "In a document with no encryption dictionary, /Filter /Crypt /DecodeParms << /Name /StdCF >> passes its bytes through as the decoded data; the same name in an encrypted document whose /CF lacks it is refused.",
+  "source": "ISO 32000-2 §7.4.10 Table 14 /Name: \"The name shall correspond to an entry in the CF entry of the encryption dictionary (see \\\"Table 20 - Entries common to all encryption dictionaries\\\") or one of the standard crypt filters (see \\\"Table 26 - Standard crypt filter names\\\").\"",
+  "code": "crates/pdf-syntax/src/filter.rs:579 (decode_reported's Crypt arm); crates/pdf-syntax/src/document/encryption.rs:386 is asked only of an encrypted document",
+  "change": "Refuse a Crypt stage whose /Name is neither Identity nor a filter the document's encryption dictionary defines.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_crypt_filter_naming_no_defined_filter_is_not_a_pass_through_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2142-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.4.1",
+   "7.3.8"
+  ],
+  "summary": "decode_parms (and xref.rs's parms_for) gives a single /DecodeParms dictionary to every stage of a multi-filter chain. Table 5 requires an array when there are several filters with non-default parameters, so the input is malformed and the choice is the reader's; it is made silently and documented nowhere, and with B05 it runs a predictor after every stage.",
+  "source": "ISO 32000-2 Table 5 /DecodeParms: \"If there are multiple filters and any of the filters has parameters set to nondefault values, DecodeParms shall be an array with one entry for each filter in the same order as the Filter array\"",
+  "code": "crates/pdf-syntax/src/document/decoding.rs:224 (decode_parms); crates/pdf-syntax/src/xref.rs:1926 (parms_for)",
+  "change": "Document the choice (or refuse the chain) in decode_parms and ledger 7.4.1.",
+  "status": "open"
+ },
+ {
+  "id": "2142-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.4.10"
+  ],
+  "summary": "Ledger 7.4.10's note says the Crypt filter's first position is a writer's requirement this reader does not need because 'a pass-through commutes with everything'. Decryption runs on the raw bytes before the first stage wherever /Crypt stands, so [/ASCIIHexDecode /Crypt] decrypts the hex text, not its output.",
+  "source": "ISO 32000-2 §7.4.10: \"The Crypt filter shall be the first filter in the Filter array entry.\"",
+  "code": "doc/conformance/ledger.toml row 7.4.10; crates/pdf-syntax/src/document/encryption.rs:386",
+  "change": "Say that a misplaced /Crypt is decrypted first regardless, and that this is a choice.",
+  "status": "open"
+ },
+ {
+  "id": "2142-D03",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.4.7"
+  ],
+  "summary": "jbig2_bilevel's comment says a globals stream that will not decode is reported rather than skipped; a /JBIG2Globals present but not a stream (an undefined reference, a dictionary) is skipped without a word (_ => None).",
+  "source": "ISO 32000-2 Table 12 /JBIG2Globals (stream): \"A stream containing the JBIG2 global (page 0) segments.\"",
+  "code": "crates/pdf-model/src/image/jbig2.rs:71-84",
+  "change": "Name the case in the comment, or report it.",
+  "status": "open"
+ }
+]

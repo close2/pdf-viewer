@@ -8,7 +8,50 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [],
+ "failures": [
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "a_filter_entry_that_is_not_a_name_is_not_skipped_spec_audit",
+   "finding": "2142-B01",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "ascii_data_without_its_eod_marker_is_reported_short_spec_audit",
+   "finding": "2142-B02",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "a_predictor_that_is_not_an_integer_is_not_read_as_no_predictor_spec_audit",
+   "finding": "2142-B03",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "a_png_predictor_refuses_a_depth_table_8_does_not_list_spec_audit",
+   "finding": "2142-B04",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "a_predictor_is_not_applied_after_a_filter_that_takes_no_parameters_spec_audit",
+   "finding": "2142-B05",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "an_external_file_entry_that_is_null_is_absent_spec_audit",
+   "finding": "2142-B06",
+   "log": "round-2142 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::filters_spec_audit",
+   "test": "a_crypt_filter_naming_no_defined_filter_is_not_a_pass_through_spec_audit",
+   "finding": "2142-B07",
+   "log": "round-2142 nextest of pdf-syntax"
+  }
+ ],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",
