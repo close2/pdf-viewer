@@ -106,8 +106,6 @@ mod overlays;
 mod presentation;
 #[path = "quorra/sidebar.rs"]
 mod sidebar;
-#[path = "quorra/sound.rs"]
-mod sound;
 #[path = "quorra/surface.rs"]
 mod surface;
 #[path = "quorra/timing.rs"]

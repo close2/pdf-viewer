@@ -4673,6 +4673,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quorra-sound"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "libc",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6326,6 +6335,7 @@ dependencies = [
 name = "viewer-host"
 version = "0.1.0"
 dependencies = [
+ "confined-transport",
  "pdf-archive",
  "pdf-font",
  "pdf-media-worker",
@@ -6336,6 +6346,7 @@ dependencies = [
  "pdf-signature",
  "pdf-syntax",
  "pdf-transform",
+ "quorra-sound",
  "render-cpu",
  "rustls",
  "rustls-native-certs",
@@ -6368,7 +6379,6 @@ name = "viewer-ui"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "cpal",
  "gate-ratchet",
  "log",
  "pdf-font",

@@ -52,6 +52,9 @@ pdf-formcalc = { path = "crates/pdf-formcalc", version = "0.1.0" }
 pdf-script = { path = "crates/pdf-script", version = "0.1.0" }
 pdf-script-worker = { path = "crates/pdf-script-worker", version = "0.1.0" }
 pdf-media-worker = { path = "crates/pdf-media-worker", version = "0.1.0" }
+# The window's half only: the helper program and its `cpal` are behind the default feature a window
+# leaves off (ADR 3317).
+quorra-sound = { path = "crates/quorra-sound", version = "0.1.0", default-features = false }
 # The population two confined sweeps share. `pdf-vfs`'s read walk and `viewer-confined`'s sweep
 # ask different questions of two different confined programs and need the *same* documents to ask
 # them of, so the roots, the stride and the ten classes are one crate rather than a helper in each
@@ -212,14 +215,16 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # wrong price, and the entry is worth revisiting if this program is ever asked to run without
 # XWayland.
 arboard = { version = "3.6.1", default-features = false }
-# The audio output of the one window that plays §13.3's sounds itself, `quorra` (RFC 0015 section 5,
-# ADR 3301). With no features, which leaves ALSA alone on Linux: `alsa`, and `alsa-sys` linking
-# `libasound` — C in the host, on the output side, handed samples this program decoded in its
-# confined media worker and parsing nothing a document wrote, the standing ADR 3297 gave it.
-# `pulseaudio`, `pipewire` and `jack` are each a second sound-server client for a machine whose
-# ALSA already reaches the server through its plug-in, and `realtime` asks the scheduler for a
-# priority this viewer has no use for. 105 KiB of stripped release binary by RFC 0015 section 9;
-# ADR 3301 has this tree's own measurement.
+# The audio output §13.3's sounds are played on, linked into one program and no other: the sound
+# helper `quorra-sound`, which a window starts at the first sound (RFC 0015 section 5, ADRs 3301,
+# 3317). With no features, which leaves ALSA alone on Linux: `alsa`, and `alsa-sys` linking
+# `libasound` at load time — the reason it is a program of its own, so that a window maps no audio
+# library at its start and starts on a machine without one. C outside the sandbox, on the output
+# side, handed samples this program decoded in its confined media worker and parsing nothing a
+# document wrote, the standing ADR 3297 gave it. `pulseaudio`, `pipewire` and `jack` are each a
+# second sound-server client for a machine whose ALSA already reaches the server through its
+# plug-in, and `realtime` asks the scheduler for a priority this viewer has no use for. 105 KiB of
+# stripped release binary by RFC 0015 section 9; ADR 3317 has this tree's own measurement.
 cpal = { version = "0.18.2", default-features = false }
 
 # §12.7.6.2's submission, sent by `viewer-host` and by nothing else (the owner's answer to

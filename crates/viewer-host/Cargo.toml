@@ -47,6 +47,12 @@ pdf-script-worker.workspace = true
 # started at the first sound (`viewer_host::sound`, ADRs 3297, 3301). Only the client is called
 # here; the decoder runs in the worker program, built beside the windows.
 pdf-media-worker.workspace = true
+# The window's half of the sound helper, the program a window plays a sound through, started at the
+# first sound; the helper's `cpal` is behind the feature this crate leaves off, so no window links an
+# audio library (ADR 3317). `confined-transport` for the one function that finds a program beside
+# this executable, as the media worker is found.
+quorra-sound.workspace = true
+confined-transport.workspace = true
 # The questions a script puts to the person and their answers, `app.alert` and `app.response`, as
 # the worker hands them over — the crate's data alone, without `engine` (ADR 1628).
 pdf-script.workspace = true

@@ -13,11 +13,13 @@
 //! wait on the sound server; the window sends an order and is woken when there is something to
 //! say, which it takes with [`Player::heard`].
 //!
-//! The device is behind [`Sink`], the seam a window fills with its toolkit's output and a test with
-//! a recording double. What crosses it is samples this program decoded, never the document's bytes,
-//! which is the standing ADR 3297 gave the toolkits' C on the output side.
+//! The device is behind [`Sink`], the seam a window fills with [`helper::open`] — the sound helper
+//! program, which alone links an audio library (ADR 3317) — and a test with a recording double.
+//! What crosses it is samples this program decoded, never the document's bytes, which is the
+//! standing ADR 3297 gave the C on the output side.
 
 mod convert;
+pub mod helper;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;

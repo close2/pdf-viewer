@@ -813,8 +813,10 @@ install_libraries="viewer-ffi pdf-vfs-ffi"
 # A program behind a feature no window is built with, as `name:features`: each is built in a Cargo
 # run of its own, so that feature unification puts nothing of it into a window's build. The script
 # worker links the engine and a window links only the client that spawns it, and it is looked for
-# beside the window that spawns it, so it is installed with them (ADRs 1616, 1625).
-install_featured="pdf-script-worker:pdf-script-worker/engine"
+# beside the window that spawns it, so it is installed with them (ADRs 1616, 1625). The sound helper
+# is the one program that links an audio library, behind `device`, which a window leaves off so that
+# it links only the client; it too is looked for beside the window (ADR 3317).
+install_featured="pdf-script-worker:pdf-script-worker/engine quorra-sound:quorra-sound/device"
 # A program built in a Cargo run that selects its own package and nothing else, as `name:package`,
 # and left out of the one invocation above it: Cargo unifies a dependency's features over every
 # package a build selects, and `--bin` with no `-p` selects every member, so the sandbox worker's

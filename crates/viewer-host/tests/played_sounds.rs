@@ -388,3 +388,28 @@ fn the_four_levels_answer_a_sound_played_here() {
         }
     ));
 }
+
+/// A window whose sound helper is missing says so for the sound, opens nothing, and goes on: the
+/// next sound is tried again, and the player is still there for it (ADR 3317).
+#[test]
+fn a_missing_sound_helper_is_said_and_the_player_goes_on() {
+    let missing = std::env::temp_dir().join("quorra-sound-that-is-not-there");
+    let (wake, woken) = channel();
+    let mut player = Player::new(
+        Box::new(move || viewer_host::sound::helper::open_at(&missing)),
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    for document in [1, 2] {
+        player.play(played(document, &[0x00, 0x40, 0x00, 0xC0]));
+        let said = heard(&mut player, &woken, 1);
+        assert!(
+            matches!(said.as_slice(), [Heard::Refused(sentence)]
+                if sentence.contains("the audio device: the sound helper")
+                    && sentence.contains("was not found")),
+            "{said:?}"
+        );
+    }
+    assert!(player.started());
+}

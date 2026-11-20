@@ -1,25 +1,45 @@
-//! The audio device this window plays §13.3's sounds on: `cpal`'s default output, behind
-//! `viewer_host::sound::Sink` (RFC 0015 section 5, ADR 3301).
+//! The sound helper: this machine's default audio output, playing the samples a window sends.
 //!
-//! [`open`] is the player's `OpenSink`, called on its thread at the first sound and never before:
-//! that is where the device is probed, so a document that plays nothing never touches it
-//! (`CLAUDE.md`'s startup rules). Each sound is one output stream, built at [`Sink::start`] and
-//! dropped at [`Sink::stop`] or at the next sound; the device's own configuration — its rate, its
-//! channels and its sample format — is read once at the opening and the samples are converted to
-//! it before they arrive here (`viewer_host::sound::converted`).
+//! Not meant to be run by hand: a window's player starts it at the first sound and talks to it over
+//! its standard input and output (`quorra_sound::wire`). It opens `cpal`'s default output first and
+//! says the device's format, or why there is none, then plays each sound it is sent until its input
+//! ends. Run without a parent it says the device's format and waits for a sound that never arrives.
+//!
+//! The one program in the tree that links an audio library, so that no window does (ADR 3317).
+//! Each sound is one output stream, built when it is sent and dropped at a stop, at the next sound
+//! and at the end; the device's configuration is read once at the opening.
+
+#![deny(unsafe_code)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use viewer_host::sound::{DeviceFormat, Sink};
+use quorra_sound::{Device, Format};
+
+fn main() -> std::process::ExitCode {
+    if let Err(error) = keep_only_the_standard_descriptors() {
+        eprintln!(
+            "{}: cannot close the descriptors it inherited: {error}",
+            quorra_sound::HELPER_PROGRAM
+        );
+        return std::process::ExitCode::FAILURE;
+    }
+    match quorra_sound::serve(std::io::stdin().lock(), std::io::stdout(), open) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{}: {error}", quorra_sound::HELPER_PROGRAM);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
 
 /// This machine's default audio output, opened.
 ///
 /// # Errors
 ///
 /// The sentence to say where this machine has no output device or will not describe it.
-pub(crate) fn open() -> Result<Box<dyn Sink>, String> {
+fn open() -> Result<Output, String> {
     let host = cpal::default_host();
     let device = host
         .default_output_device()
@@ -27,11 +47,11 @@ pub(crate) fn open() -> Result<Box<dyn Sink>, String> {
     let config = device
         .default_output_config()
         .map_err(|error| format!("the audio output device's configuration: {error}"))?;
-    Ok(Box::new(Output {
+    Ok(Output {
         device,
         config,
         stream: None,
-    }))
+    })
 }
 
 /// The device, its configuration, and the stream of the sound playing on it.
@@ -41,9 +61,9 @@ struct Output {
     stream: Option<cpal::Stream>,
 }
 
-impl Sink for Output {
-    fn format(&self) -> DeviceFormat {
-        DeviceFormat {
+impl Device for Output {
+    fn format(&self) -> Format {
+        Format {
             rate: self.config.sample_rate(),
             channels: self.config.channels(),
         }
@@ -104,14 +124,43 @@ where
                     ended();
                 }
             },
-            // The device's own failure, mid-sound, on its own thread: said once on the terminal,
-            // where every other note of this window goes, rather than once per callback.
+            // The device's own failure, mid-sound, on its own thread: said once, on the standard
+            // error the helper shares with the window's terminal, rather than once per callback.
             move |error| {
                 if !said.swap(true, Ordering::Relaxed) {
-                    println!("note: the audio device failed while playing a sound: {error}");
+                    eprintln!(
+                        "note: {}: the audio device failed while playing a sound: {error}",
+                        quorra_sound::HELPER_PROGRAM
+                    );
                 }
             },
             None,
         )
         .map_err(|error| format!("no output stream: {error}"))
+}
+
+/// Closes every descriptor this process inherited past standard input, output and error (ADR 1945),
+/// for `pdf-media-worker`'s reason: a descriptor leaked to this child by a library in the window is
+/// an end of file somebody waits for while the helper lives.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "closes by number the descriptors no object in this process owns (ADR 1945)"
+)]
+fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
+    // SAFETY: `main`'s first statement, before anything in this process has opened a descriptor
+    // or made an object that owns one past the standard three, so no owner is left to use or close
+    // what this closes; and `close_range` reads and writes none of this process's memory.
+    let closed = unsafe { libc::close_range(3, u32::MAX, 0) };
+    if closed == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Nothing to close where `close_range` is not the system's call.
+#[cfg(not(target_os = "linux"))]
+fn keep_only_the_standard_descriptors() -> std::io::Result<()> {
+    Ok(())
 }

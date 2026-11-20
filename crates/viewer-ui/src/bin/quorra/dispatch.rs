@@ -1249,8 +1249,8 @@ impl App {
     }
 
     /// §13.3's sound, played in this window: handed to the player, which is made here at the first
-    /// sound with its thread, and which opens the audio device and starts the media worker on that
-    /// thread (ADR 3301).
+    /// sound with its thread, and which starts the media worker and the sound helper on that thread
+    /// (ADRs 3301, 3317). This window links no audio library; the helper program does.
     fn play(
         &mut self,
         id: viewer_core::DocumentId,
@@ -1262,7 +1262,7 @@ impl App {
         let player = self.player.get_or_insert_with(|| {
             let waker = self.waker.clone();
             viewer_host::sound::Player::new(
-                Box::new(crate::sound::open),
+                Box::new(viewer_host::sound::helper::open),
                 Box::new(move || {
                     if let Some(waker) = &waker {
                         let _ = waker.send_event(());
