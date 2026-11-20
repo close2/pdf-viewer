@@ -564,6 +564,22 @@ pub enum StreamSyntaxFault {
 }
 
 impl Unsupported {
+    /// Whether this is an [`Unsupported::Image`] report whose cause is the image stream's own
+    /// bytes rather than this reader: a filter this reader runs found them not in its format
+    /// ([`crate::image::NOT_WHAT_ITS_FILTER_ADMITS`]), or they stop short of the grid ISO 32000-2
+    /// §7.3.8.2 infers from the dictionary, the samples carried drawn
+    /// ([`crate::image::short_of_its_grid`]). Every other image report — a filter or codec this
+    /// reader does not run, a bound it sets, a colour space it does not read — is this reader's
+    /// own and answers `false` (ADR 3325).
+    #[must_use]
+    pub fn is_a_fault_of_the_images_own_bytes(&self) -> bool {
+        let Self::Image { name } = self else {
+            return false;
+        };
+        name.ends_with(crate::image::NOT_WHAT_ITS_FILTER_ADMITS)
+            || name.ends_with(crate::image::DRAWN_SHORT_OF_ITS_GRID)
+    }
+
     /// The fault of the stream's own syntax this report states, where it is an
     /// [`Unsupported::Operator`] naming one rather than an operator this interpreter does not run.
     #[must_use]

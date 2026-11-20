@@ -72,10 +72,17 @@ pub use device_scale::SoftMaskAtDeviceScale;
 use dispatch::decode_parts_in;
 pub use dispatch::{FilterSamples, filter_samples};
 pub use jpx::{JpxSamples, JpxSpace, ORDINARY_JPX_SAMPLES, jpx_samples};
+pub use mask::DRAWN_SHORT_OF_ITS_GRID;
 pub use mask::{
     ccitt_bound_below_its_height, overrides_graphics_state_mask, short_of_its_grid, unapplied_mask,
 };
 pub(crate) use mask::{decode_reporting_frame, decode_stencil_reporting_frame};
+
+/// [`ImageError::Malformed`]'s detail for a stream whose bytes a filter this reader runs found not
+/// to be in its format: the stream's own fault, which
+/// [`crate::content::Unsupported::is_a_fault_of_the_images_own_bytes`] reads (ADR 3325).
+pub const NOT_WHAT_ITS_FILTER_ADMITS: &str =
+    "its stream's bytes are not what its own filter admits (§7.4), so no sample of it is drawn";
 pub use soft_mask::unapplied_soft_mask;
 
 /// Largest image this will decode, in samples.

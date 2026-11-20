@@ -20,6 +20,10 @@
 //!
 //! The fixtures come in pairs differing in exactly one thing, the number of bytes after
 //! `stream`, so that nothing else can explain what changes.
+//!
+//! A shortfall is the stream's own fault, and so are bytes a filter this reader runs finds not in
+//! its format; the report says which, so that a consumer can tell the file's fault from this
+//! reader's (`Unsupported::is_a_fault_of_the_images_own_bytes`, ADR 3325).
 
 #![expect(
     clippy::expect_used,
@@ -82,6 +86,21 @@ fn stream_object(number: u32, dict: &str, data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(data);
     out.extend_from_slice(b"\nendstream\nendobj\n");
     out
+}
+
+/// Interprets a fixture and hands back what it said about it, as the reports themselves.
+fn reports(bytes: Vec<u8>) -> Vec<pdf_model::content::Unsupported> {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page).unsupported
+}
+
+/// `data` deflated in RFC 1950's format, as `/FlateDecode` reads it.
+fn deflated(data: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(data).expect("writing to a vector");
+    encoder.finish().expect("finishing into a vector")
 }
 
 /// Interprets a fixture and hands back what it drew and what it said about it.
@@ -209,5 +228,56 @@ fn a_stencil_marks_the_page_only_where_its_samples_reach() {
     assert!(
         said.iter().any(|report| report.contains("7.3.8.2")),
         "and the shortfall is reported: {said:?}"
+    );
+}
+
+/// A shortfall is the stream's own fault, said as one.
+#[test]
+fn a_shortfall_is_reported_as_the_images_own_fault() {
+    let said = reports(page_with_image(DICT, &[0x00, 0x00]));
+    assert!(
+        said.iter()
+            .any(pdf_model::content::Unsupported::is_a_fault_of_the_images_own_bytes),
+        "a row the file does not carry is the file's fault: {said:?}"
+    );
+}
+
+/// Bytes that break §7.4.4.4's predictor are the stream's own fault, and nothing of them is drawn.
+///
+/// Table 10 defines the PNG row tags 0 to 4, so a row tagged 9 cannot be reversed — and every row
+/// after it depends on its predecessor. The same rows with a defined tag draw in silence, so the
+/// tag is the one thing that changes.
+#[test]
+fn bytes_a_filter_finds_not_in_its_format_are_the_images_own_fault() {
+    let dict = format!("{DICT} /Filter /FlateDecode /DecodeParms << /Predictor 15 /Columns 2 >>");
+    let whole = reports(page_with_image(
+        &dict,
+        &deflated(&[0, 0x00, 0x00, 0, 0xFF, 0xFF]),
+    ));
+    assert!(whole.is_empty(), "defined tags draw in silence: {whole:?}");
+    let said = reports(page_with_image(
+        &dict,
+        &deflated(&[0, 0x00, 0x00, 9, 0xFF, 0xFF]),
+    ));
+    assert!(
+        said.iter()
+            .any(pdf_model::content::Unsupported::is_a_fault_of_the_images_own_bytes),
+        "an undefined row tag is the stream's fault: {said:?}"
+    );
+}
+
+/// A filter this reader does not run is the reader's gap, never the file's fault.
+#[test]
+fn a_filter_this_reader_does_not_run_is_not_the_images_fault() {
+    let said = reports(page_with_image(
+        &format!("{DICT} /Filter /Frobnicate"),
+        &[0x00, 0x00, 0xFF, 0xFF],
+    ));
+    assert!(!said.is_empty(), "the refusal is said: {said:?}");
+    assert!(
+        !said
+            .iter()
+            .any(pdf_model::content::Unsupported::is_a_fault_of_the_images_own_bytes),
+        "a name from no table is not the stream's own fault: {said:?}"
     );
 }

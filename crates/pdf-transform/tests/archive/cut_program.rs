@@ -36,6 +36,11 @@ pub(super) fn zlib_stored(data: &[u8]) -> Vec<u8> {
 /// [`a_truetype_font`]'s document showing "Hi", its `/FontFile2` the zlib stream `program` under
 /// `FlateDecode`, `/Length1` the whole face's length.
 fn a_font_whose_program_is(program: &[u8]) -> Vec<u8> {
+    a_font_flagged_and_encoded(program, 32, "/WinAnsiEncoding")
+}
+
+/// [`a_font_whose_program_is`] with the descriptor's `/Flags` and the font's `/Encoding` given.
+fn a_font_flagged_and_encoded(program: &[u8], flags: u32, encoding: &str) -> Vec<u8> {
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
                     [0.9505 1.0 1.089] >>] >>"
@@ -48,12 +53,13 @@ fn a_font_whose_program_is(program: &[u8]) -> Vec<u8> {
             format!(
                 "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 32 \
                  /LastChar 126 /Widths [{LIBERATION_SANS_ADVANCES}] /FontDescriptor 7 0 R \
-                 /Encoding /WinAnsiEncoding >>"
+                 /Encoding {encoding} >>"
             ),
-            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
-             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
-             /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
-                .to_owned(),
+            format!(
+                "<< /Type /FontDescriptor /FontName /LiberationSans /Flags {flags} \
+                 /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+                 /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
+            ),
         ],
         binary_objects: vec![stream(
             &format!(
@@ -301,6 +307,29 @@ fn a_program_refused_outright_or_disowned_by_its_checksum_is_substituted() {
         assert_eq!(dropped.and_then(|cut| cut.damage), Some(damage));
         assert!(draws_the_text_drawn(&source, &output));
     }
+}
+
+#[test]
+fn a_symbolic_font_whose_program_its_checksum_disowns_is_restated_over_the_face_the_window_drew() {
+    // `507676`'s Ghostscript `TTE…` fonts: symbolic, an `/Encoding` stating `/Differences`, and a
+    // `/FontFile2` whose Adler-32 disagrees, which this reader does not load and the window draws
+    // from the substitute face in its place (ADR 2870). Section 6.2.11.6's rows name such a font,
+    // and its codes are restated over the face the substitution embeds, asked of the font the way
+    // the window asks it (ADR 3326).
+    let target = Target::Two(Level::B);
+    let mut disowned = zlib_stored(LIBERATION_SANS);
+    let last = disowned.len() - 1;
+    disowned[last] ^= 0xFF;
+    let source = a_font_flagged_and_encoded(
+        &disowned,
+        4,
+        "<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [72 /H 105 /i] >>",
+    );
+    assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
+    let (report, output) = convert(&source, target, the_face_losses_authorised());
+    let output = written(&report, output);
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(draws_the_text_drawn(&source, &output));
 }
 
 #[test]

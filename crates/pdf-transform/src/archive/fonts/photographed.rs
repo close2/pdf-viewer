@@ -903,8 +903,15 @@ fn leaves_the_page_undrawn(report: &Unsupported, gate: Gate<'_>) -> bool {
 /// stopped the read, nothing tells the file's fault from this reader's gap, and where the entry
 /// names no stream the file holds, a photograph would carry content the producer named and the
 /// file lost with no loss of its own to name it. ADR 2516, ADR 2618.
+///
+/// An image is the stream's own fault where the reader can say so: a filter it runs found the
+/// image's bytes not in that filter's format, or the bytes stop short of the grid §7.3.8.2 infers,
+/// the samples carried drawn (`Unsupported::is_a_fault_of_the_images_own_bytes`). The window then
+/// draws what the file's bytes give, which is the state A694 item 3 has the photograph keep; a
+/// filter or codec this reader does not run stays refused (ADR 3325).
 fn is_a_fault_of_the_documents_own_stream(report: &Unsupported) -> bool {
     report.stream_syntax_fault().is_some()
+        || report.is_a_fault_of_the_images_own_bytes()
         || matches!(
             report,
             Unsupported::SoftMask { .. }
@@ -1447,6 +1454,21 @@ mod tests {
             operator("Do with no name operand"),
             operator("W without a path-painting operator after it"),
             operator("EI outside an inline image, which §8.9.7 admits it only inside"),
+            // An image whose own bytes a filter this reader runs refuses, or whose samples stop
+            // short of its grid, is the stream's fault (ADR 3325).
+            Unsupported::Image {
+                name: format!(
+                    "R73: malformed image: {}",
+                    pdf_model::image::NOT_WHAT_ITS_FILTER_ADMITS
+                ),
+            },
+            Unsupported::Image {
+                name: format!(
+                    "<inline>: its samples stop at 427 bytes where 143x1 at 8 bits and 3 \
+                     component(s) needs 429 (§7.3.8.2 infers the extent from the dictionary){}",
+                    pdf_model::image::DRAWN_SHORT_OF_ITS_GRID
+                ),
+            },
         ] {
             assert!(!leaves_the_page_undrawn(&fault, wide), "{fault:?}");
             assert!(leaves_the_page_undrawn(&fault, narrow), "{fault:?}");
@@ -1483,6 +1505,11 @@ mod tests {
             operator("q outside an inline image, which §8.9.7 admits it only inside"),
             Unsupported::Image {
                 name: String::from("<inline>: no EI ends the image data"),
+            },
+            // A stream that did not decode for any other reason does not tell the file's fault
+            // from this reader's.
+            Unsupported::Image {
+                name: String::from("R73: malformed image: stream did not decode"),
             },
         ] {
             assert!(leaves_the_page_undrawn(&kept, wide), "{kept:?}");

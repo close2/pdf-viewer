@@ -955,7 +955,13 @@ fn codes_drawn(
         };
         return Some((before, reached, on_notdef));
     };
-    let drawn = LoadedFont::load(document, source, "").ok()?;
+    // A program present and unreadable is drawn from the substitute the window draws in its
+    // place (`doc/adr/2870`), and that substitute's face is the one the substitution embeds, so
+    // the window's own question is asked here (ADR 3326).
+    let drawn = match LoadedFont::load(document, source, "") {
+        Ok(font) => font,
+        Err(refusal) => LoadedFont::substitute_for_unreadable(document, source, "", &refusal)?,
+    };
     if !drawn.is_substituted() {
         return None;
     }

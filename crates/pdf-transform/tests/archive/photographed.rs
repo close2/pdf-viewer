@@ -563,12 +563,14 @@ fn a_page_whose_own_content_stream_is_damaged_part_way_is_photographed_as_the_wi
 
 #[test]
 fn a_page_the_window_could_not_draw_whole_is_not_photographed() {
-    // An image whose samples are missing: the window draws a page without the picture, and
-    // a photograph would record that gap of this reader as the document's loss.
+    // An image behind a filter this reader does not run: the window draws a page without the
+    // picture, and a photograph would record that gap of this reader as the document's loss. An
+    // image whose own bytes stop short of its grid is the file's fault instead, and is drawn as the
+    // file carries it (ADR 3325).
     let image = String::from_utf8_lossy(&super::stream(
         "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray \
-         /BitsPerComponent 8 /Length 1",
-        b"\x00",
+         /BitsPerComponent 8 /Filter /Frobnicate /Length 16",
+        &[0; 16],
     ))
     .into_owned();
     let source = a_page_with_a_fault_and(

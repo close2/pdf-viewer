@@ -609,11 +609,16 @@ pub fn short_of_its_grid(
         format!(
             "its samples stop at {have} bytes where {width}x{height} at {bits} bits and \
              {components} component(s) needs {need} (§7.3.8.2 infers the extent from the \
-             dictionary); what the stream carries is drawn and the rest of the grid is left \
-             unpainted"
+             dictionary){DRAWN_SHORT_OF_ITS_GRID}"
         )
     })
 }
+
+/// How [`short_of_its_grid`]'s sentence ends, which
+/// [`crate::content::Unsupported::is_a_fault_of_the_images_own_bytes`] reads: the samples the
+/// file carried are drawn and its own extent is what is short (ADR 3325).
+pub const DRAWN_SHORT_OF_ITS_GRID: &str =
+    "; what the stream carries is drawn and the rest of the grid is left unpainted";
 
 /// Names a `CCITTFaxDecode` image whose filter Table 11 stops short of the grid §8.9.5.1 states,
 /// for the caller to report *beside* the drawing.

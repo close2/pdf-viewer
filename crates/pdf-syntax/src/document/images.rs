@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{Document, ImageStream};
+use super::{Document, ImageStream, StreamRefusal};
 use crate::object::{Dictionary, Object, Stream};
 
 impl Document {
@@ -25,14 +25,33 @@ impl Document {
     /// # Errors
     ///
     /// Returns `None` when a filter before the codec is unsupported, for the same reason
-    /// [`Self::decoded_stream_data`] does.
+    /// [`Self::decoded_stream_data`] does; [`Self::image_stream_reported`] says which refusal.
     #[must_use]
     pub fn image_stream(&self, stream: &Stream) -> Option<ImageStream> {
-        if stream.decryption_failed || self.is_external(stream) {
-            return None;
+        self.image_stream_reported(stream).ok()
+    }
+
+    /// [`Self::image_stream`], with the reason a stream gave no samples.
+    ///
+    /// The reason is what tells the file's fault from this reader's: a filter this reader runs
+    /// that met bytes its grammar does not admit ([`crate::FilterRefusal::Corrupt`]) is a statement
+    /// about the stream, where a filter it does not run or a bound it sets is a statement about
+    /// the reader, exactly as [`Self::decoded_stream_data_reported`] keeps them apart.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], whose variants are the reasons.
+    pub fn image_stream_reported(&self, stream: &Stream) -> Result<ImageStream, StreamRefusal> {
+        if stream.decryption_failed {
+            return Err(StreamRefusal::DecryptionFailed);
+        }
+        if self.is_external(stream) {
+            return Err(StreamRefusal::External);
         }
         // A chain Table 5 does not admit is refused here as `decoded_under` refuses it (ADR 3274).
-        let mut chain = self.stated_chain(&stream.dict).ok()?;
+        let mut chain = self
+            .stated_chain(&stream.dict)
+            .map_err(StreamRefusal::Chain)?;
         let filters: Vec<Vec<u8>> = chain.iter().map(|(filter, _)| filter.clone()).collect();
         let codec_at = Self::codec_position(&filters);
         let codec = codec_at.and_then(|index| chain.get(index).cloned());
@@ -48,13 +67,11 @@ impl Document {
         let data = if prefix.is_empty() {
             Arc::clone(&stream.data)
         } else {
-            self.chain_over(&stream.data, prefix, self.limits)
-                .ok()?
-                .data
+            self.chain_over(&stream.data, prefix, self.limits)?.data
         };
 
         let (codec, parms) = codec.map_or((None, None), |(codec, parms)| (Some(codec), parms));
-        Some(ImageStream { codec, parms, data })
+        Ok(ImageStream { codec, parms, data })
     }
 
     /// Which image codec this stream's `/Filter` ends in, decoding nothing.

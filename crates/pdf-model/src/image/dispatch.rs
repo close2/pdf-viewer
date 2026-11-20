@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use pdf_render::{Image, SampleAlpha};
-use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
+use pdf_syntax::{Dictionary, Document, FilterRefusal, ImageStream, Object, Stream, StreamRefusal};
 use rayon::iter::IndexedParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSlice as _;
@@ -79,11 +79,7 @@ pub(super) fn decode_parts_in(
     };
 
     // Every filter before the codec has run; the codec, if there is one, has not.
-    let source = document
-        .image_stream(stream)
-        .ok_or_else(|| ImageError::Malformed {
-            detail: "stream did not decode".to_owned(),
-        })?;
+    let source = image_source(document, stream)?;
 
     // §11.6.5.2's pre-blending is undone here rather than after the raster exists, because
     // the clause says where: "inversion of the pre-blending shall precede the colour
@@ -791,11 +787,7 @@ pub fn filter_samples(document: &Document, stream: &Stream) -> Result<FilterSamp
     if samples > MAX_SAMPLES {
         return Err(ImageError::TooLarge { samples });
     }
-    let source = document
-        .image_stream(stream)
-        .ok_or_else(|| ImageError::Malformed {
-            detail: "stream did not decode".to_owned(),
-        })?;
+    let source = image_source(document, stream)?;
     match source.codec.as_deref() {
         Some(b"DCTDecode" | b"DCT") => {
             let stated = source
@@ -1019,6 +1011,27 @@ fn beside<A, B: Send, There: FnOnce() -> B + Send>(
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     (first, second)
+}
+
+/// The stream's data with every filter before the codec run, or the reason it gave none.
+///
+/// A filter this reader runs that met bytes its grammar does not admit is named apart from every
+/// other refusal, by [`super::NOT_WHAT_ITS_FILTER_ADMITS`]: ISO 32000-2 §7.4.1 has a filter
+/// "convert the information back to its original form", and bytes that break the filter's own
+/// format are the stream's fault rather than this reader's, where a filter this reader does not
+/// run, a bound it sets or a chain Table 5 does not admit is not that statement (ADR 3325).
+fn image_source(document: &Document, stream: &Stream) -> Result<ImageStream, ImageError> {
+    document
+        .image_stream_reported(stream)
+        .map_err(|refusal| ImageError::Malformed {
+            detail: match refusal {
+                StreamRefusal::Filter {
+                    why: FilterRefusal::Corrupt,
+                    ..
+                } => super::NOT_WHAT_ITS_FILTER_ADMITS.to_owned(),
+                _ => "stream did not decode".to_owned(),
+            },
+        })
 }
 
 #[cfg(test)]

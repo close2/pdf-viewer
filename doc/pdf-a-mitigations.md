@@ -1503,8 +1503,9 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   (A694 item 3, ADRs 2516 and 2618): an operator short of its operands, an undefined name, a path
   with no current point, a matrix with no inverse, a stream damaged part-way (the page's own
   `/Contents` as well as a form's), a stream that ends inside a text object and a keyword inside an
-  array are drawn as the window draws them; a part of `/Contents` the window drew nothing of, an
-  image or shading this reader cannot build and a drawing stopped at a bound keep the refusal,
+  array are drawn as the window draws them, and so is an image whose own bytes break a filter this
+  reader runs or stop short of its grid (ADR 3325); a part of `/Contents` the window drew nothing
+  of, an image or shading this reader cannot build and a drawing stopped at a bound keep the refusal,
   except the operand cap reached on a page whose own `/Contents` failed its decode and put a keyword
   inside an array: the operands behind it are the array the damage left open (ADR 3267).
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
@@ -1978,7 +1979,9 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` (
   steps and through none of the mappings it leaves to a processor; a code that reached glyph 0 is
   left out of the table and held to reaching no other glyph. Where the checker named only a prefix
   of the fonts that fail, or a font is not an embedded TrueType program under a descriptor of its
-  own, the refusal stays with the sentence that says so.
+  own, the refusal stays with the sentence that says so. A font whose program the window refused
+  and drew from a substitute (ADR 2870) is restated over the face the substitution embeds for it,
+  the font loaded as the window loads it (ADR 3326).
 - **Cost, stated in the report** (`TRUETYPE_CMAP_REINTERPRETS`): the file now asserts the route this
   reader took; a reader that chose another mapping drew another glyph before and draws this one now,
   and the encoding's glyph names no longer say which character a code is, so extracted text comes
