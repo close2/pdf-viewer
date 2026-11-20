@@ -258,7 +258,10 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
   excludes (U+0000 in `poppler-742-0-fuzzed`'s `/Title`) leaves no packet well-formed, and is
   answered as a carried value the packet cannot hold is (ADR 2681): removed and stated under
   `append-statement`, dropped and named under `discard` as the second step or as `unreadable`,
-  refused by name otherwise (ADR 3238).
+  refused by name otherwise (ADR 3238); the packet's writer refuses such a value itself, by the
+  property's name, whatever its caller asked (ADR 3253). A carriage return is no such character: it
+  is written as `&#xD;`, which XML 1.0's end-of-line handling leaves, so a Table 349 value and a
+  carried one holding it come back as the dictionary stated them (ADR 3254).
 - **`unmapped = "extension-schema"` is recognised and refused**, and this entry offered it in
   error. ISO 19005-2 6.6.2.3.2's container describes a schema *a packet uses*, and a `/Info` key is
   in no schema: putting one into the packet needs a namespace URI first, and a namespace URI is the
@@ -1434,8 +1437,11 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
 - **A font whose embedded program stops short** (ADR 2619's reading) and that this reader cannot
   load is a font naming no program: the `/FontFile*` entry is dropped and the font takes the route
   above under the descriptor's names and the font's widths, under the same losses, the report and
-  `xmpMM:History` naming the cut program. One whose front this reader loads whole is refused by its
-  own sentence, since dropping it would change what the window drew (ADR 2636). A `FlateDecode`
+  `xmpMM:History` naming the cut program. One whose front this reader loads whole is not dropped,
+  since that would change what the window drew (ADR 2636): where its decoded bytes are exactly the
+  extent Table 125 states (`/Length1`, or `/Length1` to `/Length3`), they are written again whole
+  at the program's own object, losing nothing (ADR 3256); elsewhere — a `/FontFile3`, or a length
+  the decode does not reach — it is refused by its own sentence. A `FlateDecode`
   refused outright or disowned by its Adler-32, and bytes that decode whole and are not a program in
   the format their key and `/Subtype` file them under, take the same route (ADR 2636 decisions 4, 5).
 - **A font this machine draws from a face of its own** (ADR 0270, or a TrueType name
@@ -1805,9 +1811,10 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
   entry, which the base standard makes optional and which the clause therefore stops judging. Both
   are mechanical and neither loses anything, because the set is derivable from the program either
   way. **Owed, not optional** in substance. Where the `.notdef` remedy writes a `/CIDToGIDMap`
-  stream sending a CID other than 0 to glyph 0, the descriptor it writes states no `/CIDSet`:
-  Table 115 leaves open whether such a CID is present in the program, veraPDF 1.30.3 reads it as
-  present and this tree as absent, and removal asserts neither (ADR 3239).
+  stream sending a CID other than 0 to glyph 0, the descriptor it writes states no `/CIDSet`
+  (ADR 3239). The check judges a set under a map stream: a CID is present where the stream gives it
+  an index the program holds a glyph at, glyph 0 included, by Table 115 and §9.7.6.3 (ADR 3255);
+  veraPDF 1.30.3 agrees but for CID 0, which it skips.
 - **By target** — part 4 states no such rule and ISO 32000-2's Table 122 deprecates `/CIDSet`
   outright, so a part 4 target wants the entry *gone* rather than corrected. Confirmed **A**.
 - **From a configuration** — at most `route = "recompute" | "remove"`, and only because an archive

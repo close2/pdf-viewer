@@ -1571,8 +1571,13 @@ impl Prepared {
             _ => super::supplied_cmyk::NO_PLACE_TO_RECORD,
         };
         let supplied_cmyk = unless_recorded(supplied_cmyk, recorded_it, cmyk_not_recorded);
-        let substitutes =
-            unless_recorded(substitutes, recorded_it, NO_PLACE_TO_RECORD_A_SUBSTITUTION);
+        // A preparation that substituted nothing has nothing to record: a program written whole
+        // again is the producer's own (`doc/adr/3256`).
+        let substitutes = unless_recorded(
+            substitutes,
+            recorded_it || font_history.is_empty(),
+            NO_PLACE_TO_RECORD_A_SUBSTITUTION,
+        );
         let undecodable = match undecodable {
             Ok(_) if undecodable_history.is_some() && !recorded_it => {
                 Err(Because::NotBuiltYet(super::undecodable::NO_PLACE_TO_RECORD))

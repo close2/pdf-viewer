@@ -226,25 +226,54 @@ fn a_program_whole_with_one_byte_after_its_checksum_is_kept() {
 }
 
 #[test]
-fn a_program_cut_inside_its_checksum_is_drawn_whole_and_refused_by_its_own_sentence() {
-    // The stream stops two bytes into RFC 1950's Adler-32, after every byte of the program: the
-    // decode stops short, so the checker fails it (ADR 2619), but the front is the whole face and
-    // this reader draws from it. Dropping it would change the shapes the window drew, so the
-    // route does not take it and the refusal says why (ADR 2636).
+fn a_program_cut_inside_its_checksum_is_written_whole_again() {
+    // The stream stops two bytes into RFC 1950's Adler-32, after every byte of the program, as
+    // `F001u_3_7j`'s does: the decode stops short, so the checker fails it (ADR 2619), but the
+    // front is the whole face, as many bytes as its `/Length1` states, and this reader draws from
+    // it. The conversion writes those bytes again as a whole stream at the program's own object,
+    // the producer's `/Length1` beside them, and every shape stays (ADR 3256).
     let whole = zlib_stored(LIBERATION_SANS);
     let cut = whole
         .get(..whole.len() - 2)
         .expect("the stream is longer than two bytes");
     let source = a_font_whose_program_is(cut);
-    let target = Target::Two(Level::B);
-    assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
-    let (report, _) = convert(&source, target, the_face_losses_authorised());
-    let Decision::Refused(Because::NotBuiltYet(because)) =
-        decision(&report, "fonts/font-programs-embedded")
-    else {
-        panic!("{:#?}", conversion(&report).decided);
-    };
-    assert!(because.contains("loads and draws from"), "{because}");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
+        for profile in [the_face_losses_authorised(), Authorisations::default()] {
+            let (report, output) = convert(&source, target, profile);
+            let output = written(&report, output);
+            assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+            assert!(
+                conversion(&report).substituted.is_empty(),
+                "no face replaces it: {:?}",
+                conversion(&report).substituted
+            );
+            assert_eq!(embedded_program(&output), LIBERATION_SANS.to_vec());
+            assert!(draws_the_text_drawn(&source, &output));
+        }
+    }
+
+    // Where the stream states an extent the decode does not reach exactly, the bytes may not be
+    // the program the producer described, so they are not written whole: this one, which this
+    // reader does not load, takes ADR 2636's route instead. `/Length1` one more than the program,
+    // spelled in as many digits so that no offset moves.
+    let stated = format!("/Length1 {}", LIBERATION_SANS.len());
+    let other = format!("/Length1 {}", LIBERATION_SANS.len() + 1);
+    assert_eq!(stated.len(), other.len());
+    let at = source
+        .windows(stated.len())
+        .position(|window| window == stated.as_bytes())
+        .expect("the fixture states /Length1");
+    let mut source = source;
+    source[at..at + other.len()].copy_from_slice(other.as_bytes());
+    let (report, output) = convert(&source, Target::Two(Level::B), the_face_losses_authorised());
+    written(&report, output);
+    let entry = conversion(&report).substituted.first().cloned();
+    assert!(
+        entry.and_then(|entry| entry.cut_program).is_some(),
+        "{:?}",
+        conversion(&report).substituted
+    );
 }
 
 #[test]

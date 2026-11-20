@@ -1890,16 +1890,29 @@ fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &m
 /// > The stream's data shall be organised as a table of bits indexed by CID. The bits shall be
 /// > stored in bytes with the high-order bit first.
 ///
-/// # The one assumption, and where it is refused
+/// # Which CIDs a map stream makes present
 ///
 /// A `CIDFontType2`'s program has glyph indices rather than CIDs, and §9.7.4.2's `/CIDToGIDMap`
 /// is what relates the two. [`LoadedFont::program_character_identifiers`] answers for the
-/// identity map, which is that entry's default, so a `CIDFont` stating a *stream* map is passed
-/// over here rather than judged against an assumption its file contradicts.
+/// identity map, which is that entry's default: every glyph index is the CID it equals.
 ///
-/// Also passed over: a descendant with no `/CIDSet`, a substituted or unreadable font, and a
-/// `CIDFontType0` whose CFF is name-keyed rather than CID-keyed — the last because its glyphs
-/// carry names and not CIDs, so there is no set of the clause's kind to compare.
+/// Under a *stream*, a CID is present where the stream holds a glyph index for it and the program
+/// holds a glyph at that index — glyph 0 included (`doc/adr/3255`). Table 115 gives every CID
+/// whose two bytes the stream holds a glyph index, the two bytes at 2c and 2c + 1, and nothing in
+/// it sets 0 apart; and the one absence §9.7.6.3 names for such a map is a CID the stream does not
+/// reach:
+///
+/// > For an embedded TrueType font with a CIDtoGIDMap stream, if a (character) code does not have
+/// > a corresponding GID in the CIDtoGIDMap stream, the glyph for CID 0 shall be substituted.
+///
+/// A glyph index at or past the program's last glyph names no description, so that CID is
+/// absent too.
+///
+/// Passed over: a descendant with no `/CIDSet`, a substituted or unreadable font, a
+/// `CIDFontType0` stating a map stream (Table 115 states the entry for Type 2 alone, and this
+/// check does not guess what one means on a CFF program), and a `CIDFontType0` whose CFF is
+/// name-keyed rather than CID-keyed — the last because its glyphs carry names and not CIDs, so
+/// there is no set of the clause's kind to compare.
 fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |site, font| {
@@ -1909,13 +1922,20 @@ fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut 
         let Some((_, cid_font)) = descendant(document, font) else {
             return;
         };
-        // The identity map is Table 117's default, so an absent entry is it; anything else is a
-        // stream this crate would have to invert before the comparison meant anything.
-        match document.get_key(&cid_font, "CIDToGIDMap") {
-            Object::Null => {}
-            Object::Name(name) if name.as_bytes() == b"Identity" => {}
+        // The identity map is Table 115's default, so an absent entry is it.
+        let map = match document.get_key(&cid_font, "CIDToGIDMap") {
+            Object::Null => None,
+            Object::Name(name) if name.as_bytes() == b"Identity" => None,
+            Object::Stream(map)
+                if subtype(document, &cid_font).as_deref() == Some("CIDFontType2") =>
+            {
+                let Some(map) = document.decoded_stream_data(&map) else {
+                    return;
+                };
+                Some(map)
+            }
             _ => return,
-        }
+        };
         let Some(descriptor) = descriptor(document, &cid_font) else {
             return;
         };
@@ -1928,8 +1948,12 @@ fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut 
         let Ok(loaded) = LoadedFont::load(document, font, "CIDSet") else {
             return;
         };
-        let Some(present) = loaded.program_character_identifiers() else {
+        let Some(glyphs) = loaded.program_character_identifiers() else {
             return;
+        };
+        let present = match map {
+            None => glyphs,
+            Some(map) => present_under_a_map_stream(&map, &glyphs),
         };
         // Table 124: bits indexed by CID, high-order bit of the first byte being CID 0.
         let marked = |cid: u16| {
@@ -1951,6 +1975,22 @@ fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut 
             ),
         );
     });
+}
+
+/// The CIDs a `/CIDToGIDMap` stream `map` makes present in a program holding `glyphs`: each CID
+/// whose two bytes the stream holds, sending it to a glyph the program has (`doc/adr/3255`).
+///
+/// Table 115 indexes the stream from CID 0, two bytes a CID, the high-order byte first; a last
+/// odd byte holds no whole index, and a CID past 65 535 is one no two-byte code can select.
+/// `glyphs` is ascending, as [`LoadedFont::program_character_identifiers`] returns it.
+fn present_under_a_map_stream(map: &[u8], glyphs: &[u16]) -> Vec<u16> {
+    let (pairs, _) = map.as_chunks::<2>();
+    pairs
+        .iter()
+        .enumerate()
+        .filter(|(_, pair)| glyphs.binary_search(&u16::from_be_bytes(**pair)).is_ok())
+        .filter_map(|(cid, _)| u16::try_from(cid).ok())
+        .collect()
 }
 
 // --------------------------------------------------------------------------------------------
@@ -4622,6 +4662,11 @@ mod tests {
 
     /// [`cid_page`] with CID 36 mapped to `cid_36_glyph` rather than to glyph 36, A.
     fn cid_page_sending_36_to(shown: &[u16], cid_zero_glyph: u16, cid_36_glyph: u16) -> Document {
+        numbered_from_one(&cid_objects(shown, cid_zero_glyph, cid_36_glyph))
+    }
+
+    /// [`cid_page_sending_36_to`]'s objects, its font descriptor being object 8.
+    fn cid_objects(shown: &[u16], cid_zero_glyph: u16, cid_36_glyph: u16) -> Vec<Vec<u8>> {
         const LIBERATION_SANS: &[u8] =
             include_bytes!("../../../../data/standard-fonts/LiberationSans-Regular.ttf");
         let codes = shown.iter().fold(String::new(), |mut codes, cid| {
@@ -4639,7 +4684,7 @@ mod tests {
                 .to_be_bytes()
             })
             .collect();
-        let objects: Vec<Vec<u8>> = vec![
+        vec![
             b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
@@ -4674,8 +4719,71 @@ mod tests {
                 b"\nendstream",
             ]
             .concat(),
-        ];
+        ]
+    }
+
+    /// [`cid_page_sending_36_to`] showing CID 36, its descriptor stating a `/CIDSet` that marks
+    /// the CIDs `marked` (Table 124: bits indexed by CID, the high-order bit of the first byte
+    /// being CID 0).
+    fn cid_page_marking(cid_36_glyph: u16, marked: impl IntoIterator<Item = u16>) -> Document {
+        let mut bits = [0u8; 5];
+        for cid in marked {
+            let at = usize::from(cid / 8);
+            if let Some(byte) = bits.get_mut(at) {
+                *byte |= 0x80 >> (cid % 8);
+            }
+        }
+        let mut objects = cid_objects(&[36], 1, cid_36_glyph);
+        if let Some(descriptor) = objects.get_mut(7) {
+            *descriptor = b"<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 /FontBBox \
+              [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 \
+              /StemV 80 /FontFile2 9 0 R /CIDSet 10 0 R >>"
+                .to_vec();
+        }
+        objects.push(
+            [
+                b"<< /Length 5 >>\nstream\n".as_slice(),
+                &bits,
+                b"\nendstream",
+            ]
+            .concat(),
+        );
         numbered_from_one(&objects)
+    }
+
+    /// Section 6.2.11.4.2's `/CIDSet` judged under a `/CIDToGIDMap` stream (`doc/adr/3255`).
+    ///
+    /// [`cid_page`]'s stream gives each of CIDs 0 to 36 a glyph index the program holds — 1,
+    /// glyph 0 thirty-five times, and 36 — so all thirty-seven are present, glyph 0 included:
+    /// Table 115 sets no index apart, and §9.7.6.3's one absence under a stream is a CID the
+    /// stream does not reach. A CID the stream sends past the program's last glyph is absent.
+    #[test]
+    fn a_cidset_under_a_map_stream_marks_every_cid_the_stream_gives_a_glyph() {
+        use super::{cidset_lists_every_cid_in_the_program, present_under_a_map_stream};
+        let rule = cidset_lists_every_cid_in_the_program;
+        assert_eq!(
+            findings(&cid_page_marking(36, 0..=36), rule),
+            Vec::<String>::new()
+        );
+        let found = findings(&cid_page_marking(36, [0, 36]), rule);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("leaves 35 of the font program's CIDs unmarked, including CID 1"),
+            "{found:?}"
+        );
+        // `maxp` states 681 glyphs, so glyph 60 000 is no glyph and CID 36 is not present.
+        assert_eq!(
+            findings(&cid_page_marking(60_000, 0..=35), rule),
+            Vec::<String>::new()
+        );
+        let found = findings(&cid_page_marking(36, 0..=35), rule);
+        assert!(found[0].contains("including CID 36"), "{found:?}");
+
+        // A last odd byte holds no whole index.
+        assert_eq!(
+            present_under_a_map_stream(&[0, 1, 0, 9, 0], &[0, 1, 2]),
+            vec![0]
+        );
     }
 
     /// A file holding `objects` as objects 1, 2, …, with object 1 its catalog.

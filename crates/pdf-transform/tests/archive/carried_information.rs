@@ -93,10 +93,12 @@ fn a_key_is_spelled_as_an_xml_name_from_which_it_is_recovered_byte_for_byte() {
 #[test]
 fn both_stating_profiles_carry_a_key_table_349_does_not_define() {
     // `241573_ftp`'s three `WPS-` keys, a key with a space as the corpus's `Base Target`, and a
-    // leading underscore as `_AuthorEmail`, beside a key Table 349 does define.
+    // leading underscore as `_AuthorEmail`, beside a key Table 349 does define. `/Batch` and
+    // `/Subject` hold carriage returns, which the packet states as character references, so a
+    // reader's end-of-line handling gives them back (XML 1.0 section 2.11, `doc/adr/3254`).
     let source = a_document_stating_information(
         "/Title (A title) /WPS-ARTICLEDOI (10.1107/S2053273314007578) \
-         /Base#20Target (_top) /_AuthorEmail (a&b <c>)",
+         /Base#20Target (_top) /_AuthorEmail (a&b <c>) /Batch (a\\rb) /Subject (one\\r\\ntwo)",
     );
     for (name, profile) in PROFILES {
         let (report, output) = convert_with_plan(&source, &planned(profile));
@@ -136,6 +138,19 @@ fn both_stating_profiles_carry_a_key_table_349_does_not_define() {
             Some("A title"),
             "{name}: a Table 349 key still goes where its NOTE names"
         );
+        let text = String::from_utf8(packet.clone()).expect("the packet is UTF-8");
+        let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+        let read = pdf_model::xmp::Xmp::parse(normalised.as_bytes()).expect("it parses");
+        assert_eq!(
+            read.text(CARRIED_INFORMATION_NAMESPACE, "Batch"),
+            Some("a\rb"),
+            "{name}: a carried carriage return survives end-of-line handling"
+        );
+        assert_eq!(
+            read.text(pdf_model::xmp::DC, "description"),
+            Some("one\r\ntwo"),
+            "{name}: so does a Table 349 value's"
+        );
 
         let moved = &conversion(&report).moved_information;
         for (key, local) in [
@@ -158,16 +173,14 @@ fn both_stating_profiles_carry_a_key_table_349_does_not_define() {
 ///
 /// §14.3.3: the value of a key Table 349 does not define "shall be a text string". An integer is
 /// not one, nor is a string holding a byte Table D.2 leaves undefined; and a control character XML
-/// 1.0 excludes, or a carriage return its end-of-line handling turns into a line feed, has no
-/// carried form that is the value as stated.
-const NOT_CARRIED: [(&str, &str); 4] = [
+/// 1.0's `Char` production excludes has no carried form at all.
+const NOT_CARRIED: [(&str, &str); 3] = [
     ("/Title (A title) /Batch 4417", "integer"),
     ("/Title (A title) /Batch (a\\001b)", "string of 3 bytes"),
     (
         "/Title (A title) /Batch <FEFF006100010062>",
         "string of 8 bytes",
     ),
-    ("/Title (A title) /Batch (a\\rb)", "string of 3 bytes"),
 ];
 
 /// The report's sentence for its statement page, empty where it reports none.

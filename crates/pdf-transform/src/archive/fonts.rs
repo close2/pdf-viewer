@@ -539,6 +539,9 @@ pub(super) struct Substitutes {
     /// The content-stream requirements whose every page this conversion photographed, which the
     /// decision of each reads to know the page it fails on is no longer in the output.
     pub(super) fenced: BTreeSet<&'static str>,
+    /// The program streams whose decode stopped short after every byte of the program, each
+    /// written again whole at its own object (`doc/adr/3256`).
+    pub(super) written_whole: BTreeSet<ObjectId>,
     /// Every subset name this conversion writes, so that ISO 32000-2 §9.9.2's "different subsets
     /// of the same font in the same PDF file shall have different tags" holds across the whole
     /// converted file: the embedding's subsets here, and the appearances constructed after it
@@ -1378,6 +1381,11 @@ fn embed_pass(
                     drawn_whole = true;
                     continue;
                 }
+                Shortfall::WrittenWhole(at, stream) => {
+                    substitutes.written_whole.insert(at);
+                    substitutes.written.insert(at, stream);
+                    continue;
+                }
                 Shortfall::None => continue,
             }
         };
@@ -1964,6 +1972,7 @@ fn embed_pass(
         && substitutes.described.is_empty()
         && substitutes.direct.is_empty()
         && substitutes.photographs.is_empty()
+        && substitutes.written_whole.is_empty()
     {
         return Err(Because::NotBuiltYet(if drawn_whole {
             CUT_PROGRAM_DRAWN_WHOLE
@@ -2567,7 +2576,13 @@ fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
         );
     };
     if LoadedFont::load(document, &used.dict, &used.name).is_ok() {
-        Shortfall::DrawnWhole
+        descriptor
+            .get(key)
+            .and_then(Object::as_reference)
+            .and_then(|at| written_whole(document, key, at))
+            .map_or(Shortfall::DrawnWhole, |(at, stream)| {
+                Shortfall::WrittenWhole(at, stream)
+            })
     } else {
         Shortfall::Cut(CutProgram {
             key,
@@ -2603,9 +2618,74 @@ enum Shortfall {
     /// draws none of the program: the substitution's, whether the window draws the font from a
     /// substitute or from its widths alone.
     Cut(CutProgram),
-    /// The decode stopped short and this reader draws the program all the same: the refusal
+    /// The decode stopped short and this reader draws the program all the same, but not past the
+    /// extent §9.9's Table 125 states for it, or the stream states none: the refusal
     /// [`CUT_PROGRAM_DRAWN_WHOLE`]'s.
     DrawnWhole,
+    /// The decode stopped short after every byte of the program, and the stream at this object is
+    /// [`written_whole`]'s.
+    WrittenWhole(ObjectId, Object),
+}
+
+/// A program stream whose decode stopped short after every byte of the program, written again
+/// whole: the bytes the decode gave, re-encoded as one `FlateDecode`, under the producer's
+/// dictionary (`doc/adr/3256`).
+///
+/// **Only where the stream states the program's extent and the decode reaches it exactly.**
+/// §9.9's Table 125 states it for the two keys whose programs it measures — `/Length1` for a
+/// `/FontFile2`, and `/Length1`, `/Length2` and `/Length3` for a `/FontFile` — and these bytes,
+/// being that many, are the program the producer described, whole; it is what this reader drew,
+/// so writing it again changes no shape. A `/FontFile3` states no extent, and a decode stopping
+/// at a length no entry states may have stopped inside the program: neither is answered here, and
+/// the refusal stands.
+///
+/// What the decode stopped short in is the encoding's own framing — `F001u_3_7j`'s stream ends two
+/// bytes into RFC 1950's Adler-32 after all 28 976 bytes its `/Length1` states — and it is the
+/// framing alone that is written new: `/Length`, `/Filter` and `/DecodeParms` change together, and
+/// every other key, the three lengths included, is the producer's.
+fn written_whole(document: &Document, key: &str, at: ObjectId) -> Option<(ObjectId, Object)> {
+    let Object::Stream(stream) = document.get(at) else {
+        return None;
+    };
+    let decoded = document.decoded_stream_data_reported(&stream).ok()?;
+    if !decoded.damage.is_some_and(pdf_syntax::Damage::stops_short) {
+        return None;
+    }
+    let stated = |name: &str| {
+        document
+            .get_key(&stream.dict, name)
+            .as_integer()
+            .and_then(|length| usize::try_from(length).ok())
+    };
+    let extent = match key {
+        "FontFile2" => stated("Length1")?,
+        "FontFile" => stated("Length1")?
+            .checked_add(stated("Length2")?)?
+            .checked_add(stated("Length3")?)?,
+        _ => return None,
+    };
+    if decoded.data.len() != extent {
+        return None;
+    }
+    let encoded = flate_encode(&decoded.data, COMPRESSION_LEVEL)?;
+    let mut dict = stream.dict.clone();
+    dict.remove("DecodeParms");
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(encoded.len()).ok()?),
+    );
+    Some((
+        at,
+        Object::Stream(std::sync::Arc::new(Stream {
+            dict,
+            data: encoded.into(),
+            decryption_failed: false,
+        })),
+    ))
 }
 
 /// A simple font as it reads with its cut program dropped: the descriptor written into the font
@@ -2811,12 +2891,14 @@ const NO_FONT_TO_EMBED: &str = "no font a content stream renders in this documen
      embedded program";
 
 /// Why a program whose decode stops short is not dropped where this reader draws it all the same
-/// (`doc/adr/2636`).
+/// (`doc/adr/2636`), nor written whole again (`doc/adr/3256`).
 const CUT_PROGRAM_DRAWN_WHOLE: &str = "a font a content stream renders has an embedded program \
      whose stream's data stops short of what its filter describes, so ISO 32000-2 section 9.9 \
      does not count it as embedded; but the part the file holds is a program this reader \
      loads and draws from, so dropping it for a substitute face would change the shapes this \
-     viewer shows, and writing the stream whole again is a remedy this version does not carry out";
+     viewer shows, and the stream states no length of the program that the part reaches exactly \
+     (Table 125's Length1, or Length1 to Length3), so writing it whole again could state a program \
+     the file does not hold";
 
 /// Why a program this tree cannot decode is not restated.
 const PROGRAM_NOT_DECODED: &str = "the embedded font program whose advances would have to be \

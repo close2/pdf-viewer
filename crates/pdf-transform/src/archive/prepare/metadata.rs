@@ -2029,34 +2029,7 @@ pub fn carried_local_name(key: &[u8]) -> Option<String> {
     Some(local)
 }
 
-/// Whether XML 1.0 carries `text` as element content unchanged.
-///
-/// Its `Char` production excludes every C0 control but the three line characters, and U+FFFE and
-/// U+FFFF,
-/// so a packet holding one is not well-formed (ISO 19005-4 section 6.7.2.1); and its end-of-line
-/// handling reads a carriage return as a line feed, so a value holding one would come back
-/// changed. Either is a value this converter cannot carry as the dictionary stated it.
-fn xml_carries(text: &str) -> bool {
-    text.chars().all(|character| {
-        matches!(character, '\t' | '\n')
-            || (character >= ' ' && !matches!(character, '\u{FFFE}' | '\u{FFFF}'))
-    })
-}
-
-/// Whether XML 1.0's `Char` production admits every character of `text`: every C0 control but
-/// the three line characters is excluded, and U+FFFE and U+FFFF, so a packet holding one is not
-/// well-formed (ISO 19005-4 section 6.7.2.1) whatever else it says.
-///
-/// Narrower than [`xml_carries`], which also refuses a carriage return: a Table 349 value holding
-/// one has always been written, and that reading is not this predicate's to change.
-fn xml_admits(text: &str) -> bool {
-    text.chars().all(|character| {
-        matches!(character, '\t' | '\n' | '\r')
-            || (character >= ' ' && !matches!(character, '\u{FFFE}' | '\u{FFFF}'))
-    })
-}
-
-/// A Table 349 entry whose text holds a character [`xml_admits`] refuses, answered by the rows'
+/// A Table 349 entry whose text holds a character `pdf_model::xmp::xml_admits` refuses, answered by the rows'
 /// second step as a carried key's value is (`doc/adr/2681`, `doc/adr/3238`): removed and stated on
 /// the appended page, removed and named in the report, or the refusal.
 fn not_admitted(
@@ -2206,9 +2179,9 @@ pub(in crate::archive) const NOT_A_TEXT_STRING: &str = "ISO 32000-2 section 14.3
 
 /// Why a value is not carried: XML 1.0 would not carry its text unchanged.
 pub(in crate::archive) const NOT_CARRIED_BY_XML: &str = "the value is a text string holding a \
-     character XML 1.0 does not carry unchanged (a control character it excludes, or a carriage \
-     return its end-of-line handling reads as a line feed), so the XMP packet cannot carry it as \
-     the dictionary stated it";
+     character XML 1.0's Char production excludes (a control character other than a tab, a line \
+     feed or a carriage return, or U+FFFE or U+FFFF), so the XMP packet cannot carry it as the \
+     dictionary stated it";
 
 /// Why a Table 349 value is not written: XML 1.0 admits no packet holding its text.
 pub(in crate::archive) const NOT_ADMITTED_BY_XML: &str = "the value is a text string holding a \
@@ -2317,9 +2290,9 @@ const INFORMATION_VALUE_NOT_TEXT: &str = "§14.3.3 requires every document infor
 const INFORMATION_VALUE_NOT_CARRIED: &str = "§14.3.3 requires the value of a document \
      information dictionary key Table 349 does not define to be a text string, and the \
      configuration answers `unmapped = \"carry\"`; this dictionary states such a key whose value \
-     is not a text string (or whose bytes contradict the encoding they claim), holds a character XML 1.0 does not carry unchanged (a control \
-     character, or a carriage return its end-of-line handling reads as a line feed), or whose \
-     name is empty, so there is no property to carry it in as the dictionary stated it. The \
+     is not a text string (or whose bytes contradict the encoding they claim), holds a character XML 1.0's Char \
+     production excludes (a control character other than a tab, a line feed or a carriage \
+     return, or U+FFFE or U+FFFF), or whose name is empty, so there is no property to carry it in as the dictionary stated it. The \
      row's second step decides: `on-failure = \"append-statement\"` removes the value and states \
      the removal on an appended page (doc/adr/2681), `discard` there or as the `unreadable` answer \
      drops the value and the report names the key, and `stop`, which is what a row saying nothing \
@@ -2479,7 +2452,7 @@ pub(super) fn prepare_information(
         };
         // A character XML 1.0 excludes leaves no packet well-formed, so the value has no home in
         // any packet and is answered as a carried key's value is (`doc/adr/3238`).
-        if !xml_admits(&text) {
+        if !xmp::xml_admits(&text) {
             entries.push(not_admitted((key, &spelled, &value), not_carried)?);
             continue;
         }
@@ -2591,8 +2564,10 @@ fn unmapped_entry(
 /// `Err`, with the reason in the statement page's words, where the value cannot be carried as the
 /// dictionary stated it — not a §7.9.2.2 text
 /// string, which §14.3.3 requires of it (a string whose bytes contradict their encoding, such as
-/// a byte Table D.2 leaves undefined, is not one), or holding a character XML does not carry unchanged
-/// ([`xml_carries`]) — or the key is empty and so has no local name.
+/// a byte Table D.2 leaves undefined, is not one), or holding a character XML 1.0's `Char`
+/// production excludes (`pdf_model::xmp::xml_admits`) — or the key is empty and so has no local
+/// name. A carriage return is carried: the packet's writer spells it as a character reference,
+/// which XML's end-of-line handling leaves as it is (`doc/adr/3254`).
 fn carried(
     value: &Object,
     key: &[u8],
@@ -2604,7 +2579,7 @@ fn carried(
         return Err(NOT_A_TEXT_STRING);
     }
     let text = pdf_syntax::text_string::text_string(bytes);
-    if !xml_carries(&text) {
+    if !xmp::xml_admits(&text) {
         return Err(NOT_CARRIED_BY_XML);
     }
     if stated.is_some_and(|xmp| xmp.value(CARRIED_INFORMATION_NAMESPACE, &local).is_some()) {

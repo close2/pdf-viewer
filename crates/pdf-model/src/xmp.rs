@@ -666,6 +666,24 @@ pub enum WriteError {
         /// How many descriptions of it this writer could extend.
         found: usize,
     },
+    /// A value to be written holds a character XML 1.0's `Char` production excludes.
+    ///
+    /// The production (XML 1.0 section 2.2) admits no C0 control but tab, line feed and carriage
+    /// return, and neither U+FFFE nor U+FFFF — not even as a character reference — so a packet
+    /// holding one is not well-formed, and no escaping can make it so. The writer refuses rather
+    /// than write it: every caller passes through here, and a packet that does not parse is one
+    /// no later edit and no reader can use (ISO 19005-4 section 6.7.2.1 asks a well-formed one).
+    #[error(
+        "the value of {property} holds U+{code:04X}, a character XML 1.0 admits nowhere in a \
+         document",
+        code = u32::from(*character)
+    )]
+    NotXmlText {
+        /// The property, as prefix and local name, whose value holds it.
+        property: String,
+        /// The first such character in the value.
+        character: char,
+    },
     /// The packet nests deeper than `MAX_DEPTH`.
     #[error("the packet nests deeper than this writer follows")]
     TooDeep,
@@ -735,7 +753,8 @@ pub fn empty_packet() -> Vec<u8> {
 /// # Errors
 ///
 /// [`WriteError`], every variant of which leaves the packet untouched: a caller that cannot
-/// write is expected to say so rather than to write something else.
+/// write is expected to say so rather than to write something else. A value XML cannot carry is
+/// [`WriteError::NotXmlText`] ([`xml_admits`]).
 pub fn restate(
     bytes: &[u8],
     namespaces: &[&str],
@@ -743,6 +762,9 @@ pub fn restate(
 ) -> Result<Vec<u8>, WriteError> {
     if bytes.len() > MAX_BYTES {
         return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    for (local, value) in schema.properties {
+        writable(schema.prefix, local, value)?;
     }
     let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
     let edit = Editor::run(text, Cut::Namespaces(namespaces))?;
@@ -1182,10 +1204,18 @@ pub struct Event<'a> {
 ///
 /// # Errors
 ///
-/// [`WriteError`], every variant of which leaves the packet untouched.
+/// [`WriteError`], every variant of which leaves the packet untouched; a field XML cannot carry
+/// is [`WriteError::NotXmlText`] ([`xml_admits`]).
 pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
     if bytes.len() > MAX_BYTES {
         return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    for (local, value) in [
+        ("action", event.action),
+        ("parameters", event.parameters),
+        ("when", event.when),
+    ] {
+        writable("stEvt", local, value)?;
     }
     let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
     let edit = Editor::run(text, Cut::Namespaces(&[]))?;
@@ -1672,10 +1702,16 @@ pub struct Supplement<'a> {
 ///
 /// [`WriteError`], every variant of which leaves the packet untouched. A packet whose properties
 /// this module cannot read is [`WriteError::Malformed`]: what the packet already states is the
-/// question this writer has to answer before it may write anything.
+/// question this writer has to answer before it may write anything. A value holding a character
+/// XML cannot carry is [`WriteError::NotXmlText`], whether or not the packet already states the
+/// property: the value is the caller's to answer for ([`xml_admits`]), and whether it would have
+/// been written is not a reason to hand it over.
 pub fn supplement(bytes: &[u8], properties: &[Supplement<'_>]) -> Result<Vec<u8>, WriteError> {
     if bytes.len() > MAX_BYTES {
         return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    for property in properties {
+        writable(property.prefix, property.local, &property.value)?;
     }
     let stated = Xmp::parse(bytes).map_err(|error| match error {
         XmpError::NotText => WriteError::NotUtf8,
@@ -1962,15 +1998,55 @@ fn description(schema: &Schema<'_>, out: &mut String) {
     out.push_str("</rdf:Description>\n");
 }
 
-/// Text with XML's three markup characters replaced by their entities.
+/// Text with XML's three markup characters replaced by their entities, and the carriage return
+/// by a character reference.
+///
+/// The carriage return is the one character [`xml_admits`] lets through that a reader would not
+/// give back: XML 1.0 section 2.11 has a processor read a carriage return, alone or before a line
+/// feed, as one line feed before it parses anything — but a character reference is not a line
+/// end, so `&#xD;` is read as the carriage return it names. A Table 349 value (ISO 32000-2
+/// §14.3.3) is a text string, which may hold one, and the packet is to state that same text.
 fn escaped(text: &str, out: &mut String) {
     for character in text.chars() {
         match character {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
+            '\r' => out.push_str("&#xD;"),
             other => out.push(other),
         }
+    }
+}
+
+/// Whether XML 1.0's `Char` production (section 2.2) admits every character of `text`.
+///
+/// It excludes every C0 control but tab, line feed and carriage return, and U+FFFE and U+FFFF;
+/// the surrogates it also excludes are no `char` at all. A text holding one cannot be written into
+/// a packet in any spelling — a character reference to one is not well-formed either — so this is
+/// the question to ask before offering a value to [`supplement`], [`restate`] or [`record`], each
+/// of which refuses one with [`WriteError::NotXmlText`].
+#[must_use]
+pub fn xml_admits(text: &str) -> bool {
+    first_excluded(text).is_none()
+}
+
+/// The first character of `text` XML 1.0's `Char` production excludes ([`xml_admits`]).
+fn first_excluded(text: &str) -> Option<char> {
+    text.chars().find(|&character| {
+        !(matches!(character, '\t' | '\n' | '\r')
+            || (character >= ' ' && !matches!(character, '\u{FFFE}' | '\u{FFFF}')))
+    })
+}
+
+/// `Ok` where `value` is text a packet can hold, and [`WriteError::NotXmlText`] naming
+/// `prefix:local` where it is not.
+fn writable(prefix: &str, local: &str, value: &str) -> Result<(), WriteError> {
+    match first_excluded(value) {
+        None => Ok(()),
+        Some(character) => Err(WriteError::NotXmlText {
+            property: format!("{prefix}:{local}"),
+            character,
+        }),
     }
 }
 
@@ -4331,6 +4407,91 @@ mod tests {
             Ok(1),
             "one rdf:RDF element, which is what ISO 19005 requires of a packet"
         );
+    }
+
+    /// A packet with no `dc:` property, for the tests of what a value may hold.
+    const BARE: &[u8] = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+
+    /// A Table 349 value holding a carriage return comes back holding it, through XML 1.0 section
+    /// 2.11's end-of-line handling.
+    ///
+    /// The handling is applied here by hand to the bytes written — every carriage return, alone or
+    /// before a line feed, read as one line feed — so the test does not rest on whether this
+    /// module's own reader applies it: a reader that does is given the packet a reader sees.
+    #[test]
+    fn a_carriage_return_in_a_value_survives_end_of_line_handling() {
+        let title = "First line\rsecond line\r\nthird line";
+        let after = supplement(
+            BARE,
+            &[Supplement {
+                namespace: DC,
+                prefix: "dc",
+                local: "title",
+                value: title.to_owned(),
+                form: Form::Alternative,
+            }],
+        )
+        .expect("a value XML admits is written");
+        assert!(
+            !after.contains(&b'\r'),
+            "no carriage return reaches the packet raw"
+        );
+        let text = String::from_utf8(after).expect("the packet is UTF-8");
+        assert!(text.contains("First line&#xD;second line&#xD;\nthird line"));
+        let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+        let read = Xmp::parse(normalised.as_bytes()).expect("the packet parses");
+        assert_eq!(read.text(DC, "title"), Some(title));
+    }
+
+    /// A value XML 1.0's `Char` production excludes is refused by name, by each writer that takes
+    /// a caller's text, and the packet is not written.
+    #[test]
+    fn a_value_xml_cannot_hold_is_refused_by_each_writer() {
+        let refused = |property: &str, character: char| {
+            Err(WriteError::NotXmlText {
+                property: property.to_owned(),
+                character,
+            })
+        };
+        let title = Supplement {
+            namespace: DC,
+            prefix: "dc",
+            local: "title",
+            value: "A\u{0}title".to_owned(),
+            form: Form::Alternative,
+        };
+        assert_eq!(supplement(BARE, &[title]), refused("dc:title", '\0'));
+        let properties = vec![("part", "4\u{FFFE}".to_owned())];
+        let schema = Schema {
+            namespace: IDENTIFICATION,
+            prefix: "pdfaid",
+            properties: &properties,
+        };
+        assert_eq!(
+            restate(BARE, &[IDENTIFICATION], &schema),
+            refused("pdfaid:part", '\u{FFFE}')
+        );
+        let event = Event {
+            action: "converted",
+            parameters: "bell \u{7}",
+            when: "2026-11-20T00:00:00Z",
+        };
+        assert_eq!(record(BARE, &event), refused("stEvt:parameters", '\u{7}'));
+        assert_eq!(
+            WriteError::NotXmlText {
+                property: "dc:title".to_owned(),
+                character: '\0',
+            }
+            .to_string(),
+            "the value of dc:title holds U+0000, a character XML 1.0 admits nowhere in a document"
+        );
+        assert!(super::xml_admits("tab\tline\ncarriage\rend"));
+        assert!(!super::xml_admits("\u{FFFF}"));
     }
 
     /// §7.9.4's grammar against ISO 8601's, field by field, including the zone that is not there.
