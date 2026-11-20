@@ -516,12 +516,17 @@ impl Viewer {
             // item is exactly this: the same page read for a search and then again to draw it was
             // two interpretations. One 2.6 KB copy per page turn against 5.4 ms of the thing it
             // saves.
-            let order = crate::select::Order::of(&interpretation.text, &interpretation.text_layer);
-            open.readbacks.put(
-                page,
-                &Arc::from(interpretation.text.as_str()),
-                &Arc::new(order),
-            );
+            // A read that left §14.9's structure unread has a provisional readback, which the cache
+            // a search reads from must not hold: the search reads such a page whole (ADR 3285).
+            if !interpretation.structure_deferred {
+                let order =
+                    crate::select::Order::of(&interpretation.text, &interpretation.text_layer);
+                open.readbacks.put(
+                    page,
+                    &Arc::from(interpretation.text.as_str()),
+                    &Arc::new(order),
+                );
+            }
             let revision = open.revision;
             let on_screen = &mut open.on_screen[index];
             on_screen.object = object;
@@ -532,22 +537,7 @@ impl Viewer {
             if replaceable.is_some() {
                 on_screen.replaceable = replaceable;
             }
-            on_screen.interpreted = Some(Interpreted {
-                shortfall: interpretation.shortfall(),
-                after_drawing: interpretation.after_drawing(),
-                list: Arc::new(interpretation.display_list),
-                reports,
-                text: interpretation.text,
-                placed: interpretation.text_layer,
-                marked: interpretation.marked,
-                artifacts: interpretation.artifacts,
-                objects: interpretation.objects,
-                measured_xobjects: interpretation.measured_xobjects,
-                described: interpretation.described,
-                language: interpretation.language,
-                view_dependent: interpretation.view_dependent,
-                declined: Vec::new(),
-            });
+            on_screen.interpreted = Some(Interpreted::new(reports, interpretation));
         }
         open.on_screen
             .get(index)

@@ -176,14 +176,14 @@ impl Viewer {
         open: &Open,
         on_screen: &crate::open::OnScreen,
     ) -> Option<(Vec<crate::AccessibilityNode>, BTreeSet<ObjectId>)> {
-        let interpreted = on_screen.interpreted.as_ref()?;
+        let readback = on_screen.readback(open)?;
         // Table 355's `/Pg` names a page *object*, and what this crate holds is an index.
         let Some(page) = on_screen.object.id else {
             return Some((Vec::new(), BTreeSet::new()));
         };
         let index = on_screen.page;
         let mut gathered =
-            crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref());
+            crate::accessibility::nodes(&open.document, page, readback.language.as_deref());
         let named: BTreeSet<ObjectId> = gathered
             .iter()
             .flat_map(|(_, element)| element.objects.iter().copied())
@@ -201,9 +201,9 @@ impl Viewer {
             Referenced::default()
         };
         let page = crate::accessibility::Readback {
-            text: &interpreted.text,
-            marked: &interpreted.marked,
-            described: &interpreted.described,
+            text: &readback.text,
+            marked: &readback.marked,
+            described: &readback.described,
             places: &referenced.places,
             languages: &referenced.languages,
             controls: &referenced.controls,

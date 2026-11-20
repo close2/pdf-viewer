@@ -108,10 +108,22 @@ impl Viewer {
         id: DocumentId,
         page: usize,
     ) -> Option<(Arc<str>, Arc<crate::select::Order>)> {
-        if let Some(open) = self.documents.get_mut(&id)
-            && let Some(held) = open.readbacks.get(page)
-        {
-            return Some(held);
+        if let Some(open) = self.documents.get_mut(&id) {
+            // A page on the screen has a reading of its own, and its readback is the one a
+            // selection and the accessibility tree read: taken from there, settled once where that
+            // reading left §14.9's structure for later — which is that reading's second half, not
+            // a search's (ADR 3285).
+            if !open.readbacks.holds(page)
+                && let Some((text, order)) = open.readback(page).map(|readback| {
+                    let order = crate::select::Order::of(&readback.text, &readback.placed);
+                    (Arc::<str>::from(readback.text.as_str()), Arc::new(order))
+                })
+            {
+                open.readbacks.put(page, &text, &order);
+            }
+            if let Some(held) = open.readbacks.get(page) {
+                return Some(held);
+            }
         }
         let open = self.documents.get(&id)?;
         let read = crate::open::interpret(open, page)?;
@@ -188,11 +200,11 @@ impl Viewer {
 
     /// Every occurrence of `needle` on the page being shown, as shapes in device pixels.
     pub(super) fn found(&self, open: &Open, needle: &str) -> Vec<Vec<[f32; 8]>> {
-        let Some(interpreted) = open.interpreted() else {
+        let Some(readback) = open.readback(open.page_index) else {
             return Vec::new();
         };
-        let order = crate::select::Order::of(&interpreted.text, &interpreted.placed);
-        crate::select::find(&interpreted.text, needle, &order)
+        let order = crate::select::Order::of(&readback.text, &readback.placed);
+        crate::select::find(&readback.text, needle, &order)
             .into_iter()
             .map(|range| self.device_quads(open, open.page_index, range))
             .collect()

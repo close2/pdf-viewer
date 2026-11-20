@@ -261,7 +261,7 @@ impl Viewer {
                     .filter_map(|on_screen| {
                         Some(PageText {
                             page: on_screen.page,
-                            text: &on_screen.interpreted.as_ref()?.text,
+                            text: &on_screen.readback(open)?.text,
                         })
                     })
                     .collect(),

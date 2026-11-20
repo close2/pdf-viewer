@@ -7,7 +7,7 @@
 
 use crate::optional_content::{Audience, Purpose};
 
-use super::{Magnified, TargetMedia, ViewState, WidgetAppearances};
+use super::{Magnified, StructureReading, TargetMedia, ViewState, WidgetAppearances};
 
 impl ViewState {
     /// Whether §12.7's form widgets are drawn on the page, or left to the host.
@@ -242,6 +242,44 @@ impl ViewState {
     #[must_use]
     pub fn null_font_substitute(&self) -> bool {
         self.null_font_substitute
+    }
+
+    /// Defers the reading of §14.9's statements a structure element makes over the content it
+    /// encloses, for an interpretation wanted for its marks before its text.
+    ///
+    /// §14.9.4's `/ActualText` is "a replacement, not a description, for the content", and the
+    /// content it replaces is what a reader copies, searches and hears; §14.9.3's `/Alt`, §14.9.5's
+    /// `/E` and §14.9.2's `/Lang` are what it is spoken as. None of the four changes a mark, so a
+    /// reading that only draws can leave the structure element unread — and on a tagged document
+    /// that is the walk up `/P` to the structure root, whose top-level elements may each list
+    /// thousands of kids (ADR 3285). A marked-content sequence's own property list is still read,
+    /// because it is in hand.
+    ///
+    /// Where this is set and a sequence named an element the reading did not ask, the
+    /// interpretation says so in [`crate::content::Interpretation::structure_deferred`], and its
+    /// readback — text, placements, spans, descriptions — is provisional: interpreting the page
+    /// again with this unset is the readback. The marks are the same either way, but for a page
+    /// whose readback alone would carry it past the display list's byte bound (ADR 1507).
+    ///
+    /// `false` until a host says otherwise. Returns whether the answer moved.
+    pub fn set_structure_deferred(&mut self, deferred: bool) -> bool {
+        let structure = if deferred {
+            StructureReading::Deferred
+        } else {
+            StructureReading::Asked
+        };
+        if self.structure == structure {
+            return false;
+        }
+        self.structure = structure;
+        true
+    }
+
+    /// Whether §14.9's structure-element statements are left unread; see
+    /// [`Self::set_structure_deferred`].
+    #[must_use]
+    pub fn structure_deferred(&self) -> bool {
+        self.structure == StructureReading::Deferred
     }
 
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.

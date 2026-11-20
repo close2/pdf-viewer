@@ -55,14 +55,14 @@ impl Open {
 
     /// The text position a point in one page's display-list coordinates selects.
     pub(crate) fn position_at(&self, page: usize, point: (f32, f32)) -> Option<usize> {
-        let interpreted = self.interpretation(page)?;
-        crate::select::position_at(&interpreted.placed, point)
+        let readback = self.readback(page)?;
+        crate::select::position_at(&readback.placed, point)
     }
 
     /// Whether a point in one page's display-list coordinates is inside a glyph of its text.
     pub(crate) fn text_at(&self, page: usize, point: (f32, f32)) -> bool {
-        self.interpretation(page)
-            .is_some_and(|interpreted| crate::select::over_text(&interpreted.placed, point))
+        self.readback(page)
+            .is_some_and(|readback| crate::select::over_text(&readback.placed, point))
     }
 
     /// The page's extent in user space units, after §7.7.3.3's rotation and `/UserUnit`.

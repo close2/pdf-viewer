@@ -149,6 +149,16 @@ impl ParentTree {
         self.entries.get(index)?.as_reference()
     }
 
+    /// Whether `mcid` has an entry here that is not null — whether [`Self::element`] could
+    /// answer for it — read without resolving it.
+    #[must_use]
+    pub fn names(&self, mcid: i64) -> bool {
+        usize::try_from(mcid)
+            .ok()
+            .and_then(|index| self.entries.get(index))
+            .is_some_and(|entry| !matches!(entry, Object::Null))
+    }
+
     /// Whether this page names any structure at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {

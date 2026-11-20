@@ -112,6 +112,11 @@ impl Readbacks {
         }
     }
 
+    /// Whether a page's readback is held, asked without counting a lookup.
+    pub(crate) fn holds(&self, page: usize) -> bool {
+        self.held.contains_key(&page)
+    }
+
     /// A page's readback, where it is held, marking it as the most recently used.
     pub(crate) fn get(&mut self, page: usize) -> Option<(Arc<str>, Arc<Order>)> {
         self.clock = self.clock.saturating_add(1);

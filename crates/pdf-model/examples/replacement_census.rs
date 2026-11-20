@@ -145,6 +145,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         codes_without_a_vertical_form,
         codes_without_a_character,
         described,
+        structure_deferred,
         artifacts,
         inferred_separators,
         marked,
@@ -187,6 +188,10 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         "codes §9.10.2 could not name",
     );
     differs(described == &whole.described, "§14.9's spans");
+    differs(
+        structure_deferred == &whole.structure_deferred,
+        "§14.9's structure left unread",
+    );
     differs(artifacts == &whole.artifacts, "§14.8.2.2's spans");
     differs(
         inferred_separators == &whole.inferred_separators,

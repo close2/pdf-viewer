@@ -100,10 +100,10 @@ impl Open {
                 // boundary in the first place, which is why this is a page at a time.
                 let mut marked: Vec<(ObjectId, Vec<[f32; 8]>)> = Vec::new();
                 for (index, range) in self.spans() {
-                    let Some(interpreted) = self.interpretation(index) else {
+                    let Some(readback) = self.readback(index) else {
                         continue;
                     };
-                    let quads = crate::select::quads_for(&interpreted.placed, range);
+                    let quads = crate::select::quads_for(&readback.placed, range);
                     let page = self.page(index)?;
                     // §12.5.6.10's `/QuadPoints` is in default user space and everything this
                     // crate answers with is in the display list's, so the shapes go back through

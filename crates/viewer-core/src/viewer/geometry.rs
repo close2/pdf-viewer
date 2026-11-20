@@ -29,7 +29,7 @@ impl Viewer {
         let ((first, range), rest) = spans.split_first()?;
         let mut quads = self.device_quads(open, *first, *range);
         let head = open
-            .interpretation(*first)?
+            .readback(*first)?
             .text
             .get(range.0..range.1)
             .unwrap_or_default();
@@ -42,8 +42,8 @@ impl Viewer {
         let mut text = String::from(head);
         for (page, range) in rest {
             text.push('\n');
-            if let Some(interpreted) = open.interpretation(*page) {
-                text.push_str(interpreted.text.get(range.0..range.1).unwrap_or_default());
+            if let Some(readback) = open.readback(*page) {
+                text.push_str(readback.text.get(range.0..range.1).unwrap_or_default());
             }
             quads.extend(self.device_quads(open, *page, *range));
         }
@@ -401,7 +401,7 @@ impl Viewer {
         page: usize,
         range: (usize, usize),
     ) -> Vec<[f32; 8]> {
-        let Some(interpreted) = open.interpretation(page) else {
+        let Some(readback) = open.readback(page) else {
             return Vec::new();
         };
         let Some(magnification) = open.magnification(self.viewport, self.scale) else {
@@ -418,7 +418,7 @@ impl Viewer {
         // magnification, the page height and the origin are read once per call rather than once
         // per corner. A selection's shapes are already in the display list's space, so there is no
         // page transform to compose — which is the whole difference from [`Self::device_point`].
-        crate::select::quads_for(&interpreted.placed, range)
+        crate::select::quads_for(&readback.placed, range)
             .into_iter()
             .map(|quad| {
                 // Two paired iterators rather than an index: the corners are (x, y) pairs and a
@@ -459,7 +459,7 @@ impl Viewer {
         page: usize,
         ranges: &[(usize, usize)],
     ) -> Vec<crate::accessibility::TextLine> {
-        let Some(interpreted) = open.interpretation(page) else {
+        let Some(readback) = open.readback(page) else {
             return Vec::new();
         };
         let Some(magnification) = open.magnification(self.viewport, self.scale) else {
@@ -471,7 +471,7 @@ impl Viewer {
         let Some(origin) = open.on(page).map(|on_screen| on_screen.origin) else {
             return Vec::new();
         };
-        crate::select::lines_for(&interpreted.placed, ranges)
+        crate::select::lines_for(&readback.placed, ranges)
             .into_iter()
             .filter_map(|line| {
                 let mut text = String::new();
@@ -484,7 +484,7 @@ impl Viewer {
                     // and a character of no bytes is a caret position that cannot be left. Both
                     // are dropped rather than carried as an empty entry — see
                     // `crate::select::lines_for`.
-                    let Some(slice) = interpreted
+                    let Some(slice) = readback
                         .text
                         .get(span.clone())
                         .filter(|slice| !slice.is_empty())
@@ -520,7 +520,7 @@ impl Viewer {
                     // screen may be far apart in the readback — with another element's words in
                     // between. Those are not this element's to speak, and the space that has no
                     // glyph is the whole of what is being recovered here.
-                    if let Some(between) = interpreted.text.get(written..span.start)
+                    if let Some(between) = readback.text.get(written..span.start)
                         && !between.is_empty()
                         && between.chars().all(char::is_whitespace)
                         && let Some(previous) = characters.last_mut()

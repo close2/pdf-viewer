@@ -311,7 +311,7 @@ impl Viewer {
                 continue;
             }
             let page = open.on_screen[index].page;
-            let Some(read) = crate::open::interpret(open, page) else {
+            let Some(read) = crate::open::interpret_to_draw(open, page) else {
                 continue;
             };
             Self::install(open, id, index, read, events);

@@ -200,6 +200,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         codes_without_a_vertical_form,
         codes_without_a_character,
         described,
+        structure_deferred,
         artifacts,
         inferred_separators,
         marked,
@@ -242,6 +243,10 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         "codes §9.10.2 could not name, {where_}"
     );
     assert_eq!(described, &whole.described, "§14.9's spans, {where_}");
+    assert_eq!(
+        structure_deferred, &whole.structure_deferred,
+        "§14.9's structure left unread, {where_}"
+    );
     assert_eq!(artifacts, &whole.artifacts, "§14.8.2.2's spans, {where_}");
     assert_eq!(
         inferred_separators, &whole.inferred_separators,

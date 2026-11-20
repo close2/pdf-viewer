@@ -1149,6 +1149,8 @@ struct PieceRun {
     list: pdf_render::DisplayList,
     /// The spans of the sections the piece closed, in the order it closed them (ADR 1894).
     described: Vec<crate::accessibility::Described>,
+    /// Whether the piece left a structure element's §14.9 statements unread (ADR 3285).
+    structure_deferred: bool,
     artifacts: Vec<super::ArtifactSpan>,
     marked: Vec<super::MarkedSpan>,
     associated: Vec<(Range<usize>, crate::attachment::Attachment)>,
@@ -1293,6 +1295,9 @@ impl Interpreter<'_> {
         self.magnified_tiling |= run.magnified_tiling;
         self.readings.absorb_piece(run.readings);
         self.described.append(&mut run.described);
+        if run.structure_deferred {
+            self.structure_deferred.set(true);
+        }
         self.artifacts.append(&mut run.artifacts);
         self.marked.append(&mut run.marked);
         self.associated.append(&mut run.associated);
@@ -1506,6 +1511,7 @@ fn run_piece(
     Ok(PieceRun {
         list: piece.list,
         described: piece.described,
+        structure_deferred: piece.structure_deferred.get(),
         artifacts: piece.artifacts,
         marked: piece.marked,
         associated: piece.associated,

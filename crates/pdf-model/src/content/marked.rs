@@ -497,8 +497,20 @@ impl Interpreter<'_> {
             || described.alt.is_none()
             || described.expansion.is_none()
             || described.language.is_none();
-        if missing
-            && let Some(mcid) = self.document.get_key(&list, "MCID").as_integer()
+        let mcid = missing
+            .then(|| self.document.get_key(&list, "MCID").as_integer())
+            .flatten();
+        // §14.9's four change what the page reads back and are spoken as, and no mark: a reading
+        // wanted for its marks first leaves the element unread, and says it did, so that the
+        // readback is taken from a reading that asked (ADR 3285). Fetching the element is the
+        // expensive half — its object stream, and `/P` to the structure root.
+        if self.view.structure_deferred() {
+            if mcid.is_some_and(|mcid| self.structure.names(mcid)) {
+                self.structure_deferred.set(true);
+            }
+            return (actual_text, described.or_nothing());
+        }
+        if let Some(mcid) = mcid
             && let Some(element) = self.structure.element(self.document, mcid)
         {
             let document = self.document;

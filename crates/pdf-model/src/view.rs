@@ -68,6 +68,16 @@ pub use scripts::{
     ScriptEvent, ScriptResult, ScriptRunner,
 };
 
+/// When an interpretation reads §14.9's statements a structure element makes over its content:
+/// as it runs, or never, its readback left provisional ([`ViewState::set_structure_deferred`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StructureReading {
+    /// Read where a marked-content sequence names the element, as every reading did before.
+    Asked,
+    /// Left unread, for a reading wanted for its marks first (ADR 3285).
+    Deferred,
+}
+
 /// The document state a viewer holds and §12.6.4's actions change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
@@ -266,6 +276,10 @@ pub struct ViewState {
     /// read, so drawing it at all is a guess, and the guess is the reader's to ask for (A35,
     /// A738). ADR 2612.
     null_font_substitute: bool,
+    /// Whether an interpretation under this state leaves §14.9's structure-element statements
+    /// unread, for a reading wanted only for its marks; see
+    /// [`Self::set_structure_deferred`].
+    structure: StructureReading,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -1064,6 +1078,7 @@ impl ViewState {
             separation_simulation: false,
             guidelines: false,
             null_font_substitute: false,
+            structure: StructureReading::Asked,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),

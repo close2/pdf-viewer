@@ -884,6 +884,45 @@ pub(crate) struct Interpreted {
     /// Kept rather than recomputed for the reason `placed` is kept — it is only knowable while
     /// the page is being interpreted — and it costs three words per page rather than a vector.
     pub(crate) shortfall: pdf_model::content::Shortfall,
+    /// The images and forms this page drew with their own `/Measure`, and where each landed.
+    ///
+    /// Kept for `placed`'s reason — the CTM at an object's `Do` is only knowable while the page
+    /// is interpreted — so that a measurement finds an object's own scale and registration beside
+    /// the page's `/VP` (ADR 3030). Empty on nearly every page.
+    pub(crate) measured_xobjects: Vec<pdf_model::measurement::MeasuredXObject>,
+    /// What the page reads back, as this reading made it: final unless [`Self::deferred`].
+    readback: Readback,
+    /// Whether this reading left §14.9's structure-element statements unread, which makes
+    /// [`Self::readback`] provisional — `pdf_model::content::Interpretation::structure_deferred`.
+    ///
+    /// A page's first read draws first and reads the structure after: §14.9.4's `/ActualText` and
+    /// §14.9.2–§14.9.5's descriptions change what the page is copied, searched and spoken as and
+    /// no mark on it, and reaching them is a walk up `/P` to the structure root (ADR 3285).
+    deferred: bool,
+    /// The readback taken from a reading that asked the structure, the first time anything asks
+    /// a [`Self::deferred`] page for its readback ([`OnScreen::readback`]).
+    settled: OnceLock<Readback>,
+    /// Whether this page has an annotation §12.5.3's `NoZoom` makes depend on the magnification.
+    ///
+    /// The whole point of `NeedsRender` carrying a display list is that a zoom re-rasterises
+    /// without re-interpreting, and `NoZoom` is the one thing in the standard that breaks it.
+    /// This is what keeps the breakage where the clause put it: 51 of the 974 corpus documents
+    /// carry such an annotation and the other 923 never re-interpret on a zoom.
+    pub(crate) view_dependent: bool,
+    /// The conditions a draw of this reading has declined and the page has been told of, each
+    /// once (`Command::Declined`, ADR 2290). Empty on nearly every page.
+    pub(crate) declined: Vec<String>,
+    /// What this reading's type 4 functions meet where a draw evaluates them, asked after each
+    /// draw: §8.7.4.5.2's type 1 grid is evaluated by whatever draws [`Self::list`], after the
+    /// interpretation's own reports were written, and §7.10.5.3 makes what it meets there an
+    /// error to say (ADRs 2848, 2946).
+    pub(crate) after_drawing: pdf_model::content::AfterDrawing,
+}
+
+/// What one page reads back: its text and everything that is an offset into it, which a
+/// selection, a search, a copy and the accessibility tree read (ISO 32000-2 §14.7–§14.9).
+#[derive(Debug)]
+pub(crate) struct Readback {
     /// The page's text, in the order the content stream showed it.
     pub(crate) text: String,
     /// Where each of that text's character codes sits on the page.
@@ -905,31 +944,74 @@ pub(crate) struct Interpreted {
     /// §14.7.5.3's annotations the structure tree claims, with what each read back, which a copy
     /// in logical order places where the tree names them (ADR 1970). Empty on every untagged page.
     pub(crate) objects: Vec<pdf_model::content::ObjectSpan>,
-    /// The images and forms this page drew with their own `/Measure`, and where each landed.
-    ///
-    /// Kept for `placed`'s reason — the CTM at an object's `Do` is only knowable while the page
-    /// is interpreted — so that a measurement finds an object's own scale and registration beside
-    /// the page's `/VP` (ADR 3030). Empty on nearly every page.
-    pub(crate) measured_xobjects: Vec<pdf_model::measurement::MeasuredXObject>,
     /// §14.9's `/Alt`, `/E` and `/Lang` spans, kept beside them for the same reason.
     pub(crate) described: Vec<pdf_model::accessibility::Described>,
     /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.
     pub(crate) language: Option<String>,
-    /// Whether this page has an annotation §12.5.3's `NoZoom` makes depend on the magnification.
+}
+
+impl Readback {
+    /// The readback half of an interpretation, taken out of it.
+    pub(crate) fn taken_from(interpretation: &mut Interpretation) -> Self {
+        Self {
+            text: std::mem::take(&mut interpretation.text),
+            placed: std::mem::take(&mut interpretation.text_layer),
+            marked: std::mem::take(&mut interpretation.marked),
+            artifacts: std::mem::take(&mut interpretation.artifacts),
+            objects: std::mem::take(&mut interpretation.objects),
+            described: std::mem::take(&mut interpretation.described),
+            language: interpretation.language.take(),
+        }
+    }
+}
+
+impl Interpreted {
+    /// A page's reading, kept: `readback` is final unless `deferred` says the reading left the
+    /// structure unread.
+    pub(crate) fn new(reports: Vec<String>, mut interpretation: Interpretation) -> Self {
+        let shortfall = interpretation.shortfall();
+        let after_drawing = interpretation.after_drawing();
+        let deferred = interpretation.structure_deferred;
+        let readback = Readback::taken_from(&mut interpretation);
+        Self {
+            shortfall,
+            after_drawing,
+            reports,
+            measured_xobjects: interpretation.measured_xobjects,
+            readback,
+            deferred,
+            settled: OnceLock::new(),
+            view_dependent: interpretation.view_dependent,
+            declined: Vec::new(),
+            list: Arc::new(interpretation.display_list),
+        }
+    }
+}
+
+impl OnScreen {
+    /// This page's readback, where it has been interpreted: the reading's own, or — where that
+    /// reading left §14.9's structure unread — the page read again with the structure asked, once.
     ///
-    /// The whole point of `NeedsRender` carrying a display list is that a zoom re-rasterises
-    /// without re-interpreting, and `NoZoom` is the one thing in the standard that breaks it.
-    /// This is what keeps the breakage where the clause put it: 51 of the 974 corpus documents
-    /// carry such an annotation and the other 923 never re-interpret on a zoom.
-    pub(crate) view_dependent: bool,
-    /// The conditions a draw of this reading has declined and the page has been told of, each
-    /// once (`Command::Declined`, ADR 2290). Empty on nearly every page.
-    pub(crate) declined: Vec<String>,
-    /// What this reading's type 4 functions meet where a draw evaluates them, asked after each
-    /// draw: §8.7.4.5.2's type 1 grid is evaluated by whatever draws [`Self::list`], after the
-    /// interpretation's own reports were written, and §7.10.5.3 makes what it meets there an
-    /// error to say (ADRs 2848, 2946).
-    pub(crate) after_drawing: pdf_model::content::AfterDrawing,
+    /// The second reading is under the view the first was made under: every change to the view
+    /// but the magnification discards the interpretation ([`Open::stale`]), and the readback of a
+    /// page whose marks do not depend on the magnification does not either. It keeps no
+    /// replacement and no list; only its readback is wanted (ADR 3285).
+    pub(crate) fn readback<'a>(&'a self, open: &Open) -> Option<&'a Readback> {
+        let interpreted = self.interpreted.as_ref()?;
+        if !interpreted.deferred {
+            return Some(&interpreted.readback);
+        }
+        Some(interpreted.settled.get_or_init(|| {
+            let mut whole = pdf_model::content::interpret_importing(
+                &open.document,
+                &self.object,
+                &open.view,
+                &open.fonts,
+                &open.references,
+            );
+            Readback::taken_from(&mut whole)
+        }))
+    }
 }
 
 /// A render the host has not answered yet.
@@ -1128,8 +1210,17 @@ pub(crate) fn first_read(
     fonts: &pdf_model::FontCache,
     references: &pdf_model::reference::Supply,
 ) -> Read {
+    // A first read is wanted for its marks, so §14.9's statements a structure element makes
+    // over its content — what the page reads back as, never what it draws — are left for
+    // `OnScreen::readback` to ask (ADR 3285, `CLAUDE.md`'s "Nothing eager").
+    let mut drawing = view.clone();
+    drawing.set_structure_deferred(true);
     let (interpretation, replaceable) =
-        pdf_model::content::interpret_replaceable(document, &page, view, fonts, references);
+        pdf_model::content::interpret_replaceable(document, &page, &drawing, fonts, references);
+    // A replacement made under the deferring view would carry that reading's provisional
+    // readback into every re-placement of the page's annotations; without it, the next read of
+    // the page is a whole one (`interpret`), which asks the structure.
+    let replaceable = replaceable.filter(|_| !interpretation.structure_deferred);
     let reports = interpretation
         .unsupported
         .iter()
@@ -1152,6 +1243,27 @@ pub(crate) fn first_read(
 /// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` compares the two field by field
 /// over every corpus page the clause is about. ADR 0777.
 pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
+    read(open, index, &open.view)
+}
+
+/// [`interpret`] for a page wanted on the screen: where it has nothing to replace from, it is
+/// read as [`first_read`] reads, its marks first and §14.9's structure when its readback is asked
+/// ([`OnScreen::readback`], ADR 3285).
+pub(crate) fn interpret_to_draw(open: &Open, index: usize) -> Option<Read> {
+    let mut drawing = open.view.clone();
+    drawing.set_structure_deferred(true);
+    let mut read = read(open, index, &drawing)?;
+    // As in `first_read`: a replacement made under the deferring view would carry its
+    // provisional readback into every re-placement of the page's annotations.
+    if read.interpretation.structure_deferred {
+        read.replaceable = None;
+    }
+    Some(read)
+}
+
+/// [`interpret`]'s body, under `view` where the page holds no replacement: `open.view`, or a copy
+/// of it differing in [`ViewState::structure_deferred`] alone.
+fn read(open: &Open, index: usize, view: &ViewState) -> Option<Read> {
     let page = open.page(index)?;
     let replacement = open
         .on(index)
@@ -1171,7 +1283,7 @@ pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
         None => pdf_model::content::interpret_replaceable(
             &open.document,
             &page,
-            &open.view,
+            view,
             &open.fonts,
             &open.references,
         ),

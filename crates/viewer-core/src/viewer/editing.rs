@@ -804,7 +804,7 @@ impl Viewer {
         let pages = pdf_model::Pages::new(&open.document);
         let mut ordered: Vec<String> = Vec::with_capacity(spans.len());
         for (index, range) in spans {
-            let interpreted = open.interpretation(index)?;
+            let readback = open.readback(index)?;
             // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
             // *object* and what this crate holds is an index.
             let page = page_object(&pages, index)?;
@@ -816,13 +816,13 @@ impl Viewer {
                 &open.document,
                 page,
                 pdf_model::structure::ContentSpans {
-                    marked: &interpreted.marked,
-                    artifacts: &interpreted.artifacts,
-                    objects: &interpreted.objects,
+                    marked: &readback.marked,
+                    artifacts: &readback.artifacts,
+                    objects: &readback.objects,
                 },
                 range.0..range.1,
             )?;
-            ordered.push(crate::select::logical_copy(&interpreted.text, &pieces));
+            ordered.push(crate::select::logical_copy(&readback.text, &pieces));
         }
         Some(ordered.join("\n"))
     }

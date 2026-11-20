@@ -457,10 +457,9 @@ open_kinstructions = 2179 .. 2224
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
 # less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 10840.2 thousand in
 # four children of HEAD on 2026-11-17, this file's rule.
-# Moved for ADR 3262: 10853.3 to 11085.5 thousand from bf59984d, the tree the band was taken on, to
-# this one (ToUnicode's code lengths, the object-stream reader, a borrowed face's outline cache),
-# this file's rule around the second figure.
-frame_kinstructions = 10974 .. 11197
+# Restored for ADR 3285: ADR 3262 moved it to 10974 .. 11197 around 11085.5 thousand; with page
+# one's §14.9 structure left for its readback the figure is 10864.3, inside the band as taken.
+frame_kinstructions = 10731 .. 10949
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -524,10 +523,10 @@ open_kinstructions = 55063 .. 56176
 # 159060.7 thousand in four children of HEAD built by Rust 1.100.0 on 2026-11-17, this file's rule. The
 # compiler moved it: the open's inflate and cross-reference loops above, less 1.6 million in
 # `image::unpack::sample_rgba` (ADR 2915, ADR 2950).
-# Moved for ADR 3262: 159061.3 to 169113.2 thousand from bf59984d, the tree the band was taken on,
-# to this one (§14.9.4's walk to the structure root, each ancestor read once by ADR 3261), this
-# file's rule around the second figure.
-frame_kinstructions = 167421 .. 170805
+# Moved for ADR 3285: 169113.2 thousand (ADR 3262, §14.9.4's walk to the structure root) to
+# 128057.8, page one drawn without asking its structure elements for §14.9's statements, which its
+# readback asks for when it is first wanted — this file's rule around the second figure.
+frame_kinstructions = 126777 .. 129339
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]

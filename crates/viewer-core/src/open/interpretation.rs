@@ -3,7 +3,7 @@
 //! What the view state moving discards, what a magnification change keeps, the page a point of the
 //! screen falls on, and the selection's ranges over each page's readback.
 
-use super::{Interpreted, OnScreen, Open};
+use super::{Interpreted, OnScreen, Open, Readback};
 use crate::viewer::px;
 
 impl Open {
@@ -113,6 +113,11 @@ impl Open {
         self.on(page)?.interpreted.as_ref()
     }
 
+    /// What `page` reads back, where it has been interpreted — [`OnScreen::readback`].
+    pub(crate) fn readback(&self, page: usize) -> Option<&Readback> {
+        self.on(page)?.readback(self)
+    }
+
     /// What is selected, as a range of each page's own readback, in page order.
     ///
     /// **This is where a selection stops being two points and becomes text**, and it is one
@@ -133,7 +138,7 @@ impl Open {
         let (from, to) = chosen.ordered();
         (from.page..=to.page)
             .filter_map(|page| {
-                let readback = self.interpretation(page)?.text.len();
+                let readback = self.readback(page)?.text.len();
                 let start = if page == from.page {
                     from.offset.min(readback)
                 } else {

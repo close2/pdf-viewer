@@ -640,9 +640,9 @@ impl Viewer {
                     // over several pages joins their readbacks with a line break that no page
                     // states, so a command that quietly selected them would put a character into
                     // that string which neither page has. ADR 0444.
-                    CommandSelection::All => open.interpreted().map(|interpreted| {
-                        Chosen::in_page(open.page_index, (0, interpreted.text.len()))
-                    }),
+                    CommandSelection::All => open
+                        .readback(open.page_index)
+                        .map(|readback| Chosen::in_page(open.page_index, (0, readback.text.len()))),
                     CommandSelection::None => None,
                 };
                 events.push(damage(viewport));

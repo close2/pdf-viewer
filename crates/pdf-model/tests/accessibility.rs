@@ -922,3 +922,90 @@ fn a_structure_element_language_overrides_its_containing_span_and_the_span_resum
         "structured content's language takes precedence over its containing Span, then the Span resumes"
     );
 }
+
+/// A reading wanted for its marks first leaves §14.9's structure-element statements unread, draws
+/// the same page, and says its readback is provisional (ADR 3285).
+///
+/// §14.9.4 makes the outermost element's `/ActualText` "a replacement, not a description, for the
+/// content", and §14.9.2.3 makes the nearest `/Lang` the language its text is spoken in: what a
+/// page reads back as and is spoken as, never a mark. So the deferring reading's list is the whole
+/// reading's, command for command; its text is the glyphs' own; and the reading that asks the
+/// structure is the readback. The element three levels down is what makes the walk the one ADR
+/// 3262 priced, and the sequence's own `/Lang` beside it is read either way, being in hand.
+#[test]
+fn a_reading_that_defers_the_structure_draws_the_same_page_and_says_so() {
+    let bytes = fixture(
+        "BT /F1 12 Tf 10 50 Td /Span << /MCID 0 /Alt (said) >> BDC (mot juste) Tj EMC \
+         40 0 Td /Span << /Lang (de-DE) >> BDC (Wort) Tj EMC ET",
+        "/StructTreeRoot 6 0 R",
+        "6 0 obj\n<< /Type /StructTreeRoot /ParentTree 7 0 R /K 9 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [3 [8 0 R]] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /Span /P 10 0 R /Pg 3 0 R /K 0 >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Document /P 6 0 R /K [10 0 R] /Lang (fr-FR) \
+           /ActualText (le mot) >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /P /P 9 0 R /K [8 0 R] >>\nendobj\n",
+        "/StructParents 3",
+    );
+    let document = Document::open(bytes).expect("exact-xref PDF fixture opens");
+    assert!(!document.was_recovered(), "fixture offsets are exact");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+
+    let whole = pdf_model::interpret(&document, &page);
+    assert!(
+        whole.glyphs > 0,
+        "Helvetica has a substitute on this machine"
+    );
+    assert!(
+        !whole.structure_deferred,
+        "a reading that asks defers nothing"
+    );
+    assert!(
+        whole.text.starts_with("le mot"),
+        "the outermost element's replacement stands for its content: {:?}",
+        whole.text
+    );
+
+    let mut drawing = pdf_model::view::ViewState::of(&document);
+    assert!(drawing.set_structure_deferred(true));
+    let drawn = pdf_model::content::interpret_with(&document, &page, &drawing);
+    assert!(
+        drawn.structure_deferred,
+        "the element the sequence named was not asked"
+    );
+    assert_eq!(
+        drawn.display_list, whole.display_list,
+        "§14.9's statements change no mark"
+    );
+    assert_eq!(drawn.glyphs, whole.glyphs);
+    assert!(
+        drawn.text.starts_with("mot juste"),
+        "the provisional readback is the glyphs' own: {:?}",
+        drawn.text
+    );
+    // What the property lists state is read either way, being in hand; the element's is not.
+    let alts: Vec<_> = drawn
+        .described
+        .iter()
+        .filter_map(|span| span.alt.as_deref())
+        .collect();
+    assert_eq!(alts, vec!["said"]);
+    let languages: Vec<_> = drawn
+        .described
+        .iter()
+        .filter_map(|span| span.language.as_deref())
+        .collect();
+    assert_eq!(
+        languages,
+        vec!["de-DE"],
+        "the element's fr-FR is left unread"
+    );
+
+    // A page that names no element defers nothing, whatever the state asks.
+    let untagged = fixture("BT /F1 12 Tf 10 50 Td (plain) Tj ET", "", "", "");
+    let untagged = Document::open(untagged).expect("exact-xref PDF fixture opens");
+    let page = pdf_model::Pages::new(&untagged).get(0).expect("one page");
+    let mut drawing = pdf_model::view::ViewState::of(&untagged);
+    drawing.set_structure_deferred(true);
+    let drawn = pdf_model::content::interpret_with(&untagged, &page, &drawing);
+    assert!(!drawn.structure_deferred, "nothing was left unread");
+}

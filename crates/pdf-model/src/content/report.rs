@@ -783,6 +783,16 @@ pub struct Interpretation {
     /// from [`Self::text`]: that is what a person copying the page gets, and this is what a
     /// text-to-speech engine gets. [`Self::speech`] combines the two.
     pub described: Vec<crate::accessibility::Described>,
+    /// Whether this reading's readback is provisional: a marked-content sequence named a §14.7
+    /// structure element whose §14.9 statements were left unread, because the state it ran under
+    /// asked for its marks first ([`crate::view::ViewState::set_structure_deferred`]).
+    ///
+    /// Where it is true, [`Self::text`], [`Self::text_layer`], [`Self::described`],
+    /// [`Self::artifacts`], [`Self::marked`], [`Self::objects`] and [`Self::language`] are what
+    /// the page reads back *without* §14.9.4's `/ActualText` and §14.9.2–§14.9.5's descriptions
+    /// from its elements, and the page interpreted again with the setting off is the readback.
+    /// Always false where the setting is off (ADR 3285).
+    pub structure_deferred: bool,
     /// §14.8.2.2's artifact spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence tagged `/Artifact`, with whatever Table 363's

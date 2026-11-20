@@ -9084,8 +9084,9 @@ fn a_second_search_answers_what_the_first_did_without_interpreting_a_page_again(
 /// the same `Open::replay` a field edit, an undo and a redo do — and what it pins is the
 /// conservative rule `Open::stale` states: **every** page goes, not the page that changed. A
 /// cache keyed by page alone would answer the next search out of text produced under the state
-/// before the edit, and `settle` immediately putting the page showing back is what leaves exactly
-/// one entry rather than none.
+/// before the edit. `settle` reads the page showing again for its marks first, and this document is
+/// tagged, so that reading leaves §14.9's structure for its readback and puts nothing back: the
+/// page returns to the cache when a search first asks it (ADR 3285).
 #[test]
 fn an_edit_forgets_every_page_the_search_had_read() {
     let (mut viewer, _) = opened(800, 1000);
@@ -9112,8 +9113,8 @@ fn an_edit_forgets_every_page_the_search_had_read() {
         .readback_cache(DOCUMENT)
         .expect("the document is open");
     assert_eq!(
-        emptied.pages, 1,
-        "the edit forgot them and `settle` put the page showing back: {emptied:?}"
+        emptied.pages, 0,
+        "the edit forgot them, and the page showing waits for its readback: {emptied:?}"
     );
     // The tally is not reset: it is what says whether the cache is working, and zeroing it on
     // every edit would hide the edit rather than report it.

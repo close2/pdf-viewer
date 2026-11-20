@@ -1578,6 +1578,7 @@ impl<'a> Interpreter<'a> {
             text: String::new(),
             described: Vec::new(),
             replaced_elements: BTreeSet::new(),
+            structure_deferred: std::cell::Cell::new(false),
             artifacts: Vec::new(),
             marked: Vec::new(),
             stream: ContentStream::Page,
@@ -1742,6 +1743,7 @@ impl<'a> Interpreter<'a> {
             text,
             described,
             replaced_elements,
+            structure_deferred,
             artifacts,
             marked,
             structural_annotations,
@@ -1798,6 +1800,7 @@ impl<'a> Interpreter<'a> {
             text: text.clone(),
             described: described.clone(),
             replaced_elements: replaced_elements.clone(),
+            structure_deferred: structure_deferred.get(),
             artifacts: artifacts.clone(),
             marked: marked.clone(),
             structural_annotations: structural_annotations.clone(),
@@ -1851,6 +1854,7 @@ impl<'a> Interpreter<'a> {
             text,
             described,
             replaced_elements,
+            structure_deferred,
             artifacts,
             marked,
             structural_annotations,
@@ -1896,6 +1900,7 @@ impl<'a> Interpreter<'a> {
         self.text = text;
         self.described = described;
         self.replaced_elements = replaced_elements;
+        self.structure_deferred.set(structure_deferred);
         self.artifacts = artifacts;
         self.marked = marked;
         self.structural_annotations = structural_annotations;
@@ -1982,6 +1987,8 @@ struct Checkpoint {
     described: Vec<crate::accessibility::Described>,
     /// See [`Interpreter::replaced_elements`].
     replaced_elements: BTreeSet<ObjectId>,
+    /// See [`Interpretation::structure_deferred`].
+    structure_deferred: bool,
     /// See [`Interpretation::artifacts`].
     artifacts: Vec<ArtifactSpan>,
     /// See [`Interpretation::marked`].
@@ -2525,6 +2532,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         codes_without_a_vertical_form: interpreter.codes_without_a_vertical_form,
         codes_without_a_character: interpreter.codes_without_a_character,
         described: interpreter.described,
+        structure_deferred: interpreter.structure_deferred.get(),
         artifacts,
         marked: interpreter.marked,
         objects: interpreter.structural_annotations,
@@ -3005,6 +3013,10 @@ struct Interpreter<'a> {
     /// The structure elements whose `/ActualText` this page's readback already carries, so that
     /// §14.9.4's substitution for an element's enclosed content is made once.
     replaced_elements: BTreeSet<ObjectId>,
+    /// Whether a marked-content sequence named a structure element whose §14.9 statements this
+    /// reading left unread, under [`crate::view::ViewState::set_structure_deferred`]: what makes
+    /// [`Interpretation::structure_deferred`]. A cell because [`Self::accessibility`] reads.
+    structure_deferred: std::cell::Cell<bool>,
     /// §14.8.2.2's artifact spans, in the order their sections closed.
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.
