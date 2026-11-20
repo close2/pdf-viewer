@@ -138,7 +138,11 @@ fn inflate(stream: &[u8], length: u32) -> Result<Vec<u8>, String> {
                 "its SWF file's body is not a zlib stream".to_owned()
             }
         })?;
-    if decoded.damage.is_some() || decoded.data.len() != inflated {
+    if decoded
+        .damage
+        .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+        || decoded.data.len() != inflated
+    {
         return Err(truncated("SWF file"));
     }
     Ok(decoded.data.to_vec())

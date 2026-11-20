@@ -132,7 +132,11 @@ impl Walk {
         if stated == Some(count) {
             return;
         }
-        if decoded.damage.is_some() || Profile::parse(&decoded.data).is_none() {
+        if decoded
+            .damage
+            .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+            || Profile::parse(&decoded.data).is_none()
+        {
             self.refuse(NOT_DRAWN_THROUGH);
             return;
         }

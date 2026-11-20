@@ -455,7 +455,10 @@ impl Rewriter<'_> {
                 self.document.limits(),
             )
             .ok()?;
-            if stage.damage.is_some() {
+            if stage
+                .damage
+                .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+            {
                 return None;
             }
             data = stage.data;

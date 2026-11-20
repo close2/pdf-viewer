@@ -182,8 +182,12 @@ impl ColourSpace {
         // producer's own alternative, so declining a profile whose bytes are not the ones that
         // were compressed costs a *stated* space rather than a missing one. The population is
         // `pdf-model --example damaged_stream_census`, which counts the profiles this reaches.
+        // A stream missing only its RFC 1950 framing is not doubted ([`pdf_syntax::Damage::
+        // questions_the_bytes`], ADR 3290).
         if let Ok(decoded) = document.decoded_stream_data_reported(stream)
-            && decoded.damage.is_none()
+            && !decoded
+                .damage
+                .is_some_and(pdf_syntax::Damage::questions_the_bytes)
             && let Some(profile) = crate::icc::Profile::parse(&decoded.data)
         {
             // Table 65's `/Range`, "[a]n array of 2 × N numbers … that shall specify the

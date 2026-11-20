@@ -93,11 +93,14 @@ impl Document {
                 .find(|&&other| other > relative)
                 .map(|&next| first.saturating_add(next))
                 // §7.4.2's error is met on the way to the end-of-data rather than in front of
-                // it, so the end is known there and the parser judges the bytes (ADR 2438).
+                // it, so the end is known there and the parser judges the bytes (ADR 2438); a
+                // deflate stream without its framing reached its own end too (ADR 3290).
                 .or(
                     if decoded
                         .damage
-                        .is_some_and(|damage| damage != crate::Damage::ForeignCharacter)
+                        .is_some_and(|damage| {
+                            damage.stops_short() || damage == crate::Damage::CheckValue
+                        })
                     {
                         None
                     } else {

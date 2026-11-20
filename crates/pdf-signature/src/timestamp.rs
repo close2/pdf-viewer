@@ -920,7 +920,9 @@ pub enum ChainRefusal {
     ///
     /// §12.8.5.2: "The ByteRange key shall cover the entire PDF file, including the signature
     /// dictionary but excluding the Contents value." A timestamp that covers less has left bytes
-    /// of this document outside every statement it makes.
+    /// of this document outside every statement it makes. Read, as §12.8.1 reads it for a file of
+    /// several revisions, up to the `%%EOF` that ends the timestamp's own update, so later
+    /// revisions after that marker are not this (ADR 3230, ADR 3291).
     #[error("document timestamp {index}'s byte range leaves {tail} byte(s) of the file unsigned")]
     RangeDoesNotCoverTheFile {
         /// Which link of the chain.
@@ -941,7 +943,8 @@ pub enum ChainRefusal {
     /// §12.8.5.3 requires the material for the previous authority's path to be "included into the
     /// DSS dictionary" and the new token then "placed into a new document timestamp dictionary
     /// which will protect the whole structure", so material outside every timestamp's range is
-    /// material the chain does not protect.
+    /// material the chain does not protect. Material in a revision after an outermost range that
+    /// ends its own revision is §12.8.4.3's later DSS update and is not this (ADR 3291).
     #[error("document timestamp {index} does not cover the validation material in object {object}")]
     DoesNotCoverMaterial {
         /// Which link of the chain.
@@ -1073,8 +1076,18 @@ pub fn chain(
         // §12.8.5.2's whole-file requirement is asked of the *outermost* timestamp only, and that
         // is §12.8.5.3's doing rather than a softening: the clause has each new token applied over
         // everything the previous one left, so an earlier token covering less than the finished
-        // file is the shape the clause describes. What no token covers is what nothing protects.
-        if extent < length && position.saturating_add(1) == found.len() {
+        // file is the shape the clause describes.
+        //
+        // "The entire PDF file" is read as §12.8.1 reads it for a file of several revisions, the
+        // bytes "to the end of the \"%%EOF\" comment ... terminating the incremental update that
+        // adds the digital signature dictionary", which is `covers_its_revision` (ADR 3230): a
+        // tail after that marker is later revisions, and §12.8.4.3 prescribes one of them — "the
+        // DSS/VRI update shall be done later than the signature update" — for the timestamp's own
+        // validation material (ADR 3291).
+        if extent < length
+            && position.saturating_add(1) == found.len()
+            && !signature.covers_its_revision(&file)
+        {
             chain.refused.push(ChainRefusal::RangeDoesNotCoverTheFile {
                 index: position,
                 tail: length.saturating_sub(extent),
@@ -1136,9 +1149,17 @@ fn nothing_left_uncovered(chain: &mut Chain) {
         }
     }
     if let Some(outermost) = chain.links.len().checked_sub(1) {
+        // Material in a revision after an outermost link that ends its own revision is
+        // §12.8.4.3's shape — the DSS update "done later than the signature update", the
+        // outermost token's own material among it — while §12.8.5.3 asks only that the material
+        // for the *previous* token be under the new one, which nothing after the newest can be. So
+        // it stays listed in the link's `material_uncovered` and is no refusal (ADR 3291); a range
+        // that ends no revision says nothing about where anything is, and every piece stays
+        // refused there.
         let uncovered = chain
             .links
             .get(outermost)
+            .filter(|link| !link.ends_a_revision)
             .map_or_default(|link| link.material_uncovered.clone());
         for object in uncovered {
             chain.refused.push(ChainRefusal::DoesNotCoverMaterial {

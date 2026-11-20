@@ -148,17 +148,61 @@ pub enum Damage {
     /// leaves every pair after it a nibble out of step, and the filter cannot tell the two apart.
     /// So a consumer whose bytes have a grammar decides, exactly as for [`Self::CheckValue`].
     ForeignCharacter,
+    /// The data is RFC 1951's deflate format without RFC 1950's framing around it, decoded to its
+    /// final block.
+    ///
+    /// **`FlateDecode` alone reaches this.** §7.4.4.1 names both documents — the Flate method "is
+    /// fully defined in Internet RFC 1950 , and Internet RFC 1951 " — and RFC 1950 is the format
+    /// of the stream: a two-byte header, the deflate data, and an Adler-32 over what it
+    /// decompresses to. A stream that fails the header's check and decodes as bare deflate is not
+    /// the format its `/Filter` states, so it is reported; and what came out is every byte its
+    /// deflate data describes, so it is handed over and drawn, which is the robustness half of the
+    /// question (ADR 3290).
+    ///
+    /// **Weaker than [`Self::CheckValue`] and not the same statement.** There is no check value
+    /// to disagree with, so nothing says the bytes were altered; what is missing is the framing
+    /// and the means to check. A consumer that refuses doubtful bytes therefore asks
+    /// [`Damage::questions_the_bytes`], which is false for this alone. A raw stream that also
+    /// stops short is [`Self::Truncated`] or [`Self::Corrupt`], the graver report.
+    Unframed,
 }
 
 impl Damage {
     /// Whether the decode stopped before the filter's end-of-data, so that the bytes it handed
     /// over are a prefix of the stream rather than all of it.
     ///
-    /// [`Self::CheckValue`] and [`Self::ForeignCharacter`] reached the end-of-data and handed
-    /// over every byte; what they report is an error over those bytes, not a missing tail.
+    /// [`Self::CheckValue`], [`Self::ForeignCharacter`] and [`Self::Unframed`] reached the
+    /// end-of-data and handed over every byte; what they report is an error over those bytes, or
+    /// around them, not a missing tail.
     #[must_use]
     pub const fn stops_short(self) -> bool {
         matches!(self, Self::Truncated | Self::Corrupt)
+    }
+
+    /// Whether this damage leaves the decoded bytes themselves in doubt.
+    ///
+    /// Every damage does but [`Self::Unframed`], whose bytes are all that the deflate data
+    /// describes and whose report is about the framing the stream lacks. A consumer that refuses
+    /// damaged bytes — a font program, an ICC profile, a stream about to be re-encoded — asks this
+    /// rather than whether there is a damage at all, so a stream drawn before the report existed
+    /// is drawn after it (ADR 3290).
+    #[must_use]
+    pub const fn questions_the_bytes(self) -> bool {
+        !matches!(self, Self::Unframed)
+    }
+
+    /// The damage a chain of stages reports, given an `earlier` stage's and a `later` one's.
+    ///
+    /// The earliest is reported, because a stage that ended past an error has caused whatever
+    /// the stages after it met (ADR 2438) — except [`Self::Unframed`], which changed no byte and
+    /// so caused nothing: a later stage's damage stands in front of it, or a prefix handed on by
+    /// a later stage would be reported as a whole decode with its framing missing.
+    #[must_use]
+    pub fn in_a_chain(earlier: Option<Self>, later: Option<Self>) -> Option<Self> {
+        match (earlier, later) {
+            (Some(Self::Unframed), Some(later)) => Some(later),
+            (earlier, later) => earlier.or(later),
+        }
     }
 }
 
@@ -989,6 +1033,11 @@ fn flate(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             // a raw deflate stream fails zlib's two-byte header check having produced no
             // bytes, which is exactly this case and is why the fallback exists.
             Err(FilterRefusal::Corrupt) => {}
+            // Whole as deflate data and not the RFC 1950 stream the filter names: drawn, and
+            // said (ADR 3290). A raw decode that stopped short keeps its graver report.
+            Ok(decoded) if !zlib_header && decoded.damage.is_none() => {
+                return Ok(Decoded::damaged(decoded.data, Damage::Unframed));
+            }
             other => return other,
         }
     }
@@ -1146,10 +1195,12 @@ fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
             // ends or breaks over them is two decoders disagreeing rather than an answer.
             // [`turn`] classifies a decoder's status into `Truncated` and `Corrupt` only —
             // `CheckValue` is decided one level up, by [`only_the_check_value`], and
-            // `ForeignCharacter` is `ASCIIHexDecode`'s — so those two are unreachable here and
-            // are written out rather than caught by a wildcard.
+            // `ForeignCharacter` is `ASCIIHexDecode`'s and `Unframed` is [`flate`]'s — so those
+            // three are unreachable here and are written out rather than caught by a wildcard.
             Turn::Whole
-            | Turn::Damaged(Damage::Corrupt | Damage::CheckValue | Damage::ForeignCharacter) => {
+            | Turn::Damaged(
+                Damage::Corrupt | Damage::CheckValue | Damage::ForeignCharacter | Damage::Unframed,
+            ) => {
                 return false;
             }
             Turn::Damaged(Damage::Truncated) => break,
@@ -1855,8 +1906,9 @@ fn decoded_extent(stage: Stage, data: &[u8], ceiling: usize) -> EncodedExtent {
             // The input ending before the marker is what [`Damage::Truncated`] is, and it is
             // the one damage a longer buffer could still answer.
             Standing::Damaged(Damage::Truncated) => return EncodedExtent::Short,
-            // The end-of-data was read past the character, so where it stands is known.
-            Standing::Damaged(Damage::ForeignCharacter) => {
+            // The end-of-data was read past the character, or past deflate data with no framing
+            // around it, so where it stands is known.
+            Standing::Damaged(Damage::ForeignCharacter | Damage::Unframed) => {
                 return EncodedExtent::Ends(consumed.min(data.len()));
             }
             Standing::Damaged(_) => return EncodedExtent::Unknown,
@@ -2324,10 +2376,12 @@ impl Pump {
     /// over a whole buffer: a stage that ended past an error ahead of one that ended well —
     /// §7.4.2's, ADR 2438 — has still caused it.
     fn first_damage(&self) -> Option<Damage> {
-        self.running.iter().find_map(|stage| match stage.done {
-            Some(Ending::Damaged(damage)) => Some(damage),
-            _ => None,
-        })
+        self.running
+            .iter()
+            .fold(None, |reported, stage| match stage.done {
+                Some(Ending::Damaged(damage)) => Damage::in_a_chain(reported, Some(damage)),
+                _ => reported,
+            })
     }
 
     /// How many of the still-encoded bytes the first stage has taken, and how many there are.
@@ -2346,6 +2400,16 @@ impl Pump {
 }
 
 impl Inflate {
+    /// How a stage that reached its deflate data's end stands: ended, or, under the raw framing
+    /// [`flate`] falls back to, ended with [`Damage::Unframed`] said (ADR 3290).
+    const fn ended(&self) -> Standing {
+        if self.zlib_header {
+            Standing::Ended
+        } else {
+            Standing::Damaged(Damage::Unframed)
+        }
+    }
+
     /// One turn of the inflate. See [`Engine::turn`].
     fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
         let mut took = 0usize;
@@ -2389,7 +2453,7 @@ impl Inflate {
 
         let state = match turn(&status, read > 0 || wrote > 0) {
             Turn::Again => Standing::More,
-            Turn::Whole => Standing::Ended,
+            Turn::Whole => self.ended(),
             // No progress with input still to come is a stage waiting rather than a stream
             // that stopped: [`turn`] cannot tell those apart, because over a whole buffer
             // there is no such thing as input still to come.
@@ -2419,7 +2483,7 @@ impl Inflate {
                         .as_deref()
                         .is_some_and(|encoded| ended_on_a_block(encoded, self.zlib_header))
                 {
-                    Standing::Ended
+                    self.ended()
                 } else if damage == Damage::Corrupt
                     && self.replayable.as_deref().is_some_and(|encoded| {
                         only_the_check_value(encoded, self.zlib_header, self.produced)
@@ -3604,7 +3668,8 @@ mod tests {
         assert_eq!(&*out, b"round trip");
     }
 
-    /// Streams missing the two-byte zlib header are common; the raw fallback handles them.
+    /// Streams missing the two-byte zlib header are common; the raw fallback decodes them and
+    /// says so: §7.4.4.1 names RFC 1950's format, and bare deflate is not it (ADR 3290).
     #[cfg_attr(
         miri,
         ignore = "zlib-rs's deallocation, not this tree's — see the note above"
@@ -3619,8 +3684,51 @@ mod tests {
             .expect("in-memory write");
         let compressed = encoder.finish().expect("finish");
 
-        let out = decode(b"FlateDecode", &compressed, None, Limits::DEFAULT).expect("valid");
-        assert_eq!(&*out, b"no zlib header");
+        let out = super::decode_reported(b"FlateDecode", &compressed, None, Limits::DEFAULT)
+            .expect("drawn, whatever its framing");
+        assert_eq!(&*out.data, b"no zlib header");
+        assert_eq!(out.damage, Some(super::Damage::Unframed));
+        assert!(
+            !super::Damage::Unframed.stops_short()
+                && !super::Damage::Unframed.questions_the_bytes()
+        );
+
+        // Control: the same text under RFC 1950's framing is whole and says nothing.
+        let mut framed = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        framed
+            .write_all(b"no zlib header")
+            .expect("in-memory write");
+        let framed = framed.finish().expect("finish");
+        let out =
+            super::decode_reported(b"FlateDecode", &framed, None, Limits::DEFAULT).expect("valid");
+        assert_eq!((&*out.data, out.damage), (&b"no zlib header"[..], None));
+    }
+
+    /// A missing framing changed no byte, so a later stage's damage stands in front of it, and
+    /// otherwise the earliest damage is the chain's (ADR 2438, ADR 3290).
+    #[test]
+    fn a_missing_framing_gives_way_to_any_later_damage_in_a_chain() {
+        use super::Damage::{CheckValue, ForeignCharacter, Truncated, Unframed};
+        assert_eq!(
+            super::Damage::in_a_chain(Some(Unframed), Some(Truncated)),
+            Some(Truncated)
+        );
+        assert_eq!(
+            super::Damage::in_a_chain(Some(Unframed), None),
+            Some(Unframed)
+        );
+        assert_eq!(
+            super::Damage::in_a_chain(None, Some(Unframed)),
+            Some(Unframed)
+        );
+        assert_eq!(
+            super::Damage::in_a_chain(Some(ForeignCharacter), Some(CheckValue)),
+            Some(ForeignCharacter)
+        );
+        assert_eq!(
+            super::Damage::in_a_chain(Some(Truncated), Some(Unframed)),
+            Some(Truncated)
+        );
     }
 
     /// `max_stream_len` bounds an allocation, so the allocation is what the test reads.
@@ -4037,7 +4145,7 @@ mod tests {
                 .expect("the whole route decodes it");
             decoded = super::Decoded {
                 data: stage.data,
-                damage: decoded.damage.or(stage.damage),
+                damage: super::Damage::in_a_chain(decoded.damage, stage.damage),
             };
         }
         decoded
@@ -4548,12 +4656,16 @@ mod tests {
             Limits::DEFAULT,
         );
         assert_eq!(&*whole.data, payload.as_slice());
+        assert_eq!(whole.damage, Some(super::Damage::Unframed));
 
         for window in [1usize, 4096] {
             let mut pump = chain_pump(&[super::Stage::Ascii85, super::Stage::Inflate], &armoured);
             let (pumped, ended) = drain(&mut pump, window);
             assert_eq!(pumped.as_slice(), payload.as_slice(), "through {window}");
-            assert!(matches!(ended, super::Pumped::Ended(_)), "{ended:?}");
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Unframed)),
+                "the window says what the whole route says: {ended:?}"
+            );
         }
     }
 

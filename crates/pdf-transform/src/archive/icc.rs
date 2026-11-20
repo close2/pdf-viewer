@@ -265,7 +265,11 @@ impl ShortProfiles {
         let Some(shortfall) = reading.shortfall(&decoded.data) else {
             return;
         };
-        if decoded.damage.is_some() || Profile::parse(&decoded.data).is_none() {
+        if decoded
+            .damage
+            .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+            || Profile::parse(&decoded.data).is_none()
+        {
             self.in_a_default_space |= in_default;
             match alternate_of(document, &stream) {
                 Some(alternate) => {

@@ -833,7 +833,12 @@ impl Walk<'_> {
         // A decode that kept what it read before damage is not the file, and a container cut short
         // would state a shorter clip than the producer embedded (trap 5).
         let read = match document.decoded_stream_data_reported(&stream) {
-            Ok(decoded) if decoded.damage.is_none() => {
+            // Deflate data missing only RFC 1950's framing is all there (ADR 3290).
+            Ok(decoded)
+                if !decoded
+                    .damage
+                    .is_some_and(pdf_syntax::Damage::questions_the_bytes) =>
+            {
                 container::timeline(&content_type, &decoded.data)
             }
             Ok(_) => Err("its embedded file decoded only in part".to_owned()),

@@ -1968,7 +1968,7 @@ fn recompressed(
         let stage =
             crate::filter::decode_with_parms_reported(filter, &data, stage_parms.as_ref(), limits)
                 .ok()?;
-        if stage.damage.is_some() {
+        if stage.damage.is_some_and(crate::Damage::questions_the_bytes) {
             return None;
         }
         data = stage.data;

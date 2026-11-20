@@ -560,16 +560,64 @@ fn a_later_timestamp_covers_the_earlier_one_and_the_material_beside_it() {
     }
 }
 
-/// **The same chain with the outer range shortened, which must name what it stopped covering.**
+/// **A store appended after the outermost timestamp, which is §12.8.4.3's shape and no refusal.**
 ///
-/// The calibration for the test above (trap 13). `shrink` pulls the second timestamp's
-/// `/ByteRange` back past the CRL's object, so a chain that reported coverage without looking
-/// would answer identically and this must not: §12.8.5.3 requires the material "shall be included
-/// into the DSS dictionary" under a token that protects it, and material below no token's range is
-/// material nothing protects.
+/// `two_timestamps(true)` lays the CRL down in a third revision, after the second timestamp's own
+/// `%%EOF`: the "DSS/VRI update ... done later than the signature update" §12.8.4.3 requires. The
+/// outermost range ends its revision, so §12.8.1's "terminating the incremental update that adds
+/// the digital signature dictionary" is met and the whole-file requirement is not broken; the
+/// material is listed as uncovered, which is true, and refused by nothing (ADR 3291). The other
+/// side is the test below.
 #[test]
-fn a_range_that_stops_short_of_the_material_names_the_object_it_left_out() {
+fn a_store_appended_after_the_outermost_timestamp_is_listed_and_not_refused() {
     let bytes = fixtures::two_timestamps(true);
+    let document = Document::open(bytes).expect("the fixture with a later store opens");
+    let chain = chain(
+        &document,
+        &TrustAnchors::none(),
+        &[],
+        &Material::none(),
+        AFTER_THE_TOKEN,
+    );
+    let outer = chain.outermost().expect("two links");
+    assert!(outer.ends_a_revision);
+    assert!(
+        outer.covers_to < u64::try_from(document.bytes().len()).expect("a short file"),
+        "the store's revision follows the outermost range"
+    );
+    assert_eq!(
+        outer.material_uncovered.len(),
+        1,
+        "the CRL is outside the outermost range, and said to be"
+    );
+    assert_eq!(
+        chain.refused,
+        [] as [ChainRefusal; 0],
+        "a later revision after an %%EOF is §12.8.4.3's shape"
+    );
+}
+
+/// **The same chain with the outermost range ending inside its revision**: §12.8.1's end is not
+/// met, so the whole-file requirement and the material are both refused by name.
+///
+/// The calibration for the test above (trap 13): the outermost `/ByteRange`'s last length is cut
+/// by three bytes, so its range stops inside its own `%%EOF` line and a reading that excused every
+/// tail would answer as above.
+#[test]
+fn an_outermost_range_that_stops_inside_its_revision_is_refused_by_name() {
+    let mut bytes = fixtures::two_timestamps(true);
+    let at = fixtures::positions(&bytes, b"/ByteRange [")
+        .last()
+        .copied()
+        .expect("the outermost /ByteRange");
+    // `[a b c d]`, each ten digits: the fourth starts 3 * 11 bytes after the bracket.
+    let fourth = at + b"/ByteRange [".len() + 33;
+    let stated: u64 = std::str::from_utf8(&bytes[fourth..fourth + 10])
+        .expect("digits")
+        .parse()
+        .expect("a length");
+    let shortened = format!("{:010}", stated - 3);
+    bytes[fourth..fourth + 10].copy_from_slice(shortened.as_bytes());
     let document = Document::open(bytes).expect("the shortened fixture opens");
     let chain = chain(
         &document,
@@ -580,27 +628,23 @@ fn a_range_that_stops_short_of_the_material_names_the_object_it_left_out() {
     );
     println!("{:#?}", chain.refused);
     let outer = chain.outermost().expect("two links");
-    assert_eq!(
-        outer.material_uncovered.len(),
-        1,
-        "the CRL is now outside the outermost range"
-    );
     assert!(
-        chain
-            .refused
-            .iter()
-            .any(|refusal| matches!(refusal, ChainRefusal::DoesNotCoverMaterial { index: 1, .. })),
-        "the object it left out is named: {:?}",
-        chain.refused
+        !outer.ends_a_revision,
+        "the range now stops inside its %%EOF line"
     );
-    assert!(
-        chain
-            .refused
-            .iter()
-            .any(|refusal| matches!(refusal, ChainRefusal::RangeDoesNotCoverTheFile { .. })),
-        "and §12.8.5.2's whole-file requirement is named too: {:?}",
-        chain.refused
-    );
+    let refused = |wanted: fn(&ChainRefusal) -> bool| chain.refused.iter().any(wanted);
+    assert!(refused(|refusal| matches!(
+        refusal,
+        ChainRefusal::RangeDoesNotCoverTheFile { index: 1, .. }
+    )));
+    assert!(refused(|refusal| matches!(
+        refusal,
+        ChainRefusal::RangeDoesNotEndARevision { index: 1 }
+    )));
+    assert!(refused(|refusal| matches!(
+        refusal,
+        ChainRefusal::DoesNotCoverMaterial { index: 1, .. }
+    )));
 }
 
 /// A document with no timestamp at all yields an empty chain and no refusal.
@@ -938,7 +982,7 @@ pub(crate) mod fixtures {
     }
 
     /// Every offset at which `needle` occurs.
-    fn positions(bytes: &[u8], needle: &[u8]) -> Vec<usize> {
+    pub(crate) fn positions(bytes: &[u8], needle: &[u8]) -> Vec<usize> {
         bytes
             .windows(needle.len())
             .enumerate()

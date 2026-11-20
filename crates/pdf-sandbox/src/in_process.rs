@@ -99,6 +99,68 @@ pub fn decode_here_within(
 
 /// [`decode_here_within`] before its wall-clock refusals are counted.
 fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxError> {
+    let wire = protocol::read_request(&mut protocol::encode_request(request).as_slice())
+        .ok()
+        .flatten()
+        .ok_or_else(|| SandboxError::Malformed {
+            detail: "a request did not survive its own framing".to_owned(),
+        })?;
+    on_a_kept_thread(timeout, None, move || {
+        protocol::typed_request(&wire).map_or_else(
+            || {
+                Err(SandboxError::Malformed {
+                    detail: "a request named no filter this build implements".to_owned(),
+                })
+            },
+            |request| decode::here(&request),
+        )
+    })?
+}
+
+/// Runs `work` in this process under [`decode_here_within`]'s budget: `timeout` of its thread's
+/// processor time, behind a wall-clock ceiling of ten times that.
+///
+/// For a decoder this crate does not hold that runs in its caller's process, because it is on the
+/// path to the first page and a worker's start would be in front of it — `DCTDecode`'s, in
+/// `pdf-model` (ADR 3289). The kept threads, the count of abandoned work and its refusals are
+/// [`decode_here_within`]'s own, so one image of either kind left running counts against both.
+/// A process behind its own system-call filter cannot start a thread, so there `work` runs on
+/// the calling thread, bounded from outside as [`crate::decode()`] is bounded there.
+///
+/// **`meanwhile` is the caller's thread's other work, done while it waits.** A caller that is one
+/// of a thread pool's workers, waiting for work that itself hands pieces to the same pool, would
+/// otherwise hold a worker the pieces need: with every worker of the pool waiting so, nothing runs
+/// them and the work waits out its ceiling. So, where given, it is called while the work runs, and
+/// answers whether it found something to do; between calls that found nothing the wait is
+/// [`MEANWHILE_SLICE`] at most.
+///
+/// # Errors
+///
+/// [`SandboxError::Exhausted`], [`SandboxError::Overran`], [`SandboxError::TooManyOverran`] and
+/// [`SandboxError::Thread`], as for [`decode_here_within`]; and [`SandboxError::Malformed`] when
+/// `work` panicked, which ends its thread without an answer.
+pub fn run_here_within<T: Send + 'static>(
+    timeout: Duration,
+    meanwhile: Option<&mut dyn FnMut() -> bool>,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, SandboxError> {
+    if crate::lockdown::is_confined() {
+        return Ok(work());
+    }
+    crate::counted(on_a_kept_thread(timeout, meanwhile, work))
+}
+
+/// The longest a caller with other work waits between looks for it ([`run_here_within`]).
+///
+/// This program's choice: short beside a decode worth a thread, long beside a wake-up's cost.
+pub const MEANWHILE_SLICE: Duration = Duration::from_millis(1);
+
+/// Runs `work` on a kept thread, waiting while the thread has processor time left of `timeout`.
+fn on_a_kept_thread<T: Send + 'static>(
+    timeout: Duration,
+    mut meanwhile: Option<&mut dyn FnMut() -> bool>,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, SandboxError> {
     let still_running = ABANDONED.load(Ordering::Acquire);
     if still_running >= MAX_ABANDONED {
         return Err(SandboxError::TooManyOverran {
@@ -106,18 +168,20 @@ fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxEr
         });
     }
 
-    let wire = protocol::read_request(&mut protocol::encode_request(request).as_slice())
-        .ok()
-        .flatten()
-        .ok_or_else(|| SandboxError::Malformed {
-            detail: "a request did not survive its own framing".to_owned(),
-        })?;
     let state = Arc::new(AtomicU8::new(RUNNING));
     let (answer, answered) = mpsc::channel();
     let began = Instant::now();
     dispatch(Job {
-        wire,
-        answer,
+        run: Box::new(move |whose| {
+            // A caller already gone has nobody to tell; the same holds for the answer below,
+            // which a caller that stopped waiting has already reported as `Exhausted` or
+            // `Overran`.
+            let _ = answer.send(Message::Taken {
+                whose,
+                at_start: clock::this_threads_time(),
+            });
+            let _ = answer.send(Message::Answer(work()));
+        }),
         state: Arc::clone(&state),
     })?;
 
@@ -125,15 +189,22 @@ fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxEr
     // under: `timeout` of it, the bound where no reading is possible.
     let mut allowance = Allowance::since(None, timeout, began);
     loop {
-        let wait = match allowance.next_wait() {
+        let mut wait = match allowance.next_wait() {
             Ok(wait) => wait,
             Err(ended) => return abandon(&state, &answered, ended, timeout),
         };
+        if let Some(other) = meanwhile.as_deref_mut() {
+            wait = if other() {
+                Duration::ZERO
+            } else {
+                wait.min(MEANWHILE_SLICE)
+            };
+        }
         match answered.recv_timeout(wait) {
             Ok(Message::Taken { whose, at_start }) => {
                 allowance = Allowance::since(whose.zip(at_start), timeout, began);
             }
-            Ok(Message::Answer(decoded)) => return decoded,
+            Ok(Message::Answer(done)) => return Ok(done),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(SandboxError::Malformed {
@@ -146,12 +217,12 @@ fn within(request: &Request<'_>, timeout: Duration) -> Result<Decoded, SandboxEr
 
 /// Leaves a decode its allowance has `ended` running on its thread, and says why — unless it
 /// answered between the allowance's end and the claim, in which case its answer is the result.
-fn abandon(
+fn abandon<T>(
     state: &AtomicU8,
-    answered: &mpsc::Receiver<Message>,
+    answered: &mpsc::Receiver<Message<T>>,
     ended: Ended,
     budget: Duration,
-) -> Result<Decoded, SandboxError> {
+) -> Result<T, SandboxError> {
     let refusal = match ended {
         Ended::Spent => SandboxError::Exhausted { budget },
         Ended::Ceiling { after } => SandboxError::Overran { after },
@@ -168,15 +239,15 @@ fn abandon(
     // It returned between the end and the claim, so its answer is waiting behind any `Taken`.
     ABANDONED.fetch_sub(1, Ordering::AcqRel);
     while let Ok(message) = answered.recv() {
-        if let Message::Answer(decoded) = message {
-            return decoded;
+        if let Message::Answer(done) = message {
+            return Ok(done);
         }
     }
     Err(refusal)
 }
 
 /// What a decoding thread tells the caller waiting on one request, in this order.
-enum Message {
+enum Message<T> {
     /// The thread has taken the request: its name under `/proc`, and its processor time as it
     /// began, each `None` where `/proc` could not be read.
     Taken {
@@ -185,17 +256,15 @@ enum Message {
         /// Its processor time before the decode.
         at_start: Option<Duration>,
     },
-    /// The decode's outcome.
-    Answer(Result<Decoded, SandboxError>),
+    /// The work's outcome.
+    Answer(T),
 }
 
-/// One request for a decoding thread: what to decode, where to answer, and whether anyone is
-/// still waiting.
+/// One piece of work for a decoding thread, and whether anyone is still waiting for it.
 struct Job {
-    /// The request, as the worker would have read it from its pipe.
-    wire: protocol::Wire,
-    /// Where the answer goes; a receiver that stopped waiting has been dropped.
-    answer: mpsc::Sender<Message>,
+    /// The work, given the thread's name under `/proc`; it tells its caller it has begun and
+    /// what it came to, over a channel of its own.
+    run: Box<dyn FnOnce(Option<Whose>) + Send>,
     /// [`RUNNING`], [`LEFT`] or [`RETURNED`].
     state: Arc<AtomicU8>,
 }
@@ -237,22 +306,7 @@ fn serve(jobs: &mpsc::Receiver<Job>, own: &mpsc::Sender<Job>) {
     let whose = clock::this_thread();
     while let Ok(job) = jobs.recv() {
         let returned = Returned(job.state);
-        // A caller already gone has nobody to tell; the same holds for the answer below.
-        let _ = job.answer.send(Message::Taken {
-            whose,
-            at_start: clock::this_threads_time(),
-        });
-        let decoded = protocol::typed_request(&job.wire).map_or_else(
-            || {
-                Err(SandboxError::Malformed {
-                    detail: "a request named no filter this build implements".to_owned(),
-                })
-            },
-            |request| decode::here(&request),
-        );
-        // A caller that stopped waiting has dropped the receiver, and then there is nobody to
-        // tell: the decode was already reported as `Exhausted` or `Overran`.
-        let _ = job.answer.send(Message::Answer(decoded));
+        (job.run)(whose);
         drop(returned);
         lock(&IDLE).push(own.clone());
     }

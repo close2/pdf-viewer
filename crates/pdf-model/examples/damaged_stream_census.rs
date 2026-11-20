@@ -279,6 +279,9 @@ struct Tally {
     /// Of those, the ones whose damage is [`Damage::ForeignCharacter`] — §7.4.2's error, met on
     /// the way to the filter's end-of-data (ADR 2438).
     contents_foreign_character: usize,
+    /// Of those, the ones whose damage is [`Damage::Unframed`] — deflate data without RFC 1950's
+    /// framing, decoded to its final block (ADR 3290).
+    contents_unframed: usize,
     /// Documents whose page-one `/Contents` reported [`ContentIssue::Undecodable`] — nothing
     /// survived at all, which is the case the prefix rule cannot help.
     contents_undecodable: usize,
@@ -350,6 +353,7 @@ impl Tally {
         self.contents_corrupt += other.contents_corrupt;
         self.contents_check_value += other.contents_check_value;
         self.contents_foreign_character += other.contents_foreign_character;
+        self.contents_unframed += other.contents_unframed;
         self.contents_undecodable += other.contents_undecodable;
         self.contents_kept += other.contents_kept;
         self.contents_drew += other.contents_drew;
@@ -404,7 +408,7 @@ fn main() {
     println!(
         "{} files, {} opened: {} page-one /Contents damaged ({} truncated, {} corrupt, \
          {} whole with a check value that disagrees, {} whole past a character outside its \
-         alphabet), {} undecodable",
+         alphabet, {} whole without RFC 1950's framing), {} undecodable",
         total.files,
         total.opened,
         total.contents_damaged,
@@ -412,6 +416,7 @@ fn main() {
         total.contents_corrupt,
         total.contents_check_value,
         total.contents_foreign_character,
+        total.contents_unframed,
         total.contents_undecodable,
     );
     println!(
@@ -735,6 +740,7 @@ fn examine(path: &Path) -> Tally {
                     Damage::Corrupt => tally.contents_corrupt = 1,
                     Damage::CheckValue => tally.contents_check_value = 1,
                     Damage::ForeignCharacter => tally.contents_foreign_character = 1,
+                    Damage::Unframed => tally.contents_unframed = 1,
                 }
                 damaged_contents = Some((*damage, *kept));
             }

@@ -101,7 +101,7 @@ mod worker;
 // The processor-time allowance a host waits for a confined worker's answer under (ADR 3133), public
 // because `pdf-media-worker`'s host waits for its worker the way this crate waits for its own.
 pub use clock::{Allowance, Ended};
-pub use in_process::{decode_here, decode_here_within};
+pub use in_process::{MEANWHILE_SLICE, decode_here, decode_here_within, run_here_within};
 pub use protocol::{
     Bilevel, CcittParameters, Colour, DctComponents, DctParameters, MAX_PRECISION, Raster, Request,
 };
@@ -267,14 +267,15 @@ pub const ORDINARY_SAMPLES: u64 = decode::MAX_SAMPLES;
 /// long-lived worker for the crime of having decoded a lot of images. Processor time rather than
 /// wall clock because what a decode returns is part of the page, and the page must be a function
 /// of its bytes, not of the machine's load; the wall clock stays behind it as a ceiling of
-/// [`clock::STALL_FACTOR`] times this, refused as [`SandboxError::Stalled`] (ADR 3133). Thirty
+/// ten times this, refused as [`SandboxError::Stalled`] (ADR 3133). Thirty
 /// seconds is the same budget the corpus gate gives an entire document to a reference renderer,
 /// so an image that spends it is not slow, it is not returning.
 ///
 /// The in-process path ([`decode_here_within`]) holds its decoding thread to the same length of
 /// that thread's processor time and the same ceiling, abandoning rather than killing, because a
-/// thread it cannot stop is all it has to bound ([`in_process`], ADR 3150).
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// thread it cannot stop is all it has to bound ([`in_process`], ADR 3150), and so does
+/// [`run_here_within`] for `pdf-model`'s `DCTDecode` (ADR 3289).
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Largest response this will accept from a worker, in bytes.
 ///

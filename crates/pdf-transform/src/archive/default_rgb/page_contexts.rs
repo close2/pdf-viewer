@@ -410,7 +410,10 @@ fn decoded(
     let decoded = document
         .decoded_stream_data_reported(stream)
         .map_err(|_| CONTEXT)?;
-    if decoded.damage.is_some() {
+    if decoded
+        .damage
+        .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+    {
         return Err(CONTEXT);
     }
     Ok(decoded.data)

@@ -709,7 +709,48 @@ pub(super) fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
     clippy::doc_markdown,
     reason = "verbatim quotations: Table 13 spells ColorTransform and YCbCrK without backticks"
 )]
+///
+/// # It is decoded under a processor-time budget, in this process
+///
+/// `zune-jpeg` is the one codec `pdf-model` runs in its own process (ADR 0014 took it as it took
+/// `flate2`), and it is the codec of page one's photograph, so a worker's start would be in front
+/// of the first page. It runs to its end in one call and cannot be asked to stop, and §7.4.8's
+/// progressive codestreams state as many scans as they like over the same coefficients, so its
+/// time is bounded as the sandbox bounds its in-process decoders (ADR 3150): on a kept thread,
+/// [`pdf_sandbox::REQUEST_TIMEOUT`] of that thread's processor time, abandoned at the end of it.
+/// Spending the budget is the image's refusal and the wall-clock ceiling is the machine's, both
+/// [`ImageError::Sandboxed`] with the sandbox's own sentence (ADR 3289). A decode in bands spends
+/// its bands' time on `rayon`'s threads rather than this one, so there the ceiling is the bound.
+///
+/// A caller on one of `rayon`'s threads runs the pool's other work while it waits
+/// ([`budgeted`]), because those bands are handed to the same pool.
 pub(super) fn decode_jpeg(
+    data: &std::sync::Arc<[u8]>,
+    stated: Option<i64>,
+    in_flight: InFlight,
+) -> Result<DecodedJpeg, ImageError> {
+    let data = std::sync::Arc::clone(data);
+    budgeted(move || decode_jpeg_here(&data, stated, in_flight))?
+}
+
+/// Runs `work` under [`pdf_sandbox::REQUEST_TIMEOUT`] of its thread's processor time, on a kept
+/// thread ([`pdf_sandbox::run_here_within`]).
+///
+/// **A caller that is one of `rayon`'s threads runs the pool's other work while it waits**
+/// (`rayon::yield_now`). The work hands bands to the same pool, and a page of images each decoded
+/// from a pool thread would otherwise hold every thread the bands need: nothing would run them,
+/// and every decode would wait out its ceiling.
+fn budgeted<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, pdf_sandbox::SandboxError> {
+    let mut help_the_pool = || rayon::yield_now() == Some(rayon::Yield::Executed);
+    let meanwhile: Option<&mut dyn FnMut() -> bool> =
+        rayon::current_thread_index().map(|_| &mut help_the_pool as &mut dyn FnMut() -> bool);
+    pdf_sandbox::run_here_within(pdf_sandbox::REQUEST_TIMEOUT, meanwhile, work)
+}
+
+/// [`decode_jpeg`]'s decode, on whichever thread it was given.
+fn decode_jpeg_here(
     data: &[u8],
     stated: Option<i64>,
     in_flight: InFlight,
@@ -999,6 +1040,48 @@ pub fn banded_decodes(data: &[u8], band_lines: u32) -> BandedDecodes {
 
 #[cfg(test)]
 mod tests {
+    /// **A decode started from a pool thread does not hold the thread its bands need.**
+    ///
+    /// The pool has one thread and the caller is on it, so the task the work hands the pool can
+    /// run nowhere but on the caller while it waits for the kept thread: that it ran, and the
+    /// work answered, is the waiting caller running the pool's work (ADR 3289). Without it the
+    /// work's scope would wait for its task until the wall-clock ceiling, three hundred seconds.
+    #[test]
+    fn a_budgeted_decode_from_a_pool_thread_lets_the_pool_run_its_bands() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("a pool of one thread");
+        let answer = pool.install(|| {
+            assert!(rayon::current_thread_index().is_some(), "on the pool");
+            super::budgeted(|| {
+                let ran = std::sync::atomic::AtomicBool::new(false);
+                rayon::in_place_scope(|scope| {
+                    scope.spawn(|_| ran.store(true, std::sync::atomic::Ordering::Relaxed));
+                });
+                ran.into_inner()
+            })
+        });
+        assert_eq!(
+            answer.ok(),
+            Some(true),
+            "the band ran and the work answered"
+        );
+    }
+
+    /// A JPEG is decoded on the kept thread and answers as it would have on the caller's.
+    #[test]
+    fn a_jpeg_decoded_under_its_budget_is_the_frame() {
+        let data: std::sync::Arc<[u8]> =
+            std::sync::Arc::from(&include_bytes!("../../tests/restart/hv_row.jpg")[..]);
+        let budgeted = super::decode_jpeg(&data, None, super::InFlight::Alone)
+            .expect("decoded under its budget");
+        let here = super::decode_jpeg_here(&data, None, super::InFlight::Alone)
+            .expect("decoded on this thread");
+        assert_eq!(budgeted.grid, here.grid);
+        assert!(budgeted.samples == here.samples, "the same samples");
+    }
+
     /// Adobe's APP14 transform 2, arithmetic first — §7.4.8's codestream through ISO/IEC 10918.
     ///
     /// Three values whose answers are exact and need no reference: white, black, and a colour

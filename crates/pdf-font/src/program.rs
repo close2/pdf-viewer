@@ -445,7 +445,9 @@ fn whole_program(
     key: &str,
     name: &str,
 ) -> Result<Arc<[u8]>, FontError> {
-    let Some(damage) = decoded.damage else {
+    // A deflate stream without RFC 1950's framing handed over all its data decoded, so the
+    // program is the producer's and its report is the stream's, not the font's (ADR 3290).
+    let Some(damage) = decoded.damage.filter(|damage| damage.questions_the_bytes()) else {
         return Ok(Arc::clone(&decoded.data));
     };
     // Table 125 is consulted on both damages that can reach it, and for two different jobs: on a
@@ -482,6 +484,8 @@ fn whole_program(
                  of the producer's",
                 decoded.data.len()
             ),
+            // Not reached: `questions_the_bytes` handed such a program over above.
+            Damage::Unframed => format!("/{key} decoded whole without its RFC 1950 framing"),
             Damage::Truncated | Damage::Corrupt => format!(
                 "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a \
                  font program is a directory describing bytes that are not there",

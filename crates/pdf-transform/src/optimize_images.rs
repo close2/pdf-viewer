@@ -399,7 +399,10 @@ fn lossless_chain(document: &Document, dict: &Dictionary, data: &[u8]) -> Option
             document.limits(),
         )
         .ok()?;
-        if stage.damage.is_some() {
+        if stage
+            .damage
+            .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+        {
             return None;
         }
         bytes = stage.data;

@@ -136,7 +136,8 @@ pub enum ImageError {
         /// What was wrong.
         detail: String,
     },
-    /// A codec that runs outside this process was reached and did not decode the image.
+    /// A codec run under `pdf_sandbox`'s bounds was reached and did not decode the image: one in
+    /// the sandbox, or `DCTDecode`'s, on a kept thread of this process (ADR 3289).
     ///
     /// Carries the sandbox's own words: the decoder refused the data, the worker stopped or ran
     /// out of time on it — the bounds a decode is run under — or its answer was not one.

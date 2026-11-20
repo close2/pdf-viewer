@@ -115,14 +115,15 @@ impl Document {
         let mut data: Arc<[u8]> = Arc::clone(encoded);
         // The *first* damage in the chain is the one kept, because it is the one that caused
         // the rest: a stage fed a truncated prefix has no way to end well either, and naming
-        // the last stage's complaint would describe the symptom rather than the file.
+        // the last stage's complaint would describe the symptom rather than the file. A missing
+        // framing changed no byte and causes nothing, so it gives way (`Damage::in_a_chain`).
         let mut damage = None;
         let mut refused = None;
         for (filter, parms) in &chain {
             match crate::filter::decode_with_parms_reported(filter, &data, parms.as_ref(), limits) {
                 Ok(stage) => {
                     data = stage.data;
-                    damage = damage.or(stage.damage);
+                    damage = crate::filter::Damage::in_a_chain(damage, stage.damage);
                 }
                 Err(why) => {
                     refused = Some(StreamRefusal::Filter {
