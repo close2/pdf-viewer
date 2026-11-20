@@ -14,7 +14,7 @@
 //! dictionary is read once whatever number of widgets sit below it. Neither needs a bound on the
 //! number of links, which is how the clause's sentence is met (ADR 2448).
 //!
-//! What a field resolves is [`READ_UP_THE_CHAIN`]: the entries Tables 226, 228, 229 and 230 mark
+//! What a field resolves is [`READ_UP_THE_CHAIN`]: the entries Tables 226, 228, 230 and 232 mark
 //! inheritable, and the five this crate's readers also take from the nearest dictionary of the
 //! chain stating them. A value is *stated* where it is present and not null, which is §7.3.9's
 //! rule for a null entry —
@@ -33,9 +33,9 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 /// The entries a field takes from the nearest dictionary of its `/Parent` chain that states them.
 ///
 /// The first eight are the standard's: Table 226's `/FT`, `/Ff`, `/V` and `/DV`, Table 228's `/DA`
-/// and `/Q`, Table 229's `/MaxLen` and Table 230's `/Opt`, each "(… inheritable)" in its table.
+/// and `/Q`, Table 232's `/MaxLen` and Table 230's `/Opt`, each "(… inheritable)" in its table.
 /// The last five are not designated inheritable, and are read up the chain because a widget that
-/// is not merged with its field holds none of them itself: Table 231's `/TI` and `/I`, which a
+/// is not merged with its field holds none of them itself: Table 234's `/TI` and `/I`, which a
 /// choice field states, the `/Kids` §12.7.5.2.4 reads a radio button's set from, and Table 228's
 /// `/RV` and `/DS`, which the field's variable text states — and those four, with a choice field's
 /// `/Opt`, only as far as the terminal field (`LOCAL_TO_THE_TERMINAL_FIELD`). A reader that asks [`Inherited`] for an

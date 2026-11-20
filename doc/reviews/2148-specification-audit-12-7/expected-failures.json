@@ -1,0 +1,54 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2148 on main dd12e73b",
+ "failures": [
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_choice_is_submitted_by_its_export_value_not_its_label_spec_audit",
+   "finding": "2148-B01",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_check_box_with_opt_is_submitted_by_its_export_value_spec_audit",
+   "finding": "2148-B02",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_saved_radio_set_keeps_at_most_one_button_on_spec_audit",
+   "finding": "2148-B03",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit",
+   "finding": "2148-B04",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::typed_text_is_not_a_value_of_a_choice_without_edit_spec_audit",
+   "finding": "2148-B05",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_push_button_takes_no_value_spec_audit",
+   "finding": "2148-B06",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_file_select_field_is_not_a_comb_spec_audit",
+   "finding": "2148-B07",
+   "log": "round-2148 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "forms_values_spec_audit::a_child_of_a_field_named_by_an_empty_string_keeps_its_separator_spec_audit",
+   "finding": "2148-B08",
+   "log": "round-2148 nextest of pdf-model"
+  }
+ ]
+}

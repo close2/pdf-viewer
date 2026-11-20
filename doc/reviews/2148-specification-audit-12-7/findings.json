@@ -1,0 +1,126 @@
+[
+ {
+  "id": "2148-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.4",
+   "12.7.6.2"
+  ],
+  "summary": "A submit-form action carries a choice field's /V, which §12.7.5.4 makes the displayed string of a two-element /Opt entry, rather than the entry's export value: an HTML Form submit of /Opt [[(r) (Red)] [(g) (Green)]] with /V (Green) sends colour=Green. The FDF and XFDF bodies carry the same /V. Choice::export is documented as 'what §12.7.6.2 exports for this item' and nothing in submission.rs reads it.",
+  "source": "ISO 32000-2 §12.7.5.4: \"Each element of the Opt array contains either this text string by itself or a two-element array, whose second element is the text string and whose first element is a text string representing the export value that shall be used when exporting interactive form field data from the document.\" and \"(For items represented in the Opt array by a two-element array, the name string is the second of the two array elements.)\"",
+  "code": "crates/pdf-model/src/submission.rs:835 (chosen: the entry's value is field.value as read); :2084 (urlencoded) and :1206 (text_bytes); crates/pdf-model/src/form.rs:350 (Choice::export's doc claims the export)",
+  "change": "Map each selected label to its /Opt entry's export value (by /I where labels repeat) before a submission body is written, in every format.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_choice_is_submitted_by_its_export_value_not_its_label_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.2.3",
+   "12.7.5.2.4",
+   "12.7.6.2"
+  ],
+  "summary": "A check box or radio button whose field states Table 230's /Opt is submitted by its appearance-state name: /Opt [(Ja)] with /V /0 sends agree=0. writing.rs's xfa_change already maps a button's state to /Opt by the widget's index in /Kids for XFA data; the submission does not.",
+  "source": "ISO 32000-2 §12.7.5.2.3: \"If present, the Opt entry shall be an array of text strings representing the export value of each annotation in the field.\"; Table 230 /Opt: \"Each entry shall be a text string representing the on state of the corresponding widget annotation. When this entry is present, the names used to represent the on state in the AP dictionary of each annotation may use numerical position (starting with 0) of the annotation in the Kids array\"",
+  "code": "crates/pdf-model/src/submission.rs:1206 (text_bytes: a name's bytes are the value); compare crates/pdf-model/src/view/writing.rs:1753 (xfa_change)",
+  "change": "Export Opt[index of the widget that is on] where the field states /Opt, in every submission format; share the mapping with xfa_change.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_check_box_with_opt_is_submitted_by_its_export_value_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.2.3",
+   "12.7.5.2.4",
+   "12.7.5.2.1"
+  ],
+  "summary": "With RadiosInUnison clear and two buttons of a set sharing the on-state name, the view turns only the first on (an_earlier_button_answers_to), but the save's write_state writes /AS /Yes on every widget whose /AP /N holds the name. §12.7.5.2.3 makes /AS decide, so the reopened file shows both buttons on: a value written back that this reader reads differently.",
+  "source": "ISO 32000-2 §12.7.5.2.3: \"For radio buttons, the same behaviour shall occur only if the RadiosInUnison flag is set. If it is not set, at most one radio button in a field shall be set at a time.\" and \"If they are not equal, then the value of the AS key shall be used instead of the V key to determine which appearance to use.\"",
+  "code": "crates/pdf-model/src/view/writing.rs:1170 (Update::write_state); crates/pdf-model/src/appearance.rs:5779 (an_earlier_button_answers_to, which the save does not consult)",
+  "change": "Write /AS from the same reading the view draws (Field::is_on / replacement_state) rather than from the /AP key alone.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_saved_radio_set_keeps_at_most_one_button_on_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.2.4",
+   "12.7.5.2.1"
+  ],
+  "summary": "A host selects a radio button by sending its Widget::on_state to set_field, which takes a field name and a value and no widget. For the second of two same-named buttons with RadiosInUnison clear, the first goes on; no edit a host can send turns the second on alone. viewer_host::clicked promises 'the one that goes on is the one under the pointer'. The documented first-kid choice (radios_in_unison.rs) is sound for a file's own /V, which cannot name a widget, and not for a person's selection, which can.",
+  "source": "ISO 32000-2 §12.7.5.2.4: \"Typically, a set of radio buttons (annotations that are children of a single radio button field) have at most one button in the on state at any given time; selecting any of the buttons automatically deselects all the others.\"; §12.7.5.2.1: \"An interactive PDF processor shall follow the intended behaviour\"",
+  "code": "crates/pdf-model/src/view/fields.rs:254 (ViewState::set_field: every widget of the name takes one entry); crates/pdf-model/src/appearance.rs:5779; crates/viewer-host/src/form.rs:575 (clicked's promise)",
+  "change": "Let an edit name the widget a person selected (an Entered variant or a set_field argument), and have is_on/write_state keep that widget on; the first-kid rule stays for a value the file states.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::selecting_the_second_of_two_same_named_buttons_turns_it_on_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.4"
+  ],
+  "summary": "set_field takes Entered::Text for a choice field whose Edit flag is clear: a list box with /Opt [(a) (b)] takes 'zzz' as its /V (one widget applied). chosen() refuses a mismatched Entered::Chosen 'rather than reinterprets', and Entered's own doc limits Text to text fields, editable combo boxes and toggling buttons; the model does not hold a host to it.",
+  "source": "ISO 32000-2 Table 233 bit 19 Edit: \"If set, the combo box shall include an editable text box as well as a drop- down list; if clear, it shall include only a drop- down list.\"; §12.7.5.4: \"A choice field shall have a field type of Ch that contains several text items, one or more of which shall be selected as the field value.\"",
+  "code": "crates/pdf-model/src/view/fields.rs:254 (set_field: no field-type check for Entered::Text); crates/pdf-model/src/view.rs:663 (Entered::Text's documented domain)",
+  "change": "Refuse Entered::Text (0 widgets) for a choice field without Combo+Edit, as chosen() refuses Chosen for a non-choice.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::typed_text_is_not_a_value_of_a_choice_without_edit_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B06",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.2.2"
+  ],
+  "summary": "set_field takes Entered::Text for a push-button and the save writes it as the field's /V (/V (x) on a /Ff 65536 field).",
+  "source": "ISO 32000-2 §12.7.5.2.2: \"Because this type of retains no permanent value, it shall not use the V and DV entries in the field dictionary\"",
+  "code": "crates/pdf-model/src/view/fields.rs:254 (set_field); crates/pdf-model/src/view/writing.rs:97 (save writes /V for any edited widget)",
+  "change": "Refuse a value for a push-button (and for a signature field, whose /V §12.7.5.5 makes a signature dictionary) in set_field.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_push_button_takes_no_value_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B07",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.5.3"
+  ],
+  "summary": "Field::text_shape (and so comb_cells, TextControl::comb and the layout) treats Comb as valid when Multiline and Password are clear, without reading FileSelect: a Comb|FileSelect field with /MaxLen 5 is laid out and described as five cells. Both the function's and TextControl::comb's comments quote the three-flag condition.",
+  "source": "ISO 32000-2 Table 231 bit 25 Comb: \"(PDF 1.5) May be set only if the MaxLen entry is present in the text field dictionary (see \\\"Table 232 - Additional entry specific to a text field\\\") and if the Multiline, Password, and FileSelect flags are clear.\"",
+  "code": "crates/pdf-model/src/appearance.rs:5646 (Field::text_shape)",
+  "change": "Add FLAG_FILE_SELECT to the comb condition.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_file_select_field_is_not_a_comb_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-B08",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.7.4.2"
+  ],
+  "summary": "qualified_name drops the PERIOD after an empty parent name: a root field /T () with a child /T (a) is named 'a', the name of a top-level field beside it, so the two fields merge into one entry of widgets_by_field_name (one name, two widgets) and every by-name operation (set_field, submit, reset, import) reaches both. The function's own comment holds that a /T of zero length still names a field.",
+  "source": "ISO 32000-2 §12.7.4.2: \"For a field that is the child of another field, the fully qualified name shall be formed by appending the child field's partial name to the parent's fully qualified name, separated by a PERIOD (2Eh) as shown:\"",
+  "code": "crates/pdf-model/src/view/field_tree.rs:362 (qualified_name: `Some(prefix) if !prefix.is_empty()`)",
+  "change": "Join with the PERIOD whenever a prefix exists (Some(prefix)), and the same in any name builder that strips an empty prefix (xfdf.rs, forms_data).",
+  "execution": "FAIL (expected): crates/pdf-model/tests/forms_values_spec_audit.rs::a_child_of_a_field_named_by_an_empty_string_keeps_its_separator_spec_audit — round 2148, scratch log ~/scratch/agent/r2148/t1.log and the nextest log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2148-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "12.7.4.1",
+   "12.7.5.3",
+   "12.7.5.4"
+  ],
+  "summary": "inheritance.rs's READ_UP_THE_CHAIN doc named Table 229 for /MaxLen (it is Table 232) and Table 231 for /TI and /I (Table 234), and the module comment named Tables 226, 228, 229 and 230 as the ones marking entries inheritable (229 marks none; 232 marks /MaxLen).",
+  "source": "ISO 32000-2 Table 232 /MaxLen: \"(Optional; inheritable) The maximum length of the field's text, in characters.\"; Table 234 /TI and /I.",
+  "code": "crates/pdf-model/src/inheritance.rs:17, :36",
+  "change": "Name the tables the entries are in.",
+  "status": "fixed (round 2148, a one-line doc slip each)"
+ }
+]
