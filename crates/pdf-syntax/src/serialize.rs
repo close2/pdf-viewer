@@ -1934,7 +1934,7 @@ fn recompressed(
     tally: &mut Written,
 ) -> Option<Object> {
     if source.decryption_failed
-        || Document::is_external(source)
+        || document.is_external(source)
         || document.states_no_data(source)
         || source.data.is_empty()
     {

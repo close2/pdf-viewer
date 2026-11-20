@@ -166,7 +166,7 @@ impl Document {
     /// Applies §7.6.2 to one freshly parsed indirect object.
     pub(super) fn decrypt_object(&self, id: ObjectId, object: Object) -> Object {
         let Some(encryption) = self.encryption.as_ref() else {
-            return object;
+            return self.undecryptable_in_the_clear(object);
         };
         // "Any strings in an Encrypt dictionary" are exempt. The dictionary is reached
         // through the trailer, so its own object number is the whole of the exception.
@@ -174,6 +174,68 @@ impl Document {
             return object;
         }
         self.decrypt_value(encryption, id, object)
+    }
+
+    /// A stream of a document with no encryption dictionary whose `/Crypt` filter names a crypt
+    /// filter, marked `decryption_failed` as an encrypted document marks it (ADR 3283).
+    ///
+    /// §7.4.10, Table 14's `/Name`:
+    ///
+    /// > The name shall correspond to an entry in the CF entry of the encryption dictionary
+    ///
+    /// or one of Table 26's standard names. A document with no encryption dictionary has no `/CF`,
+    /// so every name but Table 26's `Identity` names a filter this document does not define —
+    /// the name an encrypted document lacking it refuses through `Encryption::named_method`
+    /// (ADR 3233). Passing the bytes through would hand a stream's ciphertext over as its data
+    /// (trap 5). A missing `/Name` is §7.6.6's Identity and passes, as it does there.
+    fn undecryptable_in_the_clear(&self, object: Object) -> Object {
+        let Object::Stream(stream) = &object else {
+            return object;
+        };
+        if !self.names_an_undefined_crypt_filter(&stream.dict) {
+            return object;
+        }
+        Object::Stream(Arc::new(Stream {
+            dict: stream.dict.clone(),
+            data: Arc::from(&[][..]),
+            decryption_failed: true,
+        }))
+    }
+
+    /// Whether `dict`'s chain has a `/Crypt` stage whose `/Name` is not Table 26's, read in a
+    /// document with no `/CF` to define it. See [`Self::undecryptable_in_the_clear`].
+    fn names_an_undefined_crypt_filter(&self, dict: &Dictionary) -> bool {
+        // Every stream of an unencrypted document passes here, so a `/Filter` that states no
+        // `/Crypt` where it stands is answered without resolving the chain.
+        let crypt = |object: &Object| {
+            object
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Crypt")
+        };
+        let may_name_crypt = match dict.get("Filter") {
+            None => false,
+            Some(Object::Array(items)) => items
+                .iter()
+                .any(|item| crypt(item) || matches!(item, Object::Reference(_))),
+            Some(Object::Reference(_)) => true,
+            Some(other) => crypt(other),
+        };
+        if !may_name_crypt {
+            return false;
+        }
+        // A chain Table 5 does not admit is refused by every decode by name (ADR 3274).
+        let Ok(chain) = self.stated_chain(dict) else {
+            return false;
+        };
+        chain
+            .iter()
+            .filter(|(name, _)| name == b"Crypt")
+            .filter_map(|(_, parms)| parms.as_ref())
+            .any(|parms| {
+                self.get_key(parms, "Name")
+                    .as_name()
+                    .is_some_and(|name| !crate::crypt::is_standard_filter_name(name))
+            })
     }
 
     /// Decrypts every string and stream inside one indirect object.

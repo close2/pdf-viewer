@@ -695,8 +695,11 @@ pub fn decode_reported(
         b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex(data)),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
-        // Not a compression filter: it declares that the stream is encrypted, which is
-        // handled elsewhere. Passing the data through unchanged is correct.
+        // Not a compression filter: it names the crypt filter the stream is encrypted under,
+        // and §7.6's decryption ran over the raw bytes when the object was read, before the
+        // first stage wherever `/Crypt` stands in the chain. A name nothing defines left the
+        // stream `decryption_failed` there, encrypted document or not (ADR 3283), so what
+        // reaches this stage is plaintext and passes through.
         b"Crypt" => Ok(Decoded::whole(data)),
         _ => Err(FilterRefusal::Unsupported),
     }
@@ -1587,6 +1590,9 @@ struct AsciiHex {
     /// §7.4.2's EOD has been read, or the input ran out; what may be left is the odd digit's
     /// zero.
     ended: bool,
+    /// The input ran out before the EOD marker, which [`ascii_hex`] reports as
+    /// [`Damage::Truncated`] (ADR 3281).
+    cut: bool,
     /// A character outside the alphabet has been met, which [`ascii_hex`] makes the decode's
     /// [`Damage::ForeignCharacter`] once it reaches the end.
     foreign: bool,
@@ -1610,6 +1616,9 @@ struct Ascii85 {
     spill_at: usize,
     /// The EOD marker has been read, or the input ran out.
     ended: bool,
+    /// The input ran out before the EOD marker, which [`ascii85`] reports as
+    /// [`Damage::Truncated`] (ADR 3281).
+    cut: bool,
 }
 
 /// Where a `RunLengthDecode` stands between bytes, ISO 32000-2 §7.4.5.
@@ -2487,11 +2496,13 @@ impl AsciiHex {
         let mut wrote = 0usize;
         while !self.ended && wrote < out.len() {
             let Some(&byte) = input.get(took) else {
-                // No EOD marker in what there is. If there will be no more, §7.4.2's odd-digit
-                // rule is all that is left to apply — which is what [`ascii_hex`] does when it
-                // falls off the end of its buffer, and it calls that whole rather than damaged.
+                // No EOD marker in what there is. If there will be no more, the data was cut,
+                // and [`ascii_hex`]'s reading of that holds here: truncated, and an odd digit
+                // left unpadded, since §7.4.2 pads only at the marker.
                 if last {
                     self.ended = true;
+                    self.cut = true;
+                    self.pending = None;
                 }
                 break;
             };
@@ -2549,7 +2560,9 @@ impl AsciiHex {
             wrote,
             // Every byte is handed over before the error is, as [`Inflate`] hands over a stream
             // whose check value disagrees.
-            state: if self.foreign {
+            state: if self.cut {
+                Standing::Damaged(Damage::Truncated)
+            } else if self.foreign {
                 Standing::Damaged(Damage::ForeignCharacter)
             } else {
                 Standing::Ended
@@ -2637,7 +2650,11 @@ impl Ascii85 {
                 return Turned {
                     took,
                     wrote,
-                    state: Standing::Ended,
+                    state: if self.cut {
+                        Standing::Damaged(Damage::Truncated)
+                    } else {
+                        Standing::Ended
+                    },
                 };
             }
             if wrote >= out.len() {
@@ -2647,13 +2664,10 @@ impl Ascii85 {
                 if !last {
                     return more(took, wrote);
                 }
-                // The bytes ran out before the EOD marker. [`ascii85`] flushes the partial
-                // group and calls that whole, because §7.4.3 makes a partial final group the
-                // encoding rather than damage — unless the group is one of the two the same
-                // clause says shall never occur, which is `close`'s `false`.
-                if !self.close() {
-                    return corrupt(took, wrote);
-                }
+                // The bytes ran out before the EOD marker: [`ascii85`]'s truncation, and the
+                // partial group left out with it, since §7.4.3 makes one the encoding only
+                // where the marker follows it.
+                self.end_short();
                 continue;
             };
             took = took.saturating_add(1);
@@ -2667,7 +2681,10 @@ impl Ascii85 {
                     Marker::Undecided => {
                         return more(took.saturating_sub(1), wrote);
                     }
-                    Marker::Truncated => {}
+                    Marker::Truncated => {
+                        self.end_short();
+                        continue;
+                    }
                 }
                 if !self.close() {
                     return corrupt(took, wrote);
@@ -2701,6 +2718,14 @@ impl Ascii85 {
                 }
             }
         }
+    }
+
+    /// Ends a stream the input cut before its EOD marker, without the partial group: see
+    /// [`ascii85`].
+    fn end_short(&mut self) {
+        self.ended = true;
+        self.cut = true;
+        self.count = 0;
     }
 
     /// Ends the stream, flushing §7.4.3's partial final group.
@@ -2956,9 +2981,11 @@ fn ascii_hex(data: &[u8]) -> Decoded {
     let mut out = Vec::new();
     let mut pending: Option<u8> = None;
     let mut foreign = false;
+    let mut reached_eod = false;
 
     for &byte in data {
         if byte == b'>' {
+            reached_eod = true;
             break;
         }
         let value = match byte {
@@ -2977,7 +3004,15 @@ fn ascii_hex(data: &[u8]) -> Decoded {
             None => pending = Some(value),
         }
     }
-    // An odd final digit is treated as if followed by zero, per the specification.
+    if !reached_eod {
+        // The data ended before §7.4.2's EOD marker, which is [`Damage::Truncated`] as it is
+        // for every other filter with a marker (ADR 3281). The odd-digit rule is stated "[i]f
+        // the filter encounters the EOD marker", so a digit left without its pair here is the
+        // half of a byte the cut took, and it is not padded into one.
+        return Decoded::damaged(out, Damage::Truncated);
+    }
+    // "If the filter encounters the EOD marker after reading an odd number of hexadecimal
+    // digits, it shall behave as if a 0 (zero) followed the last digit."
     if let Some(high) = pending {
         out.push(high.saturating_mul(16));
     }
@@ -3019,6 +3054,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     let mut out = Vec::new();
     let mut group = [0u8; 5];
     let mut count = 0usize;
+    let mut reached_eod = false;
 
     // An optional `<~` introduces the data.
     let body = if data.starts_with(b"<~") {
@@ -3046,7 +3082,11 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             // §7.4.3's EOD marker is "the 2-character sequence ~>": a `~` followed by any
             // other byte is an error (pdf-issues #293), and one the data ends on is truncation.
             match body.get(at.saturating_add(1)) {
-                Some(b'>') | None => break,
+                Some(b'>') => {
+                    reached_eod = true;
+                    break;
+                }
+                None => break,
                 Some(_) => return Err(FilterRefusal::Corrupt),
             }
         }
@@ -3070,6 +3110,20 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             }
             count = 0;
         }
+    }
+
+    if !reached_eod {
+        if out.len() > limits.max_stream_len {
+            return Err(FilterRefusal::TooLarge {
+                limit: limits.max_stream_len,
+            });
+        }
+        // The data ended before §7.4.3's EOD marker: [`Damage::Truncated`], as for every other
+        // filter with a marker (ADR 3281). A partial group is the encoding of a last *n* bytes
+        // only where the EOD marker immediately follows it, which is the clause's last sentence
+        // on partial groups; without the marker it is a group the cut ended, its padded value
+        // names bytes the file never stated, and it is left out rather than guessed.
+        return Ok(Decoded::damaged(out, Damage::Truncated));
     }
 
     // "A final partial group contains only one character" — the third of the clause's

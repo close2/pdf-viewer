@@ -6757,7 +6757,7 @@ fn external_nondefault_decode_parameters_reach_the_embedded_stream_decoder() {
     let stream = object
         .as_stream()
         .expect("object 6 remains the Form XObject stream");
-    assert!(!Document::is_external(stream), "F is removed");
+    assert!(!document.is_external(stream), "F is removed");
     assert!(stream.dict.get("FFilter").is_none());
     assert!(stream.dict.get("FDecodeParms").is_none());
     assert!(

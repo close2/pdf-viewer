@@ -705,8 +705,13 @@ mod tests {
             }
         };
 
-        assert!(Document::is_external(&external(true)));
-        assert!(!Document::is_external(&external(false)));
+        let body = b"%PDF-1.7\n\
+                     1 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
+                     2 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+                     trailer\n<< /Root 2 0 R >>\n";
+        let document = Document::open(body.to_vec()).expect("the file is openable");
+        assert!(document.is_external(&external(true)));
+        assert!(!document.is_external(&external(false)));
     }
 
     /// §7.6.2's signature exception, on the predicate that decides it.

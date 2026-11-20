@@ -1,7 +1,6 @@
 //! A stream's rewrite: its dictionary, its filter chain and its data.
 use std::collections::BTreeMap;
 
-use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
 
@@ -435,7 +434,7 @@ impl Rewriter<'_> {
         {
             return None;
         }
-        if Document::is_external(stream) || stream.decryption_failed {
+        if self.document.is_external(stream) || stream.decryption_failed {
             return None;
         }
         let names = filter_names(dict)?;

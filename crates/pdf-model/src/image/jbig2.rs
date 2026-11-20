@@ -70,7 +70,10 @@ pub(super) fn jbig2_bilevel(
 ) -> Result<pdf_sandbox::Bilevel, ImageError> {
     // A globals stream that will not decode is reported rather than skipped: without its
     // symbol dictionary the page would decode to blank or to nothing, and "the image is
-    // empty" is a far worse answer than "the image needs a stream I could not read".
+    // empty" is a far worse answer than "the image needs a stream I could not read". An entry
+    // of another type than Table 12's `stream` is the same loss, and is reported the same way
+    // (ADR 3284); a null or an undefined object's reference is §7.3.9's absent entry, and the
+    // image is decoded with no global segments, as for no entry at all.
     let globals = match source
         .parms
         .as_ref()
@@ -81,7 +84,15 @@ pub(super) fn jbig2_bilevel(
                 detail: "/JBIG2Globals did not decode".to_owned(),
             },
         )?),
-        _ => None,
+        None | Some(Object::Null) => None,
+        Some(other) => {
+            return Err(ImageError::Malformed {
+                detail: format!(
+                    "/JBIG2Globals is {}, where Table 12 states a stream",
+                    other.type_name()
+                ),
+            });
+        }
     };
 
     let decoded = pdf_sandbox::decode(&Request::Jbig2 {
@@ -107,4 +118,44 @@ pub(super) fn jbig2_bilevel(
         });
     }
     Ok(bilevel)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use pdf_syntax::{Dictionary, Document, ImageStream, Name, Object, ObjectId};
+
+    use super::{ImageError, jbig2_bilevel};
+
+    /// 2142-D03. Table 12 gives `/JBIG2Globals` the type `stream`, and an entry of another type
+    /// carries none of the global segments the image's own segments refer to; it is reported by
+    /// name, as a globals stream that will not decode is, rather than skipped (ADR 3284).
+    #[test]
+    fn a_globals_entry_that_is_not_a_stream_is_reported() {
+        let body = b"%PDF-1.7\n\
+                     1 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
+                     2 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+                     3 0 obj\n<< /Segments 0 >>\nendobj\n\
+                     trailer\n<< /Root 2 0 R >>\n";
+        let document = Document::open(body.to_vec()).expect("the file is openable");
+        let mut parms = Dictionary::new();
+        parms.insert(
+            Name::new(b"JBIG2Globals".to_vec()),
+            Object::Reference(ObjectId::new(3, 0)),
+        );
+        let source = ImageStream {
+            codec: Some(b"JBIG2Decode".to_vec()),
+            parms: Some(parms),
+            data: Arc::from(&[][..]),
+        };
+        let answer = jbig2_bilevel(&document, &source, (1, 1));
+        assert!(
+            matches!(
+                &answer,
+                Err(ImageError::Malformed { detail }) if detail.contains("Table 12 states a stream")
+            ),
+            "a dictionary under /JBIG2Globals was not reported: {answer:?}"
+        );
+    }
 }

@@ -30,7 +30,7 @@ impl Document {
         if stream.decryption_failed {
             return Err(StreamRefusal::DecryptionFailed);
         }
-        if Self::is_external(stream) {
+        if self.is_external(stream) {
             return Err(StreamRefusal::External);
         }
         let Some(Pumpable { pumping, chain }) = self.pumping(stream) else {

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::{Document, ImageStream};
-use crate::object::{Dictionary, Stream};
+use crate::object::{Dictionary, Object, Stream};
 
 impl Document {
     /// Returns a stream's data with every filter applied up to a trailing image codec.
@@ -28,7 +28,7 @@ impl Document {
     /// [`Self::decoded_stream_data`] does.
     #[must_use]
     pub fn image_stream(&self, stream: &Stream) -> Option<ImageStream> {
-        if stream.decryption_failed || Self::is_external(stream) {
+        if stream.decryption_failed || self.is_external(stream) {
             return None;
         }
         // A chain Table 5 does not admit is refused here as `decoded_under` refuses it (ADR 3274).
@@ -101,11 +101,25 @@ impl Document {
     ///
     /// Not one of the 974 corpus documents writes one, measured rather than assumed — which
     /// is why this is a rule that only reading §7.3.8 could have found.
+    ///
+    /// **Present means present after §7.3.9's null rule** (ADR 3282). Table 5 conditions on
+    /// whether `/F` "is present", and a null value or a reference to an undefined object is
+    /// not:
+    ///
+    /// > Specifying the null object as the value of a dictionary entry (7.3.7, "Dictionary
+    /// > objects") shall be equivalent to omitting the entry entirely.
+    ///
+    /// with §7.3.10 making an undefined object's reference "a reference to the null object".
+    /// So the entry is resolved, and only a reference is: a direct value is its own answer, and
+    /// resolving a direct file specification dictionary would copy it on every decode.
     #[must_use]
-    pub fn is_external(stream: &Stream) -> bool {
-        // A direct lookup, not `get_key`: `/F` is a file specification, which may be a
-        // string or a dictionary, and its *presence* is what Table 5 conditions on. An
-        // indirect one is a reference, which is equally present.
-        stream.dict.get("F").is_some()
+    pub fn is_external(&self, stream: &Stream) -> bool {
+        match stream.dict.get("F") {
+            None | Some(Object::Null) => false,
+            Some(reference @ Object::Reference(_)) => {
+                !matches!(self.resolve(reference), Object::Null)
+            }
+            Some(_) => true,
+        }
     }
 }

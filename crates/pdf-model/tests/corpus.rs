@@ -343,11 +343,11 @@ const FOUND_BY_SCANNING: [&str; 5] = [
 /// opened, and a change to the list is a change with its reason beside the name.
 ///
 /// The groups follow [`whose_defect`]'s partition — the mechanism that decides each document is
-/// the most-owed one it carries — and the sentence beside a group is the clause it rests on. Of the
-/// sixty-five, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
-/// 1413 and 1414 set its Arabic joined and right to left in a face from the machine; four are no
-/// route the standard states; sixty-one are the file's (ADR 1401, ADR 1411).
-const INCOMPLETE: [&str; 65] = [
+/// the most-owed one it carries — and the sentence beside a group is the clause it rests on. None
+/// is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs 1413 and 1414 set
+/// its Arabic joined and right to left in a face from the machine; four are no route the standard
+/// states; the rest are the file's (ADR 1401, ADR 1411).
+const INCOMPLETE: [&str; 67] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -429,6 +429,11 @@ const INCOMPLETE: [&str; 65] = [
     "issue13316_reduced.pdf",
     // `/DescendantFonts [ null ]` (§9.7.6.1).
     "issue12823.pdf",
+    // ── The file's: an appearance stream whose filter reports damage (§7.4.1). The widget's `/N`
+    // is `/A85` data `03!0=6;` with no `~>`, which §7.4.3 makes the end-of-data marker, so the
+    // decode is reported cut: the whole group is drawn and the partial group the cut left is not
+    // (ADR 3281). The file's other `/A85` streams omit the marker too.
+    "PDFBOX-3148-2-fuzzed.pdf",
     // ── The file's: an image the dictionary and the data do not agree on.
     // A 1×1 JPEG frame under a 200×100 dictionary (§7.4.8).
     "xobject-image.pdf",
@@ -473,6 +478,11 @@ const INCOMPLETE: [&str; 65] = [
     "issue6108.pdf",
     "issue2391-2.pdf",
     "issue18099_reduced.pdf",
+    // ── The file's: the same row makes `/FontDescriptor` "Required; optional in PDF 1.0-1.7 for
+    // the standard 14 fonts", and the font this page draws is outside the fourteen and spells the
+    // key `/GontDescriptor`. Its substitute is chosen by `/BaseFont` and `/Encoding` alone, and
+    // the page says so (ADR 3119).
+    "issue17929.pdf",
     // ── Neither one: §9.6.5.4's last sentence, "a PDF processor may supply a mapping of its
     // choosing", over a code no route maps. Code 0 through `MacRomanEncoding`, which names
     // nothing there, into a (1, 0) subtable holding code 165 alone; this reader's choice is no

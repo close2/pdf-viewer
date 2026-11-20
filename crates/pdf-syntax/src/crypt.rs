@@ -1382,7 +1382,7 @@ fn crypt_filters(
 /// Every reader of a crypt filter name asks this one question, so that a `/CF` entry under the
 /// name is ignored wherever a name is read — the key length, the default filters, a stream's
 /// `/Crypt` entry and the public-key handler's recipient lists alike.
-fn is_standard_filter_name(name: &Name) -> bool {
+pub(crate) fn is_standard_filter_name(name: &Name) -> bool {
     name.as_bytes() == b"Identity"
 }
 

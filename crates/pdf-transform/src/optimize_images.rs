@@ -303,7 +303,7 @@ fn samples_of(document: &Document, stream: &Stream) -> Option<(Vec<u8>, DctCompo
         return None;
     }
     let components = components_of(document, &resolved("ColorSpace")?)?;
-    if stream.decryption_failed || Document::is_external(stream) || stream.data.is_empty() {
+    if stream.decryption_failed || document.is_external(stream) || stream.data.is_empty() {
         return None;
     }
     let decoded = lossless_chain(document, dict, &stream.data)?;

@@ -73,7 +73,7 @@ impl Document {
         if stream.decryption_failed {
             return Err(StreamRefusal::DecryptionFailed);
         }
-        if Self::is_external(stream) {
+        if self.is_external(stream) {
             return Err(StreamRefusal::External);
         }
         if chain.is_empty() || self.states_no_data(stream) {

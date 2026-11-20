@@ -26,7 +26,7 @@
   "code": "crates/pdf-syntax/src/filter.rs:2826 (ascii_hex), :2889 (ascii85), :2356 (AsciiHex::turn, whose comment states the choice), Ascii85::turn",
   "change": "Report Damage::Truncated when the data ends before the marker, in the whole and windowed routes alike.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::ascii_data_without_its_eod_marker_is_reported_short_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3281; ascii_hex, ascii85 and their windowed stages report Damage::Truncated for data that ends before the marker, with no odd digit padded and no partial group flushed)"
  },
  {
   "id": "2142-B03",
@@ -84,7 +84,7 @@
   "code": "crates/pdf-syntax/src/document/images.rs:108 (is_external: stream.dict.get(\"F\").is_some(), comment 'equally present')",
   "change": "Resolve /F and treat null as absent; is_external then needs the document.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::an_external_file_entry_that_is_null_is_absent_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3282; Document::is_external takes the document and reads a null /F, direct or by a reference to an undefined object, as absent)"
  },
  {
   "id": "2142-B07",
@@ -98,7 +98,7 @@
   "code": "crates/pdf-syntax/src/filter.rs:579 (decode_reported's Crypt arm); crates/pdf-syntax/src/document/encryption.rs:386 is asked only of an encrypted document",
   "change": "Refuse a Crypt stage whose /Name is neither Identity nor a filter the document's encryption dictionary defines.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/filters_spec_audit.rs::a_crypt_filter_naming_no_defined_filter_is_not_a_pass_through_spec_audit — round 2142, scratch log ~/scratch/agent/r2142/nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3283; in a document with no encryption dictionary a /Crypt /Name other than Identity marks the stream decryption_failed when it is read)"
  },
  {
   "id": "2142-D01",
@@ -123,7 +123,7 @@
   "source": "ISO 32000-2 §7.4.10: \"The Crypt filter shall be the first filter in the Filter array entry.\"",
   "code": "doc/conformance/ledger.toml row 7.4.10; crates/pdf-syntax/src/document/encryption.rs:386",
   "change": "Say that a misplaced /Crypt is decrypted first regardless, and that this is a choice.",
-  "status": "open"
+  "status": "fixed (ADR 3283; ledger 7.4.10 states that a misplaced /Crypt is decrypted first regardless, as a choice)"
  },
  {
   "id": "2142-D03",
@@ -135,6 +135,6 @@
   "source": "ISO 32000-2 Table 12 /JBIG2Globals (stream): \"A stream containing the JBIG2 global (page 0) segments.\"",
   "code": "crates/pdf-model/src/image/jbig2.rs:71-84",
   "change": "Name the case in the comment, or report it.",
-  "status": "open"
+  "status": "fixed (ADR 3284; jbig2_bilevel reports a /JBIG2Globals of another type than stream; a null one is absent)"
  }
 ]
