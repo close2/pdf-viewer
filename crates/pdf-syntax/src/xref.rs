@@ -1613,17 +1613,6 @@ fn read_xref_stream(
     // rather than once per entry. `RecordLayout` says what that was costing.
     let layout = RecordLayout::of(&widths);
 
-    // The in-use records are counted before anything is held, so that a stream past the budget
-    // is refused having cost its decode and no more (ADR 3257). The count is also the capacity:
-    // one allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries,
-    // worth 0.4% of `Document::open` on ISO 32000-2, and one more slot for the free run each
-    // in-use entry may follow costs nothing on a file whose free entries are object 0 alone.
-    let in_use = in_use_records(&data, row, &layout, &index);
-    if in_use > budget {
-        return Some(StreamRead::PastBudget);
-    }
-    let mut entries = Statements::with_capacity(in_use);
-    let mut cursor = 0usize;
     // §7.5.8's own arithmetic for how long this stream is, which Table 17 states of `/W`: "[t]he
     // sum of the items shall be the total length of each entry; it can be used with the Index
     // array to determine the starting position of each subsection." That plus §7.3.8.2's rule
@@ -1637,6 +1626,30 @@ fn read_xref_stream(
         .sum();
     let carried = u64::try_from(data.len().checked_div(row).unwrap_or(0)).unwrap_or(u64::MAX);
     let lost = stated.saturating_sub(carried);
+
+    // A stream past the budget is refused having cost its decode and no more (ADR 3257), so its
+    // in-use records are counted from their type bytes before anything is held. **Only a stream
+    // that could be past it is counted** (ADR 3305): no record is read beyond the `/Index` total or
+    // the data's end, so where the fewer of those two is within the budget, no stream's in-use
+    // entries can pass it, and that number is the capacity instead. Counting is one more pass over
+    // every record — 2.4 M instructions of the 56.4 M that open ISO 32000-2's sponsored edition,
+    // 4.2 % — for an answer every file within the budget already has. Either way it is one
+    // allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries, worth
+    // 0.4 % of `Document::open` on ISO 32000-2; a stream's free records are reserved for and never
+    // written, which costs address space, at most 24 bytes a record within the budget, and no
+    // resident memory.
+    let readable = usize::try_from(stated.min(carried)).unwrap_or(usize::MAX);
+    let capacity = if readable <= budget {
+        readable
+    } else {
+        let in_use = in_use_records(&data, row, &layout, &index);
+        if in_use > budget {
+            return Some(StreamRead::PastBudget);
+        }
+        in_use
+    };
+    let mut entries = Statements::with_capacity(capacity);
+    let mut cursor = 0usize;
 
     for (pair_index, pair) in index.chunks(2).enumerate() {
         let (Some(&first), Some(&count)) = (pair.first(), pair.get(1)) else {
@@ -1910,13 +1923,10 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
     // resolved — an indirect value here is not the name or dictionary Table 5 needs, and the
     // chain is read by the same rule every other stream's is (ADR 3274), a malformed one
     // refused rather than decoded in part.
-    let filter = stream.dict.get("Filter").cloned().unwrap_or(Object::Null);
-    let parms = stream
-        .dict
-        .get("DecodeParms")
-        .cloned()
-        .unwrap_or(Object::Null);
-    let chain = crate::document::chain_of(&filter, &parms, Object::clone).ok()?;
+    // Borrowed, not cloned: `chain_of` copies the one parameter dictionary it hands a stage.
+    let filter = stream.dict.get("Filter").unwrap_or(&Object::Null);
+    let parms = stream.dict.get("DecodeParms").unwrap_or(&Object::Null);
+    let chain = crate::document::chain_of(filter, parms, Object::clone).ok()?;
 
     let mut data = std::sync::Arc::clone(&stream.data);
     for (filter, parms) in &chain {

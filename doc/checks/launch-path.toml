@@ -512,11 +512,12 @@ peak_anon_mib = 15.5 .. 20.5
 open_anon_mib = 3.0 .. 4.5
 read_kib = 99 .. 105
 read_calls = 25 .. 29
-# What this program's own object executes (ADR 2666): 55619.4 thousand in four children of HEAD built
-# by Rust 1.100.0 on 2026-11-17, this file's rule — the observed range widened by one per cent, rounded
-# outwards. The compiler moved it, not this tree: LLVM 23's code for zlib-rs's `inflate_fast_help_avx2`,
-# and 6% more in the closure that reads each cross-reference stream entry (ADR 2915, ADR 2950).
-open_kinstructions = 55063 .. 56176
+# What this program's own object executes (ADR 2666): 54067.8 thousand in two children of this tree
+# built by Rust 1.100.0 on 2026-11-20, this file's rule — the observed range widened by one per cent,
+# rounded outwards. LLVM 23's code for zlib-rs's `inflate_fast_help_avx2` and for the closure that reads
+# each cross-reference stream entry sets its level (ADR 2915, ADR 2950); a stream that cannot pass
+# `MAX_XREF_ENTRIES` is read without counting its in-use records first, 2.36 million less (ADR 3305).
+open_kinstructions = 53527 .. 54609
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
 # less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 159060.5 to
@@ -526,7 +527,9 @@ open_kinstructions = 55063 .. 56176
 # Moved for ADR 3285: 169113.2 thousand (ADR 3262, §14.9.4's walk to the structure root) to
 # 128057.8, page one drawn without asking its structure elements for §14.9's statements, which its
 # readback asks for when it is first wanted — this file's rule around the second figure.
-frame_kinstructions = 126777 .. 129339
+# Moved for ADR 3305: 128057.8 to 125705.2, the open's count of a cross-reference stream's in-use
+# records above — this file's rule around the second figure.
+frame_kinstructions = 124448 .. 126963
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]

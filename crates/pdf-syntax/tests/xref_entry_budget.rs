@@ -235,3 +235,50 @@ fn a_file_past_the_entry_budget_is_refused_by_name() {
         other => panic!("expected the entry budget's refusal, got {other:?}"),
     }
 }
+
+/// The budget is of entries in use, not of records: a stream carrying more records than
+/// `MAX_XREF_ENTRIES` is counted from its type bytes before anything is held, and read when the
+/// count is within the budget (ADR 3257, ADR 3305). Three objects are in use and every other
+/// number up to one past the budget is free, which §7.5.4 lets a file state; the file opens and
+/// its three objects are where their entries say.
+#[test]
+fn a_stream_of_more_records_than_the_budget_whose_entries_are_free_is_read() {
+    const PAST_THE_BUDGET: usize = (1 << 23) + 1;
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let page = append_page(&mut out);
+    let mut rows = Vec::with_capacity(PAST_THE_BUDGET.saturating_mul(6));
+    record(0, 0, &mut rows);
+    for offset in page {
+        record(1, offset, &mut rows);
+    }
+    for _ in 4..PAST_THE_BUDGET {
+        record(0, 0, &mut rows);
+    }
+    let data = flate_encode(&rows, 9).expect("deflate");
+    drop(rows);
+    let at = out.len();
+    out.extend_from_slice(
+        format!(
+            "4 0 obj\n<< /Type /XRef /Size {PAST_THE_BUDGET} /W [1 4 1] /Root 1 0 R /Filter /FlateDecode /Length {} >>\nstream\n",
+            data.len()
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(&data);
+    out.extend_from_slice(b"\nendstream\nendobj\n");
+    finish(&mut out, at);
+
+    let document = Document::open(out).expect("a stream within the budget of entries in use opens");
+    assert_eq!(document.xref().len(), 3, "objects 1 to 3 are in use");
+    for (number, offset) in (1..=3).zip(page) {
+        assert_eq!(
+            document.xref().location(number),
+            Some(Location::Offset(offset)),
+            "object {number} is where its entry says"
+        );
+    }
+    assert!(
+        document.catalog().is_ok(),
+        "the catalog its trailer names is read"
+    );
+}

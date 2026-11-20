@@ -372,9 +372,11 @@ pub(crate) fn chain_of(
             .collect::<Result<_, _>>()?,
         _ => return Err(MalformedChain::Parms),
     };
+    // Each dictionary is moved to its stage rather than cloned a second time: this runs for every
+    // stream a document decodes, `Document::open`'s cross-reference streams among them (ADR 3305).
+    let mut parms = parms.into_iter();
     Ok(filters
         .into_iter()
-        .enumerate()
-        .map(|(index, filter)| (filter, parms.get(index).cloned().flatten()))
+        .map(|filter| (filter, parms.next().flatten()))
         .collect())
 }
