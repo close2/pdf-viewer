@@ -412,7 +412,8 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///   flattened there.
 /// - **A width under one level of a pixel**, a thin segment's apart: §10.7.4's substitutions draw
 ///   it, through `tiny-skia`'s hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR
-///   1102). A fill's own
+///   1102). So is §8.4.3.2's thinnest line under unequal scales, which is that hairline whatever
+///   its width in the path's space (ADR 3365). A fill's own
 ///   substitutions — §10.7.4's sub-pixel bands and the marks of a collapsed subpath — are shapes
 ///   drawn by the same `scan::fill` and so by [`area`].
 ///
@@ -496,6 +497,11 @@ fn converted_row_by_row(
             }
             let width = stroke.stroke.device_width(stroke.at);
             if pdf_render::unmeasurable_width(stroke.at).is_none_or(|floor| width <= floor) {
+                return false;
+            }
+            // The thinnest line under unequal scales is `tiny-skia`'s hairline, which never reaches
+            // `area` whatever its width in the path's space (ADRs 3333 and 3365).
+            if stroke.stroke.strokes_in_device_space(stroke.at) {
                 return false;
             }
             (stroke.replaces, stroke.extent)

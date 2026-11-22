@@ -613,3 +613,87 @@ fn a_page_of_a_few_large_fills_is_cut_between_them_rather_than_not_at_all() {
         "{moved} of {pixels} pixels differ by up to {worst}, the first at {first:?}"
     );
 }
+
+/// Rules stated `0 w` under a page matrix that scales its two axes unequally and puts them at no
+/// dyadic offset — `bug1743245.pdf`'s, whose rules §10.7.5 promotes to the thinnest line: 36
+/// across and 27 down the upper half of a page twice its height, every sixth one dashed, and short
+/// rules a row at a time over the whole page, so that the planner has rows worth cutting at
+/// either side of the hairlines.
+fn rules_under_unequal_scales() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(445.0, 1200.0));
+    let page = Transform::new(0.316_954_7, 0.0, 0.0, -0.317_35, 0.0, 1200.0);
+    let across = (0..36_u8).map(|rule| {
+        let y = 0.500_267 + 52.027_78 * f32::from(rule);
+        (rule, [(0.0, y), (1404.0, y)])
+    });
+    let down = (0..27_u8).map(|rule| {
+        let x = 0.500_143 + 51.963 * f32::from(rule);
+        (rule, [(x, 0.0), (x, 1874.0)])
+    });
+    for (rule, ends) in across.chain(down) {
+        let pen = Stroke {
+            width: 0.0,
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            dash_array: if rule % 6 == 4 {
+                vec![7.3, 3.1]
+            } else {
+                Vec::new()
+            },
+            ..Stroke::default()
+        };
+        let mut command = polyline(&ends, false, pen);
+        if let Command::Stroke { transform, .. } = &mut command {
+            *transform = page;
+        }
+        list.push(command);
+    }
+    for row in 0..120_u8 {
+        for column in 0..20_u8 {
+            let (x, y) = (
+                10.25 + 21.5 * f32::from(column),
+                5.5 + 9.75 * f32::from(row),
+            );
+            list.push(polyline(&[(x, y), (x + 6.5, y)], false, square_pen(1.5)));
+        }
+    }
+    list
+}
+
+/// §8.4.3.2's thinnest line under unequal scales is the library's hairline (ADR 3333), which is not
+/// drawn a row at a time, so it keeps its rows: a cut through `tiny-skia`'s hairline moves the
+/// line, which on `bug1743245.pdf` was fourteen thousand pixels by up to four levels. Every division
+/// draws the page byte for byte, and the page is still cut where no hairline lies (ADR 3365).
+#[test]
+fn the_thinnest_line_under_unequal_scales_keeps_its_rows() {
+    let list = rules_under_unequal_scales();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("a valid target");
+    let backend = CpuRasterizer::new().with_strips(16);
+    let asked = std::cell::Cell::new(0_u32);
+    let _ = pdf_render::unsplittable_rows_where(&list, target, &|mark| {
+        let answer = backend.draws_row_by_row(mark, target);
+        if let pdf_render::PlannedMark::Stroke(stroke) = mark
+            && stroke.stroke.width == 0.0
+        {
+            asked.set(asked.get() + 1);
+            assert!(
+                stroke.stroke.strokes_in_device_space(stroke.at),
+                "the premise: each rule is the thinnest line under unequal scales"
+            );
+            assert!(!answer, "a hairline is said to be drawn a row at a time");
+        }
+        answer
+    });
+    assert_eq!(asked.get(), 63, "every rule was asked");
+    let plan = backend.strip_plan(&list, target);
+    assert!(plan.len() > 2, "the page is not cut at all: {plan:?}");
+    let whole = drawn(&list, target, 1);
+    for strips in [2_u32, 3, 5, 8, 16] {
+        let (moved, worst, first) = difference(&whole, &drawn(&list, target, strips), target.width);
+        assert_eq!(
+            moved, 0,
+            "the rules at {strips} strips: {moved} pixels differ by up to {worst}, the first at \
+             {first:?}"
+        );
+    }
+}
