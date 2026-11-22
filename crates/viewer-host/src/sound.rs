@@ -433,6 +433,9 @@ impl Thread {
             }
             // A rendition's clip: the worker reads the file's header too (ADR 3349).
             Recording::Wave(file) => self.media.decode_wave(file, MAX_PLAYED_SAMPLES),
+            // An MP4 clip's AAC: the worker walks the file's boxes and decodes its stream, and this
+            // side cuts the file where it is told (ADR 3381).
+            Recording::Mp4(file) => self.media.decode_mp4(file, MAX_PLAYED_SAMPLES),
         }
         .map_err(|error| error.to_string())?;
         if self.sink.is_none() {
@@ -454,6 +457,7 @@ impl Thread {
         let clause = match played.sound.recording {
             Recording::Samples { .. } => "§13.3",
             Recording::Wave(_) => "§13.2.4.2, a RIFF WAVE clip",
+            Recording::Mp4(_) => "§13.2.4.2, an MP4 clip's AAC",
         };
         let mut said = format!(
             "{} is playing: {} Hz, {} channel(s), converted for the device's {} Hz, {} channel(s) \

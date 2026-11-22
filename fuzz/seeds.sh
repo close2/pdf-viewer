@@ -164,6 +164,15 @@ seed() {
     media_sound) python3 "$here/seed_media_sound.py" "$root/$t" > /dev/null ;;
     # An MP4 file's sound track in each table form 14496-12 gives, built rather than fetched.
     media_mp4) python3 "$here/seed_media_mp4.py" "$root/$t" > /dev/null ;;
+    # An MP4 clip whose AAC the worker decodes: the built files above, and ISO/IEC 14496-26's own
+    # streams where `PDF_MEDIA_MP4_STREAMS` names them, since a fuzzer does not invent AAC that
+    # decodes past its first element. The streams are fetched and never committed.
+    media_aac)
+        python3 "$here/seed_media_mp4.py" "$root/$t" > /dev/null
+        if [ -n "${PDF_MEDIA_MP4_STREAMS:-}" ]; then
+            python3 "$here/seed_media_aac.py" "$PDF_MEDIA_MP4_STREAMS" "$root/$t" > /dev/null
+        fi
+        ;;
     # The script worker's wire both ways, written by the encoders the host and the worker use.
     script_wire)
         (cd "$tree" && cargo build -q -p pdf-script-worker --example wire_seeds)

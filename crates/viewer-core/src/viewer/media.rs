@@ -113,8 +113,19 @@ fn media_of(
             if clip.played_here {
                 // Judged for this program's own player (ADR 3350): the file goes to the window's
                 // player with Table 291's parameters, and the clip beside it names what it is.
+                // `played_here` admits a WAVE file and an MP4 file of sound alone, and the clip's
+                // `/CT` says which (ADR 3384).
+                let wave = clip
+                    .content_type
+                    .as_deref()
+                    .is_some_and(pdf_model::media::container::is_wave);
+                let recording = if wave {
+                    crate::Recording::Wave(bytes.to_vec())
+                } else {
+                    crate::Recording::Mp4(bytes.to_vec())
+                };
                 let sound = crate::SoundData {
-                    recording: crate::Recording::Wave(bytes.to_vec()),
+                    recording,
                     playing: clip.playing,
                 };
                 let media = crate::Media::Embedded {

@@ -8,11 +8,23 @@ use std::time::Duration;
 use confined_transport::{Canceller, Host, TransportError};
 use pdf_sandbox::{Allowance, Ended};
 
+use crate::aac::MAX_FRAMES_PER_UNIT;
+use crate::mp4::{TOP_HEADER_BYTES, rescaled};
 use crate::sound::{Decoded, SoundFormat};
 use crate::wire::{
-    FRAME_DECODE, FRAME_LAYOUT, FRAME_PLACED, FRAME_REFUSED, FRAME_SAMPLES, MAGIC, MAX_RUN_BYTES,
-    decode_placed, decode_samples, encode_layout_request, encode_request, sentence,
+    FRAME_BOX, FRAME_BOXED, FRAME_DECODE, FRAME_LAYOUT, FRAME_MOVIE, FRAME_PCM, FRAME_PLACED,
+    FRAME_REFUSED, FRAME_SAMPLES, FRAME_TRACK, FRAME_UNITS, MAGIC, MAX_MOVIE_BYTES,
+    MAX_REQUEST_BYTES, MAX_RUN_BYTES, MAX_SAMPLES_PER_REQUEST, MAX_UNITS_PER_RUN, Track,
+    decode_boxed, decode_pcm, decode_placed, decode_samples, decode_track, encode_box_request,
+    encode_layout_request, encode_movie_request, encode_request, encode_units, sentence,
 };
+
+/// The most boxes at the top of an MP4 file the host walks to find its movie.
+///
+/// A file this player reads is a handful — `ftyp`, `moov`, `mdat`, a `free` or two; a fragmented
+/// file has one pair a fragment, and is declined anyway once its movie is read. Each step is one
+/// request, so the bound keeps a hostile file's walk to a second or so.
+pub const MAX_TOP_LEVEL_BOXES: usize = 1024;
 
 /// Processor time one request may spend in the worker before it is killed (ADR 3133's budget,
 /// read from outside the worker).
@@ -211,6 +223,210 @@ impl MediaWorker {
         self.decode(&layout.format, samples, max_samples)
     }
 
+    /// Decodes an MP4 file's AAC sound track — a rendition's media clip (ADR 3381) — into at most
+    /// `max_samples` samples, with the track's edit list applied.
+    ///
+    /// The file is longer than a request, so no request carries it: the worker reads each box at
+    /// the top of the file from its first bytes and says where it ends, until the movie box is
+    /// found; the movie crosses whole and the worker answers where every access unit is and what
+    /// the edit list presents; then the units cross in runs, in order, to the decoder the worker
+    /// holds for the clip. This half reads no byte of the file — it cuts it where the answers say,
+    /// each answer checked against the file's length and against the request it answers.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::decode`]'s; the worker's refusal of the file, its track or its stream; a file whose
+    /// movie is absent, doubled or past [`MAX_MOVIE_BYTES`]; and a clip that decodes to nothing.
+    pub fn decode_mp4(&mut self, file: &[u8], max_samples: usize) -> Result<Sound, MediaError> {
+        let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
+        let movie = self.movie(file, total)?;
+        let track = match self.exchange(FRAME_MOVIE, &encode_movie_request(total, movie))? {
+            (FRAME_TRACK, bytes) => decode_track(&bytes, total).map_err(|wrong| {
+                self.distrust();
+                MediaError::Refused(wrong)
+            })?,
+            (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
+            (kind, _) => {
+                self.distrust();
+                return Err(MediaError::Refused(format!(
+                    "a reply of kind {kind}, which no movie request is answered with"
+                )));
+            }
+        };
+        self.decode_track(file, &track, max_samples)
+    }
+
+    /// The movie box's payload in `file`, found by the worker's answers about each box at the top.
+    fn movie<'f>(&mut self, file: &'f [u8], total: u64) -> Result<&'f [u8], MediaError> {
+        let mut at = 0u64;
+        let mut movie = None;
+        let mut steps = 0usize;
+        while at < total {
+            steps = steps.saturating_add(1);
+            if steps > MAX_TOP_LEVEL_BOXES {
+                return Err(MediaError::Refused(format!(
+                    "the file holds more than the {MAX_TOP_LEVEL_BOXES} boxes at its top this \
+                     player walks"
+                )));
+            }
+            let start = usize::try_from(at).unwrap_or(usize::MAX);
+            let header = file
+                .get(start..start.saturating_add(TOP_HEADER_BYTES).min(file.len()))
+                .unwrap_or_default();
+            let found = match self.exchange(FRAME_BOX, &encode_box_request(total, at, header))? {
+                (FRAME_BOXED, bytes) => decode_boxed(&bytes, at, total).map_err(|wrong| {
+                    self.distrust();
+                    MediaError::Refused(wrong)
+                })?,
+                (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
+                (kind, _) => {
+                    self.distrust();
+                    return Err(MediaError::Refused(format!(
+                        "a reply of kind {kind}, which no box request is answered with"
+                    )));
+                }
+            };
+            if &found.kind == b"moov" {
+                if movie.is_some() {
+                    return Err(MediaError::Refused(
+                        "the file holds two movie boxes (moov), and has one".to_owned(),
+                    ));
+                }
+                movie = Some((found.payload, found.end));
+            }
+            at = found.end;
+        }
+        let (start, end) = movie
+            .ok_or_else(|| MediaError::Refused("the file holds no movie box (moov)".to_owned()))?;
+        // `decode_boxed` held both inside the file.
+        let start = usize::try_from(start).unwrap_or(usize::MAX);
+        let end = usize::try_from(end).unwrap_or(usize::MAX);
+        let movie = file.get(start..end).unwrap_or_default();
+        if movie.len() > MAX_MOVIE_BYTES {
+            return Err(MediaError::Refused(format!(
+                "the file's movie box is {} bytes, past the {MAX_MOVIE_BYTES} this player sends \
+                 its media worker",
+                movie.len()
+            )));
+        }
+        Ok(movie)
+    }
+
+    /// `track`'s access units decoded in runs by the worker's clip decoder, then presented as its
+    /// edit list says.
+    fn decode_track(
+        &mut self,
+        file: &[u8],
+        track: &Track,
+        max_samples: usize,
+    ) -> Result<Sound, MediaError> {
+        let mut decoded: Vec<i32> = Vec::new();
+        let mut format: Option<(u32, u16)> = None;
+        let mut concealed = 0u64;
+        let mut next = 0usize;
+        while next < track.units.len() {
+            // The first run is one unit, which tells the channels; after it a run is as many as
+            // its reply holds, under the request's bytes.
+            let channels = format.map_or(0, |(_, channels)| usize::from(channels));
+            let by_samples = MAX_SAMPLES_PER_REQUEST
+                .checked_div(MAX_FRAMES_PER_UNIT.saturating_mul(channels))
+                .unwrap_or(1)
+                .clamp(1, MAX_UNITS_PER_RUN);
+            let mut run: Vec<&[u8]> = Vec::new();
+            let mut bytes = 5usize;
+            for &(offset, size) in track.units.iter().skip(next).take(by_samples) {
+                let size = usize::try_from(size).unwrap_or(usize::MAX);
+                let cost = size.saturating_add(4);
+                if !run.is_empty() && bytes.saturating_add(cost) > MAX_REQUEST_BYTES {
+                    break;
+                }
+                bytes = bytes.saturating_add(cost);
+                // `decode_track` held every unit inside the file.
+                let start = usize::try_from(offset).unwrap_or(usize::MAX);
+                run.push(
+                    file.get(start..start.saturating_add(size))
+                        .unwrap_or_default(),
+                );
+            }
+            next = next.saturating_add(run.len());
+            let pcm = match self.exchange(FRAME_UNITS, &encode_units(&run))? {
+                (FRAME_PCM, bytes) => decode_pcm(&bytes, run.len()).map_err(|wrong| {
+                    self.distrust();
+                    MediaError::Refused(wrong)
+                })?,
+                (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
+                (kind, _) => {
+                    self.distrust();
+                    return Err(MediaError::Refused(format!(
+                        "a reply of kind {kind}, which no run of access units is answered with"
+                    )));
+                }
+            };
+            concealed = concealed.saturating_add(u64::from(pcm.concealed));
+            if !pcm.samples.is_empty() {
+                let this = (pcm.rate, pcm.channels);
+                if format.is_some_and(|first| first != this) {
+                    self.distrust();
+                    return Err(MediaError::Refused(format!(
+                        "the stream's output changed to {} Hz and {} channel(s) after it began",
+                        pcm.rate, pcm.channels
+                    )));
+                }
+                format = Some(this);
+            }
+            if let Some((rate, channels)) = format {
+                let (ahead, kept_all) = presented_limit(track, rate, channels, max_samples);
+                if u64::try_from(decoded.len().saturating_add(pcm.samples.len()))
+                    .unwrap_or(u64::MAX)
+                    > ahead
+                {
+                    // Past what the edit list keeps, the rest is the encoder's padding; past the
+                    // bound, the clip is too long whatever the list keeps.
+                    if !kept_all {
+                        return Err(MediaError::TooLarge {
+                            samples: ahead.saturating_add(1),
+                            limit: max_samples,
+                        });
+                    }
+                    let kept = usize::try_from(ahead).unwrap_or(usize::MAX);
+                    let room = kept.saturating_sub(decoded.len());
+                    decoded.extend_from_slice(pcm.samples.get(..room).unwrap_or(&pcm.samples));
+                    break;
+                }
+            }
+            decoded.extend_from_slice(&pcm.samples);
+        }
+        let Some((rate, channels)) = format else {
+            return Err(MediaError::Refused(format!(
+                "none of the clip's {} access units decoded",
+                track.units.len()
+            )));
+        };
+        let samples = presented(&decoded, track, rate, channels, max_samples)?;
+        let mut notes = Vec::new();
+        if let Some(shortfall) = self
+            .host
+            .as_ref()
+            .and_then(|host| host.confinement().shortfall())
+        {
+            notes.push(format!("the media worker ran {shortfall}"));
+        }
+        if concealed != 0 {
+            notes.push(format!(
+                "{concealed} of the clip's {} AAC access units could not be decoded and were \
+                 played as silence",
+                track.units.len()
+            ));
+        }
+        notes.extend(track.presentation.note.iter().cloned());
+        Ok(Sound {
+            rate,
+            channels,
+            samples,
+            notes,
+        })
+    }
+
     /// The running worker dropped and killed: it answered what no request could.
     fn distrust(&mut self) {
         if let Some(host) = self.host.take() {
@@ -330,4 +546,61 @@ fn within<T>(
         let ended = watchdog.join().unwrap_or(None);
         Ok((out, ended))
     })
+}
+
+/// The most samples worth decoding of `track` at `rate` and `channels` — the skipped priming and
+/// what the edit list keeps, or the skipped priming and `max_samples` where the list keeps more or
+/// everything — and whether that is the whole of what the list keeps, so that decoding stops there
+/// rather than refusing the clip as too long.
+fn presented_limit(track: &Track, rate: u32, channels: u16, max_samples: usize) -> (u64, bool) {
+    let presentation = &track.presentation;
+    let skip = rescaled(presentation.skip, track.time_scale, rate);
+    let max = u64::try_from(max_samples)
+        .unwrap_or(u64::MAX)
+        .checked_div(u64::from(channels))
+        .unwrap_or(0);
+    let kept = presentation
+        .keep
+        .map(|keep| rescaled(keep, track.time_scale, rate))
+        .filter(|kept| *kept <= max);
+    let frames = skip.saturating_add(kept.unwrap_or(max));
+    (frames.saturating_mul(u64::from(channels)), kept.is_some())
+}
+
+/// `decoded` presented as `track`'s edit list says (ISO/IEC 14496-12, 8.6.6; [`crate::mp4::presentation`]):
+/// the delay as silence first, the skipped priming dropped, and no more than the kept length after
+/// it — each figure moved from the media's clock to the output's `rate`.
+///
+/// # Errors
+///
+/// [`MediaError::TooLarge`] where the presented clip passes `max_samples`.
+fn presented(
+    decoded: &[i32],
+    track: &Track,
+    rate: u32,
+    channels: u16,
+    max_samples: usize,
+) -> Result<Vec<i32>, MediaError> {
+    let presentation = &track.presentation;
+    let width = u64::from(channels);
+    let to_samples = |units: u64| {
+        let frames = rescaled(units, track.time_scale, rate);
+        usize::try_from(frames.saturating_mul(width)).unwrap_or(usize::MAX)
+    };
+    let delay = to_samples(presentation.delay);
+    let skip = to_samples(presentation.skip).min(decoded.len());
+    let after = decoded.get(skip..).unwrap_or_default();
+    let kept = presentation
+        .keep
+        .map_or(after.len(), |keep| to_samples(keep).min(after.len()));
+    let length = delay.saturating_add(kept);
+    if length > max_samples {
+        return Err(MediaError::TooLarge {
+            samples: u64::try_from(length).unwrap_or(u64::MAX),
+            limit: max_samples,
+        });
+    }
+    let mut samples = vec![0; delay];
+    samples.extend_from_slice(after.get(..kept).unwrap_or(after));
+    Ok(samples)
 }

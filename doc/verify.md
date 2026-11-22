@@ -984,6 +984,11 @@ cd fuzz && cargo +nightly fuzz run media_sound -- -max_total_time=600   # the me
   # confined worker does, and a reply as the unconfined host reads it. The decoder answers exactly
   # the samples the request's bytes hold, and what the worker encodes the host reads back the same.
   # Seeded by `fuzz/seed_media_sound.py`, every encoding and width §13.3 names.
+cd fuzz && cargo +nightly fuzz run media_aac -- -max_total_time=600 -max_len=262144   # an MP4
+  # clip end to end in the worker (ADRs 3381, 3382): its boxes placed, its movie read, its AAC
+  # decoded by `rusty_aac`'s scalar build in runs, every reply read back by the host's checks.
+  # Seeded by `fuzz/seeds.sh`: `seed_media_mp4.py`'s built files, and with `PDF_MEDIA_MP4_STREAMS`
+  # set, `seed_media_aac.py`'s copies of ISO/IEC 14496-26's streams, which are never committed.
 cd fuzz && cargo +nightly fuzz run media_mp4 -- -max_total_time=600   # the media worker's MP4
   # reader (ADR 3369): an MP4 file's sound track found by ISO/IEC 14496-12's boxes, every access
   # unit inside the file, at most `MAX_ACCESS_UNITS` of them and a bounded decoder configuration.

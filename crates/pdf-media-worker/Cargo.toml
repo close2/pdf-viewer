@@ -16,6 +16,9 @@ confined-transport.workspace = true
 # the host waits for each request under (ADRs 3133, 3297).
 pdf-sandbox.workspace = true
 thiserror.workspace = true
+# ISO/IEC 14496-3's AAC decoder, the scalar build, for a rendition's MP4 clip (ADR 3382). It is
+# reached only from the worker's half; the host's half reads no byte of the stream.
+rusty_aac.workspace = true
 # The first statement of the program this crate builds closes the descriptors it inherited; the
 # close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361).
 inherited-descriptors.workspace = true

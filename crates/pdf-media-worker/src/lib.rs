@@ -17,9 +17,9 @@
 //!   descriptor, one thread, no executable memory, an address-space ceiling sized against one
 //!   request — says what the kernel granted, and answers each request with [`sound::decode`].
 //!
-//! [`wire`] is what crosses between them; [`sound`] is the decoder, and [`wave`] and [`mp4`] find a
-//! file's samples. Those three are the only code here that reads a byte the document wrote, run
-//! only in the worker and by the fuzz targets.
+//! [`wire`] is what crosses between them; [`sound`] decodes §13.3's samples and [`aac`] an MP4
+//! clip's AAC, and [`wave`] and [`mp4`] find a file's samples. Those four are the only code here
+//! that reads a byte the document wrote, run only in the worker and by the fuzz targets.
 //!
 //! # Why not inside `pdf-view-worker`
 //!
@@ -30,6 +30,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod aac;
 mod client;
 pub mod mp4;
 pub mod sound;
@@ -37,8 +38,8 @@ pub mod wave;
 pub mod wire;
 mod worker;
 
-pub use client::{MediaError, MediaWorker, PROCESSOR_BUDGET, Sound};
-pub use worker::{answer, serve};
+pub use client::{MAX_TOP_LEVEL_BOXES, MediaError, MediaWorker, PROCESSOR_BUDGET, Sound};
+pub use worker::{Worker, answer, serve};
 
 /// The worker program's name, which is also the name its diagnostics are reported under.
 pub const WORKER_PROGRAM: &str = "pdf-media-worker";

@@ -198,7 +198,9 @@ media worker, converted to the audio device's rate and channels, and played by t
 count and auto-play, with Table 212's `/Volume` and `/Repeat` read into them and its `/Synchronous`
 holding the reader until Escape (ADRs 3341, 3343) — on a media clock driven by the audio device's
 own count of frames (ADR 3342); a media rendition's embedded RIFF WAVE clip is played there too,
-its header read in the worker and its viability judged for that player, which honours Table 291's
+its header read in the worker, and so is an embedded MP4 clip of sound alone, its boxes walked and
+its AAC decoded by `rusty_aac`'s scalar build in the worker with the track's edit list applied (ADRs
+3381–3384), each with its viability judged for that player, which honours Table 291's
 `MH` volume, duration, repeat count and auto-play, a sound held at its start played by Space (ADRs
 3349 to 3351),
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page

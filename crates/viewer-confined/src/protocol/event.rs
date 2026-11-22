@@ -835,8 +835,8 @@ const ENCODINGS: [pdf_model::media::Encoding; 4] = [
 ];
 
 /// A sound beside [`Event::Media`]'s clip: a byte saying which kind — none, a sound object's own
-/// samples with Table 305's four entries (ADR 3301), or a RIFF WAVE file (ADR 3350) — then its
-/// bytes and §13.2.5's play parameters.
+/// samples with Table 305's four entries (ADR 3301), a RIFF WAVE file (ADR 3350) or an MP4 file of
+/// sound alone (ADR 3384) — then its bytes and §13.2.5's play parameters.
 fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
     let Some(sound) = sound else {
         writer.u8(0);
@@ -846,6 +846,11 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
         viewer_core::Recording::Samples { format, data } => (format, data),
         viewer_core::Recording::Wave(file) => {
             writer.u8(2).bytes(file);
+            write_playing(writer, &sound.playing);
+            return;
+        }
+        viewer_core::Recording::Mp4(file) => {
+            writer.u8(3).bytes(file);
             write_playing(writer, &sound.playing);
             return;
         }
@@ -940,6 +945,12 @@ fn read_sound(
         2 => {
             return Ok(Some(Box::new(viewer_core::SoundData {
                 recording: viewer_core::Recording::Wave(reader.owned_bytes("a sound's WAVE file")?),
+                playing: read_playing(reader)?,
+            })));
+        }
+        3 => {
+            return Ok(Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Mp4(reader.owned_bytes("a sound's MP4 file")?),
                 playing: read_playing(reader)?,
             })));
         }

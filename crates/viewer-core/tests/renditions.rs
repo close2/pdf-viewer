@@ -203,6 +203,11 @@ fn a_screen_annotation_its_page_does_not_list_executes_nothing() {
 /// A page whose screen annotation plays an embedded RIFF WAVE clip under Table 291's `MH` `/V 50`
 /// and `/A false`, with Table 286's `/TF` at `(TEMPNEVER)`.
 fn wave_document() -> Vec<u8> {
+    clip_document("audio/wav")
+}
+
+/// [`wave_document`] with the clip's Table 285 `/CT` at `content_type`.
+fn clip_document(content_type: &str) -> Vec<u8> {
     assembled(&[
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
@@ -211,11 +216,59 @@ fn wave_document() -> Vec<u8> {
         "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>".to_owned(),
         "<< /Type /Rendition /S /MR /N (chime) /C 7 0 R /P << /MH << /V 50 /A false >> >> >>"
             .to_owned(),
-        "<< /Type /MediaClip /S /MCD /CT (audio/wav) /D 8 0 R /P << /TF (TEMPNEVER) >> >>"
-            .to_owned(),
+        format!(
+            "<< /Type /MediaClip /S /MCD /CT ({content_type}) /D 8 0 R /P << /TF (TEMPNEVER) >> >>"
+        ),
         "<< /Type /Filespec /F (chime.wav) /UF (chime.wav) /EF << /F 9 0 R >> >>".to_owned(),
         "<< /Type /EmbeddedFile /Length 4 >>\nstream\nRIFF\nendstream".to_owned(),
     ])
+}
+
+/// The sounds a viewer that plays here hands its window when `document`'s screen annotation is
+/// activated.
+fn played_here(document: Vec<u8>) -> Vec<viewer_core::SoundData> {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::HandOverMedia, RestrictionLevel::On),
+        )))
+        .for_each(drop);
+    viewer.handle(Command::PlaysHere(true)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: document.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(4, 0)))
+        .filter_map(|event| match event {
+            Event::Media { sound, .. } => sound.map(|sound| *sound),
+            _ => None,
+        })
+        .collect()
+}
+
+/// ISO 32000-2 §13.2.2 again, for this program's AAC player (ADR 3384): a clip whose `/CT` names an
+/// MP4 file of sound alone is judged for the player here and arrives as an MP4 recording for the
+/// confined worker; a `video/mp4` clip may hold a picture this player does not show, so it is
+/// judged for the hand-off and nothing plays here.
+#[test]
+fn an_mp4_sound_clip_plays_here_and_a_video_clip_does_not() {
+    for content_type in ["audio/mp4", "audio/x-m4a", "AUDIO/MP4; codecs=mp4a.40.2"] {
+        let sounds = played_here(clip_document(content_type));
+        let [sound] = sounds.as_slice() else {
+            panic!("one sound for {content_type}: {sounds:?}");
+        };
+        assert_eq!(
+            sound.recording,
+            viewer_core::Recording::Mp4(b"RIFF".to_vec()),
+            "{content_type}"
+        );
+    }
+    assert_eq!(played_here(clip_document("video/mp4")).len(), 0);
 }
 
 /// ISO 32000-2 §13.2.2: viability is relative to the player. A host that plays a RIFF WAVE clip

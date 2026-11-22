@@ -328,6 +328,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "media_aac"
+path = "fuzz_targets/media_aac.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "script"
 path = "fuzz_targets/script.rs"
 test = false

@@ -83,8 +83,9 @@ pub enum Players {
     /// file. What a host that says nothing has.
     #[default]
     HandOff,
-    /// The hand-off, and this program's own player for an embedded RIFF WAVE clip — the confined
-    /// media worker decoding it and the host's window sounding it, told every play parameter.
+    /// The hand-off, and this program's own player for an embedded RIFF WAVE clip or MP4 clip of
+    /// sound alone — the confined media worker decoding it and the host's window sounding it, told
+    /// every play parameter.
     AlsoHere,
 }
 
@@ -164,9 +165,10 @@ pub struct Clip {
     /// only the file is told none of it, which [`Self::unhonoured`] says.
     pub playing: Playing,
     /// Whether §13.2.2's viability was judged for this program's own player, because the host
-    /// plays here ([`Players::AlsoHere`]) and the clip is an embedded RIFF WAVE file: such a
-    /// clip is played in the window and never handed on, since the hand-off was not the player
-    /// its `MH` entries were judged against (ADR 3350).
+    /// plays here ([`Players::AlsoHere`]) and the clip is an embedded RIFF WAVE file or MP4 file of
+    /// sound alone ([`container::is_played_here`], ADR 3384): such a clip is played in the window
+    /// and never handed on, since the hand-off was not the player its `MH` entries were judged
+    /// against (ADR 3350).
     pub played_here: bool,
 }
 
@@ -526,8 +528,9 @@ impl Walk<'_> {
 
     /// Whether this program's own player takes `clip`: the host plays here, and the clip is
     /// §13.2.4.2's media clip data holding an embedded file whose Table 285 `/CT` names a RIFF
-    /// WAVE file — "If D references a file specification that has an embedded file stream … the
-    /// media clip data dictionary's CT entry shall identify the type of data".
+    /// WAVE file or an MP4 file of sound alone (ADR 3384) — "If D references a file specification
+    /// that has an embedded file stream … the media clip data dictionary's CT entry shall identify
+    /// the type of data".
     fn played_here(&self, clip: &Dictionary) -> bool {
         let document = self.document;
         self.processor.players == Players::AlsoHere
@@ -535,7 +538,7 @@ impl Walk<'_> {
                 .get_key(clip, "S")
                 .as_name()
                 .is_some_and(|kind| kind.as_bytes() == b"MCD")
-            && content_type(document, clip).is_some_and(|kind| container::is_wave(&kind))
+            && content_type(document, clip).is_some_and(|kind| container::is_played_here(&kind))
             && matches!(self.data(clip, &mut Vec::new()), Some(Data::Embedded(_)))
     }
 

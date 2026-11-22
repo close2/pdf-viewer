@@ -4050,6 +4050,7 @@ dependencies = [
  "confined-transport",
  "inherited-descriptors",
  "pdf-sandbox",
+ "rusty_aac",
  "thiserror 2.0.21",
 ]
 
@@ -5131,6 +5132,12 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty_aac"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6725ddb2fe3b50fc1298fb9caf20c5f2b5215572db5014e9200e4447c1b75437"
 
 [[package]]
 name = "rxing"

@@ -190,11 +190,32 @@ fn family(content_type: &str) -> Option<Family> {
     }
 }
 
-/// Whether `content_type` names a RIFF WAVE file, the one container this program plays itself
-/// (ADR 3350).
+/// Whether `content_type` names a RIFF WAVE file, which this program plays itself (ADR 3350).
 #[must_use]
 pub fn is_wave(content_type: &str) -> bool {
     family(content_type) == Some(Family::Wave)
+}
+
+/// Whether `content_type` names an ISO base media file of sound alone — the `audio/` types of the
+/// MP4 and 3GPP families, AAC's usual container — which this program plays itself (ADR 3384).
+///
+/// The `video/` and `application/` types are not among them: a file so named may hold a picture,
+/// and playing its sound without its picture would present less than the clip, so such a clip is
+/// still handed on.
+#[must_use]
+pub fn is_mp4_sound(content_type: &str) -> bool {
+    family(content_type) == Some(Family::BaseMedia)
+        && content_type
+            .trim_start()
+            .get(..6)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("audio/"))
+}
+
+/// Whether this program plays a clip of `content_type` itself: a RIFF WAVE file or an MP4 file of
+/// sound alone (ADRs 3350, 3384).
+#[must_use]
+pub fn is_played_here(content_type: &str) -> bool {
+    is_wave(content_type) || is_mp4_sound(content_type)
 }
 
 /// Whether this reader reads the container `content_type` names.

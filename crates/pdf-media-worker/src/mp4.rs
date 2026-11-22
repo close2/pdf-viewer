@@ -5,8 +5,9 @@
 //! overwhelmingly AAC in an MP4 file (RFC 0015 section 5). The file is the document's bytes like
 //! every other byte of it, so it is read here, behind `Profile::Media`, and the host learns only
 //! the table this module returns, which it checks against the file it holds. This module decodes
-//! nothing: it finds the compressed access units and the decoder's configuration, and the decoder
-//! is the next step's (RFC 0015 section 5, step 9).
+//! nothing: it finds the compressed access units, the decoder's configuration and what the track's
+//! edit list presents, and [`crate::aac`] decodes (ADRs 3381–3383). A file too long for one request
+//! is walked by [`top_level_box`] one box at a time and its movie read by [`movie_sound_track`].
 //!
 //! # The layout read
 //!
@@ -20,6 +21,12 @@
 //!   with an eight-bit version and 24 bits of flags.
 //! - **8.2.1, `moov`**, the movie box, holds the metadata; there is one. **8.8.1, `mvex`** in it says
 //!   the file is fragmented, and a fragmented file's samples are described outside `moov`.
+//! - **8.2.2, `mvhd`**, the movie header: its time scale, units per second of the movie's own
+//!   clock, after 32-bit creation and modification times in version 0 and 64-bit in version 1.
+//! - **8.6.5, `edts`**, and **8.6.6, `elst`** in it, a track's edit list: entries of a segment
+//!   duration in the movie's time scale, a media time in the media's (−1 for an empty edit) — 32
+//!   bits each in version 0, 64 in version 1 — and a 16.16 rate; [`presentation`] says how they are
+//!   read.
 //! - **8.3.1, `trak`**, one per track, holds **8.3.2, `tkhd`**, whose flag `0x000001` says the track
 //!   is enabled (a disabled track is treated as though it were not present), and **8.4.1, `mdia`**,
 //!   which holds **8.4.2, `mdhd`** — the media's time scale and duration, 32-bit in version 0 and
@@ -114,6 +121,11 @@ pub struct SoundTrack {
     pub time_scale: u32,
     /// The access units, in decoding order.
     pub access_units: Vec<AccessUnit>,
+    /// The `mvhd` time scale, the clock of every [`Edit::segment_duration`], where the movie has
+    /// a header.
+    pub movie_time_scale: Option<u32>,
+    /// The track's edit list (`edts`, `elst`), empty where it has none; [`presentation`] reads it.
+    pub edits: Vec<Edit>,
 }
 
 /// Reads the first enabled sound track of the MP4 file `file`.
@@ -135,8 +147,26 @@ pub fn sound_track(file: &[u8]) -> Result<SoundTrack, String> {
         }
     }
     let movie = movie.ok_or_else(|| "the file holds no movie box (moov)".to_owned())?;
+    let file_len = u64::try_from(file.len()).unwrap_or(u64::MAX);
+    read_movie(movie, file_len, &mut budget)
+}
+
+/// Reads the first enabled sound track of the movie box whose payload is `movie`, in a file of
+/// `file_len` bytes — the half of [`sound_track`] the worker runs when the host has sent it only the
+/// movie (ADR 3381), every access unit checked against the file's length.
+///
+/// # Errors
+///
+/// As [`sound_track`].
+pub fn movie_sound_track(movie: &[u8], file_len: u64) -> Result<SoundTrack, String> {
+    read_movie(movie, file_len, &mut Budget::default())
+}
+
+/// [`movie_sound_track`] under a walk's budget already begun.
+fn read_movie(movie: &[u8], file_len: u64, budget: &mut Budget) -> Result<SoundTrack, String> {
     let mut tracks = Vec::new();
-    for found in Boxes::new(movie, &mut budget) {
+    let mut movie_time_scale = None;
+    for found in Boxes::new(movie, budget) {
         let found = found?;
         match &found.kind {
             b"mvex" => {
@@ -146,16 +176,240 @@ pub fn sound_track(file: &[u8]) -> Result<SoundTrack, String> {
                         .to_owned(),
                 );
             }
+            b"mvhd" => movie_time_scale = Some(movie_header_time_scale(found.payload)?),
             b"trak" => tracks.push(found.payload),
             _ => {}
         }
     }
     for track in tracks {
-        if let Some(media) = enabled_sound_media(track, &mut budget)? {
-            return read_track(media, file.len(), &mut budget);
+        if let Some(media) = enabled_sound_media(track, budget)? {
+            let mut read = read_track(media, file_len, budget)?;
+            read.movie_time_scale = movie_time_scale;
+            if let Some(edits) = child(track, *b"edts", budget)?
+                && let Some(list) = child(edits, *b"elst", budget)?
+            {
+                read.edits = edit_list(list)?;
+            }
+            return Ok(read);
         }
     }
     Err("the file holds no enabled sound track".to_owned())
+}
+
+/// `mvhd`'s time scale (14496-12, 8.2.2): 32-bit creation and modification times in version 0 and
+/// 64-bit in version 1 come before it.
+fn movie_header_time_scale(header: &[u8]) -> Result<u32, String> {
+    let (version, _, mut fields) = full(header).ok_or_else(|| truncated("mvhd"))?;
+    let times = match version {
+        0 => 8,
+        1 => 16,
+        _ => return Err(format!("a movie header (mvhd) of version {version}")),
+    };
+    fields.skip(times).ok_or_else(|| truncated("mvhd"))?;
+    fields.u32().ok_or_else(|| truncated("mvhd"))
+}
+
+/// The most entries one track's edit list may hold: past it the file is declined.
+///
+/// A sound track's list is one entry, or an empty edit and one; a thousand is far past any list a
+/// player could honour and bounds the copy.
+pub const MAX_EDITS: usize = 1024;
+
+/// One entry of a track's edit list (14496-12, 8.6.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Edit {
+    /// How long the edit lasts, in the movie's time scale (`mvhd`'s).
+    pub segment_duration: u64,
+    /// Where in the media the edit begins, in the media's time scale; `-1` for an empty edit.
+    pub media_time: i64,
+    /// The rate the media plays at, 16.16 fixed point (`media_rate_integer` and
+    /// `media_rate_fraction`); `0x0001_0000` for the ordinary rate and 0 for a dwell.
+    pub media_rate: i32,
+}
+
+/// Reads `elst` (14496-12, 8.6.6): a 32-bit entry count, then each entry's segment duration and
+/// media time — 32 bits in version 0, 64 in version 1 — and its 16.16 rate.
+fn edit_list(list: &[u8]) -> Result<Vec<Edit>, String> {
+    let (version, _, fields) = full(list).ok_or_else(|| truncated("elst"))?;
+    let width = match version {
+        0 => 12,
+        1 => 20,
+        _ => return Err(format!("an edit list (elst) of version {version}")),
+    };
+    let table = Entries::new(list, width, "elst")?;
+    if table.count > MAX_EDITS {
+        return Err(format!(
+            "an edit list (elst) of {} entries, past the {MAX_EDITS} this reader reads",
+            table.count
+        ));
+    }
+    let mut fields = Fields {
+        rest: fields.rest.get(4..).ok_or_else(|| truncated("elst"))?,
+    };
+    let mut edits = Vec::with_capacity(table.count);
+    for _ in 0..table.count {
+        let (segment_duration, media_time) = if version == 1 {
+            let duration = fields.u64().ok_or_else(|| truncated("elst"))?;
+            let time = fields.u64().ok_or_else(|| truncated("elst"))?;
+            (duration, i64::from_be_bytes(time.to_be_bytes()))
+        } else {
+            let duration = fields.u32().ok_or_else(|| truncated("elst"))?;
+            let time = fields.u32().ok_or_else(|| truncated("elst"))?;
+            (
+                u64::from(duration),
+                i64::from(i32::from_be_bytes(time.to_be_bytes())),
+            )
+        };
+        let rate = fields.u32().ok_or_else(|| truncated("elst"))?;
+        edits.push(Edit {
+            segment_duration,
+            media_time,
+            media_rate: i32::from_be_bytes(rate.to_be_bytes()),
+        });
+    }
+    Ok(edits)
+}
+
+/// What a track's edit list makes of its media, in the media's time scale.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Presentation {
+    /// Silence before the media begins: the empty edits that lead the list.
+    pub delay: u64,
+    /// The media's first units, not presented — an AAC encoder's priming samples.
+    pub skip: u64,
+    /// How much of the media after [`Self::skip`] is presented, or `None` for all of it.
+    pub keep: Option<u64>,
+    /// The sentence for an edit list this reader does not apply.
+    pub note: Option<String>,
+}
+
+/// The ordinary rate of an edit, 1 in 16.16 fixed point.
+const RATE_ONE: i32 = 0x0001_0000;
+
+/// What `track`'s edit list presents (14496-12, 8.6.5 and 8.6.6, paraphrased: the text is not
+/// held, Q988).
+///
+/// An edit list maps the movie's timeline onto the media's: each entry presents, for its segment
+/// duration in the movie's time scale, the media from its media time on, and an entry whose media
+/// time is −1 is an empty edit, presenting nothing for its duration. A track with no list presents
+/// its media from its start. This is how an AAC file states its encoder's priming samples — the
+/// decoder's first output before the first real sample — and the padding after the last: one entry
+/// whose media time is the priming and whose duration is the sound's own.
+///
+/// This player applies the shape a sound track has: empty edits first, which become silence, then
+/// one edit at the ordinary rate. A segment duration of 0 is read as "the rest of the media" — a
+/// choice, because no held text says what a zero-length edit of an unfragmented file means. Any
+/// other list is not applied and the [`Presentation::note`] says so: the media plays whole.
+#[must_use]
+pub fn presentation(track: &SoundTrack) -> Presentation {
+    let edits = &track.edits;
+    if edits.is_empty() {
+        return Presentation::default();
+    }
+    let leading = edits
+        .iter()
+        .take_while(|edit| edit.media_time == -1)
+        .count();
+    let not_applied = |why: &str| Presentation {
+        note: Some(format!(
+            "the sound track's edit list (ISO/IEC 14496-12's elst) of {} entries {why}, so it was \
+             not applied and the whole of the media plays",
+            edits.len()
+        )),
+        ..Presentation::default()
+    };
+    let [edit] = edits.get(leading..).unwrap_or_default() else {
+        return not_applied("presents other than one stretch of the media");
+    };
+    if edit.media_rate != RATE_ONE || edit.media_time < 0 {
+        return not_applied("plays the media at a rate other than 1");
+    }
+    let delay_movie: u64 = edits
+        .iter()
+        .take(leading)
+        .fold(0, |sum, edit| sum.saturating_add(edit.segment_duration));
+    let needs_movie_scale = delay_movie != 0 || edit.segment_duration != 0;
+    let movie_scale = track.movie_time_scale.filter(|scale| *scale != 0);
+    let movie_scale = match movie_scale {
+        Some(scale) => scale,
+        None if needs_movie_scale => {
+            return not_applied("needs the movie header's (mvhd) time scale, which is absent or 0");
+        }
+        None => 1,
+    };
+    Presentation {
+        delay: rescaled(delay_movie, movie_scale, track.time_scale),
+        skip: edit.media_time.unsigned_abs(),
+        keep: (edit.segment_duration != 0)
+            .then(|| rescaled(edit.segment_duration, movie_scale, track.time_scale)),
+        note: None,
+    }
+}
+
+/// `units` of a clock of `from` per second as the nearest whole number of a clock of `to`.
+#[must_use]
+pub fn rescaled(units: u64, from: u32, to: u32) -> u64 {
+    // A 64-bit count times a 32-bit rate, and half a 32-bit divisor, stay far inside 128 bits; a
+    // clock of 0 units a second moves nothing.
+    let scaled = u128::from(units)
+        .saturating_mul(u128::from(to))
+        .saturating_add(u128::from(from / 2))
+        .checked_div(u128::from(from))
+        .unwrap_or(0);
+    u64::try_from(scaled).unwrap_or(u64::MAX)
+}
+
+/// The most bytes of a top-level box's header [`top_level_box`] reads: a 64-bit size and a `uuid`
+/// type's extended type.
+pub const TOP_HEADER_BYTES: usize = 32;
+
+/// One box at the top of a file, placed by its header (14496-12, 4.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TopBox {
+    /// Its four-character type.
+    pub kind: [u8; 4],
+    /// Where its payload begins, from the start of the file.
+    pub payload: u64,
+    /// Where it ends, and the next box begins.
+    pub end: u64,
+}
+
+/// The box whose header is `header` — at most [`TOP_HEADER_BYTES`] of the file from `at` — in a file
+/// of `total` bytes.
+///
+/// The step the worker takes for a host walking a file too long to cross whole (ADR 3381): the host
+/// holds the file and sends each box's first bytes, and learns where the box ends.
+///
+/// # Errors
+///
+/// The sentence for a header cut short, or a box that ends before its header or past the file.
+pub fn top_level_box(header: &[u8], at: u64, total: u64) -> Result<TopBox, String> {
+    let mut fields = Fields { rest: header };
+    let (Some(size), Some(kind)) = (fields.u32(), fields.array::<4>()) else {
+        return Err(truncated("a box header"));
+    };
+    let (size, mut header_len) = match size {
+        0 => (total.saturating_sub(at), 8u64),
+        1 => (fields.u64().ok_or_else(|| truncated("a box header"))?, 16),
+        size => (u64::from(size), 8),
+    };
+    if &kind == b"uuid" {
+        fields.skip(16).ok_or_else(|| truncated("a box header"))?;
+        header_len = header_len.saturating_add(16);
+    }
+    let end = at.checked_add(size).filter(|end| *end <= total);
+    let Some(end) = end.filter(|_| size >= header_len) else {
+        return Err(format!(
+            "a {} box of {size} bytes at {at}, where {} remain",
+            four(kind),
+            total.saturating_sub(at)
+        ));
+    };
+    Ok(TopBox {
+        kind,
+        payload: at.saturating_add(header_len),
+        end,
+    })
 }
 
 /// A track's `mdia` payload where the track is enabled and its handler is `soun`.
@@ -182,7 +436,7 @@ const TRACK_ENABLED: u32 = 0x00_0001;
 const SELF_CONTAINED: u32 = 0x00_0001;
 
 /// Reads a sound track's `mdia` payload into its table.
-fn read_track(media: &[u8], file_len: usize, budget: &mut Budget) -> Result<SoundTrack, String> {
+fn read_track(media: &[u8], file_len: u64, budget: &mut Budget) -> Result<SoundTrack, String> {
     let time_scale =
         media_time_scale(child(media, *b"mdhd", budget)?.ok_or_else(|| missing("mdhd", "mdia"))?)?;
     let info = child(media, *b"minf", budget)?.ok_or_else(|| missing("minf", "mdia"))?;
@@ -227,6 +481,8 @@ fn read_track(media: &[u8], file_len: usize, budget: &mut Budget) -> Result<Soun
         sample_rate: description.sample_rate,
         time_scale,
         access_units,
+        movie_time_scale: None,
+        edits: Vec::new(),
     })
 }
 
@@ -421,7 +677,7 @@ enum Sizes<'a> {
 
 impl<'a> Sizes<'a> {
     /// Reads `stsz` (14496-12, 8.7.3.2).
-    fn from_stsz(payload: &'a [u8], file_len: usize) -> Result<Self, String> {
+    fn from_stsz(payload: &'a [u8], file_len: u64) -> Result<Self, String> {
         let (_, _, mut fields) = full(payload).ok_or_else(|| truncated("stsz"))?;
         let size = fields.u32().ok_or_else(|| truncated("stsz"))?;
         let count = to_count(fields.u32().ok_or_else(|| truncated("stsz"))?)?;
@@ -430,9 +686,8 @@ impl<'a> Sizes<'a> {
         }
         // One size for every sample states no table, so the count is bounded by the bytes those
         // samples would take rather than by the box.
-        let room = file_len.checked_div(usize::try_from(size).unwrap_or(usize::MAX));
-        let room = room.unwrap_or(0);
-        if count > room {
+        let room = file_len.checked_div(u64::from(size)).unwrap_or(0);
+        if u64::try_from(count).unwrap_or(u64::MAX) > room {
             return Err(format!(
                 "{count} samples of {size} bytes each, past the file's {file_len} bytes"
             ));
@@ -555,7 +810,7 @@ fn access_units(
     times: &Entries<'_>,
     runs: &Entries<'_>,
     offsets: &Entries<'_>,
-    file_len: usize,
+    file_len: u64,
 ) -> Result<Vec<AccessUnit>, String> {
     let count = sizes.count();
     if count > MAX_ACCESS_UNITS {
@@ -565,7 +820,6 @@ fn access_units(
     }
     let mut durations = Durations::new(times);
     let mut units = Vec::with_capacity(count);
-    let file_len = u64::try_from(file_len).unwrap_or(u64::MAX);
     let mut previous = 0usize;
     for run in 0..runs.count {
         let (Some(first), Some(per_chunk), Some(description)) =

@@ -83,6 +83,12 @@ raster-scene = { path = "raster/crates/raster-scene", version = "0.1.0" }
 # Error handling
 thiserror = "2.0.19"
 
+# ISO/IEC 14496-3's AAC, decoded in the confined media worker and nowhere else (RFC 0012, RFC 0015
+# section 5, ADR 3382). Apache-2.0, no dependency, no build script, no C. The default feature `simd`
+# is refused: it brings the SIMD kernels' `unsafe` under the stream's bytes, and the scalar build
+# gives the same conformance verdicts (RFC 0012 section 3.3).
+rusty_aac = { version = "=2.1.1", default-features = false }
+
 # The ECMAScript engine RFC 0008 section 5.4 recommends and the owner accepted (`doc/questions/A193`,
 # answer 3): Boa, pure Rust, `Unlicense OR MIT`. Reached only through `pdf-script`'s `engine`
 # feature, which is off by default, so no build that does not ask for it compiles or links it.
