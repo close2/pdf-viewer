@@ -1711,6 +1711,9 @@ fn normal_appearance_shape(exam: &Examination<'_>, findings: &mut Findings) {
             .get("N")
             .map_or(Object::Null, |entry| document.resolve(entry));
         let wrong = match (&normal, button) {
+            (Object::Dictionary(states), true) if names_no_appearance(document, states) => {
+                Some("a button widget's N subdictionary maps no state to an appearance stream")
+            }
             (Object::Dictionary(_), true) | (Object::Stream(_), false) => None,
             (Object::Null, _) => Some("an appearance dictionary states no N entry"),
             (_, true) => Some("a button widget's N entry is not an appearance subdictionary"),
@@ -1720,6 +1723,32 @@ fn normal_appearance_shape(exam: &Examination<'_>, findings: &mut Findings) {
             findings.record(place.clone().named("N"), wrong);
         }
     });
+}
+
+/// Whether an appearance subdictionary maps no state to an appearance stream, and names something
+/// other than one.
+///
+/// ISO 32000-2 §12.5.5 defines the subdictionary by what its values are:
+///
+/// > In the latter case, the subdictionary shall define multiple appearance streams corresponding
+/// > to different appearance states of the annotation.
+///
+/// so a subdictionary that maps no state to a stream (`issue15557`'s `/Off` and `/Yes`, each the
+/// *name* `null`) defines no appearance at all and is not the subdictionary ISO 19005-2 section
+/// 6.3.3 asks for. One that defines a stream for some state and names something else for another
+/// (`checkbox-bad-appearance`'s `/Off /Off`) is that subdictionary with an entry that defines
+/// nothing, which §7.3.9 reads for a null value and this row reads the same way for any value that
+/// is no stream. A subdictionary whose every value is null states nothing either way, and is left
+/// to the rows about an annotation's appearance being present (`doc/adr/3374`).
+fn names_no_appearance(document: &Document, states: &Dictionary) -> bool {
+    let resolved: Vec<Object> = states
+        .iter()
+        .map(|(_, value)| document.resolve(value))
+        .collect();
+    !resolved
+        .iter()
+        .any(|value| matches!(value, Object::Stream(_)))
+        && resolved.iter().any(|value| !matches!(value, Object::Null))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2836,6 +2865,25 @@ mod tests {
             faults(&wrong, normal_appearance_shape),
             1,
             "a text field's normal appearance is a stream"
+        );
+    }
+
+    /// A subdictionary whose states name no stream defines no appearance: `issue15557` maps
+    /// `/Off` and `/Yes` to the *name* `null`, which §12.5.5 does not read as an appearance
+    /// stream, where the null object is §7.3.9's absent entry.
+    #[test]
+    fn a_button_state_naming_no_stream_is_no_appearance_subdictionary() {
+        let names = with_annotations(&[
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /Rect [0 0 4 4] /F 4 /AP << /N << /Off /null /Yes /null >> >> >>",
+        ]);
+        assert_eq!(faults(&names, normal_appearance_shape), 1);
+        let nulls = with_annotations(&[
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /Rect [0 0 4 4] /F 4 /AP << /N << /Off null /Yes 9 0 R >> >> >>",
+        ]);
+        assert_eq!(
+            faults(&nulls, normal_appearance_shape),
+            0,
+            "null is §7.3.9's absent entry"
         );
     }
 

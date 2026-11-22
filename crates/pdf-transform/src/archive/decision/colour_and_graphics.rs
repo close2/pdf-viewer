@@ -190,6 +190,14 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "graphics/image-interpolation-is-off",
         answer: Answer::Loses(Loss::ImageSmoothing, Rewrite::InterpolationOff),
     },
+    // The same entry abbreviated `/I` inside an inline image's `BI` dictionary, at the same loss:
+    // the owner's `A978` makes it the second closed content-stream exception beside `A50`, the
+    // value written false and no other byte of the producer's stream moved
+    // (`super::super::inline_smoothing`, `doc/adr/3373`).
+    Remedy {
+        requirement: "graphics/inline-image-interpolation-is-off",
+        answer: Answer::Loses(Loss::ImageSmoothing, Rewrite::InlineInterpolationOff),
+    },
     // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3. The two colour-box rows, answered
     // by removing specifications rather than by writing one: the sentence after the method's says
     // a conforming processor shall use only the selected colour space and shall ignore all the

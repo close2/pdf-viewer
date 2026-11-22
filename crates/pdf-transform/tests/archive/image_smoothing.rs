@@ -105,15 +105,37 @@ fn a_smoothed_image_converts_under_each_profile_with_the_loss_named() {
 
 const INLINE: &str = "graphics/inline-image-interpolation-is-off";
 
+/// The owner's `A978`: under `as-shown` the inline image's `/I` is written false inside its `BI`
+/// dictionary at the loss `image-smoothing`, the history naming the stream, and no byte of the
+/// content stream outside the `BI`…`ID` span moves — the samples included.
 #[test]
-fn an_inline_images_interpolation_stays_refused_under_as_shown() {
+fn an_inline_images_interpolation_is_written_false_under_as_shown() {
     for target in TARGETS {
         let source = an_inline_smoothed_image(target);
         let (report, output) = convert(&source, target, authorised_by("as-shown", target));
-        assert!(output.is_none(), "as-shown at {target}: nothing is written");
-        assert!(
-            matches!(decision(&report, INLINE), Decision::Refused(_)),
+        assert_eq!(
+            decision(&report, INLINE),
+            Decision::Authorised {
+                losses: Losses::one(Loss::ImageSmoothing),
+                rewrite: Rewrite::InlineInterpolationOff,
+            },
             "as-shown at {target}"
+        );
+        let output = written(&report, output);
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert!(conversion(&report).photographed.is_empty(), "no photograph");
+        assert_eq!(
+            page_contents(&output),
+            vec![b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /CS0 /BPC 8 /I false ID \x00 EI Q".to_vec()],
+            "as-shown at {target}: `true` became `false` and nothing else moved"
+        );
+        let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+        assert!(
+            packet.contains(
+                "1 inline image(s) had /I set to false inside their content stream; \
+                 loss image-smoothing: stream"
+            ),
+            "as-shown at {target}: the history names the loss and the stream"
         );
     }
 }

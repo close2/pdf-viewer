@@ -129,6 +129,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::Type3WidthRestated);
             return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
         }
+        // And once more for an inline image's `/I` written false, which
+        // `super::super::inline_smoothing` refuses where any repair above also writes the stream
+        // (`doc/adr/3373`). Counted by entry in `count_what_has_no_place`.
+        if self.wants(Rewrite::InlineInterpolationOff)
+            && let Some(unsmoothed) = self
+                .inline_smoothing
+                .and_then(|unsmoothed| unsmoothed.at.get(&id))
+        {
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, unsmoothed, applied));
+        }
         // **Five writers over one packet, and the last of them is what carries the others'
         // work.** `super::super::prepare` folds the replacement into the bytes the header cut starts
         // from, those into the property removal's, those into the container respelling's, those

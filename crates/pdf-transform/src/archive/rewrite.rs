@@ -90,6 +90,10 @@ pub enum Rewrite {
     FlateInsteadOfLzw,
     /// Every image `XObject` that states an `/Interpolate` other than false has it set false.
     InterpolationOff,
+    /// Every inline image that states an `/I` other than false has it written false inside its
+    /// `BI` dictionary, the content stream's one other byte left as it was (`doc/questions/A978`,
+    /// `super::inline_smoothing`).
+    InlineInterpolationOff,
     /// `/Alternates` and `/OPI` are removed from every image `XObject`.
     ImageAlternatesAndOpi,
     /// `/OPI` is removed from every form `XObject`.
@@ -1296,6 +1300,9 @@ impl Rewrite {
                 "an LZWDecode stream is decoded and re-encoded as one FlateDecode, byte for byte"
             }
             Self::InterpolationOff => "an image's /Interpolate is set false",
+            Self::InlineInterpolationOff => {
+                "an inline image's /I is set false inside its content stream, every other byte kept"
+            }
             Self::ImageAlternatesAndOpi => "an image's /Alternates and /OPI are removed",
             Self::FormOpi => "a form XObject's /OPI is removed",
             Self::FormPostScript => "a form XObject's /PS and PostScript /Subtype2 are removed",
@@ -1844,6 +1851,7 @@ impl Rewrite {
             Self::WholeFileRewritten => "whole-file-rewritten",
             Self::FlateInsteadOfLzw => "flate-instead-of-lzw",
             Self::InterpolationOff => "interpolation-off",
+            Self::InlineInterpolationOff => "inline-interpolation-off",
             Self::ImageAlternatesAndOpi => "image-alternates-and-opi",
             Self::FormOpi => "form-opi",
             Self::FormPostScript => "form-postscript",
@@ -2149,6 +2157,7 @@ impl<'a> Rewriter<'a> {
             boundaries: prepared.boundaries.as_ref().ok(),
             actual_texts: prepared.actual_texts.as_ref().ok(),
             type3_widths: prepared.type3_widths.as_ref().ok(),
+            inline_smoothing: prepared.inline_smoothing.as_ref().ok(),
         }
     }
 }
@@ -2196,6 +2205,20 @@ fn the_information_dictionary(
         assembly.set_info(Some(placed));
     }
     Ok(())
+}
+
+/// The inline images' entries written false rather than the streams that hold them, as the
+/// hexadecimal digits are counted (`doc/adr/3373`).
+fn count_inline_entries(
+    wanted: &BTreeSet<Rewrite>,
+    prepared: &Prepared,
+    applied: &mut BTreeMap<Rewrite, usize>,
+) {
+    if wanted.contains(&Rewrite::InlineInterpolationOff)
+        && let Ok(unsmoothed) = &prepared.inline_smoothing
+    {
+        applied.insert(Rewrite::InlineInterpolationOff, unsmoothed.entries());
+    }
 }
 
 /// The rewrites there is no place to count, counted from what was prepared instead.
@@ -2291,12 +2314,14 @@ fn count_what_has_no_place(
     {
         applied.insert(Rewrite::HexadecimalDigitCompleted, completed.digits);
     }
-    // The runs rather than the streams, for the same reason (`doc/adr/2638`).
+    // The runs rather than the streams, for the same reason (`doc/adr/2638`), and an inline
+    // image's entries likewise ([`count_inline_entries`]).
     if wanted.contains(&Rewrite::RunWrittenAsDrawn)
         && let Ok(drawn) = &prepared.as_drawn
     {
         applied.insert(Rewrite::RunWrittenAsDrawn, drawn.runs.len());
     }
+    count_inline_entries(wanted, prepared, applied);
     // The entries rather than the objects: a content stream may respell three property lists'
     // `/Lang`, and a report saying "1 done" would be counting the stream (`doc/adr/2066`).
     if let Ok(restated) = &prepared.languages {
@@ -3184,6 +3209,9 @@ struct Rewriter<'a> {
     /// The Type 3 glyph procedures written with their fonts' widths, and the fonts given a
     /// `/CharProcs` naming a copy (`super::type3_widths`).
     type3_widths: Option<&'a super::type3_widths::Restated>,
+    /// The content streams written with each inline image's `/I` false
+    /// (`super::inline_smoothing`).
+    inline_smoothing: Option<&'a super::inline_smoothing::Unsmoothed>,
 }
 
 impl Rewriter<'_> {
@@ -3854,6 +3882,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::ExtensionFieldDescribed)
             || self.wants(Rewrite::InformationMovedIntoThePacket)
             || self.wants(Rewrite::InterpolationOff)
+            || self.wants(Rewrite::InlineInterpolationOff)
             || self.wants(Rewrite::UndecodableStreamRemoved)
             || self.wants(Rewrite::TrueTypeCmapRestated)
             || self.wants(Rewrite::NotdefGlyphGiven)

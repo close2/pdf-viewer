@@ -47,9 +47,12 @@ pub mod requirement;
 pub mod survey;
 pub mod table;
 pub mod target;
+pub mod type1_sections;
 pub mod withdrawal;
 
 use pdf_syntax::Document;
+
+pub use crate::type1_sections::{Type1Sections, type1_sections};
 
 pub use crate::clarification::Clarification;
 pub use crate::coverage::{

@@ -415,6 +415,9 @@ pub(super) struct Prepared {
     /// The Type 3 glyph procedures written with their fonts' widths, or why they are not (ISO
     /// 19005-4 section 6.2.10.5, `doc/adr/2907`).
     pub(super) type3_widths: Result<super::type3_widths::Restated, Because>,
+    /// The content streams written with each inline image's `/I` stated false, or why none are
+    /// (`doc/questions/A978`, `doc/adr/3373`).
+    pub(super) inline_smoothing: Result<super::inline_smoothing::Unsmoothed, Because>,
     /// The Type 3 fonts given a glyph procedure for each code they show and describe no glyph
     /// for, or why they are not (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1,
     /// `doc/adr/2918`).
@@ -938,6 +941,30 @@ impl Prepared {
                 restated.unwritten()
             })
         });
+        // An inline image's `/I` written false, after every other stream repair for the reason
+        // `super::type3_widths` gives: a content stream one of them writes keeps this row's
+        // refusal rather than being written twice. Not asked where a photograph answers the row
+        // (`super::decision::decide`), so that the history names no edit the output does not
+        // carry (`doc/questions/A978`, `doc/adr/3373`).
+        let inline_smoothing = asked(
+            wanted(Rewrite::InlineInterpolationOff) && !photographs_fenced,
+            || {
+                let mut others = Vec::new();
+                if let Ok(completed) = &hexadecimal {
+                    others.push(&completed.at);
+                }
+                if let Ok(restated) = &languages {
+                    others.push(&restated.streams);
+                }
+                if let Ok(drawn) = &as_drawn {
+                    others.push(&drawn.at);
+                }
+                if let Ok(restated) = &type3_widths {
+                    others.push(&restated.at);
+                }
+                super::inline_smoothing::write(document, survey.as_ref(), &others)
+            },
+        );
         // The procedures a Type 3 font's undescribed codes are given: no stream is edited, so no
         // stream repair is in its way, and a font another Type 3 rewrite also writes is
         // [`Prepared::obstacle`]'s to refuse (`super::type3_glyphs`).
@@ -1330,9 +1357,24 @@ impl Prepared {
         // The images set to `/Interpolate false` are named in the same history, and the entry is a
         // condition of the rewrite, withdrawn below where the packet will not take it (ADRs 2498,
         // 1964).
-        let smoothing_history = wanted(Rewrite::InterpolationOff)
-            .then(|| super::smoothing::history(input))
-            .flatten();
+        // An inline image's `/I` written false is the same loss and the same entry's second half
+        // (`doc/questions/A978`).
+        let inline_smoothing_history = inline_smoothing.as_ref().ok().map(|unsmoothed| {
+            let citation = input
+                .failures()
+                .find(|judgement| judgement.id == super::inline_smoothing::SITE)
+                .map_or("", |judgement| judgement.citation.as_str());
+            super::inline_smoothing::history(unsmoothed, citation)
+        });
+        let smoothing_history = match (
+            wanted(Rewrite::InterpolationOff)
+                .then(|| super::smoothing::history(input))
+                .flatten(),
+            inline_smoothing_history,
+        ) {
+            (Some(images), Some(inline)) => Some(format!("{images}; {inline}")),
+            (images, inline) => images.or(inline),
+        };
         // The two press statements the archive cannot carry, a halftone's name and overprint mode
         // 1 over the DeviceCMYK marks it governed, are named in the same history with where each
         // was stated, a condition of the rewrite as smoothing's entry is of its own
@@ -1836,6 +1878,7 @@ impl Prepared {
             boundaries,
             actual_texts,
             type3_widths,
+            inline_smoothing,
             type3_glyphs,
             actions,
             forbidden_annotations,
@@ -1877,6 +1920,12 @@ impl Prepared {
         match rewrite {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
             Rewrite::InterpolationOff => self.smoothing_recorded.as_ref().err().copied(),
+            Rewrite::InlineInterpolationOff => self
+                .inline_smoothing
+                .as_ref()
+                .err()
+                .copied()
+                .or_else(|| self.smoothing_recorded.as_ref().err().copied()),
             Rewrite::FileHeader => self.header_recorded.as_ref().err().copied(),
             Rewrite::DestinationProfileReplaced => {
                 self.replaced_destination.as_ref().err().copied()
@@ -2521,7 +2570,8 @@ struct TrueTypeRoutes {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 14] = [
+const SURVEYED: [Rewrite; 15] = [
+    Rewrite::InlineInterpolationOff,
     Rewrite::Type3WidthRestated,
     Rewrite::Type3GlyphDescribed,
     Rewrite::PageResources,

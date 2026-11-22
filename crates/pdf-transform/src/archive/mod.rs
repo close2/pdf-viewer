@@ -161,6 +161,7 @@ mod header;
 mod hexadecimal;
 mod icc;
 mod in_place;
+mod inline_smoothing;
 mod jpeg2000;
 mod languages;
 mod larger_units;

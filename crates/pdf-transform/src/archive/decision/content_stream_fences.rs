@@ -103,11 +103,9 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/actual-text-covers-private-use-characters",
         Because::TheFence(ACTUAL_TEXT_IS_ON_THE_PAGE),
     ),
-    // The rules a content stream's own bytes fail, which this verb carries byte for byte.
-    (
-        "graphics/inline-image-interpolation-is-off",
-        Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
-    ),
+    // The rules a content stream's own bytes fail, which this verb carries byte for byte. An
+    // inline image's `/I` is not among them: `doc/questions/A978` answers it with
+    // `super::super::inline_smoothing`, a row of `colour_and_graphics::REMEDIES`.
     (
         "file-structure/inline-image-filters",
         Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
@@ -134,9 +132,10 @@ const ACTUAL_TEXT_IS_ON_THE_PAGE: &str = "an ActualText entry covers a span of a
 const CONTENT_STREAM_IS_THE_PRODUCERS: &str = "this requirement is failed by bytes inside a \
      content stream, which this verb carries from the source byte for byte. Meeting it means \
      editing the producer's page, and ADR 0816's fence is where that stops — \
-     doc/pdf-a-conversion-limits.md section 5.2. The one exception doc/questions/A50 grants is a \
-     closed list of operator spellings the standard itself documents as equivalent, applied only \
-     where a deprecation rule names one, and this is not that";
+     doc/pdf-a-conversion-limits.md section 5.2. The two exceptions are closed: doc/questions/A50's list \
+     of operator spellings the standard itself documents as equivalent, applied only where a \
+     deprecation rule names one, and doc/questions/A978's inline image /I written false under the \
+     loss image-smoothing — and this is neither";
 
 /// Why an unrecognised `ri` operand is not restated, where an `/RI` entry's answer differs.
 const RENDERING_INTENT_OPERAND: &str = "the rendering intent operator's operand names an intent \

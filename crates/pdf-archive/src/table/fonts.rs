@@ -1740,47 +1740,135 @@ fn font_programs_filed_by_their_format(exam: &Examination<'_>, findings: &mut Fi
         let Some(program) = document.decoded_stream_data(&stream) else {
             continue;
         };
-        let Some(rows) = table_124_rows(&dictionary, &program) else {
+        // A Type 1 program framed in PFB segment headers names no format until it is read
+        // unframed, and it is filed here only once it is (`crate::type1_sections`).
+        let sections = (key == "FontFile")
+            .then(|| crate::type1_sections(&program))
+            .flatten();
+        let sniffed = sections
+            .as_ref()
+            .filter(|sections| sections.framed)
+            .map_or(&program[..], |sections| &sections.program[..]);
+        let Some(rows) = table_124_rows(&dictionary, sniffed) else {
             continue;
         };
         let filed = |row: &Table124Row| row.key == key && row.subtype == stated.as_deref();
         let named = stated
             .as_deref()
             .map_or_else(String::new, |name| format!(" /{name}"));
-        match rows.first() {
-            _ if rows.iter().any(filed) => {}
-            None if program.starts_with(TRUETYPE_COLLECTION) => findings.record(
+        if !rows.iter().any(filed) {
+            misfiled(
                 place,
-                format!(
-                    "the font {}'s program, under {key}{named}, is a font collection holding \
-                     several fonts, which the base standard's table of embedded font programs \
-                     admits under no key: a TrueType font program is one font, as the TrueType \
-                     Reference Manual describes it",
-                    used.name
-                ),
-            ),
-            None => findings.record(
+                &used.name,
+                (key, &named),
+                &dictionary,
+                &rows,
+                &program,
+                findings,
+            );
+            continue;
+        }
+        // Filed where its format belongs, a Type 1 program is still the format Table 124 names
+        // only unframed and divided where its three lengths say (`crate::type1_sections`,
+        // `doc/adr/3375`).
+        if let Some(sections) = sections {
+            let place = Where::object(at).named(used.name.clone());
+            type1_portions_stated(
+                document,
+                &stream.dict,
+                &sections,
+                &used.name,
                 place,
-                format!(
-                    "the font {}'s program, under {key}{named}, is in a format no row of the base \
-                     standard's table of embedded font programs admits under a {dictionary} \
-                     dictionary",
-                    used.name
-                ),
-            ),
-            Some(row) => findings.record(
-                place,
-                format!(
-                    "the font {}'s program is under {key}{named}, and its bytes are the format the \
-                     base standard's table files under {}{} in a {dictionary} dictionary",
-                    used.name,
-                    row.key,
-                    row.subtype
-                        .map_or_else(String::new, |name| format!(" /{name}")),
-                ),
-            ),
+                findings,
+            );
         }
     }
+}
+
+/// What [`font_programs_filed_by_their_format`] says of a program filed where no row admits it.
+fn misfiled(
+    place: Where,
+    font: &str,
+    (key, named): (&str, &str),
+    dictionary: &str,
+    rows: &[Table124Row],
+    program: &[u8],
+    findings: &mut Findings,
+) {
+    match rows.first() {
+        None if program.starts_with(TRUETYPE_COLLECTION) => findings.record(
+            place,
+            format!(
+                "the font {font}'s program, under {key}{named}, is a font collection holding \
+                 several fonts, which the base standard's table of embedded font programs \
+                 admits under no key: a TrueType font program is one font, as the TrueType \
+                 Reference Manual describes it"
+            ),
+        ),
+        None => findings.record(
+            place,
+            format!(
+                "the font {font}'s program, under {key}{named}, is in a format no row of the base \
+                 standard's table of embedded font programs admits under a {dictionary} \
+                 dictionary"
+            ),
+        ),
+        Some(row) => findings.record(
+            place,
+            format!(
+                "the font {}'s program is under {key}{named}, and its bytes are the format the \
+                 base standard's table files under {}{} in a {dictionary} dictionary",
+                font,
+                row.key,
+                row.subtype
+                    .map_or_else(String::new, |name| format!(" /{name}")),
+            ),
+        ),
+    }
+}
+
+/// A Type 1 program filed under `/FontFile`, held to the format Table 124 files there: unframed,
+/// its encrypted portion binary, and its lengths dividing it where its portions meet
+/// (`crate::type1_sections`, `doc/adr/3375`).
+fn type1_portions_stated(
+    document: &Document,
+    dict: &Dictionary,
+    sections: &crate::Type1Sections,
+    font: &str,
+    place: Where,
+    findings: &mut Findings,
+) {
+    let stated = |name: &str| {
+        document
+            .get_key(dict, name)
+            .as_integer()
+            .and_then(|length| usize::try_from(length).ok())
+    };
+    let said = if sections.framed {
+        format!(
+            "the font {font}'s Type 1 program under FontFile is framed in PFB segment headers, \
+             which are no part of the Type 1 font format the base standard's table files there"
+        )
+    } else if sections.hexadecimal {
+        format!(
+            "the font {font}'s Type 1 program under FontFile writes its encrypted portion in \
+             ASCII hexadecimal, where the base standard supports only the binary form"
+        )
+    } else if !sections.stated_by(stated("Length1"), stated("Length2")) {
+        let spelled =
+            |name: &str| stated(name).map_or_else(|| "none".to_owned(), |n| n.to_string());
+        format!(
+            "the font {font}'s Type 1 program under FontFile states Length1 {} and Length2 {}, \
+             where its clear-text portion is {} bytes and its encrypted portion {}",
+            spelled("Length1"),
+            spelled("Length2"),
+            sections.clear,
+            sections.encrypted
+        )
+    } else {
+        return;
+    };
+    findings.record(place, said);
 }
 
 // --------------------------------------------------------------------------------------------
@@ -1833,7 +1921,10 @@ fn charset_names(bytes: &[u8]) -> Option<BTreeSet<String>> {
 /// - **A substituted font, or one `pdf-font` refuses.** The names would be this machine's.
 /// - **A font whose program is an sfnt.** It keys glyphs by index and has no charset to compare;
 ///   `/CharSet` is "meaningful only in Type 1 fonts" by Table 122's own words.
-/// - **A `/CharSet` this crate read no name out of.** See [`charset_names`].
+/// - **A `/CharSet` this crate read no name out of.** See [`charset_names`]. **A string of
+///   nothing but white space is not one of those**: it is written in the one form every reading
+///   agrees on, it lists no name, and so it omits every glyph the program has (`issue2462`'s
+///   `/CharSet ()`, `doc/adr/3374`).
 ///
 /// The direction of the comparison is one way on purpose: a name the program has and the string
 /// omits is the fault the clause names. A name the string has and the program does not is a
@@ -1853,7 +1944,16 @@ fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &m
         let Some(stated) = document
             .get_key(&descriptor, "CharSet")
             .as_string()
-            .and_then(charset_names)
+            .and_then(|bytes| {
+                if bytes
+                    .iter()
+                    .all(|byte| pdf_syntax::lexer::is_whitespace(*byte))
+                {
+                    Some(BTreeSet::new())
+                } else {
+                    charset_names(bytes)
+                }
+            })
         else {
             return;
         };

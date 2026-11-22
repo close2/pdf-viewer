@@ -1244,18 +1244,22 @@ ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · **built** (ADR 2498)
   `as-shown` the loss is real, because this viewer honours the hint (section 4.7 of
   `doc/pdf-a-conversion-limits.md`); under `as-if-printed` a print carried none of it. The loss can
   be authorised on the command line as `--authorise image-smoothing`.
-- **Departure** — **B**, and close to free; the inline form below is the one this converter cannot
-  reach.
+- **Departure** — **B**, and close to free; the inline form below is written inside the content
+  stream (ADR 3373).
 
 #### `graphics/inline-image-interpolation-is-off`
-ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · today `the-fence`
+ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · **built** under `as-shown` (A978, ADR 3373);
+under `as-if-printed` the page is photographed (ADR 2516)
 
-- **Mitigation** — **none.** The `/I` entry is inside the content stream.
-- **By target** — none.
-- **From a configuration** — nothing.
+- **Mitigation** — the `/I` (or `/Interpolate`) entry inside the inline image's `BI` dictionary is
+  written false, the owner's second closed content-stream exception beside `A50`; every other byte
+  of the stream, the samples included, is the producer's. The loss `image-smoothing` is named in
+  the report and in R02's `xmpMM:History` entry, which names the streams written.
+- **By target** — none; both parts state the rule.
+- **From a configuration** — the loss `image-smoothing`, which both shipped profiles authorise; a
+  stream another content-stream writer also rewrites keeps the refusal.
 - **Departure** — **B**, and close to free: interpolation is a rendering hint about smoothing a
-  low-resolution image, so a departed file differs from a conforming one only in how smoothly one
-  image is scaled. Not narrowable.
+  low-resolution image. Not narrowable.
 
 #### `graphics/no-reference-xobjects`
 ISO 19005-2 6.2.9.2, ISO 19005-4 6.2.8.2 · all six · **built** as `preserve` (ADR 1285)
@@ -1535,7 +1539,12 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   result the proof finds drawn differently.
 
 #### `fonts/font-programs-filed-by-their-format`
-ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADRs 2307, 3078, 3089)
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADRs 2307, 3078, 3089, 3375)
+
+- **A Type 1 program under `/FontFile`** framed in PFB segment headers, with its encrypted portion
+  in ASCII hexadecimal (§9.9's NOTE 2: PDF supports only the binary form), or with a `/Length1` or
+  `/Length2` that does not divide it where its portions meet, is written whole: unframed, in binary,
+  with the three lengths measured (`pdf_archive::type1_sections`, ADR 3375). Losing nothing.
 
 - **Mitigation** — the clause's "as defined in" section 9.9 files each program's format under a key
   (ISO 32000-2 Table 124) and a `/FontFile3` under a name (Table 125), by the font's dictionary. A

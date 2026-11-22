@@ -86,7 +86,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_archive::{Outcome, Table124Row};
 use pdf_font::embedding::Keying;
 use pdf_syntax::Document;
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
 use super::decision::Because;
 use super::prepare::Spare;
@@ -321,9 +321,15 @@ pub(super) fn refiled(
         let Object::Stream(stream) = document.get(id) else {
             return Err(Because::NotBuiltYet(NO_DICTIONARY));
         };
-        let program = document
+        let decoded = document
             .decoded_stream_data(&stream)
             .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+        // A Type 1 program framed in PFB segment headers is read for its row unframed, as the
+        // validator reads it (`pdf_archive::type1_sections`, `doc/adr/3375`).
+        let unframed = pdf_archive::type1_sections(&decoded)
+            .filter(|sections| sections.framed)
+            .map(|sections| sections.program);
+        let program: &[u8] = unframed.as_deref().unwrap_or(&decoded);
         let naming = holders
             .get(&id)
             .filter(|naming| !naming.is_empty())
@@ -331,15 +337,15 @@ pub(super) fn refiled(
         // A collection is filed as the face written out of it, so the row is that face's; a Type
         // 1 program under a `CIDFontType0` as the CID-keyed CFF written from it (ADR 3173).
         let face = if program.starts_with(b"ttcf") {
-            Some(face_of(naming, &program)?)
+            Some(face_of(naming, program)?)
         } else if program.starts_with(TYPE1)
             && naming.iter().any(|holder| holder.subtype == "CIDFontType0")
         {
-            Some(as_cid_keyed(document, naming, &program, &mut out)?)
+            Some(as_cid_keyed(document, naming, program, &mut out)?)
         } else {
             None
         };
-        let program = face.as_deref().unwrap_or(&program);
+        let program = face.as_deref().unwrap_or(program);
         // One program under two dictionaries is one stream, so every dictionary naming it has to
         // be given the same filing.
         let mut chosen: Option<Table124Row> = None;
@@ -384,10 +390,67 @@ pub(super) fn refiled(
                     super::fonts::program_stream(Some(&dict), face, row.key == "FontFile2")
                         .ok_or(Because::NotBuiltYet(A_COLLECTION))?;
                 out.faces.insert(id, written);
+            } else if row.key == "FontFile"
+                && let Some(sections) = pdf_archive::type1_sections(&decoded)
+                && (sections.framed
+                    || sections.hexadecimal
+                    || !states_its_sections(document, &stream.dict, &sections))
+            {
+                out.faces.insert(id, measured(&stream, &sections)?);
             }
         }
     }
     Ok(out)
+}
+
+/// Why a Type 1 program whose portions are restated cannot be written back.
+const MEASURED_WILL_NOT_ENCODE: &str = "a Type 1 font program whose PFB segment headers are \
+     removed, whose hexadecimal encrypted portion is written in binary, or whose three lengths are \
+     restated, cannot be written back: it will not re-encode, \
+     or its /DecodeParms names another object that discarding the parameters would orphan";
+
+/// Whether a `/FontFile` stream's `/Length1` and `/Length2` divide its program where the portions
+/// meet, the validator's own reading (`pdf_archive::Type1Sections::stated_by`).
+fn states_its_sections(
+    document: &Document,
+    dict: &Dictionary,
+    sections: &pdf_archive::Type1Sections,
+) -> bool {
+    let stated = |name: &str| {
+        document
+            .get_key(dict, name)
+            .as_integer()
+            .and_then(|length| usize::try_from(length).ok())
+    };
+    sections.stated_by(stated("Length1"), stated("Length2"))
+}
+
+/// A Type 1 program written as Table 124 files it under `/FontFile`: PFB's segment headers
+/// removed, a hexadecimal encrypted portion written as the binary it encodes, and `/Length1`, `/Length2` and `/Length3` stating where its portions meet
+/// (`doc/adr/3375`).
+///
+/// Every byte of the program is the producer's and this reader already read it so, framing
+/// skipped (`pdf_font::type1`), so no glyph changes; what is written new is the framing PDF does
+/// not carry and the three lengths Table 125 asks for.
+fn measured(stream: &Stream, sections: &pdf_archive::Type1Sections) -> Result<Object, Because> {
+    let mut dict = stream.dict.clone();
+    for (name, length) in [
+        ("Length1", sections.clear),
+        ("Length2", sections.encrypted),
+        ("Length3", sections.fixed),
+    ] {
+        dict.insert(
+            Name::new(name.as_bytes()),
+            Object::Integer(i64::try_from(length).unwrap_or(i64::MAX)),
+        );
+    }
+    let restated = Stream {
+        dict,
+        data: stream.data.clone(),
+        decryption_failed: false,
+    };
+    super::hexadecimal::repaired(&restated, &sections.program)
+        .ok_or(Because::NotBuiltYet(MEASURED_WILL_NOT_ENCODE))
 }
 
 /// How a Type 1 program's clear-text portion opens (Adobe Type 1 Font Format section 2.4), the
