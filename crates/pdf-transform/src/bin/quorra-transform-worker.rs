@@ -8,7 +8,8 @@
 //!
 //! # Order matters here more than anywhere else in the suite
 //!
-//! Lockdown comes first, before a single argument is read. A worker that took its arguments and
+//! The descriptors it inherited past the standard three are closed first, then the lockdown,
+//! both before a single argument is read. A worker that took its arguments and
 //! *then* confined itself would already have done everything a subverted parser needs to do
 //! nothing about; the arguments are the person's, but the order is the rule (`pdf-vfs`'s worker
 //! states it the same way).
@@ -43,6 +44,21 @@ mod program;
 const RASTERISING_STACK: usize = 2 << 20;
 
 fn main() -> std::process::ExitCode {
+    if let Err(error) = inherited_descriptors::keep_only_the_standard_descriptors() {
+        // Before the confinement, which would otherwise hold whatever was leaked to it: the
+        // broker's own inheritable descriptors pass through its spawn to this process (ADR 3378).
+        #[expect(
+            clippy::print_stderr,
+            reason = "a confined worker's own failure, before its broker has a greeting to read"
+        )]
+        {
+            eprintln!(
+                "{}: cannot close the descriptors it inherited: {error}",
+                pdf_transform::confined::WORKER_PROGRAM
+            );
+        }
+        return std::process::ExitCode::from(2);
+    }
     match worker() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

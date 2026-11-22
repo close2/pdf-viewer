@@ -35,6 +35,7 @@
 
 use std::fmt::Write as _;
 
+use pdf_model::content::StreamSyntaxFault;
 use pdf_render::{BlendMode, Command};
 use pdf_syntax::Document;
 
@@ -649,4 +650,68 @@ fn a_text_knockout_set_inside_a_text_object_is_ignored() {
         !draws_knockout("/Half gs /NoKnock gs BT /F1 24 Tf 10 50 Td (A) Tj -8 0 Td (A) Tj ET"),
         "the same dictionary outside the text object does"
     );
+}
+
+/// ISO 32000-2 Table 106: `TD` "shall have the same effect as this code: - t y TL t x t y Td".
+///
+/// A `tx` that is not a number leaves the `Td` with no position to move to, and the `TL` before it
+/// with the `ty` it needs: the leading is set and the line is not moved, and the page says the
+/// operand was not a number (ADR 3379). `T*` then moves one leading down from where the line
+/// still is.
+#[test]
+fn a_td_with_a_wrong_tx_still_sets_the_leading_from_its_ty() {
+    let content = "BT /F1 10 Tf 0 50 Td (A) Tj (x) -12 TD (A) Tj T* (A) Tj ET";
+    let lines = placements(content);
+    assert_eq!(lines.len(), 3, "three glyphs: {lines:?}");
+    assert!(
+        (lines[1].1 - 50.0).abs() < 0.01 && (lines[2].1 - 38.0).abs() < 0.01,
+        "the TD moved nothing and set a leading of 12: {lines:?}"
+    );
+    let reported = interpret(content).unsupported.iter().any(|report| {
+        report.stream_syntax_fault() == Some(StreamSyntaxFault::TextOperandNotANumber)
+    });
+    assert!(reported, "the operand that is not a number is said");
+}
+
+/// ISO 32000-2 Table 107: `"` "shall have the same effect as this code: a w Tw a c Tc string '",
+/// and `aw` and `ac` "shall be numbers". An `aw` of another type is a `Tw` given one, which keeps
+/// the word spacing in force (ADR 3355); the `ac` beside it still sets the character spacing, and
+/// the string is shown (ADR 3379).
+#[test]
+fn a_quote_with_a_wrong_aw_keeps_the_word_spacing_and_sets_the_character_spacing() {
+    let wrong = "BT /F1 10 Tf 7 Tw 12 TL 0 62 Td (x) 5 ( A) \" ET";
+    let stated = "BT /F1 10 Tf 7 Tw 12 TL 0 62 Td 7 5 ( A) \" ET";
+    assert_eq!(placements(wrong), placements(stated));
+    let changed = placements("BT /F1 10 Tf 7 Tw 12 TL 0 62 Td 0 5 ( A) \" ET");
+    assert_ne!(
+        placements(stated),
+        changed,
+        "control: the word spacing reaches the glyph after the space"
+    );
+    let faults: Vec<_> = interpret(wrong)
+        .unsupported
+        .iter()
+        .filter_map(pdf_model::Unsupported::stream_syntax_fault)
+        .collect();
+    assert_eq!(faults, vec![StreamSyntaxFault::TextOperandNotANumber]);
+}
+
+/// ISO 32000-2 §7.3.6 sets an array no length and Annex C's "Size of arrays" names no figure, so
+/// a valid `TJ` array of ten thousand elements draws every string in it and reaches no bound
+/// (ADR 3380). Each adjustment takes back the advance of the `A` before it — Helvetica's 667 —
+/// so every glyph stays on the page.
+#[test]
+fn a_tj_of_ten_thousand_elements_draws_whole() {
+    let mut array = String::new();
+    for _ in 0..5_000 {
+        array.push_str("(A) 667 ");
+    }
+    let content = format!("BT /F1 10 Tf 10 50 Td [{array}] TJ ET");
+    assert_eq!(placements(&content).len(), 5_000, "one glyph per string");
+    let limits: Vec<_> = interpret(&content)
+        .unsupported
+        .into_iter()
+        .filter(|report| matches!(report, pdf_model::Unsupported::LimitReached { .. }))
+        .collect();
+    assert_eq!(limits, vec![], "no bound is reached");
 }

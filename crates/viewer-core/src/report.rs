@@ -16,9 +16,15 @@ use pdf_model::Unsupported;
 /// The sentence for a content stream drawn as far as it decoded: the bytes on the page are the
 /// producer's own and what is missing is everything past the damage (§7.8.2, ADR 0359) — or, where
 /// the filter reached its end-of-data, nothing is missing and the error is over what was drawn
-/// (ADRs 0836, 2438).
+/// (ADRs 0836, 2438) — or, for deflate data without its zlib wrapper, nothing is missing and no
+/// byte is in doubt, only the framing §7.4.4.1 names (ADR 3290).
 fn damaged_content_stream(stream: &pdf_model::content::DamagedStream) -> String {
-    if stream.damage.stops_short() {
+    if matches!(stream.damage, pdf_syntax::Damage::Unframed) {
+        format!(
+            "{} decoded whole, {} byte(s), as deflate data without the zlib header and checksum              §7.4.4.1 asks it to carry; what is on the page is every byte the data holds",
+            stream.detail, stream.kept
+        )
+    } else if stream.damage.stops_short() {
         format!(
             "{} decoded only {} byte(s) before it was {:?}, and the rest of it is not on the page",
             stream.detail, stream.kept, stream.damage
@@ -199,4 +205,35 @@ fn colour_operands(stroking: bool, given: usize, takes: usize) -> String {
         "a {which} colour was given {given} operand(s) where its colour space takes {takes}, so \
          the colour in force was kept (§8.6.8)"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::damaged_content_stream;
+    use pdf_model::content::DamagedStream;
+    use pdf_syntax::Damage;
+
+    fn stream(damage: Damage) -> DamagedStream {
+        DamagedStream {
+            detail: String::from("content stream 1 of page 1"),
+            damage,
+            kept: 120,
+        }
+    }
+
+    /// ADR 3290: an unframed stream's bytes are not in doubt, so its sentence says what is
+    /// missing — the wrapper — in words, never the variant's Debug name, and never the "may not
+    /// be what the producer wrote" another whole decode's error earns.
+    #[test]
+    fn an_unframed_stream_has_a_sentence_of_its_own() {
+        let unframed = damaged_content_stream(&stream(Damage::Unframed));
+        assert!(!unframed.contains("Unframed"), "{unframed}");
+        assert!(unframed.contains("without the zlib header"), "{unframed}");
+        assert!(!unframed.contains("may not be"), "{unframed}");
+        let checked = damaged_content_stream(&stream(Damage::CheckValue));
+        assert!(
+            checked.contains("may not be what the producer wrote"),
+            "{checked}"
+        );
+    }
 }

@@ -1313,8 +1313,8 @@ RFC 0002 §12's perf floor and its inventories held to the document's own struct
 walk per writer beside it, each holding every surviving page to its source page, which `doc/todo/02`
 §2's `pdf-transform` row names (ADRs 0800, 0801, 0802, 0804, 0816, 0817, 0818, 0821, 0830).
 **The document is parsed in a confined worker**: `quorra-transform` starts
-`quorra-transform-worker`, which confines itself under seccomp-BPF and Landlock before it reads an
-argument and runs the same program over a world its broker answers — each named file, document,
+`quorra-transform-worker`, which closes what it inherited (ADR 3378) and confines itself under
+seccomp-BPF and Landlock before it reads an argument and runs the same program over a world its broker answers — each named file, document,
 descriptor and output given only where the person's command line names it — and `--in-process` is
 the fallback, said aloud (ADRs 2140, 2141).
 `doc/todo/57` is what the suite still owes.
@@ -1343,8 +1343,8 @@ own (ADR 0861); and `kio/`'s C++ worker serves `pdf:/` to Dolphin and every KIO-
 §7.5.6 consequence as a non-modal warning, and putting a restriction's question through
 `quorra_vfs_consult` and `quorra_vfs_answer` (ADRs 0868, 0869, 0874, 0875) — driven by a KIO client
 with no desktop session and by no Dolphin, so the dialogue itself is driven by nothing. **And a
-confined worker is under all of it** (ADRs 0846, 0847): `pdf-vfs-worker` confines itself before it
-reads a byte, takes the document as a descriptor, answers question for question what the in-process
+confined worker is under all of it** (ADRs 0846, 0847): `pdf-vfs-worker` closes what it inherited and
+confines itself before it reads a byte, takes the document as a descriptor, answers question for question what the in-process
 one answers, and is *killed* for asking the filesystem anything; `confined-transport` is the wire
 under it, as it is under `pdf-view-worker` and `pdf-script-worker`.
 

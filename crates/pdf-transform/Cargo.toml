@@ -35,6 +35,10 @@ repository.workspace = true
 # broker over `confined-transport`'s wire and confines itself with `pdf-sandbox`'s lockdown (named
 # below), the two crates `pdf-vfs`'s worker already stands on.
 confined-transport.workspace = true
+# The first statement of the worker this crate builds closes the descriptors it inherited; the
+# close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361,
+# 3378).
+inherited-descriptors.workspace = true
 pdf-archive.workspace = true
 pdf-font.workspace = true
 pdf-model.workspace = true

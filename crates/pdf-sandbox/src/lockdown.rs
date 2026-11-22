@@ -305,10 +305,12 @@ pub(crate) fn apply_for_decoder_within(address_space: u64) -> Result<Confinement
     {
         crate::lockdown_linux::apply(Profile::Decoder, Some(address_space))
     }
+    // Off Linux there is no ceiling to install, so the decoder's confinement is the
+    // profile's own, and the answer is `apply_for`'s rather than a second copy of it.
     #[cfg(not(target_os = "linux"))]
     {
         let _ = address_space;
-        Ok(Confinement::NONE)
+        apply_for(Profile::Decoder)
     }
 }
 

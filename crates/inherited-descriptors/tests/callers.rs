@@ -15,12 +15,14 @@
 use std::path::{Path, PathBuf};
 
 /// The helpers that close what they inherited, each started with exactly standard input, output and
-/// error: the image decoder, the confined viewer, the script engine, the media decoder and the sound
-/// helper.
-const CALLERS: [&str; 5] = [
+/// error: the image decoder, the confined viewer, the script engine, the media decoder, the sound
+/// helper, the transform suite's worker and the document-as-a-directory generator (ADR 3378).
+const CALLERS: [&str; 7] = [
     "pdf-media-worker/src/bin/pdf-media-worker.rs",
     "pdf-sandbox/src/bin/pdf-sandbox-worker.rs",
     "pdf-script-worker/src/bin/pdf-script-worker.rs",
+    "pdf-transform/src/bin/quorra-transform-worker.rs",
+    "pdf-vfs/src/bin/pdf-vfs-worker.rs",
     "quorra-sound/src/bin/quorra-sound.rs",
     "viewer-confined/src/bin/pdf-view-worker.rs",
 ];
@@ -124,7 +126,7 @@ fn every_caller_is_a_helper_whose_main_calls_it_first() {
         .collect();
     assert_eq!(
         naming, CALLERS,
-        "the sources that name the crate are the five helpers' programs, and a new caller is a new \
+        "the sources that name the crate are the seven helpers' programs, and a new caller is a new \
          helper to name here (ADR 3361)"
     );
     for path in CALLERS {

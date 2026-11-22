@@ -271,4 +271,25 @@ fn a_text_objects_faults_are_faults_of_the_stream() {
             "{wrong}"
         );
     }
+    // Tables 106 and 107 (ADR 3379): a positioning operand, or `"`'s spacing, not a number.
+    for wrong in [
+        "(x) 0 Td",
+        "0 /y TD",
+        "1 0 0 1 (e) 0 Tm",
+        "(aw) 0 (A) \"",
+        "0 /ac (A) \"",
+    ] {
+        assert_eq!(
+            faults(&format!("BT /F1 10 Tf {wrong} ET")),
+            vec![StreamSyntaxFault::TextOperandNotANumber],
+            "{wrong}"
+        );
+    }
+    for right in ["1 2 Td", "1 2 TD", "1 0 0 1 5 5 Tm", "1 2 (A) \""] {
+        assert_eq!(
+            faults(&format!("BT /F1 10 Tf {right} ET")),
+            vec![],
+            "control: {right}"
+        );
+    }
 }

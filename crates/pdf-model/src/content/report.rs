@@ -562,6 +562,16 @@ pub(super) const ELEMENT_NEITHER_STRING_NOR_NUMBER: &str =
 pub(super) const TEXT_STATE_OPERAND_TYPE: &str =
     " with an operand of a type Table 103 does not give it";
 
+/// What follows `Td`, `TD` or `Tm` in the sentence an [`Unsupported::Operator`] carries for an
+/// operand that is not one of the numbers Table 106 gives it.
+pub(super) const POSITIONING_OPERAND_NOT_A_NUMBER: &str =
+    " with an operand that is not a number, which Table 106 requires";
+
+/// What follows `"` in the sentence an [`Unsupported::Operator`] carries for an `aw` or `ac` that
+/// is not the number Table 107 gives it.
+pub(super) const SPACING_OPERAND_NOT_A_NUMBER: &str =
+    " with a spacing operand that is not a number, which Table 107 requires";
+
 /// What follows the keyword in the sentence an [`Unsupported::Operator`] carries for a keyword
 /// inside an array.
 pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits only objects into";
@@ -610,6 +620,11 @@ pub enum StreamSyntaxFault {
     /// A text state operator's operand of a type ISO 32000-2 Table 103 does not give it; the
     /// parameter is kept, except `Tf`'s, which are left unset (ADR 3355).
     TextStateOperandOfTheWrongType,
+    /// A `Td`, `TD` or `Tm` operand, or a `"`'s `aw` or `ac`, that is not the number ISO 32000-2
+    /// Table 106 or Table 107 states. What the operator's stated equivalent can still do is done:
+    /// `TD` sets the leading from a numeric `ty`, `"` sets whichever spacing is a number and shows
+    /// its string; the position does not move (ADR 3379).
+    TextOperandNotANumber,
 }
 
 impl Unsupported {
@@ -667,6 +682,12 @@ impl Unsupported {
             Some("Tc" | "Tw" | "Tz" | "TL" | "Tf" | "Tr" | "Ts")
         ) {
             Some(StreamSyntaxFault::TextStateOperandOfTheWrongType)
+        } else if matches!(
+            operator.strip_suffix(POSITIONING_OPERAND_NOT_A_NUMBER),
+            Some("Td" | "TD" | "Tm")
+        ) || operator.strip_suffix(SPACING_OPERAND_NOT_A_NUMBER) == Some("\"")
+        {
+            Some(StreamSyntaxFault::TextOperandNotANumber)
         } else {
             None
         }

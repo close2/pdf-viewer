@@ -4230,6 +4230,7 @@ name = "pdf-transform"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "inherited-descriptors",
  "kurbo",
  "pdf-archive",
  "pdf-font",
@@ -4256,6 +4257,7 @@ version = "0.1.0"
 dependencies = [
  "confined-transport",
  "corpus-classes",
+ "inherited-descriptors",
  "libc",
  "pdf-font",
  "pdf-model",

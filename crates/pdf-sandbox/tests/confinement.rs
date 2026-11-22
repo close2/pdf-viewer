@@ -26,11 +26,19 @@
 #![expect(
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
-    clippy::trivially_copy_pass_by_ref,
-    clippy::unwrap_used,
     reason = "test code walking a 52x66 fixture whose every index is bounded by the \
-              dimensions asserted two lines above it; `unwrap` in a helper called only \
-              from tests should fail as loudly as it does inside one"
+              dimensions asserted two lines above it"
+)]
+// The helpers that take a copy type by reference and unwrap are the Linux tests' alone, so off
+// Linux the expectation would go unfulfilled and fail the build (ADR 3377).
+#![cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::trivially_copy_pass_by_ref,
+        clippy::unwrap_used,
+        reason = "`unwrap` in a helper called only from tests should fail as loudly as it does \
+                  inside one"
+    )
 )]
 
 use std::time::Duration;

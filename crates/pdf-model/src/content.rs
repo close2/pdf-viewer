@@ -98,14 +98,20 @@ pub use report::{
 /// than moving to admit one file. ADR 0271, `tests/hostile_budgets.rs`.
 const MAX_STATE_DEPTH: usize = 256;
 
-/// Most operands one operator may take before the rest are refused.
+/// Most objects the operands before one operator may hold, an array's elements each counted,
+/// before the rest are refused.
 ///
-/// Every operator in the specification takes at most six operands except `TJ` and `d`,
-/// which take arrays. A `TJ` array holds one entry per text run and one per kerning
-/// adjustment between them, so a single justified line of text routinely runs to several
-/// hundred entries — a bound of 64 silently cut real sentences in half. This is set well
-/// above any legitimate line while still bounding what one operator can allocate.
-const MAX_OPERANDS: usize = 8192;
+/// Every operator in the specification takes at most six operands except `TJ` and `d`, which
+/// take arrays, and the lexer keeps an array's elements as the objects they are. §7.3.6 sets an
+/// array no length, and Annex C's "Size of arrays" row is informative and names no figure, so a
+/// `TJ` array — one element per text run and one per adjustment between them — is as long as its
+/// producer wrote it: a whole paragraph set as one array runs past ten thousand.
+///
+/// **The bound counts objects, not operands, because objects are what a hostile stream makes an
+/// operator allocate**: an array counted as one operand would need a second bound on its
+/// elements, which would be this one. 65 536 objects are a few megabytes, and it is also how far
+/// an array a damaged stream never closed is believed (ADRs 3267, 3380).
+const MAX_OPERANDS: usize = 1 << 16;
 
 /// Deepest nesting of content streams — of every kind §7.8.2 names, not only forms.
 ///

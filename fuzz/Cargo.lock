@@ -1946,6 +1946,7 @@ name = "pdf-transform"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "inherited-descriptors",
  "kurbo",
  "pdf-archive",
  "pdf-font",
@@ -1969,6 +1970,7 @@ name = "pdf-vfs"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "inherited-descriptors",
  "pdf-font",
  "pdf-model",
  "pdf-sandbox",

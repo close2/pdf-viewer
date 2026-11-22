@@ -12,7 +12,8 @@ use crate::content::font::Font;
 use crate::content::reader::Operator;
 use crate::content::report::{
     ELEMENT_NEITHER_STRING_NOR_NUMBER, OUTSIDE_A_TEXT_OBJECT, OUTSIDE_ITS_ARRAY,
-    TEXT_OBJECT_NESTED, TEXT_STATE_OPERAND_TYPE, Unsupported,
+    POSITIONING_OPERAND_NOT_A_NUMBER, SPACING_OPERAND_NOT_A_NUMBER, TEXT_OBJECT_NESTED,
+    TEXT_STATE_OPERAND_TYPE, Unsupported,
 };
 use crate::content::text::TextObject;
 use crate::content::{GraphicsState, Interpreter};
@@ -239,6 +240,17 @@ impl Interpreter<'_> {
         if !*in_text {
             self.note_outside_a_text_object(operator);
         }
+        // Table 106 gives `Td` and `TD` two numbers and `Tm` six ("[t]he operands shall all be
+        // numbers"). One present and of another type states no position, so the matrices stay
+        // where they are and the page says so (ADR 3379); one absent the loop said as a shortfall.
+        let stated = match operator {
+            Operator::MoveText | Operator::MoveTextSetLeading => 2,
+            Operator::TextMatrix => 6,
+            _ => 0,
+        };
+        if any_not_a_number(operands, stated) {
+            self.note_operand_not_a_number(operator, POSITIONING_OPERAND_NOT_A_NUMBER);
+        }
         match operator {
             Operator::MoveText => {
                 if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
@@ -247,9 +259,13 @@ impl Interpreter<'_> {
                 }
             }
             Operator::MoveTextSetLeading => {
-                if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                    // `TD` is `Td` with the side effect of setting the leading.
+                // Table 106: `TD` "shall have the same effect as this code: - t y TL t x t y Td",
+                // so a numeric `ty` sets the leading whatever `tx` is, and only the move needs both.
+                let y = number_at(operands, 1);
+                if let Some(y) = y {
                     state.text.leading = -y;
+                }
+                if let (Some(x), Some(y)) = (number_at(operands, 0), y) {
                     text_object.line = Transform::translate(x, y).then(text_object.line);
                     text_object.matrix = text_object.line;
                 }
@@ -351,7 +367,12 @@ impl Interpreter<'_> {
                 }
             }
             Operator::NextLineShowTextSpaced => {
-                // `aw ac string "` sets word and character spacing, then shows.
+                // Table 107: `"` "shall have the same effect as this code: a w Tw a c Tc string '",
+                // and `aw` and `ac` "shall be numbers". One of another type is `Tw` or `Tc` given
+                // one, so that spacing keeps its value as ADR 3355 has it, and is said (ADR 3379).
+                if any_not_a_number(operands, 2) {
+                    self.note_operand_not_a_number(operator, SPACING_OPERAND_NOT_A_NUMBER);
+                }
                 if let Some(word) = number_at(operands, 0) {
                     state.text.word_spacing = word;
                 }
@@ -370,6 +391,14 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Reports a text-positioning operator, or `"`, given an operand its table states as a number
+    /// and the file gave as something else; `sentence` names the table.
+    fn note_operand_not_a_number(&mut self, operator: Operator, sentence: &str) {
+        self.note(Unsupported::Operator {
+            operator: format!("{}{sentence}", String::from_utf8_lossy(operator.name())),
+        });
+    }
+
     /// Reports a text-positioning or text-showing operator met with no text object open.
     fn note_outside_a_text_object(&mut self, operator: Operator) {
         self.note(Unsupported::Operator {
@@ -379,4 +408,13 @@ impl Interpreter<'_> {
             ),
         });
     }
+}
+
+/// Whether any of the first `stated` operands is present and not a number. An operand short of
+/// `stated` is not judged here: the loop reports a shortfall itself.
+fn any_not_a_number(operands: &[Object], stated: usize) -> bool {
+    operands
+        .iter()
+        .take(stated)
+        .any(|operand| operand.as_number().is_none())
 }

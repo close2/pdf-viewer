@@ -6,10 +6,18 @@
 //!
 //! This program exists as a separate executable rather than as a flag on a face so that the
 //! reading path cannot be reached in-process by accident. Everything it links is reachable only
-//! from a `main` whose first statements give away the ability to do anything but read a document
+//! from a `main` whose first statements close what it inherited and give away the ability to do anything but read a document
 //! it was handed and derive files from it.
 
+#![forbid(unsafe_code)]
+
 fn main() -> std::process::ExitCode {
+    if let Err(error) = inherited_descriptors::keep_only_the_standard_descriptors() {
+        // Before the confinement, which would otherwise hold whatever was leaked to it: a host
+        // that loads the vfs library beside GLib hands its spawn GLib's pipes (ADRs 1907, 3378).
+        eprintln!("pdf-vfs-worker: cannot close the descriptors it inherited: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
     match pdf_vfs::serve() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

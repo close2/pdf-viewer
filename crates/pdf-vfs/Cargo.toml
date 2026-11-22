@@ -26,6 +26,10 @@ repository.workspace = true
 # (ADR 0846). `rayon` for the same reason `viewer-confined` takes it: the confined process must
 # *state* how many threads to rasterise with, because asking the machine reads `/proc/self/cgroup`.
 confined-transport.workspace = true
+# The first statement of the worker this crate builds closes the descriptors it inherited; the
+# close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361,
+# 3378).
+inherited-descriptors.workspace = true
 # A confined process may not read the machine's font files, and has to say so before the
 # confinement rather than discover it afterwards: `openat` is off the seccomp allow-list, whose
 # action is a kill, so the substitution walk over `/usr/share/fonts` is fatal rather than empty
