@@ -17,8 +17,9 @@
 //!   descriptor, one thread, no executable memory, an address-space ceiling sized against one
 //!   request — says what the kernel granted, and answers each request with [`sound::decode`].
 //!
-//! [`wire`] is what crosses between them, and [`sound`] is the decoder: the only code here that
-//! reads a byte the document wrote, run only in the worker and by the fuzz target.
+//! [`wire`] is what crosses between them; [`sound`] is the decoder, and [`wave`] and [`mp4`] find a
+//! file's samples. Those three are the only code here that reads a byte the document wrote, run
+//! only in the worker and by the fuzz targets.
 //!
 //! # Why not inside `pdf-view-worker`
 //!
@@ -30,6 +31,7 @@
 #![forbid(unsafe_code)]
 
 mod client;
+pub mod mp4;
 pub mod sound;
 pub mod wave;
 pub mod wire;

@@ -162,6 +162,8 @@ seed() {
     script) python3 "$here/seed_script.py" "$root/$t" > /dev/null ;;
     # One request of every encoding and width §13.3 names, built rather than taken from a document.
     media_sound) python3 "$here/seed_media_sound.py" "$root/$t" > /dev/null ;;
+    # An MP4 file's sound track in each table form 14496-12 gives, built rather than fetched.
+    media_mp4) python3 "$here/seed_media_mp4.py" "$root/$t" > /dev/null ;;
     # The script worker's wire both ways, written by the encoders the host and the worker use.
     script_wire)
         (cd "$tree" && cargo build -q -p pdf-script-worker --example wire_seeds)

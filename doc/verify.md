@@ -984,6 +984,10 @@ cd fuzz && cargo +nightly fuzz run media_sound -- -max_total_time=600   # the me
   # confined worker does, and a reply as the unconfined host reads it. The decoder answers exactly
   # the samples the request's bytes hold, and what the worker encodes the host reads back the same.
   # Seeded by `fuzz/seed_media_sound.py`, every encoding and width §13.3 names.
+cd fuzz && cargo +nightly fuzz run media_mp4 -- -max_total_time=600   # the media worker's MP4
+  # reader (ADR 3369): an MP4 file's sound track found by ISO/IEC 14496-12's boxes, every access
+  # unit inside the file, at most `MAX_ACCESS_UNITS` of them and a bounded decoder configuration.
+  # Seeded by `fuzz/seed_media_mp4.py`, one built file per table form.
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field
