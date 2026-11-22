@@ -8007,8 +8007,9 @@ fn a_supplied_media_type_is_written_on_the_operators_authority_and_said_to_be() 
     // ISO 19005-4 section 6.9, by way of §14.13.2, asks an associated file's stream for a
     // `/Subtype` that is a MIME media type, and nothing in a file specification states one — an
     // extension is a convention rather than a declaration. `doc/pdf-a-mitigations.md` section 0.2's
-    // `supply` is the operator saying what their own attachments are, and section 5b.1's obligation
-    // is that the report and the file both record that the value is theirs.
+    // `supply` is the operator saying what their own attachments are, which outranks §14.13.2's
+    // value for a type nobody stated, and section 5b.1's obligation is that the report and the
+    // file both record that the value is theirs.
     let target = Target::Four(Flavour::F);
     let text = "[site.\"embedded-files/associated-file-media-type\"]\nremedy = \"supply\"\n\
                 media-types = { \".csv\" = \"text/csv\" }\nunlisted = \"stop\"\n";
@@ -8061,6 +8062,54 @@ fn a_supplied_table_that_does_not_name_the_extension_leaves_the_requirement_refu
             Decision::Refused(_)
         ),
         "and the requirement keeps the sentence it carries"
+    );
+}
+
+#[test]
+fn an_associated_file_stating_no_media_type_states_the_one_the_clause_names_for_an_unknown_type() {
+    // ISO 32000-2 §14.13.2: "If the MIME type is not known, the value " application/octet-stream "
+    // shall be used." This converter does not read an attachment to learn its type, so with no
+    // configuration that value answers ISO 19005-4 section 6.9, losing nothing (ADR 3357).
+    let target = Target::Four(Flavour::F);
+    let source = a_part_four_document_with_an_attachment(None);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, "embedded-files/associated-file-media-type"),
+        Decision::Mechanical(Rewrite::AssociatedFileMediaType)
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = held.catalog().expect("a catalog");
+    let associated = held.get_key(&catalog, "AF");
+    let specification = held.resolve(&associated.as_array().expect("the AF array")[0]);
+    let files = held.get_key(specification.as_dict().expect("a specification"), "EF");
+    let stream = held.get_key(files.as_dict().expect("its EF"), "F");
+    let stream = stream.as_stream().expect("the embedded file stream");
+    assert_eq!(
+        held.get_key(&stream.dict, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"application/octet-stream".to_vec())
+    );
+}
+
+#[test]
+fn an_associated_file_stating_a_subtype_that_is_no_media_type_keeps_the_requirement_refused() {
+    // The producer wrote something there, and §14.13.2's value is for a type nobody stated:
+    // writing it over `/Subtype /csv` would decide that what the producer wrote meant nothing.
+    let target = Target::Four(Flavour::F);
+    let source = a_part_four_document_with_an_attachment(Some("csv"));
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "no file is written");
+    assert!(
+        matches!(
+            decision(&report, "embedded-files/associated-file-media-type"),
+            Decision::Refused(Because::NotBuiltYet(why))
+                if why.contains("meant nothing")
+        ),
+        "{:?}",
+        decision(&report, "embedded-files/associated-file-media-type")
     );
 }
 
@@ -10091,6 +10140,49 @@ fn a_remaining_annotation_over_the_marks_sends_them_to_an_appended_page() {
         declined.contains("remaining, unhidden annotation"),
         "and names the overlap as the reason: {declined}"
     );
+}
+
+#[test]
+fn an_annotation_stating_no_subtype_and_no_appearance_is_preserved_as_the_nothing_it_drew() {
+    // ISO 32000-2 Table 166 makes `/Subtype` required, so an annotation stating none belongs to
+    // no Table 171 type and has no handler; Table 167's Invisible flag has a reader render such an
+    // annotation "using an appearance stream specified by its appearance dictionary, if any", and
+    // this one specifies none. The window drew nothing, so a `preserve` keeping what it drew keeps
+    // nothing, appends no page, and both rows the annotation fails are answered (ADR 3359).
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec!["<< /Type /Annot /Rect [20 30 60 70] /F 4 /Contents (broken) >>".to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    for answered in [
+        row,
+        "annotations/appearance-dictionary-present-from-base-standard",
+    ] {
+        assert!(
+            matches!(
+                decision(&report, answered),
+                Decision::Configured {
+                    rewrite: Rewrite::ForbiddenAnnotationRemoved,
+                    ..
+                }
+            ),
+            "{answered}: {:?}\n{}",
+            decision(&report, answered),
+            conversion(&report).render()
+        );
+    }
+    let output = output.expect("the document converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(pdf_model::Pages::new(&held).len(), 1, "no page is appended");
 }
 
 #[test]

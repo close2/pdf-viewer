@@ -2281,11 +2281,18 @@ impl Conversion {
             }
         }
         if !self.photographed.is_empty() {
+            // The clause about a font is said only where a page was photographed for one: a page
+            // photographed for a fault of its content stream or its colour left nothing blank.
+            let blank = if self.photographed.iter().any(|page| !page.fonts.is_empty()) {
+                ", a font this program cannot embed a face into being left blank as the window \
+                 leaves it"
+            } else {
+                ""
+            };
             let _ = writeln!(
                 out,
                 "  {} page(s) are replaced by a photograph of themselves as this viewer draws \
-                 them, a font this program cannot embed a face into being left blank as the \
-                 window leaves it:",
+                 them{blank}:",
                 self.photographed.len()
             );
             for page in &self.photographed {

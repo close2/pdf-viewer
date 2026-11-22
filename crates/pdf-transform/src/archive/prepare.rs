@@ -56,7 +56,7 @@ use annotations_and_attachments::{
     prepare_extra_appearance_states, prepare_field_appearances, prepare_forbidden_annotations,
     prepare_hidden_annotations, the_attached_files,
 };
-pub(super) use appended_pages::{MOST_ATTACHMENTS_AS_PAGES, attached_bytes};
+pub(super) use appended_pages::{MOST_ATTACHMENTS_AS_PAGES, SUBTYPE_REQUIREMENTS, attached_bytes};
 use appended_pages::{
     fonts_may_be_stated, names_discarded, names_removed, packets_may_be_preserved,
     runs_may_be_stated, stated_runs, stated_type3_widths, the_preserved_pages,
@@ -784,11 +784,19 @@ impl Prepared {
             || matches!(&rgb_page_contexts, Ok(Some(_)));
         // The pages that hold a fault of their content stream are found in the survey, so a
         // profile that photographs them asks for it as a font rewrite does (A694 item 1).
-        let photographs_fenced = plan.authorised.grants(Loss::PageAsImage)
-            && fonts::Gate::admits(plan.target)
+        let photographs_anywhere =
+            plan.authorised.grants(Loss::PageAsImage) && fonts::Gate::admits(plan.target);
+        let photographs_fenced = photographs_anywhere
             && input
                 .failures()
                 .any(|judgement| super::fenced::ROWS.contains(&judgement.id));
+        // At part 4 a page whose `DeviceCMYK` mark is blended in four components under a
+        // non-zero overprint mode is photographed where the default is written for the rest
+        // (`super::overprint::blended_pages`, `doc/adr/3358`). Not beside a fenced row's
+        // photographs: those answer the `DeviceCMYK` row where they take its page groups (ADR
+        // 2804), and a further page this reader does not draw whole would refuse every photograph.
+        let photographs_blended =
+            photographs_anywhere && cmyk_by_supply && !groups_only && !photographs_fenced;
         // A run the reader draws as a number is found in the content streams the survey reaches,
         // where the profile authorised writing it so (`doc/adr/2638`).
         let runs_drawn = plan.authorised.grants(Loss::ContentAsDrawn)
@@ -800,7 +808,8 @@ impl Prepared {
             || runs_drawn
             || rgb_by_default
             || cmyk_by_supply
-            || photographs_fenced)
+            || photographs_fenced
+            || photographs_blended)
             .then(|| Survey::of(document));
         // **The definitions are worked out before the fonts**, because a name this reader draws
         // from its own faces is defined as a font the embedding route then has to embed
@@ -853,6 +862,7 @@ impl Prepared {
                 } else {
                     super::supplied_cmyk::Reach::PartFour {
                         zero_modes: plan.authorised.grants(Loss::OverprintMode),
+                        photographed: photographs_blended,
                     }
                 },
                 &mut spare,
@@ -1142,6 +1152,7 @@ impl Prepared {
                     && type3_widths
                         .as_ref()
                         .is_ok_and(super::type3_widths::Restated::writes_anything),
+                photographs_blended && supplied_cmyk.is_ok(),
             ),
             &standard_fonts,
         );
@@ -1923,6 +1934,7 @@ impl Prepared {
                 .copied()
                 .or_else(|| self.halftone_names_recorded.as_ref().err().copied()),
             Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
+            Rewrite::AssociatedFileMediaType => self.owed.media_types.as_ref().err().copied(),
             Rewrite::HalftonePhaseRemoved => self.owed.halftone_phases.as_ref().err().copied(),
             Rewrite::HalftoneOriginRemoved => self.owed.halftone_origins.as_ref().err().copied(),
             Rewrite::DestinationProfileReferenceRemoved => {
@@ -2259,6 +2271,8 @@ pub(super) struct Owed {
     pub(super) filter_names: Result<super::undecodable::Undecodable, Because>,
     /// The halftones whose `HalftoneName` goes, or why none do.
     pub(super) halftone_names: Result<Sites, Because>,
+    /// The associated files' streams given §14.13.2's unknown media type (`doc/adr/3357`).
+    pub(super) media_types: Result<Sites, Because>,
     /// The graphics states whose `HT` is written `Default`, or why none are (`doc/adr/2034`).
     pub(super) halftone_defaults: Result<Sites, Because>,
     /// The graphics states whose `HTP` goes, or why none do (`doc/adr/2035`).
@@ -2378,6 +2392,9 @@ impl Owed {
             filter_names: undecodable,
             halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {
                 super::halftones::removal(document, input)
+            }),
+            media_types: asked(wanted(Rewrite::AssociatedFileMediaType), || {
+                sites::media_types(document, input)
             }),
             halftone_defaults: asked(wanted(Rewrite::HalftoneWrittenDefault), || {
                 super::halftones::defaults(document, input)
@@ -2592,6 +2609,9 @@ pub(super) struct ForbiddenAnnotations {
     pub(super) at: BTreeSet<ObjectId>,
     /// Every annotation removed, in page order, for the report and for `preserve`.
     pub(super) removed: Vec<RemovedAnnotation>,
+    /// Whether every annotation removed is one no reader draws anything for
+    /// (`appended_pages::drew_nothing`, `doc/adr/3359`).
+    pub(super) drew_nothing: bool,
 }
 
 /// One annotation a target does not admit, as the report names it and as `preserve` reads it.

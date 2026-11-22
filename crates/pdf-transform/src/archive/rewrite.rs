@@ -222,6 +222,18 @@ pub enum Rewrite {
     /// seven values can be established from a file specification, and this rewrite never writes
     /// one.
     AssociatedFileRelationship,
+    /// Every associated file's stream that states no `/Subtype` states `application/octet-stream`.
+    ///
+    /// ISO 19005-4 section 6.9 holds an associated file to ISO 32000-2 §14.13.2, whose sentence
+    /// asking for the media type names the value for a type the writer does not know:
+    ///
+    /// > If the MIME type is not known, the value " application/octet-stream " shall be used.
+    ///
+    /// This converter does not read an attachment to learn its type, so that is the value, and it
+    /// says only that the bytes are bytes. A stream stating a `/Subtype` that is not a media type
+    /// is not this rewrite's (`super::sites::media_types`, `doc/adr/3357`); an operator's `supply`
+    /// outranks it, being an answer configured for the site.
+    AssociatedFileMediaType,
     /// Every font the Unicode requirements failed at states a `/ToUnicode` `CMap` derived from its
     /// own encoding.
     ///
@@ -1351,6 +1363,11 @@ impl Rewrite {
                 "an embedded file's specification states AFRelationship as Unspecified, which \
                  ISO 32000-2 Table 43 gives as the entry's own default"
             }
+            Self::AssociatedFileMediaType => {
+                "an associated file's stream that stated no media type states \
+                 application/octet-stream, the value ISO 32000-2 \u{a7}14.13.2 names for a type \
+                 that is not known"
+            }
             Self::ToUnicode => {
                 "a font states a ToUnicode CMap derived from its own encoding, by ISO 32000-2 \
                  \u{a7}9.10.2's glyph-name route, over the codes its content streams showed — or, \
@@ -1846,6 +1863,7 @@ impl Rewrite {
             Self::ParentTreeRebuilt => "parent-tree-rebuilt",
             Self::AssociatedFileNames => "associated-file-names",
             Self::AssociatedFileRelationship => "associated-file-relationship",
+            Self::AssociatedFileMediaType => "associated-file-media-type",
             Self::ToUnicode => "to-unicode",
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
             Self::FreshMetadataPacket => "fresh-metadata-packet",
@@ -2064,6 +2082,7 @@ impl<'a> Rewriter<'a> {
             transfers: prepared.owed.transfers.as_ref().ok(),
             blend_modes: prepared.owed.blend_modes.as_ref().ok(),
             halftone_names: prepared.owed.halftone_names.as_ref().ok(),
+            media_types: prepared.owed.media_types.as_ref().ok(),
             halftone_defaults: prepared.owed.halftone_defaults.as_ref().ok(),
             halftone_phases: prepared.owed.halftone_phases.as_ref().ok(),
             halftone_origins: prepared.owed.halftone_origins.as_ref().ok(),
@@ -3064,6 +3083,8 @@ struct Rewriter<'a> {
     blend_modes: Option<&'a sites::Sites>,
     /// The halftones whose `HalftoneName` goes.
     halftone_names: Option<&'a sites::Sites>,
+    /// The associated files' streams given §14.13.2's unknown media type (`doc/adr/3357`).
+    media_types: Option<&'a sites::Sites>,
     /// The graphics states whose `HT` is written `Default` (`doc/adr/2034`).
     halftone_defaults: Option<&'a sites::Sites>,
     /// The graphics states whose `HTP` goes (`doc/adr/2035`).
@@ -3389,6 +3410,18 @@ impl Rewriter<'_> {
                 Object::Name(Name::new(media_type.as_bytes())),
             );
             count(applied, Rewrite::SuppliedMediaType);
+            changed = true;
+        }
+        if self.wants(Rewrite::AssociatedFileMediaType)
+            && self.media_types.is_some_and(|sites| sites.at.contains(&id))
+            && out.get("Subtype").is_none()
+        {
+            // §14.13.2's value for a type the writer does not know, where the producer stated none.
+            out.insert(
+                Name::new(&b"Subtype"[..]),
+                Object::Name(Name::new(super::attach::MEDIA_TYPE.as_bytes())),
+            );
+            count(applied, Rewrite::AssociatedFileMediaType);
             changed = true;
         }
         if let Some((entries, rewrite)) = self.font_widths.and_then(|widths| widths.of(id))

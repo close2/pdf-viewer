@@ -110,11 +110,14 @@ pub(super) fn prepare_fonts(
     // What the checker read: the survey, the input's report and the runs it read as operators
     // that were written as numbers (`doc/adr/2638`), so that their pages are not fenced.
     // And whether the Type 3 widths are restated in their procedures (`doc/adr/2907`), so that
-    // their fonts' pages are not photographed for that row.
-    (survey, input, drawn, type3_restated): (
+    // their fonts' pages are not photographed for that row; and whether a `/DefaultCMYK` is
+    // written beside photographs of the pages a mark is blended in four components on
+    // (`doc/adr/3358`).
+    (survey, input, drawn, type3_restated, blended): (
         Option<&Survey>,
         &pdf_archive::Report,
         Option<&super::super::as_drawn::Drawn>,
+        bool,
         bool,
     ),
     defined: &BTreeMap<Vec<u8>, ObjectId>,
@@ -125,7 +128,12 @@ pub(super) fn prepare_fonts(
     let anywhere = plan.authorised.grants(Loss::PageAsImage) && fonts::Gate::admits(plan.target);
     let fenced = match survey {
         Some(survey) if anywhere => {
-            super::super::fenced::pages(document, input, survey, drawn, type3_restated)
+            let mut fenced =
+                super::super::fenced::pages(document, input, survey, drawn, type3_restated);
+            if blended {
+                fenced.blended(survey);
+            }
+            fenced
         }
         _ => super::super::fenced::Fenced::default(),
     };

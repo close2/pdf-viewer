@@ -3219,6 +3219,85 @@ const EMBEDDED_FILE_STILL_REACHED: &str = "an embedded file this target does not
      tree would leave it in the file, reached from a page, and the requirement failing. Removing \
      that annotation is a different loss, over the marks it draws, and it is not this one";
 
+/// The requirement [`media_types`] answers (ISO 19005-4 section 6.9).
+const MEDIA_TYPE_ROW: &str = "embedded-files/associated-file-media-type";
+
+/// Every associated file's embedded file stream that states no `/Subtype` (`doc/adr/3357`).
+///
+/// ISO 19005-4 section 6.9 holds an associated file to ISO 32000-2 §14.13.2, and the clause that
+/// asks for the media type names the value for a type the writer does not know:
+///
+/// > The embedded file stream dictionary shall include a valid MIME type value for the Subtype
+/// > key. If the MIME type is not known, the value " application/octet-stream " shall be used.
+///
+/// This converter does not read an attachment to learn its type, so the type is not known to it
+/// and the clause's value is the one written. It asserts nothing about the bytes: Internet RFC
+/// 2046 makes `application/octet-stream` a body of arbitrary binary data, which every file is.
+///
+/// The population is the specifications the requirement's findings name, and each stream under
+/// their `/EF` that states no `/Subtype` at all. **A stream that states one that is not a media
+/// type refuses the row**: the producer wrote something there, and replacing it would be deciding
+/// that what they wrote meant nothing. So does a specification the findings name no object for, or
+/// a stream written directly into `/EF`, because this verb rewrites objects.
+pub(super) fn media_types(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Sites, Because> {
+    let (specifications, elsewhere) = objects_named(input, &[MEDIA_TYPE_ROW])?;
+    if elsewhere {
+        return Err(Because::NotBuiltYet(MEDIA_TYPE_NOT_AN_OBJECT));
+    }
+    let mut out = Sites::default();
+    for id in specifications {
+        let specification = document.get(id);
+        let Some(specification) = specification.as_dict() else {
+            return Err(Because::NotBuiltYet(MEDIA_TYPE_NOT_AN_OBJECT));
+        };
+        let files = document.get_key(specification, "EF");
+        let Some(files) = files.as_dict() else {
+            continue;
+        };
+        for key in ["F", "UF", "DOS", "Mac", "Unix"] {
+            let Some(entry) = files.get(key) else {
+                continue;
+            };
+            let Some(stream_id) = entry.as_reference() else {
+                return Err(Because::NotBuiltYet(MEDIA_TYPE_NOT_AN_OBJECT));
+            };
+            let stream = document.get(stream_id);
+            let Some(stream) = stream.as_stream() else {
+                continue;
+            };
+            let stated = document.get_key(&stream.dict, "Subtype");
+            if stated.is_null() {
+                out.at.insert(stream_id);
+                continue;
+            }
+            let valid = stated.as_name().is_some_and(|name| {
+                std::str::from_utf8(name.as_bytes()).is_ok_and(super::config::is_media_type)
+            });
+            if !valid {
+                return Err(Because::NotBuiltYet(MEDIA_TYPE_STATED_OTHERWISE));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Why an associated file the findings name without an object number is not given a media type.
+const MEDIA_TYPE_NOT_AN_OBJECT: &str = "ISO 19005-4 section 6.9 asks an associated file's \
+     embedded file stream for a Subtype that is a MIME media type, and ISO 32000-2 \u{a7}14.13.2 \
+     names application/octet-stream for a type the writer does not know; but this document writes \
+     the file specification or its stream directly inside another object, and this verb rewrites \
+     objects, so the stream has no object number for the entry to be written into";
+
+/// Why an associated file stating a `/Subtype` that is not a media type is not given one.
+const MEDIA_TYPE_STATED_OTHERWISE: &str = "ISO 19005-4 section 6.9 asks an associated file's \
+     embedded file stream for a Subtype that is a MIME media type, and this one states a Subtype \
+     that is not one. ISO 32000-2 \u{a7}14.13.2's application/octet-stream is the value for a \
+     type nobody stated; writing it over the producer's own entry would be deciding that what the \
+     producer wrote meant nothing";
+
 #[cfg(test)]
 mod tests {
     use pdf_archive::{Findings, MAX_NAMED, Outcome, Where};

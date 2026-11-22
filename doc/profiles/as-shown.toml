@@ -60,7 +60,8 @@ placement = "attach"        # 4f holds the original unchanged; nothing is lost, 
                            # discarded, and the yardstick never comes into it
 
 [site."embedded-files/associated-file-media-type"]
-remedy = "discard"         # an associated file with no declared type; paper had no attachments
+remedy = "discard"         # a type nobody stated is written application/octet-stream, as
+                           # ISO 32000-2 14.13.2 says, losing nothing (ADR 3357)
 
 # ---------------------------------------------------------------------------------------------
 # Annotations. Table 167 is the anchor, read for the screen: Hidden and NoView are what the window

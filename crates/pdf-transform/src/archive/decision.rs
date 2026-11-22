@@ -2068,6 +2068,50 @@ fn only_on_fonts_photographed_away(
         })
 }
 
+/// The two rows asking an annotation for an appearance dictionary (ISO 19005-2 section 6.3.3,
+/// ISO 19005-4 section 6.3.3).
+const APPEARANCE_ROWS: [&str; 2] = [
+    "annotations/appearance-dictionary-present",
+    "annotations/appearance-dictionary-present-from-base-standard",
+];
+
+/// The two rows striking an annotation whose subtype the base standard does not define (ISO
+/// 19005-2 section 6.3.1, ISO 19005-4 section 6.3.1).
+const SUBTYPE_ROWS: [&str; 2] = [
+    "annotations/subtype-defined-in-iso-32000-1",
+    "annotations/subtype-defined-in-iso-32000-2",
+];
+
+/// The answer of an appearance row whose annotations no reader draws anything for (ADR 3359).
+///
+/// Where every place an appearance row failed at is an annotation the removal takes, and every
+/// annotation it takes states no `/Subtype` and no normal appearance, the row is answered by what
+/// the operator answered the subtype row with: the `preserve` that keeps the nothing it drew.
+fn drew_nothing_answer(
+    judgement: &Judgement,
+    configured: &dyn Fn(&'static str) -> Option<Decision>,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    if !APPEARANCE_ROWS.contains(&judgement.id)
+        || !prepared
+            .forbidden_annotations
+            .as_ref()
+            .is_ok_and(|removals| removals.drew_nothing)
+        || !prepared
+            .appearances
+            .as_ref()
+            .is_ok_and(|appearances| appearances.at.is_empty() && appearances.removed > 0)
+    {
+        return None;
+    }
+    SUBTYPE_ROWS.iter().find_map(|row| {
+        configured(row).filter(|decision| {
+            decision.rewrite() == Some(Rewrite::ForbiddenAnnotationRemoved)
+                && matches!(decision, Decision::Configured { .. })
+        })
+    })
+}
+
 /// The decision the table takes about one requirement the document failed.
 ///
 /// `configured` is the operator's own answer to a row, where the configuration gave one; the
@@ -2124,7 +2168,10 @@ pub(super) fn decide(
             .hexadecimal
             .as_ref()
             .is_ok_and(super::hexadecimal::Completed::only_on_photographed_pages);
+    // The `DeviceCMYK` row's photographed pages are half of its answer, and its own decision
+    // carries them (`colour_and_graphics::cmyk_answer_under_part_four`, `doc/adr/3358`).
     if authorised.grants(Loss::PageAsImage)
+        && judgement.id != super::fenced::BLENDED
         && let Ok(substitutes) = prepared.substitutes.as_ref()
         && (substitutes.fenced.contains(judgement.id) || only_photographed)
     {
@@ -2185,6 +2232,9 @@ pub(super) fn decide(
             return Decision::Refused(Because::TheFence(SYNTAX_INSIDE_CONTENT));
         }
         return Decision::Mechanical(Rewrite::WholeFileRewritten);
+    }
+    if let Some(answered) = drew_nothing_answer(judgement, configured, prepared) {
+        return answered;
     }
     let Some(remedy) = REMEDIES
         .iter()

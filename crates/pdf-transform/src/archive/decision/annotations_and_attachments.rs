@@ -240,6 +240,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "embedded-files/relationship-stated",
         answer: Answer::Mechanical(Rewrite::AssociatedFileRelationship),
     },
+    // ISO 19005-4 section 6.9 by way of ISO 32000-2 §14.13.2, which names the value for a media
+    // type the writer does not know (`doc/adr/3357`). An operator's `supply` is asked first.
+    Remedy {
+        requirement: "embedded-files/associated-file-media-type",
+        answer: Answer::Mechanical(Rewrite::AssociatedFileMediaType),
+    },
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
     Remedy {
         requirement: "annotations/normal-appearance-shape",
@@ -393,15 +399,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "embedded-files/pdfa-4f-carries-embedded-files",
         Because::NotThisTarget(FOUR_F_NEEDS_AN_EMBEDDED_FILE),
     ),
-    // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9's first sentence: the embedded file
-    // shall itself conform. Converting it means running this whole verb over the file inside the
-    // file, which is a slice of its own and is named as one rather than half-done.
-    // ISO 19005-4 section 6.9 wants a MIME media type, and nothing in a file specification says
-    // what one is: a file name's extension is a convention rather than a statement.
-    (
-        "embedded-files/associated-file-media-type",
-        Because::NotBuiltYet(NO_MEDIA_TYPE_TO_DERIVE),
-    ),
     // ISO 19005-4 Annex B.2.2, the one requirement of the engineering annex that binds a file
     // rather than a processor and that a document can fail on its content.
     (
@@ -415,12 +412,6 @@ const FOUR_F_NEEDS_AN_EMBEDDED_FILE: &str = "ISO 19005-4 Annex A.2 makes an Embe
      required of a PDF/A-4f file, and this document holds no embedded file. Attaching one would \
      be adding content no source states, which is not converting. Ask for PDF/A-4 instead: the \
      plain profile is what a document with nothing embedded in it is for";
-
-/// Why an embedded file's `/Subtype` media type is not supplied.
-const NO_MEDIA_TYPE_TO_DERIVE: &str = "ISO 19005-4 section 6.9 asks the embedded file stream for \
-     a Subtype that is a MIME media type, and nothing in a file specification states one: a file \
-     name's extension is a convention rather than a declaration, and reading it as one would be \
-     this converter asserting what the bytes are";
 
 /// Why a 3D stream in a format Annex B does not name is not converted.
 const THREE_DIMENSIONAL_FORMAT: &str = "ISO 19005-4 Annex B.2.2 admits a 3D stream whose Subtype \

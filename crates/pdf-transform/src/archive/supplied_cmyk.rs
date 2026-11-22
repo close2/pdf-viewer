@@ -53,6 +53,8 @@
 //! content stream, through `super::rewrite`'s `DefaultSites`, and never over an entry the
 //! producer wrote.
 
+use std::collections::BTreeSet;
+
 use super::prepare::{DestinationProfile, ProfileSource};
 use pdf_archive::survey::{DeviceFamily, ProcessCmykOverprint, SpaceKind, Survey};
 use pdf_model::icc::Identification;
@@ -70,6 +72,10 @@ pub(super) enum Reach {
     PartFour {
         /// Whether a mark's overprint mode 1 may be written 0 beside the default.
         zero_modes: bool,
+        /// Whether the pages a mark is blended in four components on are photographed
+        /// (`super::overprint::blended_pages`, `doc/adr/3358`), so that the default answers the
+        /// marks on every other page.
+        photographed: bool,
     },
     /// ISO 19005-2: a stand-in for a supply answers only a group blending in `DeviceCMYK`.
     PartTwo,
@@ -115,6 +121,9 @@ pub(super) struct SuppliedCmyk {
     /// `DeviceCMYK` marks they govern become `ICCBased` ones under it: empty unless the caller
     /// authorised [`Loss::OverprintMode`](super::decision::Loss::OverprintMode) (`doc/adr/2749`).
     pub(super) modes: super::overprint::OverprintModes,
+    /// The pages (zero-based) photographed rather than given the default, because a mark on each
+    /// is blended in four components under a non-zero mode (`doc/adr/3358`); empty where none is.
+    pub(super) photographed: BTreeSet<usize>,
 }
 
 /// What writing the `/DefaultCMYK` asserts, which `doc/adr/0927` makes travel with the decision.
@@ -351,8 +360,17 @@ pub(super) fn prepare(
     }
     // A stand-in at part 2 answers only a group, because a mark there has the `DeviceN` default.
     let (zero_modes, groups_only) = match reach {
-        Reach::PartFour { zero_modes } => (zero_modes, false),
+        Reach::PartFour { zero_modes, .. } => (zero_modes, false),
         Reach::PartTwo => (false, true),
+    };
+    let photographed = match (reach, survey) {
+        (
+            Reach::PartFour {
+                photographed: true, ..
+            },
+            Some(survey),
+        ) => super::overprint::blended_pages(survey),
+        _ => BTreeSet::new(),
     };
     let needed = if groups_only && supplied.is_none() {
         blends_in_cmyk
@@ -371,13 +389,12 @@ pub(super) fn prepare(
     let modes = match survey {
         Some(s) if s.stopped_short() => return Err(Because::NotBuiltYet(OVERPRINT_MODE_ONE)),
         Some(s)
-            if !s
-                .process_cmyk_overprints()
-                .iter()
-                .all(|mark| zeroed_with_the_icc_marks(s, mark)) =>
+            if !s.process_cmyk_overprints().iter().all(|mark| {
+                photographed.contains(&mark.page) || zeroed_with_the_icc_marks(s, mark)
+            }) =>
         {
             zero_modes
-                .then(|| super::overprint::under_a_default(document, s))
+                .then(|| super::overprint::under_a_default(document, s, &photographed))
                 .flatten()
                 .ok_or(Because::NotBuiltYet(OVERPRINT_MODE_ONE))?
         }
@@ -401,5 +418,6 @@ pub(super) fn prepare(
             (at, icc_based),
         ],
         modes,
+        photographed,
     })
 }

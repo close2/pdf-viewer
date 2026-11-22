@@ -1036,6 +1036,35 @@ pub(super) fn cmyk_answer_under_part_two(
 /// it is (`doc/adr/2749`): the mode is the producer's instruction to a CMYK device (ISO 32000-2
 /// §8.6.7), so the decision carries that loss beside the press's own, the inks' restatement
 /// becoming a decision that loses it.
+/// The losses of the default with the photographs of the pages a mark is blended in four
+/// components on beside them (`doc/adr/3358`), where the default was prepared leaving any.
+///
+/// The default answers the marks on every other page only because those pages are photographed,
+/// so a photograph that was not taken refuses the row with the reason it was not.
+fn photographs_beside(
+    supplied: &super::super::supplied_cmyk::SuppliedCmyk,
+    prepared: &Prepared,
+    losses: Losses,
+) -> Result<Losses, Because> {
+    if supplied.photographed.is_empty() {
+        return Ok(losses);
+    }
+    let substitutes = prepared.substitutes.as_ref().map_err(|because| *because)?;
+    if !substitutes.fenced.contains(super::super::fenced::BLENDED) {
+        return Err(Because::NotBuiltYet(BLENDED_NOT_PHOTOGRAPHED));
+    }
+    Ok(substitutes
+        .photograph_losses()
+        .iter()
+        .fold(losses, Losses::with))
+}
+
+/// Why a default written beside photographs that were not taken is refused.
+const BLENDED_NOT_PHOTOGRAPHED: &str = "this file paints in DeviceCMYK with overprinting on and \
+     overprint mode 1 inside a page or group blending in four components, where this reader \
+     composites by the mode, so the default that makes those marks ICCBased is written only beside \
+     a photograph of each such page; the pages were not photographed";
+
 pub(super) fn cmyk_answer_under_part_four(
     prepared: &Prepared,
     authorised: Authorisations,
@@ -1056,7 +1085,16 @@ pub(super) fn cmyk_answer_under_part_four(
             } else {
                 assumed.with(Loss::OverprintMode)
             };
-            losing(losses, Rewrite::SuppliedDefaultCmyk, authorised)
+            match photographs_beside(supplied, prepared, losses) {
+                Ok(losses) => losing(losses, Rewrite::SuppliedDefaultCmyk, authorised),
+                Err(because) => Decision::Refused(because),
+            }
+        }
+        (Ok(_), Ok(supplied)) if !supplied.photographed.is_empty() => {
+            match photographs_beside(supplied, prepared, Losses::default()) {
+                Ok(losses) => losing(losses, Rewrite::SuppliedDefaultCmyk, authorised),
+                Err(because) => Decision::Refused(because),
+            }
         }
         (Ok(_), Ok(supplied)) => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,

@@ -167,14 +167,25 @@ pub(super) fn zeroed_history(
 /// and the window would move (`doc/adr/1978`, `doc/adr/2749`). Every state found governs a
 /// `DeviceCMYK` mark, so the result always costs [`super::Loss::OverprintMode`].
 ///
+/// A mark on a page of `photographed` is passed over: that page is photographed (`as-if-printed`,
+/// [`blended_pages`]), so neither the mark nor the state reaching it through that page is drawn
+/// from the output's content.
+///
 /// `None` where a state cannot be reached or the window would move, and the mode is kept.
-pub(super) fn under_a_default(document: &Document, survey: &Survey) -> Option<OverprintModes> {
+pub(super) fn under_a_default(
+    document: &Document,
+    survey: &Survey,
+    photographed: &BTreeSet<usize>,
+) -> Option<OverprintModes> {
     if survey.stopped_short() {
         return None;
     }
     let zeroed_for_icc = survey.icc_overprint_mode_sources();
     let mut out = OverprintModes::default();
     for mark in survey.process_cmyk_overprints() {
+        if photographed.contains(&mark.page) {
+            continue;
+        }
         if mark.in_four_components {
             return None;
         }
@@ -190,6 +201,24 @@ pub(super) fn under_a_default(document: &Document, survey: &Survey) -> Option<Ov
         out.process_pages.insert(mark.page);
     }
     Some(out)
+}
+
+/// The pages (zero-based) on which a `DeviceCMYK` mark is painted with overprinting on under a
+/// non-zero mode inside a page or group blending in four components (`doc/adr/3358`).
+///
+/// There ISO 32000-2 §11.7.4.3 composites the mark in the group's own components and this reader
+/// composites by the mode, so writing the mode 0 would move the window, and a `/DefaultCMYK` that
+/// left it 1 would make an `ICCBased` mark ISO 19005-4 section 6.2.4.2 forbids it for. What a
+/// company would do with such a page is print it and scan the print: `as-if-printed` photographs
+/// these pages as this reader draws them, the composite by the mode included, and the default and
+/// [`under_a_default`] answer the marks on every other page.
+pub(super) fn blended_pages(survey: &Survey) -> BTreeSet<usize> {
+    survey
+        .process_cmyk_overprints()
+        .iter()
+        .filter(|mark| mark.in_four_components)
+        .map(|mark| mark.page)
+        .collect()
 }
 
 /// The citation of the requirement [`under_a_default`] answers: the `/DefaultCMYK` is written at

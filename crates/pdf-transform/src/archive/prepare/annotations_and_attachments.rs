@@ -492,7 +492,15 @@ pub(super) fn prepare_forbidden_annotations(
             flags: None,
         });
     }
-    Ok(ForbiddenAnnotations { at, removed })
+    let drew_nothing = !removed.is_empty()
+        && removed
+            .iter()
+            .all(|annotation| super::appended_pages::drew_nothing(document, annotation));
+    Ok(ForbiddenAnnotations {
+        at,
+        removed,
+        drew_nothing,
+    })
 }
 
 /// The annotations whose stated `/F` ISO 19005 forbids, and what removing each costs.

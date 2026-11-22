@@ -9,7 +9,8 @@
 //! RGB destination profile. So the default is written only with the state's mode at 0, and §8.6.7,
 //! which applies the mode to `DeviceCMYK` marks, makes that a press's change and the loss
 //! `doc/adr/1978` names. §11.7.4.3's special blend mode is the one place this reader composites by
-//! the mode, so a mark blended in four components keeps the refusal under every profile.
+//! the mode, so a mark blended in four components keeps the refusal under every profile but
+//! `as-if-printed`, which photographs its page (`doc/adr/3358`).
 
 use super::{
     ArchivePlan, Conforming, Decision, Flavour, Level, Loss, Losses, Rewrite, SRGB, Target,
@@ -125,9 +126,11 @@ fn a_profile_that_does_not_accept_the_loss_keeps_the_refusal() {
 }
 
 #[test]
-fn a_mark_blended_in_four_components_keeps_the_refusal_under_as_if_printed() {
+fn a_mark_blended_in_four_components_has_its_page_photographed_under_as_if_printed() {
     // §11.7.4.3: in a page group blending in DeviceCMYK this reader composites the DeviceCMYK mark
-    // by the mode, so writing it 0 would move the window (`doc/adr/1978`).
+    // by the mode, so writing it 0 would move the window (`doc/adr/1978`). `as-if-printed` keeps
+    // that page as a print scanned back in would: photographed as drawn, the composite by the mode
+    // included, its content stream and group gone with the mark (`doc/adr/3358`).
     let target = Target::Four(Flavour::Plain);
     let (report, output) = convert_with_plan(
         &source(
@@ -135,6 +138,41 @@ fn a_mark_blended_in_four_components_keeps_the_refusal_under_as_if_printed() {
             "/Group << /S /Transparency /CS /DeviceCMYK >>",
         ),
         &planned(AS_IF_PRINTED, target),
+    );
+    let decided = decision(&report, ROW);
+    let Decision::Authorised { losses, rewrite } = decided else {
+        panic!("{decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::SuppliedDefaultCmyk);
+    assert!(losses.contains(Loss::PageAsImage), "{losses:?}");
+    assert!(
+        !losses.contains(Loss::OverprintMode),
+        "no state is written 0: {losses:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = outside_the_packet(&output);
+    assert!(
+        !written.contains("/OPM 1"),
+        "the state went with the content: {written}"
+    );
+    assert!(
+        !written.contains("/CS /DeviceCMYK"),
+        "the page group goes: {written}"
+    );
+}
+
+#[test]
+fn a_mark_blended_in_four_components_keeps_the_refusal_under_as_shown() {
+    // `as-shown` does not photograph a page (A694 item 1), so ADR 1978's refusal stands.
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert_with_plan(
+        &source(
+            Conforming::default(),
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        ),
+        &planned(AS_SHOWN, target),
     );
     assert!(output.is_none(), "nothing is written");
     let sentence = not_built_sentence(&report, ROW);

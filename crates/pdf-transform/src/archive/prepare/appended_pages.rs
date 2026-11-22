@@ -1556,7 +1556,7 @@ const CONTENT_DID_NOT_DECODE: &str = "part of the producer's own page content do
 
 /// The three requirements whose refusal a page of preserved marks answers: one removal takes the
 /// annotations all three report (`doc/adr/2051` section 4).
-const SUBTYPE_REQUIREMENTS: [&str; 4] = [
+pub(in crate::archive) const SUBTYPE_REQUIREMENTS: [&str; 4] = [
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
     "annotations/three-dimensional-only-in-engineering-files",
@@ -1591,6 +1591,22 @@ const NO_PAGE_FOR_THE_MARKS: &str = "an annotation to be removed sits on a page 
      annotation was on. Inventing a paper size would put the producer's marks somewhere the \
      producer did not";
 
+/// Whether a removed annotation is one no reader draws anything for: it states no `/Subtype` and no
+/// normal appearance (`doc/adr/3359`).
+///
+/// ISO 32000-2 Table 166 makes `/Subtype` required, so such an annotation belongs to none of Table
+/// 171's types and no reader has a handler for it; Table 167's `Invisible` flag then says what a
+/// reader does with it — render it "using an appearance stream specified by its appearance
+/// dictionary, if any" — and it specifies none. The window drew nothing, so a `preserve` that
+/// keeps what the window drew keeps nothing for it, and owes no page.
+pub(super) fn drew_nothing(document: &Document, removed: &RemovedAnnotation) -> bool {
+    removed.appearance.is_none()
+        && document
+            .get(removed.at)
+            .as_dict()
+            .is_some_and(|annotation| document.get_key(annotation, "Subtype").is_null())
+}
+
 /// Each removed annotation's normal appearance, with §12.5.5's matrix and its page's geometry.
 fn marks_of<'a>(
     document: &Document,
@@ -1599,6 +1615,9 @@ fn marks_of<'a>(
     let tree = pdf_model::Pages::new(document);
     let mut out = Vec::new();
     for removed in &removals.removed {
+        if drew_nothing(document, removed) {
+            continue;
+        }
         let appearance = removed
             .appearance
             .ok_or(Because::NotBuiltYet(NO_APPEARANCE_TO_PRESERVE))?;

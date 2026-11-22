@@ -157,6 +157,9 @@ pub(super) struct Remedies {
     pub(super) field_descriptions: BTreeMap<String, String>,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
+    /// The media-type `supply` sites an attachment outside the operator's table left unanswered,
+    /// which its `unlisted = "stop"` keeps refused (`doc/adr/3357`).
+    pub(super) unlisted_stopped: BTreeSet<&'static str>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
     pub(super) derived_report: Vec<Derived>,
     /// What the operator stated, beside the requirement it answered.
@@ -187,6 +190,7 @@ impl Remedies {
             languages: BTreeMap::new(),
             field_descriptions: BTreeMap::new(),
             supply_sites: BTreeMap::new(),
+            unlisted_stopped: BTreeSet::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
             resolved_report: Vec::new(),
@@ -638,6 +642,8 @@ impl Remedies {
         if answered {
             self.supply_sites
                 .insert(judgement.id, Rewrite::SuppliedMediaType);
+        } else {
+            self.unlisted_stopped.insert(judgement.id);
         }
     }
 
@@ -1106,6 +1112,16 @@ fn most_used<'a>(document: &Document, uses: &[&'a SeparationUse]) -> &'a Separat
     // fallback keeps that a local fact rather than a panic waiting for a second caller.
     best.map_or(uses[0], |(chosen, _)| chosen)
 }
+
+/// Why an attachment the operator's media-type table does not name keeps its site refused.
+///
+/// The table's `unlisted = "stop"` is the operator's word for that attachment, and it outranks the
+/// decision table's ISO 32000-2 §14.13.2 value, which would otherwise answer the site beside the
+/// types the table supplied (`doc/adr/3357`).
+pub(super) const UNLISTED_STOPS: &str = "the configuration's media-type table names no type for \
+     an attachment's extension, and its unlisted = \"stop\" keeps the requirement refused for it \
+     rather than letting ISO 32000-2 \u{a7}14.13.2's application/octet-stream answer it beside the \
+     types the table supplied";
 
 /// Every embedded file stream one judgement's findings name, with the file's own name.
 ///

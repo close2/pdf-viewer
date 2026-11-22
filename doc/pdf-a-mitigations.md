@@ -797,7 +797,9 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   mode is forbidden for (section 6.2.4.2), both routes write the governing states `/OPM 0` under a
   profile that accepts ADR 1978's `overprint-mode` (both shipped ones), the loss named in the
   report and the file's history, and keep ADR 2518's refusal elsewhere and where the mark is
-  blended in four components (ADR 2750).
+  blended in four components (ADR 2750) — except under a profile granting `page-as-image`
+  (`as-if-printed`), which photographs that page as drawn and writes the default for the rest
+  (ADR 3358).
 - **The operator's press, named once** (A784, ADRs 2704 and 2705) — `[profile] press =
   "<file.icc>"` in an operator's configuration, a relative path taken from that file's directory,
   stands in for GRACoL wherever `press-assumed` is taken: the intent ADR 2701 writes and the
@@ -2897,7 +2899,13 @@ ISO 19005-2 6.8, ISO 19005-4 6.9 · today **`derive` built, `discard` built** (A
   `/AFRelationship`.
 
 #### `embedded-files/associated-file-media-type`
-ISO 19005-4 6.9 · PDF/A-4, 4f, 4e · today `not-built-yet`
+ISO 19005-4 6.9 · PDF/A-4, 4f, 4e · today `mechanical` where a stream states no type (ADR 3357)
+
+- **Default** — ISO 32000-2 §14.13.2 names the value for a type the writer does not know,
+  `application/octet-stream`, and this converter does not read an attachment to learn its type, so
+  a stream stating no `/Subtype` is given it, losing nothing. A stream stating a `/Subtype` that is
+  no media type stays refused: the clause's value is for a type nobody stated. The `supply` below
+  outranks the default, and its `unlisted = "stop"` keeps an unnamed attachment refused.
 
 - **Mitigation** — `supply`. The clause asks an associated file stream for a `/Subtype` that is a
   MIME media type, and nothing in a file specification states one: an extension is a convention

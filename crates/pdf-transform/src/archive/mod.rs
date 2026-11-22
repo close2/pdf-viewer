@@ -1140,6 +1140,27 @@ fn appended_pages(remedies: &Remedies, id: &str, prepared: &Prepared) -> Option<
     })
 }
 
+/// The `derive` or `supply` answer a site was given, with its rewrite and the sentence it warns.
+fn derived_or_supplied(
+    remedies: &Remedies,
+    id: &'static str,
+) -> Option<(RemedyKind, Rewrite, &'static str)> {
+    if remedies.derive_sites.contains(id) {
+        Some((
+            RemedyKind::Derive,
+            Rewrite::DerivedEmbeddedFile,
+            DERIVED_NOT_ORIGINAL,
+        ))
+    } else {
+        // The rewrite is the site's rather than the kind's: `supply` writes an embedded file's
+        // media type at one site and a colourant's agreed definition at another.
+        remedies
+            .supply_sites
+            .get(id)
+            .map(|rewrite| (RemedyKind::Supply, *rewrite, SUPPLIED_BY_THE_OPERATOR))
+    }
+}
+
 /// The decision a configured remedy takes about one requirement, where one reached it.
 ///
 /// Three answers, in the order they are reached:
@@ -1211,6 +1232,11 @@ fn configured(
         .iter()
         .any(|preservation| preservation.site == id && preservation.by_page)
     {
+        // An annotation row whose removed annotations drew nothing owes no page, so neither the
+        // composition nor its record decides it (ADR 3359).
+        if drew_nothing_row(id, prepared) {
+            return Some(DREW_NOTHING_TO_PRESERVE);
+        }
         return Some(match &prepared.preserved {
             // The rewrite named is the *table's* for this site — the property removal, the
             // annotation removal — because that is what makes the file conform; the pages are
@@ -1219,12 +1245,17 @@ fn configured(
             // so rather than writing pages beside a requirement still failing.
             // An embedded-file row is answered per file (`doc/adr/2536`), and a row whose every
             // file took `on-failure = "discard"` has answered the site with no page at all.
+            // One removal takes the annotations all four subtype rows report, so marks carried
+            // under one of them answer each (`doc/adr/2051` section 4, `doc/adr/3359`).
             Ok(composed)
-                if composed.carried.iter().any(|row| row.site == id)
-                    || composed
-                        .attachments
-                        .iter()
-                        .any(|outcome| outcome.site == id) =>
+                if composed.carried.iter().any(|row| {
+                    row.site == id
+                        || (prepare::SUBTYPE_REQUIREMENTS.contains(&row.site)
+                            && prepare::SUBTYPE_REQUIREMENTS.contains(&id))
+                }) || composed
+                    .attachments
+                    .iter()
+                    .any(|outcome| outcome.site == id) =>
             {
                 match decision::rewrite_for(id) {
                     Some(rewrite) => Decision::Configured {
@@ -1252,21 +1283,10 @@ fn configured(
     if let Some(kept) = kept_where_it_is(plan, id, prepared) {
         return Some(kept);
     }
-    let kind = if remedies.derive_sites.contains(id) {
-        Some((
-            RemedyKind::Derive,
-            Rewrite::DerivedEmbeddedFile,
-            DERIVED_NOT_ORIGINAL,
-        ))
-    } else {
-        // The rewrite is the site's rather than the kind's: `supply` writes an embedded file's
-        // media type at one site and a colourant's agreed definition at another.
-        remedies
-            .supply_sites
-            .get(id)
-            .map(|rewrite| (RemedyKind::Supply, *rewrite, SUPPLIED_BY_THE_OPERATOR))
-    };
-    if let Some((kind, rewrite, warns)) = kind {
+    if remedies.unlisted_stopped.contains(id) {
+        return Some(UNLISTED_STOPPED);
+    }
+    if let Some((kind, rewrite, warns)) = derived_or_supplied(remedies, id) {
         if !prepared.recorded_provenance {
             return Some(Decision::Refused(Because::NotBuiltYet(NOT_RECORDED)));
         }
@@ -1503,6 +1523,33 @@ fn carrying_nothing(id: &str, prepared: &Prepared, composed: &preserve::Composed
         Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE))
     }
 }
+
+/// The decision of a media-type `supply` site an unlisted attachment left unanswered (ADR 3357).
+const UNLISTED_STOPPED: Decision =
+    Decision::Refused(Because::NotBuiltYet(remedies::UNLISTED_STOPS));
+
+/// Whether `id` is an annotation row whose removed annotations all drew nothing (ADR 3359).
+fn drew_nothing_row(id: &str, prepared: &Prepared) -> bool {
+    decision::rewrite_for(id) == Some(Rewrite::ForbiddenAnnotationRemoved)
+        && prepared
+            .forbidden_annotations
+            .as_ref()
+            .is_ok_and(|removals| removals.drew_nothing)
+}
+
+/// The decision of an annotation row every removed annotation of which no reader draws anything
+/// for (`doc/adr/3359`).
+const DREW_NOTHING_TO_PRESERVE: Decision = Decision::Configured {
+    kind: RemedyKind::Preserve,
+    rewrite: Rewrite::ForbiddenAnnotationRemoved,
+    warns: DREW_NOTHING,
+};
+
+/// What an annotation row's `preserve` did where the annotations it removed drew nothing.
+const DREW_NOTHING: &str = "each annotation this conversion removes states no Subtype and no \
+     normal appearance, so no reader draws anything for it (ISO 32000-2 Table 167's Invisible \
+     flag: such an annotation is rendered by its appearance stream, if any): the annotation and \
+     its Contents go, and nothing is appended for marks that were never drawn";
 
 /// The decision of a packet row whose replaced packets held no bytes ([`carrying_nothing`]).
 const REPLACED_WITHOUT_BYTES: Decision = Decision::Configured {
@@ -2087,6 +2134,15 @@ fn rewrites_wanted(
             if losses.contains(Loss::ContentAsDrawn))
     }) {
         wanted.insert(Rewrite::RunWrittenAsDrawn);
+    }
+    // The `DeviceCMYK` row whose default is written beside photographs of the pages a mark is
+    // blended in four components on carries the photographs' losses, and asks for them beside its
+    // own rewrite (`doc/adr/3358`).
+    if conversion.decided.iter().any(|decided| {
+        matches!(decided.decision, Decision::Authorised { losses, .. }
+            if losses.contains(Loss::PageAsImage))
+    }) {
+        wanted.insert(Rewrite::SubstituteFontProgram);
     }
     // A departed conversion writes the metadata packet even where no requirement asked for it, so
     // the file carries the departure in its own `xmpMM:History` (`doc/rfc/0007` section 4.7.3) —

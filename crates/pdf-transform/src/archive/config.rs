@@ -2986,7 +2986,7 @@ fn unknown_placeholder(argument: &str) -> Option<String> {
 }
 
 /// Whether a string is a MIME media type as Internet RFC 2046 composes one: a type and a subtype.
-fn is_media_type(value: &str) -> bool {
+pub(super) fn is_media_type(value: &str) -> bool {
     let mut halves = value.splitn(2, '/');
     let (Some(top), Some(sub)) = (halves.next(), halves.next()) else {
         return false;

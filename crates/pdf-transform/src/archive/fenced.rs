@@ -59,6 +59,26 @@ pub(super) struct Fenced {
     pub(super) operators: BTreeSet<String>,
 }
 
+/// The row whose pages [`Fenced::blended`] adds: part 4's `DeviceCMYK` row, answered on every
+/// other page by the `/DefaultCMYK` (`doc/adr/3358`).
+pub(super) const BLENDED: &str =
+    "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent";
+
+impl Fenced {
+    /// Adds the pages a `DeviceCMYK` mark is blended in four components on under a non-zero
+    /// overprint mode, under [`BLENDED`] (`super::overprint::blended_pages`, `doc/adr/3358`).
+    ///
+    /// Unlike [`ROWS`], this row is not answered by the photographs alone: they take the pages
+    /// where writing the mode 0 would move the window, and the default answers the rest. A mark
+    /// in an annotation's appearance on such a page is not taken by the photograph, and the
+    /// output, held to the target afterwards, is then refused rather than wrong.
+    pub(super) fn blended(&mut self, survey: &Survey) {
+        for page in super::overprint::blended_pages(survey) {
+            self.pages.entry(page).or_default().insert(BLENDED);
+        }
+    }
+}
+
 /// The pages each failed fenced row holds a fault on.
 ///
 /// A row whose pages are not all known is absent from every value, so the requirement keeps the
