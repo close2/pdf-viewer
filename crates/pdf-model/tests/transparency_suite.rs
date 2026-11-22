@@ -31,5 +31,6 @@ mod soft_mask_transfer_limits_audit;
 mod soft_masks;
 mod stroke_composition_pdf_spec_audit;
 mod transparency;
+mod transparency_clause11_spec_audit;
 mod transparency_groups;
 mod transparency_repeated_group_spec_audit;

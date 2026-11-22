@@ -1,0 +1,59 @@
+[
+ {
+  "id": "2171-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "11.6.4.3",
+   "8.4.5"
+  ],
+  "summary": "A gs whose parameter dictionary has no /SMask entry removes the soft mask in force. entry_with_output_intent reads the absent key as Null and answers SoftMaskEntry::None, which ext_gstate.rs applies as /None: state.soft_mask = None. /M gs /A gs, /A stating only /ca 1, draws a red fill unmasked (255,0,0) where the half mask set by /M gives (255,127,127); nothing is reported.",
+  "source": "ISO 32000-2 §11.6.4.3: \"The name None may be specified in place of a soft-mask dictionary, denoting the absence of a soft mask. It shall also mean that any existing mask shall be removed from the current graphics state.\" §8.4.5 sets the parameters a graphics state parameter dictionary names.",
+  "code": "crates/pdf-model/src/soft_mask.rs:92 (Object::Null => SoftMaskEntry::None); crates/pdf-model/src/content/ext_gstate.rs:519 (SoftMaskEntry::None => state.soft_mask = None)",
+  "change": "Tell an absent /SMask from the name /None: an absent key leaves state.soft_mask unchanged; /None and an unusable value keep their present handling.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_graphics_state_without_smask_keeps_the_soft_mask_in_force_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2171-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "11.4.7",
+   "11.6.6",
+   "11.4.6"
+  ],
+  "summary": "The page group's /K is never read. The page /Group is read for /S and /CS only and enclosing_knockout starts as None, so a page stating /K true composites its elements with one another: a blue square at ca 0.5 over a red one reads (127,63,191) at the overlap where the knockout page group gives (127,127,255). Nothing is reported.",
+  "source": "ISO 32000-2 Table 147, K: \"If this flag is false , later objects within the group shall be composited with earlier ones with which they overlap; if true , they shall be composited with the group's initial backdrop and shall overwrite ( \\\"knock out\\\") any earlier overlapping objects.\" Table 147 alters only /I and /CS for a page group; §11.4.7: \"The page group shall be treated as an isolated group\".",
+  "code": "crates/pdf-model/src/content.rs:1641 (enclosing_knockout: None for the page's run); crates/pdf-model/src/content/transparency/blending_space.rs:255 (page_blending_space reads the page /Group for /CS)",
+  "change": "Read the page group's /K beside its /CS and run the page's content as the elements of an isolated knockout group, or report it where that cannot be drawn.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::the_page_groups_knockout_flag_is_honoured_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2171-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "11.6.5.1",
+   "11.6.6"
+  ],
+  "summary": "A soft-mask dictionary that breaks Table 142 is drawn in silence. A /BC whose length is not the group colour space's component count (/BC [1] beside /CS /DeviceRGB) is replaced by the space's initial colour, black; and a /Luminosity mask whose /G group states no /CS is composited on device RGB. Both draw a mask and neither reaches Interpretation::unsupported.",
+  "source": "ISO 32000-2 Table 142, BC: \"The array shall consist of n numbers, where n is the number of components in the colour space specified by the CS entry in the group attributes dictionary\"; G: \"If the subtype S is Luminosity , the group attributes dictionary shall contain a CS entry defining the colour space in which the compositing computation is to be performed.\"",
+  "code": "crates/pdf-model/src/soft_mask.rs:540-565 (the /BC reading's silent fallback); crates/pdf-model/src/soft_mask.rs:124-127 (a missing /CS read as Null and composited on device RGB)",
+  "change": "Report a /BC of the wrong length or with a non-number beside the default drawn in its place, and report a /Luminosity group without /CS where it is composited on device RGB (trap 5: unsupported input stays loud).",
+  "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_backdrop_colour_of_the_wrong_length_is_reported_spec_audit and crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_luminosity_group_without_a_colour_space_is_reported_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2171-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "11.6.3",
+   "8.4.5"
+  ],
+  "summary": "A /BM name outside Tables 134 and 135 (/BM /Foo) is drawn as Normal and not reported: blend_mode maps every unknown name to Normal and stated_blend_mode sets it without a word. The array form's Normal fallback is §11.6.3's own; a single unknown name is unsupported input.",
+  "source": "ISO 32000-2 §11.6.3: \"Its value shall be either a name object, designating one of the standard blend modes listed in \\\"Table 134 -Standard separable blend modes\\\" and \\\"Table 135 -Standard non-separable blend modes\\\" in 11.3.5, \\\"Blend mode\\\" or its value shall be an array of such names.\"",
+  "code": "crates/pdf-model/src/content/ext_gstate.rs:548 (Object::Name => Some(blend_mode(..))); crates/pdf-model/src/content/ext_gstate.rs:648 (blend_mode: unknown => Normal)",
+  "change": "Report a /BM name known_blend_mode does not recognise, drawing Normal as now; the array form keeps its silent fallback.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::an_unrecognised_blend_mode_name_is_reported_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
+  "status": "open"
+ }
+]
