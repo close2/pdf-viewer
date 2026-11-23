@@ -39,10 +39,10 @@ page-not-held = "append-statement"
 # A tagged document's annotation marks, kept on an appended page by the annotation rows' preserve
 # below, stand outside its structure tree as an artifact, the loss `tagging-of-preserved-marks`
 # (doc/questions/A1011, ADR 3509): this profile converts whatever the window can show, and the
-# marks are what the window showed. The statement page is not built for it, so the loss is taken
-# as discard takes it, named per page in the report and in xmpMM:History. Level A and Level U keep
-# the refusal whatever this says.
-tagging-of-preserved-marks = "discard"
+# marks are what the window showed. The loss is taken and stated: the statement page lists each
+# annotation by its object, its subtype and the page it was on (ADR 3518), and the report and
+# xmpMM:History name it per page. Level A and Level U keep the refusal whatever this says.
+tagging-of-preserved-marks = "append-statement"
 
 [site."embedded-files/embedded-file-is-itself-pdfa"]
 remedy = "preserve"

@@ -1207,6 +1207,10 @@ pub struct Authorisations {
     pub ascii_data_as_decoded: bool,
     /// Whether [`Loss::TaggingOfPreservedMarks`] was authorised.
     pub tagging_of_preserved_marks: bool,
+    /// Whether [`Loss::TaggingOfPreservedMarks`], where it is taken, is also stated on the appended
+    /// page `append-statement` composes, one entry an annotation (`doc/adr/3518`). No loss of its
+    /// own, as [`Self::page_not_held_stated`] is not.
+    pub tagging_of_preserved_marks_stated: bool,
 }
 
 impl Authorisations {

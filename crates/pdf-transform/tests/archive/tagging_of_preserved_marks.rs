@@ -194,5 +194,178 @@ fn as_shown_and_state_every_loss_take_the_loss_and_as_if_printed_has_no_marks_to
         assert!(grants("as-shown"), "{target:?}");
         assert!(grants("state-every-loss"), "{target:?}");
         assert!(!grants("as-if-printed"), "{target:?}");
+        // `state-every-loss` states it as well, and `as-shown` only names it (ADR 3518).
+        let stated = |profile: &str| {
+            Contribution::read(named(profile).expect("a shipped profile").text, target)
+                .expect("a shipped profile reads")
+                .authorised
+                .tagging_of_preserved_marks_stated
+        };
+        assert!(stated("state-every-loss"), "{target:?}");
+        assert!(!stated("as-shown"), "{target:?}");
+    }
+}
+
+#[test]
+fn append_statement_lists_each_annotation_outside_the_tree_on_the_statement_page() {
+    // CLAUDE.md's first authoring amendment: a page may state what a conversion removed in facts
+    // computed from the file and a fixed vocabulary naming the requirement and the loss. The
+    // facts are the fixture's own: the `Sound` annotation is object 6 0 on the first page.
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let source = a_forbidden_annotation_in_a_tagged_document_for(target);
+        let mut plan = a_plan(target, true);
+        plan.authorised.tagging_of_preserved_marks_stated = true;
+        let (report, output) = convert_with_plan(&source, &plan);
+        let output = output.unwrap_or_else(|| {
+            panic!(
+                "{target:?}: the document converts:\n{}",
+                conversion(&report).render()
+            )
+        });
+        // The marks' page, then the statement's, which takes as many pages of the first page's
+        // size as its text needs.
+        let statement = conversion(&report)
+            .statement
+            .as_ref()
+            .expect("a statement page");
+        assert_eq!(statement.pages.first(), Some(&2), "{target:?}");
+        assert_eq!(
+            page_contents(&output).len(),
+            statement.pages.len().saturating_add(2),
+            "{target:?}: the statement's pages are the last"
+        );
+        assert_eq!(statement.sites, vec![row_for(target)], "{target:?}");
+        assert_eq!(statement.listed.marks_records, 1, "{target:?}");
+        let document =
+            Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+        let pages = pdf_model::Pages::new(&document);
+        let text: String = statement
+            .pages
+            .iter()
+            .map(|at| {
+                let page = pages.get(*at).expect("a statement page");
+                pdf_model::interpret(&document, &page).text
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect();
+        for expected in [
+            format!("Requirement: {}", row_for(target)),
+            "Loss: tagging-of-preserved-marks".to_owned(),
+            "Object: Sound annotation 6 0".to_owned(),
+            "Page it was on: 1".to_owned(),
+        ] {
+            // White space is compared away: the text is extracted from glyph positions on a
+            // page narrower than its lines, as `recovered.rs`'s statement test reads it too.
+            let expected: String = expected.split_whitespace().collect();
+            assert!(
+                text.contains(&expected),
+                "{target:?}: the page states {expected:?}:\n{text}"
+            );
+        }
+        // The marks' row still names the loss in the report, as without the statement.
+        assert!(
+            conversion(&report).preserved[0].outside_the_tree,
+            "{target:?}"
+        );
+    }
+}
+
+/// The row that draws an embedded PDF on appended pages, and the annotation row, at `target`.
+fn drawing_plan(target: Target, taken: bool) -> ArchivePlan {
+    let files = match target {
+        Target::Two(_) => "embedded-files/embedded-file-is-itself-pdfa",
+        Target::Four(_) => "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
+    };
+    let mut plan = plan_from(
+        &format!(
+            "[site.\"{files}\"]\nremedy = \"preserve\"\nplacement = \"append\"\non-failure = \
+             \"discard\"\n[site.\"{}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n",
+            row_for(target)
+        ),
+        target,
+    );
+    if taken {
+        plan.authorised.authorise(Loss::TaggingOfPreservedMarks);
+    }
+    plan
+}
+
+#[test]
+fn a_drawn_pdfs_own_conversion_names_its_losses_in_the_outer_report_and_history() {
+    // ADR 3517: a PDF an embedded file holds is converted by a run of its own before its pages
+    // are drawn, under the outer plan's authorisations. The inner PDF here is the tagged fixture,
+    // so its conversion takes `tagging-of-preserved-marks`; the outer document is untagged, so the
+    // outer run takes no such loss of its own, and every naming of it below is the inner run's.
+    use super::attachments_as_pages::a_document_holding;
+    use pdf_transform::archive::AttachmentAnswer;
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let inner = a_forbidden_annotation_in_a_tagged_document_for(target);
+        let source = a_document_holding(&[("tagged.pdf", &inner)]);
+        let (report, output) = convert_with_plan(&source, &drawing_plan(target, true));
+        let output = output.unwrap_or_else(|| {
+            panic!(
+                "{target:?}: the document converts:\n{}",
+                conversion(&report).render()
+            )
+        });
+        let conversion = conversion(&report);
+        let outcome = conversion
+            .attachments
+            .iter()
+            .find(|outcome| outcome.name == "tagged.pdf")
+            .expect("the drawn file's outcome");
+        assert!(
+            matches!(outcome.answer, AttachmentAnswer::AppendedAsPages(_)),
+            "{target:?}: drawn: {outcome:?}"
+        );
+        assert_eq!(
+            outcome.lost,
+            vec![Loss::TaggingOfPreservedMarks],
+            "{target:?}: the inner run's loss, carried out of it"
+        );
+        assert!(
+            !conversion.losses().contains(Loss::TaggingOfPreservedMarks),
+            "{target:?}: the outer run took no such loss of its own"
+        );
+        let said = "this converter converted it first, losing tagging-of-preserved-marks";
+        let rendered = conversion.render();
+        assert!(
+            rendered.contains(said),
+            "{target:?}: the report names it:\n{rendered}"
+        );
+        let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+        assert!(
+            packet.contains(said),
+            "{target:?}: and so does the file's own history:\n{packet}"
+        );
+    }
+}
+
+#[test]
+fn a_loss_the_outer_plan_did_not_authorise_is_not_taken_inside() {
+    // The inner run is asked under exactly the outer plan's authorisations: without
+    // `tagging-of-preserved-marks`, the inner PDF's conversion refuses by that loss's sentence and
+    // the drawn file takes the row's `on-failure`, named with the inner refusal, rather than the
+    // loss being taken where the outer report could not see it.
+    use super::attachments_as_pages::a_document_holding;
+    use pdf_transform::archive::AttachmentAnswer;
+    let target = Target::Two(Level::B);
+    let inner = a_forbidden_annotation_in_a_tagged_document_for(target);
+    let source = a_document_holding(&[("tagged.pdf", &inner)]);
+    let (report, _) = convert_with_plan(&source, &drawing_plan(target, false));
+    let conversion = conversion(&report);
+    let outcome = conversion
+        .attachments
+        .iter()
+        .find(|outcome| outcome.name == "tagged.pdf")
+        .expect("the drawn file's outcome");
+    assert!(outcome.lost.is_empty(), "{outcome:?}");
+    match &outcome.answer {
+        AttachmentAnswer::Removed(because) => assert!(
+            because.contains("does not convert") && because.contains("tagging-of-preserved-marks"),
+            "the inner refusal is named: {because}"
+        ),
+        AttachmentAnswer::AppendedAsPages(_) => panic!("drawn without the loss: {outcome:?}"),
     }
 }

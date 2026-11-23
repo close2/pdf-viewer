@@ -762,6 +762,7 @@ pub(super) fn attachment_outcomes(
                 super::super::report::DISCARDED_BY_THE_ROW.to_owned(),
             ),
             stated_on: None,
+            lost: Vec::new(),
         })
         .collect()
 }

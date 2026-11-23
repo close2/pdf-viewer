@@ -2164,8 +2164,11 @@ ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
     tagged page — enclosed as §14.8.2.2.2's generic artifact (`/Artifact BMC … EMC`), outside the
     tree, the loss **`tagging-of-preserved-marks`**, named per page in the report and in
     `xmpMM:History`; a profile takes it with `[profile] tagging-of-preserved-marks = "discard"`
-    (`as-shown` and `state-every-loss` do; `as-if-printed` discards the annotation and appends no
-    marks). Level A keeps the refusal, and so does Level U, which the owner's answer did not name
+    (`as-shown` does), or with `"append-statement"`, which also lists each annotation on the
+    statement page by its object, subtype and page (`state-every-loss` does, ADR 3518);
+    `as-if-printed` discards the annotation and appends no marks. Where the marks are an embedded
+    PDF's, converted by its own run before its pages are drawn, the outer report and history name
+    that run's losses on the attachment (ADR 3517). Level A keeps the refusal, and so does Level U, which the owner's answer did not name
     (`doc/questions/A1011`, `doc/questions/Q1023`, ADR 3509). An operator who knows the type is the
     `supply` this site does not have yet;
   - `preserve` the **media stream** of a `Screen`, `Movie` or `Sound` annotation by attaching it,

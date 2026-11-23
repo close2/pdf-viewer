@@ -83,6 +83,8 @@ pub(super) struct AppendedFile {
     /// The device colour families the file's own output intent licenses, which the archive's
     /// intent then has to license in its place.
     pub(super) families: Vec<pdf_archive::survey::DeviceFamily>,
+    /// The losses the inner conversion took, which the outer report names (`doc/adr/3517`).
+    pub(super) lost: super::Losses,
 }
 
 /// An embedded file a `preserve` row draws on appended pages (`super::drawn`).
@@ -93,6 +95,9 @@ pub(super) struct DrawnFile {
     pub(super) drawn: Drawn,
     /// The device colour families its pages paint in, which the archive's intent licenses.
     pub(super) families: Vec<pdf_archive::survey::DeviceFamily>,
+    /// The losses a PDF's conversion took, which the outer report names (`doc/adr/3517`); empty
+    /// for an image, which is drawn rather than converted.
+    pub(super) lost: super::Losses,
 }
 
 /// The two things a drawn attachment can be.
@@ -284,6 +289,7 @@ impl Remedies {
                             &converted.bytes,
                             budget.limits,
                         ),
+                        lost: converted.conversion.losses(),
                         drawn: Drawn::Pdf(converted.bytes),
                     })
                 } else {
@@ -291,6 +297,7 @@ impl Remedies {
                         .map(|image| DrawnFile {
                             site,
                             families: vec![image.family],
+                            lost: super::Losses::default(),
                             drawn: Drawn::Image(image),
                         })
                         .map_err(str::to_owned)
@@ -536,6 +543,7 @@ impl Remedies {
                 .iter()
                 .map(|decided| decided.requirement)
                 .collect(),
+            lost: converted.conversion.losses().iter().collect(),
         });
         match derivation.placement {
             // `derive:<tool>:append`: the attachment goes and the converted file's pages are
@@ -550,6 +558,7 @@ impl Remedies {
                             &converted.bytes,
                             budget.limits,
                         ),
+                        lost: converted.conversion.losses(),
                         bytes: converted.bytes,
                     });
             }
@@ -1329,8 +1338,10 @@ pub(super) fn derived_history(rows: &[Derived]) -> Option<String> {
         if let Some(converted) = &row.converted {
             let _ = write!(
                 out,
-                ", which this converter converted to {} and placed by {}",
-                converted.target, converted.placement
+                ", which this converter converted to {}{} and placed by {}",
+                converted.target,
+                super::report::losing_clause(&converted.lost),
+                converted.placement
             );
         }
     }

@@ -145,10 +145,19 @@ pub(super) fn convert(
         ));
     }
     if !report.refused.is_empty() {
-        let stopped: Vec<&str> = report
+        // Each refusal with its own sentence, so that the outer report carries what the inner
+        // run would have needed — a loss the outer plan did not authorise among them — rather
+        // than a requirement's name alone (`doc/adr/3517`).
+        let stopped: Vec<String> = report
             .refused
             .iter()
-            .map(|declined| declined.subject.as_str())
+            .map(|declined| {
+                if declined.detail.is_empty() {
+                    declined.subject.clone()
+                } else {
+                    format!("{}: {}", declined.subject, declined.detail)
+                }
+            })
             .collect();
         return Err(format!(
             "{what} does not convert to {target}; what stopped it: {}",

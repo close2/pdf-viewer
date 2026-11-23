@@ -195,6 +195,10 @@ pub struct ConvertedTo {
     pub bytes: usize,
     /// The requirements the inner conversion decided, in its own order.
     pub decided: Vec<&'static str>,
+    /// The losses the inner conversion took, in [`crate::archive::Loss::ALL`]'s order: the
+    /// outer plan's authorisations are the inner run's, so each is one the operator authorised,
+    /// and the outer report names it (`doc/adr/3517`).
+    pub lost: Vec<crate::archive::Loss>,
 }
 
 /// One stream whose data an operator's tool fetched from outside the document.
@@ -378,6 +382,17 @@ pub struct SuppliedFact {
     pub value: String,
 }
 
+/// The clause naming what a conversion inside this one lost, `", losing a, b"`, or nothing where it
+/// lost nothing (`doc/adr/3517`): the rendered report's sentence and `xmpMM:History` alike, so the
+/// two name one set.
+pub(super) fn losing_clause(lost: &[crate::archive::Loss]) -> String {
+    if lost.is_empty() {
+        return String::new();
+    }
+    let words: Vec<&str> = lost.iter().map(|loss| loss.word()).collect();
+    format!(", losing {}", words.join(", "))
+}
+
 impl Derived {
     /// What became of the artefact, as the rendered report's sentence says it.
     fn became(&self) -> String {
@@ -386,13 +401,14 @@ impl Derived {
             DerivedOutcome::Attached => match &row.converted {
                 Some(converted) => format!(
                     "became {} of {} byte(s), SHA-256 {}, converted here to {} \
-                     ({} byte(s), {} requirement(s) decided) and placed by {}",
+                     ({} byte(s), {} requirement(s) decided{}) and placed by {}",
                     row.expects,
                     row.bytes,
                     row.digest,
                     converted.target,
                     converted.bytes,
                     converted.decided.len(),
+                    losing_clause(&converted.lost),
                     converted.placement
                 ),
                 None => format!(
@@ -453,6 +469,16 @@ impl Derived {
                                     .collect(),
                             ),
                         ),
+                        (
+                            "losses".to_owned(),
+                            Value::Array(
+                                converted
+                                    .lost
+                                    .iter()
+                                    .map(|loss| Value::text(loss.word()))
+                                    .collect(),
+                            ),
+                        ),
                     ])
                 }),
             ),
@@ -503,6 +529,12 @@ pub struct AttachmentOutcome {
     /// The first page (zero-based) of the statement `append-statement` appended naming this
     /// file's removal, where the row's loss was stated (`doc/rfc/0014` section 4).
     pub stated_on: Option<usize>,
+    /// What the conversion of a PDF laid out as pages lost, in [`crate::archive::Loss::ALL`]'s
+    /// order (`doc/adr/3517`). A PDF an embedded file holds, or one a tool derived from it, is
+    /// converted by a run of its own under the outer plan's authorisations before its pages are
+    /// imported; empty for a file laid out as text or drawn as an image, for a removed file, and
+    /// for a conversion that lost nothing.
+    pub lost: Vec<crate::archive::Loss>,
 }
 
 /// The page `append-statement` appended, stating what the conversion removed.
@@ -546,6 +578,8 @@ pub struct Listed {
     pub type3_width_records: usize,
     /// A recovered structure and the pages the file does not hold.
     pub recovery_records: usize,
+    /// Annotations whose marks stand outside the structure tree (`doc/adr/3518`).
+    pub marks_records: usize,
 }
 
 impl Listed {
@@ -560,6 +594,7 @@ impl Listed {
             .saturating_add(self.run_records)
             .saturating_add(self.type3_width_records)
             .saturating_add(self.recovery_records)
+            .saturating_add(self.marks_records)
     }
 
     /// The two lists' entries together.
@@ -578,11 +613,12 @@ impl Listed {
                 .type3_width_records
                 .saturating_add(other.type3_width_records),
             recovery_records: self.recovery_records.saturating_add(other.recovery_records),
+            marks_records: self.marks_records.saturating_add(other.marks_records),
         }
     }
 
     /// Each kind with a count, as the words the report prints and its count.
-    fn kinds(&self) -> [(&'static str, usize); 8] {
+    fn kinds(&self) -> [(&'static str, usize); 9] {
         [
             ("removed object(s)", self.removed_objects),
             ("omitted character(s)", self.omitted_characters),
@@ -595,6 +631,10 @@ impl Listed {
             ("run record(s)", self.run_records),
             ("Type 3 width record(s)", self.type3_width_records),
             ("recovery record(s)", self.recovery_records),
+            (
+                "annotation(s) outside the structure tree",
+                self.marks_records,
+            ),
         ]
     }
 
@@ -777,6 +817,17 @@ impl AttachmentOutcome {
         if let Some(page) = self.stated_on {
             entries.push(("stated-on".to_owned(), Value::count(page.saturating_add(1))));
         }
+        if !self.lost.is_empty() {
+            entries.push((
+                "losses_of_its_conversion".to_owned(),
+                Value::Array(
+                    self.lost
+                        .iter()
+                        .map(|loss| Value::text(loss.word()))
+                        .collect(),
+                ),
+            ));
+        }
         if !self.annotations.is_empty() {
             entries.push((
                 "annotations".to_owned(),
@@ -828,7 +879,7 @@ impl AttachmentOutcome {
         match &self.answer {
             AttachmentAnswer::AppendedAsPages(pages) => format!(
                 "the embedded file {} (object {} {}) is laid out on page(s) {} of this document \
-                 and is no longer a file ({})",
+                 and is no longer a file ({}){}",
                 self.name,
                 self.object.number,
                 self.object.generation,
@@ -837,7 +888,15 @@ impl AttachmentOutcome {
                     .map(|page| page.saturating_add(1).to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
-                ATTACHMENT_AS_PAGES
+                ATTACHMENT_AS_PAGES,
+                if self.lost.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; this converter converted it first{}",
+                        losing_clause(&self.lost)
+                    )
+                }
             ),
             AttachmentAnswer::Removed(because) => format!(
                 "the embedded file {} (object {} {}) is removed (embedded-file): {because}",
@@ -1273,6 +1332,48 @@ impl Conversion {
                 .signatures
                 .as_ref()
                 .is_none_or(|signed| signed.decision.proceeds())
+    }
+
+    /// Every loss this conversion took, once each, in [`crate::archive::Loss::ALL`]'s order.
+    ///
+    /// What a conversion inside this one took is carried out of it by this set (`doc/adr/3517`):
+    /// a PDF an embedded file holds, drawn as pages, and a PDF a tool returned are each converted
+    /// by a run of their own, and the outer report and `xmpMM:History` name what that run lost.
+    /// The set is the union of every authorised decision's losses and of the losses rows record
+    /// beside their decision — a substituted face's, a photographed page's, marks standing outside
+    /// the structure tree, a recovered structure and the pages it does not hold, and an assumed
+    /// press — so a loss named in either place is named here.
+    #[must_use]
+    pub fn losses(&self) -> crate::archive::Losses {
+        use crate::archive::{Loss, Losses};
+        let mut losses = self
+            .decided
+            .iter()
+            .filter_map(|decided| match decided.decision {
+                Decision::Authorised { losses, .. } => Some(losses),
+                _ => None,
+            })
+            .flat_map(Losses::iter)
+            .chain(self.substituted.iter().flat_map(|font| font.losses.iter()))
+            .chain(
+                self.photographed
+                    .iter()
+                    .flat_map(crate::archive::PhotographedPage::losses),
+            )
+            .fold(Losses::default(), Losses::with);
+        if self.preserved.iter().any(|row| row.outside_the_tree) {
+            losses = losses.with(Loss::TaggingOfPreservedMarks);
+        }
+        if let Some(recovered) = &self.recovered_structure {
+            losses = losses.with(Loss::RecoveredStructure);
+            if recovered.not_held.is_some() {
+                losses = losses.with(Loss::PageNotHeld);
+            }
+        }
+        if self.press_assumed.is_some() {
+            losses = losses.with(Loss::PressAssumed);
+        }
+        losses
     }
 
     /// The report as RFC 0002 section 4.5's JSON.

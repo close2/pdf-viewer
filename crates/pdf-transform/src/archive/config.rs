@@ -1406,9 +1406,10 @@ pub struct Configuration {
     /// an appended page may stand outside its structure tree, under the loss
     /// [`Loss::TaggingOfPreservedMarks`]. No site's key, because the condition is the document's
     /// structure tree and every row whose `preserve` appends marks meets it alike
-    /// (`doc/questions/A1011`, `doc/adr/3509`). `discard` takes the loss; anything else leaves the
-    /// refusal in place, and Level A keeps it whatever the profile says.
-    tagging_of_preserved_marks: bool,
+    /// (`doc/questions/A1011`, `doc/adr/3509`). `discard` takes the loss, `append-statement` takes
+    /// it and lists each annotation on the appended statement page as well (`doc/adr/3518`), and
+    /// anything else leaves the refusal in place; Level A keeps it whatever the profile says.
+    tagging_of_preserved_marks: StructureLoss,
     /// `[profile] base`, and the sites read from it (`doc/rfc/0014` section 6).
     inherited: Option<Inherited>,
 }
@@ -1594,7 +1595,7 @@ impl Configuration {
         let mut press = None;
         let mut recovered_structure = StructureLoss::Refused;
         let mut page_not_held = StructureLoss::Refused;
-        let mut tagging_of_preserved_marks = false;
+        let mut tagging_of_preserved_marks = StructureLoss::Refused;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut flag_shapes = Vec::new();
@@ -1611,7 +1612,7 @@ impl Configuration {
                         .map(str::to_owned);
                     recovered_structure = structure_loss_key(tbl, "recovered-structure");
                     page_not_held = structure_loss_key(tbl, "page-not-held");
-                    tagging_of_preserved_marks = loss_taken(tbl, "tagging-of-preserved-marks");
+                    tagging_of_preserved_marks = structure_loss_key(tbl, MARKS_KEY);
                     check_profile_default(tbl)?;
                     press = press_key(tbl)?.map(|path| (path, tbl.line));
                 }
@@ -1808,8 +1809,10 @@ impl Configuration {
         }
         // A third that belongs to no site: the condition is the document's structure tree, and
         // the target's level is asked where the marks are placed (`doc/adr/3509`).
-        if self.tagging_of_preserved_marks {
+        if self.tagging_of_preserved_marks != StructureLoss::Refused {
             authorised.authorise(Loss::TaggingOfPreservedMarks);
+            authorised.tagging_of_preserved_marks_stated =
+                self.tagging_of_preserved_marks == StructureLoss::Stated;
         }
         authorised
     }
@@ -2576,20 +2579,18 @@ enum StructureLoss {
     Stated,
 }
 
-/// `[profile] recovered-structure` or `[profile] page-not-held`: `discard` takes the loss,
-/// `append-statement` takes and states it, and anything else leaves the refusal in place.
+/// The `[profile]` key naming the loss `tagging-of-preserved-marks` (`doc/adr/3509`, `doc/adr/3518`).
+const MARKS_KEY: &str = "tagging-of-preserved-marks";
+
+/// `[profile] recovered-structure`, `[profile] page-not-held` or `[profile]
+/// tagging-of-preserved-marks`: `discard` takes the loss, `append-statement` takes and states it,
+/// and anything else leaves the refusal in place.
 fn structure_loss_key(tbl: &toml::Table, key: &str) -> StructureLoss {
     match tbl.get(key).and_then(Value::as_text).and_then(remedy_word) {
         Some((Kind::Discard, true)) => StructureLoss::Stated,
         Some((Kind::Discard, false)) => StructureLoss::Discarded,
         _ => StructureLoss::Refused,
     }
-}
-
-/// `[profile] tagging-of-preserved-marks`: `discard` takes the loss, and anything else — its
-/// statement page is not built — leaves the refusal in place (`doc/adr/3509`).
-fn loss_taken(tbl: &toml::Table, key: &str) -> bool {
-    structure_loss_key(tbl, key) == StructureLoss::Discarded
 }
 
 /// `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be `stop` — today's

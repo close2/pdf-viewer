@@ -534,6 +534,64 @@ pub(super) fn runs_entry(
     Ok(())
 }
 
+/// The one line the `tagging-of-preserved-marks` loss is described by on the page.
+const MARKS_LOSS: &str = "the document describes its content in a structure tree, and the normal \
+     appearance of this annotation, which the target does not admit, is drawn on a page this \
+     conversion appended, enclosed as an artifact that no structure element describes (ISO 32000-2 \
+     14.8.2.2.2); a reader that reads the page by its structure passes over these marks";
+
+/// One annotation whose normal appearance a tagged document keeps outside its structure tree.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct MarksStated<'a> {
+    /// The requirement the annotation row answers.
+    pub(super) site: &'static str,
+    /// The annotation, as the removal recorded it.
+    pub(super) removed: &'a super::prepare::RemovedAnnotation,
+}
+
+/// Appends one entry per annotation whose marks stand outside the structure tree, the loss
+/// [`super::Loss::TaggingOfPreservedMarks`], to a statement's `text`, the first numbered `index`
+/// from zero, or the bound it would pass (`doc/adr/3518`).
+///
+/// Every fact is the removal's own record ([`super::prepare::RemovedAnnotation`]): the
+/// annotation's object, its `/Subtype` as the file spells it, and the producer's page it was on —
+/// the same three the report's row subject names it by. The requirement's identifier, citation
+/// and `asks` sentence are the table's, and the loss's line is [`MARKS_LOSS`].
+pub(super) fn marks_entries(
+    out: &mut String,
+    target: Target,
+    index: usize,
+    marks: &[MarksStated<'_>],
+) -> Result<(), &'static str> {
+    for (offset, stated) in marks.iter().enumerate() {
+        if out.len() > MOST_STATEMENT_BYTES || stated.removed.subtype.len() > MOST_STATEMENT_BYTES {
+            return Err(STATEMENT_TOO_LONG);
+        }
+        let requirement = table::requirements().find(|requirement| requirement.id == stated.site);
+        let citation = requirement
+            .and_then(|requirement| requirement.clauses.citation(target))
+            .unwrap_or_default();
+        let asks = requirement.map_or("", |requirement| requirement.asks);
+        // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: \
+             tagging-of-preserved-marks, {MARKS_LOSS}\n   Object: {} annotation {} {}\n   Page it \
+             was on: {}\n",
+            index.saturating_add(offset).saturating_add(1),
+            stated.site,
+            escaped(&stated.removed.subtype),
+            stated.removed.at.number,
+            stated.removed.at.generation,
+            stated.removed.page.saturating_add(1),
+        );
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// The one line the `type3-width-as-drawn` loss is described by on the page.
 const TYPE3_WIDTH_LOSS: &str = "the glyph procedure's d0 or d1 stated a horizontal width other \
      than the one its font's Widths array gives the glyph, which ISO 32000-2 Table 111 asks it to be \
@@ -1041,6 +1099,7 @@ mod tests {
             answer: AttachmentAnswer::Removed("the row discards it".to_owned()),
             annotations: Vec::new(),
             stated_on: None,
+            lost: Vec::new(),
         }
     }
 

@@ -1367,6 +1367,8 @@ fn read_config(
     // `doc/adr/2669`).
     authorised.page_not_held_stated |= config.authorised.page_not_held_stated;
     authorised.recovered_structure_stated |= config.authorised.recovered_structure_stated;
+    authorised.tagging_of_preserved_marks_stated |=
+        config.authorised.tagging_of_preserved_marks_stated;
     for unbuilt in config.unbuilt.iter().filter(|_| announce) {
         errln!(
             io,

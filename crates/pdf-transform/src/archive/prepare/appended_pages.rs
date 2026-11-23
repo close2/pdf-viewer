@@ -214,11 +214,26 @@ pub(super) fn the_preserved_pages(
             let removals = forbidden.map_err(|because| *because)?;
             let marks = marks_of(document, removals)?;
             if tagged {
-                return Ok((site, all_appended(&marks, TAGGED_PRODUCER_PAGE)));
+                // Stated only where the profile asked for this loss on the statement page
+                // (`doc/adr/3518`); the report and `xmpMM:History` name it either way.
+                let stated = if plan.authorised.tagging_of_preserved_marks_stated {
+                    marks
+                        .iter()
+                        .map(|(removed, _)| statement::MarksStated { site, removed })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                return Ok((site, all_appended(&marks, TAGGED_PRODUCER_PAGE), stated));
             }
-            relocate_marks(document, site, removals, &marks, spare).map(|plan| (site, plan))
+            relocate_marks(document, site, removals, &marks, spare)
+                .map(|relocated| (site, relocated, Vec::new()))
         })
         .transpose()?;
+    let (annotation_site, marks_stated) = match annotation_site {
+        Some((site, relocated, stated)) => (Some((site, relocated)), stated),
+        None => (None, Vec::new()),
+    };
     // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9: the files the removal takes out, each
     // laid out as pages where this reader can lay it out and answered by the row's `on-failure`
     // where it cannot (`doc/adr/2536`).
@@ -279,6 +294,7 @@ pub(super) fn the_preserved_pages(
                             super::super::report::DISCARDED_BY_THE_ROW.to_owned(),
                         ),
                         stated_on: None,
+                        lost: Vec::new(),
                     }),
             );
     }
@@ -295,6 +311,7 @@ pub(super) fn the_preserved_pages(
         fonts.as_ref(),
         runs,
         type3_widths,
+        &marks_stated,
         recovery,
     )?;
     if packets.is_empty()
@@ -381,7 +398,8 @@ pub(super) fn the_preserved_pages(
         ));
     }
     let mut imported: Vec<(usize, Vec<(ObjectId, Object)>)> = Vec::new();
-    for (_, at, name, bytes) in &attachments.derived {
+    for (_, at, name, file) in &attachments.derived {
+        let bytes = &file.bytes;
         let pages = super::super::derived::import_pages(
             document,
             bytes,
@@ -439,6 +457,7 @@ pub(super) fn the_preserved_pages(
                             because.sentence()
                         )),
                         stated_on: None,
+                        lost: Vec::new(),
                     });
                 continue;
             }
@@ -468,9 +487,10 @@ pub(super) fn the_preserved_pages(
                 declined: None,
             });
         }
-        drawn_laid.push((site, *at, name.clone(), count, pages.written));
+        drawn_laid.push((site, *at, name.clone(), count, pages.written, file.lost));
     }
     let drawn_keeps = keeps.len().saturating_sub(first_drawn);
+    let marks_site = marks_stated.first().map(|stated| stated.site);
     let relocation = annotation_site.map(|(site, plan)| {
         for (marks, subject, declined) in plan.fallback {
             keeps.push(preserve::Keep {
@@ -492,6 +512,7 @@ pub(super) fn the_preserved_pages(
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
         .or_else(|| (!runs.is_empty()).then_some(super::super::config::STATED_RUNS))
         .or_else(|| (!type3_widths.is_empty()).then_some(super::super::config::STATED_TYPE3_WIDTHS))
+        .or(marks_site)
         .or_else(|| recovery.structure.map(|_| RECOVERED_SITE))
         .or_else(|| recovery.not_held.map(|_| NOT_HELD_SITE));
     if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
@@ -539,7 +560,7 @@ pub(super) fn the_preserved_pages(
                 .chain(
                     drawn_laid
                         .drain(..)
-                        .map(|(site, at, name, _, _)| (site, at, name)),
+                        .map(|(site, at, name, _, _, _)| (site, at, name)),
                 );
             for (site, at, name) in taken {
                 attachments
@@ -554,6 +575,7 @@ pub(super) fn the_preserved_pages(
                             because.sentence()
                         )),
                         stated_on: None,
+                        lost: Vec::new(),
                     });
             }
             // The statement is written again over every file now removed, the ones the failed
@@ -569,6 +591,7 @@ pub(super) fn the_preserved_pages(
                 fonts.as_ref(),
                 runs,
                 type3_widths,
+                &marks_stated,
                 recovery,
             )?;
             if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
@@ -637,6 +660,11 @@ pub(super) fn the_preserved_pages(
         if !type3_widths.is_empty() {
             sites.push(super::super::config::STATED_TYPE3_WIDTHS);
         }
+        if let Some(site) = marks_site
+            && !sites.contains(&site)
+        {
+            sites.push(site);
+        }
         if recovery.structure.is_some() {
             sites.push(RECOVERED_SITE);
         }
@@ -658,6 +686,7 @@ pub(super) fn the_preserved_pages(
             run_records: runs.len(),
             type3_width_records: type3_widths.len(),
             recovery_records: recovery.entries(),
+            marks_records: marks_stated.len(),
         };
         let page = the_statement_page(&mut composed, sites, listed)?;
         if files_stated {
@@ -706,13 +735,14 @@ pub(super) fn the_preserved_pages(
                 annotations: Vec::new(),
                 answer: super::super::report::AttachmentAnswer::AppendedAsPages(row.pages.clone()),
                 stated_on: None,
+                lost: Vec::new(),
             });
     }
     let mut rows = composed
         .carried
         .iter()
         .skip(first_derived.saturating_sub(texts_dropped));
-    for ((site, at, name, _), (count, written)) in attachments.derived.iter().zip(imported) {
+    for ((site, at, name, file), (count, written)) in attachments.derived.iter().zip(imported) {
         let pages: Vec<usize> = rows
             .by_ref()
             .take(count)
@@ -728,9 +758,10 @@ pub(super) fn the_preserved_pages(
                 annotations: Vec::new(),
                 answer: super::super::report::AttachmentAnswer::AppendedAsPages(pages),
                 stated_on: None,
+                lost: file.lost.iter().collect(),
             });
     }
-    for (site, at, name, count, written) in drawn_laid {
+    for (site, at, name, count, written, lost) in drawn_laid {
         let pages: Vec<usize> = rows
             .by_ref()
             .take(count)
@@ -746,6 +777,7 @@ pub(super) fn the_preserved_pages(
                 annotations: Vec::new(),
                 answer: super::super::report::AttachmentAnswer::AppendedAsPages(pages),
                 stated_on: None,
+                lost: lost.iter().collect(),
             });
     }
     composed
@@ -847,6 +879,7 @@ fn statement_of(
     fonts: Option<&statement::FontsStated<'_>>,
     runs: &[super::super::WrittenRun],
     type3_widths: &[super::super::RestatedType3Width],
+    marks: &[statement::MarksStated<'_>],
     recovery: super::super::recovered::Stated<'_>,
 ) -> Result<Option<String>, Because> {
     let files = files.filter(|(removed, _)| !removed.is_empty());
@@ -858,6 +891,7 @@ fn statement_of(
         && fonts.is_none()
         && runs.is_empty()
         && type3_widths.is_empty()
+        && marks.is_empty()
         && recovery.is_empty()
     {
         return Ok(None);
@@ -899,6 +933,10 @@ fn statement_of(
         statement::type3_widths_entry(&mut text, target, before, type3_widths)
             .map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(type3_widths.len());
+    }
+    if !marks.is_empty() {
+        statement::marks_entries(&mut text, target, before, marks).map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(marks.len());
     }
     if let Some(structure) = recovery.structure {
         statement::recovered_entry(&mut text, before, structure).map_err(Because::NotBuiltYet)?;
@@ -1193,6 +1231,7 @@ type DrawnLaid = (
     String,
     usize,
     Vec<(ObjectId, Object)>,
+    super::super::Losses,
 );
 
 /// The files a remedy answered before the layout: each derivation's converted PDF, and each
@@ -1209,7 +1248,12 @@ struct AttachmentsToLayOut<'a> {
     texts: Vec<(&'static str, ObjectId, String, std::sync::Arc<[u8]>)>,
     /// Each file whose derived PDF's pages are appended (`derive:<tool>:append`): its row, its
     /// specification, its name and the converted file.
-    derived: Vec<(&'static str, ObjectId, String, &'a [u8])>,
+    derived: Vec<(
+        &'static str,
+        ObjectId,
+        String,
+        &'a super::super::remedies::AppendedFile,
+    )>,
     /// Each file drawn as pages (`super::super::drawn`): its row, its specification, its name and what
     /// is drawn.
     drawn: Vec<(
@@ -1242,7 +1286,7 @@ fn attachments_to_lay_out<'a>(
             let file = appended
                 .get(at)
                 .ok_or(Because::NotBuiltYet(DERIVED_FILE_NOT_CONVERTED))?;
-            out.derived.push((site, *at, name.clone(), &file.bytes));
+            out.derived.push((site, *at, name.clone(), file));
         }
         return Ok(out);
     }
@@ -1285,6 +1329,7 @@ fn attachments_to_lay_out<'a>(
                     "no page carries it, because {because}"
                 )),
                 stated_on: None,
+                lost: Vec::new(),
             });
         }
     }
