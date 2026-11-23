@@ -36,10 +36,12 @@ mod scene;
 mod stroke;
 mod tiles;
 mod uncaptured;
+mod video;
 
 pub use present::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 pub use scene::FunctionPaints;
 pub use uncaptured::{Uncaptured, UncapturedErrors};
+pub use video::VideoCost;
 
 /// Why a frame could not be produced. Every variant names what refused (the same
 /// contract as the other backends: unsupported input is an error, never a skipped
@@ -96,6 +98,13 @@ pub enum QuorraRasterError {
         /// The target's height in pixels.
         height: u32,
     },
+    /// A video picture's signal or planes have no conversion (ADR 3529).
+    #[error("{0}")]
+    Video(#[from] pdf_render::video::ConversionRefused),
+    /// The device refused a video picture's conversion: its pipeline, its resources or its pass,
+    /// named inside.
+    #[error("the device's video conversion: {0}")]
+    VideoDevice(String),
 }
 
 /// raster's options as *this host* asks for them: [`raster_gpu::Options::default`] with the one
@@ -170,6 +179,10 @@ pub struct QuorraRasterizer {
     phases: Vec<(&'static str, std::time::Duration)>,
     /// See [`QuorraRasterizer::last_counters`].
     counters: raster_gpu::Counters,
+    /// The video conversion's pass, compiled on the first picture (ADR 3529).
+    video: Option<video::VideoPass>,
+    /// See [`QuorraRasterizer::last_video_cost`].
+    video_cost: VideoCost,
 }
 
 impl QuorraRasterizer {
@@ -226,7 +239,55 @@ impl QuorraRasterizer {
             functions: FunctionPaints::default(),
             phases: Vec::new(),
             counters: raster_gpu::Counters::default(),
+            video: None,
+            video_cost: VideoCost::default(),
         })
+    }
+
+    /// A decoded 4:2:0 picture converted to an opaque RGBA8 raster on the device, by the formula
+    /// and numbers `pdf_render::video` states and `render_cpu::video::convert_picture` computes as
+    /// the oracle (RFC 0015 section 6, ADR 3529).
+    ///
+    /// The pass is compiled on the first picture, never at bring-up.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::Video`] for planes that are not the size's, and
+    /// [`QuorraRasterError::VideoDevice`] for what the device refused.
+    pub fn convert_picture(
+        &mut self,
+        planes: &pdf_render::video::Planes<'_>,
+        conversion: &pdf_render::video::Conversion,
+    ) -> Result<Raster, QuorraRasterError> {
+        if !planes.are_consistent() {
+            return Err(pdf_render::video::ConversionRefused::Planes {
+                width: planes.width,
+                height: planes.height,
+            }
+            .into());
+        }
+        let (gpu, queue) = self.device.wgpu();
+        let pass = match &mut self.video {
+            Some(pass) => pass,
+            empty => empty
+                .insert(video::VideoPass::compile(gpu).map_err(QuorraRasterError::VideoDevice)?),
+        };
+        let (data, cost) = pass
+            .convert(gpu, queue, planes, conversion)
+            .map_err(QuorraRasterError::VideoDevice)?;
+        self.video_cost = cost;
+        Ok(Raster {
+            width: planes.width,
+            height: planes.height,
+            format: RasterFormat::Rgba8,
+            data,
+        })
+    }
+
+    /// What the last [`QuorraRasterizer::convert_picture`] cost, on the device and in reading back.
+    #[must_use]
+    pub fn last_video_cost(&self) -> VideoCost {
+        self.video_cost
     }
 
     /// Sets what the finished page is imposed on: §11.4.7's 𝑊, and what lies outside the page.

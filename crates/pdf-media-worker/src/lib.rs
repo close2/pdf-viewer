@@ -35,6 +35,7 @@ mod client;
 pub mod mp4;
 pub mod sound;
 pub mod video;
+mod vui;
 pub mod wave;
 pub mod wire;
 mod worker;

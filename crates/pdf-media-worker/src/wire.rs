@@ -35,7 +35,7 @@ pub const FRAME_LAYOUT: u8 = 4;
 pub const FRAME_PLACED: u8 = 5;
 
 /// The first byte of every payload.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 
 /// Longest run of a sound's bytes one request carries.
 ///
@@ -996,8 +996,11 @@ pub fn decode_video_run(payload: &[u8]) -> Result<(bool, Vec<&[u8]>), String> {
     Ok((last, decode_units(units)?))
 }
 
-/// A picture item's bytes before its planes: the version, the width and the height.
-pub const PICTURE_HEADER_BYTES: usize = 1 + 4 + 4;
+/// A picture item's bytes before its planes: the version, the width, the height, and its
+/// [`crate::video::Signal`]'s five codes (`video_full_range_flag` as 0 or 1, then
+/// `colour_primaries`, `transfer_characteristics`, `matrix_coefficients` and
+/// `chroma_sample_loc_type`, a byte each).
+pub const PICTURE_HEADER_BYTES: usize = 1 + 4 + 4 + 5;
 
 /// The bytes a picture of `width` by `height` takes as an item: its header, the luma plane and two
 /// chroma planes of half its width and height, rounded up.
@@ -1026,10 +1029,19 @@ pub fn encode_picture_into(slot: &mut [u8], picture: &crate::video::Picture) -> 
     let mut cursor = slot.get_mut(..length)?;
     let width = u32::try_from(picture.width).ok()?.to_le_bytes();
     let height = u32::try_from(picture.height).ok()?.to_le_bytes();
+    let signal = picture.signal;
+    let codes = [
+        u8::from(signal.full_range),
+        signal.colour_primaries,
+        signal.transfer_characteristics,
+        signal.matrix_coefficients,
+        signal.chroma_sample_loc_type,
+    ];
     for bytes in [
         &[VERSION][..],
         &width,
         &height,
+        &codes,
         &picture.y,
         &picture.u,
         &picture.v,
@@ -1065,6 +1077,27 @@ pub fn decode_picture(
             "a picture of {pictured_width} by {pictured_height} from a track of {width} by {height}"
         ));
     }
+    let codes = fields.take(5).ok_or_else(cut)?;
+    let &[
+        full_range,
+        colour_primaries,
+        transfer_characteristics,
+        matrix_coefficients,
+        siting,
+    ] = codes
+    else {
+        return Err(cut());
+    };
+    if full_range > 1 {
+        return Err(format!("a picture whose full-range flag is {full_range}"));
+    }
+    let signal = crate::video::Signal {
+        full_range: full_range == 1,
+        colour_primaries,
+        transfer_characteristics,
+        matrix_coefficients,
+        chroma_sample_loc_type: siting,
+    };
     if item.len() != picture_bytes(pictured_width, pictured_height) {
         return Err(format!(
             "a picture of {pictured_width} by {pictured_height} in {} bytes",
@@ -1084,6 +1117,7 @@ pub fn decode_picture(
         y,
         u,
         v,
+        signal,
     })
 }
 
@@ -1157,7 +1191,7 @@ mod tests {
     #[test]
     fn a_request_of_another_version_or_encoding_is_refused() {
         let mut bytes = encode_request(&STEREO, &[]);
-        bytes[0] = 2;
+        bytes[0] = VERSION + 1;
         assert!(decode_request(&bytes).is_err());
         let mut bytes = encode_request(&STEREO, &[]);
         bytes[8] = 9;

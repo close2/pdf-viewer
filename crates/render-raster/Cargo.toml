@@ -13,13 +13,18 @@ pdf-render.workspace = true
 raster-gpu.workspace = true
 raster-scene.workspace = true
 thiserror.workspace = true
+# The video conversion's pipeline is built under the device's error scopes, whose answers are
+# futures; `raster-gpu` blocks on them with this same crate, so it adds nothing to the graph.
+pollster.workspace = true
 
 [dev-dependencies]
 # `examples/device_under_confinement` asks what a graphics device does when the process
 # holding it is confined — `doc/todo/34` §2's second way out, measured rather than argued.
 # A dev-dependency, so nothing that ships names it.
 pdf-sandbox.workspace = true
-pollster.workspace = true
+# `tests/video_conversion.rs` decodes H.264.1's conformance streams with the worker's own session to
+# compare the device's conversion of their pictures with the processor's (ADR 3529).
+pdf-media-worker.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true
 render-gpu.workspace = true

@@ -54,6 +54,7 @@ mod strips;
 mod stroke;
 mod surface;
 mod thin_segment;
+pub mod video;
 
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;

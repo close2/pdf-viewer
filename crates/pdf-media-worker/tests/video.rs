@@ -18,7 +18,7 @@
 use std::ops::ControlFlow;
 
 use pdf_media_worker::mp4::movie_video_track;
-use pdf_media_worker::video::{Picture, Session, VideoError};
+use pdf_media_worker::video::{Picture, Session, Signal, VideoError};
 use pdf_media_worker::{MediaError, MediaWorker};
 
 const WORKER: &str = env!("CARGO_BIN_EXE_pdf-media-worker");
@@ -120,6 +120,75 @@ fn sequence(width_mbs: u32, height_mbs: u32, coding: Coding, references: u32) ->
     nal(0x67, &bits.trailing())
 }
 
+/// A progressive sequence parameter set that carries a VUI (E.1.1) stating `signal`: Baseline, or
+/// High with a scaling matrix whose first list is present and asks for the default (7.3.2.1.1.1),
+/// so that the reader walks the lists to reach the VUI. The VUI states an extended sample aspect
+/// ratio and overscan before the signal, and nothing after the chroma siting.
+fn sequence_with_vui(width_mbs: u32, height_mbs: u32, high: bool, signal: Signal) -> Vec<u8> {
+    let mut bits = Bits::default();
+    bits.u(8, if high { 100 } else { 66 });
+    bits.u(8, 0);
+    bits.u(8, 51);
+    bits.ue(0);
+    if high {
+        bits.ue(1);
+        bits.ue(0);
+        bits.ue(0);
+        bits.bit(false);
+        bits.bit(true);
+        for list in 0..8 {
+            bits.bit(list == 0);
+            if list == 0 {
+                // delta_scale −8, se(v) code 16: nextScale becomes 0, the default list.
+                bits.ue(16);
+            }
+        }
+    }
+    bits.ue(0);
+    bits.ue(2);
+    bits.ue(1);
+    bits.bit(false);
+    bits.ue(width_mbs - 1);
+    bits.ue(height_mbs - 1);
+    bits.bit(true);
+    bits.bit(true);
+    bits.bit(false);
+    bits.bit(true);
+    // aspect_ratio_info_present_flag, Extended_SAR and its two sixteen-bit fields.
+    bits.bit(true);
+    bits.u(8, 255);
+    bits.u(16, 4);
+    bits.u(16, 3);
+    // overscan_info_present_flag and overscan_appropriate_flag.
+    bits.bit(true);
+    bits.bit(false);
+    // video_signal_type_present_flag, video_format 5, the range, and the colour description
+    // where any of its three codes is stated.
+    bits.bit(true);
+    bits.u(3, 5);
+    bits.bit(signal.full_range);
+    let described = (
+        signal.colour_primaries,
+        signal.transfer_characteristics,
+        signal.matrix_coefficients,
+    ) != (2, 2, 2);
+    bits.bit(described);
+    if described {
+        bits.u(8, u32::from(signal.colour_primaries));
+        bits.u(8, u32::from(signal.transfer_characteristics));
+        bits.u(8, u32::from(signal.matrix_coefficients));
+    }
+    // chroma_loc_info_present_flag and the two fields' sitings.
+    bits.bit(true);
+    bits.ue(u32::from(signal.chroma_sample_loc_type));
+    bits.ue(u32::from(signal.chroma_sample_loc_type));
+    // No timing, no HRD, no picture structure, no bitstream restriction.
+    for _ in 0..5 {
+        bits.bit(false);
+    }
+    nal(0x67, &bits.trailing())
+}
+
 /// The picture parameter set (7.3.2.2): CAVLC, one slice group, the deblocking control present.
 fn picture_set() -> Vec<u8> {
     let mut bits = Bits::default();
@@ -151,6 +220,7 @@ fn samples(index: u32, width: usize, height: usize) -> Picture {
         y: (0..width * height).map(|at| value(0, at)).collect(),
         u: (0..chroma).map(|at| value(1, at)).collect(),
         v: (0..chroma).map(|at| value(2, at)).collect(),
+        signal: Signal::default(),
     }
 }
 
@@ -517,5 +587,60 @@ fn a_sound_file_holds_no_video_track_and_says_so() {
     assert!(
         refused.to_string().contains("no enabled video track"),
         "{refused}"
+    );
+}
+
+/// The VUI's signal reaches each picture, through the session and through the confined worker's
+/// ring, from a Baseline set and from a High set whose scaling lists stand before it; a set with no
+/// colour description leaves Annex E's unspecified codes (E.2.1).
+#[test]
+fn the_vui_s_signal_reaches_every_picture() {
+    let stated = Signal {
+        full_range: true,
+        colour_primaries: 1,
+        transfer_characteristics: 1,
+        matrix_coefficients: 1,
+        chroma_sample_loc_type: 2,
+    };
+    let undescribed = Signal {
+        full_range: false,
+        chroma_sample_loc_type: 1,
+        ..Signal::default()
+    };
+    for (high, signal) in [(false, stated), (true, undescribed)] {
+        let (_, units, mut pictures) = stream(3, 48, 32, Coding::Progressive);
+        let sets = vec![sequence_with_vui(3, 2, high, signal), picture_set()];
+        for picture in &mut pictures {
+            picture.signal = signal;
+        }
+        let mut session = Session::for_track(4, &sets).expect("the parameter sets");
+        let mut decoded = Vec::new();
+        for unit in &units {
+            decoded.extend(session.sample(unit).expect("a picture"));
+        }
+        decoded.extend(session.finish());
+        assert_eq!(decoded, pictures, "high profile {high}");
+        let file = mp4(&sets, &units, 48, 32);
+        let mut worker = MediaWorker::with_program(WORKER.into());
+        let mut crossed = Vec::new();
+        worker
+            .decode_mp4_video(&file, &mut |picture| {
+                crossed.push(picture);
+                ControlFlow::Continue(())
+            })
+            .expect("decoded");
+        assert_eq!(crossed, pictures, "high profile {high}, through the ring");
+    }
+}
+
+/// A sequence parameter set cut inside its VUI is refused out loud, never read as stating nothing.
+#[test]
+fn a_set_cut_inside_its_vui_is_refused() {
+    let mut set = sequence_with_vui(3, 2, false, Signal::default());
+    set.truncate(set.len() - 3);
+    let error = Session::for_track(4, &[set, picture_set()]).expect_err("refused");
+    assert!(
+        matches!(&error, VideoError::Refused(sentence) if sentence.contains("VUI")),
+        "{error:?}"
     );
 }

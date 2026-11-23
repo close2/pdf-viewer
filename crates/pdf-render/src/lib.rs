@@ -50,6 +50,7 @@ pub mod strips;
 pub mod sub_pixel;
 pub mod thin_segment;
 pub mod transfer_channel;
+pub mod video;
 
 pub use backend::{
     BackendError, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer,

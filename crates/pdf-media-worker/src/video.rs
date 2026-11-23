@@ -38,6 +38,36 @@ pub const REORDER_FRAMES: usize = 16;
 /// 0015 section 4.1 sized the video worker for (ADR 3528). A larger one is refused by its size.
 pub const MAX_PICTURE_PIXELS: usize = 1920 * 1088;
 
+/// What a stream says of its pictures' colour, read from its sequence parameter set's VUI (ITU-T
+/// H.264 Annex E, E.1.1), with Annex E's inference for each code the stream leaves out (E.2.1):
+/// the codes, not their meaning, which the host's renderer resolves (ADR 3529).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Signal {
+    /// `video_full_range_flag`; absent, 0.
+    pub full_range: bool,
+    /// `colour_primaries` (Table E-3); absent, 2.
+    pub colour_primaries: u8,
+    /// `transfer_characteristics` (Table E-4); absent, 2.
+    pub transfer_characteristics: u8,
+    /// `matrix_coefficients` (Table E-5); absent, 2.
+    pub matrix_coefficients: u8,
+    /// `chroma_sample_loc_type_top_field` (Figure E-1), a code past 255 held at 255; absent, 0.
+    pub chroma_sample_loc_type: u8,
+}
+
+impl Default for Signal {
+    /// A stream with no VUI.
+    fn default() -> Self {
+        Self {
+            full_range: false,
+            colour_primaries: 2,
+            transfer_characteristics: 2,
+            matrix_coefficients: 2,
+            chroma_sample_loc_type: 0,
+        }
+    }
+}
+
 /// One decoded picture: 8-bit 4:2:0, cropped as its sequence parameter set says, each plane tight.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture {
@@ -51,6 +81,8 @@ pub struct Picture {
     pub u: Vec<u8>,
     /// The red-difference plane, as long as [`Picture::u`].
     pub v: Vec<u8>,
+    /// What its sequence parameter set says of its colour.
+    pub signal: Signal,
 }
 
 /// Why a session stopped.
@@ -76,6 +108,8 @@ pub struct Session {
     held: Vec<(i32, Picture)>,
     /// The Annex B rewriting of the last sample, kept so its allocation is reused.
     rewritten: Vec<u8>,
+    /// The parameter sets' signals, read beside the decoder (`crate::vui`).
+    parameters: crate::vui::Parameters,
 }
 
 impl std::fmt::Debug for Session {
@@ -123,6 +157,7 @@ impl Session {
             length_size: None,
             held: Vec::new(),
             rewritten: Vec::new(),
+            parameters: crate::vui::Parameters::default(),
         }
     }
 
@@ -195,6 +230,7 @@ impl Session {
     }
 
     fn decode(&mut self, annex_b: &[u8]) -> Result<Option<Picture>, VideoError> {
+        let signal = self.parameters.observe(annex_b)?;
         let frame = self.decoder.decode(annex_b).map_err(refusal)?;
         let Some(frame) = frame else {
             return Ok(None);
@@ -212,6 +248,7 @@ impl Session {
             y: frame.y,
             u: frame.u,
             v: frame.v,
+            signal,
         }))
     }
 }

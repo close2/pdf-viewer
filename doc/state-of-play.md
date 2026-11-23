@@ -204,8 +204,10 @@ its AAC decoded by `rusty_aac`'s scalar build in the worker with the track's edi
 `MH` volume, duration, repeat count and auto-play, a sound held at its start played by Space (ADRs
 3349 to 3351); an MP4 clip's progressive H.264 video track is decoded in the same worker by
 `rusty_h264-decoder`'s scalar build, its pictures written into a sealed ring a run at a time and
-checked by the host, an interlaced track handed off by name (ADRs 3526 to 3528) — no window draws
-them yet,
+checked by the host, an interlaced track handed off by name (ADRs 3526 to 3528), each picture
+carrying its sequence's VUI signal and converted to RGB by that signal's matrix, range and chroma
+siting on the device (`render-raster`) and on the processor as the oracle (`render-cpu`, ADR 3529)
+— no window draws them yet,
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
 and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),

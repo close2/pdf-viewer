@@ -4982,6 +4982,7 @@ name = "render-raster"
 version = "0.1.0"
 dependencies = [
  "kurbo",
+ "pdf-media-worker",
  "pdf-model",
  "pdf-render",
  "pdf-sandbox",
