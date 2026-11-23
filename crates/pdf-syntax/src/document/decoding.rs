@@ -6,6 +6,7 @@ use super::{DecodedStreamCache, Document, StreamRefusal, read, write};
 use crate::filter::Decoded;
 use crate::object::{Dictionary, Name, Object, Stream};
 use crate::parser::Limits;
+use crate::repair::{self, Site};
 
 impl Document {
     /// Returns a stream's decoded data.
@@ -126,6 +127,15 @@ impl Document {
                     damage = crate::filter::Damage::in_a_chain(damage, stage.damage);
                 }
                 Err(why) => {
+                    // Data a filter finds corrupt, or parameters it cannot take, is the file's
+                    // departure from §7.4; a filter this reader lacks, or a bound it keeps, is not.
+                    if matches!(
+                        why,
+                        crate::filter::FilterRefusal::Corrupt
+                            | crate::filter::FilterRefusal::Parameter { .. }
+                    ) {
+                        self.record_repair(&repair::STREAM_DATA_UNDECODABLE, Site::WholeFile);
+                    }
                     refused = Some(StreamRefusal::Filter {
                         name: String::from_utf8_lossy(filter).into_owned(),
                         why,
@@ -141,6 +151,12 @@ impl Document {
         if let Some(why) = refused {
             write(&self.decoded).refuse(encoded, chain, &why, limits.max_stream_len);
             return Err(why);
+        }
+        // A stream is handed here without its object, so the site is the file: what a reader
+        // of the log needs from this class is that some stream's data was cut short, and the
+        // caller holding the object has `Decoded::damage` to say which.
+        if damage.is_some() {
+            self.record_repair(&repair::STREAM_DATA_DAMAGED, Site::WholeFile);
         }
         let decoded = Decoded { data, damage };
         write(&self.decoded).put(encoded, chain, &decoded);
@@ -219,11 +235,22 @@ impl Document {
     /// [`MalformedChain`] where `/Filter` or `/DecodeParms` is stated in a form Table 5 does not
     /// admit — see [`chain_of`].
     pub(crate) fn stated_chain(&self, dict: &Dictionary) -> Result<Chain, MalformedChain> {
-        let chain = chain_of(
-            &self.get_key(dict, "Filter"),
-            &self.get_key(dict, "DecodeParms"),
-            |object| self.resolve(object),
-        )?;
+        let filter = self.get_key(dict, "Filter");
+        let parms = self.get_key(dict, "DecodeParms");
+        let chain = chain_of(&filter, &parms, |object| self.resolve(object)).inspect_err(|_| {
+            self.record_repair(&repair::STREAM_DATA_UNDECODABLE, Site::WholeFile);
+        })?;
+        // Table 5: an array of parameters "shall" match the array of filters entry for entry, and
+        // a single dictionary goes with a single filter; `chain_of` pairs either as far as it
+        // can.
+        let matched = match &parms {
+            Object::Array(items) => items.len() == chain.len(),
+            Object::Dictionary(_) => chain.len() == 1,
+            _ => true,
+        };
+        if !matched {
+            self.record_repair(&repair::DECODE_PARMS_MISMATCHED, Site::WholeFile);
+        }
         Ok(chain
             .into_iter()
             .map(|(filter, parms)| (filter, parms.map(|parms| self.with_values_resolved(parms))))
@@ -245,6 +272,8 @@ impl Document {
             .iter()
             .filter(|(_, value)| matches!(value, Object::Reference(_)))
             .map(|(key, value)| (key.clone(), self.resolve(value)))
+            // not a repair: a parameter whose value is a stream — `/JBIG2Globals`, Table 22 — is
+            // read by its filter as the reference it is.
             .filter(|(_, value)| !matches!(value, Object::Stream(_)))
             .collect();
         let mut parms = parms;

@@ -13,6 +13,8 @@
 //! files are routinely truncated or corrupt — so the lexer never loops waiting for a
 //! terminator that may not arrive.
 
+use crate::repair::{self, Repair, RepairClass, SITES_KEPT_PER_CLASS, Site};
+
 /// Byte classification per ISO 32000-2 §7.2.3.
 mod class {
     /// Whitespace: null, tab, line feed, form feed, carriage return, space.
@@ -196,6 +198,8 @@ pub struct Lexer<'a> {
     /// The run behind the last token where it spelled an integer `i64` cannot hold; see
     /// [`Self::integer_out_of_range`].
     wide_integer: Option<&'a [u8]>,
+    /// The repairs lexing has needed over this lexer's life; see [`Self::repairs`].
+    repairs: Vec<Repair>,
 }
 
 #[expect(
@@ -220,6 +224,7 @@ impl<'a> Lexer<'a> {
             },
             salvage: None,
             wide_integer: None,
+            repairs: Vec::new(),
         }
     }
 
@@ -242,6 +247,7 @@ impl<'a> Lexer<'a> {
             },
             salvage: None,
             wide_integer: None,
+            repairs: Vec::new(),
         }
     }
 
@@ -273,6 +279,32 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub const fn integer_out_of_range(&self) -> Option<&'a [u8]> {
         self.wide_integer
+    }
+
+    /// The repairs lexing has needed so far, each at its offset into this lexer's input (ADR
+    /// 3477): a string or a hexadecimal string with no end, a name escape with no digits, a
+    /// delimiter that closes nothing, a number the clause does not spell.
+    ///
+    /// Accumulated over the lexer's life for the reason [`Self::hexadecimal_strings`] is, and
+    /// empty — no allocation, one length test for a caller that asks — wherever the input was
+    /// well formed. The caller that knows what the input is records them on its document with
+    /// [`crate::Document::record_repairs`].
+    #[must_use]
+    pub fn repairs(&self) -> &[Repair] {
+        &self.repairs
+    }
+
+    /// Records a repair at `at`, an offset into the input.
+    ///
+    /// The same repair twice in a row is one: a parser that rewinds lexes a token again. At most
+    /// [`SITES_KEPT_PER_CLASS`] are kept, so that a stream of a million unmatched delimiters
+    /// costs no more than a log keeps.
+    #[cold]
+    pub(crate) fn note(&mut self, class: &'static RepairClass, at: usize) {
+        let repair = Repair::new(class, Site::Offset(at));
+        if self.repairs.len() < SITES_KEPT_PER_CLASS && self.repairs.last() != Some(&repair) {
+            self.repairs.push(repair);
+        }
     }
 
     /// What the hexadecimal strings read so far looked like as written.
@@ -462,12 +494,14 @@ impl<'a> Lexer<'a> {
                 } else {
                     // A lone `>` is malformed. Consumed so the cursor always advances;
                     // reported as a keyword so the parser can complain about it.
+                    self.note(&repair::DELIMITER_UNMATCHED, self.position);
                     self.position = self.position.saturating_add(1);
                     Some(Token::Keyword(b">"))
                 }
             }
             b')' => {
                 // An unmatched `)`. As above: consume and report.
+                self.note(&repair::DELIMITER_UNMATCHED, self.position);
                 self.position = self.position.saturating_add(1);
                 Some(Token::Keyword(b")"))
             }
@@ -551,6 +585,10 @@ impl<'a> Lexer<'a> {
                     self.position = self.position.saturating_add(2);
                     continue;
                 }
+                self.note(
+                    &repair::NAME_ESCAPE_INCOMPLETE,
+                    self.position.saturating_sub(1),
+                );
                 out.push(b'#');
             } else {
                 out.push(byte);
@@ -581,6 +619,7 @@ impl<'a> Lexer<'a> {
     /// Table 3 gives `\r` and `\n` their own byte values, and a REVERSE SOLIDUS immediately
     /// before an end-of-line marker is the line continuation above.
     fn read_literal_string(&mut self) -> Vec<u8> {
+        let opened_at = self.position.saturating_sub(1);
         let mut out = Vec::new();
         let mut depth = 1usize;
 
@@ -628,7 +667,9 @@ impl<'a> Lexer<'a> {
                             // same reading from the other side (ADR 0253).
                             out.push(u8::try_from(value & 0xff).unwrap_or(0));
                         }
-                        // Any other escaped character stands for itself.
+                        // not a repair: §7.3.4.2, "[i]f the character following the REVERSE
+                        // SOLIDUS is not one of those shown in Table 3, the REVERSE SOLIDUS shall
+                        // be ignored", so any other escaped character stands for itself.
                         other => out.push(other),
                     }
                 }
@@ -656,6 +697,9 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if depth > 0 {
+            self.note(&repair::STRING_UNTERMINATED, opened_at);
+        }
         out
     }
 
@@ -679,9 +723,11 @@ impl<'a> Lexer<'a> {
         let mut pending: Option<u8> = None;
         let mut strayed = false;
 
+        let mut closed = false;
         while let Some(byte) = self.peek() {
             self.position = self.position.saturating_add(1);
             if byte == b'>' {
+                closed = true;
                 break;
             }
             let Some(value) = hex_value(byte) else {
@@ -697,10 +743,16 @@ impl<'a> Lexer<'a> {
         }
 
         self.hexadecimal.read = self.hexadecimal.read.saturating_add(1);
+        if !closed {
+            self.note(&repair::HEXADECIMAL_STRING_UNTERMINATED, opened_at);
+        }
         if strayed {
             self.hexadecimal.strayed = self.hexadecimal.strayed.saturating_add(1);
             self.hexadecimal.first_strayed_at.get_or_insert(opened_at);
+            self.note(&repair::HEXADECIMAL_STRING_STRAY_BYTE, opened_at);
         }
+        // not a repair: §7.3.4.3, the missing final digit "shall be assumed to be 0" — recorded
+        // in `hexadecimal` all the same, because ISO 19005's section 6.1.6 asks about it.
         if let Some(high) = pending {
             self.hexadecimal.completed = self.hexadecimal.completed.saturating_add(1);
             self.hexadecimal.first_completed_at.get_or_insert(opened_at);
@@ -739,6 +791,7 @@ impl<'a> Lexer<'a> {
             return token;
         }
 
+        let run_at = self.position;
         let raw = self.read_regular_run();
 
         // §7.3.3 states both numeric forms in terms of digits. An integer:
@@ -777,6 +830,8 @@ impl<'a> Lexer<'a> {
         // Reading it as zero instead is the plausible fallback trap 5 forbids, and it cost a
         // mark: `/F0 . Tf` set a text font size of nought, so the show that followed drew
         // nothing and nothing was said about it.
+        // not a repair: §7.2.3 makes such a run one token, and spelling no number it is the
+        // keyword it lexically is, refused or not by whoever reads it next.
         if !raw.iter().any(u8::is_ascii_digit) {
             return Token::Keyword(raw);
         }
@@ -820,11 +875,18 @@ impl<'a> Lexer<'a> {
                         ) =>
                     {
                         self.wide_integer = Some(raw);
+                        self.note(&repair::INTEGER_PAST_I64, run_at);
                     }
                     Err(_) => {}
                 }
             }
             if let Ok(value) = text.parse::<f64>() {
+                // Only a run with an exponent departs from §7.3.3's spelling: a run of digits the
+                // fixed format declines for its length is a number the clause spells, read at the
+                // nearest value a double holds.
+                if raw.iter().any(|byte| matches!(byte, b'e' | b'E')) {
+                    self.note(&repair::NUMBER_WITH_AN_EXPONENT, run_at);
+                }
                 return Token::Real(within_the_representation(value));
             }
         }
@@ -837,12 +899,14 @@ impl<'a> Lexer<'a> {
             // nothing before it: `.-1`, `--5`, `-x1`. That is the same run as `.` with a digit
             // further along, and it takes the same answer, the keyword §7.2.3 makes it, rather
             // than the zero ADR 0303 took out of the digit-less run (ADR 1011).
+            // not a repair: §7.2.3, as above.
             return Token::Keyword(raw);
         };
         self.salvage = Some(Salvage {
             run: raw,
             dropped: raw.get(read..).unwrap_or_default(),
         });
+        self.note(&repair::NUMBER_SALVAGED, run_at);
         if value.fract() == 0.0 && value.abs() < 9.0e15 {
             #[expect(
                 clippy::cast_possible_truncation,

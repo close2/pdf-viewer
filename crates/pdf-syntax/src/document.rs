@@ -24,6 +24,7 @@ use crate::file::{FileBytes, NoRoom};
 use crate::filter::{Decoded, FilterRefusal};
 use crate::object::{Dictionary, Object};
 use crate::parser::Limits;
+use crate::repair::{Repair, RepairClass, RepairLog, Site};
 use crate::xref::XrefTable;
 
 mod cache;
@@ -197,6 +198,10 @@ pub struct Document {
     /// What a crate above this one derived from these bytes and keeps for the document's life,
     /// one memo per type. See [`Document::derived`].
     derived: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    /// Every repair made reading this file, by this crate and the crates above it, in one place
+    /// (ADR 3477). Beside the caches and for their reason: it records how the bytes were read,
+    /// not anything the bytes say. See [`Document::record_repair`].
+    repairs: RwLock<RepairLog>,
 }
 
 impl std::fmt::Debug for Document {
@@ -334,6 +339,9 @@ impl Document {
         {
             rebuilt.keep_stated(&document.xref);
             let mut second = Self::around(bytes, rebuilt, limits);
+            // What reading the disproved table found is still this file's; the rebuild itself
+            // is recorded by `xref::rebuild`.
+            second.record_repairs(document.repairs(), 0, None);
             if second.authenticate(password, recipient).is_ok() {
                 second.recover_compressed_objects();
                 if second.catalog().is_ok() {
@@ -365,6 +373,8 @@ impl Document {
 
     /// The document a cross-reference table and some bytes make, before authentication.
     fn around(bytes: FileBytes, xref: XrefTable, limits: Limits) -> Self {
+        // The table was read before there was a document to record its repairs on.
+        let repairs = xref.repair_log().clone();
         Self {
             bytes,
             xref,
@@ -384,7 +394,50 @@ impl Document {
             encrypt_object: None,
             embedded_files: EmbeddedFileStreams::default(),
             derived: RwLock::new(HashMap::new()),
+            repairs: RwLock::new(repairs),
         }
+    }
+
+    /// Records that reading this file needed a repair of `class` at `at` (ADR 3477).
+    ///
+    /// Public because the crates above this one repair too — a page's box, a font program —
+    /// and the log is one channel for all of them: a validator reads [`Self::repairs`] and
+    /// nothing else. Taking `&self` is what lets a reader record from wherever it holds the
+    /// document; the log is how the bytes were read, which is not a change to what they say.
+    pub fn record_repair(&self, class: &'static RepairClass, at: Site) {
+        write(&self.repairs).record(Repair::new(class, at));
+    }
+
+    /// Records every repair a [`crate::Lexer`] or [`crate::Parser`] made, each moved from an
+    /// offset into the slice it read to that slice's place — see [`Repair::placed`].
+    pub fn record_repairs(
+        &self,
+        repairs: impl IntoIterator<Item = Repair>,
+        base: usize,
+        object: Option<crate::object::ObjectId>,
+    ) {
+        let mut log = None;
+        for repair in repairs {
+            log.get_or_insert_with(|| write(&self.repairs))
+                .record(repair.placed(base, object));
+        }
+    }
+
+    /// Every repair recorded reading this file so far, in [`Repair`]'s order.
+    ///
+    /// **So far**: objects are read when they are asked for, and a repair is recorded when it is
+    /// made, so a caller that wants the whole file's answer reads the whole file first — which
+    /// is what a validator does before it asks.
+    #[must_use]
+    pub fn repairs(&self) -> Vec<Repair> {
+        read(&self.repairs).repairs().collect()
+    }
+
+    /// How many repairs of the class named `name` were made past the sites the log keeps (see
+    /// [`crate::repair::SITES_KEPT_PER_CLASS`]).
+    #[must_use]
+    pub fn repairs_beyond_the_log(&self, name: &str) -> u64 {
+        read(&self.repairs).beyond_the_log(name)
     }
 
     /// The memo of type `T` that a crate above this one keeps beside this document, made empty

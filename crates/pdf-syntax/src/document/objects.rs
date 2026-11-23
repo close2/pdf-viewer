@@ -4,6 +4,7 @@
 use super::{Document, MAX_REFERENCE_DEPTH, read, write};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId};
+use crate::repair::{self, Site};
 use crate::xref::{Location, XrefTable};
 
 /// What [`Document::get_key_of`] found in the object cache before it let the lock go.
@@ -74,9 +75,19 @@ impl Document {
         // by nothing in the parser, so it is bounded here. Null is what §7.3.10 gives a
         // reference that resolves to nothing, which is what a cycle amounts to.
         if !self.begin_loading(id.number) {
+            self.record_repair(&repair::REFERENCE_CYCLE, Site::Object(id));
             return Object::Null;
         }
-        let (generation, object) = self.load(id).unwrap_or((id.generation, Object::Null));
+        let (generation, object) = self.load(id).unwrap_or_else(|| {
+            // An object the table places at an offset and this reader could not load there or by
+            // its header is an object that exists and is damaged; a number the table does not
+            // name is §7.3.10's undefined object, whose null is not a repair. A compressed
+            // object's loss is recorded where its object stream is read.
+            if matches!(self.xref.location(id.number), Some(Location::Offset(_))) {
+                self.record_repair(&repair::OBJECT_UNPARSABLE, Site::Object(id));
+            }
+            (id.generation, Object::Null)
+        });
         self.end_loading(id.number);
 
         write(&self.cache).insert(id.number, (generation, object.clone()));
@@ -153,6 +164,9 @@ impl Document {
                 Object::Reference(id) => current = self.get(id),
                 other => return other,
             }
+        }
+        if let Object::Reference(id) = current {
+            self.record_repair(&repair::REFERENCE_CHAIN_TOO_DEEP, Site::Object(id));
         }
         Object::Null
     }
@@ -285,7 +299,11 @@ impl Document {
                 // that index would put another object's value under this number — the silent
                 // substitution the offset branch above refuses — so the answer is no object,
                 // which §7.3.10 reads as null (ADR 3250).
-                expanded.get(&id.number).cloned().map(|object| (0, object))
+                let member = expanded.get(&id.number).cloned().map(|object| (0, object));
+                if member.is_none() {
+                    self.record_repair(&repair::COMPRESSED_OBJECT_ABSENT, Site::Object(id));
+                }
+                member
             }
         }
     }
@@ -301,6 +319,8 @@ impl Document {
 ///
 /// So a reference naming a defined number at another generation is a reference to null.
 fn defined_at(generation: u16, id: ObjectId, object: Object) -> Object {
+    // not a repair: ISO 32000-2 §7.3.10, a reference at another generation names an undefined
+    // object, and that object's value is null.
     if generation == id.generation {
         object
     } else {

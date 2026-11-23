@@ -10,7 +10,7 @@
   "code": "crates/pdf-syntax/src/lexer.rs:822 (wide_integer set, Token::Real returned); crates/pdf-syntax/src/parser.rs (no read of integer_out_of_range); crates/pdf-archive/src/table/file_structure.rs integer-values",
   "change": "Log the class syntax/integer-past-i64 with the object, and map it to integer-values.",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_integer_past_sixty_four_bits_in_a_dictionary_is_an_integer_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B02",
@@ -24,7 +24,7 @@
   "code": "crates/pdf-syntax/src/document/objects.rs:79 (load(id).unwrap_or((id.generation, Object::Null))); crates/pdf-syntax/src/document/reports.rs:123 misfiled_objects",
   "change": "Log syntax/object-unreadable and syntax/object-misfiled; map both to 5.1 and to the content rows' completeness (a page whose content was lost is not certified).",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_unparsable_content_stream_object_is_not_an_empty_page_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_cross_reference_entry_at_another_objects_header_is_not_null_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B03",
@@ -37,7 +37,7 @@
   "code": "crates/pdf-archive/src/table/file_structure.rs:2926 (rposition … else { return; }); crates/pdf-syntax/src/parser.rs parse_indirect_object (endobj optional)",
   "change": "Log syntax/endobj-missing; end_of_object records a finding where the region holds no endobj.",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_object_without_endobj_fails_the_object_syntax_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B04",
@@ -52,7 +52,7 @@
   "code": "crates/pdf-syntax/src/document/objects.rs:277 (offset search); crates/pdf-syntax/src/xref.rs:1091 (/Prev cycle); crates/pdf-syntax/src/document/reports.rs:106 was_recovered; crates/pdf-archive/src/examination.rs:150",
   "change": "Log syntax/xref-offset-searched, syntax/xref-rebuilt, syntax/xref-chain-cut, syntax/xref-entries-lost; map to 5.1 (and 6.1.4 where the table's own syntax is the subject).",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::cross_reference_offsets_that_miss_their_objects_are_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_prev_chain_that_loops_is_reported_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B05",
@@ -79,7 +79,7 @@
   "code": "crates/pdf-syntax/src/parser.rs:384 (duplicate), :443 (non-name key); crates/pdf-syntax/src/lexer.rs:591 (unterminated string)",
   "change": "Log syntax/duplicate-key, syntax/key-not-a-name, syntax/string-unterminated; section 5.1's row becomes Implemented over the log (ADR 3477).",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_dictionary_with_a_repeated_key_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_unterminated_literal_string_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_dictionary_key_that_is_not_a_name_is_reported_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B07",
@@ -122,7 +122,7 @@
   "code": "crates/pdf-syntax/src/document/decoding.rs:23; crates/pdf-syntax/src/document/images.rs:70; crates/pdf-syntax/src/xref.rs:1933",
   "change": "A class on ADR 3477's channel for each site; Inventory S040, S044 and the xref-stream row; the fix is the channel's first class.",
   "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-T02",
@@ -136,7 +136,7 @@
   "code": "crates/pdf-syntax/src/document/object_streams.rs:67, :126; crates/pdf-syntax/src/xref.rs:1605",
   "change": "A class on ADR 3477's channel for each site; Silent to the viewer's own reports as well as to the validator.",
   "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-T03",
@@ -191,6 +191,6 @@
   "code": "crates/pdf-syntax/src/crypt.rs:404; crates/pdf-syntax/src/encryption.rs:268",
   "change": "A class on ADR 3477's channel for each site; PDF/A forbids encryption (6.1.3), so the validator fails such a file anyway; the viewer's silence is the finding.",
   "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

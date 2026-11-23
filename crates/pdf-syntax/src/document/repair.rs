@@ -52,6 +52,10 @@ impl Document {
             return None;
         }
         write(&self.misfiled).insert(id.number);
+        self.record_repair(
+            &crate::repair::XREF_OFFSET_SEARCHED,
+            crate::repair::Site::Object(found),
+        );
         Some((found.generation, object))
     }
 
@@ -80,6 +84,7 @@ impl Document {
             Err(no_room) => {
                 // Two threads refusing at once record one refusal, which is the same refusal.
                 let _ = self.scan_refused.set(no_room);
+                self.record_repair(&crate::repair::SCAN_REFUSED, crate::repair::Site::WholeFile);
                 None
             }
         }

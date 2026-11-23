@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::{CompressedRecovery, Document, RECOVERY_DECODE_BUDGET, read, write};
 use crate::object::Object;
 use crate::parser::Parser;
+use crate::repair::{self, Site};
 use crate::xref::Location;
 
 /// ISO 32000-2 §7.5.7's header: the `(object number, relative offset)` pairs an object stream
@@ -27,23 +28,32 @@ use crate::xref::Location;
 /// objects of the file, and the file may hold no more than that budget between all its sections,
 /// so such a stream is refused whole, as an undecodable one is, rather than read up to a cut that
 /// would decide which members exist (ADR 3257).
-fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Option<Vec<(u32, usize)>> {
+fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Option<(Vec<(u32, usize)>, bool)> {
     if usize::try_from(count).is_ok_and(|count| count > crate::xref::MAX_XREF_ENTRIES) {
         return None;
     }
     let mut header = crate::lexer::Lexer::new(data.get(..first).unwrap_or_default());
     let mut pairs = Vec::new();
+    let mut damaged = false;
     for _ in 0..count.max(0) {
         let (Some(crate::Token::Integer(number)), Some(crate::Token::Integer(at))) =
             (header.next_token(), header.next_token())
         else {
+            damaged = true;
             break;
         };
         if let (Ok(number), Ok(at)) = (u32::try_from(number), usize::try_from(at)) {
             pairs.push((number, at));
+        } else {
+            damaged = true;
         }
     }
-    Some(pairs)
+    // §7.5.7: "The byte offsets shall be in increasing order."
+    damaged |= pairs.windows(2).any(|pair| match pair {
+        [(_, before), (_, after)] => after <= before,
+        _ => false,
+    });
+    Some((pairs, damaged))
 }
 
 impl Document {
@@ -59,17 +69,31 @@ impl Document {
             return None;
         };
 
-        let (_, object) = self.parse_at(offset)?;
+        let (stream_id, object) = self.parse_at(offset)?;
         let stream = object.as_stream()?;
         let decoded = self.decoded_stream_data_reported(stream).ok()?;
         let data = decoded.data;
 
-        let count = self.get_key(&stream.dict, "N").as_integer().unwrap_or(0);
-        let first = self
+        let header_repair = || {
+            self.record_repair(&repair::OBJECT_STREAM_HEADER, Site::Object(stream_id));
+        };
+        let count = self.get_key(&stream.dict, "N").as_integer();
+        if count.is_none() {
+            header_repair();
+        }
+        let count = count.unwrap_or(0);
+        let Some(first) = self
             .get_key(&stream.dict, "First")
             .as_integer()
-            .and_then(|value| usize::try_from(value).ok())?;
-        let pairs = object_stream_pairs(&data, first, count)?;
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            header_repair();
+            return None;
+        };
+        let (pairs, header_damaged) = object_stream_pairs(&data, first, count)?;
+        if header_damaged {
+            header_repair();
+        }
 
         // §7.5.7 states where each compressed object ends as well as where it begins — "[t]he
         // byte offsets shall be in increasing order", and NOTE 7 (2020): "processing of each
@@ -123,8 +147,17 @@ impl Document {
             // two objects when the second offset is 1, and a parser handed the rest of the
             // stream would read the first as `57` (ADR 3250).
             let mut parser = Parser::at(extent, start, self.limits);
-            if let Ok(parsed) = parser.parse_object() {
-                objects.insert(object_number, parsed);
+            let parsed = parser.parse_object();
+            self.record_repairs(parser.repairs().iter().copied(), 0, Some(stream_id));
+            match parsed {
+                Ok(parsed) => {
+                    objects.insert(object_number, parsed);
+                }
+                // A member that does not parse is lost to damage as one the prefix does not
+                // carry is: the stream names it, and this reader could not read it.
+                Err(_) => {
+                    lost.insert(object_number);
+                }
             }
         }
         // The pairs a truncated header never carried are lost too, and `/N` is what says how
@@ -133,6 +166,15 @@ impl Document {
         let short_by = usize::try_from(count.max(0))
             .unwrap_or(0)
             .saturating_sub(pair_count);
+        for &member in &lost {
+            self.record_repair(
+                &repair::OBJECT_STREAM_MEMBER_LOST,
+                Site::Object(crate::object::ObjectId::new(member, 0)),
+            );
+        }
+        if short_by > 0 {
+            header_repair();
+        }
         if !lost.is_empty() || short_by > 0 {
             let mut record = write(&self.lost_to_damage);
             record.objects.extend(lost);
@@ -190,6 +232,7 @@ impl Document {
             .as_integer()
             .and_then(|value| usize::try_from(value).ok())?;
         let numbers = object_stream_pairs(&decoded.data, first, count)?
+            .0
             .into_iter()
             .map(|(number, _)| number)
             .collect();
@@ -323,6 +366,11 @@ impl Document {
 
         let offered = members.len();
         report.objects = self.xref.enter_compressed(members);
+        // Each entered object is one the file's cross-reference information did not give, and
+        // each stream skipped or unreadable is a part of the file the recovery could not read.
+        if report.objects > 0 || report.beyond_the_budget > 0 || report.unreadable > 0 {
+            self.record_repair(&repair::OBJECT_STREAM_MEMBERS_ENUMERATED, Site::WholeFile);
+        }
         report.already_at_top_level = offered
             .saturating_sub(report.objects)
             .saturating_add(written_at_top_level.len());

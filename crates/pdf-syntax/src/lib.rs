@@ -34,6 +34,7 @@ pub mod lexer;
 pub mod linearize;
 pub mod object;
 pub mod parser;
+pub mod repair;
 pub mod serialize;
 pub mod text_string;
 pub mod tree;
@@ -55,6 +56,7 @@ pub use filter::{
 pub use lexer::{HexadecimalStrings, Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{DamagedDictionary, Limits, Parser};
+pub use repair::{Repair, RepairClass, Site};
 pub use serialize::{
     Access, Assembly, AssemblyError, Entropy, Form, ObjectStreams, Options, Protection,
     SerializeError, Streams, SystemEntropy, Written, serialize, serialize_encrypted,

@@ -69,14 +69,11 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
                modified by this part of ISO 19005.",
         clauses: Clauses::both("5.1", "5.1"),
         applies: Applies::Always,
-        check: Check::Unchecked(
-            "this crate checks the requirements ISO 19005 *adds*; whether a document conforms to \
-             the whole of its base standard is a different and far larger question, and one this \
-             project tracks about its own reading rather than about a document (`doc/PLAN.md` \
-             §5a's conformance ledger). Named here rather than left out, because a verdict that \
-             passed over the clause every other requirement is a modification of would be \
-             claiming the larger thing while checking the smaller",
-        ),
+        // Over the reader's log of repairs (ADR 3477): a file the reader had to mend departs
+        // from ISO 32000-2 where it was mended. What it cannot see is a departure the reader
+        // reads without mending, which the rows ISO 19005 adds and the reader crates' own
+        // refusals are for; `crate::repairs` has the mapping.
+        check: Check::Implemented(crate::repairs::adheres_to_the_base_standard),
     },
     Requirement {
         id: "conformance/no-deprecated-features",
@@ -615,6 +612,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 
 /// ISO 19005-2 section 6.1.3, ISO 19005-4 section 6.1.3.
 fn no_encryption(exam: &Examination<'_>, findings: &mut Findings) {
+    // What the reader repaired here is read from its log (ADR 3477), beside the bytes.
+    crate::repairs::record_logged(exam, "file-structure/no-encryption", findings);
     let document = exam.document;
     if document.trailer().get("Encrypt").is_some() {
         findings.record(
@@ -1434,6 +1433,8 @@ const SMALLEST_INTEGER: i64 = -2_147_483_648;
 /// that limit — a gap between about 9.2×10^18 and 3.4×10^38 that under-reports rather than
 /// misreports.
 fn integer_values(exam: &Examination<'_>, findings: &mut Findings) {
+    // What the reader repaired here is read from its log (ADR 3477), beside the bytes.
+    crate::repairs::record_logged(exam, "implementation-limits/integer-values", findings);
     for_each_object_value(exam, |id, _, value| {
         if let Object::Integer(number) = value
             && (*number > LARGEST_INTEGER || *number < SMALLEST_INTEGER)
@@ -2800,6 +2801,8 @@ fn describe_separator(separator: &[u8]) -> String {
 /// the next object's header is therefore not checked — under-reporting, in the direction this
 /// crate errs everywhere else.
 fn indirect_object_syntax(exam: &Examination<'_>, findings: &mut Findings) {
+    // What the reader repaired here is read from its log (ADR 3477), beside the bytes.
+    crate::repairs::record_logged(exam, "file-structure/indirect-object-syntax", findings);
     let document = exam.document;
     let mut placed: Vec<(usize, ObjectId)> = exam
         .objects()

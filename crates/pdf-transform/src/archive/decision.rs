@@ -1826,6 +1826,12 @@ pub(super) const WRITER_EMITS: &[&str] = &[
     "file-structure/cross-reference-keyword-line-endings",
     // Both parts: `/Length` is re-derived as a direct integer from the bytes actually written.
     "file-structure/stream-length-matches-the-data",
+    // ISO 19005-2 and ISO 19005-4 section 5.1, over the reader's log of repairs (ADR 3506): the
+    // output is written from the repaired reading in the serializer's own syntax, so a table
+    // rebuilt, a key repeated, a string unterminated or an `endobj` missing is not in it. A
+    // repair the rewrite cannot undo — a stream whose data was cut short — is in the output's own
+    // log, and the output's own check says so.
+    "conformance/adheres-to-the-base-standard",
     // ISO 19005-2 section 6.1.3, ISO 19005-4 section 6.1.3: nothing follows the last `%%EOF`
     // this writer emits.
     "file-structure/nothing-after-the-last-end-of-file-marker",

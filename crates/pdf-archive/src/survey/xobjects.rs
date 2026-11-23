@@ -184,6 +184,11 @@ impl Walk<'_> {
             state,
             origin,
         );
+        // As for a page's content (ADR 3477).
+        let site = id.map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object);
+        for class in reader.lexical_repairs() {
+            self.document.record_repair(class, site);
+        }
         if let Some(ledger) = &mut self.ledger {
             ledger.leave();
         }

@@ -77,8 +77,27 @@ impl Document {
             .as_array()
             .and_then(|items| items.first().map(|item| self.resolve(item)))
             .and_then(|item| item.as_string().map(<[u8]>::to_vec))
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.record_repair(
+                    &crate::repair::ENCRYPTION_ID_MISSING,
+                    crate::repair::Site::WholeFile,
+                );
+                Vec::new()
+            });
 
+        // Table 21 makes `/R`, `/O`, `/U` and `/P` required of the standard handler, an integer,
+        // two strings and an integer; `Encryption::new` reads one that is absent or of another
+        // type as its zero, which is a repair — `/P` read as 0 states permissions (2194-T06).
+        if self.get_key(&dict, "Filter").as_name().map(Name::as_bytes) == Some(&b"Standard"[..]) {
+            let integer = |key| self.get_key(&dict, key).as_integer().is_some();
+            let string = |key| self.get_key(&dict, key).as_string().is_some();
+            if !(integer("R") && integer("P") && string("O") && string("U")) {
+                self.record_repair(
+                    &crate::repair::ENCRYPTION_ENTRY,
+                    crate::repair::Site::WholeFile,
+                );
+            }
+        }
         let encryption = Encryption::new(&dict, &id_first, password, recipient, &|object| {
             self.resolve(object)
         })?;
@@ -265,7 +284,13 @@ impl Document {
                     // A string whose ciphertext is malformed has no recoverable value, and
                     // handing back the ciphertext would put binary noise into text
                     // extraction — a wrong answer dressed as a right one.
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| {
+                        self.record_repair(
+                            &crate::repair::DECRYPTION_FAILED,
+                            crate::repair::Site::Object(id),
+                        );
+                        Vec::new()
+                    })
                     .into(),
             ),
             Object::Array(items) => Object::Array(
@@ -289,6 +314,12 @@ impl Document {
                 let filter = self.stream_filter(encryption, id, &stream.dict);
                 let decrypted = encryption.decrypt_stream(&filter, id, &stream.data);
                 let decryption_failed = decrypted.is_none();
+                if decryption_failed {
+                    self.record_repair(
+                        &crate::repair::DECRYPTION_FAILED,
+                        crate::repair::Site::Object(id),
+                    );
+                }
                 let data = decrypted.map_or_else(|| Arc::from(&[][..]), Arc::from);
                 Object::Stream(Arc::new(Stream {
                     dict,
@@ -463,6 +494,7 @@ impl Document {
         // A chain Table 5 does not admit names no `/Crypt` stage here, and every decode of the
         // stream refuses it by name (`StreamRefusal::Chain`, ADR 3274), so which method the
         // bytes are decrypted under decides nothing a reader is given.
+        // The refusal is recorded by `stated_chain` itself (ADR 3477).
         let chain = self.stated_chain(dict).unwrap_or_default();
         if let Some((_, parms)) = chain.iter().find(|(name, _)| name == b"Crypt") {
             let named = parms

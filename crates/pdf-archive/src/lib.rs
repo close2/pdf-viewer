@@ -42,6 +42,7 @@ pub mod finding;
 pub mod iso_8601;
 pub mod pages_held;
 pub mod reach;
+pub mod repairs;
 pub mod report;
 pub mod requirement;
 pub mod survey;

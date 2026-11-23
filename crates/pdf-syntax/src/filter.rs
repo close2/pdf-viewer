@@ -744,6 +744,7 @@ pub fn decode_reported(
         // first stage wherever `/Crypt` stands in the chain. A name nothing defines left the
         // stream `decryption_failed` there, encrypted document or not (ADR 3283), so what
         // reaches this stage is plaintext and passes through.
+        // not a repair: ISO 32000-2 §7.4.10, the Crypt filter names a decryption already applied.
         b"Crypt" => Ok(Decoded::whole(data)),
         _ => Err(FilterRefusal::Unsupported),
     }
@@ -914,6 +915,7 @@ impl Lzw {
                 let Some(&byte) = data.get(self.at) else {
                     // No EOD marker: the encoder is required to emit one, and a file that does
                     // not is truncated rather than empty.
+                    // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
                     return Step::Damaged(Damage::Truncated);
                 };
                 self.at += 1;
@@ -1035,6 +1037,7 @@ fn flate(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             Err(FilterRefusal::Corrupt) => {}
             // Whole as deflate data and not the RFC 1950 stream the filter names: drawn, and
             // said (ADR 3290). A raw decode that stopped short keeps its graver report.
+            // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
             Ok(decoded) if !zlib_header && decoded.damage.is_none() => {
                 return Ok(Decoded::damaged(decoded.data, Damage::Unframed));
             }
@@ -1095,6 +1098,7 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
         // a prefix at all: every byte the encoded data describes came out. Asked after the two
         // arms above and, like them, never of a decode that produced nothing — that answer is
         // [`flate`]'s cue to try the other framing.
+        // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
         Stopped::Damaged(Damage::Corrupt)
             if !out.is_empty()
                 && only_the_check_value(
@@ -1105,6 +1109,7 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
         {
             finish(&out, Some(Damage::CheckValue), limits)
         }
+        // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
         Stopped::Damaged(damage) => finish(&out, Some(damage), limits),
     }
 }
@@ -1410,6 +1415,7 @@ pub fn stage(filter: &[u8], parms: Option<&Dictionary>) -> Option<Stage> {
     Some(match filter {
         b"FlateDecode" | b"Fl" => Stage::Inflate,
         b"LZWDecode" | b"LZW" => Stage::Lzw {
+            // A repair, recorded by the document as syntax/stream-data-undecodable (ADR 3477).
             early_change: early_change(parms).ok()?,
         },
         b"ASCIIHexDecode" | b"AHx" => Stage::AsciiHex,
@@ -3008,6 +3014,7 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
         });
     }
     match damage {
+        // A repair, recorded by the document as syntax/stream-data-undecodable (ADR 3477).
         Some(_) if out.is_empty() => Err(FilterRefusal::Corrupt),
         Some(damage) => Ok(Decoded::damaged(out, damage)),
         None => Ok(Decoded::whole(out)),
@@ -3059,6 +3066,7 @@ fn ascii_hex(data: &[u8]) -> Decoded {
             // §7.2.3's white space, which the clause says "shall be ignored".
             _ if crate::lexer::is_whitespace(byte) => continue,
             _ => {
+                // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
                 foreign = true;
                 continue;
             }
@@ -3068,6 +3076,7 @@ fn ascii_hex(data: &[u8]) -> Decoded {
             None => pending = Some(value),
         }
     }
+    // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
     if !reached_eod {
         // The data ended before §7.4.2's EOD marker, which is [`Damage::Truncated`] as it is
         // for every other filter with a marker (ADR 3281). The odd-digit rule is stated "[i]f
@@ -3077,6 +3086,7 @@ fn ascii_hex(data: &[u8]) -> Decoded {
     }
     // "If the filter encounters the EOD marker after reading an odd number of hexadecimal
     // digits, it shall behave as if a 0 (zero) followed the last digit."
+    // not a repair: ISO 32000-2 §7.4.2, an odd digit before EOD behaves as if a 0 followed it.
     if let Some(high) = pending {
         out.push(high.saturating_mul(16));
     }
@@ -3150,6 +3160,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
                     reached_eod = true;
                     break;
                 }
+                // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
                 None => break,
                 Some(_) => return Err(FilterRefusal::Corrupt),
             }
@@ -3176,6 +3187,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
         }
     }
 
+    // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
     if !reached_eod {
         if out.len() > limits.max_stream_len {
             return Err(FilterRefusal::TooLarge {
@@ -3319,6 +3331,7 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     if ended {
         Ok(Decoded::whole(out.as_slice()))
     } else {
+        // A repair, recorded by the document as syntax/stream-data-damaged (ADR 3477).
         salvage(&out, Damage::Truncated)
     }
 }

@@ -58,6 +58,8 @@ pub struct Examination<'a> {
     pub target: Target,
     /// The content survey, computed by the first predicate that asks and shared by the rest.
     survey: OnceCell<Survey>,
+    /// Whether the document has been read whole; see [`Examination::read_whole`].
+    read_whole: OnceCell<()>,
     /// Every object a cross-reference section names, fetched once.
     objects: OnceCell<Vec<(ObjectId, Object)>>,
     /// Every annotation of every page, in page order, resolved once.
@@ -98,6 +100,7 @@ impl<'a> Examination<'a> {
             document,
             target,
             survey: OnceCell::new(),
+            read_whole: OnceCell::new(),
             objects: OnceCell::new(),
             annotations: OnceCell::new(),
             pages: OnceCell::new(),
@@ -131,6 +134,17 @@ impl<'a> Examination<'a> {
     /// `crate::judge` states and is why the cost falls on the documents that need it.
     pub fn exempt(&self) -> &Exempt {
         self.exempt.get_or_init(|| Exempt::of(self, self.reaches()))
+    }
+
+    /// Reads every object, every content stream and every stream's data once, so that the
+    /// reader's log of repairs is the whole file's rather than whatever earlier rows looked at
+    /// (ADR 3477). Asked by every row that reads the log, and done once.
+    pub fn read_whole(&self) {
+        self.read_whole.get_or_init(|| {
+            let _ = self.objects();
+            let _ = self.survey();
+            crate::repairs::decode_every_stream(self);
+        });
     }
 
     /// The content survey, walked once however many requirements ask for it.

@@ -43,8 +43,8 @@
 use std::sync::Arc;
 
 use pdf_syntax::{
-    Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, Stream, StreamRefusal,
-    StreamRole, StreamSource, Token,
+    Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, RepairClass, Stream,
+    StreamRefusal, StreamRole, StreamSource, Token,
 };
 
 use crate::page::{ContentIssue, Page, filter_names};
@@ -302,10 +302,12 @@ impl NestedContent {
                     *limit,
                 ))),
                 runs: Runs::Salvaged,
+                repairs: Vec::new(),
             },
             Nested::Refused { limit } => ContentReader {
                 held: Held::Window(Box::new(Window::refused(*limit))),
                 runs: Runs::Salvaged,
+                repairs: Vec::new(),
             },
         }
     }
@@ -390,6 +392,9 @@ pub struct ContentReader<'a> {
     held: Held<'a>,
     /// How a run that begins with a number and spells none is handed over.
     runs: Runs,
+    /// The classes of repair lexing the stream has needed so far; see
+    /// [`ContentReader::lexical_repairs`].
+    repairs: Vec<&'static RepairClass>,
 }
 
 /// How a [`ContentReader`] hands over a run of regular characters that opens with a number and
@@ -448,6 +453,7 @@ impl<'a> ContentReader<'a> {
                 of_page: None,
             },
             runs: Runs::Salvaged,
+            repairs: Vec::new(),
         }
     }
 
@@ -472,6 +478,7 @@ impl<'a> ContentReader<'a> {
                 of_page: Some((from, of)),
             },
             runs: Runs::Salvaged,
+            repairs: Vec::new(),
         }
     }
 
@@ -579,7 +586,19 @@ impl<'a> ContentReader<'a> {
         Self {
             held: Held::Window(Box::new(window)),
             runs: Runs::Salvaged,
+            repairs: Vec::new(),
         }
+    }
+
+    /// The classes of repair lexing this stream has needed so far, once each (ADR 3477): a
+    /// string with no end, a delimiter that closes nothing, a number the clause does not spell.
+    ///
+    /// Kept by class rather than by site, because a windowed reader's positions are not offsets
+    /// into one buffer; the caller that knows which object the stream is records them on its
+    /// document with [`pdf_syntax::Document::record_repair`].
+    #[must_use]
+    pub fn lexical_repairs(&self) -> &[&'static RepairClass] {
+        &self.repairs
     }
 
     /// Everything this reader has to say about the stream, taken away.
@@ -652,14 +671,18 @@ impl<'a> ContentReader<'a> {
                         return read(Some(Token::String(Vec::new())));
                     }
                     let token = content_token_at_cursor(&mut lexer, self.runs);
+                    keep_repairs(&lexer, &mut self.repairs);
                     *at = lexer.position();
                     return read(token);
                 }
                 let token = next_content_token(&mut lexer, self.runs);
+                keep_repairs(&lexer, &mut self.repairs);
                 *at = lexer.position();
                 read(token)
             }
-            Held::Window(window) => window.with_operand(strings, self.runs, read),
+            Held::Window(window) => {
+                window.with_operand(strings, self.runs, &mut self.repairs, read)
+            }
         }
     }
 
@@ -945,6 +968,7 @@ impl Window {
         &mut self,
         strings: Strings,
         runs: Runs,
+        repairs: &mut Vec<&'static RepairClass>,
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
         if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
@@ -963,18 +987,24 @@ impl Window {
             };
             let end = lexer.position();
             if end < self.filled {
+                keep_repairs(&lexer, repairs);
                 self.at = end;
                 return read(token);
             }
         }
-        self.settle_then(runs, read)
+        self.settle_then(runs, repairs, read)
     }
 
     /// The rest of [`Self::with_operand`]: refilling, growing and the two boundary cases.
     ///
     /// Split out so that the arm above stays a leaf, and cold because it runs once per refill.
     #[cold]
-    fn settle_then<T>(&mut self, runs: Runs, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+    fn settle_then<T>(
+        &mut self,
+        runs: Runs,
+        repairs: &mut Vec<&'static RepairClass>,
+        read: impl FnOnce(Option<Token<'_>>) -> T,
+    ) -> T {
         loop {
             self.settle();
             // A token that ends exactly where the buffer does may have been cut by the
@@ -1006,6 +1036,7 @@ impl Window {
         }
         let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
         let token = next_content_token(&mut lexer, runs);
+        keep_repairs(&lexer, repairs);
         self.at = lexer.position();
         read(token)
     }
@@ -1508,6 +1539,27 @@ fn string_end(bytes: &[u8], start: usize, whole: bool) -> Option<usize> {
 /// The vocabulary is the standard's, not this interpreter's: a run that swallowed an operator
 /// this tree does not implement has still swallowed one, and the report names the run either
 /// way. Under [`Runs::AsWritten`] every salvaged run is handed over whole, whatever its tail.
+/// Keeps the classes of the repairs `lexer` made, once each.
+///
+/// One length test per token where the token was well formed, which is every token of every
+/// stream but a damaged one; the rest is out of line.
+#[inline]
+fn keep_repairs(lexer: &Lexer<'_>, into: &mut Vec<&'static RepairClass>) {
+    if !lexer.repairs().is_empty() {
+        keep_each_repair(lexer, into);
+    }
+}
+
+/// The out-of-line half of [`keep_repairs`].
+#[cold]
+fn keep_each_repair(lexer: &Lexer<'_>, into: &mut Vec<&'static RepairClass>) {
+    for repair in lexer.repairs() {
+        if !into.iter().any(|kept| std::ptr::eq(*kept, repair.class)) {
+            into.push(repair.class);
+        }
+    }
+}
+
 fn next_content_token<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Token<'b>> {
     let token = lexer.next_token()?;
     Some(unsalvaged(lexer, token, runs))

@@ -28,7 +28,7 @@ impl Document {
         // grows to what the parse examined on disk — the same slice either way, which is what
         // keeps the object a function of the bytes alone (ADR 0809). The parser's positions are
         // the window's, so the one it hands out is put back into the file's.
-        let (found, object, data_at, padding) =
+        let (parsed, repairs) =
             self.bytes
                 .parse_from(offset, crate::file::FIRST_WINDOW, |input, _| {
                     let mut parser = Parser::at(input, 0, self.limits);
@@ -42,9 +42,27 @@ impl Document {
                         });
                         (found, object, data_at, padding)
                     });
-                    (parsed, parser.examined())
-                })?;
+                    ((parsed, parser.repairs().to_vec()), parser.examined())
+                });
+        // Recorded whether or not the object parsed, and whichever object it turns out to be:
+        // each is a place these bytes needed a repair to be read at all.
+        self.record_repairs(repairs, offset, None);
+        let (found, object, data_at, padding) = parsed?;
         let (object, padding) = self.with_stated_length(data_at, padding, object);
+        // The parser judged a direct `/Length`; an indirect one is judged here, once applied: a
+        // length that is no integer, or one the data could not be cut to, left the extent the
+        // search for `endstream` found.
+        if let Object::Stream(stream) = &object
+            && matches!(stream.dict.get("Length"), Some(Object::Reference(_)))
+        {
+            let stated = self.get_key(&stream.dict, "Length").as_integer();
+            if stated.and_then(|value| usize::try_from(value).ok()) != Some(stream.data.len()) {
+                self.record_repair(
+                    &crate::repair::STREAM_EXTENT_FROM_ENDSTREAM,
+                    crate::repair::Site::Object(found),
+                );
+            }
+        }
         if let Some(padding) = padding {
             write(&self.padded).insert(found.number, padding.bytes);
         }

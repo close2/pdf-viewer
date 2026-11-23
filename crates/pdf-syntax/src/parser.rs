@@ -17,6 +17,7 @@ use std::sync::Arc;
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::lexer::{Lexer, Token};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
+use crate::repair::{self, Repair};
 
 /// Resource bounds applied while parsing.
 ///
@@ -127,6 +128,14 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// The repairs parsing has needed so far, each at its offset into this parser's input —
+    /// the lexer's and the parser's own: a repeated key, a missing `endobj`, a stream read to
+    /// its `endstream` (ADR 3477). See [`Lexer::repairs`].
+    #[must_use]
+    pub fn repairs(&self) -> &[Repair] {
+        self.lexer.repairs()
+    }
+
     /// Creates a parser over `input` with the default limits.
     #[must_use]
     pub fn new(input: &'a [u8]) -> Self {
@@ -274,10 +283,13 @@ impl<'a> Parser<'a> {
         if let (Some(Token::Integer(generation)), Some(Token::Keyword(word))) =
             (probe.next_token(), probe.next_token())
             && word == b"R"
-            && let (Ok(number), Ok(generation)) = (u32::try_from(first), u16::try_from(generation))
         {
-            self.lexer = probe;
-            return Object::Reference(ObjectId::new(number, generation));
+            if let (Ok(number), Ok(generation)) = (u32::try_from(first), u16::try_from(generation))
+            {
+                self.lexer = probe;
+                return Object::Reference(ObjectId::new(number, generation));
+            }
+            self.lexer.note(&repair::REFERENCE_OUT_OF_RANGE, rewind);
         }
         // Falling through covers both "not a reference" and a reference whose number or
         // generation is out of range: the latter cannot name a real object, so it is
@@ -367,6 +379,7 @@ impl<'a> Parser<'a> {
                             // that resolves to nothing (§7.3.10), so this closes the one
                             // remaining spelling — a *direct* null, which `Dictionary::get`,
                             // `len` and `iter` would otherwise show.
+                            // not a repair: that sentence is the clause's own reading.
                             if matches!(value, Object::Null) {
                                 continue;
                             }
@@ -383,6 +396,9 @@ impl<'a> Parser<'a> {
                             let key = Name::new(bytes);
                             if dict.get_by_name(&key).is_none() {
                                 dict.insert(key, value);
+                            } else {
+                                self.lexer
+                                    .note(&repair::DUPLICATE_KEY, self.lexer.position());
                             }
                         }
                         // Where the reading stops, and it does **not** resynchronise.
@@ -440,7 +456,9 @@ impl<'a> Parser<'a> {
                 // A non-name where a key belongs. Skipped rather than fatal: files with a
                 // stray value between entries are recoverable, and the alternative loses
                 // the whole dictionary.
-                _ => {}
+                _ => self
+                    .lexer
+                    .note(&repair::KEY_NOT_A_NAME, self.lexer.position()),
             }
         };
 
@@ -503,6 +521,7 @@ impl<'a> Parser<'a> {
         // then data is left as it was — and a direct `/Length` that `endstream` confirms from
         // the keyword's own end, and not from past the marker, wins below: the file's
         // statement of where its data starts is never overruled by this reader's guess.
+        // not a repair: `keyword_end` is the lexer's position, inside the input or at its end.
         let padding = input
             .get(keyword_end..)
             .unwrap_or_default()
@@ -553,11 +572,29 @@ impl<'a> Parser<'a> {
             keyword_end,
             bytes: skipped,
         });
+        // §7.3.8.1: the keyword "shall be followed by an end-of-line marker consisting of either a
+        // CARRIAGE RETURN and a LINE FEED or just a LINE FEED, and not by a CARRIAGE RETURN
+        // alone" — padding before it, a CARRIAGE RETURN alone, or no marker at all is read past.
+        let marker = input.get(keyword_end..).unwrap_or_default();
+        if !(marker.starts_with(b"\r\n") || marker.starts_with(b"\n")) {
+            self.lexer
+                .note(&repair::STREAM_KEYWORD_LINE_ENDING, keyword_end);
+        }
+        // An indirect `/Length` is not this parser's to resolve, and the document applies it
+        // (`Document::with_stated_length`); a direct one, or none, that does not end the data is
+        // a repair here.
+        if stated.is_none() && !matches!(dict.get("Length"), Some(Object::Reference(_))) {
+            self.lexer
+                .note(&repair::STREAM_EXTENT_FROM_ENDSTREAM, start);
+        }
         let end = stated.unwrap_or_else(|| {
             let found = find_endstream(input, start);
             self.lexer
                 .note_examined(found.map_or(input.len(), |end| end.saturating_add(ENDSTREAM_SPAN)));
-            found.unwrap_or(input.len())
+            found.unwrap_or_else(|| {
+                self.lexer.note(&repair::ENDSTREAM_MISSING, start);
+                input.len()
+            })
         });
 
         let length = end.saturating_sub(start);
@@ -568,6 +605,8 @@ impl<'a> Parser<'a> {
             });
         }
 
+        // not a repair: `start` and `end` are both positions in `input` with `start <= end`, so
+        // the default is never taken; it stands where an index would panic.
         let data = input.get(start..end).unwrap_or_default();
         self.stream_data_at = Some(start);
         self.lexer.seek(end);
@@ -578,6 +617,9 @@ impl<'a> Parser<'a> {
         let rewind = self.lexer.position();
         if self.lexer.next_token() != Some(Token::Keyword(b"endstream")) {
             self.lexer.seek(rewind);
+            if end < input.len() {
+                self.lexer.note(&repair::ENDSTREAM_MISSING, end);
+            }
         }
 
         Ok(Object::Stream(Arc::new(Stream {
@@ -603,6 +645,7 @@ impl<'a> Parser<'a> {
         let rewind = self.lexer.position();
         if self.lexer.next_token() != Some(Token::Keyword(b"endobj")) {
             self.lexer.seek(rewind);
+            self.lexer.note(&repair::ENDOBJ_MISSING, rewind);
         }
 
         Ok((id, object))
@@ -646,7 +689,10 @@ impl<'a> Parser<'a> {
                 found: format!("object number {number}"),
                 expected: "a number within range",
             })?,
-            u16::try_from(generation).unwrap_or(0),
+            u16::try_from(generation).unwrap_or_else(|_| {
+                self.lexer.note(&repair::GENERATION_OUT_OF_RANGE, at);
+                0
+            }),
         ))
     }
 

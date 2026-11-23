@@ -25,6 +25,7 @@ use crate::error::{SyntaxError, SyntaxResult};
 use crate::file::FileBytes;
 use crate::object::{Dictionary, Object, ObjectId};
 use crate::parser::{Limits, Parser};
+use crate::repair::{self, Repair, RepairClass, RepairLog, Site};
 
 /// Where an object's bytes are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,9 +85,37 @@ pub struct XrefTable {
     /// Whether the section `startxref` names is §7.5.4's table rather than §7.5.8's stream. See
     /// [`Self::newest_section_is_classic`].
     newest_section_classic: Option<bool>,
+    /// The repairs reading the cross-reference information needed, which the document takes
+    /// when it is built (ADR 3477). See [`Self::repair_log`].
+    repairs: RepairLog,
 }
 
 impl XrefTable {
+    /// The repairs reading this table needed: a rebuild, a chain cut short, a trailer or a
+    /// `startxref` found by scanning, a subsection renumbered.
+    ///
+    /// Carried here because the table is read before a [`crate::Document`] exists to record
+    /// them; the document copies them into its own log when it is built.
+    #[must_use]
+    pub const fn repair_log(&self) -> &RepairLog {
+        &self.repairs
+    }
+
+    /// Records one repair made reading this table.
+    pub(crate) fn note(&mut self, class: &'static RepairClass, at: Site) {
+        self.repairs.record(Repair::new(class, at));
+    }
+
+    /// Records what reading the section at `at` repaired: the entries it lost, and its own.
+    fn note_section(&mut self, section: &Section, at: usize) {
+        if section.lost > 0 || !section.unread.is_empty() {
+            self.note(&repair::XREF_ENTRIES_LOST, Site::Offset(at));
+        }
+        for class in &section.repaired {
+            self.note(class, Site::Offset(at));
+        }
+    }
+
     /// Returns the location of an object, if known.
     #[must_use]
     pub fn location(&self, number: u32) -> Option<Location> {
@@ -726,6 +755,8 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     // failed, the header may stand further in, and the file's offsets are counted from it. A
     // scan instead would find objects the newest section deleted (§7.5.6), so the stated
     // chain is tried from that header before anything is rebuilt (ADR 2960).
+    // not a repair: ISO 32000-2 §7.5.2 NOTE 1 admits the bytes before a header that stands
+    // past the window, so reading offsets from it is reading the file as it is written.
     let header_at = if header_at.is_some() {
         header_at
     } else {
@@ -747,6 +778,11 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     let mut rebuilt = rebuild(file, limits, header_at.is_some())?;
     if let Some(replaced) = &replaced {
         rebuilt.keep_stated(replaced);
+        // What reading the stated chain found wrong before it was given up is still a repair
+        // this file needed.
+        for repair in replaced.repairs.repairs() {
+            rebuilt.repairs.record(repair);
+        }
     }
     Ok(rebuilt)
 }
@@ -875,7 +911,7 @@ pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
 /// synthesis as something the file said.
 pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl FnMut(&XrefTable)) {
     let base = header_position(file).unwrap_or(0);
-    let Some(start) = find_startxref(file) else {
+    let Some((start, _)) = find_startxref(file) else {
         return;
     };
     let mut next = start.saturating_add(base);
@@ -978,6 +1014,7 @@ pub fn rebuild(file: &FileBytes, limits: Limits, had_header: bool) -> SyntaxResu
     // when nothing is found.
     let mut table = scan_for_objects(input, limits);
     table.recovered_by_scan = true;
+    table.note(&repair::XREF_REBUILT, Site::WholeFile);
 
     if table.is_empty() {
         if !had_header {
@@ -1028,6 +1065,7 @@ pub fn rebuild(file: &FileBytes, limits: Limits, had_header: bool) -> SyntaxResu
     if table.trailer.get("Root").is_none()
         && let Some(id) = find_catalog_by_scan(input, limits, &table)
     {
+        table.note(&repair::CATALOG_FOUND_BY_SCAN, Site::Object(id));
         table.trailer.insert(
             crate::object::Name::new(b"Root".to_vec()),
             Object::Reference(id),
@@ -1062,7 +1100,7 @@ fn read_from_startxref(
     limits: Limits,
     mut record: Option<&mut Vec<SectionRecord>>,
 ) -> SyntaxResult<Option<XrefTable>> {
-    let Some(start) = find_startxref(file) else {
+    let Some((start, searched)) = find_startxref(file) else {
         return Ok(None);
     };
     let mut next = start.saturating_add(base);
@@ -1070,6 +1108,9 @@ fn read_from_startxref(
         offset_origin: base,
         ..XrefTable::default()
     };
+    if searched {
+        table.note(&repair::STARTXREF_SEARCHED, Site::WholeFile);
+    }
     let mut visited = std::collections::BTreeSet::new();
     // Every section's entries in read order — newest first, and a hybrid file's `/XRefStm`
     // between its own section and the older one it precedes. `XrefTable::fill` turns that order
@@ -1090,15 +1131,19 @@ fn read_from_startxref(
         // real work each time. Every section on a cycle was read, so nothing is unreached.
         if !visited.insert(next) {
             named_and_unread = false;
+            table.note(&repair::XREF_CHAIN_CUT, Site::Offset(next));
             break;
         }
         if next >= file.len() {
+            table.note(&repair::XREF_CHAIN_CUT, Site::Offset(next));
             break;
         }
 
         let Some(section) = read_section(file, next, base, limits, budget, read_position)? else {
+            table.note(&repair::XREF_CHAIN_CUT, Site::Offset(next));
             break;
         };
+        table.note_section(&section, next);
         read_position = read_position.saturating_add(1);
         budget = budget.saturating_sub(section.entries.in_use.len());
         named_and_unread = false;
@@ -1118,25 +1163,37 @@ fn read_from_startxref(
         // A cross-reference stream may also carry `/XRefStm`, a hybrid-reference file's
         // pointer to a stream holding entries the table omits. Read it before `/Prev` so
         // its entries take precedence over older sections.
-        if let Some(hybrid) = section
-            .trailer
-            .get("XRefStm")
-            .and_then(Object::as_integer)
-            .and_then(|value| usize::try_from(value).ok())
-            && let Some(extra) = read_section(
+        let stream_at = section.trailer.get("XRefStm").map(|stated| {
+            stated
+                .as_integer()
+                .and_then(|value| usize::try_from(value).ok())
+        });
+        if stream_at == Some(None) {
+            table.note(&repair::XREF_CHAIN_CUT, Site::Offset(next));
+        }
+        if let Some(Some(hybrid)) = stream_at {
+            let extra = read_section(
                 file,
                 hybrid.saturating_add(base),
                 base,
                 limits,
                 budget,
                 read_position,
-            )?
-        {
-            read_position = read_position.saturating_add(1);
-            budget = budget.saturating_sub(extra.entries.in_use.len());
-            entries.append(extra.entries);
-            table.entries_lost = table.entries_lost.saturating_add(extra.lost);
-            table.unread.extend(extra.unread);
+            )?;
+            if extra.is_none() {
+                table.note(
+                    &repair::XREF_CHAIN_CUT,
+                    Site::Offset(hybrid.saturating_add(base)),
+                );
+            }
+            if let Some(extra) = extra {
+                table.note_section(&extra, hybrid.saturating_add(base));
+                read_position = read_position.saturating_add(1);
+                budget = budget.saturating_sub(extra.entries.in_use.len());
+                entries.append(extra.entries);
+                table.entries_lost = table.entries_lost.saturating_add(extra.lost);
+                table.unread.extend(extra.unread);
+            }
         }
 
         let Some(stated) = section.trailer.get("Prev") else {
@@ -1185,6 +1242,7 @@ fn read_from_startxref(
 /// state is not one this reader may invent.
 fn declare_unreached(table: &mut XrefTable) {
     table.chain_cut = true;
+    table.note(&repair::XREF_CHAIN_CUT, Site::WholeFile);
     let size = table
         .trailer
         .get("Size")
@@ -1219,6 +1277,9 @@ struct Section {
     /// caller the distinction, because a rule about the bytes around `xref` has no subject in a
     /// section that states none.
     classic: bool,
+    /// The repairs reading this section needed, recorded by the chain's reader at the
+    /// section's offset (ADR 3477).
+    repaired: Vec<&'static RepairClass>,
 }
 
 /// How many bytes a cross-reference section's window starts with.
@@ -1297,6 +1358,7 @@ fn read_classic_table(
 ) -> Option<Section> {
     let mut entries = Vec::new();
     let mut unread: Vec<(u32, u32)> = Vec::new();
+    let mut repaired: Vec<&'static RepairClass> = Vec::new();
 
     loop {
         let rewind = lexer.position();
@@ -1307,7 +1369,10 @@ fn read_classic_table(
                     break;
                 };
                 let first = u32::try_from(first).ok()?;
-                let count = u32::try_from(count).unwrap_or(0);
+                let count = u32::try_from(count).unwrap_or_else(|_| {
+                    repaired.push(&repair::XREF_ENTRIES_LOST);
+                    0
+                });
                 let mut subsection = Vec::new();
 
                 for index in 0..count {
@@ -1322,8 +1387,15 @@ fn read_classic_table(
                     // document whose every object is intact. `outline_goto_action.pdf`
                     // declares twelve entries and supplies eleven.
                     let entry_at = lexer.position();
-                    let Some(crate::Token::Integer(position)) = lexer.next_token() else {
-                        entries.extend(realigned(file, subsection));
+                    // not a repair: the generation an entry states is read from the object's own
+                    // header (ISO 32000-2 §7.3.10), which is where `Document` takes it.
+                    let (
+                        Some(crate::Token::Integer(position)),
+                        Some(crate::Token::Integer(_generation)),
+                        Some(crate::Token::Keyword(kind)),
+                    ) = (lexer.next_token(), lexer.next_token(), lexer.next_token())
+                    else {
+                        entries.extend(realigned(file, subsection, &mut repaired));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
                         return Some(finish(
                             Statements::of_classic(entries, read_position),
@@ -1331,28 +1403,7 @@ fn read_classic_table(
                             lexer,
                             entry_at,
                             limits,
-                        ));
-                    };
-                    let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
-                        entries.extend(realigned(file, subsection));
-                        unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(
-                            Statements::of_classic(entries, read_position),
-                            unread,
-                            lexer,
-                            entry_at,
-                            limits,
-                        ));
-                    };
-                    let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
-                        entries.extend(realigned(file, subsection));
-                        unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(
-                            Statements::of_classic(entries, read_position),
-                            unread,
-                            lexer,
-                            entry_at,
-                            limits,
+                            repaired,
                         ));
                     };
 
@@ -1386,7 +1437,7 @@ fn read_classic_table(
                         unread.push((number, 1));
                     }
                 }
-                entries.extend(realigned(file, subsection));
+                entries.extend(realigned(file, subsection, &mut repaired));
             }
             Some(crate::Token::Keyword(word)) if word == b"trailer" => {
                 let mut parser = Parser::at(lexer.input(), lexer.position(), limits);
@@ -1394,7 +1445,10 @@ fn read_classic_table(
                     .parse_object()
                     .ok()
                     .and_then(|object| object.as_dict().cloned())
-                    .unwrap_or_default();
+                    .unwrap_or_else(|| {
+                        repaired.push(&repair::TRAILER_UNREADABLE);
+                        Dictionary::default()
+                    });
                 lexer.note_examined(parser.examined());
                 return Some(Section {
                     entries: Statements::of_classic(entries, read_position),
@@ -1402,6 +1456,7 @@ fn read_classic_table(
                     lost: 0,
                     unread,
                     classic: true,
+                    repaired,
                 });
             }
             _ => {
@@ -1418,6 +1473,7 @@ fn read_classic_table(
         lexer,
         at,
         limits,
+        repaired,
     ))
 }
 
@@ -1469,6 +1525,7 @@ const SUBSECTION_WITNESSES: usize = 4;
 fn realigned(
     file: &FileBytes,
     subsection: Vec<(u32, Option<Location>)>,
+    repaired: &mut Vec<&'static RepairClass>,
 ) -> Vec<(u32, Option<Location>)> {
     let witnesses: Vec<Option<i64>> = subsection
         .iter()
@@ -1492,6 +1549,7 @@ fn realigned(
     if displacement == 0 || !witnesses.iter().all(|found| *found == Some(displacement)) {
         return subsection;
     }
+    repaired.push(&repair::XREF_SUBSECTION_REALIGNED);
 
     subsection
         .into_iter()
@@ -1539,15 +1597,24 @@ fn finish(
     lexer: &mut crate::lexer::Lexer<'_>,
     offset: usize,
     limits: Limits,
+    mut repaired: Vec<&'static RepairClass>,
 ) -> Section {
     let (trailer, looked) = find_trailer_from(lexer.input(), offset, limits);
     lexer.note_examined(looked);
+    // The section ended without its `trailer` keyword where §7.5.5 puts it, so what follows
+    // was searched for.
+    repaired.push(if trailer.is_some() {
+        &repair::TRAILER_FOUND_BY_SCAN
+    } else {
+        &repair::TRAILER_UNREADABLE
+    });
     Section {
         entries,
         trailer: trailer.unwrap_or_default(),
         lost: 0,
         unread,
         classic: true,
+        repaired,
     }
 }
 
@@ -1570,40 +1637,10 @@ fn read_xref_stream(
     budget: usize,
     read_position: u32,
 ) -> Option<StreamRead> {
-    let data = decode_direct(stream, limits)?;
+    let mut repaired: Vec<&'static RepairClass> = Vec::new();
+    let data = decode_direct(stream, limits, &mut repaired)?;
 
-    let widths: Vec<usize> = stream
-        .dict
-        .get("W")?
-        .as_array()?
-        .iter()
-        .map(|entry| {
-            entry
-                .as_integer()
-                .and_then(|v| usize::try_from(v).ok())
-                .unwrap_or(0)
-        })
-        .collect();
-    if widths.len() < 3 {
-        return None;
-    }
-
-    let size = stream
-        .dict
-        .get("Size")
-        .and_then(Object::as_integer)
-        .unwrap_or(0);
-    let size = u32::try_from(size).unwrap_or(0);
-
-    // `/Index` gives (first, count) pairs; its absence means one subsection from zero.
-    let index: Vec<i64> = stream
-        .dict
-        .get("Index")
-        .and_then(Object::as_array)
-        .map_or_else(
-            || vec![0, i64::from(size)],
-            |items| items.iter().filter_map(Object::as_integer).collect(),
-        );
+    let (widths, index) = stream_fields(&stream.dict, &mut repaired)?;
 
     let row = widths.iter().copied().sum::<usize>();
     if row == 0 {
@@ -1671,6 +1708,7 @@ fn read_xref_stream(
                     lost,
                     unread: subsections_from(&index, pair_index, first, offset),
                     classic: false,
+                    repaired,
                 }));
             };
             cursor = cursor.saturating_add(row);
@@ -1680,11 +1718,11 @@ fn read_xref_stream(
             else {
                 continue;
             };
-            entries.push(
-                number,
-                entry_location(record, &layout, base)?.location(),
-                read_position,
-            );
+            let entry = entry_location(record, &layout, base)?;
+            if matches!(entry, Entry::Unrepresentable) {
+                repaired.push(&repair::XREF_STREAM_RECORD);
+            }
+            entries.push(number, entry.location(), read_position);
         }
     }
 
@@ -1694,7 +1732,56 @@ fn read_xref_stream(
         lost,
         unread: Vec::new(),
         classic: false,
+        repaired,
     }))
+}
+
+/// A cross-reference stream's `/W` and `/Index` (with `/Size` behind the latter's default), read
+/// as far as they go, ISO 32000-2 §7.5.8.2 Table 17; `None` where `/W` is not an array of three.
+/// A field of the wrong type or shape is a repair, recorded in `repaired`.
+fn stream_fields(
+    dict: &Dictionary,
+    repaired: &mut Vec<&'static RepairClass>,
+) -> Option<(Vec<usize>, Vec<i64>)> {
+    let mut fields_repaired = false;
+    let widths: Vec<usize> = dict
+        .get("W")?
+        .as_array()?
+        .iter()
+        .map(|entry| {
+            entry
+                .as_integer()
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or_else(|| {
+                    fields_repaired = true;
+                    0
+                })
+        })
+        .collect();
+    if widths.len() < 3 {
+        return None;
+    }
+
+    let size = dict
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|size| u32::try_from(size).ok());
+    fields_repaired |= size.is_none();
+    let size = size.unwrap_or(0);
+
+    // `/Index` gives (first, count) pairs; its absence means one subsection from zero.
+    let index: Vec<i64> = dict.get("Index").and_then(Object::as_array).map_or_else(
+        || vec![0, i64::from(size)],
+        |items| {
+            let integers: Vec<i64> = items.iter().filter_map(Object::as_integer).collect();
+            fields_repaired |= integers.len() != items.len() || !integers.len().is_multiple_of(2);
+            integers
+        },
+    );
+    if fields_repaired {
+        repaired.push(&repair::XREF_STREAM_FIELDS);
+    }
+    Some((widths, index))
 }
 
 /// What reading a cross-reference stream came to, where it came to anything.
@@ -1874,19 +1961,19 @@ fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<E
         // field read as zero on witnesses rather than on a sentence.
         1 | 2 if !stated(1) => return None,
         // Type 1: an object at a byte offset.
-        1 => usize::try_from(fields[1]).map_or(Entry::Deleted, |position| {
+        1 => usize::try_from(fields[1]).map_or(Entry::Unrepresentable, |position| {
             Entry::At(Location::Offset(position.saturating_add(base)))
         }),
         // Type 2: an object inside an object stream.
         2 => match (u32::try_from(fields[1]), u32::try_from(fields[2])) {
             (Ok(stream), Ok(index)) => Entry::At(Location::InStream { stream, index }),
-            _ => Entry::Deleted,
+            _ => Entry::Unrepresentable,
         },
         // Type 0 is Table 18's free object, and of every other value §7.5.8.3 says "[a]ny other
         // value shall be interpreted as a reference to the null object, thus permitting new entry
         // types to be defined in the future". Both are recorded rather than skipped: an entry
         // that resolves to null is a statement this section makes, and skipping it would let an
-        // older section answer instead.
+        // older section answer instead. Not a repair, for the same reason.
         _ => Entry::Deleted,
     })
 }
@@ -1902,6 +1989,8 @@ enum Entry {
     /// The number names nothing: §7.5.4's `f`, Table 18's type 0, or a type this version of PDF
     /// has no meaning for.
     Deleted,
+    /// A type 1 or 2 record whose fields no location here can hold, read as free: a repair.
+    Unrepresentable,
 }
 
 impl Entry {
@@ -1909,7 +1998,7 @@ impl Entry {
     fn location(self) -> Option<Location> {
         match self {
             Self::At(location) => Some(location),
-            Self::Deleted => None,
+            Self::Deleted | Self::Unrepresentable => None,
         }
     }
 }
@@ -1918,7 +2007,11 @@ impl Entry {
 ///
 /// Used for cross-reference streams, where indirect values cannot be resolved because the
 /// table being built is what resolving needs.
-fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::sync::Arc<[u8]>> {
+fn decode_direct(
+    stream: &crate::object::Stream,
+    limits: Limits,
+    repaired: &mut Vec<&'static RepairClass>,
+) -> Option<std::sync::Arc<[u8]>> {
     // §7.5.8.2: `/Filter` and `/DecodeParms` "shall also be direct objects", so nothing is
     // resolved — an indirect value here is not the name or dictionary Table 5 needs, and the
     // chain is read by the same rule every other stream's is (ADR 3274), a malformed one
@@ -1930,12 +2023,21 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
 
     let mut data = std::sync::Arc::clone(&stream.data);
     for (filter, parms) in &chain {
-        data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), limits)?;
+        let decoded =
+            crate::filter::decode_with_parms_reported(filter, &data, parms.as_ref(), limits)
+                .ok()?;
+        // A prefix is read as the data the stream holds, and `lost` counts the entries it does
+        // not carry; the damage that cut it short is a repair of its own.
+        if decoded.damage.is_some() {
+            repaired.push(&repair::STREAM_DATA_DAMAGED);
+        }
+        data = decoded.data;
     }
     Some(data)
 }
 
-/// Finds the offset given by the last `startxref` in the file.
+/// Finds the offset given by the last `startxref` in the file, and whether it had to be
+/// searched for outside the file's last bytes — a repair (ADR 3477).
 ///
 /// §7.5.5 states where it is and how a reader gets to it:
 ///
@@ -1962,15 +2064,15 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
 /// The cost is one backwards byte scan, paid only by a file that has already failed the window
 /// — and it is paid *instead of* a scan that reads every object header in the file, not on top
 /// of one, whenever it succeeds.
-fn find_startxref(file: &FileBytes) -> Option<usize> {
+fn find_startxref(file: &FileBytes) -> Option<(usize, bool)> {
     let tail_start = file.len().saturating_sub(STARTXREF_SEARCH_WINDOW);
     if let Some(found) = last_startxref_from(&file.read(tail_start..file.len()), 0) {
-        return Some(found);
+        return Some((found, false));
     }
     // The whole file, backwards: the second look reads every byte, so a file on disk is read
     // whole and kept, or refused by name where it cannot be held — in which case there is no
     // `startxref` this reader can find and the caller's scan will refuse the same way.
-    last_startxref_from(file.whole().ok()?, 0)
+    last_startxref_from(file.whole().ok()?, 0).map(|found| (found, true))
 }
 
 /// The offset stated by the last `startxref` at or after `from`, if that keyword is there and
