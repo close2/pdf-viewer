@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
+use confined_transport::ring::RingError;
+use confined_transport::stream::StreamError;
 use confined_transport::{Canceller, Host, TransportError};
 use pdf_sandbox::{Allowance, Ended};
 
@@ -21,6 +23,9 @@ use crate::wire::{
     encode_box_request, encode_layout_request, encode_movie_request, encode_request, encode_units,
     sentence,
 };
+
+mod video;
+pub use video::{RING_SLOTS, VideoStreamed};
 
 /// The most boxes at the top of an MP4 file the host walks to find its movie.
 ///
@@ -46,7 +51,7 @@ pub const MAX_WAVE_WINDOWS: usize = 1024;
 /// machine's ceiling.
 pub const PROCESSOR_BUDGET: Duration = Duration::from_secs(1);
 
-/// Why a sound was not decoded.
+/// Why a sound or a video track was not decoded.
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
     /// Table 305's entries describe no samples this program decodes; the sentence says which.
@@ -79,6 +84,16 @@ pub enum MediaError {
     /// The wire or the worker failed.
     #[error("{0}")]
     Transport(#[from] TransportError),
+    /// An interlaced H.264 track, which no decoder this program admits reads: the caller hands it
+    /// to this machine's own player and says so, in this sentence (ADR 3526).
+    #[error("{0}")]
+    Interlaced(String),
+    /// A video run's stream failed or broke its contract, and the worker was stopped.
+    #[error("{0}")]
+    Stream(#[from] StreamError),
+    /// The ring a video track's pictures cross in could not be attached.
+    #[error("{0}")]
+    Ring(#[from] RingError),
 }
 
 /// A sound decoded: §13.3's samples in one format, at the rate and channels the object states.
@@ -202,6 +217,13 @@ impl MediaWorker {
     #[must_use]
     pub fn starts(&self) -> usize {
         self.starts
+    }
+
+    /// The running worker's process, where one runs: what a measurement of its memory reads
+    /// `/proc/<pid>/status` of (ADR 3528).
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        self.host.as_ref()?.canceller().process_id()
     }
 
     /// Decodes a sound object's data — its bytes after Table 5's filters — under `format`, into at
@@ -639,6 +661,15 @@ impl MediaWorker {
         Ok(Streamed { notes, stopped })
     }
 
+    /// Starts a worker, the one this player's next request goes to.
+    fn start(&mut self) -> Result<(), MediaError> {
+        let program = self.program()?;
+        let host = Host::start(&program, MAGIC, &Canceller::new())?;
+        self.starts = self.starts.saturating_add(1);
+        self.host = Some(host);
+        Ok(())
+    }
+
     /// The running worker dropped and killed: it answered what no request could.
     fn distrust(&mut self) {
         if let Some(host) = self.host.take() {
@@ -648,15 +679,14 @@ impl MediaWorker {
 
     /// One request and its reply, starting a worker where none runs, under the request's budget.
     fn exchange(&mut self, kind: u8, payload: &[u8]) -> Result<(u8, Vec<u8>), MediaError> {
-        let program = self.program()?;
-        let host = if let Some(host) = self.host.take() {
-            host
-        } else {
-            let host = Host::start(&program, MAGIC, &Canceller::new())?;
-            self.starts = self.starts.saturating_add(1);
-            host
+        if self.host.is_none() {
+            self.start()?;
+        }
+        let Some(host) = self.host.as_mut() else {
+            return Err(MediaError::Start(
+                "the worker ended as it started".to_owned(),
+            ));
         };
-        let host = self.host.insert(host);
         let canceller = host.canceller();
         let allowance = canceller
             .process_id()

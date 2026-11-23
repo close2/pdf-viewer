@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Fetches ITU-T H.264.1's conformance bitstreams (the JVT's AVCv1 set) and unpacks each beside its
+# reference reconstruction, pinned by hash, for the media worker's conformance walk (ADR 3527).
+#
+# No byte of the suite is tracked here: the zips are kept in `$PDF_VIEWER_H264_CACHE` (default
+# `$PDF_VIEWER_SCRATCH/h264-conformance/zips`), downloaded only where a verified copy is not already
+# there, and each is unpacked into a directory of its own under `$PDF_VIEWER_H264_STREAMS` (default
+# `$PDF_VIEWER_SCRATCH/h264-conformance/streams`), which the ignored test reads:
+#
+#   tools/fetch-h264-conformance.sh
+#   PDF_MEDIA_H264_STREAMS=<streams> cargo test -p pdf-media-worker --test h264_conformance -- \
+#       --ignored --nocapture
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=tools/places.sh
+. "$here/places.sh"
+: "${PDF_VIEWER_H264_CACHE:=$PDF_VIEWER_SCRATCH/h264-conformance/zips}"
+: "${PDF_VIEWER_H264_STREAMS:=$PDF_VIEWER_SCRATCH/h264-conformance/streams}"
+
+base=https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/AVCv1
+# the stream's name | the zip's SHA-256, as fetched on 2026-11-23
+pins=(
+    "AUD_MW_E ecaed4a05d02c8ffc0ec7dd02a640f87ba9d9f8c2dab3273ef1d6da3d7f8568e"
+    "BA1_FT_C f21e1b0b7b820ac6f078bc5e9aa3284e068d2fdf1192e6c5c42509a070b8bb84"
+    "BA1_Sony_D 399eae2eb03f82fc291bdc4fe9cedd110b40a96368ffe1e1bcf9ff6436fa9df7"
+    "BA2_Sony_F 7ee27c0879fd43d3203cc14d5f2381e737bfb287fc6bdc4b64ff77f16c574397"
+    "BA3_SVA_C 1c7003ff7b4507204f50e0b279149fd183c0890ee2a12c4c2d008db387299b82"
+    "BAMQ1_JVC_C 4d37b02cd96ce57f91db306bcd29976ac26b88efbc1c8b3322101f7914378303"
+    "BAMQ2_JVC_C eef3aba4a9c99a4ea61ec35aab77246a1c4ff3249588e1e3fb153e80bc05d256"
+    "BANM_MW_D b50e2e7ca2a355087e9d993174626a027cea2da5f84f704cc0b2c6cb9145dfbd"
+    "BASQP1_Sony_C f7cdbfaee43ff2e88b78d0b41ddcde83ac5148867e7b7df1759d97e0294f6c19"
+    "BA_MW_D f85d0c1e6a8317ecff19bf11d1496b327ee11e391de27453031062ea62241843"
+    "CABA1_SVA_B d0cf94006df2319a6c98683a6013f85ea5a1c0d382c796523b751c263e8c8989"
+    "CABA1_Sony_D 9726f1c1012daef198c98810a88a7776a33159c1bc8daa6e557b55959db50ead"
+    "CABA2_SVA_B 68c700914c0926b5dcb75ef3fe601a3434c1de3af6c4906a3573baf9998752db"
+    "CABA2_Sony_E bfa6862fea1bd761d501ce4613d00ae08839dc9eda711e91b2ab214186e4578c"
+    "CABA3_SVA_B 375996d3de61bf6f7a58f48c46a477804636d118fe743501eef48c04fb3993cf"
+    "CABA3_Sony_C c3b61cff228f09847f17bb0d037f4275f82759565b3f19ab39f6cde482d90755"
+    "CABA3_TOSHIBA_E 7ed0d82ebd6fc96fe3b1b2daf0969360140833e180c8fb217e8c8ad817d40178"
+    "CABACI3_Sony_B fcf6b713ec73a0035a1240b2951d8c98e9095e1ef03694f17afa5d896d752597"
+    "CABAST3_Sony_E 8271a1756ccfd7b434f189e1aaa8144d3ca026531f4d2b58759ae7300c1c9d68"
+    "CABASTBR3_Sony_B 6488ae24a721612d3dcbf5fbecafd3d3ae4896e7704b246a5bde2730e34074db"
+    "CABREF3_Sand_D 11ff2b3d72eb815fe7651ebeeb3a835cc70a030f76495b31edc3aadd84bfa032"
+    "CACQP3_Sony_D c8efdbc5d0af62b99d1e357717c26eb34ed13f3cf8bacb04a60bf87a0bd2a054"
+    "CAFI1_SVA_C 71c13765c64e02d81ae72cc2873150d45eda8172fd4ef7066b7bff03a2e84231"
+    "CAMA1_Sony_C e2aaf99d934f60a5410d400696290fcc894fcb916c268703d61adade1ca854eb"
+    "CAMA1_TOSHIBA_B 081f1bdd1d38238d55d0e4d2373df8641eef0db3290d4cacefb1d6a5d991b0c6"
+    "CAMA3_Sand_E 449a6591ff16a27dc7a6b05cc077a324598e348794998e46062003167915a6a9"
+    "CAMACI3_Sony_C da020750950a89277ff10b53d5983ab525d61ba9b180562fc4fc1da9af721227"
+    "CAMANL1_TOSHIBA_B 9f9027280afb6d897144fa5f3851bfc471ee28bc37d8d23fc16ae3754d698608"
+    "CAMANL2_TOSHIBA_B cb04530ad98ea7d8a09e412462ea487b11f5a6ec7911fd882db7cbf7407e682f"
+    "CAMANL3_Sand_E 09c6b842c801f2368cfe055fa20f33204e221a01e3ac4454fd8c656299bbf41a"
+    "CAMASL3_Sony_B 4e675b3701e5ed42c7f94c8d04ec755111a2bb595a759e512dc1361fb2f59ccd"
+    "CAMP_MOT_MBAFF_L30 af27c0fa152615a648eb1989b1ef046f2713422f20405497ae863b4062b1f477"
+    "CAMP_MOT_MBAFF_L31 7115ad1c7e69589cb0d216fc20c14f8fe9f4e4ef94ba151601c93b3f3af44f8f"
+    "CANL1_SVA_B 2f364e4ff117f9fce0b55ae417f2f5ee992d6e4042e207eed0a212b71580ae27"
+    "CANL1_Sony_E 7703f187dba588c1b6df1385e15f4a58d87a8d34d492e819652e991acfd32eb2"
+    "CANL1_TOSHIBA_G c554e995999afa117362ef0733910c3d2cb322f8ba8dc7b3f467239e8478bf46"
+    "CANL2_SVA_B 0936f0816c5b44e0115c5dcea65717c678f3de8cf858308283f1328358733186"
+    "CANL2_Sony_E 256039bbdfb6eee69f9bf1f20e696dc83ccea976c1f3df8c2a54b85342d2aca6"
+    "CANL3_SVA_B 2398eca7b8da95820ccb025b37c1103d8abd9f9a06eb45ccc3b9704ab1f2ff2e"
+    "CANL3_Sony_C 4e2fbaa65c253bc05e028f068d652290afd2f679fd4969ed78eb89592bf9339f"
+    "CANL4_SVA_B a19e259438917a68f026de4045eff25d2dfe416c081d215bca40901214617cab"
+    "CANLMA2_Sony_C b4c822b6fe6c3bea6be22b2bb6ea21b5964f4fc566f14a9df06d34671b6f5d31"
+    "CANLMA3_Sony_C 6c65593a84800ad92d5ee4169f3e33e3f74d56055e82ab309fe82a885f07ef1e"
+    "CAPA1_TOSHIBA_B 57d4366805e18525b7f780dafdd0df7adaf09d4f84b742487a96d903384fa833"
+    "CAPAMA3_Sand_F 964118db0951061cb766b3df0e5518ff95f7f027adc78a447c760cc5bc91085c"
+    "CAPCM1_Sand_E 41fcf69567a11a6a80a1a966d64295b5c81568f4b69345e4c97e33d7cf7eeffe"
+    "CAPCMNL1_Sand_E 57869ee07c31339301af6c7f98e779ae27d048aadd180943b794dcc6e427c225"
+    "CAPM3_Sony_D 61dbb73d5acc16a10f5f75dfa8a368a71f87d119d802f7c2bbebb5abcd32f075"
+    "CAQP1_Sony_B 1b2055d67af3861da9fdb05ce140d79645b454f369fc62a41f64a9ce2b21e8a7"
+    "CAWP1_TOSHIBA_E f68cbc4590176c80a9652b2da9835f64d09a8613c976b345e5c2f2ed4b2e821a"
+    "CAWP5_TOSHIBA_E f569e578b8d63d4e0a9e973cb87fac00a1ab0a1c5895a2336489140e3f595552"
+    "CI1_FT_B b44b82586b4be8232d77e7d0971691004f7aed5ef7d8730b20f81405fbc77d1a"
+    "CI_MW_D 6e41825983037e3af50a3e4add6ac9dbde3ea6f41ab6f77cc432de22a2920d49"
+    "CVBS3_Sony_C 4cdb6b8d5346192094794b968590aa256c36d8dddcf22b2890e8f4a73f8d8b03"
+    "CVCANLMA2_Sony_C 9a579006f2935e75bb497814eda0abd5f49f740be40f3a81b643f8e3a63c7552"
+    "CVFC1_Sony_C 99aa2f1501cd1ca8af1a292bb1f1f1cb49e6189a3131bc5bc8168b3dd322905a"
+    "CVFI1_SVA_C 3f3da0c2ae0400e9549af1bea567ee0833db3141d39b2d10e7612f8c246029de"
+    "CVFI1_Sony_D 880545a19b8a9c002c26dabccfd679ebbea624bc7d1104d6a8aa653d96913f7b"
+    "CVFI2_SVA_C 0c46afd124d9931ad349e9355e405f9f61b2f168223618691d023ab8e04a2877"
+    "CVFI2_Sony_H 4efe1e1022fe9464988a19f53abe5e0bb2f067dc417fa724f9f7f792cb8c4d51"
+    "CVMA1_Sony_D bf0090a609c27ca8938765cffd226910e4b31ddbe993e0c8c16b27b8130f5a6c"
+    "CVMA1_TOSHIBA_B 87d71708f215a5b9146be6904ddc3d092118df7aead3c119994c203928c37924"
+    "CVMANL1_TOSHIBA_B fa180a01db3437eb22f75786509a7f675f812ba30660b2aefbeb58e31488e44a"
+    "CVMANL2_TOSHIBA_B 39f70912ae4ee1087a8760e0a20db0008d063073345cb4536193112bf6a2062d"
+    "CVMAPAQP3_Sony_E 356fc1336cc704e8478c1fd19e3a9ea7235f642c9c72749f0eac82dc9a55e910"
+    "CVMAQP2_Sony_G 7ba8640b584bcf5d96e942800b9f2e6a70d4fefa4c70768913c7cb559ddcd379"
+    "CVMAQP3_Sony_D 867360dcec6f9da7572be6717e20182ed5ff7fb574ba665b0d22fce4fb106822"
+    "CVMP_MOT_FLD_L30_B 6dca7c2a67fc166c76e1c17e37dc428f163f223d3c63abaf32f71cf4db60eecb"
+    "CVMP_MOT_FRM_L31_B 3901a1df74ab2a10c2b184b78ada16d2207bb193035c3898f2493c170227875f"
+    "CVNLFI1_Sony_C 7937f4626b09676e296db0f26c02ec38f2ad578d68a8b0cc528e8910baa1913a"
+    "CVNLFI2_Sony_H 793c255c15db648ff4f7a77d826dd7d7c16200280f1478a0e014f4554cd73180"
+    "CVPA1_TOSHIBA_B 6f349eb8fae64ed2c8e00ba8b8e194ef32b1ebc498f47c348687b6ac7da3c9b3"
+    "CVPCMNL1_SVA_C 4d7d78a590acaf36f197d746c122281f3c0629abcb964471215b17e8c39f41d8"
+    "CVPCMNL2_SVA_C 90b0574aa7d02f8b250c4997b78fd4f112983fd3eb9eb7c12df6d5b7560ceb1d"
+    "CVSE2_Sony_B 0d19398d5a8bc02d5df0906bd3d7c52e6341e992037eb67c73fc782852fbe17d"
+    "CVSE3_Sony_H 8866d96f4531296bdf45f2f1ba30b54f8635255625fc42069fa5dd87f5e152d7"
+    "CVSEFDFT3_Sony_E b98a88904113f1ed59271168fbcdd54fec7bde63eaf869bdcada9fe4752be4b5"
+    "CVWP1_TOSHIBA_E 4402349be955730a67401e218c6fd20874e1bba4f33ea5c5123e25a80682c6ba"
+    "CVWP2_TOSHIBA_E 65e5b208b67328a4fa442c34b456fe1c622fad77713d30837e0a25181c2ee087"
+    "CVWP3_TOSHIBA_E b5e42b95fc7425eb80d0fabc27cfeec25cc528796e12f5612c8897977e4c3b56"
+    "CVWP5_TOSHIBA_E 498fd8557e2642927701a0e043e70baba4e25ab561214ef026064dade0645b2e"
+    "FI1_Sony_E 9ce036bcd91bf89aa6256b4d5461231e74f8482dcf76bed075abddbcf4108f9f"
+    "FM1_BT_B 9e8de6bc7e87eef28f603a089438eb50c7af542d3958253cbf2c1f1ef05e816f"
+    "FM1_FT_E 6474ac25708195b297d7f284a7531be5f181c5a6e0f1e65f79ee8e2fdae3a9cb"
+    "FM2_SVA_C 7e27a8776c70e47e4b4441809a6ec23c8a62e1a06eea364a6407839fc8650d4f"
+    "HCBP1_HHI_A 9038147c4300ae373c07c41d0a172ac593339978f36470a2561e6b4c5da65645"
+    "HCBP2_HHI_A 9847f5d4941ac05c0736f9777398005d7fa72faea6f283a18e2fa72c8ea42659"
+    "HCMP1_HHI_A 4dd7649e42c4e26e22e3877f3d0b30cd42dd3c456d97ee1c19a465322971221e"
+    "LS_SVA_D b34a28852630abe770b680dbd7e0c619a01eacfffd2d928ab4aff3bc76746796"
+    "MIDR_MW_D 69e7d04bd4b782f93401b12b79d58a96b39319d932743af8bc7134c752d6b577"
+    "MPS_MW_A dd96a4e890224097f4f7d8e4c3b47aba3bb986e86b6374d6a50af44453841575"
+    "MR1_BT_A a76d4e199e6ffb27292d1a07c516e5adea251e63e3f756de490c153b23d4684d"
+    "MR1_MW_A 63171ed2251df09bee5560db87cc063e7a54f1602596734d03779a6239bc09d8"
+    "MR2_MW_A 97e703fef42704e5e91dc96d92416790f38b4df0a3f97b02c138f9def4e87325"
+    "MR2_TANDBERG_E a1fef6ee3e9709360033cc5d0a1a39a36827c4a28f4fc9693904db5a87e5a374"
+    "MR3_TANDBERG_B 007ed664447935137a5789af31d6c6c37af2cae2b98b9cf047c936dde698f068"
+    "MR4_TANDBERG_C a1012779b3d6a60a0459d1961025194c1c016ee31f012f5014c076de78b09ecb"
+    "MR5_TANDBERG_C fb86b6f6512d14fbfe1a369e1cfa230a87a2e2d630fa7762dfc3b33e3b219865"
+    "MR6_BT_B 6d854331b7fefdc3c644bab4378a738bc0af6e981623e5a5b65b6401692f3310"
+    "MR7_BT_B 020a5a3346634c5633def426c2c145a7ad64805d58c8dde94ebfac8c4c703046"
+    "MR8_BT_B 2033f449755837336d7a5830dbfa8ccc36c1c84384d7f89d1cba738240395353"
+    "MR9_BT_B fd10a0be32f6fbe5d35e4a4b73707af97b3d8c1999bc5680c53d7068c20bf72e"
+    "MV1_BRCM_D 6527786ffacbf00d917d3b54f56e8a16d11e46ac6806610685088d0ed0ee6b5b"
+    "NL1_Sony_D 1b26bfe8d05cf54b95e410779e48f90cc55305186e0c6184b5ea28ce9dc1b02d"
+    "NL2_Sony_H 201e351e9c9680d514029cf4ec11a3009368d6955ec082cff9c244c6c03b818c"
+    "NL3_SVA_E 09d7a3fcf430e0635b55bc4308c56842863cdc1d52cc3e3ec6014487d13c1977"
+    "NLMQ1_JVC_C 079cebd9a12e9569164bffe91dd2ed830dc8cd25186652530d9a2622f5ddc398"
+    "NLMQ2_JVC_C 35ce821ebf67b4a4c706df90fc1a3a27a86b0d0fc3cd5fcc52624ef352b381f1"
+    "NRF_MW_E c48f067fe8ac1309b99292d024324a0a7561bf28312a133995a42d7a98ae9835"
+    "SL1_SVA_B 60d61046c3aee6b9aa6b3dd4fad4081be9c959affec2bd641808632edffed1b2"
+    "SP1_BT_A aa9a1fa4fedad3d0437b8d77caefbf1b3cfb60add57b231dc67ebbded60d9d8a"
+    "SVA_BA1_B 1d19e5339d677ba6920912e7ca2d0a2889ff61fe0c4bbf0167da371fa855061b"
+    "SVA_BA2_D e0cefee7e9206d06cad7bbdbe1441b6566208d693bcebc4396fa896be3a2c8d4"
+    "SVA_Base_B 0ab8582893c671db242d2a645745a96b45bd4e479ccce8b0a6d989ee87e259a7"
+    "SVA_CL1_E 636098f10f2cdc80e31451b198c688bcc868fe536707c46ce2e0eaf54a33fa98"
+    "SVA_FM1_E 9db49088a67d960d1363605c40a603d38c87361f3b83e730e6541c5a1db4c10f"
+    "SVA_NL1_B 571504481df461f11c4f028df8754d06d1f5dc24171c571b9b4808b0cb595dbf"
+    "SVA_NL2_E f21e06d253b205aa65e796158daecfbcfc4ea2b5c41af1412f6bdd54a0a59977"
+    "Sharp_MP_Field_1_B 8beb25c4b8c93a0ad711a88f05688d530f7a4d43f37f2f7ad56e2b1bb652e4e0"
+    "Sharp_MP_Field_2_B bba6b48dc3f09d9b3fe8f274d196f3504247adbab4dd9d48e533985f83336221"
+    "Sharp_MP_Field_3_B d339172dc02bc4291cc2566e11e7f759b016095c0d3ee90c99ea7c16bd940ece"
+    "Sharp_MP_PAFF_1r2 bb7c350423ed3b917fbb0410b95c1bf95af810f1208fea9036cfee0b84bc20b6"
+    "Sharp_MP_PAFF_2r da4458eb33224792eb452d27e674267b72e78396a16130fa890ff8e646d2ef19"
+    "cabac_mot_fld0_full 7e6df7be8558f42b1946100e406f89141f2bb5a9ecfb58b8a19f98beda047c34"
+    "cabac_mot_frm0_full 28ca7ebc897b4f7c95964dd5de882a83adecd048e7f5e2d039b5c4c78837a99a"
+    "cabac_mot_mbaff0_full b6b51dbd19cbe3281e6ef6f36c84a26eda4a61f7794afd569dfdacd112273732"
+    "cabac_mot_picaff0_full 0ad6d73cad2f9d9d998fffed6f5af46142c0a3e1518e2963d609e8eee8e36226"
+    "cama1_vtc_c afa7667a400f89367a6f585380ba19c843adaba72b8e272e8dbf9b7ffe80bcf4"
+    "cama2_vtc_b c5456e181479b40376ddce7ee7f86cd19e9d342cd1c17ea7853d85db401e3f3a"
+    "cama3_vtc_b bddfe943d4e698ccfeb874996965d2bea9b01c8557bc438cca28992cf19b3ce9"
+    "cavlc_mot_fld0_full_B ab77ca4cc5d868775109c10b568b38dccd3a419482664675b21c61d4128bcf16"
+    "cavlc_mot_frm0_full_B 42ce5e512d90ac77ec51f88a45baaf02e288dbb4b7b1237cdd8b18779000bfab"
+    "cavlc_mot_mbaff0_full_B 23da6f6f4ebd5ccb0e122422f55f8a2897d53bb8b4fdaa8f4ad03b24d4a6c92f"
+    "cavlc_mot_picaff0_full_B 0bc97dac5b4977da638ffa7ec285e226289f6935468e71b4760ceaeffa8a3de3"
+    "sp2_bt_b 61190770cec9376fe0ece9067670074570683f4547528d6a5fa6386af08a4b8a"
+)
+
+mkdir -p "$PDF_VIEWER_H264_CACHE" "$PDF_VIEWER_H264_STREAMS"
+for pin in "${pins[@]}"; do
+    read -r name want <<<"$pin"
+    zip=$PDF_VIEWER_H264_CACHE/$name.zip
+    if [ ! -f "$zip" ] || [ "$(sha256sum "$zip" | cut -d' ' -f1)" != "$want" ]; then
+        curl --fail --location --silent --show-error -m 300 -o "$zip.download" "$base/$name.zip"
+        mv "$zip.download" "$zip"
+    fi
+    got=$(sha256sum "$zip" | cut -d' ' -f1)
+    if [ "$got" != "$want" ]; then
+        printf 'fetch-h264-conformance: %s has SHA-256 %s, and the pin is %s; refusing it\n' \
+            "$name" "$got" "$want" >&2
+        exit 1
+    fi
+    out=$PDF_VIEWER_H264_STREAMS/$name
+    if [ ! -d "$out" ]; then
+        unzip -q -o -j "$zip" -d "$out.partial"
+        # The decoder traces are most of each zip's bytes and nothing the walk reads.
+        find "$out.partial" -iname '*trace*' -delete
+        mv "$out.partial" "$out"
+    fi
+done
+printf 'fetch-h264-conformance: %d streams in %s\n' "${#pins[@]}" "$PDF_VIEWER_H264_STREAMS"

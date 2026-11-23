@@ -70,6 +70,10 @@
 //! sizes count, chunks that hold more or fewer samples than there are); an access unit that lies
 //! past the file's end; and more than [`MAX_ACCESS_UNITS`] access units.
 //!
+//! A video track ([`movie_video_track`]) is read the same way under the `vide` handler, and declines
+//! a first sample entry that is not `avc1` or `avc3` and an `avcC` record that is not version 1,
+//! states NAL lengths of three bytes, or holds less than it counts.
+//!
 //! # The bounds
 //!
 //! The reader walks a slice, so a box is never larger than what holds it, and every table's entry
@@ -198,6 +202,178 @@ fn read_movie(movie: &[u8], file_len: u64, budget: &mut Budget) -> Result<SoundT
         }
     }
     Err("the file holds no enabled sound track".to_owned())
+}
+
+/// A file's video track: the H.264 parameter sets its decoder starts from, how its samples frame
+/// their NAL units, and where every access unit is (ISO/IEC 14496-15, the AVC file format).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoTrack {
+    /// The sample entry's width in pixels: the largest picture the track declares.
+    pub width: u16,
+    /// The sample entry's height in pixels.
+    pub height: u16,
+    /// The bytes of the length before each NAL unit in a sample: 1, 2 or 4.
+    pub length_size: u8,
+    /// The `avcC` record's sequence and picture parameter sets, each a NAL unit without its length.
+    pub parameter_sets: Vec<Vec<u8>>,
+    /// The `mdhd` time scale: units per second of every [`AccessUnit::duration`].
+    pub time_scale: u32,
+    /// The access units, in decoding order.
+    pub access_units: Vec<AccessUnit>,
+}
+
+/// The most bytes of parameter sets one `avcC` record may carry back.
+///
+/// A sequence parameter set with every scaling list and a VUI is a few hundred bytes; 31 of them and
+/// 255 picture parameter sets, each as long, would still be under this, and a record past it is
+/// declined rather than copied.
+pub const MAX_PARAMETER_SET_BYTES: usize = 64 << 10;
+
+/// Reads the first enabled video track of the movie box whose payload is `movie`, in a file of
+/// `file_len` bytes, which must be H.264 in an `avc1` or `avc3` sample entry (ISO/IEC 14496-15).
+///
+/// # Errors
+///
+/// The sentence the worker refuses with: no enabled video track, a sample entry of another coding,
+/// an `avcC` record that is not version 1 or does not hold what it counts, or a sample table that
+/// disagrees with itself or with the file (the module's list).
+pub fn movie_video_track(movie: &[u8], file_len: u64) -> Result<VideoTrack, String> {
+    let budget = &mut Budget::default();
+    let mut tracks = Vec::new();
+    for found in Boxes::new(movie, budget) {
+        let found = found?;
+        match &found.kind {
+            b"mvex" => {
+                return Err(
+                    "the file is fragmented (mvex), and this reader reads only a movie's own \
+                     sample tables"
+                        .to_owned(),
+                );
+            }
+            b"trak" => tracks.push(found.payload),
+            _ => {}
+        }
+    }
+    for track in tracks {
+        if let Some(media) = enabled_media(track, *b"vide", budget)? {
+            let tables = Tables::read(media, budget)?;
+            let entry = video_description(tables.descriptions, budget)?;
+            tables.data_is_here(entry.data_reference, budget)?;
+            let access_units = tables.access_units(file_len, budget)?;
+            return Ok(VideoTrack {
+                width: entry.width,
+                height: entry.height,
+                length_size: entry.length_size,
+                parameter_sets: entry.parameter_sets,
+                time_scale: tables.time_scale,
+                access_units,
+            });
+        }
+    }
+    Err("the file holds no enabled video track".to_owned())
+}
+
+/// What a video track's first sample entry says.
+struct VideoDescription {
+    data_reference: u16,
+    width: u16,
+    height: u16,
+    length_size: u8,
+    parameter_sets: Vec<Vec<u8>>,
+}
+
+/// The bytes of `SampleEntry`'s and `VisualSampleEntry`'s fields before its boxes (14496-12,
+/// 8.5.2.2): six reserved and the data reference index, sixteen of pre-defined and reserved, the
+/// width and height, two resolutions, a reserved word, the frame count, a 32-byte compressor name,
+/// the depth and a pre-defined word.
+const VISUAL_SAMPLE_ENTRY_FIELDS: usize = 78;
+
+/// Reads `stsd`'s first entry, which must be an `avc1` or `avc3` visual sample entry holding an
+/// `avcC` record.
+fn video_description(descriptions: &[u8], budget: &mut Budget) -> Result<VideoDescription, String> {
+    let (_, _, mut fields) = full(descriptions).ok_or_else(|| truncated("stsd"))?;
+    let count = fields.u32().ok_or_else(|| truncated("stsd"))?;
+    if count == 0 {
+        return Err("a sample description box (stsd) with no entry".to_owned());
+    }
+    let entry = Boxes::new(fields.rest, budget)
+        .next()
+        .ok_or_else(|| truncated("stsd"))??;
+    if &entry.kind != b"avc1" && &entry.kind != b"avc3" {
+        return Err(format!(
+            "a video track coded as {}, where this reader reads H.264 (avc1, avc3)",
+            four(entry.kind)
+        ));
+    }
+    let mut fields = Fields {
+        rest: entry.payload,
+    };
+    fields.skip(6).ok_or_else(|| truncated("avc1"))?;
+    let data_reference = fields.u16().ok_or_else(|| truncated("avc1"))?;
+    fields.skip(16).ok_or_else(|| truncated("avc1"))?;
+    let width = fields.u16().ok_or_else(|| truncated("avc1"))?;
+    let height = fields.u16().ok_or_else(|| truncated("avc1"))?;
+    let boxes = entry
+        .payload
+        .get(VISUAL_SAMPLE_ENTRY_FIELDS..)
+        .ok_or_else(|| truncated("avc1"))?;
+    let record = child(boxes, *b"avcC", budget)?.ok_or_else(|| missing("avcC", "avc1"))?;
+    let (length_size, parameter_sets) = avc_configuration(record)?;
+    Ok(VideoDescription {
+        data_reference,
+        width,
+        height,
+        length_size,
+        parameter_sets,
+    })
+}
+
+/// Reads `avcC`'s `AVCDecoderConfigurationRecord` (ISO/IEC 14496-15, 5.3.3.1): a version byte of 1,
+/// three bytes of profile, compatibility and level, six reserved bits and the NAL length's size
+/// less one, then three reserved bits and a five-bit count of sequence parameter sets, each a
+/// 16-bit length and its NAL unit, then a byte's count of picture parameter sets, each as long. The
+/// high profiles' fields that may follow are not needed: the decoder reads chroma format and bit
+/// depth from the sequence parameter set itself. ISO/IEC 14496-15 is not held; the layout is cited.
+fn avc_configuration(record: &[u8]) -> Result<(u8, Vec<Vec<u8>>), String> {
+    let mut fields = Fields { rest: record };
+    let version = fields.u8().ok_or_else(|| truncated("avcC"))?;
+    if version != 1 {
+        return Err(format!(
+            "an AVC configuration record (avcC) of version {version}, where this reader reads 1"
+        ));
+    }
+    fields.skip(3).ok_or_else(|| truncated("avcC"))?;
+    let length_size = (fields.u8().ok_or_else(|| truncated("avcC"))? & 0x03).saturating_add(1);
+    if length_size == 3 {
+        return Err(
+            "an AVC configuration record (avcC) whose NAL lengths are 3 bytes, which \
+                    ISO/IEC 14496-15 does not allow"
+                .to_owned(),
+        );
+    }
+    let mut parameter_sets = Vec::new();
+    let mut held = 0usize;
+    let sequence_sets = fields.u8().ok_or_else(|| truncated("avcC"))? & 0x1F;
+    for index in 0..2 {
+        let count = if index == 0 {
+            sequence_sets
+        } else {
+            fields.u8().ok_or_else(|| truncated("avcC"))?
+        };
+        for _ in 0..count {
+            let length = usize::from(fields.u16().ok_or_else(|| truncated("avcC"))?);
+            let unit = fields.take(length).ok_or_else(|| truncated("avcC"))?;
+            held = held.saturating_add(length);
+            if held > MAX_PARAMETER_SET_BYTES {
+                return Err(format!(
+                    "an AVC configuration record (avcC) of more than {MAX_PARAMETER_SET_BYTES} \
+                     bytes of parameter sets"
+                ));
+            }
+            parameter_sets.push(unit.to_vec());
+        }
+    }
+    Ok((length_size, parameter_sets))
 }
 
 /// `mvhd`'s time scale (14496-12, 8.2.2): 32-bit creation and modification times in version 0 and
@@ -423,17 +599,27 @@ fn enabled_sound_media<'a>(
     track: &'a [u8],
     budget: &mut Budget,
 ) -> Result<Option<&'a [u8]>, String> {
+    enabled_media(track, *b"soun", budget)
+}
+
+/// A track's `mdia` payload where the track is enabled and its handler is `handler` (14496-12,
+/// 8.3.2 and 8.4.3).
+fn enabled_media<'a>(
+    track: &'a [u8],
+    handler: [u8; 4],
+    budget: &mut Budget,
+) -> Result<Option<&'a [u8]>, String> {
     let header = child(track, *b"tkhd", budget)?.ok_or_else(|| missing("tkhd", "trak"))?;
     let (_, flags, _) = full(header).ok_or_else(|| truncated("tkhd"))?;
     if flags & TRACK_ENABLED == 0 {
         return Ok(None);
     }
     let media = child(track, *b"mdia", budget)?.ok_or_else(|| missing("mdia", "trak"))?;
-    let handler = child(media, *b"hdlr", budget)?.ok_or_else(|| missing("hdlr", "mdia"))?;
-    let (_, _, mut fields) = full(handler).ok_or_else(|| truncated("hdlr"))?;
+    let reference = child(media, *b"hdlr", budget)?.ok_or_else(|| missing("hdlr", "mdia"))?;
+    let (_, _, mut fields) = full(reference).ok_or_else(|| truncated("hdlr"))?;
     fields.skip(4).ok_or_else(|| truncated("hdlr"))?;
     let kind = fields.array::<4>().ok_or_else(|| truncated("hdlr"))?;
-    Ok((&kind == b"soun").then_some(media))
+    Ok((kind == handler).then_some(media))
 }
 
 /// `tkhd`'s flag for an enabled track (14496-12, 8.3.2).
@@ -443,53 +629,83 @@ const SELF_CONTAINED: u32 = 0x00_0001;
 
 /// Reads a sound track's `mdia` payload into its table.
 fn read_track(media: &[u8], file_len: u64, budget: &mut Budget) -> Result<SoundTrack, String> {
-    let time_scale =
-        media_time_scale(child(media, *b"mdhd", budget)?.ok_or_else(|| missing("mdhd", "mdia"))?)?;
-    let info = child(media, *b"minf", budget)?.ok_or_else(|| missing("minf", "mdia"))?;
-    let table = child(info, *b"stbl", budget)?.ok_or_else(|| missing("stbl", "minf"))?;
-    let description = sample_description(
-        child(table, *b"stsd", budget)?.ok_or_else(|| missing("stsd", "stbl"))?,
-        budget,
-    )?;
-    let data = child(info, *b"dinf", budget)?.ok_or_else(|| missing("dinf", "minf"))?;
-    let references = child(data, *b"dref", budget)?.ok_or_else(|| missing("dref", "dinf"))?;
-    data_is_here(references, description.data_reference, budget)?;
-
-    let sizes = match child(table, *b"stsz", budget)? {
-        Some(sizes) => Sizes::from_stsz(sizes, file_len)?,
-        None => Sizes::from_stz2(
-            child(table, *b"stz2", budget)?.ok_or_else(|| missing("stsz or stz2", "stbl"))?,
-        )?,
-    };
-    let times = Entries::new(
-        child(table, *b"stts", budget)?.ok_or_else(|| missing("stts", "stbl"))?,
-        8,
-        "stts",
-    )?;
-    let runs = Entries::new(
-        child(table, *b"stsc", budget)?.ok_or_else(|| missing("stsc", "stbl"))?,
-        12,
-        "stsc",
-    )?;
-    let offsets = match child(table, *b"stco", budget)? {
-        Some(offsets) => Entries::new(offsets, 4, "stco")?,
-        None => Entries::new(
-            child(table, *b"co64", budget)?.ok_or_else(|| missing("stco or co64", "stbl"))?,
-            8,
-            "co64",
-        )?,
-    };
-    let access_units = access_units(&sizes, &times, &runs, &offsets, file_len)?;
+    let tables = Tables::read(media, budget)?;
+    let description = sample_description(tables.descriptions, budget)?;
+    tables.data_is_here(description.data_reference, budget)?;
+    let access_units = tables.access_units(file_len, budget)?;
     Ok(SoundTrack {
         object_type: description.object_type,
         decoder_config: description.decoder_config,
         channels: description.channels,
         sample_rate: description.sample_rate,
-        time_scale,
+        time_scale: tables.time_scale,
         access_units,
         movie_time_scale: None,
         edits: Vec::new(),
     })
+}
+
+/// What every track's `mdia` holds whatever its handler: the media's clock, its sample
+/// descriptions, and the sample table the access units are laid out from (14496-12, 8.4 to 8.7).
+struct Tables<'a> {
+    time_scale: u32,
+    descriptions: &'a [u8],
+    info: &'a [u8],
+    table: &'a [u8],
+}
+
+impl<'a> Tables<'a> {
+    fn read(media: &'a [u8], budget: &mut Budget) -> Result<Self, String> {
+        let time_scale = media_time_scale(
+            child(media, *b"mdhd", budget)?.ok_or_else(|| missing("mdhd", "mdia"))?,
+        )?;
+        let info = child(media, *b"minf", budget)?.ok_or_else(|| missing("minf", "mdia"))?;
+        let table = child(info, *b"stbl", budget)?.ok_or_else(|| missing("stbl", "minf"))?;
+        let descriptions =
+            child(table, *b"stsd", budget)?.ok_or_else(|| missing("stsd", "stbl"))?;
+        Ok(Self {
+            time_scale,
+            descriptions,
+            info,
+            table,
+        })
+    }
+
+    /// Refuses a description whose data reference names media data outside this file.
+    fn data_is_here(&self, data_reference: u16, budget: &mut Budget) -> Result<(), String> {
+        let data = child(self.info, *b"dinf", budget)?.ok_or_else(|| missing("dinf", "minf"))?;
+        let references = child(data, *b"dref", budget)?.ok_or_else(|| missing("dref", "dinf"))?;
+        data_is_here(references, data_reference, budget)
+    }
+
+    fn access_units(&self, file_len: u64, budget: &mut Budget) -> Result<Vec<AccessUnit>, String> {
+        let table = self.table;
+        let sizes = match child(table, *b"stsz", budget)? {
+            Some(sizes) => Sizes::from_stsz(sizes, file_len)?,
+            None => Sizes::from_stz2(
+                child(table, *b"stz2", budget)?.ok_or_else(|| missing("stsz or stz2", "stbl"))?,
+            )?,
+        };
+        let times = Entries::new(
+            child(table, *b"stts", budget)?.ok_or_else(|| missing("stts", "stbl"))?,
+            8,
+            "stts",
+        )?;
+        let runs = Entries::new(
+            child(table, *b"stsc", budget)?.ok_or_else(|| missing("stsc", "stbl"))?,
+            12,
+            "stsc",
+        )?;
+        let offsets = match child(table, *b"stco", budget)? {
+            Some(offsets) => Entries::new(offsets, 4, "stco")?,
+            None => Entries::new(
+                child(table, *b"co64", budget)?.ok_or_else(|| missing("stco or co64", "stbl"))?,
+                8,
+                "co64",
+            )?,
+        };
+        access_units(&sizes, &times, &runs, &offsets, file_len)
+    }
 }
 
 /// `mdhd`'s time scale (14496-12, 8.4.2), which must be a number of units per second.

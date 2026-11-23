@@ -34,13 +34,14 @@ pub mod aac;
 mod client;
 pub mod mp4;
 pub mod sound;
+pub mod video;
 pub mod wave;
 pub mod wire;
 mod worker;
 
 pub use client::{
-    Deliver, MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET, Run,
-    Sound, Streamed,
+    Deliver, MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET,
+    RING_SLOTS, Run, Sound, Streamed, VideoStreamed,
 };
 pub use worker::{Worker, answer, serve};
 

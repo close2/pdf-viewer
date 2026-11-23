@@ -89,6 +89,9 @@ thiserror = "2.0.19"
 # is refused: it brings the SIMD kernels' `unsafe` under the stream's bytes, and the scalar build
 # gives the same conformance verdicts (RFC 0012 section 3.3).
 rusty_aac = { version = "=2.1.1", default-features = false }
+# ITU-T H.264's decoder, the scalar build: without its default features its global allocator and
+# its SIMD crate stay out of the media worker (ADR 2428, RFC 0012 section 2.2, ADR 3526).
+rusty_h264-decoder = { version = "=0.17.3", default-features = false, features = ["std"] }
 
 # The ECMAScript engine RFC 0008 section 5.4 recommends and the owner accepted (`doc/questions/A193`,
 # answer 3): Boa, pure Rust, `Unlicense OR MIT`. Reached only through `pdf-script`'s `engine`

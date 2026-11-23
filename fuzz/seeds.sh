@@ -164,6 +164,18 @@ seed() {
     media_sound) python3 "$here/seed_media_sound.py" "$root/$t" > /dev/null ;;
     # An MP4 file's sound track in each table form 14496-12 gives, built rather than fetched.
     media_mp4) python3 "$here/seed_media_mp4.py" "$root/$t" > /dev/null ;;
+    # H.264's conformance bitstreams as elementary streams (the first byte 0 chooses that reading)
+    # where `PDF_MEDIA_H264_STREAMS` names them, cut to their first 64 KiB: a fuzzer does not invent
+    # a slice that decodes. The streams are fetched by `tools/fetch-h264-conformance.sh`, never
+    # committed.
+    media_h264)
+        if [ -n "${PDF_MEDIA_H264_STREAMS:-}" ]; then
+            for stream in "$PDF_MEDIA_H264_STREAMS"/*/*.{264,jsv,26l,avc,jvt}; do
+                [ -f "$stream" ] || continue
+                { printf '\0'; head -c 65536 "$stream"; } > "$root/$t/$(basename "$stream")"
+            done
+        fi
+        ;;
     # A stream's frames as a worker that keeps the contract sends them, built rather than run.
     confined_stream) python3 "$here/seed_confined_stream.py" "$root/$t" > /dev/null ;;
     # An MP4 clip whose AAC the worker decodes: the built files above, and ISO/IEC 14496-26's own

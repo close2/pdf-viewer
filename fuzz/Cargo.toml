@@ -330,6 +330,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "media_h264"
+path = "fuzz_targets/media_h264.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "media_aac"
 path = "fuzz_targets/media_aac.rs"
 test = false

@@ -29,12 +29,11 @@
     reason = "test code walking a 52x66 fixture whose every index is bounded by the \
               dimensions asserted two lines above it"
 )]
-// The helpers that take a copy type by reference and unwrap are the Linux tests' alone, so off
-// Linux the expectation would go unfulfilled and fail the build (ADR 3377).
+// The helpers that unwrap are the Linux tests' alone, so off Linux the expectation would go
+// unfulfilled and fail the build (ADR 3377).
 #![cfg_attr(
     target_os = "linux",
     expect(
-        clippy::trivially_copy_pass_by_ref,
         clippy::unwrap_used,
         reason = "`unwrap` in a helper called only from tests should fail as loudly as it does \
                   inside one"
@@ -87,6 +86,9 @@ const REFUSED: i32 = 17;
 /// Exit code from a probe whose forbidden operation *succeeded*, which is the failure.
 #[cfg(target_os = "linux")]
 const ALLOWED: i32 = 18;
+/// Exit code from a probe whose arrangement failed before it reached the mechanism it asks about.
+#[cfg(target_os = "linux")]
+const UNEXPECTED: i32 = 20;
 /// Exit code from a probe that decoded an image behind its own filter.
 #[cfg(target_os = "linux")]
 const DECODED: i32 = 19;
@@ -348,31 +350,13 @@ fn a_worker_for_whole_decodes_is_confined_under_the_ceiling_its_budget_states() 
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_process_cannot_open_a_file() {
-    let status = run_probe("open");
-    assert_ne!(
-        status.code(),
-        Some(ALLOWED),
-        "a confined process read a file it should not have been able to name"
-    );
-    assert!(
-        refused(&status),
-        "expected the open to be refused or the process killed, got {status:?}"
-    );
+    assert_the_filter_kills("open");
 }
 
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_process_cannot_reach_the_network() {
-    let status = run_probe("socket");
-    assert_ne!(
-        status.code(),
-        Some(ALLOWED),
-        "a confined process opened a socket"
-    );
-    assert!(
-        refused(&status),
-        "expected the socket to be refused or the process killed, got {status:?}"
-    );
+    assert_the_filter_kills("socket");
 }
 
 /// And a confined *decoder* cannot ask about a descriptor at all.
@@ -391,30 +375,29 @@ fn a_confined_process_cannot_reach_the_network() {
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_decoder_cannot_ask_about_a_descriptor_at_all() {
-    let status = run_probe("fcntl");
-    assert_ne!(
-        status.code(),
-        Some(ALLOWED),
-        "a confined decoder was answered about a descriptor, so `fcntl` has reached the \
-         decoder's allow-list"
-    );
-    assert!(
-        refused(&status),
-        "expected the query to be refused or the process killed, got {status:?}"
-    );
+    assert_the_filter_kills("fcntl");
 }
 
-/// Whether a probe was stopped rather than served.
+/// Asserts that `probe` was killed by the seccomp filter, and by nothing else.
 ///
-/// Two outcomes count. `SIGSYS` is the seccomp filter firing, which is what happens when the
-/// system call is not on the allow-list at all — the usual case, because `openat` and
-/// `socket` are absent from it. A clean `REFUSED` exit is Landlock having denied the path
-/// before the call could fail for any other reason. Both are the sandbox working; only
-/// `ALLOWED` is not.
+/// **The filter's `SIGSYS` is the only outcome that passes**, because it is the only one the
+/// sandbox alone can produce. A probe that ends with a refusal it chose itself — an exit after its
+/// call failed — proves nothing about the filter: under the profile's `RLIMIT_AS` an allocation the
+/// probe makes on the way to the forbidden call can fail with `ENOMEM` first, and the probe then
+/// reports "refused" for a call the filter never saw. That is how a filter that admitted the call
+/// could pass (ADR 3525). Every call these probes make is absent from its profile's list, so the
+/// kill is what the sandbox owes; a planted rule that admits one turns the kill into an exit, and
+/// the test fails.
 #[cfg(target_os = "linux")]
-fn refused(status: &std::process::ExitStatus) -> bool {
+fn assert_the_filter_kills(probe: &str) {
     use std::os::unix::process::ExitStatusExt as _;
-    status.signal() == Some(libc::SIGSYS) || status.code() == Some(REFUSED)
+    let status = run_probe(probe);
+    assert_ne!(status.code(), Some(ALLOWED), "{probe}: permitted");
+    assert_eq!(
+        status.signal(),
+        Some(libc::SIGSYS),
+        "{probe}: expected the filter's kill, got {status:?}"
+    );
 }
 
 /// A process behind its own filter decodes in process on its own thread, and is not killed.
@@ -451,12 +434,7 @@ fn a_confined_script_worker_reaches_none_of_what_its_profile_denies() {
         "script-thread",
         "script-exec",
     ] {
-        let status = run_probe(probe);
-        assert_ne!(status.code(), Some(ALLOWED), "{probe}: permitted");
-        assert!(
-            refused(&status),
-            "{probe}: expected a refusal or the filter's kill, got {status:?}"
-        );
+        assert_the_filter_kills(probe);
     }
 }
 
@@ -475,12 +453,7 @@ fn a_confined_media_worker_reaches_none_of_what_its_profile_denies() {
         "media-thread",
         "media-exec",
     ] {
-        let status = run_probe(probe);
-        assert_ne!(status.code(), Some(ALLOWED), "{probe}: permitted");
-        assert!(
-            refused(&status),
-            "{probe}: expected a refusal or the filter's kill, got {status:?}"
-        );
+        assert_the_filter_kills(probe);
     }
 }
 
@@ -493,11 +466,7 @@ fn a_confined_media_worker_reaches_none_of_what_its_profile_denies() {
 fn a_confined_media_worker_maps_its_ring_and_nothing_wider() {
     use std::os::unix::process::ExitStatusExt as _;
 
-    // One allocator arena: the harness runs the probe on a thread of its own, whose arena reserves
-    // more address space than the media worker's whole ceiling, and every mapping after the
-    // confinement would then fail for want of room — a refusal that is not the filter's, and a
-    // permission that could never be seen (trap 13).
-    let ring = |probe: &str| run_probe_with(probe, &[("MALLOC_ARENA_MAX", "1")]);
+    let ring = run_probe;
     let status = ring("media-ring");
     assert_eq!(
         status.code(),
@@ -516,7 +485,7 @@ fn a_confined_media_worker_maps_its_ring_and_nothing_wider() {
     assert_eq!(
         status.code(),
         Some(REFUSED),
-        "a second descriptor does not arrive: {status:?}"
+        "a second descriptor is dropped by the kernel under the descriptor ceiling: {status:?}"
     );
 }
 
@@ -525,9 +494,14 @@ fn a_confined_media_worker_maps_its_ring_and_nothing_wider() {
 /// The child is this same test binary, re-executed with a filter that selects the one test
 /// below. Confinement cannot be tested in the process doing the testing: it is irreversible
 /// and process-wide, so the first thing it would break is the test harness.
+///
+/// **Under one allocator arena** (ADR 3525): the harness runs the probe on a thread of its own,
+/// whose arena reserves more address space than the media worker's whole ceiling, so without it
+/// every allocation after the confinement could fail for want of room — a refusal that is not the
+/// filter's, and a permission that could never be seen (trap 13).
 #[cfg(target_os = "linux")]
 fn run_probe(probe: &str) -> std::process::ExitStatus {
-    run_probe_with(probe, &[])
+    run_probe_with(probe, &[("MALLOC_ARENA_MAX", "1")])
 }
 
 /// [`run_probe`], with `variables` set in the child's environment.
@@ -605,14 +579,25 @@ fn confined_probe() {
 fn script_probe(profile: pdf_sandbox::lockdown::Profile, probe: &str) -> ! {
     pdf_sandbox::lockdown::apply_for(profile)
         .expect("a probe that cannot confine itself proves nothing");
+    // What a call that succeeded returns is forgotten rather than dropped: neither profile admits
+    // `close`, so a drop would be the filter's kill *after* the forbidden call was served, and a
+    // probe that read that kill as a refusal could not see the call admitted.
     let permitted = match probe {
-        "open" => std::fs::File::open("/proc/self/maps").is_ok(),
-        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+        "open" => std::fs::File::open("/proc/self/maps")
+            .map(std::mem::forget)
+            .is_ok(),
+        "socket" => std::net::UdpSocket::bind("127.0.0.1:0")
+            .map(std::mem::forget)
+            .is_ok(),
         "fcntl" => rustix::io::fcntl_getfd(std::io::stdin()).is_ok(),
-        "thread" => std::thread::Builder::new().spawn(|| ()).is_ok(),
+        "thread" => std::thread::Builder::new()
+            .spawn(|| ())
+            .map(std::mem::forget)
+            .is_ok(),
         // A written mapping made executable: `mprotect`, which the profile does not admit.
         "exec" => memmap2::MmapMut::map_anon(4096)
             .and_then(memmap2::MmapMut::make_exec)
+            .map(std::mem::forget)
             .is_ok(),
         other => panic!("no script probe named {other}"),
     };
@@ -637,14 +622,15 @@ fn ring_probe(probe: &str) -> ! {
 
     use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
 
-    /// One byte from standard input and the descriptor beside it, released from its owner.
-    fn receive_one() -> Option<std::os::fd::RawFd> {
-        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+    /// One byte from standard input, the descriptor beside it released from its owner, and whether
+    /// the kernel truncated what came beside it (`MSG_CTRUNC`); `None` where the read failed.
+    fn receive_one() -> Option<(Option<std::os::fd::RawFd>, bool)> {
+        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags};
 
         let mut byte = [0u8; 1];
         let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut ancillary = RecvAncillaryBuffer::new(&mut space);
-        rustix::net::recvmsg(
+        let received = rustix::net::recvmsg(
             std::io::stdin(),
             &mut [std::io::IoSliceMut::new(&mut byte)],
             &mut ancillary,
@@ -657,7 +643,7 @@ fn ring_probe(probe: &str) -> ! {
                 arrived = rights.next().map(std::os::fd::IntoRawFd::into_raw_fd);
             }
         }
-        arrived
+        Some((arrived, received.flags.contains(ReturnFlags::CTRUNC)))
     }
 
     let (sender, receiver) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
@@ -682,7 +668,7 @@ fn ring_probe(probe: &str) -> ! {
 
     pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Media)
         .expect("a probe that cannot confine itself proves nothing");
-    let first = receive_one();
+    let first = receive_one().and_then(|(arrived, _)| arrived);
     let permitted = match probe {
         "" => first.is_some_and(|object| {
             memmap2::MmapOptions::new()
@@ -703,7 +689,14 @@ fn ring_probe(probe: &str) -> ! {
             // admits the call — and the process exits on the next line either way.
             unsafe { memmap2::MmapOptions::new().len(4096).map_exec(object) }.is_ok()
         }),
-        "-second" => first.is_some() && receive_one().is_some(),
+        // The second descriptor's refusal is `RLIMIT_NOFILE`'s: the kernel drops it and says so
+        // with `MSG_CTRUNC`. Anything else — the first not arriving, the read failing — is not that
+        // mechanism, and says so with its own exit rather than passing as a refusal.
+        "-second" => match (first, receive_one()) {
+            (Some(_), Some((None, true))) => false,
+            (Some(_), Some((Some(_), _))) => true,
+            _ => std::process::exit(UNEXPECTED),
+        },
         other => panic!("no ring probe named {other}"),
     };
     std::process::exit(if permitted { ALLOWED } else { REFUSED });

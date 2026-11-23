@@ -19,6 +19,9 @@ thiserror.workspace = true
 # ISO/IEC 14496-3's AAC decoder, the scalar build, for a rendition's MP4 clip (ADR 3382). It is
 # reached only from the worker's half; the host's half reads no byte of the stream.
 rusty_aac.workspace = true
+# ITU-T H.264's decoder, the scalar build, for an MP4 clip's video track (ADR 3526). It is reached only
+# from the worker's half, like the AAC decoder.
+rusty_h264-decoder.workspace = true
 # The first statement of the program this crate builds closes the descriptors it inherited; the
 # close and its one `unsafe` are that crate's, so the program has none of its own (ADRs 1945, 3361).
 inherited-descriptors.workspace = true

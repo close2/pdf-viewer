@@ -840,6 +840,302 @@ pub fn sentence(payload: &[u8]) -> String {
     text.get(..end).unwrap_or_default().to_owned()
 }
 
+/// The kind of a request: host to worker, an MP4 file's movie box's payload and the file's length,
+/// for its video track (ADR 3527). The request's bytes are [`encode_movie_request`]'s.
+pub const FRAME_VIDEO_MOVIE: u8 = 13;
+/// The kind of a reply: worker to host, the video track's picture size, clock and access units;
+/// the worker's H.264 session is ready for the first run.
+pub const FRAME_VIDEO_TRACK: u8 = 14;
+/// The kind of a stream (`confined_transport::stream`): host to worker, one run of the video
+/// track's access units; worker to host, each picture the run lets out in a slot of the ring, and a
+/// closing that says how the run ended.
+pub const FRAME_PICTURES: u8 = 15;
+/// The kind of a reply: worker to host, the sentence that the movie's video track is interlaced
+/// H.264, which this worker hands to this machine's own player rather than decode.
+pub const FRAME_INTERLACED: u8 = 16;
+
+/// Largest access unit of a video run, in bytes.
+///
+/// An H.264 access unit is bounded by its level's coded picture buffer, which for the 1080-line
+/// levels is tens of megabits; four mebibytes holds an intra picture of a 1080p stream at a quality
+/// past what a document's clip carries, and a unit past it is refused by its size (ADR 3527).
+pub const MAX_VIDEO_UNIT_BYTES: usize = 4 << 20;
+
+/// Largest video run request a worker reads: its version, its last-run flag, a count, and units of
+/// at most [`MAX_VIDEO_UNIT_BYTES`] together.
+pub const MAX_VIDEO_RUN_BYTES: usize = 1 + 1 + 4 + 4 + MAX_VIDEO_UNIT_BYTES;
+
+/// A video track as the host needs it: the picture size it declares, its clock, and where each
+/// access unit is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoTrack {
+    /// The sample entry's width.
+    pub width: u16,
+    /// The sample entry's height.
+    pub height: u16,
+    /// The media's time scale, the clock of every duration.
+    pub time_scale: u32,
+    /// Each access unit's offset in the file, size and duration, in decoding order.
+    pub units: Vec<(u64, u32, u32)>,
+}
+
+/// A video track reply's bytes before its units: the version, the width, the height, the time scale
+/// and the count.
+const VIDEO_TRACK_HEADER_BYTES: usize = 1 + 2 + 2 + 4 + 4;
+
+/// A video track reply's bytes.
+#[must_use]
+pub fn encode_video_track(track: &VideoTrack) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(
+        VIDEO_TRACK_HEADER_BYTES.saturating_add(track.units.len().saturating_mul(16)),
+    );
+    bytes.push(VERSION);
+    bytes.extend_from_slice(&track.width.to_le_bytes());
+    bytes.extend_from_slice(&track.height.to_le_bytes());
+    bytes.extend_from_slice(&track.time_scale.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(track.units.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
+    for (offset, size, duration) in &track.units {
+        bytes.extend_from_slice(&offset.to_le_bytes());
+        bytes.extend_from_slice(&size.to_le_bytes());
+        bytes.extend_from_slice(&duration.to_le_bytes());
+    }
+    bytes
+}
+
+/// A video track reply read back, checked against the file of `total` bytes the host holds: the
+/// picture is at most [`crate::video::MAX_PICTURE_PIXELS`], every access unit lies inside the file
+/// and is at most [`MAX_VIDEO_UNIT_BYTES`], there are at most [`crate::mp4::MAX_ACCESS_UNITS`], and
+/// the time scale is a clock.
+///
+/// # Errors
+///
+/// The sentence the host refuses the reply with.
+pub fn decode_video_track(payload: &[u8], total: u64) -> Result<VideoTrack, String> {
+    let mut fields = Little(versioned(payload, "video track reply")?);
+    let cut = || "a video track reply cut short".to_owned();
+    let width = fields.u16().ok_or_else(cut)?;
+    let height = fields.u16().ok_or_else(cut)?;
+    let time_scale = fields.u32().ok_or_else(cut)?;
+    let count = usize::try_from(fields.u32().ok_or_else(cut)?).unwrap_or(usize::MAX);
+    if width == 0 || height == 0 {
+        return Err(format!("a video track of {width} by {height}"));
+    }
+    if usize::from(width).saturating_mul(usize::from(height)) > crate::video::MAX_PICTURE_PIXELS {
+        return Err(format!(
+            "a video track of {width} by {height}, past the {} samples a picture may hold",
+            crate::video::MAX_PICTURE_PIXELS
+        ));
+    }
+    if time_scale == 0 {
+        return Err("a video track whose time scale is 0".to_owned());
+    }
+    if count > crate::mp4::MAX_ACCESS_UNITS || fields.0.len() != count.saturating_mul(16) {
+        return Err(format!(
+            "a video track reply of {} bytes that its count of {count} does not fit",
+            payload.len()
+        ));
+    }
+    let mut units = Vec::with_capacity(count);
+    for _ in 0..count {
+        let offset = fields.u64().ok_or_else(cut)?;
+        let size = fields.u32().ok_or_else(cut)?;
+        let duration = fields.u32().ok_or_else(cut)?;
+        let fits = usize::try_from(size).is_ok_and(|size| size <= MAX_VIDEO_UNIT_BYTES);
+        if !fits
+            || offset
+                .checked_add(u64::from(size))
+                .is_none_or(|end| end > total)
+        {
+            return Err(format!(
+                "an access unit of {size} bytes at {offset}, which a file of {total} bytes or a \
+                 run does not hold"
+            ));
+        }
+        units.push((offset, size, duration));
+    }
+    Ok(VideoTrack {
+        width,
+        height,
+        time_scale,
+        units,
+    })
+}
+
+/// A video run request's bytes: the version, whether this is the track's last run — whose closing
+/// follows every picture the session still holds — then [`encode_units`]'s count, sizes and units.
+#[must_use]
+pub fn encode_video_run(last: bool, units: &[&[u8]]) -> Vec<u8> {
+    let mut bytes = vec![VERSION, u8::from(last)];
+    bytes.extend_from_slice(&encode_units(units));
+    bytes
+}
+
+/// A video run request read back: whether it is the last, and its access units.
+///
+/// # Errors
+///
+/// As [`decode_units`], and a flag other than 0 or 1.
+pub fn decode_video_run(payload: &[u8]) -> Result<(bool, Vec<&[u8]>), String> {
+    let rest = versioned(payload, "video run request")?;
+    let (&flag, units) = rest
+        .split_first()
+        .ok_or_else(|| "a video run request cut short before its flag".to_owned())?;
+    let last = match flag {
+        0 => false,
+        1 => true,
+        other => {
+            return Err(format!(
+                "a video run request whose last-run flag is {other}"
+            ));
+        }
+    };
+    Ok((last, decode_units(units)?))
+}
+
+/// A picture item's bytes before its planes: the version, the width and the height.
+pub const PICTURE_HEADER_BYTES: usize = 1 + 4 + 4;
+
+/// The bytes a picture of `width` by `height` takes as an item: its header, the luma plane and two
+/// chroma planes of half its width and height, rounded up.
+#[must_use]
+pub fn picture_bytes(width: usize, height: usize) -> usize {
+    let chroma = width.div_ceil(2).saturating_mul(height.div_ceil(2));
+    PICTURE_HEADER_BYTES
+        .saturating_add(width.saturating_mul(height))
+        .saturating_add(chroma.saturating_mul(2))
+}
+
+/// Writes `picture` as an item into `slot` and returns its length, or `None` where the slot is too
+/// small or the planes are not the picture's size.
+pub fn encode_picture_into(slot: &mut [u8], picture: &crate::video::Picture) -> Option<usize> {
+    let length = picture_bytes(picture.width, picture.height);
+    let chroma = picture
+        .width
+        .div_ceil(2)
+        .saturating_mul(picture.height.div_ceil(2));
+    if picture.y.len() != picture.width.saturating_mul(picture.height)
+        || picture.u.len() != chroma
+        || picture.v.len() != chroma
+    {
+        return None;
+    }
+    let mut cursor = slot.get_mut(..length)?;
+    let width = u32::try_from(picture.width).ok()?.to_le_bytes();
+    let height = u32::try_from(picture.height).ok()?.to_le_bytes();
+    for bytes in [
+        &[VERSION][..],
+        &width,
+        &height,
+        &picture.y,
+        &picture.u,
+        &picture.v,
+    ] {
+        let (head, rest) = std::mem::take(&mut cursor).split_at_mut_checked(bytes.len())?;
+        head.copy_from_slice(bytes);
+        cursor = rest;
+    }
+    Some(length)
+}
+
+/// A picture item read back, checked: its size is at most `width` by `height` — the track's — and
+/// its planes are exactly what its size says.
+///
+/// # Errors
+///
+/// The sentence the host refuses the item with.
+pub fn decode_picture(
+    item: &[u8],
+    width: usize,
+    height: usize,
+) -> Result<crate::video::Picture, String> {
+    let mut fields = Little(versioned(item, "picture")?);
+    let cut = || "a picture cut short".to_owned();
+    let pictured_width = usize::try_from(fields.u32().ok_or_else(cut)?).unwrap_or(usize::MAX);
+    let pictured_height = usize::try_from(fields.u32().ok_or_else(cut)?).unwrap_or(usize::MAX);
+    if pictured_width == 0
+        || pictured_height == 0
+        || pictured_width > width
+        || pictured_height > height
+    {
+        return Err(format!(
+            "a picture of {pictured_width} by {pictured_height} from a track of {width} by {height}"
+        ));
+    }
+    if item.len() != picture_bytes(pictured_width, pictured_height) {
+        return Err(format!(
+            "a picture of {pictured_width} by {pictured_height} in {} bytes",
+            item.len()
+        ));
+    }
+    let luma = pictured_width.saturating_mul(pictured_height);
+    let chroma = pictured_width
+        .div_ceil(2)
+        .saturating_mul(pictured_height.div_ceil(2));
+    let y = fields.take(luma).ok_or_else(cut)?.to_vec();
+    let u = fields.take(chroma).ok_or_else(cut)?.to_vec();
+    let v = fields.take(chroma).ok_or_else(cut)?.to_vec();
+    Ok(crate::video::Picture {
+        width: pictured_width,
+        height: pictured_height,
+        y,
+        u,
+        v,
+    })
+}
+
+/// How a video run ended, the closing of its stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnd {
+    /// Every unit decoded; the pictures it let out were the items.
+    Decoded,
+    /// The stream is interlaced, which is handed to this machine's own player; the sentence says so.
+    Interlaced(String),
+    /// The worker refused the run, in this sentence.
+    Refused(String),
+}
+
+/// A video run's closing bytes: a status byte, then the sentence where there is one, cut to fit a
+/// closing.
+#[must_use]
+pub fn encode_run_end(end: &RunEnd) -> Vec<u8> {
+    let (status, text) = match end {
+        RunEnd::Decoded => (0, ""),
+        RunEnd::Interlaced(text) => (1, text.as_str()),
+        RunEnd::Refused(text) => (2, text.as_str()),
+    };
+    let mut cut = text.len().min(MAX_RUN_END_SENTENCE_BYTES);
+    while !text.is_char_boundary(cut) {
+        cut = cut.saturating_sub(1);
+    }
+    let mut bytes = vec![status];
+    bytes.extend_from_slice(text.get(..cut).unwrap_or_default().as_bytes());
+    bytes
+}
+
+/// Longest sentence a run's closing carries: a closing is at most four kibibytes with its status.
+pub const MAX_RUN_END_SENTENCE_BYTES: usize = 4000;
+
+/// A video run's closing read back.
+///
+/// # Errors
+///
+/// The sentence for an empty closing or a status no build writes.
+pub fn decode_run_end(closing: &[u8]) -> Result<RunEnd, String> {
+    match closing.split_first() {
+        Some((0, [])) => Ok(RunEnd::Decoded),
+        Some((1, text)) => Ok(RunEnd::Interlaced(sentence(text))),
+        Some((2, text)) => Ok(RunEnd::Refused(sentence(text))),
+        _ => Err(format!(
+            "a video run's closing of {} bytes that no build writes",
+            closing.len()
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

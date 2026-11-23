@@ -124,14 +124,20 @@ const SCRIPT_DESCRIPTOR_LIMIT: u64 = 0;
 
 /// Ceiling on a media worker's address space, in bytes.
 ///
-/// Sized from a measurement rather than chosen (ADR 3297). The worker holds one request at a time:
-/// a frame of at most `pdf_media_worker::wire::MAX_REQUEST_BYTES` (256 KiB and a header) and its
-/// decoded samples, whose worst case is one-bit samples — thirty-two bytes out for each byte in,
-/// 8 MiB — written once more as the reply's bytes. Measured in a debug build, the worker's address
-/// space is 4.1 MiB at its greeting and peaks at 20.3 MiB over that worst-case request, so
-/// sixty-four mebibytes is three times the peak — room for the allocator's slack and a stack grown
-/// to its 8 MiB, and still a refusal of anything a sound does not need.
-const MEDIA_ADDRESS_SPACE_LIMIT: u64 = 64 << 20;
+/// Sized from measurements rather than chosen (ADRs 3297, 3528). A sound's worst request — a frame of
+/// at most `pdf_media_worker::wire::MAX_REQUEST_BYTES` decoded at thirty-two bytes out for each byte
+/// in, or an MP4 movie of 8 MiB and its access-unit table — peaked at 20.3 MiB and 36 MiB over the
+/// 4.1 MiB the worker greets at. A video track's worst is larger, and it is what this is set from:
+/// a 1920 by 1088 clip whose sequence keeps sixteen reference frames — the most any level of ITU-T
+/// H.264's Annex A allows — with sixteen more pictures held for output order and the ring of four
+/// 1080-line slots mapped, peaked at 129.6 MiB (`VmPeak`, debug build, `tests/video.rs`'s
+/// measurement). Two hundred and fifty-six mebibytes is twice that peak — room for the allocator's
+/// slack, for what that clip does not exercise (B pictures, many slices) and a stack grown to its
+/// 8 MiB — and RFC 0015 section 4.1's gibibyte estimate is not taken, because nothing measured needs
+/// it. A track that declares a picture past 1080 lines is refused by name
+/// (`pdf_media_worker::video::MAX_PICTURE_PIXELS`); a stream whose own sequence is larger than its
+/// track declares meets this ceiling instead, and the worker's death is said as one.
+const MEDIA_ADDRESS_SPACE_LIMIT: u64 = 256 << 20;
 
 /// Ceiling on a media worker's descriptors: the three it inherits and **one slot**, for the ring
 /// a host may pass it (RFC 0015 section 4.3, ADR 3514).

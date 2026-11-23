@@ -1012,6 +1012,12 @@ cd fuzz && cargo +nightly fuzz run media_mp4 -- -max_total_time=600   # the medi
   # reader (ADR 3369): an MP4 file's sound track found by ISO/IEC 14496-12's boxes, every access
   # unit inside the file, at most `MAX_ACCESS_UNITS` of them and a bounded decoder configuration.
   # Seeded by `fuzz/seed_media_mp4.py`, one built file per table form.
+cd fuzz && cargo +nightly fuzz run media_h264 -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # the media worker's H.264 path (ADR 3526): an MP4 file's video track (`avc1`, `avcC`) read and
+  # its samples decoded by `rusty_h264-decoder`'s scalar build, or the input as an Annex B stream;
+  # every unit inside the file, bounded parameter sets, every picture at most `MAX_PICTURE_PIXELS`
+  # and its planes its size's. Seeded by `fuzz/seeds.sh` with `PDF_MEDIA_H264_STREAMS` set: the
+  # first 64 KiB of each of ITU-T H.264.1's streams, fetched by `tools/fetch-h264-conformance.sh`.
 cd fuzz && cargo +nightly fuzz run fetched_import -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
   # a server's answer as a host hands it over, `Command::Respond` into `interact::import` (ADR
   # 1527): Annex O's `fdf` fetched, or §12.7.6.2's submission answered, against a form with a field
