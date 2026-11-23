@@ -37,6 +37,7 @@ mod multitone_examples;
 mod output_intent_page_scope_spec_audit;
 mod overprint;
 mod overprint_group_row_spec_audit;
+mod pattern_space_and_steps;
 mod pattern_tint_context;
 mod pdfa_grey;
 mod rendering_intent;

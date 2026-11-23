@@ -427,6 +427,22 @@ pub enum Unsupported {
         /// How many the current colour space takes.
         takes: usize,
     },
+    /// A colour operator in a `Pattern` space given numbers and no pattern name, which left the
+    /// colour in force.
+    ///
+    /// ISO 32000-2 §8.6.8, of `SCN` and `scn`: "If the current colour space is a Pattern space,
+    /// name shall be the name of an entry in the Pattern subdictionary of the current resource
+    /// dictionary". §8.7.1 says such a space uses "pattern objects as the equivalent of colour
+    /// values instead of the numeric component values used with other spaces", so the numbers
+    /// alone name no colour in it — and not the underlying space's either, whose components are
+    /// the colour an uncoloured pattern is poured through only beside the name. The fault is the
+    /// stream's, the same class as [`Self::ColourOperands`]. ADR 3450.
+    PatternOperands {
+        /// Whether the operator was `SCN` rather than `scn`.
+        stroking: bool,
+        /// How many numeric operands preceded it.
+        given: usize,
+    },
     /// An inline image the content stream does not write in ISO 32000-2 §8.9.7's shape, so
     /// nothing was drawn for it.
     ///

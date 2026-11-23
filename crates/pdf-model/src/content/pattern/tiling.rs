@@ -12,7 +12,7 @@ use crate::content::report::Unsupported;
 use crate::content::run::narrow;
 use crate::content::{GraphicsState, Interpreter};
 
-use super::lattice::{cell_extent, non_zero};
+use super::lattice::non_zero;
 
 /// A tiling pattern: a cell of content, and how to repeat it.
 #[derive(Debug)]
@@ -118,18 +118,21 @@ impl Interpreter<'_> {
             .as_integer()
             .and_then(pdf_render::TilingType::from_code);
         // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
-        // pattern tiles with gaps or with overlap. Zero would mean an infinite number of
-        // cells in one place, so the specification forbids it and so does this.
+        // pattern tiles with gaps or with overlap. Table 74 makes both "(Required)" and says of
+        // each that it "shall not be zero": zero would put every cell in one place, and an
+        // absent entry states no spacing at all.
         let step_x = self
             .document
             .get_key(dict, "XStep")
             .as_number()
-            .map_or(0.0, narrow);
+            .map(narrow)
+            .and_then(non_zero);
         let step_y = self
             .document
             .get_key(dict, "YStep")
             .as_number()
-            .map_or(0.0, narrow);
+            .map(narrow)
+            .and_then(non_zero);
         let bbox = self.document.get_key(dict, "BBox");
         let bbox: Vec<f32> = bbox.as_array().map_or_default(|items| {
             items
@@ -137,12 +140,25 @@ impl Interpreter<'_> {
                 .filter_map(|item| self.document.resolve(item).as_number().map(narrow))
                 .collect()
         });
-        // A missing or zero step falls back to the cell's own size, which is what a
-        // producer means by it and what other readers assume.
-        let step = (
-            non_zero(step_x).or_else(|| cell_extent(&bbox, 0))?,
-            non_zero(step_y).or_else(|| cell_extent(&bbox, 1))?,
-        );
+        // **A pattern that states no nonzero spacing is refused, and said** (ADR 3451). The
+        // cells' positions are the one thing §8.7.3.1 has the step decide, and no clause
+        // supplies one in its place: spacing the cells by the `/BBox` would be a lattice the
+        // file never stated, drawn as though it had. The paint stays §8.6.8's initial pattern,
+        // which "causes nothing to be painted", and the page says which pattern and why.
+        let (Some(step_x), Some(step_y)) = (step_x, step_y) else {
+            let missing = match (step_x, step_y) {
+                (None, None) => "/XStep and /YStep",
+                (None, Some(_)) => "/XStep",
+                _ => "/YStep",
+            };
+            self.note(Unsupported::Shading {
+                name: format!(
+                    "tiling pattern /{name} states no nonzero {missing}, which Table 74 requires"
+                ),
+            });
+            return None;
+        };
+        let step = (step_x, step_y);
         // Normalised to (left, bottom, right, top): the clause names the four edges in that
         // order and producers write the corners in any of them, exactly as they do for a page
         // box. A box with no extent in one direction is still the cell's clip. Table 74's NOTE 1

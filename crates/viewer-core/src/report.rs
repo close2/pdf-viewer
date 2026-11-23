@@ -75,6 +75,17 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             given,
             takes,
         } => colour_operands(*stroking, *given, *takes),
+        Unsupported::PatternOperands { stroking, given } => {
+            let which = if *stroking {
+                "stroking"
+            } else {
+                "non-stroking"
+            };
+            format!(
+                "a {which} colour in a Pattern space was given {given} number(s) and no pattern \
+                 name, which names no colour, so the colour in force was kept (§8.6.8)"
+            )
+        }
         Unsupported::MalformedInlineImage { detail } => {
             format!("an inline image was not drawn: {detail} (§8.9.7)")
         }

@@ -192,12 +192,12 @@ fn an_unreadable_icc_space_without_alternate_keeps_its_range_spec_audit() {
 // ---------------------------------------------------------------------------------------------
 
 /// A `DeviceCMYK` page group painted `0 0 0 1 k` and then filled under `/OP true /op true
-/// /OPM 1` by `paint`, with `/CS0` an `Indexed` space whose one entry is `0.9 0 0 0`.
+/// /OPM 1` by `paint`, with `/CS0` an `Indexed` space whose one entry is `0.8 0 0 0`.
 fn overprint_page(paint: &str) -> Vec<u8> {
     page(
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
         "<< /ExtGState << /GS << /OP true /op true /OPM 1 >> >> \
-         /ColorSpace << /CS0 [/Indexed /DeviceCMYK 0 <E6000000>] >> >>",
+         /ColorSpace << /CS0 [/Indexed /DeviceCMYK 0 <CC000000>] >> >>",
         &format!("0 0 0 1 k 0 0 100 100 re f /GS gs {paint} 0 0 100 100 re f"),
         &[],
     )
@@ -207,19 +207,19 @@ fn overprint_page(paint: &str) -> Vec<u8> {
 /// the current colour in the graphics state when the current colour space is DeviceCMYK", and
 /// §11.7.4.3 NOTE 2 says what the current colour space is for an `Indexed` one: "In the case of
 /// an Indexed space, it refers to the base colour space". So an `Indexed` colour whose base is
-/// `DeviceCMYK` and whose entry is `0.9 0 0 0` keeps the backdrop's black exactly as `0.9 0 0 0
-/// k` does — the page is `0.9 0 0 1` in the group's components.
+/// `DeviceCMYK` and whose entry is `0.8 0 0 0` keeps the backdrop's black exactly as `0.8 0 0 0
+/// k` does — the page is `0.8 0 0 1` in the group's components.
 #[test]
 fn an_indexed_cmyk_colour_takes_nonzero_overprint_mode_spec_audit() {
-    let direct = centre(overprint_page("0.9 0 0 0 k"));
+    let direct = centre(overprint_page("0.8 0 0 0 k"));
     let named = centre(page(
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
         "<< >>",
-        "0.9 0 0 1 k 0 0 100 100 re f",
+        "0.8 0 0 1 k 0 0 100 100 re f",
         &[],
     ));
     // Control: the device colour keeps the backdrop's black.
-    assert_eq!(direct, named, "§11.7.4.3's first bullet for 0.9 0 0 0 k");
+    assert_eq!(direct, named, "§11.7.4.3's first bullet for 0.8 0 0 0 k");
     let indexed = centre(overprint_page("/CS0 cs 0 sc"));
     assert_eq!(
         indexed, named,

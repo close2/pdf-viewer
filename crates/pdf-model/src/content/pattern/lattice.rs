@@ -135,13 +135,6 @@ pub(super) fn non_zero(step: f32) -> Option<f32> {
     (step.is_finite() && step > 0.0).then_some(step)
 }
 
-/// The width or height of a pattern cell's bounding box, as a fallback step.
-pub(super) fn cell_extent(bbox: &[f32], axis: usize) -> Option<f32> {
-    let low = bbox.get(axis)?;
-    let high = bbox.get(axis.checked_add(2)?)?;
-    non_zero(high - low)
-}
-
 impl Interpreter<'_> {
     /// Table 74's `/TilingType` applied to one pattern's matrix (§8.7.3.1).
     ///

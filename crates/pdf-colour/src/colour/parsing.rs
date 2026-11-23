@@ -213,40 +213,46 @@ impl ColourSpace {
         // match the information in the ICC profile", Table 68's row for the profile's data
         // colour space, and that is what this reader could not read — the unit interval would
         // be a guess that holds an `'Lab '` profile's `a` and `b` to `[0, 1]`.
-        if let Some(alternate) = stream.dict.get("Alternate")
-            && let Some(space) = Self::parse_at(
+        //
+        // Failing that, the device space with the same component count, which is the fallback
+        // the specification itself describes — and it is the *alternate* that table row names,
+        // not a different selected space: the space `cs` chose is still the `ICCBased` one, so
+        // its initial colour is §8.6.8's all-zero one held to `/Range`, and a value is held to
+        // `/Range` before the device space sees it ("after constraining to the ICCBased range",
+        // the `/Alternate` row says of the alternate whichever way it was arrived at). Both
+        // routes therefore end in the same `Self::IccAlternate`.
+        let stated_alternate = stream.dict.get("Alternate").and_then(|alternate| {
+            Self::parse_at(
                 document,
                 alternate,
                 resources,
                 reading,
                 depth.saturating_add(1),
             )
-        {
-            let components = space.components();
-            let stated = icc_range(document, &stream.dict);
-            let range: Arc<[(f32, f32)]> = (0..components)
-                .map(|component| {
-                    stated
-                        .get(component)
-                        .copied()
-                        .unwrap_or_else(|| space.component_range(component))
-                })
-                .collect();
-            return Some(Self::IccAlternate {
-                range,
-                alternate: Box::new(space),
-            });
-        }
-
-        // Failing that, the device space with the same component count — which is the fallback
-        // the specification itself describes.
-        match document.get_key(&stream.dict, "N").as_integer() {
-            Some(1) => Some(Self::Gray),
-            Some(4) => Some(Self::Cmyk),
-            // Three is the common case, and an absent or nonsensical `/N` is far more likely to
-            // be RGB than anything else.
-            _ => Some(Self::Rgb),
-        }
+        });
+        let space = stated_alternate.unwrap_or_else(|| {
+            match document.get_key(&stream.dict, "N").as_integer() {
+                Some(1) => Self::Gray,
+                Some(4) => Self::Cmyk,
+                // Three is the common case, and an absent or nonsensical `/N` is far more
+                // likely to be RGB than anything else.
+                _ => Self::Rgb,
+            }
+        });
+        let components = space.components();
+        let stated = icc_range(document, &stream.dict);
+        let range: Arc<[(f32, f32)]> = (0..components)
+            .map(|component| {
+                stated
+                    .get(component)
+                    .copied()
+                    .unwrap_or_else(|| space.component_range(component))
+            })
+            .collect();
+        Some(Self::IccAlternate {
+            range,
+            alternate: Box::new(space),
+        })
     }
 
     /// Reads a `CalGray` dictionary: ISO 32000-2 §8.6.5.2, Table 62.
@@ -296,6 +302,16 @@ impl ColourSpace {
             reading,
             depth.saturating_add(1),
         )?;
+        // §8.6.6.3: the base "shall be any device or CIE-based colour space or (PDF 1.3) a
+        // Separation or DeviceN space, but shall not be a Pattern space or another Indexed
+        // space". The table's bytes are numeric components, and §8.7.1 says a `Pattern` space
+        // has none — it uses "pattern objects as the equivalent of colour values instead of the
+        // numeric component values used with other spaces" — so no entry of the table names a
+        // colour, and the space is unsupported rather than drawn in a `Pattern` space's
+        // fallback.
+        if matches!(base, Self::Pattern { .. }) {
+            return None;
+        }
         let high = usize::try_from(
             items
                 .get(2)

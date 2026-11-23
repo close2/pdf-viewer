@@ -538,6 +538,33 @@ impl Interpreter<'_> {
             return;
         }
 
+        // §8.6.8 of `SCN` and `scn` in a `Pattern` space: "name shall be the name of an entry
+        // in the Pattern subdictionary of the current resource dictionary", and §8.7.1 says
+        // such a space uses "pattern objects as the equivalent of colour values instead of the
+        // numeric component values used with other spaces". Numbers with no name therefore
+        // select no pattern and name no colour — not one in the underlying space, which is the
+        // colour an uncoloured pattern is poured through *with* its name, and not the black a
+        // `Pattern` space's conversion falls back on. The colour in force stays, which is
+        // [`Unsupported::ColourOperands`]'s answer to operands that state no colour, and the page
+        // says so (ADR 3450).
+        let selected = if fill {
+            &state.fill_space
+        } else {
+            &state.stroke_space
+        };
+        if matches!(selected, ColourSpace::Pattern { .. }) {
+            let given = (0..operands.len())
+                .filter(|index| number_at(operands, *index).is_some())
+                .count();
+            if given > 0 {
+                self.note(Unsupported::PatternOperands {
+                    stroking: !fill,
+                    given,
+                });
+            }
+            return;
+        }
+
         // Setting an ordinary colour clears any pattern the space had selected.
         if fill {
             state.fill_pattern = None;
@@ -732,10 +759,12 @@ impl Interpreter<'_> {
 /// device tint value for the output device" — a floating-point requirement about *precision*,
 /// which the tint transform's output satisfies. ADR 1241, amending ADR 1157.
 ///
-/// NOTE 2's `Indexed` process-tint handling is not implemented here. The public
-/// `ColourSpace::entry_of` supplies the base components, but retaining a source for
-/// current-context colour conversion does not implement this separate overprint rule.
-/// See ADR 1241 section 5.
+/// A [`ColourSpace::Indexed`] is the NOTE's first case: its base is the current colour space,
+/// and the four numbers the first bullet tests are the table entry the index selects —
+/// `ColourSpace::entry_of`, the same lookup that colours the mark — so `0 sc` over a
+/// `DeviceCMYK` table whose entry 0 is `0.9 0 0 0` is the colour `0.9 0 0 0 k` is. An
+/// `Indexed` base may itself be a `Separation` or `DeviceN` space that reverts (§8.6.6.3), and
+/// the recursion asks that one the same question (ADR 3449).
 #[expect(
     clippy::doc_markdown,
     reason = "the table cell and the clause sentences above are quotations, and a quotation \
@@ -762,6 +791,9 @@ fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<ProcessTints> {
         ColourSpace::Separation {
             alternate, tints, ..
         } if reverts_to_cmyk(alternate) => cmyk_tints(alternate, &tints.eval(values)),
+        ColourSpace::Indexed { base, .. } if reverts_to_cmyk(base) => {
+            cmyk_tints(base, &space.entry_of(values))
+        }
         _ => None,
     }
 }
@@ -774,6 +806,7 @@ fn reverts_to_cmyk(space: &ColourSpace) -> bool {
         ColourSpace::Cmyk => true,
         ColourSpace::Icc { profile } => profile.channels() == 4,
         ColourSpace::Separation { alternate, .. } => reverts_to_cmyk(alternate),
+        ColourSpace::Indexed { base, .. } => reverts_to_cmyk(base),
         _ => false,
     }
 }

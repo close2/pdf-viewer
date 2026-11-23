@@ -270,10 +270,18 @@ impl Interpreter<'_> {
 
         // Table 57's pair is graphics state, saved by q/Q, and it is read at the paint that
         // converts a `DeviceRGB` colour (§11.7.5.3), never here.
-        let read = BlackGeneration::read(self.document, dict, state.black_generation.as_deref());
-        state.black_generation = read.pair;
+        //
+        // **Skipped inside an uncoloured figure**: `/BG`, `/BG2`, `/UCR` and `/UCR2` are in
+        // §8.6.8's list of entries a `d1` glyph description or an uncoloured tiling pattern's
+        // stream "shall be ignored", and the pair decides how the colour the caller supplies is
+        // converted into a `DeviceCMYK` group.
         let label = format!("/{}", String::from_utf8_lossy(name.as_bytes()));
-        self.note_unreadable_black_generation(&label, read.unreadable);
+        if !self.uncoloured {
+            let read =
+                BlackGeneration::read(self.document, dict, state.black_generation.as_deref());
+            state.black_generation = read.pair;
+            self.note_unreadable_black_generation(&label, read.unreadable);
+        }
         // Table 111 has a `d1` glyph description ignore "colour-related parameters including
         // transparency" (see [`Interpreter::shape_only_glyph`]): Table 57's `/CA`, `/ca`, `/BM`,
         // `/SMask`, `/AIS` and `/TK` are skipped there, and the rest of the dictionary applies.
@@ -440,13 +448,13 @@ impl Interpreter<'_> {
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
         //
         // Both are skipped inside an uncoloured figure. §8.6.8 lists the `/ExtGState` entries
-        // such a stream may not set, and this tree reads four of them: `/UseBlackPtComp` by
-        // name, `/RI` because the `ri` operator that sets the same parameter is on the operator
-        // half of the same list, `/TR` and `/TR2` above (ADR 0204) and `/HT` beside them (ADR
-        // 0505). `/BG`, `/BG2`, `/UCR` and `/UCR2` are §10.4's, which this device does not
-        // perform, and are read for a flag and never evaluated. The rest of this
-        // dictionary is not colour and still applies — the
-        // line width §9.6.4 asks a glyph description to set explicitly among it.
+        // such a stream may not set, and this tree reads every one of them behind the same
+        // guard: `/UseBlackPtComp` by name, `/RI` because the `ri` operator that sets the same
+        // parameter is on the operator half of the same list, `/BG`, `/BG2`, `/UCR` and `/UCR2`
+        // at the top (they convert a colour into a `DeviceCMYK` group, §10.4.2.4), and `/TR`
+        // and `/TR2` above (ADR 0204) with `/HT` beside them (ADR 0505). The rest of this
+        // dictionary is not colour and still applies — the line width §9.6.4 asks a glyph
+        // description to set explicitly among it.
         if !self.uncoloured {
             if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
                 state.use_black_pt_comp = match value.as_bytes() {

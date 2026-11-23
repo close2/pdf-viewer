@@ -13,7 +13,7 @@
   "code": "crates/pdf-model/src/content/ext_gstate.rs:273 (BlackGeneration::read and state.black_generation assigned unconditionally); crates/pdf-model/src/content/ext_gstate.rs:442 (the comment calling /BG, /BG2, /UCR, /UCR2 read for a flag and never evaluated — D01)",
   "change": "Leave state.black_generation untouched (and say nothing of an unreadable pair) inside an uncoloured figure, behind the same `!self.uncoloured` test as /TR and /UseBlackPtComp; restate the comment at 442 as today's reason.",
   "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_d1_glyphs_black_generation_is_ignored_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; its control (the same pair stated by the page changes the colour) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2184-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-colour/src/colour/parsing.rs:243 (parse_icc_based's last step answers Self::Gray, Self::Rgb or Self::Cmyk rather than an IccAlternate over that device space)",
   "change": "Answer the /N-implied device space through the same ColourSpace::IccAlternate construction as a stated /Alternate (range from /Range, else the device space's own), so the initial colour, the /Range clamp, the component ranges and an image's default /Decode are the ICCBased space's on both routes.",
   "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_unreadable_icc_space_without_alternate_starts_at_zero_spec_audit and crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_unreadable_icc_space_without_alternate_keeps_its_range_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; their controls (the same stream with /Alternate stated) pass",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2184-B03",
@@ -42,7 +42,7 @@
   "code": "crates/pdf-model/src/content/colour.rs:744 (cmyk_tints: no Indexed arm); crates/pdf-model/src/content/colour.rs:772 (reverts_to_cmyk: likewise)",
   "change": "Give cmyk_tints and reverts_to_cmyk an Indexed arm that asks the base with ColourSpace::entry_of's entry, as the Separation arm asks the alternate with the tint transform's output.",
   "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_indexed_cmyk_colour_takes_nonzero_overprint_mode_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; its control (0.9 0 0 0 k over the same backdrop) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2184-B04",
@@ -58,7 +58,7 @@
   "code": "crates/pdf-colour/src/colour/to_rgb.rs:277 (Pattern without a base converts to Color::BLACK); crates/pdf-colour/src/colour/queries.rs:246 (and counts one component); crates/pdf-colour/src/shading.rs:638 (kind_of accepts any parsed space); crates/pdf-colour/src/colour/parsing.rs:292 (parse_indexed accepts a Pattern base); crates/pdf-model/src/content/colour.rs:575 (set_colour's equal-count arm paints in a Pattern space)",
   "change": "Refuse a Pattern space as a shading's /ColorSpace (ShadingError, reported) and as an Indexed base (parse answers None, reported as an unsupported colour space), and let numeric scn operands in a Pattern space select no colour (reported, the current pattern left as it was or cleared to paint nothing); Pattern { base: None } then has no colour to answer at all.",
   "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_shading_in_a_pattern_space_is_not_drawn_as_complete_spec_audit, crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_indexed_space_over_a_pattern_base_is_not_drawn_as_complete_spec_audit and crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_number_in_a_pattern_space_paints_no_colour_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; their controls (DeviceGray in place of /Pattern; cs alone) pass",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2184-D01",
@@ -72,7 +72,7 @@
   "code": "crates/pdf-model/src/content/ext_gstate.rs:442",
   "change": "Restate the comment as what the code does once B01 is fixed.",
   "execution": "read; no test",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2184-D02",
@@ -85,6 +85,6 @@
   "code": "crates/pdf-model/src/content/pattern/tiling.rs:140",
   "change": "Write the fallback as a recovery with its reason (an ADR), and report it; or refuse the pattern by name.",
   "execution": "read; no test",
-  "status": "open"
+  "status": "fixed"
  }
 ]

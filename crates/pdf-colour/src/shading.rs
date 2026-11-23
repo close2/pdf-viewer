@@ -645,6 +645,17 @@ fn kind_of(
                 detail: "unsupported /ColorSpace".to_owned(),
             })?
     };
+    // ISO 32000-2 Table 77 makes the entry "any colour space except a Pattern space", and
+    // §8.7.1 says why none can be: a `Pattern` space uses "pattern objects as the equivalent of
+    // colour values instead of the numeric component values used with other spaces", so no
+    // number a shading's function returns names a colour in one. The shading is refused, and the
+    // caller says so, rather than its numbers being drawn in whatever colour a `Pattern` space's
+    // conversion falls back on.
+    if matches!(space, ColourSpace::Pattern { .. }) {
+        return Err(ShadingError::Malformed {
+            detail: "/ColorSpace is a Pattern space, which Table 77 excludes".to_owned(),
+        });
+    }
 
     let mut truncated = None;
     let mut coarse = false;

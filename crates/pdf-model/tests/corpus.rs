@@ -797,6 +797,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a colour operator given operands its colour space does not take (§8.6.8)",
         ),
+        Unsupported::PatternOperands { .. } => (
+            Whose::TheFile,
+            "a colour operator in a Pattern space given numbers and no pattern name (§8.6.8)",
+        ),
         Unsupported::MalformedInlineImage { .. } => (
             Whose::TheFile,
             "an inline image not written as §8.9.7's bracketed key-value pairs",
