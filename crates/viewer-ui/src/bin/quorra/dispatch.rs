@@ -933,6 +933,13 @@ answers in two places"
                 media,
                 sound.map(|sound| *sound),
             ),
+            // §12.6.4.14's stop, pause or resume, performed by the player that holds the
+            // association, or its "there is no effect" said (ADR 3433).
+            Event::OperateMedia {
+                document,
+                annotation,
+                operation,
+            } => self.operate_media(document, annotation, operation),
             // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
             // (ADR 2329).
             Event::ScriptQuestionWithdrawn { document } => {
@@ -1281,6 +1288,25 @@ impl App {
         }
     }
 
+    /// §12.6.4.14's stop, pause or resume of the rendition associated with `annotation`, handed to
+    /// the player, whose answer comes back through [`Self::take_the_sounds`]; with no player,
+    /// nothing is associated and the clause's "there is no effect" is said here (ADR 3433).
+    fn operate_media(
+        &mut self,
+        document: viewer_core::DocumentId,
+        annotation: pdf_syntax::ObjectId,
+        operation: viewer_core::MediaOperation,
+    ) {
+        match self.player.as_mut() {
+            Some(player) => player.operate(document, annotation, operation),
+            None => println!(
+                "note: {}: {}",
+                self.documents.label_of(document),
+                viewer_host::sound::unassociated(annotation, operation)
+            ),
+        }
+    }
+
     /// What the player has said since the last wake: each sentence on the terminal, and the last
     /// one in the title while it holds — a sound sounding, or one refused (ADR 3301).
     pub(crate) fn take_the_sounds(&mut self) {
@@ -1294,10 +1320,14 @@ impl App {
         let repainted = player.repainted();
         for said in heard {
             println!("note: {}", said.sentence());
-            self.sounding = match said {
-                viewer_host::sound::Heard::Ended(_) | viewer_host::sound::Heard::Stopped(_) => None,
-                holds => Some(holds),
-            };
+            match said {
+                viewer_host::sound::Heard::Ended(_) | viewer_host::sound::Heard::Stopped(_) => {
+                    self.sounding = None;
+                }
+                // Whatever sounds sounds on, and the title that holds still holds (ADR 3433).
+                viewer_host::sound::Heard::Unchanged(_) => {}
+                holds => self.sounding = Some(holds),
+            }
         }
         // Table 294's `/W` 3: the rectangle the sound plays in is painted while it plays (ADR 3407).
         for command in repainted {
@@ -1323,8 +1353,8 @@ impl App {
         false
     }
 
-    /// Plays the sound held at its start — Table 291's `/A` false — and answers whether there was
-    /// one: the window's resume control (ADR 3351).
+    /// Plays the sound held at its start — Table 291's `/A` false — or paused by a rendition
+    /// action, and answers whether there was one: the window's resume control (ADRs 3351, 3433).
     pub(crate) fn resume_the_sound(&mut self) -> bool {
         let held = matches!(self.sounding, Some(viewer_host::sound::Heard::Paused(_)));
         if let (true, Some(player)) = (held, self.player.as_mut()) {

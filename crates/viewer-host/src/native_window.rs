@@ -831,6 +831,11 @@ pub trait NativeWindow {
     /// arm calls is a required one and both hosts then fail until each supplies it. Every arm is
     /// one line handing the event to a method (habit 103), and the clause each answers is cited
     /// at the method (ADR 1972).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of `viewer_core::Event`, and the count is that enum's. \
+                  Splitting it would lose the exhaustive match this method exists for"
+    )]
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
@@ -944,6 +949,11 @@ pub trait NativeWindow {
                 media,
                 sound,
             } => self.media(document, content_type.as_deref(), media, sound),
+            Event::OperateMedia {
+                document,
+                annotation,
+                operation,
+            } => self.operate_media(document, annotation, operation),
             Event::AttachmentsChanged { .. } => self.attachments_changed(),
         }
     }
@@ -1228,6 +1238,29 @@ pub trait NativeWindow {
         }
         if first && self.state().looking() {
             self.look_for_answers();
+        }
+    }
+
+    /// §12.6.4.14's stop, pause or resume of the rendition associated with `annotation`: performed
+    /// by the player where this window plays sounds and has the associated one in hand, and its
+    /// "there is no effect" said otherwise — a window that plays nothing itself handed every clip
+    /// to this machine's player, which it cannot reach (ADR 3433).
+    fn operate_media(
+        &mut self,
+        document: DocumentId,
+        annotation: pdf_syntax::ObjectId,
+        operation: viewer_core::MediaOperation,
+    ) {
+        let label = self.state().documents.label_of(document);
+        let unanswered = if self.plays_sounds() {
+            self.state_mut()
+                .sounds
+                .operate(document, annotation, operation)
+        } else {
+            Some(crate::sound::unassociated(annotation, operation))
+        };
+        if let Some(said) = unanswered {
+            self.say(&format!("{label}: {said}"));
         }
     }
 

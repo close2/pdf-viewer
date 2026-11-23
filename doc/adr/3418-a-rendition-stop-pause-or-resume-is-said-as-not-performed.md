@@ -1,6 +1,6 @@
 # 3418 — A rendition's stop, pause or resume is said as not performed
 
-Session 2179. Status: accepted. Context: ADRs 1960, 3350; ISO 32000-2 §12.6.4.14, Table 218.
+Session 2179. Status: **superseded by ADR 3433**, which performs the three. Context: ADRs 1960, 3350; ISO 32000-2 §12.6.4.14, Table 218.
 
 ## Decision
 

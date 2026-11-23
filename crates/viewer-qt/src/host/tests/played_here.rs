@@ -27,7 +27,12 @@ fn temporary(name: &str) -> PathBuf {
 /// The Qt window over the sounding document at the level `open`, with `sounds` in place of the
 /// helper's, page one drawn.
 fn a_window(document: &Path, sounds: Sounds) -> Host {
-    std::fs::write(document, sounding::a_sounding_document()).expect("write the document");
+    a_window_over(document, &sounding::a_sounding_document(), sounds)
+}
+
+/// [`a_window`] over the document `bytes`.
+fn a_window_over(document: &Path, bytes: &[u8], sounds: Sounds) -> Host {
+    std::fs::write(document, bytes).expect("write the document");
     let mut host = Host::open(
         document,
         None,
@@ -167,6 +172,64 @@ fn a_missing_sound_helper_is_said_in_the_qt_window() {
         host.drawing_wait(),
         -1,
         "a refused sound leaves the timer nothing"
+    );
+    let _ = std::fs::remove_file(&document);
+}
+
+/// **§12.6.4.14's pause, resume and stop reach the sound a rendition action plays in the Qt
+/// window** (ADR 3433): the screen annotation's `/OP` 0 plays the WAVE clip here, a link's `/OP` 2
+/// pauses it — the device's stream stopped, the title saying it is paused — `/OP` 3 starts it again
+/// on the same device, and `/OP` 1 stops it and says so; a second stop, with nothing associated,
+/// is said to have no effect. The wrong answers excluded: an operation said "not performed", a
+/// pause that leaves the device sounding, and a resume that opens a second device.
+#[test]
+fn a_rendition_pauses_resumes_and_stops_the_sound_in_the_qt_window() {
+    let document = temporary("rendition.pdf");
+    let (open, record) = sounding::recording();
+    let mut host = a_window_over(
+        &document,
+        &sounding::a_rendition_document(),
+        Sounds::opening_with(open),
+    );
+    host.dispatch(Command::Activate(sounding::SCREEN));
+    timer_until(&mut host, "said the rendition was sounding", |host| {
+        host.title().contains("playing a sound")
+    });
+    assert_eq!(
+        sounding::record(&record).started,
+        [sounding::SAMPLES.to_vec()]
+    );
+
+    host.dispatch(Command::Activate(sounding::PAUSE));
+    timer_until(&mut host, "said the rendition was paused", |host| {
+        host.title().contains(viewer_host::sound::PAUSED)
+    });
+    assert_eq!(sounding::record(&record).stops, 1, "the stream was stopped");
+
+    host.dispatch(Command::Activate(sounding::RESUME));
+    timer_until(&mut host, "said the rendition was sounding again", |host| {
+        host.title().contains("playing a sound")
+    });
+    {
+        let record = sounding::record(&record);
+        assert_eq!(record.opened, 1, "a resume opens no second device");
+        assert_eq!(record.started.len(), 2, "{:?}", record.started);
+    }
+
+    host.dispatch(Command::Activate(sounding::STOP));
+    timer_until(&mut host, "said the rendition was stopped", |host| {
+        host.message.contains("/OP 1")
+    });
+    assert!(
+        !host.title().contains("playing a sound"),
+        "{}",
+        host.title()
+    );
+    host.dispatch(Command::Activate(sounding::STOP));
+    assert!(
+        host.message.contains("no effect"),
+        "a stop with nothing associated is said: {}",
+        host.message
     );
     let _ = std::fs::remove_file(&document);
 }

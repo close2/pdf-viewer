@@ -115,7 +115,10 @@ pub use command::{
     Purpose, ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy,
     RestrictionScope, Retrace, Selection, Sheet, TrustPolicy, Viewing, Zoom,
 };
-pub use event::{Event, Extraction, Found, Media, Recording, RenderRequest, Screen, SoundData};
+pub use event::{
+    Associated, Event, Extraction, Found, Media, MediaOperation, Recording, RenderRequest, Screen,
+    SoundData,
+};
 pub use interact::states_a_pdf_header;
 pub use located::Located;
 pub use open::{Preparation, Prepared, ZOOM_STEP};

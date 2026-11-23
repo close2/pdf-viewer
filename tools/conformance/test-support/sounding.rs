@@ -86,6 +86,47 @@ pub(super) fn a_sounding_document() -> Vec<u8> {
         "<< /Type /Sound /R 8000 /E /Signed /Filter /ASCIIHexDecode /Length 5 >>\nstream\n\
          40C0>\nendstream",
     ];
+    assembled(&objects)
+}
+
+/// The screen annotation a rendition plays in, in [`a_rendition_document`].
+pub(super) const SCREEN: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(4, 0);
+
+/// The link annotations whose rendition actions stop, pause and resume it, in that order.
+pub(super) const STOP: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(10, 0);
+/// See [`STOP`].
+pub(super) const PAUSE: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(11, 0);
+/// See [`STOP`].
+pub(super) const RESUME: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(12, 0);
+
+/// A page with a screen annotation (object 4) whose rendition action — Table 218's `/OP` 0 naming
+/// it as `/AN` — plays an embedded RIFF WAVE clip of two 16-bit samples at 8000 Hz, mono, `+½` and
+/// `−½` of full scale; and three links (objects 10, 11, 12) whose rendition actions name the same
+/// annotation with `/OP` 1, 2 and 3 (ISO 32000-2 §12.6.4.14, ADR 3433).
+#[must_use]
+pub(super) fn a_rendition_document() -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R 10 0 R 11 0 R 12 0 R] \
+         >>",
+        "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [0 0 50 50] /A 5 0 R >>",
+        "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>",
+        "<< /Type /Rendition /S /MR /N (chime) /C 7 0 R >>",
+        "<< /Type /MediaClip /S /MCD /CT (audio/wav) /D 8 0 R /P << /TF (TEMPACCESS) >> >>",
+        "<< /Type /Filespec /F (chime.wav) /UF (chime.wav) /EF << /F 9 0 R >> >>",
+        "<< /Type /EmbeddedFile /Filter /ASCIIHexDecode /Length 99 >>\nstream\n\
+         52494646280000005741564566 6d7420100000000100010040 1f0000803e0000020010006461746104000000\
+         004000c0>\nendstream",
+        "<< /Type /Annot /Subtype /Link /Rect [60 0 70 10] /A << /S /Rendition /OP 1 /AN 4 0 R >> >>",
+        "<< /Type /Annot /Subtype /Link /Rect [70 0 80 10] /A << /S /Rendition /OP 2 /AN 4 0 R >> >>",
+        "<< /Type /Annot /Subtype /Link /Rect [80 0 90 10] /A << /S /Rendition /OP 3 /AN 4 0 R >> >>",
+    ];
+    assembled(&objects)
+}
+
+/// A classic cross-reference file of `objects`, object 1 the catalog.
+fn assembled(objects: &[&str]) -> Vec<u8> {
     let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {

@@ -69,6 +69,9 @@ mod event_kind {
     pub(in crate::protocol) const LIST_OPENS: u8 = 29;
     // §7.6.5.1's prompt, for `PASSWORD_REQUIRED`'s reason (ADR 2822).
     pub(in crate::protocol) const RECIPIENT_REQUIRED: u8 = 30;
+    // §12.6.4.14's stop, pause or resume, which crosses for `MEDIA`'s reason: the window holds the
+    // player the rendition is associated in (ADR 3433).
+    pub(in crate::protocol) const OPERATE_MEDIA: u8 = 31;
 }
 
 /// Encodes one event.
@@ -354,6 +357,17 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 }
             }
             write_sound(&mut writer, sound.as_deref());
+        }
+        Event::OperateMedia {
+            document,
+            annotation,
+            operation,
+        } => {
+            writer
+                .u8(k::OPERATE_MEDIA)
+                .document(*document)
+                .object(*annotation)
+                .u8(operation.op());
         }
         Event::Console { document, request } => {
             let command = match request.command {
@@ -647,6 +661,26 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                 request: pdf_model::view::ConsoleRequest { command, at },
             }
         }
+        k::OPERATE_MEDIA => {
+            let document = reader.document(what)?;
+            let annotation = reader.object("the screen annotation a rendition operation names")?;
+            let operation = match reader.u8("a rendition operation's /OP")? {
+                1 => viewer_core::MediaOperation::Stop,
+                2 => viewer_core::MediaOperation::Pause,
+                3 => viewer_core::MediaOperation::Resume,
+                other => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a rendition operation's /OP",
+                        value: u32::from(other),
+                    });
+                }
+            };
+            Event::OperateMedia {
+                document,
+                annotation,
+                operation,
+            }
+        }
         k::MEDIA => {
             let document = reader.document(what)?;
             let content_type = reader.option_string("a media clip's content type")?;
@@ -848,12 +882,14 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
             writer.u8(2).bytes(file);
             write_playing(writer, &sound.playing);
             write_screen(writer, sound.screen.as_ref());
+            write_rendition(writer, sound.rendition);
             return;
         }
         viewer_core::Recording::Mp4(file) => {
             writer.u8(3).bytes(file);
             write_playing(writer, &sound.playing);
             write_screen(writer, sound.screen.as_ref());
+            write_rendition(writer, sound.rendition);
             return;
         }
     };
@@ -874,6 +910,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
         .bytes(data);
     write_playing(writer, &sound.playing);
     write_screen(writer, sound.screen.as_ref());
+    write_rendition(writer, sound.rendition);
 }
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
@@ -1008,6 +1045,53 @@ pub(super) fn read_screen(
     }))
 }
 
+/// The screen annotation a rendition action associated a sound with (ADR 3433): a byte saying
+/// whether, then the annotation and whether the action was Table 218's `/OP` 4.
+fn write_rendition(writer: &mut Writer, rendition: Option<viewer_core::Associated>) {
+    match rendition {
+        None => {
+            writer.u8(0);
+        }
+        Some(associated) => {
+            writer
+                .u8(1)
+                .object(associated.annotation)
+                .u8(u8::from(associated.or_resume));
+        }
+    }
+}
+
+/// [`write_rendition`]'s other half.
+fn read_rendition(
+    reader: &mut Reader<'_>,
+) -> Result<Option<viewer_core::Associated>, ProtocolError> {
+    match reader.u8("whether a sound is associated with a screen annotation")? {
+        0 => return Ok(None),
+        1 => {}
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "whether a sound is associated with a screen annotation",
+                value: u32::from(other),
+            });
+        }
+    }
+    let annotation = reader.object("the screen annotation a sound is associated with")?;
+    let or_resume = match reader.u8("whether a rendition resumes the one associated")? {
+        0 => false,
+        1 => true,
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "whether a rendition resumes the one associated",
+                value: u32::from(other),
+            });
+        }
+    };
+    Ok(Some(viewer_core::Associated {
+        annotation,
+        or_resume,
+    }))
+}
+
 /// [`write_sound`]'s other half.
 fn read_sound(
     reader: &mut Reader<'_>,
@@ -1020,6 +1104,7 @@ fn read_sound(
                 recording: viewer_core::Recording::Wave(reader.owned_bytes("a sound's WAVE file")?),
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
+                rendition: read_rendition(reader)?,
             })));
         }
         3 => {
@@ -1027,6 +1112,7 @@ fn read_sound(
                 recording: viewer_core::Recording::Mp4(reader.owned_bytes("a sound's MP4 file")?),
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
+                rendition: read_rendition(reader)?,
             })));
         }
         other => {
@@ -1062,5 +1148,6 @@ fn read_sound(
         },
         playing: read_playing(reader)?,
         screen: read_screen(reader)?,
+        rendition: read_rendition(reader)?,
     })))
 }

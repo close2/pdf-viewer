@@ -246,6 +246,24 @@ pub enum Event {
         /// other clip. Boxed so that a field most clips leave empty does not widen every event.
         sound: Option<Box<SoundData>>,
     },
+    /// §12.6.4.14's rendition action asked to stop, pause or resume "any rendition being played in
+    /// association with the annotation specified by AN" (Table 218's `/OP` 1, 2 and 3).
+    ///
+    /// **The window holds the association, so the window performs it.** A rendition plays in the
+    /// window's own player or is handed to this machine's, and only the window knows which, and
+    /// whether it still plays: a sound it plays carries its annotation in
+    /// [`SoundData::rendition`], and the window acts on that sound where it is the one associated,
+    /// and says the clause's "there is no effect" where none is. A clip handed to this machine's
+    /// player left this program's reach when it was handed over; a host that handed it to a player
+    /// it can command may do the same with it. ADR 3433.
+    OperateMedia {
+        /// Which document.
+        document: DocumentId,
+        /// Table 218's `/AN`, which the action names.
+        annotation: pdf_syntax::ObjectId,
+        /// What to do with the rendition associated with it.
+        operation: MediaOperation,
+    },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).
     ///
@@ -585,6 +603,59 @@ pub struct SoundData {
     /// rectangle (`/W` 3); `None` for a hidden window and for every sound no rendition plays. A
     /// window hands it back in [`crate::Command::PlayingIn`] while the sound plays (ADR 3407).
     pub screen: Option<Screen>,
+    /// The screen annotation a rendition action associated the sound with — Table 218's `/AN` —
+    /// whatever its window type, so that a later action naming the annotation reaches it
+    /// ([`Event::OperateMedia`]); `None` for a sound no rendition action plays (ADR 3433).
+    pub rendition: Option<Associated>,
+}
+
+/// A sound's association with the screen annotation a rendition action named (ISO 32000-2
+/// §12.6.4.14, Table 218's `/AN`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Associated {
+    /// The screen annotation (§12.5.6.18).
+    pub annotation: pdf_syntax::ObjectId,
+    /// Whether the action was Table 218's `/OP` 4 — "\[i]f a rendition is already associated
+    /// with the annotation, resume the rendition if it is paused; otherwise, do nothing" — rather
+    /// than `/OP` 0, which stops the one already associated and plays this one.
+    pub or_resume: bool,
+}
+
+/// Table 218's `/OP` 1, 2 and 3: what [`Event::OperateMedia`] asks of the rendition associated with
+/// an annotation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaOperation {
+    /// `1`: "Stop any rendition being played in association with the annotation specified by AN,
+    /// and remove the association. If no rendition is being played, there is no effect."
+    Stop,
+    /// `2`: "Pause any rendition being played in association with the annotation specified by AN.
+    /// If no rendition is being played, there is no effect."
+    Pause,
+    /// `3`: "Resume any rendition being played in association with the annotation specified by AN.
+    /// If no rendition is being played or the rendition is not paused, there is no effect."
+    Resume,
+}
+
+impl MediaOperation {
+    /// Table 218's `/OP` value, for a sentence.
+    #[must_use]
+    pub const fn op(self) -> u8 {
+        match self {
+            Self::Stop => 1,
+            Self::Pause => 2,
+            Self::Resume => 3,
+        }
+    }
+
+    /// The verb, for a sentence.
+    #[must_use]
+    pub const fn verb(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Pause => "pause",
+            Self::Resume => "resume",
+        }
+    }
 }
 
 /// A screen annotation a sound plays in, and what is painted over its rectangle meanwhile.

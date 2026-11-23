@@ -130,6 +130,7 @@ fn played(samples: &[u8], playing: Playing) -> Played {
             },
             playing,
             screen: None,
+            rendition: None,
         },
     }
 }

@@ -326,6 +326,17 @@ impl Host {
                 media,
                 ..
             } => self.media(document, content_type.as_deref(), media),
+            // This window plays nothing itself: every clip went to this machine's player, which a
+            // rendition's stop, pause or resume cannot reach from here (ADR 3433).
+            Event::OperateMedia {
+                document,
+                annotation,
+                operation,
+            } => eprintln!(
+                "note: document {}: {}",
+                document.0,
+                viewer_host::sound::unassociated(annotation, operation)
+            ),
             // Pinned to `off` as for a sound; the arm says so rather than receiving a newer
             // worker's event in silence (ADR 1771).
             Event::Console { document, request } => {

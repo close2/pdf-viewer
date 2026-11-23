@@ -39,7 +39,8 @@ pub use quorra_sound::{Progress, Report};
 pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said};
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
-use viewer_core::{DocumentId, Recording, SoundData};
+use pdf_syntax::ObjectId;
+use viewer_core::{DocumentId, MediaOperation, Recording, Screen, SoundData};
 pub use window::{HANDED_ON, HELD, Hearing, LOOK, PAUSED, Sounds};
 
 /// Where the converted samples go: a device, or a test's record of what reached it.
@@ -103,6 +104,11 @@ pub enum Heard {
     /// A sound was not played: the worker, the conversion or the device refused, and the sentence
     /// says which and why.
     Refused(String),
+    /// An order changed nothing, and the sentence says why: §12.6.4.14's stop, pause or resume
+    /// found no rendition associated with its annotation, or one not in the state it acts on —
+    /// the clause's "there is no effect" — or Table 218's `/OP` 4 found its annotation's rendition
+    /// already playing, where it does nothing (ADR 3433). Whatever sounds sounds on.
+    Unchanged(String),
 }
 
 impl Heard {
@@ -115,7 +121,8 @@ impl Heard {
             | Self::Paused(said)
             | Self::Ended(said)
             | Self::Stopped(said)
-            | Self::Refused(said) => said,
+            | Self::Refused(said)
+            | Self::Unchanged(said) => said,
         }
     }
 }
@@ -128,8 +135,14 @@ enum Order {
     Stop,
     /// This document closed; stop its sound if it is the one sounding.
     Closed(DocumentId),
-    /// Start the sound held at its start.
+    /// Start the sound held at its start, or paused.
     Resume,
+    /// §12.6.4.14's stop, pause or resume of the rendition associated with an annotation.
+    Operate {
+        document: DocumentId,
+        annotation: ObjectId,
+        operation: MediaOperation,
+    },
     /// What the device said of the pass numbered so (sent by the sink's report).
     Progress(u64, Progress),
     /// The window is closing.
@@ -160,10 +173,18 @@ pub struct Player {
     painting: painting::Painting,
 }
 
+/// What the player's thread tells the window: a sentence, or the screen annotation whose rectangle
+/// is painted now (ADR 3407) — told by the thread, which alone knows when a sound starts, stops
+/// and pauses.
+enum Said {
+    Heard(Heard),
+    Painted(Option<(DocumentId, Screen)>),
+}
+
 /// The player's thread, and the two directions of talk with it.
 struct Running {
     orders: Sender<Order>,
-    heard: Receiver<Heard>,
+    heard: Receiver<Said>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -210,7 +231,6 @@ impl Player {
         if self.running.is_none() {
             self.start();
         }
-        self.painting.played(played.document, played.sound.screen);
         self.send(Order::Play(played));
     }
 
@@ -224,9 +244,38 @@ impl Player {
         self.send(Order::Closed(document));
     }
 
-    /// Starts the sound [`Heard::Paused`] said is held at its start; nothing where none is.
+    /// Starts the sound [`Heard::Paused`] said is held at its start or paused, from where it was
+    /// held; nothing where none is.
     pub fn resume(&mut self) {
         self.send(Order::Resume);
+    }
+
+    /// §12.6.4.14's `operation` on the rendition `document` associated with `annotation` — the
+    /// sound a rendition action naming it as Table 218's `/AN` played — and [`Heard::Unchanged`]
+    /// where no sound in hand is that one or it is not in a state the operation acts on (ADR 3433).
+    ///
+    /// **A pause keeps the device and gives up the stream.** The sink is told to stop, which in the
+    /// sound helper closes the output stream and keeps the device it opened at the first sound, as
+    /// it is kept between sounds; the samples and the place in them stay here, and the clock holds
+    /// where the device's count stopped. A resume starts the rest of the pass on a new stream of
+    /// the same device, which costs no probe of the sound server, and a paused sound holds no
+    /// stream another program's sound would share the device with.
+    pub fn operate(
+        &mut self,
+        document: DocumentId,
+        annotation: ObjectId,
+        operation: MediaOperation,
+    ) {
+        if self.running.is_none() {
+            self.early
+                .push(Heard::Unchanged(unassociated(annotation, operation)));
+            return;
+        }
+        self.send(Order::Operate {
+            document,
+            annotation,
+            operation,
+        });
     }
 
     /// Where the sound in hand is in its time, read from the device's count of frames (ADR 3342):
@@ -245,19 +294,21 @@ impl Player {
     pub fn heard(&mut self) -> Vec<Heard> {
         let mut heard = std::mem::take(&mut self.early);
         if let Some(running) = &self.running {
-            heard.extend(running.heard.try_iter());
-        }
-        for said in &heard {
-            self.painting.heard(said);
+            for said in running.heard.try_iter() {
+                match said {
+                    Said::Heard(said) => heard.push(said),
+                    Said::Painted(now) => self.painting.paint(now),
+                }
+            }
         }
         heard
     }
 
     /// What the core is owed since the last call about the rectangle a sound plays in: a
     /// [`viewer_core::Command::PlayingIn`] when a sound with a [`viewer_core::SoundData::screen`]
-    /// starts, and one with no screen when it ends, is stopped or another takes its place — read
-    /// from what [`Self::heard`] took, so a window asks after it (ISO 32000-2 Table 294's `/W` 3,
-    /// ADR 3407).
+    /// starts, and one with no screen when it ends, is stopped or another takes its place — taken
+    /// in by [`Self::heard`], so a window asks after it (ISO 32000-2 Table 294's `/W` 3, ADR 3407).
+    /// A pause leaves the rectangle painted: the rendition is still associated with it.
     pub fn repainted(&mut self) -> Vec<viewer_core::Command> {
         self.painting.owed()
     }
@@ -337,6 +388,9 @@ enum Stage {
     Sounding,
     /// A pass's frames have sounded and its freeze lasts.
     Frozen,
+    /// Paused by Table 218's `/OP` 2, the pass's place kept: [`Sounding::from`] and what is left of
+    /// [`Sounding::pass`].
+    Paused,
 }
 
 /// The sound now in hand: its document and label, the whole of it converted and levelled, and
@@ -352,8 +406,12 @@ struct Sounding {
     /// The device's channels, so that a pass's frames are counted in samples.
     channels: usize,
     passes: Passes,
-    /// The pass now held, sounding or frozen.
+    /// The pass now held, sounding or frozen — after a pause, what was left of it.
     pass: Pass,
+    /// The frame of the samples the pass sounds from: zero, or where a pause stopped it.
+    from: u64,
+    /// The screen annotation a rendition action associated it with (Table 218's `/AN`).
+    rendition: Option<viewer_core::Associated>,
     stage: Stage,
     /// Whether it holds the reader (Table 212's `/Synchronous`).
     synchronous: bool,
@@ -364,7 +422,7 @@ struct Thread {
     inbox: Receiver<Order>,
     /// A sender to its own inbox, which each pass's report posts through.
     ended: Sender<Order>,
-    say: Sender<Heard>,
+    say: Sender<Said>,
     wake: Wake,
     open: OpenSink,
     media: MediaWorker,
@@ -412,8 +470,16 @@ impl Thread {
                     }
                 }
                 Order::Resume => self.resumed(),
+                Order::Operate {
+                    document,
+                    annotation,
+                    operation,
+                } => self.operated(document, annotation, operation),
                 Order::Progress(serial, progress) => self.progressed(serial, progress),
                 Order::Play(played) => {
+                    if self.resumes_instead(&played) {
+                        continue;
+                    }
                     self.silence();
                     let samples = match self.prepared(&played) {
                         Ok(samples) => samples,
@@ -524,9 +590,12 @@ impl Thread {
             channels,
             passes,
             pass,
+            from: 0,
+            rendition: played.sound.rendition,
             stage: Stage::Held,
             synchronous: playing.synchronous,
         });
+        self.paint(played.sound.screen.map(|screen| (played.document, screen)));
         if !playing.auto_play {
             said.push_str(
                 "; it is held at its start, because Table 291's /A is false: \"the media shall be \
@@ -557,17 +626,26 @@ impl Thread {
             return Ok(());
         };
         sounding.serial = serial;
+        let start = usize::try_from(sounding.from)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(sounding.channels)
+            .min(sounding.samples.len());
         let frames = usize::try_from(sounding.pass.sounding).unwrap_or(usize::MAX);
         let end = frames
             .saturating_mul(sounding.channels)
+            .saturating_add(start)
             .min(sounding.samples.len());
-        if end == 0 {
+        if end == start {
             sounding.stage = Stage::Frozen;
             self.with_clock(|clock| clock.freeze(Instant::now()));
             return Ok(());
         }
         sounding.stage = Stage::Sounding;
-        let samples = sounding.samples.get(..end).unwrap_or_default().to_vec();
+        let samples = sounding
+            .samples
+            .get(start..end)
+            .unwrap_or_default()
+            .to_vec();
         sink.start(
             samples,
             Box::new(move |progress| {
@@ -639,6 +717,7 @@ impl Thread {
         match sounding.passes.next_pass() {
             Some(pass) => {
                 sounding.pass = pass;
+                sounding.from = 0;
                 if let Err(why) = self.start_pass() {
                     self.refused(&why);
                 }
@@ -646,6 +725,7 @@ impl Thread {
             None => {
                 if let Some(sounding) = self.sounding.take() {
                     *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                    self.paint(None);
                     self.tell(Heard::Ended(format!(
                         "{} came to its end (ISO 32000-2 §13.3, §13.2.5)",
                         sounding.label
@@ -655,15 +735,24 @@ impl Thread {
         }
     }
 
-    /// The sound held at its start, started.
+    /// The sound held at its start, started; or the sound paused, started again where it stopped.
+    /// Nothing where neither is.
     fn resumed(&mut self) {
         let Some(sounding) = self.sounding.as_ref() else {
             return;
         };
-        if sounding.stage != Stage::Held {
-            return;
-        }
-        let said = format!("{} is playing, resumed from its start", sounding.label);
+        let said = match sounding.stage {
+            Stage::Held => format!("{} is playing, resumed from its start", sounding.label),
+            Stage::Paused => {
+                let at = self.position_said();
+                format!(
+                    "{} is playing, resumed where it was paused, at {at} (ISO 32000-2 \
+                     §12.6.4.14, Table 218's /OP 3)",
+                    sounding.label
+                )
+            }
+            Stage::Sounding | Stage::Frozen => return,
+        };
         let synchronous = sounding.synchronous;
         match self.start_pass() {
             Ok(()) if synchronous => self.tell(Heard::Holding(said)),
@@ -676,6 +765,7 @@ impl Thread {
     fn refused(&mut self, why: &str) {
         if let Some(sounding) = self.sounding.take() {
             *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            self.paint(None);
             self.tell(Heard::Refused(format!(
                 "{} was not played: the audio device: {why}",
                 sounding.label
@@ -685,12 +775,149 @@ impl Thread {
 
     /// Stops what sounds, and says so where something did.
     fn silence(&mut self) {
+        self.silence_saying("");
+    }
+
+    /// [`Self::silence`], with `why` after the sentence.
+    fn silence_saying(&mut self, why: &str) {
         if let Some(sink) = self.sink.as_mut() {
             sink.stop();
         }
         if let Some(sounding) = self.sounding.take() {
             *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
-            self.tell(Heard::Stopped(format!("{} was stopped", sounding.label)));
+            self.paint(None);
+            self.tell(Heard::Stopped(format!(
+                "{} was stopped{why}",
+                sounding.label
+            )));
+        }
+    }
+
+    /// Table 218's `/OP` 4 where its annotation's rendition is the sound in hand: "If a rendition is
+    /// already associated with the annotation, resume the rendition if it is paused; otherwise, do
+    /// nothing." Answers whether it was, in which case `played` is not played.
+    fn resumes_instead(&mut self, played: &Played) -> bool {
+        let Some(associated) = played
+            .sound
+            .rendition
+            .filter(|associated| associated.or_resume)
+        else {
+            return false;
+        };
+        let Some(sounding) = self.associated(played.document, associated.annotation) else {
+            return false;
+        };
+        if matches!(sounding.stage, Stage::Held | Stage::Paused) {
+            self.resumed();
+        } else {
+            let label = sounding.label.clone();
+            self.tell(Heard::Unchanged(format!(
+                "{} was not played: {label} is already associated with the screen annotation {} \
+                 {} R and is not paused, and Table 218's /OP 4 then does nothing (ISO 32000-2 \
+                 §12.6.4.14)",
+                played.label, associated.annotation.number, associated.annotation.generation
+            )));
+        }
+        true
+    }
+
+    /// The sound in hand, where `document` played it for a rendition action naming `annotation`.
+    fn associated(&self, document: DocumentId, annotation: ObjectId) -> Option<&Sounding> {
+        self.sounding.as_ref().filter(|sounding| {
+            sounding.document == document
+                && sounding
+                    .rendition
+                    .is_some_and(|associated| associated.annotation == annotation)
+        })
+    }
+
+    /// §12.6.4.14's stop, pause or resume, performed on the sound associated with `annotation`, or
+    /// said to have no effect.
+    fn operated(&mut self, document: DocumentId, annotation: ObjectId, operation: MediaOperation) {
+        let Some(stage) = self
+            .associated(document, annotation)
+            .map(|sounding| sounding.stage)
+        else {
+            return self.tell(Heard::Unchanged(unassociated(annotation, operation)));
+        };
+        match (operation, stage) {
+            (MediaOperation::Stop, _) => self.silence_saying(
+                ", and its association with the screen annotation removed (ISO 32000-2 \
+                 §12.6.4.14, Table 218's /OP 1)",
+            ),
+            (MediaOperation::Pause, Stage::Sounding | Stage::Frozen) => self.paused(),
+            (MediaOperation::Resume, Stage::Held | Stage::Paused) => self.resumed(),
+            (MediaOperation::Pause, Stage::Held | Stage::Paused) => {
+                self.tell(Heard::Unchanged(not_in_state(
+                    annotation,
+                    operation,
+                    "already paused",
+                )));
+            }
+            (MediaOperation::Resume, Stage::Sounding | Stage::Frozen) => {
+                self.tell(Heard::Unchanged(not_in_state(
+                    annotation,
+                    operation,
+                    "not paused",
+                )));
+            }
+        }
+    }
+
+    /// The sound in hand paused where it is: the device's stream stopped, the frames it had
+    /// sounded of the pass — or the part of the freeze that had lasted — kept, and the rest held
+    /// for [`Self::resumed`] (Table 218's `/OP` 2).
+    fn paused(&mut self) {
+        let now = Instant::now();
+        let mut folded = (0, 0);
+        self.with_clock(|clock| folded = clock.pause(now));
+        let (sounded, frozen) = folded;
+        let Some(sounding) = self.sounding.as_mut() else {
+            return;
+        };
+        match sounding.stage {
+            Stage::Sounding => {
+                if let Some(sink) = self.sink.as_mut() {
+                    sink.stop();
+                }
+                let sounded = sounded.min(sounding.pass.sounding);
+                sounding.from = sounding.from.saturating_add(sounded);
+                sounding.pass.sounding = sounding.pass.sounding.saturating_sub(sounded);
+            }
+            Stage::Frozen => {
+                // The pass sounded whole; what is left is the freeze's remainder, or a freeze for
+                // ever where it was one.
+                sounding.pass.sounding = 0;
+                sounding.pass.frozen = sounding
+                    .pass
+                    .frozen
+                    .map(|frames| frames.saturating_sub(frozen));
+            }
+            Stage::Held | Stage::Paused => return,
+        }
+        sounding.stage = Stage::Paused;
+        let label = sounding.label.clone();
+        let at = self.position_said();
+        self.tell(Heard::Paused(format!(
+            "{label} is paused at {at} (ISO 32000-2 §12.6.4.14, Table 218's /OP 2); its screen \
+             annotation keeps it, and the audio device is kept with no stream open"
+        )));
+    }
+
+    /// Where the sound in hand is in its time, for a sentence.
+    fn position_said(&self) -> String {
+        let at = self
+            .clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map_or_default(|clock| clock.time(Instant::now()));
+        format!("{:.1} s", at.as_secs_f64())
+    }
+
+    fn paint(&self, now: Option<(DocumentId, Screen)>) {
+        if self.say.send(Said::Painted(now)).is_ok() {
+            (self.wake)();
         }
     }
 
@@ -706,10 +933,38 @@ impl Thread {
     }
 
     fn tell(&self, heard: Heard) {
-        if self.say.send(heard).is_ok() {
+        if self.say.send(Said::Heard(heard)).is_ok() {
             (self.wake)();
         }
     }
+}
+
+/// The sentence for §12.6.4.14's `operation` where no sound this window has in hand is associated
+/// with `annotation`: the clause's "there is no effect". A clip handed to this machine's player is
+/// named, because that player may be playing it and this window cannot reach it (ADR 3417).
+#[must_use]
+pub fn unassociated(annotation: ObjectId, operation: MediaOperation) -> String {
+    format!(
+        "a rendition action's {} (Table 218's /OP {}) had no effect: no rendition this window \
+         plays is associated with the screen annotation {} {} R, and a clip handed to this \
+         machine's player is not within its reach (ISO 32000-2 §12.6.4.14)",
+        operation.verb(),
+        operation.op(),
+        annotation.number,
+        annotation.generation
+    )
+}
+
+/// The sentence for §12.6.4.14's `operation` on a rendition that is `state`: "there is no effect".
+fn not_in_state(annotation: ObjectId, operation: MediaOperation, state: &str) -> String {
+    format!(
+        "a rendition action's {} (Table 218's /OP {}) had no effect: the rendition associated \
+         with the screen annotation {} {} R is {state} (ISO 32000-2 §12.6.4.14)",
+        operation.verb(),
+        operation.op(),
+        annotation.number,
+        annotation.generation
+    )
 }
 
 /// Cuts `samples` — interleaved frames of `channels` at `rate` — to §13.2.4.3's `section`: from
@@ -794,7 +1049,7 @@ fn supersedes(order: &Order, document: DocumentId) -> bool {
     match order {
         Order::Play(_) | Order::Stop | Order::Quit => true,
         Order::Closed(closed) => *closed == document,
-        Order::Resume | Order::Progress(..) => false,
+        Order::Resume | Order::Operate { .. } | Order::Progress(..) => false,
     }
 }
 

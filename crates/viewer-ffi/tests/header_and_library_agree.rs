@@ -294,6 +294,8 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_EVENT_RECIPIENT_REQUIRED",
             EventKind::RecipientRequired,
         ),
+        // §12.6.4.14's stop, pause or resume of an associated rendition (ADR 3433).
+        ("QUORRA_EVENT_OPERATE_MEDIA", EventKind::OperateMedia),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

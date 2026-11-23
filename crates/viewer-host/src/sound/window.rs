@@ -27,8 +27,9 @@ pub const HELD: &str = "a sound is playing synchronously (ISO 32000-2 §12.6.4.9
                         /Synchronous), so nothing but Escape, which cancels it, is taken until it \
                         ends";
 
-/// What the title says while a sound is held at its start (ADR 3351).
-pub const PAUSED: &str = "a sound is held at its start, Space plays it and Escape stops it";
+/// What the title says while a sound is held at its start (ADR 3351) or paused by a rendition
+/// action (ADR 3433).
+pub const PAUSED: &str = "a sound is paused, Space plays it and Escape stops it";
 
 /// What the title says while a window without its sound helper has handed a sound to this
 /// machine's player (ADR 3417); the terminal has the whole sentence, with the helper's place.
@@ -197,6 +198,8 @@ impl Sounds {
         for said in &heard {
             match said {
                 Heard::Ended(_) | Heard::Stopped(_) => self.sounding = None,
+                // Whatever sounds sounds on, and the title that holds still holds.
+                Heard::Unchanged(_) => {}
                 Heard::Playing(_) | Heard::Holding(_) | Heard::Paused(_) | Heard::Refused(_) => {
                     self.awaiting = false;
                     self.sounding = Some(said.clone());
@@ -213,8 +216,9 @@ impl Sounds {
     }
 
     /// Starts the sound held at its start — Table 291's `/A` false, "the media shall be initially
-    /// paused when activated" — and answers whether there was one: the window's resume control,
-    /// which a toolkit gives the space bar while a sound is held (ADR 3351).
+    /// paused when activated" — or paused by a rendition action, and answers whether there was
+    /// one: the window's resume control, which a toolkit gives the space bar while a sound is held
+    /// (ADRs 3351, 3433).
     pub fn resume(&mut self) -> bool {
         match (&self.sounding, self.player.as_mut()) {
             (Some(Heard::Paused(_)), Some(player)) => {
@@ -236,6 +240,27 @@ impl Sounds {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// §12.6.4.14's stop, pause or resume of the rendition `document` associated with
+    /// `annotation` ([`viewer_core::Event::OperateMedia`], ADR 3433): [`Player::operate`], whose
+    /// answer [`Self::heard`] takes — the timer [`Self::interval`] sets is running, because a sound
+    /// is in hand or awaited. A window with neither has nothing associated, and the clause's "there
+    /// is no effect" is answered here, as the sentence to say.
+    pub fn operate(
+        &mut self,
+        document: DocumentId,
+        annotation: pdf_syntax::ObjectId,
+        operation: viewer_core::MediaOperation,
+    ) -> Option<String> {
+        let out = self.awaiting || self.in_hand();
+        match self.player.as_mut() {
+            Some(player) if out => {
+                player.operate(document, annotation, operation);
+                None
+            }
+            _ => Some(super::unassociated(annotation, operation)),
         }
     }
 

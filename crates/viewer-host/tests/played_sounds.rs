@@ -192,6 +192,7 @@ fn played(document: u64, samples: &[u8]) -> Played {
             },
             playing: pdf_model::media::Playing::default(),
             screen: None,
+            rendition: None,
         },
     }
 }

@@ -127,6 +127,11 @@ pub enum EventKind {
     /// [`viewer_core::Event::RecipientRequired`] — §7.6.5.1: no recipient list names the
     /// certificate `quorra_recipient_key` supplied, or none was supplied (ADR 2822).
     RecipientRequired = 31,
+    /// [`viewer_core::Event::OperateMedia`] — §12.6.4.14's rendition action asked to stop, pause or
+    /// resume the rendition associated with a screen annotation. `quorra_events_describe` names the
+    /// operation and the annotation; a caller that handed the clip to a player it can command may
+    /// do it there, and one that cannot says so (ADR 3433).
+    OperateMedia = 32,
 }
 
 impl EventKind {
@@ -135,7 +140,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 32;
+    pub const COUNT: u32 = 33;
 
     /// Which kind an event is.
     ///
@@ -174,6 +179,7 @@ impl EventKind {
             Event::SignaturePoliciesPublished { .. } => Self::SignaturePoliciesPublished,
             Event::Console { .. } => Self::Console,
             Event::Media { .. } => Self::Media,
+            Event::OperateMedia { .. } => Self::OperateMedia,
             Event::Archiving { .. } => Self::Archiving,
             Event::ListOpens { .. } => Self::ListOpens,
             Event::RecipientRequired { .. } => Self::RecipientRequired,
@@ -220,6 +226,7 @@ impl EventKind {
             Self::Archiving => "Archiving\0",
             Self::ListOpens => "ListOpens\0",
             Self::RecipientRequired => "RecipientRequired\0",
+            Self::OperateMedia => "OperateMedia\0",
         }
     }
 
@@ -263,6 +270,7 @@ impl EventKind {
             29 => Self::Archiving,
             30 => Self::ListOpens,
             31 => Self::RecipientRequired,
+            32 => Self::OperateMedia,
             _ => return None,
         })
     }

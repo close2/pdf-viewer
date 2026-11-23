@@ -196,12 +196,15 @@ pub struct Rendition {
 /// Table 218's `/OP`, the five values and what is left when there is none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenditionOperation {
-    /// `0`, and `4`: play the rendition `/R` names, associating it with `/AN`.
-    ///
-    /// One arm for both because they part only over a rendition already playing — `4` resumes it
-    /// where `0` replaces it — and nothing plays here.
+    /// `0`: play the rendition `/R` names, associating it with `/AN`; one already associated with
+    /// the annotation is stopped first.
     Play,
-    /// `1`: stop what plays in `/AN`. "If no rendition is being played, there is no effect."
+    /// `4`: the same, except where a rendition is already associated with the annotation — then
+    /// "resume the rendition if it is paused; otherwise, do nothing". Which of the two happens is
+    /// decided by whoever holds the association, the player (ADR 3433).
+    PlayOrResume,
+    /// `1`: stop what plays in association with `/AN`, and remove the association. "If no
+    /// rendition is being played, there is no effect."
     Stop,
     /// `2`: pause. Where a pause "may not make sense or the player may not support it", §12.6.4.14
     /// says "the user should be notified of the failure to perform the operation".
@@ -226,7 +229,8 @@ pub enum RenditionOperation {
 /// [`RenditionOperation::None`], said by whoever performs it where nothing runs it.
 fn rendition(document: &Document, dict: &Dictionary) -> Action {
     let operation = match document.get_key(dict, "OP").as_integer() {
-        Some(0 | 4) => RenditionOperation::Play,
+        Some(0) => RenditionOperation::Play,
+        Some(4) => RenditionOperation::PlayOrResume,
         Some(1) => RenditionOperation::Stop,
         Some(2) => RenditionOperation::Pause,
         Some(3) => RenditionOperation::Resume,
@@ -359,8 +363,8 @@ impl Rendition {
     pub fn unplaced(&self, document: &Document) -> Option<&'static str> {
         let Some(annotation) = self.annotation else {
             return Some(
-                "Rendition: Table 218's /AN names no screen annotation by reference, so §12.6.4.14 \
-                 has nowhere to play it",
+                "Rendition: Table 218's /AN names no screen annotation by reference, so §12.6.4.14's \
+                 operation has no annotation to play in or to act on",
             );
         };
         let dict = document.get(annotation);

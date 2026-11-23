@@ -73,14 +73,22 @@ impl MediaClock {
         self.frozen?.checked_add(self.span(frames))
     }
 
+    /// The sound is paused at `now` (ISO 32000-2 §12.6.4.14, Table 218's `/OP` 2): the device's
+    /// count for the pass and the part of a freeze that has lasted are folded into the frames
+    /// over, the freeze ends, and the two are answered — what the pass had sounded, which is where
+    /// a resumption starts in its samples, and what the freeze had lasted, which comes off the
+    /// freeze's remainder. The clock then stands still until a pass or a freeze starts again.
+    pub fn pause(&mut self, now: Instant) -> (u64, u64) {
+        let sounded = std::mem::take(&mut self.sounding);
+        let frozen = self.frozen.take().map_or(0, |began| self.since(began, now));
+        self.over = self.over.saturating_add(sounded).saturating_add(frozen);
+        (sounded, frozen)
+    }
+
     /// The frames since the sound started, at `now`.
     #[must_use]
     pub fn frames(&self, now: Instant) -> u64 {
-        let frozen = self.frozen.map_or(0, |began| {
-            let nanos = now.saturating_duration_since(began).as_nanos();
-            let frames = nanos.saturating_mul(u128::from(self.rate)) / 1_000_000_000;
-            u64::try_from(frames).unwrap_or(u64::MAX)
-        });
+        let frozen = self.frozen.map_or(0, |began| self.since(began, now));
         self.over
             .saturating_add(self.sounding)
             .saturating_add(frozen)
@@ -90,6 +98,13 @@ impl MediaClock {
     #[must_use]
     pub fn time(&self, now: Instant) -> Duration {
         self.span(self.frames(now))
+    }
+
+    /// The frames of this device from `began` to `now`, on the monotonic clock.
+    fn since(&self, began: Instant, now: Instant) -> u64 {
+        let nanos = now.saturating_duration_since(began).as_nanos();
+        let frames = nanos.saturating_mul(u128::from(self.rate)) / 1_000_000_000;
+        u64::try_from(frames).unwrap_or(u64::MAX)
     }
 
     /// `frames` of this device as a span of time.
@@ -141,5 +156,29 @@ mod tests {
         clock.thawed(1500);
         assert_eq!(clock.thaws_at(1), None);
         assert_eq!(clock.time(later), Duration::from_secs(2));
+    }
+
+    /// A pause folds the pass's count, or the part of a freeze that lasted, into the time, and the
+    /// clock stands still until something starts again: a resumed pass counts from zero on top.
+    #[test]
+    fn a_pause_holds_the_time_where_it_was() {
+        let mut clock = MediaClock::new(1000);
+        let began = Instant::now();
+        clock.played(300);
+        assert_eq!(clock.pause(began), (300, 0));
+        let later = began
+            .checked_add(Duration::from_secs(5))
+            .expect("five seconds later is representable");
+        assert_eq!(clock.frames(later), 300, "a paused clock stands still");
+        clock.played(200);
+        assert_eq!(clock.frames(later), 500, "the resumed pass counts on top");
+        clock.sounded(700);
+        clock.freeze(began);
+        let quarter = began
+            .checked_add(Duration::from_millis(250))
+            .expect("a quarter second later is representable");
+        assert_eq!(clock.pause(quarter), (0, 250));
+        assert_eq!(clock.frames(later), 1250);
+        assert_eq!(clock.thaws_at(1), None, "no freeze lasts while paused");
     }
 }

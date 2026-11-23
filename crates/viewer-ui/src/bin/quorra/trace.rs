@@ -558,6 +558,16 @@ pub(crate) fn describe_event(event: &Event) -> String {
             content_type.as_deref().unwrap_or("-"),
             media.describe()
         ),
+        Event::OperateMedia {
+            annotation,
+            operation,
+            ..
+        } => format!(
+            "operate-media {} {} {}",
+            operation.verb(),
+            annotation.number,
+            annotation.generation
+        ),
         Event::Copied {
             logical,
             page_order,

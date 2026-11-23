@@ -8,7 +8,7 @@ internal static partial class Native
 {
     internal const uint QUORRA_ABI_VERSION = 2;
 
-    internal const uint QUORRA_EVENT_KIND_COUNT = 32;
+    internal const uint QUORRA_EVENT_KIND_COUNT = 33;
 
     internal const int QUORRA_OK = 0;
     internal const int QUORRA_NULL_ARGUMENT = 1;
@@ -66,6 +66,7 @@ internal static partial class Native
     internal const uint QUORRA_EVENT_ARCHIVING = 29;
     internal const uint QUORRA_EVENT_LIST_OPENS = 30;
     internal const uint QUORRA_EVENT_RECIPIENT_REQUIRED = 31;
+    internal const uint QUORRA_EVENT_OPERATE_MEDIA = 32;
 
     internal const uint QUORRA_POINTER_MOVED = 0;
     internal const uint QUORRA_POINTER_PRESSED = 1;

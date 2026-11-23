@@ -218,6 +218,7 @@ fn every_carried_event_round_trips() {
                     ..pdf_model::media::Playing::default()
                 },
                 screen: None,
+                rendition: None,
             })),
         },
         // A rendition's WAVE clip playing in its screen annotation's rectangle (ADR 3407).
@@ -238,7 +239,27 @@ fn every_carried_event_round_trips() {
                         opacity: 0.25,
                     },
                 }),
+                rendition: Some(viewer_core::Associated {
+                    annotation: ObjectId::new(4, 0),
+                    or_resume: true,
+                }),
             })),
+        },
+        // §12.6.4.14's three operations on an associated rendition (ADR 3433).
+        Event::OperateMedia {
+            document,
+            annotation: ObjectId::new(4, 0),
+            operation: viewer_core::MediaOperation::Stop,
+        },
+        Event::OperateMedia {
+            document,
+            annotation: ObjectId::new(4, 0),
+            operation: viewer_core::MediaOperation::Pause,
+        },
+        Event::OperateMedia {
+            document,
+            annotation: ObjectId::new(5, 1),
+            operation: viewer_core::MediaOperation::Resume,
         },
         Event::Media {
             document,

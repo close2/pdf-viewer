@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 32u
+#define QUORRA_EVENT_KIND_COUNT 33u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -154,6 +154,11 @@ extern "C" {
  * quorra_recipient_key supplied, or none was supplied. Supply another and open again; a key that
  * matches and does not open the envelope is a QUORRA_EVENT_OPEN_FAILED instead (ADR 2822). */
 #define QUORRA_EVENT_RECIPIENT_REQUIRED 31u
+
+/* §12.6.4.14: a rendition action asks to stop, pause or resume the rendition associated with a
+ * screen annotation (Table 218's /OP 1, 2, 3). quorra_events_describe names the operation and the
+ * annotation; a caller that handed the clip to a player it can command may do it there (ADR 3433). */
+#define QUORRA_EVENT_OPERATE_MEDIA 32u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u

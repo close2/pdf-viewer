@@ -7,6 +7,30 @@ use crate::Command;
 use crate::event::{Event, Extraction};
 
 impl Viewer {
+    /// A chain's media requests in its order: each clip through [`Self::media`], and each of
+    /// §12.6.4.14's stop, pause and resume to the window that holds the association (ADR 3433).
+    pub(super) fn media_requests(
+        &mut self,
+        id: DocumentId,
+        requests: Vec<crate::interact::MediaRequest>,
+        events: &mut Vec<Event>,
+    ) {
+        for request in requests {
+            match request {
+                crate::interact::MediaRequest::Play(clip, rendition) => {
+                    self.media(id, clip, rendition, events);
+                }
+                crate::interact::MediaRequest::Operate(annotation, operation) => {
+                    events.push(Event::OperateMedia {
+                        document: id,
+                        annotation,
+                        operation,
+                    });
+                }
+            }
+        }
+    }
+
     /// §13.2.4.2's clip, asked of the reader's level for Table 286's `/TF` and handed over if it is
     /// let through — the four verdicts as [`Self::edit`] has them.
     ///
@@ -17,7 +41,7 @@ impl Viewer {
         &mut self,
         id: DocumentId,
         clip: pdf_model::media::Clip,
-        screen: Option<pdf_syntax::ObjectId>,
+        rendition: Option<crate::Associated>,
         events: &mut Vec<Event>,
     ) {
         use crate::notes::{Standing as Worded, restricted};
@@ -43,7 +67,7 @@ impl Viewer {
             });
             return;
         }
-        let Some((media, sound)) = media_of(id, &open.document, &clip, screen, events) else {
+        let Some((media, sound)) = media_of(id, &open.document, &clip, rendition, events) else {
             return;
         };
         let content_type = clip.content_type;
@@ -92,7 +116,7 @@ fn media_of(
     id: DocumentId,
     document: &pdf_syntax::Document,
     clip: &pdf_model::media::Clip,
-    screen: Option<pdf_syntax::ObjectId>,
+    rendition: Option<crate::Associated>,
     events: &mut Vec<Event>,
 ) -> Option<(crate::Media, Option<Box<crate::SoundData>>)> {
     use pdf_model::media::Data;
@@ -128,17 +152,18 @@ fn media_of(
                 };
                 // Table 294's `/W` 3 plays it in the rectangle of the annotation the rendition
                 // action names (ADR 3407).
-                let screen =
-                    screen
-                        .zip(clip.background)
-                        .map(|(annotation, background)| crate::Screen {
-                            annotation,
-                            background,
-                        });
+                let screen = rendition
+                    .map(|associated| associated.annotation)
+                    .zip(clip.background)
+                    .map(|(annotation, background)| crate::Screen {
+                        annotation,
+                        background,
+                    });
                 let sound = crate::SoundData {
                     recording,
                     playing: clip.playing,
                     screen,
+                    rendition,
                 };
                 let media = crate::Media::Embedded {
                     name,
@@ -160,6 +185,7 @@ fn media_of(
                 },
                 playing: clip.playing,
                 screen: None,
+                rendition,
             };
             let media = crate::Media::Embedded {
                 name: samples.name.clone(),

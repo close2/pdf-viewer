@@ -51,7 +51,12 @@ fn turn_until(host: &Rc<RefCell<Host>>, what: &str, done: impl Fn(&Host) -> bool
 /// The GTK window over the sounding document at the level `open`, with `sounds` in place of the
 /// helper's, the document taken in.
 fn a_window(document: &Path, sounds: Sounds) -> Rc<RefCell<Host>> {
-    std::fs::write(document, sounding::a_sounding_document()).expect("write the document");
+    a_window_over(document, &sounding::a_sounding_document(), sounds)
+}
+
+/// [`a_window`] over the document `bytes`.
+fn a_window_over(document: &Path, bytes: &[u8], sounds: Sounds) -> Rc<RefCell<Host>> {
+    std::fs::write(document, bytes).expect("write the document");
     let opening = Opening::start(
         document,
         None,
@@ -240,4 +245,68 @@ fn a_window_without_its_helper_hands_the_sound_to_this_machines_player() {
     for file in [&document, &called, &portal] {
         let _ = std::fs::remove_file(file);
     }
+}
+
+/// **§12.6.4.14's pause, resume and stop reach the sound a rendition action plays in the GTK
+/// window** (ADR 3433): the screen annotation's `/OP` 0 plays the WAVE clip here, a link's `/OP` 2
+/// pauses it — the device's stream stopped, the title saying it is paused — `/OP` 3 starts it again
+/// on the same device, and `/OP` 1 stops it and says so; a second stop, with nothing associated,
+/// is said to have no effect. The wrong answers excluded: an operation said "not performed", a
+/// pause that leaves the device sounding, and a resume that opens a second device.
+#[gtk4::test]
+fn a_rendition_pauses_resumes_and_stops_the_sound_in_the_gtk_window() {
+    let document = temporary("rendition.pdf");
+    let (open, record) = sounding::recording();
+    let host = a_window_over(
+        &document,
+        &sounding::a_rendition_document(),
+        Sounds::opening_with(open),
+    );
+    let status = |host: &Rc<RefCell<Host>>| host.borrow().ui.status.text().to_string();
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::SCREEN));
+    turn_until(&host, "said the rendition was sounding", |host| {
+        host.state.title_notes().contains("playing a sound")
+    });
+    assert_eq!(
+        sounding::record(&record).started,
+        [sounding::SAMPLES.to_vec()]
+    );
+
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::PAUSE));
+    turn_until(&host, "said the rendition was paused", |host| {
+        host.state
+            .title_notes()
+            .contains(viewer_host::sound::PAUSED)
+    });
+    assert_eq!(sounding::record(&record).stops, 1, "the stream was stopped");
+
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::RESUME));
+    turn_until(&host, "said the rendition was sounding again", |host| {
+        host.state.title_notes().contains("playing a sound")
+    });
+    {
+        let record = sounding::record(&record);
+        assert_eq!(record.opened, 1, "a resume opens no second device");
+        assert_eq!(record.started.len(), 2, "{:?}", record.started);
+    }
+
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::STOP));
+    turn_until(&host, "said the rendition was stopped", |host| {
+        !host.state.title_notes().contains("playing a sound")
+    });
+    assert!(status(&host).contains("/OP 1"), "{}", status(&host));
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::STOP));
+    assert!(
+        status(&host).contains("no effect"),
+        "a stop with nothing associated is said: {}",
+        status(&host)
+    );
+    let window = host.borrow().ui.window.clone();
+    window.close();
+    let _ = std::fs::remove_file(&document);
 }

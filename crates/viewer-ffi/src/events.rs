@@ -240,6 +240,20 @@ impl Events {
                     .map_or_else(String::new, |kind| format!("{kind}, ")),
                 media.describe()
             ),
+            Event::OperateMedia {
+                annotation,
+                operation,
+                ..
+            } => format!(
+                "a rendition action asks to {} the rendition associated with the screen \
+                 annotation {} {} R (ISO 32000-2 §12.6.4.14, Table 218's /OP {}); a clip handed \
+                 to a player is that player's to {}",
+                operation.verb(),
+                annotation.number,
+                annotation.generation,
+                operation.op(),
+                operation.verb()
+            ),
             Event::Console { request, .. } => {
                 viewer_host::script_timers::console("the document", *request)
             }
@@ -391,6 +405,7 @@ impl Events {
             | Event::Beep { document, .. }
             | Event::Console { document, .. }
             | Event::Media { document, .. }
+            | Event::OperateMedia { document, .. }
             | Event::Archiving { document, .. }
             | Event::ListOpens { document, .. }
             | Event::SignaturePoliciesPublished { document, .. } => document.0,
