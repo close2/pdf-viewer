@@ -964,6 +964,24 @@ impl Rewriter<'_> {
         changed
     }
 
+    /// A `CIDFont` whose program was written CID-keyed states no `/CIDToGIDMap`: the program's
+    /// charset states what the map stated (ADR 3446). Counted with the program, not again here.
+    pub(super) fn remove_rekeyed_map(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        _applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::CidKeyedProgramWritten)
+            || !self
+                .cid_keyed_programs
+                .is_some_and(|rekeyed| rekeyed.cidfonts.contains(&id))
+        {
+            return false;
+        }
+        out.remove("CIDToGIDMap").is_some()
+    }
+
     /// §9.6.2.1's Table 109 `/Subtype`, written as the kind `font_subtypes::stated` read from the
     /// font's embedded program's filing under §9.9's Table 124 (ADR 3409).
     pub(super) fn state_font_subtype(

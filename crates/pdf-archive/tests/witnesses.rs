@@ -93,6 +93,14 @@ static WITNESSES: &[Witness] = &[
     },
     Witness {
         repository: "pdf.js",
+        path: "pdf.js/test/pdfs/issue7901.pdf",
+        rows: &["fonts/cidfonttype0-glyphs-selected-by-cid"],
+        why: "ISO 32000-2 section 9.7.4.2, at ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section \
+              6.2.10.2: a CIDFontType0 over a name-keyed CFF in an OpenType wrapper states a \
+              CIDToGIDMap stream (ADR 3446)",
+    },
+    Witness {
+        repository: "pdf.js",
         path: "pdf.js/test/pdfs/bug920426.pdf",
         rows: &["fonts/encoding-cmap-maps-codes-to-cids"],
         why: "ISO 32000-2 section 9.7.5.4 c), at ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 \

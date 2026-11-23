@@ -643,6 +643,13 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3, through ISO 32000-2
     /// §9.7.5.4 c); every code selects the CID it selected (ADR 3428).
     EncodingCmapRestated,
+    /// Every `CIDFontType0` whose name-keyed CFF program was reached through a `/CIDToGIDMap`
+    /// holds the CID-keyed program whose charset selects the same glyphs, filed as
+    /// `CIDFontType0C`, and states no map.
+    ///
+    /// ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2, through ISO 32000-2
+    /// §9.7.4.2; every CID draws the outline and the width it drew (ADR 3446).
+    CidKeyedProgramWritten,
     /// Every named resource entry ISO 19005 section 6.2.2's exemption takes out of the
     /// requirements, and whose name no content stream in the file states, is removed where the
     /// exemption withdrew a finding at what it reaches (ADR 3410).
@@ -1572,6 +1579,13 @@ impl Rewrite {
                  \u{a7}9.7.5.4 c) reserves for a ToUnicode CMap, states each mapping with \
                  begincidchar as the CID this reader read, so every code selects what it selected"
             }
+            Self::CidKeyedProgramWritten => {
+                "a CIDFontType0 whose name-keyed CFF program was reached through a CIDToGIDMap, \
+                 which ISO 32000-2 \u{a7}9.7.4.2 does not use for such a program, holds the \
+                 CID-keyed program whose charset gives each CID the glyph the map gave it, filed \
+                 as CIDFontType0C, and states no map; every CID draws the outline and the width it \
+                 drew"
+            }
             Self::CompactFontRealsRestated => {
                 "an embedded CFF program's DICT real that stated no digit states the zero this \
                  reader read it as, in the same bytes, so every other byte of the program and \
@@ -1965,6 +1979,7 @@ impl Rewrite {
             Self::FontSubtypeStated => "font-subtype-stated",
             Self::CompactFontRealsRestated => "compact-font-reals-restated",
             Self::EncodingCmapRestated => "encoding-cmap-restated",
+            Self::CidKeyedProgramWritten => "cid-keyed-program-written",
             Self::UnreferencedResourceRemoved => "unreferenced-resource-removed",
             Self::BaseFontNamed => "base-font-named",
             Self::PacketHeaderAttributes => "packet-header-attributes",
@@ -2203,6 +2218,7 @@ impl<'a> Rewriter<'a> {
             font_subtypes: prepared.owed.font_subtypes.as_ref().ok(),
             compact_reals: prepared.owed.compact_reals.as_ref().ok(),
             encoding_cmaps: prepared.owed.encoding_cmaps.as_ref().ok(),
+            cid_keyed_programs: prepared.owed.cid_keyed_programs.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
             collections: prepared.owed.collections.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
@@ -3235,6 +3251,8 @@ struct Rewriter<'a> {
     compact_reals: Option<&'a super::compact_reals::Restated>,
     /// The `Encoding` `CMap`s whose `bfchar` sections are restated as `cidchar` (ADR 3428).
     encoding_cmaps: Option<&'a super::encoding_cmaps::Restated>,
+    /// The `CIDFontType0` programs written CID-keyed, and the `CIDFont`s whose map goes (ADR 3446).
+    cid_keyed_programs: Option<&'a super::cid_keyed_programs::Rekeyed>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The `/CIDSystemInfo` each `CIDFont` whose collection is restated states instead (ADR 2717).
@@ -3836,6 +3854,7 @@ impl Rewriter<'_> {
         changed |= self.state_font_type(id, out, applied);
         changed |= self.name_base_font(id, out, applied);
         changed |= self.state_font_subtype(id, out, applied);
+        changed |= self.remove_rekeyed_map(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);

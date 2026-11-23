@@ -230,6 +230,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/encoding-cmap-maps-codes-to-cids",
         answer: Answer::Mechanical(Rewrite::EncodingCmapRestated),
     },
+    // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through §9.7.4.2: a name-keyed
+    // CFF reached through a CIDToGIDMap written CID-keyed, its charset stating the map (ADR 3446).
+    Remedy {
+        requirement: "fonts/cidfonttype0-glyphs-selected-by-cid",
+        answer: Answer::Mechanical(Rewrite::CidKeyedProgramWritten),
+    },
     Remedy {
         requirement: "fonts/compact-font-reals-state-a-number",
         answer: Answer::Mechanical(Rewrite::CompactFontRealsRestated),

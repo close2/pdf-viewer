@@ -168,6 +168,15 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_dictionary_states_type_font),
     },
     Requirement {
+        id: "fonts/cidfonttype0-glyphs-selected-by-cid",
+        asks: "A CIDFontType0 whose embedded CFF program does not use CIDFont operators shall \
+               not state a CIDToGIDMap stream, since the base standard selects its glyphs by \
+               CID alone and the map would select others.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(cidfonttype0_glyphs_selected_by_cid),
+    },
+    Requirement {
         id: "fonts/compact-font-reals-state-a-number",
         asks: "Every real operand of an embedded Compact Font Format program's Top, Font and \
                Private DICTs shall state a number, as the format's specification encodes one.",
@@ -767,6 +776,63 @@ fn font_dictionary_states_its_subtype(exam: &Examination<'_>, findings: &mut Fin
             ),
         };
         findings.record(site.place_named("Subtype"), said);
+    });
+}
+
+/// Every `CIDFontType0` whose CFF program, bare or under `/OpenType`, is name-keyed and which
+/// states a `/CIDToGIDMap` stream.
+///
+/// ISO 32000-2 §9.7.4.2 selects such a font's glyph by the CID alone:
+///
+/// > The "CFF" font program has a Top DICT that does not use CIDFont operators: The CIDs shall
+/// > be used directly as GID values, and the glyph procedure shall be retrieved using the
+/// > CharStrings INDEX (refer to Adobe Technical Note #5177, The Type 2 Charstring Format ).
+///
+/// and Table 115 gives `/CIDToGIDMap` to a Type 2 `CIDFont`. This reader draws such a font
+/// through the map all the same (`pdf_font`'s `composite::cid_to_glyph` argues why), so the
+/// glyph the page shows is one the clause does not select, and the widths ISO 19005-2 section
+/// 6.2.11.5 compares are read from two glyphs by two readings. ISO 19005-2 section 6.2.11.2 and
+/// ISO 19005-4 section 6.2.10.2 hold the font to the base standard's font clauses, which is where
+/// this is recorded (`issue7901`, ADR 3446).
+fn cidfonttype0_glyphs_selected_by_cid(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut read = BTreeSet::new();
+    for_each_font(exam, |_, font| {
+        if subtype(document, font).as_deref() != Some("Type0") {
+            return;
+        }
+        let Some((Some(id), cidfont)) = descendant(document, font) else {
+            return;
+        };
+        if subtype(document, &cidfont).as_deref() != Some("CIDFontType0") || !read.insert(id) {
+            return;
+        }
+        if !matches!(document.get_key(&cidfont, "CIDToGIDMap"), Object::Stream(_)) {
+            return;
+        }
+        let Some((key, at)) =
+            descriptor(document, &cidfont).and_then(|d| embedded_under(document, &d))
+        else {
+            return;
+        };
+        let Object::Stream(stream) = document.get(at) else {
+            return;
+        };
+        let Some(data) = document
+            .decoded_stream_data(&stream)
+            .filter(|_| key == "FontFile3")
+        else {
+            return;
+        };
+        if pdf_font::cff::name_keyed_cff(&data).is_some() {
+            findings.record(
+                Where::object(id).named("CIDToGIDMap"),
+                "a CIDFontType0 whose CFF program does not use CIDFont operators states a \
+                 CIDToGIDMap stream, where ISO 32000-2 section 9.7.4.2 uses the CIDs directly \
+                 as glyph indices"
+                    .to_owned(),
+            );
+        }
     });
 }
 
@@ -4058,9 +4124,10 @@ mod tests {
     use super::{
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
-        cmap_embedded_or_predefined, compact_font_reals_state_a_number, consistent,
-        descendant_fonts_holds_one_cidfont, embedded_cmap_states_its_own_write_mode,
-        encoding_cmap_maps_codes_to_cids, font_dictionary_states_type_font, font_programs_embedded,
+        cidfonttype0_glyphs_selected_by_cid, cmap_embedded_or_predefined,
+        compact_font_reals_state_a_number, consistent, descendant_fonts_holds_one_cidfont,
+        embedded_cmap_states_its_own_write_mode, encoding_cmap_maps_codes_to_cids,
+        font_dictionary_states_type_font, font_programs_embedded,
         font_programs_filed_by_their_format, glyph_procedure_width, is_private_use,
         no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
@@ -4311,6 +4378,51 @@ mod tests {
                 .iter()
                 .all(|found| !found.contains("does not decode whole")),
             "{whole:?}"
+        );
+    }
+
+    /// A Type 0 font whose `CIDFontType0` holds a one-glyph name-keyed CFF and states `map` as
+    /// its `/CIDToGIDMap`.
+    fn cidfonttype0_with_map(map: &str) -> Document {
+        // Header, Name INDEX ("F"), Top DICT INDEX (`25 CharStrings`), empty String and Global
+        // Subr INDEXes, and a CharStrings INDEX of one `endchar` (Adobe Technical Note #5176).
+        let cff = "01000401 000101010246 00010101071D0000001911 0000 0000 00010101020E>";
+        let stream = "00000001>";
+        page_with(
+            "BT /F1 12 Tf <0001> Tj ET",
+            &format!(
+                "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H \
+                 /DescendantFonts [6 0 R] >>\nendobj\n\
+                 6 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /F /CIDSystemInfo \
+                 << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R \
+                 /CIDToGIDMap {map} >>\nendobj\n\
+                 7 0 obj\n<< /Type /FontDescriptor /FontName /F /Flags 4 /FontBBox [0 0 1 1] \
+                 /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile3 9 0 R \
+                 >>\nendobj\n\
+                 8 0 obj\n<< /Filter /ASCIIHexDecode /Length {} >>\nstream\n{stream}\n\
+                 endstream\nendobj\n\
+                 9 0 obj\n<< /Subtype /CIDFontType0C /Filter /ASCIIHexDecode /Length {} >>\n\
+                 stream\n{cff}\nendstream\nendobj\n",
+                stream.len(),
+                cff.len()
+            ),
+        )
+    }
+
+    #[test]
+    fn a_name_keyed_cidfonttype0_stating_a_map_is_reported_and_one_stating_identity_is_not() {
+        // ISO 32000-2 §9.7.4.2 uses such a program's CIDs directly as glyph indices (ADR 3446).
+        let mapped = findings(
+            &cidfonttype0_with_map("8 0 R"),
+            cidfonttype0_glyphs_selected_by_cid,
+        );
+        assert_eq!(mapped.len(), 1, "{mapped:?}");
+        assert_eq!(
+            findings(
+                &cidfonttype0_with_map("/Identity"),
+                cidfonttype0_glyphs_selected_by_cid
+            ),
+            Vec::<String>::new()
         );
     }
 

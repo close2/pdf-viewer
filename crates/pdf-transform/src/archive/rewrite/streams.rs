@@ -88,6 +88,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::EncodingCmapRestated);
             return Rewritten::Changed(restated.clone());
         }
+        // A name-keyed CFF written CID-keyed: new bytes, a new `/Filter` and a new `/Subtype`
+        // together, so a whole stream (ADR 3446).
+        if self.wants(Rewrite::CidKeyedProgramWritten)
+            && let Some(written) = self
+                .cid_keyed_programs
+                .and_then(|rekeyed| rekeyed.programs.get(&id))
+        {
+            count(applied, Rewrite::CidKeyedProgramWritten);
+            return Rewritten::Changed(written.clone());
+        }
         // The operator said the dictionary's writing mode stands, so the program's own entry is
         // restated: new bytes and a new `/Filter` together, so a whole stream (`doc/adr/1286`).
         if self.wants(Rewrite::WriteModeAgreed)

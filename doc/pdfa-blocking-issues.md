@@ -57,6 +57,33 @@ Three disagreements found outside it (ADR 2652 section 2):
 - 6.2.10.7 on `219789`'s part 4 output (ADR 3266): veraPDF and mupdf read a carriage return inside a literal string of page 53's damaged stream as code 13, where §7.3.4.2 treats an unescaped end-of-line marker in a literal string as 0Ah; this tree reads code 10, which has its empty glyph, so the standard reads for this tree.
 - 6.2.11.4.1 on `178360`'s `ICLJGJ+Glypha` was no disagreement: the 1009-byte `Type1C` program holds no `0x00` byte where a CFF's header and Name INDEX hold several, its Name INDEX counts 8193 names in the bytes of one, and this tree now fails it as veraPDF does and substitutes it (ADR 2636 decision 5); `178360` passes veraPDF at 2b and 4.
 
+Session 2186's triage of session 2181's 63 failing outputs, each document by the rule veraPDF
+failed (outputs of four: two profiles at two parts; ADRs 3445 to 3447). **Ours** is answered in this
+tree; **veraPDF's** is a reading the standard does not support, drafted upstream where the clause is
+held here (`doc/upstream/verapdf-1.30.3-departures.md`); **the document's** has no reading both
+programs share.
+
+| document | outputs | rule (veraPDF's object) | why this tree passed it | whose |
+|---|---|---|---|---|
+| `issue7901` | 4 | 6.2.11.5, 6.2.10.5 (Glyph) | the window drew through a `/CIDToGIDMap` §9.7.4.2 does not use for a name-keyed CFF | ours: new row, program written CID-keyed (ADR 3446) |
+| `T02-05-01_004`, `_008` | 4 each | 6.2.4.3-4 (DeviceGray) | text shown before any `Tf` was not counted as a use of the fill colour space | ours: counted (ADR 3445) |
+| `noembed-eucjp`, `noembed-jis7`, `issue11555` | 2 each | 6.2.11.3.1-1 (Type0) | the CIDFont's Supplement is at least the CMap's, as the clause asks | veraPDF's: the profile compares `<=`; drafted (1) |
+| `calgray`, `calrgb` | 4 each | 6.2.2-1 (`re%`) | §7.2.3 makes `%` a delimiter | veraPDF's; drafted (2) |
+| `issue7872` | 2 | 6.1.13-11 (box) | §7.3.10 admits indirect numbers as a rectangle's elements | veraPDF's; drafted (3) |
+| `issue3566` | 4 | 6.2.11.5, 6.2.10.5, 6.2.10.7 | TN 5176's supplement gives code 174 SID 266 `ff`, 599.53 against 599 | veraPDF's; drafted (4) |
+| `issue7769` | 4 | 6.2.11.5, 6.2.11.4.1-2 | `lenIV -1`: the charstrings are not encrypted, and veraPDF's −20 and 0 are what decrypting them gives | veraPDF's; the Type 1 specification is not held here |
+| `issue14881` | 4 | 6.2.11.5, 6.2.11.4.1-2 | its only `cmap` subtables are format 12, (3,1) and (1,0); widths 722, 556, 611, 889 agree | veraPDF's (every code its 750-unit `.notdef`); the `cmap` specification is not held here |
+| `facct2025-final168` | 2 | 6.2.11.4.2-1 (CharSet) | the `/CharSet` names exactly the 41 glyphs the program's `CharStrings` hold | veraPDF's; its cause inside veraPDF not found |
+| `029016` | 4 | 6.2.2-1 (inline image) | the samples' length is fixed by §8.9.7's width, height and depth, past an `EI` inside them | veraPDF's (no `/L` in a part 2 file); not drafted |
+| `AIAA-2005-6173-712` | 4 | 6.2.11.5, 6.2.10.5 | section 8's shared substituted face, code 45 `/minus` read as `hyphen` | veraPDF's (section 8) |
+| `219789` | 1 | 6.2.10.7 | a carriage return in a literal string is 0Ah (§7.3.4.2, ADR 3266) | veraPDF's (above) |
+| `issue19326` | 4 | 6.2.8.3, 6.2.7.3 (JPEG 2000) | the codestream header, filed upstream as veraPDF-library #1666 | veraPDF's (below) |
+| `issue14462_reduced` | 4 | 6.2.11.4.1-1 | the program is measured whole; veraPDF fails inside its Private dictionary (ADR 3375) | the document's: the program's own content |
+| `PDFBOX-3148-2-fuzzed` | 4 | 6.2.4.3-4 (DeviceGray) | the widget appearance is `ASCII85Decode` data with no `~>`: this reader decodes `/Tx `, veraPDF `/Tx B` | the document's: §7.4.3 defines a final partial group only before the EOD; restating the stream as the bytes decoded is a remedy not built |
+
+Session 2186's census of its own kept outputs: 5516 written as conforming, veraPDF 1.30.3 failed
+51 outputs of 16 documents over 16 rules, 20 unfinished; `issue7901`, `T02-05-01_004` and `_008`
+left the list (ADRs 3445, 3446), and nothing entered it.
 Session 2177's census of its own kept outputs: 5516 written as conforming, veraPDF 1.30.3 failed
 79 outputs of 23 documents over 18 rules, 20 unfinished; `T02-04-01_005`, `PDFBOX-4532-reduced` and
 `extgstate` left the list (ADRs 3409 to 3411), and nothing entered it.
@@ -82,12 +109,10 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
   `/FontFile3` (`bug866395`), ours, now a program the file does not hold and given a face (ADR
   3427); `bug920426`'s Encoding CMap mapping by `beginbfchar`, 6.2.11.4.1 and 6.2.11.8, a row and
   the same mappings restated with `begincidchar` (ADR 3428); and the exemption now counts a form
-  stating no `/Resources` against the page it is drawn on (`issue6541`, ADR 3425). Not reached
-  (ADR 3428 item 2): `issue7901`'s `/W` read through a `CIDToGIDMap` on a `CIDFontType0`,
-  6.2.11.5, where §9.7.4.2 uses the CIDs as glyph indices; the remedy is a CID-keyed rewrite of
-  the program whose charset states the map, not built. DeviceGray under no intent where text is shown
-  with no font (`T02-05-01_004`, `_008`) or a corrupt appearance stream (`PDFBOX-3148-2-fuzzed`),
-  6.2.4.3, undetermined.
+  stating no `/Resources` against the page it is drawn on (`issue6541`, ADR 3425). Answered by session 2186:
+  `issue7901`'s name-keyed CFF reached through a `CIDToGIDMap`, a row and the program written
+  CID-keyed (ADR 3446); text shown with no font selected, now a use of the fill colour space
+  (`T02-05-01_004`, `_008`, ADR 3445).
 - **veraPDF's reading**: undescribed XMP properties in the metadata of a named resource no
   content stream references (`PDFBOX-4532-reduced`, 6.6.2.3.1), which section 6.2.2's exemption
   takes out of the requirement; the converter now removes such an entry where the exemption
@@ -97,9 +122,8 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
   not honoured (`issue7769`), 6.2.11.5 and 6.2.11.4.1; a CFF encoding supplement read as a glyph
   index rather than TN 5176's SID (`issue3566`), 6.2.10.5 and 6.2.10.7; box elements written as
   indirect references (§7.3.10, `issue7872`), 6.1.13; the supplement comparison of 6.2.11.3.1 read
-  the other way (`issue11555`, `noembed-eucjp`, `noembed-jis7`), to be confirmed against `doc/pdfa`;
-  and the two known cases (`219789`, `issue19326`). Undetermined: `AIAA-2005-6173-712`,
-  `facct2025-final168`.
+  the other way (`issue11555`, `noembed-eucjp`, `noembed-jis7`), confirmed against `doc/pdfa`;
+  and the two known cases (`219789`, `issue19326`). Session 2186's table above settles the rest.
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|

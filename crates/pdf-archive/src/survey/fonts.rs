@@ -33,6 +33,14 @@ impl Walk<'_> {
             return;
         }
         let Some(name) = state.font.clone() else {
+            // No `Tf` has run, so ISO 32000-2 §9.3.1's font parameter has no value and this
+            // reader draws no glyph. The operator still paints in the colour space in force:
+            // ISO 19005-2 and ISO 19005-4 section 6.2.4.3 restrict the colour space a painting
+            // operator uses, not the marks one reader salvages from it, and a reader that
+            // supplies a face of its own paints in it (`doc/adr/3445`).
+            let fills = matches!(state.mode, 0 | 2 | 4 | 6);
+            let strokes = matches!(state.mode, 1 | 2 | 5 | 6);
+            self.paint(fills, strokes, state, context);
             return;
         };
         // Mode 3 alone is exempt: mode 7 adds the glyphs to the clipping path, which is a mark

@@ -416,8 +416,12 @@ mod stretched;
 
 #[path = "cff_reals.rs"]
 mod reals;
+
+#[path = "cff_rekeyed.rs"]
+mod rekeyed;
 pub use cids_given::{CidToGive, MOST_CID_BYTES_GIVEN, highest_cid, with_cids_given};
 pub use reals::{DictKind, DigitlessReal, digitless_reals, with_digitless_reals_restated};
+pub use rekeyed::{cid_keyed_by_map, name_keyed_cff};
 pub use stretched::with_outlines_scaled;
 
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.

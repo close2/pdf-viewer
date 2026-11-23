@@ -2835,6 +2835,25 @@ mod tests {
         );
     }
 
+    /// A text-showing operator run before any `Tf` uses the fill colour space as it would with a
+    /// font (`doc/adr/3445`): section 6.2.4.3 asks which space an operator paints in, and mode
+    /// 3, which paints nothing, uses none.
+    #[test]
+    fn text_shown_with_no_font_selected_uses_the_fill_colour_space() {
+        for (content, used) in [("BT (a) Tj ET", true), ("BT 3 Tr (a) Tj ET", false)] {
+            let document = page_with(content, "", &[]);
+            let survey = Survey::of(&document);
+            assert_eq!(
+                survey
+                    .device_colours()
+                    .iter()
+                    .any(|colour| colour.family == DeviceFamily::Gray),
+                used,
+                "{content}"
+            );
+        }
+    }
+
     /// A font is recorded only where a show operator ran with it, which is the population
     /// `super::super::table::fonts`' embedding rule needs.
     #[test]

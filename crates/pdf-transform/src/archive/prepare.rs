@@ -1980,6 +1980,7 @@ impl Prepared {
             Rewrite::FontSubtypeStated => self.owed.font_subtypes.as_ref().err().copied(),
             Rewrite::CompactFontRealsRestated => self.owed.compact_reals.as_ref().err().copied(),
             Rewrite::EncodingCmapRestated => self.owed.encoding_cmaps.as_ref().err().copied(),
+            Rewrite::CidKeyedProgramWritten => self.owed.cid_keyed_programs.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::CollectionRestated => self.owed.collections.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
@@ -2299,6 +2300,8 @@ pub(super) struct Owed {
     pub(super) compact_reals: Result<super::compact_reals::Restated, Because>,
     /// The `Encoding` `CMap`s restated with `begincidchar`, or why none are (ADR 3428).
     pub(super) encoding_cmaps: Result<super::encoding_cmaps::Restated, Because>,
+    /// The `CIDFontType0` programs written CID-keyed, or why none are (ADR 3446).
+    pub(super) cid_keyed_programs: Result<super::cid_keyed_programs::Rekeyed, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The `CIDFont`s whose `/CIDSystemInfo` is restated as their `CMap`'s, or why none is
@@ -2462,6 +2465,9 @@ impl Owed {
             }),
             encoding_cmaps: asked(wanted(Rewrite::EncodingCmapRestated), || {
                 super::encoding_cmaps::restated(document, input)
+            }),
+            cid_keyed_programs: asked(wanted(Rewrite::CidKeyedProgramWritten), || {
+                super::cid_keyed_programs::rekeyed(document, input)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, truetype_input, spare)

@@ -140,6 +140,7 @@ mod base;
 mod base_font_names;
 mod boundaries;
 mod census;
+mod cid_keyed_programs;
 mod cmaps;
 mod collections;
 mod compact_reals;
