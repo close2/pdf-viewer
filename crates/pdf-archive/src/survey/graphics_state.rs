@@ -18,8 +18,32 @@ impl Walk<'_> {
             return;
         };
         state.transparency = self.transparency(&dict, state.transparency);
+        self.font_set_by(&dict, name, state);
         self.overprint(&dict, entry.as_reference(), state);
         self.soft_mask(&dict, context);
+    }
+
+    /// ISO 32000-2 §8.4.5's Table 57 `/Font`: an array of a font and a size whose two elements
+    /// correspond to `Tf`'s operands, so a glyph shown after the `gs` is shown in that font and
+    /// the font is used for rendering like one a `Tf` selects (ADR 3411). The first element is a
+    /// reference to the font dictionary itself, where `Tf` names a resource.
+    fn font_set_by(&self, dict: &Dictionary, name: &[u8], state: &mut State) {
+        let Some(elements) = self
+            .document
+            .get_key(dict, "Font")
+            .as_array()
+            .map(<[Object]>::to_vec)
+        else {
+            return;
+        };
+        let Some(first) = elements.first() else {
+            return;
+        };
+        let Object::Dictionary(font) = self.document.resolve(first) else {
+            return;
+        };
+        state.font = None;
+        state.font_set_by_gs = Some((font, first.as_reference(), name.to_vec()));
     }
 
     /// The transparency group of the soft mask a `gs` sets, walked as the content it is.

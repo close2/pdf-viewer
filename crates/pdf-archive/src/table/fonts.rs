@@ -168,6 +168,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_dictionary_states_type_font),
     },
     Requirement {
+        id: "fonts/font-dictionary-states-its-subtype",
+        asks: "Every font dictionary and CIDFont dictionary shall state its Subtype entry as one \
+               of the names the base standard's font dictionary tables give it.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(font_dictionary_states_its_subtype),
+    },
+    Requirement {
         id: "fonts/base-font-is-a-name",
         asks: "Every font dictionary and CIDFont dictionary that states BaseFont shall state it \
                as a name, the type each of the base standard's font dictionary tables gives the \
@@ -686,6 +694,63 @@ fn font_dictionary_states_type_font(exam: &Examination<'_>, findings: &mut Findi
                 .to_owned(),
         };
         findings.record(site.place_named("Type"), said);
+    });
+}
+
+/// The `/Subtype` values the base standard's font dictionary tables state: Table 109's `Type1`
+/// and `MMType1` (§9.6.2.1, §9.6.2.3), Table 110's `Type3`, §9.6.3's `TrueType`, Table 115's two
+/// `CIDFont` kinds and Table 119's `Type0`.
+const FONT_SUBTYPES: [&str; 7] = [
+    "Type1",
+    "MMType1",
+    "Type3",
+    "TrueType",
+    "CIDFontType0",
+    "CIDFontType2",
+    "Type0",
+];
+
+/// Every font dictionary that states no `/Subtype`, or one no font dictionary table names.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109, §9.6.4's Table 110, §9.7.4.1's Table 115 and §9.7.6.1's
+/// Table 119 each make `/Subtype` required, and the value is what says which of them describes
+/// the dictionary at all: which program it may embed, how its codes are read, which entries it
+/// owes. ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 hold every font to those
+/// clauses. The population is the one the other font rows read, by `/Type` or by position
+/// (`doc/adr/2608`) save one that is a font by its `/Type` alone, so a dictionary standing in a
+/// `/Font` resource dictionary that states nothing else is judged here: no other row can, because
+/// each asks a question only its kind answers (ADR 3409).
+fn font_dictionary_states_its_subtype(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let by_position = exam.fonts_by_position();
+    for_each_font(exam, |site, font| {
+        // A dictionary that is a font only by its `/Type` — a catalog or a page that states
+        // `/Type /Font` — is the misnamed dictionary another row reports, not a font of no kind.
+        if site.own && !by_position.contains(&site.object.number) {
+            return;
+        }
+        let stated = document.get_key(font, "Subtype");
+        let said = match (stated.as_name(), &stated) {
+            (Some(name), _) => {
+                let name = String::from_utf8_lossy(name.as_bytes());
+                if FONT_SUBTYPES.contains(&name.as_ref()) {
+                    return;
+                }
+                format!(
+                    "a font dictionary states the Subtype {name}, which none of the base \
+                     standard's font dictionary tables names"
+                )
+            }
+            (None, Object::Null) => "a font dictionary states no Subtype entry, which each of \
+                                     the base standard's font dictionary tables requires"
+                .to_owned(),
+            (None, other) => format!(
+                "a font dictionary states Subtype as a {} where the base standard's font \
+                 dictionary tables require a name",
+                other.type_name()
+            ),
+        };
+        findings.record(site.place_named("Subtype"), said);
     });
 }
 
@@ -1453,9 +1518,10 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
         if !used.rendered {
             continue;
         }
-        let Some(subtype) = subtype(document, &used.dict) else {
-            continue;
-        };
+        // A font stating no `/Subtype` is no Type 3 font, the one kind whose glyphs are in the
+        // file by construction, so it owes a program like any other; what it is otherwise is
+        // `fonts/font-dictionary-states-its-subtype`'s finding (ADR 3409).
+        let subtype = subtype(document, &used.dict).unwrap_or_default();
         if subtype == "Type3" {
             continue;
         }

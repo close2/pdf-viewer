@@ -268,6 +268,7 @@ impl Walk<'_> {
             Operator::SetFont => {
                 if let Some(name) = operands.first() {
                     state.font = Some(name.clone());
+                    state.font_set_by_gs = None;
                     // §9.3.1's `Tf` is where the font resource is selected; what this walk
                     // *judges* is recorded at the text-showing operator ([`Walk::select`]),
                     // and the ledger keeps both so that the interpreter's `Tf` has a twin.

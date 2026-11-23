@@ -63,7 +63,7 @@ pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, MAX_NAMED, MAX_PLACE_NAME_BYTES, Named, Where};
 pub use crate::pages_held::NoPageHeld;
-pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
+pub use crate::reach::{Arrival, CutEntry, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
@@ -116,10 +116,10 @@ pub fn check(document: &Document, target: Target) -> Report {
 /// One requirement, applied.
 fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement {
     let target = examination.target;
-    let (outcome, named) = match requirement.check {
-        Check::Unchecked(why) => (Outcome::Unchecked(why), Named::default()),
-        Check::Processor(why) => (Outcome::Processor(why), Named::default()),
-        Check::OutsideValidation(why) => (Outcome::OutsideValidation(why), Named::default()),
+    let (outcome, named, withdrawn) = match requirement.check {
+        Check::Unchecked(why) => (Outcome::Unchecked(why), Named::default(), 0),
+        Check::Processor(why) => (Outcome::Processor(why), Named::default(), 0),
+        Check::OutsideValidation(why) => (Outcome::OutsideValidation(why), Named::default(), 0),
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);
@@ -134,6 +134,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
             // document with none, which is most of them, pays one walk and no second predicate.
             // `Findings::named_an_object` carries the measurement that makes the second of those
             // three tests worth making.
+            let mut withdrawn = 0;
             if !findings.met()
                 && findings.named_an_object()
                 && reach::exemption_narrows(requirement.clauses, target)
@@ -141,10 +142,11 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
             {
                 let mut narrowed = Findings::exempting(examination.exempt().shared());
                 predicate(examination, &mut narrowed);
+                withdrawn = findings.seen().saturating_sub(narrowed.seen());
                 findings = narrowed;
             }
             if findings.met() {
-                (Outcome::Met, Named::default())
+                (Outcome::Met, Named::default(), withdrawn)
             } else {
                 (
                     Outcome::Failed {
@@ -152,6 +154,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
                         total: findings.seen(),
                     },
                     findings.named().clone(),
+                    withdrawn,
                 )
             }
         }
@@ -169,5 +172,6 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
         asks: requirement.asks,
         outcome,
         named,
+        withdrawn,
     }
 }

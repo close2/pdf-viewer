@@ -102,7 +102,7 @@ def remedy(kind, site, why):
     if site in ("fonts/font-programs-filed-by-their-format", "fonts/cid-to-gid-map-present",
                 "fonts/descendant-fonts-holds-one-cidfont", "fonts/widths-agree-with-the-program",
                 "fonts/font-dictionary-states-type-font", "fonts/simple-font-states-its-widths",
-                "fonts/base-font-is-a-name"):
+                "fonts/base-font-is-a-name", "fonts/font-dictionary-states-its-subtype"):
         return "R10-font-refiling"
     if site in ("fonts/truetype-codes-reach-glyphs-by-the-standard-route", "fonts/symbolic-truetype-states-no-encoding",
                 "fonts/non-symbolic-truetype-uses-a-standard-encoding"):

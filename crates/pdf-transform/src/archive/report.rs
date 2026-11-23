@@ -1035,6 +1035,10 @@ pub struct Conversion {
     /// asks a removal to be named: an attachment that is gone leaves nothing in the output to
     /// notice, so the report says which file it was. The name is §7.11.3's `/UF`, or its `/F`.
     pub removed_files: Vec<String>,
+    /// Every named resource entry no content stream names that this conversion took out, because
+    /// ISO 19005 section 6.2.2's exemption withdrew a finding at what it reached (ADR 3410): the
+    /// resource name and the object it was written in.
+    pub removed_unreferenced_resources: Vec<String>,
     /// What became of each embedded file an embedded-file requirement failed at, one entry per
     /// file (`doc/adr/2536`).
     pub attachments: Vec<AttachmentOutcome>,
@@ -1525,6 +1529,15 @@ impl Conversion {
                     self.attachments
                         .iter()
                         .map(AttachmentOutcome::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_unreferenced_resources".to_owned(),
+                Value::Array(
+                    self.removed_unreferenced_resources
+                        .iter()
+                        .map(|entry| Value::text(entry.clone()))
                         .collect(),
                 ),
             ),
@@ -2125,6 +2138,17 @@ impl Conversion {
                         super::Loss::FieldAppearances.word()
                     );
                 }
+            }
+        }
+        if !self.removed_unreferenced_resources.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} named resource(s) no content stream names, exempt under ISO 19005 section \
+                 6.2.2, are no longer in the document:",
+                self.removed_unreferenced_resources.len()
+            );
+            for entry in &self.removed_unreferenced_resources {
+                let _ = writeln!(out, "      {entry}");
             }
         }
         if !self.removed_files.is_empty() {

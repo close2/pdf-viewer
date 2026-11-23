@@ -1185,6 +1185,10 @@ impl Survey {
 struct State {
     /// The resource name of the current font, from `Tf`.
     font: Option<Vec<u8>>,
+    /// The current font where the last to set it was a `gs` whose graphics state states `/Font`
+    /// (ISO 32000-2 §8.4.5's Table 57), with the name of that graphics state resource: the
+    /// dictionary, and its object where it is one. A later `Tf` clears it (ADR 3411).
+    font_set_by_gs: Option<(Dictionary, Option<ObjectId>, Vec<u8>)>,
     /// ISO 32000-2 §9.3.6's text rendering mode, from `Tr`.
     mode: i64,
     /// Whether `Tc` set a character spacing other than zero (§9.3.2).

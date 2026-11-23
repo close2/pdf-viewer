@@ -938,6 +938,52 @@ impl Rewriter<'_> {
         changed
     }
 
+    /// The named resource entries `unreferenced::removal` found, removed from the object each is
+    /// written in (ADR 3410).
+    pub(super) fn remove_unreferenced_resources(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(entries) = self
+            .unreferenced
+            .filter(|_| self.wants(Rewrite::UnreferencedResourceRemoved))
+            .and_then(|removal| removal.at.get(&id))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for (through, name) in entries {
+            if let Some(without) = super::super::unreferenced::without(out, through, name) {
+                *out = without;
+                count(applied, Rewrite::UnreferencedResourceRemoved);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// §9.6.2.1's Table 109 `/Subtype`, written as the kind `font_subtypes::stated` read from the
+    /// font's embedded program's filing under §9.9's Table 124 (ADR 3409).
+    pub(super) fn state_font_subtype(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(kind) = self
+            .font_subtypes
+            .filter(|_| self.wants(Rewrite::FontSubtypeStated))
+            .and_then(|stated| stated.subtypes.get(&id))
+        else {
+            return false;
+        };
+        out.insert(Name::new(&b"Subtype"[..]), Object::Name(kind.clone()));
+        count(applied, Rewrite::FontSubtypeStated);
+        true
+    }
+
     /// §8.6.5.6's `/DefaultCMYK` and `/DefaultRGB`, each written wherever [`DefaultSites`] found
     /// a place for it, where this conversion writes it.
     ///

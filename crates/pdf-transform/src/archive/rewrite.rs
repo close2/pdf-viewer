@@ -623,6 +623,20 @@ pub enum Rewrite {
     /// decided by the tables and the dictionary's position, never by this converter
     /// (`doc/adr/2608`).
     FontTypeStated,
+    /// Every font dictionary that states no `/Subtype` the font tables name, and embeds a program,
+    /// states the kind §9.9's Table 124 files that program under.
+    ///
+    /// ISO 32000-2 §9.6.2.1's Table 109, §9.6.4's Table 110, §9.7.4.1's Table 115 and §9.7.6.1's
+    /// Table 119 each make the entry required; a font embedding no program is given the kind of
+    /// the face the substitution embeds for it, by that route (ADR 3409).
+    FontSubtypeStated,
+    /// Every named resource entry ISO 19005 section 6.2.2's exemption takes out of the
+    /// requirements, and whose name no content stream in the file states, is removed where the
+    /// exemption withdrew a finding at what it reaches (ADR 3410).
+    ///
+    /// No requirement asks for it: the clause makes such a resource one not used for rendering, so
+    /// removing it changes no mark, and the objects only it reached are no longer written.
+    UnreferencedResourceRemoved,
     /// Every font dictionary whose `/BaseFont` is no name states the PostScript name its embedded
     /// `sfnt` program states, and its descriptor's `/FontName` the same where that is no name
     /// either.
@@ -1535,6 +1549,16 @@ impl Rewrite {
                  which stated no Type or another name there, states Type Font, the one value ISO \
                  32000-2 \u{a7}9.6.2.1's Table 109 and the three font tables beside it admit"
             }
+            Self::UnreferencedResourceRemoved => {
+                "a named resource entry that no content stream in the file names, which ISO 19005 \
+                 section 6.2.2 makes not used for rendering and exempt, is removed with what only \
+                 it reached; nothing on a page draws it"
+            }
+            Self::FontSubtypeStated => {
+                "a font dictionary that stated no Subtype, or one no font dictionary table names, \
+                 states the kind its embedded program is filed as under ISO 32000-2 \u{a7}9.9's \
+                 Table 124, or the kind of the face embedded for it"
+            }
             Self::BaseFontNamed => {
                 "a font dictionary that stated BaseFont as something other than a name states the \
                  PostScript name its embedded program states, which ISO 32000-2 \u{a7}9.6.3 makes \
@@ -1915,6 +1939,8 @@ impl Rewrite {
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::FontTypeStated => "font-type-stated",
+            Self::FontSubtypeStated => "font-subtype-stated",
+            Self::UnreferencedResourceRemoved => "unreferenced-resource-removed",
             Self::BaseFontNamed => "base-font-named",
             Self::PacketHeaderAttributes => "packet-header-attributes",
             Self::NeedsRendering => "needs-rendering",
@@ -2149,6 +2175,7 @@ impl<'a> Rewriter<'a> {
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
             font_types: prepared.owed.font_types.as_ref().ok(),
             base_font_names: prepared.owed.base_font_names.as_ref().ok(),
+            font_subtypes: prepared.owed.font_subtypes.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
             collections: prepared.owed.collections.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
@@ -2172,6 +2199,7 @@ impl<'a> Rewriter<'a> {
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
             actual_texts: prepared.actual_texts.as_ref().ok(),
+            unreferenced: prepared.unreferenced.as_ref(),
             type3_widths: prepared.type3_widths.as_ref().ok(),
             inline_smoothing: prepared.inline_smoothing.as_ref().ok(),
         }
@@ -3174,6 +3202,8 @@ struct Rewriter<'a> {
     font_types: Option<&'a sites::FontTypeSites>,
     /// The fonts and descriptors given their program's PostScript name (ADR 3395).
     base_font_names: Option<&'a super::base_font_names::Restated>,
+    /// The kinds `font_subtypes::stated` read from each font's program (ADR 3409).
+    font_subtypes: Option<&'a super::font_subtypes::Stated>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The `/CIDSystemInfo` each `CIDFont` whose collection is restated states instead (ADR 2717).
@@ -3224,6 +3254,8 @@ struct Rewriter<'a> {
     boundaries: Option<&'a super::boundaries::Boundaries>,
     /// The `/ActualText` entries removed (`super::actual_text`).
     actual_texts: Option<&'a super::actual_text::Removed>,
+    /// The named resource entries section 6.2.2's exemption withdrew findings at (ADR 3410).
+    unreferenced: Option<&'a super::unreferenced::Removal>,
     /// The Type 3 glyph procedures written with their fonts' widths, and the fonts given a
     /// `/CharProcs` naming a copy (`super::type3_widths`).
     type3_widths: Option<&'a super::type3_widths::Restated>,
@@ -3406,6 +3438,7 @@ impl Rewriter<'_> {
         changed |= self.restate_languages(id, &mut out);
         changed |= self.preserve(id, &mut out, applied);
         changed |= self.remove_the_actions(id, &mut out);
+        changed |= self.remove_unreferenced_resources(id, &mut out, applied);
         if Some(id) == self.sites.names
             && self.wants(Rewrite::AlternatePresentations)
             && out.remove("AlternatePresentations").is_some()
@@ -3771,6 +3804,7 @@ impl Rewriter<'_> {
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.state_font_type(id, out, applied);
         changed |= self.name_base_font(id, out, applied);
+        changed |= self.state_font_subtype(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);

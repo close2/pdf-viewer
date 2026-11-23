@@ -1296,6 +1296,7 @@ mod tests {
                     total: findings.seen(),
                 },
                 named: findings.named().clone(),
+                withdrawn: 0,
             }],
         }
     }

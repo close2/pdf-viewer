@@ -412,6 +412,9 @@ pub(super) struct Prepared {
     /// The objects whose `/ActualText` holds a Private Use character, or why they are not
     /// answered by its removal (ISO 19005-4 section 6.2.10.8, `doc/adr/2889`).
     pub(super) actual_texts: Result<super::actual_text::Removed, Because>,
+    /// The named resource entries section 6.2.2's exemption withdrew findings at, to be removed,
+    /// or `None` where it withdrew none (ADR 3410).
+    pub(super) unreferenced: Option<super::unreferenced::Removal>,
     /// The Type 3 glyph procedures written with their fonts' widths, or why they are not (ISO
     /// 19005-4 section 6.2.10.5, `doc/adr/2907`).
     pub(super) type3_widths: Result<super::type3_widths::Restated, Because>,
@@ -1833,7 +1836,16 @@ impl Prepared {
             defined_resources,
             truetype,
             undecodable,
+            substitutes: substitutes.as_ref().ok(),
         };
+        let owed = Owed::of(
+            plan,
+            document,
+            (input, truetype_input),
+            &mut spare,
+            &failed,
+            already,
+        );
         Self {
             raised,
             replaced_destination,
@@ -1856,14 +1868,7 @@ impl Prepared {
             metrics,
             structure,
             signatures: signatures_if_rewritten(document, source, input),
-            owed: Owed::of(
-                plan,
-                document,
-                (input, truetype_input),
-                &mut spare,
-                &failed,
-                already,
-            ),
+            owed,
             ended_by_retyping,
             smoothing_recorded,
             halftone_names_recorded,
@@ -1877,6 +1882,7 @@ impl Prepared {
             external_data,
             boundaries,
             actual_texts,
+            unreferenced: super::unreferenced::removal(document, input, plan.target),
             type3_widths,
             inline_smoothing,
             type3_glyphs,
@@ -1971,6 +1977,7 @@ impl Prepared {
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::BaseFontNamed => self.owed.base_font_names.as_ref().err().copied(),
+            Rewrite::FontSubtypeStated => self.owed.font_subtypes.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::CollectionRestated => self.owed.collections.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
@@ -2284,6 +2291,8 @@ pub(super) struct Owed {
     pub(super) font_types: Result<sites::FontTypeSites, Because>,
     /// The fonts given their program's PostScript name, or why none are (ADR 3395).
     pub(super) base_font_names: Result<super::base_font_names::Restated, Because>,
+    /// The kind each font stating none is given from its program (ADR 3409).
+    pub(super) font_subtypes: Result<super::font_subtypes::Stated, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The `CIDFont`s whose `/CIDSystemInfo` is restated as their `CMap`'s, or why none is
@@ -2394,6 +2403,7 @@ impl Owed {
             defined_resources,
             truetype,
             undecodable,
+            substitutes,
         } = already;
         let TrueTypeRoutes {
             symbolic_encodings,
@@ -2437,6 +2447,9 @@ impl Owed {
             }),
             base_font_names: asked(wanted(Rewrite::BaseFontNamed), || {
                 super::base_font_names::restated(document, input)
+            }),
+            font_subtypes: asked(wanted(Rewrite::FontSubtypeStated), || {
+                super::font_subtypes::stated(document, input, substitutes)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, truetype_input, spare)
@@ -2554,6 +2567,9 @@ pub(super) struct Already<'a> {
     truetype: TrueTypeRoutes,
     /// The streams written absent, made before the packet that records them.
     undecodable: Result<super::undecodable::Undecodable, Because>,
+    /// What the font substitution wrote, where it ran: a font given a face is given its kind
+    /// there (ADR 3409).
+    substitutes: Option<&'a Substitutes>,
 }
 
 /// The preparations that put a rendered TrueType font's codes on §9.6.5.4's route.

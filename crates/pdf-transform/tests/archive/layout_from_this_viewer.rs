@@ -536,3 +536,133 @@ fn an_embedded_program_with_no_widths_is_written_at_the_windows_advances_under_t
         }
     }
 }
+
+/// `source` with its one `/Subtype /<subtype>` entry blanked to spaces of the same length, so that
+/// every cross-reference offset still holds and the font states no kind at all.
+fn without_its_subtype(mut source: Vec<u8>, subtype: &str) -> Vec<u8> {
+    let stated = format!("/Subtype /{subtype} ");
+    let at = source
+        .windows(stated.len())
+        .position(|window| window == stated.as_bytes())
+        .expect("the fixture states the font's kind");
+    let end = at.saturating_add(stated.len());
+    source[at..end].fill(b' ');
+    source
+}
+
+/// The kind the output's one font resource states.
+fn subtype_written(output: &[u8]) -> Option<Vec<u8>> {
+    let (held, font) = described_font(output);
+    held.get_key(&font, "Subtype")
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+}
+
+#[test]
+fn a_font_stating_no_subtype_is_given_the_kind_its_embedded_program_is_filed_as() {
+    // ISO 32000-2 §9.6.2.1's Table 109 makes `/Subtype` required, and §9.9's Table 124 files a
+    // TrueType program under `/FontFile2` for a `TrueType` font: the program's filing decides the
+    // kind, so that is the one written (ADR 3409).
+    let source = without_its_subtype(an_embedded_program_with_no_widths(), "TrueType");
+    let row = "fonts/font-dictionary-states-its-subtype";
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        assert!(
+            holds(&source, target)
+                .failures()
+                .any(|failed| failed.id == row),
+            "{target}: a font stating no kind fails the row before anything is converted"
+        );
+        let (report, output) = converted(&source, target);
+        assert_eq!(
+            decision(&report, row),
+            Decision::Mechanical(Rewrite::FontSubtypeStated),
+            "{target}"
+        );
+        assert_eq!(
+            subtype_written(&output),
+            Some(b"TrueType".to_vec()),
+            "{target}"
+        );
+    }
+}
+
+#[test]
+fn a_standard_font_stating_no_subtype_is_given_the_kind_of_the_face_embedded_for_it() {
+    // `T02-04-01_005`'s shape: a font naming `Times-Italic` and stating nothing else. No table
+    // describes it, so its layout is this viewer's (§9.6.2.2's fourteen are Type 1 fonts, and this
+    // states no kind), and the kind is the one the face embedded for it goes under (ADR 3409).
+    let source = without_its_subtype(
+        a_font_stating_nothing("Type1", "/BaseFont /Times-Italic", ""),
+        "Type1",
+    );
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = converted(&source, target);
+        let written = subtype_written(&output).expect("a kind is written");
+        assert!(
+            written == b"Type1" || written == b"TrueType",
+            "{target}: {}",
+            String::from_utf8_lossy(&written)
+        );
+        let font = conversion(&report).substituted.first().expect("one font");
+        assert!(
+            font.losses.contains(Loss::LayoutFromThisViewer),
+            "{target}: the layout of a font no table describes is this viewer's"
+        );
+    }
+}
+
+/// A page showing `Hello` in text rendering mode 3 only, in a font stating no kind, no
+/// descriptor and the `/BaseFont` given.
+fn an_invisible_font_stating_no_subtype(base_font: &str) -> Vec<u8> {
+    without_its_subtype(
+        Conforming {
+            resources: "/Font << /F1 6 0 R >>".to_owned(),
+            contents: Some((
+                String::new(),
+                b"BT 3 Tr /F1 12 Tf 10 100 Td (Hello) Tj ET".to_vec(),
+            )),
+            objects: vec![format!(
+                "<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} >>"
+            )],
+            ..Conforming::part_two()
+        }
+        .build(),
+        "Type1",
+    )
+}
+
+#[test]
+fn a_font_stating_no_subtype_that_nothing_decides_a_kind_for_stays_refused() {
+    // Shown only in text rendering mode 3, so no face is embedded for it; it embeds no program
+    // whose filing would decide its kind, and names no standard font: refused by name.
+    let source = an_invisible_font_stating_no_subtype("Tahoma");
+    let (report, output) = convert(&source, Target::Two(Level::B), every_font_loss());
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Refused(because) = decision(&report, "fonts/font-dictionary-states-its-subtype")
+    else {
+        panic!(
+            "the kind is refused: {:?}",
+            decision(&report, "fonts/font-dictionary-states-its-subtype")
+        );
+    };
+    assert!(
+        because.sentence().contains("no face was embedded for it"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn an_invisible_standard_font_stating_no_subtype_is_given_type1() {
+    // The same, naming one of §9.6.2.2's fourteen, which are Type 1 fonts: it draws nothing, and
+    // its metrics are the ones the window laid it out by, so `Type1` moves no glyph (ADR 3409).
+    let source = an_invisible_font_stating_no_subtype("Times-Italic");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (_, output) = converted(&source, target);
+        assert_eq!(
+            subtype_written(&output),
+            Some(b"Type1".to_vec()),
+            "{target}"
+        );
+    }
+}

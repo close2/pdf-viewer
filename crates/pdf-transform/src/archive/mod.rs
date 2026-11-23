@@ -155,6 +155,7 @@ mod external;
 mod fallback;
 mod fenced;
 mod font_files;
+mod font_subtypes;
 mod font_widths;
 mod fonts;
 mod halftones;
@@ -194,6 +195,7 @@ mod transfer;
 mod type3_glyphs;
 mod type3_widths;
 mod undecodable;
+mod unreferenced;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -816,6 +818,7 @@ fn conversion_before_deciding(
         appearances: Vec::new(),
         unconstructed: Vec::new(),
         removed_files: Vec::new(),
+        removed_unreferenced_resources: Vec::new(),
         attachments: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
@@ -1689,6 +1692,12 @@ fn apply_the_decisions(
     // And the device colour a derived file's appended pages bring, the same way (`doc/adr/2539`).
     if wanted.contains(&Rewrite::PreservedAsPage) && prepared.derived_pages_need_an_intent {
         wanted.insert(Rewrite::OutputIntent);
+    }
+    // The named resource entries ISO 19005 section 6.2.2's exemption withdrew findings at are
+    // removed, which no requirement asks for and nothing on a page draws (ADR 3410).
+    if let Some(removal) = &prepared.unreferenced {
+        wanted.insert(Rewrite::UnreferencedResourceRemoved);
+        conversion.removed_unreferenced_resources = removal.described();
     }
     let wanted = wanted;
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition

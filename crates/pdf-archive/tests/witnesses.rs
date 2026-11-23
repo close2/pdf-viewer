@@ -56,6 +56,18 @@ static WITNESSES: &[Witness] = &[
               19005-4 section 6.2.10.2: the Type 0 font's one descendant states no Type, and its \
               place in DescendantFonts makes it the CIDFont all the same (ADR 2608)",
     },
+    Witness {
+        repository: "corpora/format-corpus",
+        path: "corpora/format-corpus/pdf-handbuilt-test-corpus/\
+               T02-04-01_005_resources-subtype-missing.pdf",
+        rows: &[
+            "fonts/font-dictionary-states-its-subtype",
+            "fonts/font-programs-embedded",
+        ],
+        why: "ISO 32000-2 section 9.6.2.1's Table 109, at ISO 19005-2 section 6.2.11.2 and ISO \
+              19005-4 section 6.2.10.2: the font the page shows states no Subtype, so no table \
+              describes it, and it embeds no program (ADR 3409)",
+    },
 ];
 
 #[test]

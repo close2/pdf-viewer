@@ -76,6 +76,10 @@ pub struct Judgement {
     /// Every distinct object a failed requirement's places named, past the places
     /// [`Outcome::Failed`] keeps as well as inside them; empty for any other outcome.
     pub named: crate::finding::Named,
+    /// How many findings ISO 19005 section 6.2.2's exemption withdrew: places at objects reached
+    /// only through a named resource entry no associated content stream references. Zero where
+    /// the exemption does not narrow the requirement or reached nothing it found (ADR 3410).
+    pub withdrawn: usize,
 }
 
 /// The answer to "does this document conform".

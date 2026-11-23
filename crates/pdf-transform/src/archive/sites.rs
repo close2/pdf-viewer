@@ -1253,7 +1253,7 @@ const FONT_TYPE_IN_ANOTHER_OBJECT: &str = "a font dictionary a Font resource or 
 const CID_TO_GID_MAP_PRESENT: &str = "fonts/cid-to-gid-map-present";
 
 /// How many of one requirement's findings name no object.
-fn findings_at_no_object(input: &pdf_archive::Report, requirement: &str) -> usize {
+pub(super) fn findings_at_no_object(input: &pdf_archive::Report, requirement: &str) -> usize {
     input
         .failures()
         .filter(|judgement| judgement.id == requirement)
@@ -3321,6 +3321,7 @@ mod tests {
                 total: findings.seen(),
             },
             named: findings.named().clone(),
+            withdrawn: 0,
         }
     }
 

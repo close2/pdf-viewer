@@ -273,6 +273,8 @@ type Names = BTreeSet<Vec<u8>>;
 pub struct Exempt {
     /// Every object reachable only through a named resource entry nothing references.
     objects: Arc<BTreeSet<ObjectId>>,
+    /// The entries the cut removed, where they are written; empty where a walk stopped.
+    cut: Vec<CutEntry>,
     /// How many such entries the file states.
     entries: usize,
     /// The bound that stopped one of the two walks, where one did.
@@ -286,18 +288,20 @@ impl Exempt {
         let cuts = Cuts::of(exam.document, exam.objects());
         let kept = Walk::run(exam, &cuts);
         let stopped = reach.stopped_at().or(kept.stopped);
-        let objects = if stopped.is_some() {
-            BTreeSet::new()
+        let (objects, cut) = if stopped.is_some() {
+            (BTreeSet::new(), Vec::new())
         } else {
-            reach
+            let objects = reach
                 .arrivals
                 .keys()
                 .filter(|id| !kept.arrivals.contains_key(id))
                 .copied()
-                .collect()
+                .collect();
+            (objects, kept.cut)
         };
         Self {
             objects: Arc::new(objects),
+            cut,
             entries: kept.entries,
             stopped,
         }
@@ -313,6 +317,32 @@ impl Exempt {
     #[must_use]
     pub fn shared(&self) -> Arc<BTreeSet<ObjectId>> {
         Arc::clone(&self.objects)
+    }
+
+    /// Every named resource entry the associated content streams never reference, and whose
+    /// name no content stream in the file states at all, where it is written: what a converter
+    /// may remove without changing a mark (ADR 3410).
+    ///
+    /// Narrower than the cut, and on purpose: the exemption reads a resources dictionary by its
+    /// owners' names, and a removal has to be safe for every stream that could look the name up
+    /// — a page inheriting a dictionary another owner states (A003 makes inheritance no
+    /// association), and a form or a pattern stating no `/Resources` of its own, which is no
+    /// owner at all. So every content stream in the file is read for its names, owner or not;
+    /// a stream that is not one only adds names, which only keeps entries. Read here and not in
+    /// [`Self::of`], because only a converter about to remove something pays for it. Empty where
+    /// a walk stopped at a bound, as [`Self::objects`] is: an entry this crate could not show is
+    /// unreferenced is not handed to anything that removes it.
+    #[must_use]
+    pub fn removable_entries(&self, exam: &Examination<'_>) -> Vec<CutEntry> {
+        if self.cut.is_empty() {
+            return Vec::new();
+        }
+        let stated = names_any_content_stream_states(exam.document, exam.objects());
+        self.cut
+            .iter()
+            .filter(|entry| !stated.contains(entry.name.as_bytes()))
+            .cloned()
+            .collect()
     }
 
     /// Whether the exemption reaches this object.
@@ -346,6 +376,18 @@ impl Exempt {
     pub const fn stopped_at(&self) -> Option<Limit> {
         self.stopped
     }
+}
+
+/// One named resource entry the associated content streams never reference, where it is written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CutEntry {
+    /// The object the category dictionary holding the entry is written in.
+    pub object: ObjectId,
+    /// The entries within that object that lead to the category dictionary, outermost first;
+    /// empty where the category dictionary is the object itself.
+    pub through: Vec<Entry>,
+    /// The resource name the entry is keyed by.
+    pub name: Name,
 }
 
 /// Where in a document's object graph one value sits, for the purpose of the exemption.
@@ -412,6 +454,7 @@ fn spot_of(cuts: &Cuts, id: ObjectId) -> Spot<'_> {
 struct Walk {
     arrivals: BTreeMap<ObjectId, Arrival>,
     entries: usize,
+    cut: Vec<CutEntry>,
     stopped: Option<Limit>,
 }
 
@@ -422,6 +465,8 @@ impl Walk {
             document: exam.document,
             cuts,
             entries: 0,
+            cut: Vec::new(),
+            at: None,
             arrivals: BTreeMap::new(),
             queue: VecDeque::new(),
             edges: 0,
@@ -432,6 +477,7 @@ impl Walk {
         Self {
             arrivals: state.arrivals,
             entries: state.entries,
+            cut: state.cut,
             stopped: state.stopped,
         }
     }
@@ -443,6 +489,10 @@ struct Walker<'a> {
     cuts: &'a Cuts,
     /// Named resource entries nothing references, counted as the walk meets them.
     entries: usize,
+    /// The same entries, where they are written, as a cutting walk meets them.
+    cut: Vec<CutEntry>,
+    /// The object whose value [`Self::follow`] is walking, `None` for the trailer.
+    at: Option<ObjectId>,
     arrivals: BTreeMap<ObjectId, Arrival>,
     queue: VecDeque<ObjectId>,
     edges: usize,
@@ -526,6 +576,7 @@ impl<'a> Walker<'a> {
         // stack item carries an index into it and a reference reconstructs its run by walking
         // back. A page reached through `/Kids` and then position 0 costs two slots and no
         // allocation until the arrival is recorded.
+        self.at = from;
         let mut trail: Vec<(Entry, Option<usize>)> = Vec::new();
         let mut stack: Vec<(&'v Object, Spot<'v>, Option<usize>, usize)> =
             vec![(object, spot, None, 0)];
@@ -596,6 +647,13 @@ impl<'a> Walker<'a> {
             {
                 self.entries = self.entries.saturating_add(1);
                 if self.cuts.cutting {
+                    if let Some(object) = self.at {
+                        self.cut.push(CutEntry {
+                            object,
+                            through: run_of(trail, through),
+                            name: key.clone(),
+                        });
+                    }
                     continue;
                 }
             }
@@ -720,6 +778,44 @@ fn owners(document: &Document, objects: &[(ObjectId, Object)]) -> BTreeMap<Objec
         }
     }
     found
+}
+
+/// Every name any content stream in the file states as an operand, whatever owns it: each page's
+/// `/Contents`, each Type 3 font's glyph procedures, and every stream that states a `/BBox`, a
+/// form `/Subtype` or a `/PatternType` — the forms, appearance streams and tiling patterns
+/// §7.8.2 lists, with or without `/Resources` of their own.
+fn names_any_content_stream_states(document: &Document, objects: &[(ObjectId, Object)]) -> Names {
+    let mut names = Names::new();
+    for (_, object) in objects {
+        let dict = match object {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        if let Object::Stream(_) = object
+            && (dict.get("BBox").is_some()
+                || dict.get("PatternType").is_some()
+                || document
+                    .get_key(dict, "Subtype")
+                    .as_name()
+                    .is_some_and(|kind| kind.0.as_ref() == b"Form"))
+        {
+            read_names(document, object, &mut names);
+        }
+        if document
+            .get_key(dict, "Type")
+            .as_name()
+            .is_some_and(|kind| kind.0.as_ref() == b"Page")
+        {
+            read_names(document, &document.get_key(dict, "Contents"), &mut names);
+        }
+        if let Object::Dictionary(procedures) = document.get_key(dict, "CharProcs") {
+            for (_, value) in procedures.iter() {
+                read_names(document, &document.resolve(value), &mut names);
+            }
+        }
+    }
+    names
 }
 
 /// Whether a `/Contents` or glyph procedure value is, or holds, a stream.

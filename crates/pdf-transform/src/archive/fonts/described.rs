@@ -1015,9 +1015,12 @@ pub(super) fn postscript_name(face: &ShippedFace) -> Option<Vec<u8>> {
 /// the loss `layout-from-this-viewer`. One that states `/Widths` but no descriptor is laid out by
 /// those widths, which the descriptor written beside them leaves as they are: ISO 32000-2 §9.2.4
 /// positions glyphs "according to their widths", and Table 109's descriptor row is a requirement
-/// the converter can meet without moving a glyph (`doc/adr/3047`). A `/BaseFont` that is not a
-/// name, or a subtype of another kind, is refused: its name is no name, or the standard describes
-/// no program for it.
+/// the converter can meet without moving a glyph (`doc/adr/3047`). A font stating no `/Subtype`
+/// (`subtype` empty) is the simple font this viewer drew it as, and its kind is the face's to
+/// decide, so it takes the same two layouts and never the standard's: §9.6.2.2's fourteen are
+/// Type 1 fonts, and a dictionary that says it is no kind is not one (ADR 3409). A `/BaseFont`
+/// that is not a name, or a subtype of another kind, is refused: its name is no name, or the
+/// standard describes no program for it.
 fn layout_of(
     document: &Document,
     used: &SelectedFont,
@@ -1027,7 +1030,7 @@ fn layout_of(
     if subtype == "Type1" && pdf_font::standard::is_standard_name(requested) {
         return Ok(Layout::Standard);
     }
-    if !matches!(subtype, "Type1" | "MMType1" | "TrueType") {
+    if !matches!(subtype, "Type1" | "MMType1" | "TrueType" | "") {
         return Err(Because::NotBuiltYet(NOT_A_SIMPLE_FONT));
     }
     let states_widths = !document.get_key(&used.dict, "Widths").is_null();
@@ -2094,7 +2097,7 @@ impl OutlinePen for Bounds {
 
 /// Why a font whose subtype is not a simple font's is not given a descriptor.
 const NOT_A_SIMPLE_FONT: &str = "this rendered font states no FontDescriptor and its Subtype is \
-     none of Type1, MMType1 and TrueType, the three kinds of simple font ISO 32000-2 \u{a7}9.6 \
+     a name, none of Type1, MMType1 and TrueType, the three kinds of simple font ISO 32000-2 \u{a7}9.6 \
      describes a program for, so the standard says nothing of what it is drawn or laid out by and \
      there is no description to embed a program against";
 

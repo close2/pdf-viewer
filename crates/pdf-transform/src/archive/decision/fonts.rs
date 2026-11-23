@@ -217,6 +217,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/font-dictionary-states-type-font",
         answer: Answer::Mechanical(Rewrite::FontTypeStated),
     },
+    // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through the four font tables
+    // required `/Subtype`: the kind the embedded program's filing decides, or the embedded face's
+    // (ADR 3409).
+    Remedy {
+        requirement: "fonts/font-dictionary-states-its-subtype",
+        answer: Answer::Mechanical(Rewrite::FontSubtypeStated),
+    },
     // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through Table 109's type name
     // and §9.6.3's source for a TrueType font's name: the program's own, so the value written is
     // decided by the file (ADR 3395).

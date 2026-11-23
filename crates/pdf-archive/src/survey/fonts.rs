@@ -18,6 +18,20 @@ use super::{
 impl Walk<'_> {
     /// A text-showing operator: the font it ran with, and the marks it made.
     pub(super) fn show(&mut self, state: &State, operands: &Operands<'_>, context: &Context<'_>) {
+        if let Some((font, id, set_by)) = &state.font_set_by_gs {
+            self.select_stated(
+                font,
+                *id,
+                set_by,
+                context,
+                state.mode != 3,
+                operands.strings,
+            );
+            let fills = matches!(state.mode, 0 | 2 | 4 | 6);
+            let strokes = matches!(state.mode, 1 | 2 | 5 | 6);
+            self.paint(fills, strokes, state, context);
+            return;
+        }
         let Some(name) = state.font.clone() else {
             return;
         };
@@ -50,6 +64,48 @@ impl Walk<'_> {
             }
             self.type3(&font, state, context);
         }
+    }
+
+    /// Records that a content stream showed text in the font a graphics state's `/Font` set
+    /// (ADR 3411), under the name `ExtGState /<set_by>` so a report can say where it came from.
+    ///
+    /// A font written directly inside the graphics state is keyed by that name on its page, as a
+    /// direct font resource is by its resource name.
+    fn select_stated(
+        &mut self,
+        font: &Dictionary,
+        id: Option<ObjectId>,
+        set_by: &[u8],
+        context: &Context<'_>,
+        rendered: bool,
+        strings: &[Vec<u8>],
+    ) {
+        let name = format!("ExtGState /{}", String::from_utf8_lossy(set_by));
+        let key = id.map_or_else(
+            || FontKey::Direct(context.page, name.clone().into_bytes()),
+            FontKey::Indirect,
+        );
+        let entry = self
+            .survey
+            .fonts
+            .entry(key)
+            .or_insert_with(|| SelectedFont {
+                dict: font.clone(),
+                id,
+                page: context.page,
+                name,
+                rendered: false,
+                shown: BTreeMap::new(),
+                shown_complete: true,
+            });
+        note_shown(
+            entry,
+            rendered,
+            strings,
+            &self.marks,
+            context.page,
+            &mut self.shown_budget,
+        );
     }
 
     /// Records that a content stream selected the font a resource name stands for.

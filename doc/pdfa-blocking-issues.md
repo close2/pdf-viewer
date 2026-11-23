@@ -57,6 +57,9 @@ Three disagreements found outside it (ADR 2652 section 2):
 - 6.2.10.7 on `219789`'s part 4 output (ADR 3266): veraPDF and mupdf read a carriage return inside a literal string of page 53's damaged stream as code 13, where §7.3.4.2 treats an unescaped end-of-line marker in a literal string as 0Ah; this tree reads code 10, which has its empty glyph, so the standard reads for this tree.
 - 6.2.11.4.1 on `178360`'s `ICLJGJ+Glypha` was no disagreement: the 1009-byte `Type1C` program holds no `0x00` byte where a CFF's header and Name INDEX hold several, its Name INDEX counts 8193 names in the bytes of one, and this tree now fails it as veraPDF does and substitutes it (ADR 2636 decision 5); `178360` passes veraPDF at 2b and 4.
 
+Session 2177's census of its own kept outputs: 5516 written as conforming, veraPDF 1.30.3 failed
+79 outputs of 23 documents over 18 rules, 20 unfinished; `T02-04-01_005`, `PDFBOX-4532-reduced` and
+`extgstate` left the list (ADRs 3409 to 3411), and nothing entered it.
 Session 2173's census of its own kept outputs: 5518 written as conforming, veraPDF 1.30.3 failed
 87 outputs of 26 documents over 21 rules, 20 unfinished (session 2168: 95 outputs of 29 documents
 over 24 rules; session 2164: 109 of 33 over 26). The three documents that left are `475121`,
@@ -71,16 +74,19 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
   6.1.13, now integers to the validator and refused at 2b by the fence (ADR 3393); a `/BaseFont`
   string (`issue1350`), 6.2.11.2, a row and the program's PostScript name (ADR 3395); `BDC` naming
   an undefined `/Properties` entry after a numeric tag (`issue17679_2`), 6.2.2, read and defined
-  empty (ADR 3396). Not reached: malformed CFF reals (`bug1068432`, `bug1308536`) and `extgstate`, `bug866395`,
-  6.2.11.4.1; `issue7901`'s `/W` read through a `CIDToGIDMap` Table 115 gives only a
-  `CIDFontType2`, 6.2.11.5; `bug920426`'s Encoding CMap mapping by `beginbfchar` (§9.7.5.4),
-  6.2.11.4.1 and 6.2.11.8; at 4, a font without `/Subtype` (`T02-04-01_005`), 6.2.2; DeviceGray under no intent where text is shown
+  empty (ADR 3396). Answered by session 2177: a font without `/Subtype` (`T02-04-01_005`), 6.2.2
+  at 4, a row and the kind of the program or face embedded (ADR 3409); a font set by `gs`
+  (`extgstate`), 6.2.11.4.1, now in the survey's population and given a face (ADR 3411). Not
+  reached (ADR 3412): malformed CFF reals (`bug1068432`, `bug1308536`) and `bug866395`,
+  6.2.11.4.1; `issue7901`'s `/W` read through a `CIDToGIDMap` on a `CIDFontType0`, 6.2.11.5, two
+  readings; `bug920426`'s Encoding CMap mapping by `beginbfchar`, 6.2.11.4.1 and 6.2.11.8;
+  DeviceGray under no intent where text is shown
   with no font (`T02-05-01_004`, `_008`) or a corrupt appearance stream (`PDFBOX-3148-2-fuzzed`),
   6.2.4.3, undetermined.
 - **veraPDF's reading**: undescribed XMP properties in the metadata of a named resource no
   content stream references (`PDFBOX-4532-reduced`, 6.6.2.3.1), which section 6.2.2's exemption
-  takes out of the requirement; removing the exempt entry would satisfy both and is queued (ADR
-  3394). `re%` read as one operator where §7.2.3 makes `%` a delimiter (`calgray`,
+  takes out of the requirement; the converter now removes such an entry where the exemption
+  withdrew a finding, which satisfies both (ADRs 3394, 3410). `re%` read as one operator where §7.2.3 makes `%` a delimiter (`calgray`,
   `calrgb`), and an inline image cut at an `EI` inside its samples where §8.9.7 fixes its length
   (`029016`, which states no `/L`), 6.2.2; a format 12 `cmap` skipped (`issue14881`) and `lenIV -1`
   not honoured (`issue7769`), 6.2.11.5 and 6.2.11.4.1; a CFF encoding supplement read as a glyph
