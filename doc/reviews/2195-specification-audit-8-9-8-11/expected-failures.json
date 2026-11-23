@@ -1,0 +1,30 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2195 on main 8c0bcf0e",
+ "failures": [
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "xobjects_oc_8_9_8_11_spec_audit::a_visibility_expression_or_ignores_a_group_outside_the_intent_spec_audit",
+   "finding": "2195-B01",
+   "log": "round-2195 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "xobjects_oc_8_9_8_11_spec_audit::a_visibility_expression_not_of_a_group_outside_the_intent_shows_spec_audit",
+   "finding": "2195-B01",
+   "log": "round-2195 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "xobjects_oc_8_9_8_11_spec_audit::an_imported_pages_layers_take_the_print_event_spec_audit",
+   "finding": "2195-B02",
+   "log": "round-2195 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "xobjects_oc_8_9_8_11_spec_audit::an_appearance_streams_own_oc_hides_it_spec_audit",
+   "finding": "2195-B03",
+   "log": "round-2195 nextest of pdf-model"
+  }
+ ]
+}

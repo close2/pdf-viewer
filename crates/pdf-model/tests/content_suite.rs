@@ -63,3 +63,4 @@ mod type4_edge_flags_spec_audit;
 mod type5_function_spec_audit;
 mod type5_vertex_padding_spec_audit;
 mod undefined_painting_ignored;
+mod xobjects_oc_8_9_8_11_spec_audit;
