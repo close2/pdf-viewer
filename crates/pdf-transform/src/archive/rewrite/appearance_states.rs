@@ -44,6 +44,15 @@ impl Rewriter<'_> {
             subdictionary.insert(state.clone(), Object::Reference(*stream));
             out.insert(Name::new(&b"AS"[..]), Object::Name(state));
             Object::Dictionary(subdictionary)
+        } else if let Some((stream, named)) = states.blank.get(&id) {
+            // Every state the subdictionary names, each the stream drawing nothing, and the `/AS`
+            // left as the file states it: no state is chosen for a widget that states none
+            // (ADR 3461).
+            let mut subdictionary = Dictionary::new();
+            for state in named {
+                subdictionary.insert(Name::new(state.clone()), Object::Reference(*stream));
+            }
+            Object::Dictionary(subdictionary)
         } else {
             return false;
         };

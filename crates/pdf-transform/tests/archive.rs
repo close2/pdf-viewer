@@ -17229,6 +17229,8 @@ fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_i
 mod cff_notdef_glyph;
 #[path = "archive/cid_cff_notdef_glyph.rs"]
 mod cid_cff_notdef_glyph;
+#[path = "archive/cid_keyed_by_map.rs"]
+mod cid_keyed_by_map;
 #[path = "archive/cid_notdef_glyph.rs"]
 mod cid_notdef_glyph;
 #[path = "archive/derived_converted.rs"]

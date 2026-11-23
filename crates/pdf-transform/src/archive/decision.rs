@@ -2430,6 +2430,31 @@ fn appearance_answer(
 
 /// A rewrite that loses `losses`: authorised where every one of them was, and the question a
 /// person has to answer otherwise.
+/// The collapse's answer: a statement where every collapse selects a producer's stream, and the
+/// loss `field-appearances` where a button's states named none and are written drawing nothing
+/// (ADR 3461).
+fn appearance_state_answer(
+    reinterprets: &'static str,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    match (
+        &prepared.owed.appearance_states,
+        prepared.obstacle(Rewrite::NormalAppearanceFromState),
+    ) {
+        (_, Some(because)) => Decision::Refused(because),
+        (Ok(states), None) if !states.blank.is_empty() => losing(
+            Losses::one(Loss::FieldAppearances),
+            Rewrite::NormalAppearanceFromState,
+            authorised,
+        ),
+        (_, None) => Decision::Stated {
+            rewrite: Rewrite::NormalAppearanceFromState,
+            reinterprets,
+        },
+    }
+}
+
 fn losing(losses: Losses, rewrite: Rewrite, authorised: Authorisations) -> Decision {
     if authorised.grants_all(losses) {
         Decision::Authorised { losses, rewrite }
@@ -2542,6 +2567,12 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                     prepared,
                 )
             }
+        }
+        // A button whose states name no stream is written drawing nothing in each of them: the
+        // window drew nothing for it, and what another reader might have built for it is
+        // `field-appearances`' own sentence, as a toggle with no `/AP` is (ADR 3461, ADR 3340).
+        Answer::Stated(_, Rewrite::NormalAppearanceFromState, reinterprets) => {
+            appearance_state_answer(reinterprets, authorised, prepared)
         }
         // A face embedded for a font this viewer draws from one of the machine's: the same rewrite,
         // and the shapes it changes are a loss the operator authorises (`doc/adr/2162`).

@@ -49,7 +49,7 @@ mod metadata;
 
 pub use annotations_and_attachments::WrittenAppearance;
 pub(super) use annotations_and_attachments::{
-    Appearances, ExtraAppearanceStates, FieldAppearances, HiddenAnnotations,
+    Appearances, ExtraAppearanceStates, FieldAppearances, HiddenAnnotations, nothing_drawn,
 };
 use annotations_and_attachments::{
     appends_derived_pages, attachment_outcomes, prepare_appearances,

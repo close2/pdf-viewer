@@ -325,6 +325,13 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         "annotations/appearance-dictionary-present-from-base-standard",
         Conditional::PerDocument(Losses::one(Loss::StandInFace).with(Loss::FieldAppearances)),
     ),
+    // The collapse is a statement where a state's stream is selected, and the loss
+    // `field-appearances` where a button's states name no stream and are written drawing nothing
+    // (ADR 3461).
+    (
+        "annotations/normal-appearance-shape",
+        Conditional::PerDocument(Losses::one(Loss::FieldAppearances)),
+    ),
 ];
 
 /// The three rows ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask again of a
@@ -357,7 +364,8 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
     // selects the applicable stream, so an appearance subdictionary with one collapses to the
     // stream the file was saved showing; with none, nothing in the file says which state the
     // producer meant. A push button's single stream becomes a subdictionary holding it alone
-    // (`doc/adr/2319`).
+    // (`doc/adr/2319`), and a button's states naming no stream are each written drawing nothing
+    // (ADR 3461).
     (
         "annotations/normal-appearance-shape",
         &[
@@ -372,6 +380,10 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             Shape {
                 name: "no-appearance-state",
                 answered: false,
+            },
+            Shape {
+                name: "states-naming-no-stream",
+                answered: true,
             },
         ],
     ),

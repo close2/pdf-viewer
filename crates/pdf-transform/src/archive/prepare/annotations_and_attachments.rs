@@ -651,7 +651,7 @@ fn blank_states(document: &Document, widget: &Dictionary) -> Option<Vec<Vec<u8>>
 }
 
 /// A form `XObject` over the widget's rectangle that draws nothing.
-fn nothing_drawn(document: &Document, widget: &Dictionary) -> Object {
+pub(in crate::archive) fn nothing_drawn(document: &Document, widget: &Dictionary) -> Object {
     let corners: Vec<f64> = document
         .get_key(widget, "Rect")
         .as_array()

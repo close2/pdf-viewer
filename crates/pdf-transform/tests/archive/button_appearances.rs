@@ -8,8 +8,8 @@
 //! push button), and §12.5.2's Table 166 with §12.5.5's Table 170 (`/AP` optional for a `Link`,
 //! `/N` required inside an appearance dictionary).
 use super::{
-    Because, Conforming, Decision, Flavour, Level, Rewrite, Target, Verdict, conversion, decision,
-    holds, to_part_four, to_part_two,
+    Authorisations, Because, Conforming, Decision, Flavour, Level, Loss, Losses, Rewrite, Target,
+    Verdict, conversion, convert, decision, holds, to_part_four, to_part_two,
 };
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Object, ObjectId};
@@ -253,4 +253,108 @@ fn an_appearance_dictionary_of_null_entries_is_read_as_stating_no_appearance() {
         "{}",
         held.render()
     );
+}
+
+/// A check box whose `/N` subdictionary names its two states, each the *name* `null` rather than a
+/// stream, and states no `/AS` — `issue15557`'s widget, caption and all.
+fn a_check_box_whose_states_name_no_stream(part_two: bool) -> Vec<u8> {
+    let base = if part_two {
+        Conforming::part_two()
+    } else {
+        Conforming::default()
+    };
+    Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        catalog: "/AcroForm << /Fields [6 0 R] >>".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Check) /Rect [10 10 30 30] /F 4 \
+             /MK << /CA (8) >> /AP << /N << /Yes /null /Off /null >> >> >>"
+                .to_owned(),
+        ],
+        ..base
+    }
+    .build()
+}
+
+#[test]
+fn a_buttons_states_naming_no_stream_are_each_written_drawing_nothing_as_field_appearances() {
+    // §12.5.5: "the subdictionary shall define multiple appearance streams corresponding to
+    // different appearance states", and this one defines none, so a reader draws nothing whichever
+    // state Table 166's `/AS` selects, and nothing where, as here, it selects none. ISO 19005's
+    // section 6.3.3 asks a subdictionary of a button widget's `/N`; each state the file names is
+    // written as a stream drawing nothing, no state is chosen, and what another reader might have
+    // built from the caption is `field-appearances` (ADR 3461).
+    for (part_two, target) in [
+        (true, Target::Two(Level::B)),
+        (false, Target::Four(Flavour::Plain)),
+    ] {
+        let source = a_check_box_whose_states_name_no_stream(part_two);
+        let (report, output) = if part_two {
+            to_part_two(&source)
+        } else {
+            to_part_four(&source)
+        };
+        assert!(
+            matches!(
+                decision(&report, "annotations/normal-appearance-shape"),
+                Decision::Unauthorised {
+                    losses,
+                    rewrite: Rewrite::NormalAppearanceFromState,
+                } if losses == Losses::one(Loss::FieldAppearances)
+            ),
+            "{target:?} unauthorised: {:?}",
+            decision(&report, "annotations/normal-appearance-shape")
+        );
+        assert!(output.is_none(), "nothing is written without the loss");
+        let mut authorised = Authorisations::default();
+        authorised.authorise(Loss::FieldAppearances);
+        let (report, output) = convert(&source, target, authorised);
+        assert!(
+            matches!(
+                decision(&report, "annotations/normal-appearance-shape"),
+                Decision::Authorised {
+                    rewrite: Rewrite::NormalAppearanceFromState,
+                    ..
+                }
+            ),
+            "{target:?} authorised: {:?}",
+            decision(&report, "annotations/normal-appearance-shape")
+        );
+        let output = output.expect("the loss is authorised, so the file is written");
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let written = Document::open(output).expect("the output opens");
+        let widget = annotation(&written, b"Widget");
+        assert!(
+            written.get_key(&widget, "AS").is_null(),
+            "no state is chosen for a widget that states none"
+        );
+        let appearance = written.get_key(&widget, "AP");
+        let appearance = appearance.as_dict().expect("an AP");
+        assert_eq!(appearance.len(), 1, "N is its only key");
+        let normal = written.get_key(appearance, "N");
+        let normal = normal.as_dict().expect("N is a subdictionary");
+        let mut states: Vec<Vec<u8>> = normal
+            .iter()
+            .map(|(name, _)| name.as_bytes().to_vec())
+            .collect();
+        states.sort();
+        assert_eq!(
+            states,
+            vec![b"Off".to_vec(), b"Yes".to_vec()],
+            "the file's own state names"
+        );
+        for (_, value) in normal.iter() {
+            let Object::Stream(form) = written.resolve(value) else {
+                panic!("each state is a stream");
+            };
+            assert!(
+                written
+                    .decoded_stream_data(&form)
+                    .expect("the form decodes")
+                    .is_empty(),
+                "and the stream draws nothing"
+            );
+        }
+    }
 }

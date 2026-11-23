@@ -416,6 +416,12 @@ const STATE_NOT_HELD: &str = "this annotation's normal appearance is a subdictio
      no appearance for the state the annotation is in; choosing another of its states is \
      doc/questions/A48's forbidden half";
 
+/// Why a button whose states name no stream is not written drawing nothing.
+const NO_NUMBER_FOR_NOTHING_DRAWN: &str = "this button widget's normal appearance is a \
+     subdictionary that defines no appearance stream for any state it names, so it is written as \
+     one stream drawing nothing under each of those names, and no unused object number was found \
+     to give that stream";
+
 /// Why an appearance the validator reported in a shape no annotation has is not collapsed.
 const NOT_AN_APPEARANCE: &str = "the validator reported a normal appearance that this \
      conversion does not find as an annotation dictionary whose N is a stream or a subdictionary \
@@ -502,6 +508,10 @@ pub(super) struct AppearanceStates {
     /// `Projection`, and every other subtype is in the population
     /// `pdf_archive::annotations_without_an_appearance` already reads it into.
     pub(super) emptied: BTreeSet<ObjectId>,
+    /// The button widgets whose `/N` subdictionary maps no state to an appearance stream, each
+    /// with the one stream drawing nothing that every state it names is written as, and those
+    /// names, in the source's numbering (ADR 3461).
+    pub(super) blank: BTreeMap<ObjectId, (ObjectId, Vec<Vec<u8>>)>,
 }
 
 /// Every annotation whose normal appearance is to be collapsed to the state it selects.
@@ -538,6 +548,18 @@ pub(super) fn appearance_states(
             && inherited_field_entry(document, annotation, "FT")
                 .as_name()
                 .is_some_and(|kind| kind.as_bytes() == b"Btn");
+        // A subdictionary that defines no stream for any state is drawn as nothing whichever state
+        // `/AS` selects, or none, so each state it names is written drawing nothing (ADR 3461).
+        if button && let Some(named) = states_naming_no_stream(document, &normal) {
+            let stream = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(NO_NUMBER_FOR_NOTHING_DRAWN))?;
+            found
+                .written
+                .push((stream, super::prepare::nothing_drawn(document, annotation)));
+            found.blank.insert(id, (stream, named));
+            continue;
+        }
         if button && matches!(document.resolve(&normal), Object::Stream(_)) {
             if !push_button(document, annotation) {
                 return Err(Because::NotBuiltYet(A_STATE_WOULD_BE_A_VALUE));
@@ -588,6 +610,36 @@ pub(super) fn appearance_states(
         found.at.insert(id, stream);
     }
     Ok(found)
+}
+
+/// The states a button widget's `/N` subdictionary names, where it maps none of them to an
+/// appearance stream.
+///
+/// ISO 32000-2 §12.5.5 defines the subdictionary by its values:
+///
+/// > In the latter case, the subdictionary shall define multiple appearance streams corresponding
+/// > to different appearance states of the annotation.
+///
+/// One whose every value is something other than a stream (`issue15557`'s `/Yes` and `/Off`, each
+/// the *name* `null`) defines no appearance for any state, so a reader draws nothing whichever
+/// state `/AS` selects — and nothing where it selects none, which Table 166's `/AS` is required to
+/// do and this viewer says so of. A null value is §7.3.7's absent entry and names no state; a
+/// subdictionary holding only those names none and is left to the rows about an appearance being
+/// present (`doc/adr/3374`).
+fn states_naming_no_stream(document: &Document, normal: &Object) -> Option<Vec<Vec<u8>>> {
+    // A stream's own dictionary is no subdictionary of states, so only a dictionary is read.
+    let Object::Dictionary(states) = document.resolve(normal) else {
+        return None;
+    };
+    let mut named = Vec::new();
+    for (state, value) in states.iter() {
+        match document.resolve(value) {
+            Object::Stream(_) => return None,
+            Object::Null => {}
+            _ => named.push(state.as_bytes().to_vec()),
+        }
+    }
+    (!named.is_empty()).then_some(named)
 }
 
 /// The `/Resources` each page with none of its own is to be given.
