@@ -8,38 +8,7 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [
-  {
-   "binary": "pdf-model::transparency_suite",
-   "test": "transparency_clause11_spec_audit::a_graphics_state_without_smask_keeps_the_soft_mask_in_force_spec_audit",
-   "finding": "2171-B01",
-   "log": "round-2171 g-nextest.log"
-  },
-  {
-   "binary": "pdf-model::transparency_suite",
-   "test": "transparency_clause11_spec_audit::the_page_groups_knockout_flag_is_honoured_spec_audit",
-   "finding": "2171-B02",
-   "log": "round-2171 g-nextest.log"
-  },
-  {
-   "binary": "pdf-model::transparency_suite",
-   "test": "transparency_clause11_spec_audit::a_backdrop_colour_of_the_wrong_length_is_reported_spec_audit",
-   "finding": "2171-B03",
-   "log": "round-2171 g-nextest.log"
-  },
-  {
-   "binary": "pdf-model::transparency_suite",
-   "test": "transparency_clause11_spec_audit::a_luminosity_group_without_a_colour_space_is_reported_spec_audit",
-   "finding": "2171-B03",
-   "log": "round-2171 g-nextest.log"
-  },
-  {
-   "binary": "pdf-model::transparency_suite",
-   "test": "transparency_clause11_spec_audit::an_unrecognised_blend_mode_name_is_reported_spec_audit",
-   "finding": "2171-B04",
-   "log": "round-2171 g-nextest.log"
-  }
- ],
+ "failures": [],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",

@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/soft_mask.rs:92 (Object::Null => SoftMaskEntry::None); crates/pdf-model/src/content/ext_gstate.rs:519 (SoftMaskEntry::None => state.soft_mask = None)",
   "change": "Tell an absent /SMask from the name /None: an absent key leaves state.soft_mask unchanged; /None and an unusable value keep their present handling.",
   "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_graphics_state_without_smask_keeps_the_soft_mask_in_force_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3389; an absent /SMask is SoftMaskEntry::Unsaid and leaves the mask in force, /None alone removes it; transparency_clause11_spec_audit::a_graphics_state_without_smask_keeps_the_soft_mask_in_force_spec_audit passes, drawn alike by render-cpu, render-raster and render-gpu)"
  },
  {
   "id": "2171-B02",
@@ -26,7 +26,7 @@
   "code": "crates/pdf-model/src/content.rs:1641 (enclosing_knockout: None for the page's run); crates/pdf-model/src/content/transparency/blending_space.rs:255 (page_blending_space reads the page /Group for /CS)",
   "change": "Read the page group's /K beside its /CS and run the page's content as the elements of an isolated knockout group, or report it where that cannot be drawn.",
   "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::the_page_groups_knockout_flag_is_honoured_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3390; a page group's /K true runs the page as the elements of an isolated knockout group closed by composite_group, a form's construction; transparency_clause11_spec_audit::the_page_groups_knockout_flag_is_honoured_spec_audit passes, drawn alike by render-cpu, render-raster and render-gpu)"
  },
  {
   "id": "2171-B03",
@@ -40,7 +40,7 @@
   "code": "crates/pdf-model/src/soft_mask.rs:540-565 (the /BC reading's silent fallback); crates/pdf-model/src/soft_mask.rs:124-127 (a missing /CS read as Null and composited on device RGB)",
   "change": "Report a /BC of the wrong length or with a non-number beside the default drawn in its place, and report a /Luminosity group without /CS where it is composited on device RGB (trap 5: unsupported input stays loud).",
   "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_backdrop_colour_of_the_wrong_length_is_reported_spec_audit and crates/pdf-model/tests/transparency_clause11_spec_audit.rs::a_luminosity_group_without_a_colour_space_is_reported_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3391; soft_mask::table_142_faults reports a /BC that is not n numbers and a /Luminosity group with no /CS as departures of the mask's group; transparency_clause11_spec_audit::a_backdrop_colour_of_the_wrong_length_is_reported_spec_audit and ::a_luminosity_group_without_a_colour_space_is_reported_spec_audit pass)"
  },
  {
   "id": "2171-B04",
@@ -54,6 +54,6 @@
   "code": "crates/pdf-model/src/content/ext_gstate.rs:548 (Object::Name => Some(blend_mode(..))); crates/pdf-model/src/content/ext_gstate.rs:648 (blend_mode: unknown => Normal)",
   "change": "Report a /BM name known_blend_mode does not recognise, drawing Normal as now; the array form keeps its silent fallback.",
   "execution": "FAIL (expected): crates/pdf-model/tests/transparency_clause11_spec_audit.rs::an_unrecognised_blend_mode_name_is_reported_spec_audit — round 2171, nextest log ~/scratch/agent/r2171/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed (ADR 3392; a single /BM name outside Tables 134 and 135 is reported as Unsupported::UnknownBlendMode, the array form silent; transparency_clause11_spec_audit::an_unrecognised_blend_mode_name_is_reported_spec_audit passes)"
  }
 ]

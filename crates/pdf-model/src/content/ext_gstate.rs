@@ -467,8 +467,22 @@ impl Interpreter<'_> {
         if !transparency {
             return;
         }
-        if let Some(blend) = stated_blend_mode(self.document, &self.document.get_key(dict, "BM")) {
+        let blend_entry = self.document.get_key(dict, "BM");
+        if let Some(blend) = stated_blend_mode(self.document, &blend_entry) {
             state.blend = blend;
+        }
+        // §11.6.3 gives `Normal` as the fallback of the array form alone; a single name outside
+        // Tables 134 and 135 is a value Table 57 does not admit, drawn as `Normal` and said
+        // (ADR 3392).
+        if let Object::Name(stated) = &blend_entry
+            && known_blend_mode(stated.as_bytes()).is_none()
+        {
+            self.note(Unsupported::UnknownBlendMode {
+                detail: format!(
+                    "{label} states /BM /{}",
+                    String::from_utf8_lossy(stated.as_bytes())
+                ),
+            });
         }
 
         // §9.3.8, `/TK`: the ninth text state parameter, and the only one with no operator.
@@ -516,6 +530,7 @@ impl Interpreter<'_> {
             (self.presses, &self.page_resources),
             (self.output_intent.as_ref(), self.grey),
         ) {
+            crate::soft_mask::SoftMaskEntry::Unsaid => {}
             crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
             crate::soft_mask::SoftMaskEntry::Mask(request) => {
                 state.soft_mask = self.build_soft_mask(&request, state);
@@ -650,7 +665,7 @@ pub(super) fn blend_mode(name: &[u8]) -> BlendMode {
 }
 
 /// Maps a PDF blend mode name, or `None` where the name is not one Table 134 or 135 lists.
-fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
+pub(super) fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
     Some(match name {
         b"Normal" | b"Compatible" => BlendMode::Normal,
         b"Multiply" => BlendMode::Multiply,

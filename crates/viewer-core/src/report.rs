@@ -136,6 +136,9 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "the document states a black generation or undercolour removal that is not a \
              function, and the one in force was kept: {detail}"
         ),
+        Unsupported::UnknownBlendMode { detail } => format!(
+            "the document names a blend mode §11.6.3 does not list, drawn as Normal: {detail}"
+        ),
         // The file's, like the black generation above: §7.10.5.3 makes the three errors the
         // program's, and the sentence is the fault's own, which names the clause.
         Unsupported::FunctionEvaluation { fault } => {

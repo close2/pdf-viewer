@@ -244,6 +244,9 @@ fn read<'r>(
         || encoded < division.from
         || interpreter.ledger.is_some()
         || !matches!(interpreter.compositing, Compositing::Device)
+        // A knockout page group's elements are composited as one group once the page is read
+        // (ADR 3390), which a division's pieces would each have to carry.
+        || interpreter.enclosing_knockout.is_some()
     {
         interpreter.run_reader(reader, &inputs.page.resources, initial);
         return Some(Declined("the stream is not one this reader divides"));

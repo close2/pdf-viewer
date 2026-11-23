@@ -2217,6 +2217,7 @@ fn interpret_into(
     interpreter.list.set_content_clip(content_clip(page, base));
     let initial = GraphicsState::initial(base);
     interpreter.enter_ledger_frame(ledger::Route::Page, page.id);
+    interpreter.open_page_knockout(page);
     // The page's images are decoded on the pool beside the run, and each `Do` takes its raster
     // when it gets there — waiting for it where the decode is still running, so the list is the
     // one the run alone would have built (ADR 1321). The scope ends only once every decode it
@@ -2276,6 +2277,9 @@ fn complete(
     // from the boundary set above — an annotation is displayed content of the page — and it
     // does not have to be told, because the boundary belongs to the list rather than to a mark.
     interpreter.draw_annotations(page, base);
+    // The page group closes over the content and the annotations, the two halves of §11.4.7's
+    // top-level stack; the guidelines are this reader's and not the page's.
+    interpreter.composite_page_knockout(&GraphicsState::initial(base));
     // §14.11.2.2's guidelines, over the annotations too, where a person asked for them (ADR 2440).
     interpreter.draw_guidelines(page, base);
     // Asked once the page is complete, because the condition is about the whole of it: an

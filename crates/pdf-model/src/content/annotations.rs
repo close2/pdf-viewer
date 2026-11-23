@@ -14,7 +14,7 @@ use pdf_syntax::{Dictionary, Object, ObjectId};
 
 use crate::page::Page;
 
-use super::ext_gstate::blend_mode;
+use super::ext_gstate::{blend_mode, known_blend_mode};
 use super::report::{ContentStream, ObjectSpan, Unsupported};
 use super::{GraphicsState, Interpreter};
 
@@ -332,6 +332,17 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Table 166's `/BM`, which takes §11.6.3's names: one outside Tables 134 and 135 is drawn
+    /// as `Normal` and said, as a graphics state's is (ADR 3392).
+    fn appearance_blend(&mut self, name: &str) -> BlendMode {
+        if known_blend_mode(name.as_bytes()).is_none() {
+            self.note(Unsupported::UnknownBlendMode {
+                detail: format!("an annotation's appearance states /BM /{name}"),
+            });
+        }
+        blend_mode(name.as_bytes())
+    }
+
     fn draw_appearance(
         &mut self,
         appearance: &crate::annotation::Appearance,
@@ -378,7 +389,7 @@ impl Interpreter<'_> {
         state.fill_alpha = appearance.fill_alpha;
         state.stroke_alpha = appearance.stroke_alpha;
         if let Some(name) = &appearance.blend {
-            state.blend = blend_mode(name.as_bytes());
+            state.blend = self.appearance_blend(name);
         }
 
         // §8.10.2: a form `XObject`'s `/BBox` "shall be" the clip for its content. §12.5.5

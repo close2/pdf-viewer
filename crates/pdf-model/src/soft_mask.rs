@@ -23,7 +23,16 @@ use crate::icc::Rendering;
 /// What a `gs` dictionary's `/SMask` entry holds, once read.
 #[derive(Debug)]
 pub(crate) enum SoftMaskEntry {
-    /// Absent, or the name `/None`.
+    /// Absent: the dictionary does not set the soft mask, and the one in force stays.
+    ///
+    /// ISO 32000-2 §8.4.5:
+    ///
+    /// > The results of gs shall be cumulative; parameter values established in previous
+    /// > invocations persist until explicitly overridden.
+    ///
+    /// Removing a mask is the name `/None`'s alone (ADR 3389).
+    Unsaid,
+    /// The name `/None`.
     ///
     /// §11.6.4.3: "The name None may be specified in place of a soft-mask dictionary,
     /// denoting the absence of a soft mask. It shall also mean that any existing mask shall
@@ -90,7 +99,8 @@ pub(crate) fn entry_with_output_intent(
     (output_intent, grey): (Option<&ColourSpace>, GreyReading),
 ) -> SoftMaskEntry {
     match document.get_key(dict, "SMask") {
-        Object::Null => SoftMaskEntry::None,
+        // §7.3.9: an entry whose value is null is the same as an absent one.
+        Object::Null => SoftMaskEntry::Unsaid,
         // Every other name is undefined here; `/None` is the only one Table 57 gives.
         Object::Name(name) if name.as_bytes() == b"None" => SoftMaskEntry::None,
         Object::Name(name) => SoftMaskEntry::Unusable(format!(
@@ -368,7 +378,8 @@ fn luminosity(
         compositing,
         Compositing::Calibrated(_) | Compositing::Additive(_) | Compositing::Subtractive(..)
     );
-    let departures = mask_departures(space.as_ref(), own_components, refused);
+    let mut departures = mask_departures(space.as_ref(), own_components, refused);
+    departures.extend(table_142_faults(document, mask, stated, space.as_ref()));
     let transfer = match scale {
         Some(scale) => derivation(scale, transfer),
         // A one-component CIE-based group's channel holds its component, which the device
@@ -564,6 +575,55 @@ fn backdrop_values(
         })
         .filter(|values: &Vec<f32>| values.len() == space.components())
         .unwrap_or_else(|| space.initial_colour_of(document, stated, &Dictionary::new()))
+}
+
+/// What a `/Luminosity` soft-mask dictionary states against Table 142, said beside the drawing
+/// a reader still makes of it (ADR 3391).
+///
+/// Table 142's `/G`: "If the subtype S is Luminosity , the group attributes dictionary shall
+/// contain a CS entry defining the colour space in which the compositing computation is to be
+/// performed". A group without one is composited on device RGB, which is a choice the file did
+/// not make.
+///
+/// Table 142's `/BC`: "The array shall consist of n numbers, where n is the number of components
+/// in the colour space specified by the CS entry in the group attributes dictionary". One that is
+/// not such an array is replaced by the space's initial colour ([`backdrop_values`]), which is the
+/// absent entry's default and may not be the backdrop the producer meant.
+fn table_142_faults(
+    document: &Document,
+    mask: &Dictionary,
+    stated: &Object,
+    space: Option<&ColourSpace>,
+) -> Vec<String> {
+    let mut faults = Vec::new();
+    if stated.is_null() {
+        faults.push(
+            "a /Luminosity soft mask's group states no /CS, which Table 142's /G requires, so \
+             it is composited on device RGB"
+                .to_owned(),
+        );
+    }
+    let entry = document.get_key(mask, "BC");
+    if let Some(space) = space
+        && !entry.is_null()
+    {
+        let numbers = entry.as_array().map(|items| {
+            items
+                .iter()
+                .filter(|item| document.resolve(item).as_number().is_some())
+                .count()
+                == items.len()
+                && items.len() == space.components()
+        });
+        if numbers != Some(true) {
+            faults.push(format!(
+                "a soft mask's /BC is not {} numbers, as Table 142 requires of its group's /CS, \
+                 so the space's initial colour stands in for it",
+                space.components()
+            ));
+        }
+    }
+    faults
 }
 
 /// The ink §10.4.2.3 weighs in Table 142's `/BC`.

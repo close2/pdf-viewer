@@ -36,6 +36,7 @@ use departures::GroupDrawn;
 pub(super) use implicit_knockout::OneColour;
 pub(super) use implicit_knockout::implicit_knockout_group;
 pub(super) use into_parent::ComposedOut;
+use knockout::page_knockout;
 use knockout::{KnockoutConstruction, knockout_construction};
 pub(super) use press::BeyondPress;
 pub(super) use press::PagePress;
@@ -46,6 +47,20 @@ pub(super) use readings::Readings;
 pub(super) use readings::unseal_list;
 pub(super) use shape::group_alpha_is_shape;
 pub(super) use transfer::Painted;
+
+/// A group's run once its content has been read: what [`Interpreter::composite_group`] takes.
+pub(super) struct ClosedGroup<'d> {
+    /// The group's elements.
+    pub(super) commands: Vec<Command>,
+    /// The second raster of a group composited in four components, where there is one.
+    pub(super) pair: Option<pdf_render::GroupBlending>,
+    /// Which of §11.6.4.3's readings the elements were painted under.
+    pub(super) alpha_sources: AlphaSourcesSeen,
+    /// The knockout group the group is itself an element of, if any.
+    pub(super) enclosing: Option<KnockoutKind>,
+    /// The blending colour space the group introduced and could not composite in, if any.
+    pub(super) introduced: Option<&'d Departure>,
+}
 
 /// What a form `XObject`'s `/Group` asks for (ISO 32000-2 §11.6.6 Table 145).
 ///
@@ -285,6 +300,40 @@ impl<'a> Interpreter<'a> {
         // §11.6.4.3's reading, resolved against the elements *before* the construction below
         // rewrites them: a `Command::Shaped` states its shape already and is not an element
         // the flag can reinterpret, so asking afterwards would answer a different question.
+        self.composite_group(
+            group,
+            ClosedGroup {
+                commands,
+                pair,
+                alpha_sources,
+                enclosing,
+                introduced: introduced.as_ref().filter(|_| !in_own_space),
+            },
+            outer,
+            inner.clip,
+        );
+    }
+
+    /// Composites a group's closed run as one object under the state in force at its `Do`: §11.4.6's
+    /// knockout construction, the reports, and the `Command::Group` itself.
+    ///
+    /// Shared by a form's group and the page group (ISO 32000-2 §11.4.7), whose `/K` Table 145
+    /// reads as a form's (ADR 3390).
+    pub(super) fn composite_group(
+        &mut self,
+        group: &TransparencyGroup,
+        closed: ClosedGroup<'_>,
+        outer: &GraphicsState,
+        clip: Option<pdf_render::ClipId>,
+    ) {
+        let ClosedGroup {
+            commands,
+            pair,
+            alpha_sources,
+            enclosing,
+            introduced,
+        } = closed;
+        let backdrop_transparent = enclosing == Some(KnockoutKind::Isolated);
         let settled = alpha_sources.settled_over(&commands);
         let KnockoutConstruction {
             mut commands,
@@ -370,7 +419,7 @@ impl<'a> Interpreter<'a> {
                 alpha_sources,
             },
             // A group drawn in its own space has no colour-space departure to report.
-            introduced.as_ref().filter(|_| !in_own_space),
+            introduced,
         );
         // What §8.5.4's clip at this `Do` has to intersect with — see `group_alpha_is_shape`,
         // which asks §11.4.6's knockout groups the same question as §11.4.4's since ADR 0554.
@@ -390,7 +439,7 @@ impl<'a> Interpreter<'a> {
             alpha_is_shape,
             commands,
             alpha: outer.fill_alpha,
-            clip: inner.clip,
+            clip,
             isolated,
             // The mask in force at the `Do`, applied to the group as one object — which is
             // §11.6.4.3's NOTE 2 recommending exactly this construction: "[t]o apply a soft
@@ -484,6 +533,53 @@ impl<'a> Interpreter<'a> {
             knockout: false,
             colour_space: Object::Null,
         })
+    }
+
+    /// Opens the page group as a knockout group, where [`page_knockout`] answers `true` for the
+    /// page: every element painted directly onto the page is then a direct element of an
+    /// isolated knockout group (ISO 32000-2 §11.4.7, §11.4.6), as a form's content is inside
+    /// a knockout group's `Do`.
+    pub(super) fn open_page_knockout(&mut self, page: &crate::page::Page) {
+        if page_knockout(self.document, page) {
+            self.enclosing_knockout = Some(KnockoutKind::Isolated);
+        }
+    }
+
+    /// Composites what the page drew since [`Self::open_page_knockout`] as the page group: one
+    /// isolated knockout group over the medium, built by [`Self::composite_group`] as a form's
+    /// is (ADR 3390).
+    ///
+    /// Everything on the list is the page group's: §11.4.7's group P is "consisting of all
+    /// elements E 1 ,…, E n in the page's top -level stack", the content stream's and the
+    /// annotations' alike. The group's `/CS` is not carried, because the page's blending
+    /// colour space is the whole page's and `note_page_blending_space` judges it.
+    pub(super) fn composite_page_knockout(&mut self, initial: &GraphicsState) {
+        if self.enclosing_knockout != Some(KnockoutKind::Isolated) {
+            return;
+        }
+        self.enclosing_knockout = None;
+        let alpha_sources = self.settled_readings();
+        let commands = self.list.split_off_commands(0);
+        if commands.is_empty() {
+            return;
+        }
+        let group = TransparencyGroup {
+            isolated: true,
+            knockout: true,
+            colour_space: Object::Null,
+        };
+        self.composite_group(
+            &group,
+            ClosedGroup {
+                commands,
+                pair: None,
+                alpha_sources,
+                enclosing: None,
+                introduced: None,
+            },
+            initial,
+            initial.clip,
+        );
     }
 }
 

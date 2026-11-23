@@ -498,6 +498,17 @@ pub enum Unsupported {
         /// Which graphics state, which entry, and what it held instead of a function.
         detail: String,
     },
+    /// A graphics state's `/BM` names a blend mode neither Table 134 nor Table 135 lists.
+    ///
+    /// ISO 32000-2 §11.6.3 makes the value "either a name object, designating one of the
+    /// standard blend modes" of those two tables, or an array of such names; only the array
+    /// form has a fallback, `Normal` where none of its names is recognised. A single unknown
+    /// name is a value the clause does not admit: it is drawn as `Normal`, which may differ
+    /// from what its producer meant, and so it is said (ADR 3392).
+    UnknownBlendMode {
+        /// Which graphics state, and the name it stated.
+        detail: String,
+    },
     /// A type 4 function the page evaluated met one of ISO 32000-2 §7.10.5.3's errors for some of
     /// the inputs it was given, so a colour drawn from it is the evaluator's stand-in rather than
     /// the program's answer.

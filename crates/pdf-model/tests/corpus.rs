@@ -743,6 +743,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a /BG or /UCR entry Table 57 does not admit, the pair in force kept (§10.4.2.4)",
         ),
+        Unsupported::UnknownBlendMode { .. } => (
+            Whose::TheFile,
+            "a /BM name Tables 134 and 135 do not list, drawn as Normal (§11.6.3)",
+        ),
         Unsupported::FunctionEvaluation { .. } => (
             Whose::TheFile,
             "a type 4 program that met one of §7.10.5.3's errors for some inputs",
