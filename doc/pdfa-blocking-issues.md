@@ -79,8 +79,11 @@ programs share.
 | `219789` | 1 | 6.2.10.7 | a carriage return in a literal string is 0Ah (§7.3.4.2, ADR 3266) | veraPDF's (above) |
 | `issue19326` | 4 | 6.2.8.3, 6.2.7.3 (JPEG 2000) | the codestream header, filed upstream as veraPDF-library #1666 | veraPDF's (below) |
 | `issue14462_reduced` | 4 | 6.2.11.4.1-1 | the program is measured whole; veraPDF fails inside its Private dictionary (ADR 3375) | the document's: the program's own content |
-| `PDFBOX-3148-2-fuzzed` | 4 | 6.2.4.3-4 (DeviceGray) | the widget appearance is `ASCII85Decode` data with no `~>`: this reader decodes `/Tx `, veraPDF `/Tx B` | the document's: §7.4.3 defines a final partial group only before the EOD; the remedy, the stream restated as the bytes decoded under the loss `ascii-data-as-decoded`, is decided and not built (ADR 3462) |
+| `PDFBOX-3148-2-fuzzed` | 4 | 6.2.4.3-4 (DeviceGray) | the widget appearance is `ASCII85Decode` data with no `~>`: this reader decodes `/Tx `, veraPDF `/Tx B` | ours: new row at section 5.1, §7.4.3's end-of-data marker; the stream is written as the bytes decoded, loss `ascii-data-as-decoded`, and veraPDF passes all four (ADRs 3462, 3473) |
 
+Session 2193's census of its own kept outputs: 5520 written as conforming, veraPDF 1.30.3 failed
+47 outputs of 15 documents over 14 rules, 20 unfinished; `PDFBOX-3148-2-fuzzed` left the list, its
+streams restated (ADR 3473).
 Session 2190's census of its own kept outputs: 5520 written as conforming, veraPDF 1.30.3 failed
 51 outputs of 16 documents over 16 rules, 20 unfinished, the list unchanged; the four new outputs are
 `issue15557`'s (ADR 3461), and veraPDF passes each.
@@ -346,7 +349,10 @@ are restated over the face embedded for them once R10 and the UTF-8 name are ans
 3210). `507676`'s three rows here failed on two fonts whose programs fail their check values, which the
 restatement loaded as the file states them rather than as the window draws them (ADR 3326); it
 converts at part 4. **Left**: under `as-shown`, which takes no wider photograph (A694 item 1),
-`issue6127`, `issue13316_reduced` and `issue20489`. A conversion
+`issue6127`, `issue13316_reduced` and `issue20489`. `issue13316_reduced`'s R11 refusal is the
+embedding's carried: R11 restates over the face the substitution embeds, and the substitution stops
+at ADR 2773 on five codes its `/Differences` takes to no glyph (ADR 2880); the build is ADR 3125's
+empty glyph extended to a program the window refused (ADR 3475). A conversion
 copies at most 32 MiB of font program and copies none for a file another requirement refuses by
 name. Probe of the 32 named documents: exit 0 rose from 2 to 14 under each of the four arms, veraPDF
 at the arm's own target passing 13 and failing `pdf.js:issue6961` (a checker defect, section 8).
@@ -588,7 +594,11 @@ the page, the cap is that open array's and is baked in (ADR 3267), and `427669` 
 `.notdef` drawn from a machine's face is now held to the nothing it drew (ADR 3266), so only the 19
 fenced pages are photographed, within ADR 2517's bounds, and `219789` converts at part 4 — veraPDF
 reads a carriage return inside a literal string of page 53 as code 13 where §7.3.4.2 makes it 10,
-and fails 6.2.10.7 there.
+and fails 6.2.10.7 there. `020747`'s bound is `MAX_DASHES`, 500 000 dashes a stroked path (ADR
+3334), on page 7, whose stream fails its own Adler-32: periods read as digits put four dashed paths
+at 0.6 to 1.2 × 10⁹ units on a 592 by 807 page, 1.1 to 2.1 × 10⁸ dashes each. The page's, not the
+bound's, and the refusal stays by name; the bound counts length outside the page, a finding left to
+`pdf-render` (ADR 3474).
 A page photographed in a document that states optional content is drawn in the configuration this
 viewer shows and carries `optional-content-of-photographed-pages`, the groups it fixed named with
 the state drawn, under `as-if-printed` and `state-every-loss` at 2b and part 4; Level A and Level U

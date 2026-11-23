@@ -135,6 +135,7 @@
 mod actions;
 mod actual_text;
 mod as_drawn;
+mod ascii_data;
 mod attach;
 mod base;
 mod base_font_names;
@@ -215,6 +216,7 @@ use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 pub use actions::RemovedAction;
 pub use actual_text::RemovedActualText;
 pub use as_drawn::WrittenRun;
+pub use ascii_data::AsciiDataRestated;
 pub use base::ReadFrom;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
@@ -831,6 +833,7 @@ fn conversion_before_deciding(
         runs_written_as_drawn: Vec::new(),
         restated_type3_widths: Vec::new(),
         undecodable_streams: Vec::new(),
+        ascii_data_restated: Vec::new(),
         removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
@@ -1926,6 +1929,13 @@ fn apply_the_decisions(
         && let Some(found) = prepared.undecodable()
     {
         conversion.undecodable_streams.clone_from(&found.streams);
+    }
+    // `doc/adr/3462`: a stream written as the bytes this reader decoded is named with its stage
+    // and its length, because the characters of the group its cut ended are what went.
+    if wanted.contains(&Rewrite::AsciiDataAsDecoded)
+        && let Ok(restated) = &prepared.ascii_data
+    {
+        conversion.ascii_data_restated.clone_from(&restated.streams);
     }
     // `doc/adr/1964`: a removed transfer function leaves nothing on the page to notice, so each
     // graphics state it went from is named with what it said — the same statement the output's

@@ -594,11 +594,22 @@ pub enum Loss {
     /// wrote, which `xmpMM:History` keeps. A procedure two fonts reach at two widths is copied for
     /// the second (`doc/adr/2907`, `doc/questions/A865`).
     Type3WidthAsDrawn,
+    /// ISO 19005-2 section 5.1, ISO 19005-4 section 5.1, through ISO 32000-2 §7.4.2 and §7.4.3: a
+    /// stream whose `ASCIIHexDecode` or `ASCII85Decode` data stops before its end-of-data marker
+    /// is written as the bytes this reader decoded, `FlateDecode`-encoded.
+    ///
+    /// The file states no bytes for the group the cut ended — §7.4.3 makes a partial group the
+    /// encoding of the last bytes only where the `~>` marker follows it — so this reader decodes
+    /// the complete groups and draws them (`doc/adr/3281`), and another reader may pad the
+    /// partial group into bytes of its own. Writing what this reader decoded restates what the
+    /// window drew rather than repairing the data; what is lost is the cut group's characters,
+    /// and the report names each stream (`doc/adr/3462`).
+    AsciiDataAsDecoded,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 40] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -638,6 +649,7 @@ impl Loss {
         Self::StandInFace,
         Self::ActualTextPrivateUse,
         Self::Type3WidthAsDrawn,
+        Self::AsciiDataAsDecoded,
     ];
 
     /// The word a caller authorises it by.
@@ -683,6 +695,7 @@ impl Loss {
             Self::StandInFace => "stand-in-face",
             Self::ActualTextPrivateUse => "actual-text-private-use",
             Self::Type3WidthAsDrawn => "type3-width-as-drawn",
+            Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
         }
     }
 
@@ -987,6 +1000,12 @@ impl Loss {
                  operand the producer wrote is gone from the procedure, and the file's own \
                  history and the report keep it"
             }
+            Self::AsciiDataAsDecoded => {
+                "a stream whose ASCII-armoured data stops before its end-of-data marker is \
+                 written as the bytes this viewer decoded from its complete groups; the \
+                 characters of a group the cut ended are gone, which another reader may have \
+                 padded into bytes, and the report names each stream"
+            }
         }
     }
 
@@ -1162,6 +1181,8 @@ pub struct Authorisations {
     pub actual_text_private_use: bool,
     /// Whether [`Loss::Type3WidthAsDrawn`] was authorised.
     pub type3_width_as_drawn: bool,
+    /// Whether [`Loss::AsciiDataAsDecoded`] was authorised.
+    pub ascii_data_as_decoded: bool,
 }
 
 impl Authorisations {
@@ -1208,6 +1229,7 @@ impl Authorisations {
             Loss::StandInFace => self.stand_in_face,
             Loss::ActualTextPrivateUse => self.actual_text_private_use,
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn,
+            Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded,
         }
     }
 
@@ -1261,6 +1283,7 @@ impl Authorisations {
             Loss::StandInFace => self.stand_in_face = true,
             Loss::ActualTextPrivateUse => self.actual_text_private_use = true,
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn = true,
+            Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded = true,
         }
     }
 }

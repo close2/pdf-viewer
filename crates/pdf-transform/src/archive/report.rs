@@ -1104,6 +1104,11 @@ pub struct Conversion {
     /// states and its length. Empty for every conversion whose streams named no such filter
     /// (`doc/adr/2689`).
     pub undecodable_streams: Vec<super::UndecodableStream>,
+    /// Every stream whose `ASCIIHexDecode` or `ASCII85Decode` data stopped before its
+    /// end-of-data marker, written as the bytes this reader decoded, the loss
+    /// `ascii-data-as-decoded`: each by its object, the stage cut and its length. Empty for every
+    /// conversion whose ASCII data ended at its marker (`doc/adr/3462`).
+    pub ascii_data_restated: Vec<super::AsciiDataRestated>,
     /// Every graphics state or halftone whose transfer function other than the identity this
     /// conversion removed, with what the function said (`doc/adr/1964`, `doc/adr/2007`).
     ///
@@ -1394,6 +1399,15 @@ impl Conversion {
                     self.undecodable_streams
                         .iter()
                         .map(undecodable_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "ascii_data_restated".to_owned(),
+                Value::Array(
+                    self.ascii_data_restated
+                        .iter()
+                        .map(ascii_data_to_json)
                         .collect(),
                 ),
             ),
@@ -2304,6 +2318,17 @@ impl Conversion {
                 let _ = writeln!(out, "      {}", stream.sentence());
             }
         }
+        if !self.ascii_data_restated.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} stream(s) whose ASCII data stopped before its end-of-data marker are \
+                 written as the bytes this viewer decoded, losing ascii-data-as-decoded:",
+                self.ascii_data_restated.len()
+            );
+            for stream in &self.ascii_data_restated {
+                let _ = writeln!(out, "      {}", stream.sentence());
+            }
+        }
         if !self.photographed.is_empty() {
             // The clause about a font is said only where a page was photographed for one: a page
             // photographed for a fault of its content stream or its colour left nothing blank.
@@ -2733,6 +2758,21 @@ fn undecodable_to_json(stream: &super::UndecodableStream) -> Value {
             stream
                 .stated_on
                 .map_or(Value::Null, |page| integer(page.saturating_add(1))),
+        ),
+    ])
+}
+
+/// One stream written as the bytes this reader decoded, for the report's machine-readable form.
+fn ascii_data_to_json(stream: &super::AsciiDataRestated) -> Value {
+    Value::Object(vec![
+        (
+            "object".to_owned(),
+            Value::text(format!("{} {}", stream.object, stream.generation)),
+        ),
+        ("stage".to_owned(), Value::text(stream.stage.clone())),
+        (
+            "length".to_owned(),
+            Value::Integer(i64::try_from(stream.encoded).unwrap_or(i64::MAX)),
         ),
     ])
 }

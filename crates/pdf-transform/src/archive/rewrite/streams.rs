@@ -159,6 +159,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::Type3WidthRestated);
             return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
         }
+        // And once more for a stream whose ASCII data stops before its end-of-data marker,
+        // written as the bytes this reader decoded (`super::super::ascii_data`, `doc/adr/3462`).
+        // A content repair above writes the stream from the same decoded bytes, so a stream one of
+        // them reaches has left the cut behind already.
+        if self.wants(Rewrite::AsciiDataAsDecoded)
+            && let Some(restated) = self.ascii_data.and_then(|restated| restated.at.get(&id))
+        {
+            count(applied, Rewrite::AsciiDataAsDecoded);
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
+        }
         // And once more for an inline image's `/I` written false, which
         // `super::super::inline_smoothing` refuses where any repair above also writes the stream
         // (`doc/adr/3373`). Counted by entry in `count_what_has_no_place`.
@@ -461,73 +471,21 @@ impl Rewriter<'_> {
     /// One stream decoded through the filters this tree reads and re-encoded as one
     /// `FlateDecode`, where its chain names `LZWDecode`.
     ///
-    /// `None` where the stream does not name that filter, or where the re-encoding cannot be
-    /// done without changing what the file refers to — a chain whose `/Filter` is not a name or
-    /// an array of names, a `/DecodeParms` entry that names another object, a stage this tree
-    /// does not decode. Every one of those leaves the requirement failed, which the output's
+    /// `None` where the stream does not name that filter, or where [`reencoded_through_flate`]
+    /// cannot re-encode it. Every one of those leaves the requirement failed, which the output's
     /// own verdict then reports rather than this function guessing.
     fn reencode(&self, stream: &Stream, dict: &Dictionary) -> Option<Object> {
+        let is_lzw =
+            |filter: &Vec<u8>| filter.as_slice() == b"LZWDecode" || filter.as_slice() == b"LZW";
         let chain = chain_of(self.document, &stream.dict);
-        if !chain
-            .iter()
-            .any(|filter| filter.as_slice() == b"LZWDecode" || filter.as_slice() == b"LZW")
-        {
-            return None;
-        }
-        if self.document.is_external(stream) || stream.decryption_failed {
-            return None;
-        }
-        let names = filter_names(dict)?;
-        if names.len() != chain.len() {
-            return None;
-        }
-        let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&stream.data);
-        let mut stop = chain.len();
-        for (index, filter) in chain.iter().enumerate() {
-            if pdf_syntax::filter::is_image_codec(filter) {
-                stop = index;
-                break;
-            }
-            let stage = pdf_syntax::filter::decode_with_parms_reported(
-                filter,
-                &data,
-                parms_at(self.document, &stream.dict, index).as_ref(),
-                self.document.limits(),
-            )
-            .ok()?;
-            if stage
-                .damage
-                .is_some_and(pdf_syntax::Damage::questions_the_bytes)
-            {
-                return None;
-            }
-            data = stage.data;
-        }
         // An image codec after the LZW stage would leave its bytes inside the new outer filter,
         // which is right — but the LZW stage has to be one of the ones that was decoded, or
         // nothing has been fixed.
-        if !chain
-            .get(..stop)?
-            .iter()
-            .any(|filter| filter.as_slice() == b"LZWDecode" || filter.as_slice() == b"LZW")
-        {
+        let decoded = decoded_stages(&chain);
+        if !chain.get(..decoded)?.iter().any(is_lzw) {
             return None;
         }
-        let parms = decode_parms(dict, names.len())?;
-        if parms
-            .get(..stop)
-            .unwrap_or_default()
-            .iter()
-            .any(|value| holds_reference(value, 0))
-        {
-            return None;
-        }
-        let encoded = flate_encode(&data, COMPRESSION_LEVEL)?;
-        Some(Object::Stream(std::sync::Arc::new(Stream {
-            dict: with_flate(dict, &names, &parms, stop, encoded.len()),
-            data: encoded.into(),
-            decryption_failed: false,
-        })))
+        reencoded_through_flate(self.document, stream, dict, Cut::Refused)
     }
 
     /// The content stream `super::super::hexadecimal` repaired for this object, where it repaired one.
@@ -539,6 +497,90 @@ impl Rewriter<'_> {
             .and_then(|completed| completed.at.get(&id))
             .cloned()
     }
+}
+
+/// Whether a stage that stopped before its end-of-data may still be re-encoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::archive) enum Cut {
+    /// Every stage must reach its end-of-data, as `LZWDecode`'s re-encoding requires.
+    Refused,
+    /// An `ASCIIHexDecode` or `ASCII85Decode` stage may stop before its marker, and what it
+    /// decoded is what is written (`doc/adr/3462`); every other stage must still end whole.
+    AsciiAdmitted,
+}
+
+/// How many of a chain's stages are decoded before it is re-encoded: every one in front of the
+/// first image codec, whose bytes stay inside the new outer filter.
+fn decoded_stages(chain: &[Vec<u8>]) -> usize {
+    chain
+        .iter()
+        .position(|filter| pdf_syntax::filter::is_image_codec(filter))
+        .unwrap_or(chain.len())
+}
+
+/// One stream decoded through every stage in front of its first image codec and re-encoded as
+/// one `FlateDecode`, with `dict`'s other entries and the image codec's stages kept.
+///
+/// `None` where the re-encoding cannot be done without changing what the file refers to — an
+/// external or undecryptable stream, a chain whose `/Filter` is not a name or an array of names,
+/// a `/DecodeParms` entry that names another object, a stage this tree does not decode, or a
+/// stage whose bytes are in doubt beyond what `cut` admits. With [`Cut::AsciiAdmitted`] an ASCII
+/// stage that ran out before its marker hands on what it decoded; a stage after it that then
+/// reports damage of its own still answers `None`, because its bytes are no longer the file's.
+pub(in crate::archive) fn reencoded_through_flate(
+    document: &pdf_syntax::Document,
+    stream: &Stream,
+    dict: &Dictionary,
+    cut: Cut,
+) -> Option<Object> {
+    if document.is_external(stream) || stream.decryption_failed {
+        return None;
+    }
+    let chain = chain_of(document, &stream.dict);
+    let names = filter_names(dict)?;
+    if names.len() != chain.len() {
+        return None;
+    }
+    let stop = decoded_stages(&chain);
+    let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&stream.data);
+    for (index, filter) in chain.iter().enumerate().take(stop) {
+        let stage = pdf_syntax::filter::decode_with_parms_reported(
+            filter,
+            &data,
+            parms_at(document, &stream.dict, index).as_ref(),
+            document.limits(),
+        )
+        .ok()?;
+        let admitted = cut == Cut::AsciiAdmitted
+            && stage.damage == Some(pdf_syntax::Damage::Truncated)
+            && matches!(
+                filter.as_slice(),
+                b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85"
+            );
+        if !admitted
+            && stage
+                .damage
+                .is_some_and(pdf_syntax::Damage::questions_the_bytes)
+        {
+            return None;
+        }
+        data = stage.data;
+    }
+    let parms = decode_parms(dict, names.len())?;
+    if parms
+        .get(..stop)
+        .unwrap_or_default()
+        .iter()
+        .any(|value| holds_reference(value, 0))
+    {
+        return None;
+    }
+    let encoded = flate_encode(&data, COMPRESSION_LEVEL)?;
+    Some(Object::Stream(std::sync::Arc::new(Stream {
+        dict: with_flate(dict, &names, &parms, stop, encoded.len()),
+        data: encoded.into(),
+        decryption_failed: false,
+    })))
 }
 
 /// The form `XObject` a PostScript `XObject` is written as: §8.10's form with an empty content

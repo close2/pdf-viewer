@@ -302,6 +302,25 @@ ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · **built for Table 92's ab
 - **Departure** — **C**. A stream whose bytes no conforming reader can turn back into data is the
   external-stream case with the dependency moved from a disk to an algorithm.
 
+### `file-structure/ascii-data-ends-at-its-end-of-data-marker`
+ISO 19005-2 5.1, ISO 19005-4 5.1, through ISO 32000-2 §7.4.2 and §7.4.3 · all six · **built in
+session 2193**, `discard` at `ascii-data-as-decoded`
+
+- **Mitigation** — `discard`: a stream whose `ASCIIHexDecode` or `ASCII85Decode` stage reaches the
+  end of its data before `>` or `~>` is written as the bytes this reader decoded through every stage
+  in front of any image codec, re-encoded as one `FlateDecode` with the codec's stages kept — the
+  construction `LZWDecode`'s re-encoding makes. §7.4.3 makes a final partial group the encoding of
+  the last bytes only where the marker follows it, so the cut group states no bytes; this reader
+  draws the complete groups (ADR 3281), and the output is what the window drew. The cut group's
+  characters are the loss, which another reader may have padded into bytes; the report names each
+  stream, its stage and its length (ADR 3462). An external or undecryptable stream, parameters
+  naming another object, or a later stage that reports damage of its own over the bytes the cut
+  handed on keeps the refusal, by name.
+- **By target** — none; both parts bind the base standard alike.
+- **From a configuration** — `[site."file-structure/ascii-data-ends-at-its-end-of-data-marker"]`
+  with `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers
+  `try = ["append-statement", "discard"]`, whose first step composes no page at this site.
+
 ### `file-structure/no-external-stream-data`
 ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · **built** (ADR 1199) for the bytes a caller
 can resolve, and **the tool route with them** (ADR 1209)

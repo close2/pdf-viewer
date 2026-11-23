@@ -78,6 +78,14 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "file-structure/no-lzw-filter",
         answer: Answer::Mechanical(Rewrite::FlateInsteadOfLzw),
     },
+    // ISO 19005-2 section 5.1 and ISO 19005-4 section 5.1, through ISO 32000-2 §7.4.2 and
+    // §7.4.3's end-of-data marker: the stream written as the bytes this reader decoded from its
+    // complete groups, the cut group's characters the loss (`super::super::ascii_data`,
+    // `doc/adr/3462`).
+    Remedy {
+        requirement: "file-structure/ascii-data-ends-at-its-end-of-data-marker",
+        answer: Answer::Loses(Loss::AsciiDataAsDecoded, Rewrite::AsciiDataAsDecoded),
+    },
     // The same two subclauses' first sentence, at the names this tree's decoder reads: a filter
     // named by its inline-image abbreviation (`doc/adr/1952`). Any other name is the loss
     // `undecodable-stream`, which `CONDITIONAL` names and `super::answer_of` routes to

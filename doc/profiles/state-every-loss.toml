@@ -221,6 +221,15 @@ try = ["append-statement", "discard"]
 [site."file-structure/stream-filters-are-standard"]
 try = ["append-statement", "discard"]
 
+# ASCIIHexDecode or ASCII85Decode data that stops before its end-of-data marker (ISO 32000-2 7.4.2,
+# 7.4.3), which section 5.1 of both parts forbids through the base standard: the cut group states no
+# bytes, and the window drew the bytes decoded from the complete groups (doc/adr/3281). The stream is
+# written as those bytes, re-encoded as FlateDecode; the loss `ascii-data-as-decoded`, each stream
+# named by its stage and its length in the report; this version composes
+# no page at this site, so the first step is passed over with its sentence (doc/adr/3462).
+[site."file-structure/ascii-data-ends-at-its-end-of-data-marker"]
+try = ["append-statement", "discard"]
+
 [site."file-structure/no-external-stream-data"]
 remedy = "stop"
 

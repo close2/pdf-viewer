@@ -1665,6 +1665,7 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&[
                     "conformance/adheres-to-the-base-standard",
                     "file-structure/hexadecimal-string-holds-only-digits",
+                    "file-structure/ascii-data-ends-at-its-end-of-data-marker",
                     "file-structure/page-tree-node-kids-is-an-array",
                     "file-structure/page-tree-root-states-no-parent",
                     "file-structure/page-tree-kids-name-dictionaries",
@@ -3884,6 +3885,7 @@ static READINGS: &[Reading] = &[
                     "conformance/adheres-to-the-base-standard",
                     "file-structure/file-identifier",
                     "file-structure/hexadecimal-string-holds-only-digits",
+                    "file-structure/ascii-data-ends-at-its-end-of-data-marker",
                     "file-structure/page-tree-node-kids-is-an-array",
                     "file-structure/page-tree-root-states-no-parent",
                     "file-structure/page-tree-kids-name-dictionaries",

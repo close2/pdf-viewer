@@ -412,6 +412,10 @@ pub(super) struct Prepared {
     /// The objects whose `/ActualText` holds a Private Use character, or why they are not
     /// answered by its removal (ISO 19005-4 section 6.2.10.8, `doc/adr/2889`).
     pub(super) actual_texts: Result<super::actual_text::Removed, Because>,
+    /// The streams whose ASCII data stops before its end-of-data marker, written as the bytes
+    /// this reader decoded, or why they are not (ISO 19005-2 and ISO 19005-4 section 5.1,
+    /// `doc/adr/3462`).
+    pub(super) ascii_data: Result<super::ascii_data::Restated, Because>,
     /// The named resource entries section 6.2.2's exemption withdrew findings at, to be removed,
     /// or `None` where it withdrew none (ADR 3410).
     pub(super) unreferenced: Option<super::unreferenced::Removal>,
@@ -1828,6 +1832,9 @@ impl Prepared {
         let actual_texts = asked(wanted(Rewrite::ActualTextRemoved), || {
             super::actual_text::removal(document, input)
         });
+        let ascii_data = asked(wanted(Rewrite::AsciiDataAsDecoded), || {
+            super::ascii_data::restate(document, input)
+        });
         let already = Already {
             packet_headers: headers,
             survey: survey.as_ref(),
@@ -1882,6 +1889,7 @@ impl Prepared {
             external_data,
             boundaries,
             actual_texts,
+            ascii_data,
             unreferenced: super::unreferenced::removal(document, input, plan.target),
             type3_widths,
             inline_smoothing,
@@ -2117,6 +2125,7 @@ impl Prepared {
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
             Rewrite::ActualTextRemoved => self.actual_texts.as_ref().err().copied(),
+            Rewrite::AsciiDataAsDecoded => self.ascii_data.as_ref().err().copied(),
             Rewrite::Type3WidthRestated => self
                 .type3_widths
                 .as_ref()

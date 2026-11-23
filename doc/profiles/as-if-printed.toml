@@ -207,6 +207,14 @@ remedy = "discard"
 [site."file-structure/stream-filters-are-standard"]
 remedy = "discard"
 
+# ASCIIHexDecode or ASCII85Decode data that stops before its end-of-data marker (ISO 32000-2 7.4.2,
+# 7.4.3), which section 5.1 of both parts forbids through the base standard: the cut group states no
+# bytes, and the window drew the bytes decoded from the complete groups (doc/adr/3281). The stream is
+# written as those bytes, re-encoded as FlateDecode; the loss `ascii-data-as-decoded`, each stream
+# named by its stage and its length in the report (doc/adr/3462).
+[site."file-structure/ascii-data-ends-at-its-end-of-data-marker"]
+remedy = "discard"
+
 # A content stream run such as 33600.272.58 is one token (ISO 32000-2 7.2.3) and no number (7.3.3,
 # one period), so it is the operator ISO 19005-2 section 6.2.2 forbids; this viewer draws the number
 # it reads off the run's front (ADR 1004), and a print carried that number. Where every such

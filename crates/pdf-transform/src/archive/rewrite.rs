@@ -26,6 +26,8 @@ mod reader_resources;
 mod streams;
 mod values;
 
+pub(super) use streams::{Cut, reencoded_through_flate};
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use pdf_archive::Target;
@@ -88,6 +90,15 @@ pub enum Rewrite {
     /// > Because of its cascaded adaptive Huffman coding, Flate-encoded output is usually much
     /// > more compact than LZW-encoded output for the same input.
     FlateInsteadOfLzw,
+    /// A stream whose `ASCIIHexDecode` or `ASCII85Decode` data stops before its end-of-data
+    /// marker is written as the bytes this reader decoded, re-encoded as one `FlateDecode`.
+    ///
+    /// The same construction as [`Self::FlateInsteadOfLzw`], over bytes the file states only in
+    /// part: §7.4.3 makes a partial group the encoding of the last bytes only where its characters
+    /// are followed immediately by the `~>` marker, so the cut group states no bytes and the
+    /// complete groups are what this reader drew. It is the loss
+    /// [`super::Loss::AsciiDataAsDecoded`] (`doc/adr/3462`).
+    AsciiDataAsDecoded,
     /// Every image `XObject` that states an `/Interpolate` other than false has it set false.
     InterpolationOff,
     /// Every inline image that states an `/I` other than false has it written false inside its
@@ -1341,6 +1352,10 @@ impl Rewrite {
             Self::FlateInsteadOfLzw => {
                 "an LZWDecode stream is decoded and re-encoded as one FlateDecode, byte for byte"
             }
+            Self::AsciiDataAsDecoded => {
+                "an ASCII-armoured stream cut before its end-of-data marker is written as the \
+                 bytes this reader decoded, re-encoded as one FlateDecode"
+            }
             Self::InterpolationOff => "an image's /Interpolate is set false",
             Self::InlineInterpolationOff => {
                 "an inline image's /I is set false inside its content stream, every other byte kept"
@@ -1925,6 +1940,7 @@ impl Rewrite {
             Self::CatalogVersion => "catalog-version",
             Self::WholeFileRewritten => "whole-file-rewritten",
             Self::FlateInsteadOfLzw => "flate-instead-of-lzw",
+            Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
             Self::InterpolationOff => "interpolation-off",
             Self::InlineInterpolationOff => "inline-interpolation-off",
             Self::ImageAlternatesAndOpi => "image-alternates-and-opi",
@@ -2242,6 +2258,7 @@ impl<'a> Rewriter<'a> {
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
             actual_texts: prepared.actual_texts.as_ref().ok(),
+            ascii_data: prepared.ascii_data.as_ref().ok(),
             unreferenced: prepared.unreferenced.as_ref(),
             type3_widths: prepared.type3_widths.as_ref().ok(),
             inline_smoothing: prepared.inline_smoothing.as_ref().ok(),
@@ -3303,6 +3320,9 @@ struct Rewriter<'a> {
     boundaries: Option<&'a super::boundaries::Boundaries>,
     /// The `/ActualText` entries removed (`super::actual_text`).
     actual_texts: Option<&'a super::actual_text::Removed>,
+    /// The streams written as the bytes this reader decoded from their cut ASCII data
+    /// (`super::ascii_data`).
+    ascii_data: Option<&'a super::ascii_data::Restated>,
     /// The named resource entries section 6.2.2's exemption withdrew findings at (ADR 3410).
     unreferenced: Option<&'a super::unreferenced::Removal>,
     /// The Type 3 glyph procedures written with their fonts' widths, and the fonts given a
@@ -4097,6 +4117,14 @@ fn decode_parms(dict: &Dictionary, filters: usize) -> Option<Vec<Object>> {
             Some(vec![Object::Dictionary(parms.clone())])
         }
         Some(Object::Array(items)) if items.len() == filters => Some(items.clone()),
+        // A shorter array is read by `pdf_syntax`'s chain as no parameters for each stage it does
+        // not reach, so those stages were decoded without any, and the entries written here say
+        // the same (`doc/adr/3473`).
+        Some(Object::Array(items)) if items.len() < filters => {
+            let mut padded = items.clone();
+            padded.resize(filters, Object::Null);
+            Some(padded)
+        }
         _ => None,
     }
 }

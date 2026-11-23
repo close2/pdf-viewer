@@ -388,6 +388,29 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(hexadecimal_string_holds_only_digits),
     },
     Requirement {
+        id: "file-structure/ascii-data-ends-at-its-end-of-data-marker",
+        asks: "A stream's ASCIIHexDecode or ASCII85Decode data shall end with that filter's \
+               end-of-data marker.",
+        // Section 5.1 binds this one too, through ISO 32000-2 §7.4.2 and §7.4.3 (ISO 32000-1:2008,
+        // 7.4.2 and 7.4.3, in the same words for part 2). §7.4.3 gives the encoding its marker
+        // and makes a partial group the encoding of the last bytes only where the marker
+        // follows it:
+        //
+        // > The ASCII base-85 encoding shall use the ASCII characters ! through u ((21h) - (75h))
+        // > and the character z (7Ah), with the 2-character sequence ~> (7Eh)(3Eh) as its EOD
+        // > marker.
+        //
+        // > These characters shall be immediately followed by the ~> EOD marker.
+        //
+        // and §7.4.2 says "A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data)." Data that
+        // stops before the marker is not correctly encoded, and the last characters of a cut
+        // group state no bytes. Narrowed to the one requirement of the base standard's filter
+        // clauses this crate can judge by decoding (ADR 3462).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(ascii_data_ends_at_its_end_of_data_marker),
+    },
+    Requirement {
         id: "file-structure/page-tree-node-kids-is-an-array",
         asks: "Every page tree node shall state Kids, and its value shall be an array.",
         // Neither part states this one either: section 5.1 binds it, through ISO 32000-2
@@ -909,6 +932,78 @@ fn no_lzw_filter(exam: &Examination<'_>, findings: &mut Findings) {
             }
         }
     });
+}
+
+/// ISO 19005-2 section 5.1, ISO 19005-4 section 5.1, through ISO 32000-2 §7.4.2 and §7.4.3.
+fn ascii_data_ends_at_its_end_of_data_marker(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_stream(exam, |id, stream| {
+        if let Some(stage) = ascii_stage_cut_short(document, stream) {
+            findings.record(
+                Where::object(id).named(stage),
+                "a stream's ASCII-armoured data ends before its end-of-data marker",
+            );
+        }
+    });
+}
+
+/// The `ASCIIHexDecode` or `ASCII85Decode` stage of a stream's filter chain whose data ends before
+/// that filter's end-of-data marker, by the name the stream states it under.
+///
+/// The chain is decoded stage by stage in front of the last ASCII stage, because a stage behind
+/// another one reads what that one produced; nothing past it is decoded, and nothing past an image
+/// codec, whose bytes this tree does not decode as a chain. A stage in front of it that refuses, or
+/// whose own bytes are in doubt, answers `None`: the cut is then that stage's, or the bytes the
+/// ASCII stage met were not the file's. A stream whose data lives outside the file or did not
+/// decrypt is not judged either. So the answer is the stage's own [`Damage::Truncated`] over bytes
+/// the file states — §7.4.3's `~>` end-of-data marker missing — and the converter asks this same
+/// question of the same stream (ADR 3462).
+///
+/// [`Damage::Truncated`]: pdf_syntax::filter::Damage::Truncated
+#[must_use]
+pub fn ascii_stage_cut_short(document: &Document, stream: &Stream) -> Option<String> {
+    let names = filters(document, stream);
+    let through_the_last = names
+        .iter()
+        .rposition(|name| is_ascii_stage(name))?
+        .saturating_add(1);
+    if stream.decryption_failed || document.is_external(stream) {
+        return None;
+    }
+    let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&stream.data);
+    for (index, name) in names.iter().enumerate().take(through_the_last) {
+        if pdf_syntax::filter::is_image_codec(name.as_bytes()) {
+            return None;
+        }
+        let parms = match document.get_key(&stream.dict, "DecodeParms") {
+            Object::Array(list) => list
+                .get(index)
+                .map(|entry| document.resolve(entry))
+                .and_then(|entry| entry.as_dict().cloned()),
+            Object::Dictionary(parameters) => Some(parameters),
+            _ => None,
+        };
+        let stage = pdf_syntax::filter::decode_with_parms_reported(
+            name.as_bytes(),
+            &data,
+            parms.as_ref(),
+            document.limits(),
+        )
+        .ok()?;
+        match stage.damage {
+            Some(pdf_syntax::filter::Damage::Truncated) if is_ascii_stage(name) => {
+                return Some(name.clone());
+            }
+            Some(damage) if damage.questions_the_bytes() => return None,
+            _ => data = stage.data,
+        }
+    }
+    None
+}
+
+/// Whether a filter name is §7.4.2's or §7.4.3's, under either spelling Table 6 gives it.
+fn is_ascii_stage(name: &str) -> bool {
+    matches!(name, "ASCIIHexDecode" | "AHx" | "ASCII85Decode" | "A85")
 }
 
 /// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
