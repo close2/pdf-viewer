@@ -29,7 +29,8 @@
 //! standard error — never the inherited descriptor, because `RLIMIT_FSIZE` is zero inside the
 //! confinement and a worker whose standard error is a *file* is killed by `SIGXFSZ` before it can
 //! explain itself (ADR 0597) — and reads the greeting. Every exchange after that is
-//! [`Host::exchange`]: one frame out, one frame back.
+//! [`Host::exchange`]: one frame out, one frame back — or [`Host::stream`], one request answered
+//! by a bounded run of items the host paces, stops and budgets ([`stream`], ADR 3501).
 //!
 //! The worker's side is [`link::Link`], which reads its frames with `recvmsg` so that a descriptor
 //! sent beside a header arrives with it, and [`greeting::encode`], which it writes before it reads
@@ -41,6 +42,7 @@ pub mod ceiling;
 pub mod frame;
 pub mod greeting;
 pub mod link;
+pub mod stream;
 mod supervision;
 
 #[cfg(not(unix))]

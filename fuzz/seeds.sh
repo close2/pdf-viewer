@@ -164,6 +164,8 @@ seed() {
     media_sound) python3 "$here/seed_media_sound.py" "$root/$t" > /dev/null ;;
     # An MP4 file's sound track in each table form 14496-12 gives, built rather than fetched.
     media_mp4) python3 "$here/seed_media_mp4.py" "$root/$t" > /dev/null ;;
+    # A stream's frames as a worker that keeps the contract sends them, built rather than run.
+    confined_stream) python3 "$here/seed_confined_stream.py" "$root/$t" > /dev/null ;;
     # An MP4 clip whose AAC the worker decodes: the built files above, and ISO/IEC 14496-26's own
     # streams where `PDF_MEDIA_MP4_STREAMS` names them, since a fuzzer does not invent AAC that
     # decodes past its first element. The streams are fetched and never committed.

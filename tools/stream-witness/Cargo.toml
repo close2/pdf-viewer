@@ -1,0 +1,21 @@
+[package]
+name = "stream-witness"
+description = "A confined worker that streams what its request names and breaks the stream's contract on request, so that confined-transport's streaming arm is tested through a real process."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# A program under `tools/` rather than a binary of `confined-transport`, because a binary under
+# `crates/` is installed beside the windows (`tools/batch.sh install_binaries`) and this one is
+# only ever started by its own tests (ADR 3502). It confines itself with the media worker's
+# profile, the profile video's streams will run under.
+[dependencies]
+confined-transport.workspace = true
+pdf-sandbox.workspace = true
+inherited-descriptors.workspace = true
+
+[lints]
+workspace = true

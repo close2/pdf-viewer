@@ -267,7 +267,7 @@ pub enum Exclusion {
     /// rendering question. What a still page shows of a media object — a poster, a producer's
     /// appearance, viability reported in §13.2.2's terms — is in scope, and so are handing the
     /// media file to this machine's own player at the reader's level (`doc/questions/A254`) and
-    /// decoding and presenting audio here (`doc/questions/A946`).
+    /// decoding and presenting audio (`doc/questions/A946`) and video (`doc/questions/A1006`) here.
     Multimedia,
     /// XFA, on Annex K's own permission: "a PDF processor may choose to not implement this
     /// feature" (§K.1).

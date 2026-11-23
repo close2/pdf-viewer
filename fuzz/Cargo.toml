@@ -78,6 +78,8 @@ pdf-script-worker = { path = "../crates/pdf-script-worker" }
 # A sound's samples, decoded as the confined media worker decodes them, and its wire both ways
 # (`media_sound`, ADR 3297).
 pdf-media-worker = { path = "../crates/pdf-media-worker" }
+# A stream's framing from both sides, the host's reception above all (`confined_stream`, ADR 3501).
+confined-transport = { path = "../crates/confined-transport" }
 
 [profile.release]
 debug = true
@@ -428,6 +430,13 @@ bench = false
 [[bin]]
 name = "xfa_barcode"
 path = "fuzz_targets/xfa_barcode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "confined_stream"
+path = "fuzz_targets/confined_stream.rs"
 test = false
 doc = false
 bench = false

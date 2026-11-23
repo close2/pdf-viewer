@@ -1985,6 +1985,7 @@ dependencies = [
 name = "pdf-viewer-fuzz"
 version = "0.0.0"
 dependencies = [
+ "confined-transport",
  "libfuzzer-sys",
  "pdf-ccitt",
  "pdf-font",

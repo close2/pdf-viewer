@@ -29,12 +29,15 @@ under `pdf_sandbox::lockdown::Profile::Media` (no filesystem, no network, no des
 executable memory, an address-space ceiling and a processor-time budget per request), started on
 first play and never at open, the host given samples and never the document's bytes; built in RFC
 0015 section 5's order, §13.3's own sample formats first, and the window's audio sink on the output
-side (ADR 3297). **Excluded still**, each with the trigger that reopens it:
+side (ADR 3297); and **video decoded and presented by this program**, in the same worker under the
+same profile, built in RFC 0015 section 6's order — the streaming arm in `confined-transport` first
+(ADR 3501), then the shared-memory ring and `Profile::Media`'s narrowed `mmap`, then H.264 through
+`rusty_h264-decoder`'s scalar build (ADR 2428), the frames synchronised on audio's clock — with
+**interlaced H.264** left on the hand-off to this machine's own player and said by name, because no
+decoder this tree admits decodes it. A ledger row video unblocks leaves `out-of-scope` when the
+round that builds it lands, and not before. **Excluded still**, each with the trigger that reopens
+it:
 
-- **decoding or presenting video** — reopened when audio has shipped and its clock and sinks are
-  measured in use, and the owner then decides to open RFC 0015 section 6's order, on an H.264 decoder
-  admissible under `deny.toml` (RFC 0012 audits one that is) or on C in a confined media worker
-  accepted in writing under ADR 0014;
 - **rendering U3D artwork** — a U3D reader in Rust that reads ECMA-363's **third** edition whole and
   is fuzzed, or the owner's decision to write one in-tree (ADR 2400; ISO 32000-2 cites the third
   edition and says it does not cite the fourth, RFC 0015 section 7);
@@ -50,7 +53,10 @@ Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's ques
 written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading. Amended on 2026-11-20
 (`doc/questions/Q946`, `A946`: RFC 0015 section 12's six recommendations adopted) — audio opened
 alone, video kept closed behind audio, U3D's trigger restated to the edition the standard cites,
-PRC's trigger written; RFC 0015 is the argument and ADR 3297 the first build.
+PRC's trigger written; RFC 0015 is the argument and ADR 3297 the first build. Amended on
+2026-11-23 (`doc/questions/Q1006`, `A1006`: audio's two focused rounds done and re-measured, ADRs
+3457 to 3468) — video's trigger, the owner's decision after audio was measured in use, is met, and
+video opened in RFC 0015 section 6's order; ADR 3501 is its first round.
 
 ### JavaScript and script-driven form behaviour beyond this document and this viewer
 

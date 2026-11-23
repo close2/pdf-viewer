@@ -996,6 +996,12 @@ cd fuzz && cargo +nightly fuzz run media_sound -- -max_total_time=600   # the me
   # confined worker does, and a reply as the unconfined host reads it. The decoder answers exactly
   # the samples the request's bytes hold, and what the worker encodes the host reads back the same.
   # Seeded by `fuzz/seed_media_sound.py`, every encoding and width §13.3 names.
+cd fuzz && cargo +nightly fuzz run confined_stream -- -max_total_time=600   # a stream's framing
+  # from both sides (ADR 3501): the host's `Reception` over any run of frames a worker sends, and the
+  # worker's reading of a host's open request and control frames. No grant passes the window or the
+  # frames left, the host writes only once every item it granted has arrived, and no item is handed
+  # on past the credit, the frames budget or the bytes budget. Seeded by
+  # `fuzz/seed_confined_stream.py`, runs that keep the contract.
 cd fuzz && cargo +nightly fuzz run media_aac -- -max_total_time=600 -max_len=262144   # an MP4
   # clip end to end in the worker (ADRs 3381, 3382): its boxes placed, its movie read, its AAC
   # decoded by `rusty_aac`'s scalar build in runs, every reply read back by the host's checks.

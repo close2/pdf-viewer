@@ -6,8 +6,26 @@ use std::process::{ChildStdout, Command as OsCommand, Stdio};
 
 use pdf_sandbox::lockdown::Confinement;
 
+use std::num::NonZeroU32;
+
+use crate::stream::{Budget, Stream, StreamError};
 use crate::supervision::Canceller;
 use crate::{Channel, SentDescriptor, frame, greeting};
+
+/// A frame read inside a limit: its kind and payload, or its kind and length where it was longer
+/// than the limit and was read past.
+#[derive(Debug)]
+pub(crate) enum Framed {
+    /// A frame the limit admitted.
+    Frame(u8, Vec<u8>),
+    /// A frame longer than the limit, read past so that the next starts where it should.
+    Discarded {
+        /// Its kind.
+        kind: u8,
+        /// The length its header claimed.
+        length: usize,
+    },
+}
 
 /// Why an exchange with a confined worker could not happen.
 ///
@@ -341,7 +359,56 @@ impl Host {
     ///
     /// **The buffer is asked for rather than demanded**, because its size is a number the *worker*
     /// wrote into the header and the worker is the untrusted side here.
+    /// Opens a stream: `request` under the asking protocol's own `kind`, answered by items the
+    /// worker sends `window` at a time, within `budget` (ADR 3501; see [`crate::stream`]).
+    ///
+    /// # Errors
+    ///
+    /// See [`StreamError`]: a budget of no frames opens nothing, and the open request's write can
+    /// fail as an exchange's can.
+    pub fn stream(
+        &mut self,
+        kind: u8,
+        request: &[u8],
+        window: NonZeroU32,
+        budget: Budget,
+    ) -> Result<Stream<'_>, StreamError> {
+        Stream::open(self, kind, request, window, budget)
+    }
+
+    /// Fails with [`TransportError::Cancelled`] once a canceller has ended the worker.
+    pub(crate) fn still_running(&self) -> Result<(), TransportError> {
+        if self.canceller.is_cancelled() {
+            return Err(TransportError::Cancelled);
+        }
+        Ok(())
+    }
+
+    /// Writes one frame with no descriptor beside it.
+    pub(crate) fn write(&mut self, kind: u8, payload: &[u8]) -> Result<(), TransportError> {
+        self.write_frame(kind, payload, None)
+    }
+
+    /// Reads the worker's next frame as [`Self::receive`] does, but reads past one longer than
+    /// `limit` instead of allocating for it, and says so.
+    pub(crate) fn read_frame_within(&mut self, limit: usize) -> Result<Framed, TransportError> {
+        let (kind, length) = self.next_header()?;
+        if length > limit {
+            self.discard(length)?;
+            return Ok(Framed::Discarded { kind, length });
+        }
+        self.read_payload(kind, length)
+            .map(|(kind, payload)| Framed::Frame(kind, payload))
+    }
+
     fn read_frame(&mut self) -> Result<(u8, Vec<u8>), TransportError> {
+        let (kind, length) = self.next_header()?;
+        self.read_payload(kind, length)
+    }
+
+    /// The header of the worker's next frame that is the caller's to read, after answering any
+    /// resource request or notice that comes first.
+    fn next_header(&mut self) -> Result<(u8, usize), TransportError> {
         loop {
             let mut header = [0u8; frame::HEADER_LEN];
             self.read_exactly(&mut header)?;
@@ -360,7 +427,7 @@ impl Host {
                 self.take_a_notice(length)?;
                 continue;
             }
-            return self.read_payload(kind, length);
+            return Ok((kind, length));
         }
     }
 
@@ -466,13 +533,6 @@ impl Host {
     ///
     /// Checked before anything is written, so that a cancel arriving between two exchanges is the
     /// same answer as one arriving during the work rather than a pipe error about a dead process.
-    fn still_running(&self) -> Result<(), TransportError> {
-        if self.canceller.is_cancelled() {
-            return Err(TransportError::Cancelled);
-        }
-        Ok(())
-    }
-
     /// Waits for a worker whose output has closed, and says how it ended.
     ///
     /// Blocking, for the reason `pdf_sandbox`'s own version gives: a status sampled the instant a
