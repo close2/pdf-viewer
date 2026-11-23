@@ -1970,6 +1970,7 @@ impl Prepared {
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
+            Rewrite::BaseFontNamed => self.owed.base_font_names.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::CollectionRestated => self.owed.collections.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
@@ -2281,6 +2282,8 @@ pub(super) struct Owed {
     pub(super) cid_to_gid: Result<sites::CidToGidSites, Because>,
     /// The font dictionaries given `/Type /Font`, or why none are (`doc/adr/2608`).
     pub(super) font_types: Result<sites::FontTypeSites, Because>,
+    /// The fonts given their program's PostScript name, or why none are (ADR 3395).
+    pub(super) base_font_names: Result<super::base_font_names::Restated, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The `CIDFont`s whose `/CIDSystemInfo` is restated as their `CMap`'s, or why none is
@@ -2431,6 +2434,9 @@ impl Owed {
             }),
             font_types: asked(wanted(Rewrite::FontTypeStated), || {
                 sites::font_types(document, input, plan.target)
+            }),
+            base_font_names: asked(wanted(Rewrite::BaseFontNamed), || {
+                super::base_font_names::restated(document, input)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, truetype_input, spare)

@@ -623,6 +623,14 @@ pub enum Rewrite {
     /// decided by the tables and the dictionary's position, never by this converter
     /// (`doc/adr/2608`).
     FontTypeStated,
+    /// Every font dictionary whose `/BaseFont` is no name states the PostScript name its embedded
+    /// `sfnt` program states, and its descriptor's `/FontName` the same where that is no name
+    /// either.
+    ///
+    /// ISO 32000-2 §9.6.2.1's Table 109 gives the entry the type name, §9.6.3 takes a TrueType
+    /// font's from the program's `name` table, and Table 120 makes `/FontName` equal to it, so the
+    /// name written is the program's (ADR 3395).
+    BaseFontNamed,
     /// Every XMP packet whose header states the deprecated `bytes` or `encoding` attribute loses
     /// it.
     ///
@@ -1527,6 +1535,12 @@ impl Rewrite {
                  which stated no Type or another name there, states Type Font, the one value ISO \
                  32000-2 \u{a7}9.6.2.1's Table 109 and the three font tables beside it admit"
             }
+            Self::BaseFontNamed => {
+                "a font dictionary that stated BaseFont as something other than a name states the \
+                 PostScript name its embedded program states, which ISO 32000-2 \u{a7}9.6.3 makes \
+                 the value of BaseFont, and its descriptor's FontName the same where that was no \
+                 name either, as Table 120 requires"
+            }
             Self::CidToGidIdentity => {
                 "an embedded Type 2 CIDFont stating no CIDToGIDMap is given the name Identity, \
                  which ISO 32000-1 gives as that entry's default and which a PDF/A-2 file's own \
@@ -1901,6 +1915,7 @@ impl Rewrite {
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::FontTypeStated => "font-type-stated",
+            Self::BaseFontNamed => "base-font-named",
             Self::PacketHeaderAttributes => "packet-header-attributes",
             Self::NeedsRendering => "needs-rendering",
             Self::NeedAppearancesCleared => "need-appearances-cleared",
@@ -2133,6 +2148,7 @@ impl<'a> Rewriter<'a> {
             descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
             font_types: prepared.owed.font_types.as_ref().ok(),
+            base_font_names: prepared.owed.base_font_names.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
             collections: prepared.owed.collections.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
@@ -3156,6 +3172,8 @@ struct Rewriter<'a> {
     cid_to_gid: Option<&'a sites::CidToGidSites>,
     /// The font dictionaries given `/Type /Font` (`doc/adr/2608`).
     font_types: Option<&'a sites::FontTypeSites>,
+    /// The fonts and descriptors given their program's PostScript name (ADR 3395).
+    base_font_names: Option<&'a super::base_font_names::Restated>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The `/CIDSystemInfo` each `CIDFont` whose collection is restated states instead (ADR 2717).
@@ -3752,6 +3770,7 @@ impl Rewriter<'_> {
         changed |= self.give_type3_procedures(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.state_font_type(id, out, applied);
+        changed |= self.name_base_font(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);

@@ -1528,7 +1528,7 @@ fn values_written_in_content_streams(exam: &Examination<'_>, findings: &mut Find
         findings.record(Where::page(page).named(value), what);
     };
     if let Some(held) = literals.largest_integer
-        && held.value > LARGEST_INTEGER
+        && held.value > i128::from(LARGEST_INTEGER)
     {
         report(
             held.page,
@@ -1537,7 +1537,7 @@ fn values_written_in_content_streams(exam: &Examination<'_>, findings: &mut Find
         );
     }
     if let Some(held) = literals.smallest_integer
-        && held.value < SMALLEST_INTEGER
+        && held.value < i128::from(SMALLEST_INTEGER)
     {
         report(
             held.page,

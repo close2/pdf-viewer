@@ -193,6 +193,9 @@ pub struct Lexer<'a> {
     hexadecimal: HexadecimalStrings,
     /// The salvage behind the last token [`Self::next_token`] returned; see [`Self::salvaged`].
     salvage: Option<Salvage<'a>>,
+    /// The run behind the last token where it spelled an integer `i64` cannot hold; see
+    /// [`Self::integer_out_of_range`].
+    wide_integer: Option<&'a [u8]>,
 }
 
 #[expect(
@@ -216,6 +219,7 @@ impl<'a> Lexer<'a> {
                 first_strayed_at: None,
             },
             salvage: None,
+            wide_integer: None,
         }
     }
 
@@ -237,6 +241,7 @@ impl<'a> Lexer<'a> {
                 first_strayed_at: None,
             },
             salvage: None,
+            wide_integer: None,
         }
     }
 
@@ -255,6 +260,19 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub const fn salvaged(&self) -> Option<Salvage<'a>> {
         self.salvage
+    }
+
+    /// The run behind the last token [`Self::next_token`] returned where that run spells an
+    /// integer too large for `i64`, as the file wrote it.
+    ///
+    /// ISO 32000-2 §7.3.3 makes a run of digits with an optional sign an integer whatever its
+    /// length, and `Token::Integer` holds an `i64`; such a run is handed over as the nearest
+    /// `Token::Real`, which is what a reader drawing the page needs from it. A validator needs
+    /// the other half, that the file wrote an *integer* (ISO 19005's limits on the two kinds
+    /// differ), and asks it here (ADR 3393). `None` for every other token.
+    #[must_use]
+    pub const fn integer_out_of_range(&self) -> Option<&'a [u8]> {
+        self.wide_integer
     }
 
     /// What the hexadecimal strings read so far looked like as written.
@@ -356,9 +374,11 @@ impl<'a> Lexer<'a> {
     /// 0.41 s, so it is not done (ADR 1833).
     #[inline]
     pub fn next_token(&mut self) -> Option<Token<'a>> {
-        // Cleared before anything is read, so that the answer to [`Self::salvaged`] is always
-        // about the token this call returns and never about an earlier one.
+        // Cleared before anything is read, so that the answers of [`Self::salvaged`] and
+        // [`Self::integer_out_of_range`] are always about the token this call returns and never
+        // about an earlier one.
         self.salvage = None;
+        self.wide_integer = None;
         self.skip_whitespace();
         self.token_here()
     }
@@ -373,6 +393,7 @@ impl<'a> Lexer<'a> {
     #[inline]
     pub fn token_at_cursor(&mut self) -> Option<Token<'a>> {
         self.salvage = None;
+        self.wide_integer = None;
         self.token_here()
     }
 
@@ -786,10 +807,22 @@ impl<'a> Lexer<'a> {
         // and neither reaches here: both hold no decimal digit, so the condition above returns
         // each as the keyword it lexically is (ADR 0303).
         if let Ok(text) = std::str::from_utf8(raw) {
-            if !text.contains('.')
-                && let Ok(value) = text.parse::<i64>()
-            {
-                return Token::Integer(value);
+            if !text.contains('.') {
+                match text.parse::<i64>() {
+                    Ok(value) => return Token::Integer(value),
+                    // Only a sign and digits overflow: anything else is `InvalidDigit`. The
+                    // run is an integer by §7.3.3, read on as the real nearest it and said so.
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::num::IntErrorKind::PosOverflow
+                                | std::num::IntErrorKind::NegOverflow
+                        ) =>
+                    {
+                        self.wide_integer = Some(raw);
+                    }
+                    Err(_) => {}
+                }
             }
             if let Ok(value) = text.parse::<f64>() {
                 return Token::Real(within_the_representation(value));
@@ -1206,6 +1239,39 @@ mod tests {
     /// The guard is the *fall-through*, not the fast path — every case below is longer than
     /// fifteen digits and therefore reaches `str::parse`. What is asserted is correct
     /// rounding, which is what `f64::from_str` gives and what wrapping arithmetic cannot.
+    /// ISO 32000-2 §7.3.3: "An integer shall be written as one or more decimal digits
+    /// optionally preceded by a sign." A run of that shape past `i64` is still an integer, and
+    /// the lexer says so beside the real it hands over; a real spelled with a period, however
+    /// large, and a run that is no integer leave nothing there (ADR 3393).
+    #[test]
+    fn an_integer_past_sixty_four_bits_is_said_to_be_one() {
+        let thirty_four = b"1234567890123456789012345678901234";
+        let mut lexer = Lexer::new(thirty_four);
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token::Real(1.234_567_890_123_456_8e33))
+        );
+        assert_eq!(lexer.integer_out_of_range(), Some(&thirty_four[..]));
+        let mut lexer = Lexer::new(b"-99999999999999999999 7");
+        assert!(matches!(lexer.next_token(), Some(Token::Real(_))));
+        assert_eq!(
+            lexer.integer_out_of_range(),
+            Some(&b"-99999999999999999999"[..])
+        );
+        // The next token answers for itself.
+        assert_eq!(lexer.next_token(), Some(Token::Integer(7)));
+        assert_eq!(lexer.integer_out_of_range(), None);
+        for real in [
+            &b"99999999999999999999.0"[..],
+            b"1e40",
+            b"9223372036854775807",
+        ] {
+            let mut lexer = Lexer::new(real);
+            lexer.next_token();
+            assert_eq!(lexer.integer_out_of_range(), None, "{real:?}");
+        }
+    }
+
     #[test]
     fn a_number_longer_than_the_fast_path_is_still_the_number_written() {
         // 23 digits. Wrapping a u64 would give 12345678901234567890123 mod 2^64, which is

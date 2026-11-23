@@ -12,7 +12,7 @@ impl Walk<'_> {
     ///
     /// Two comparisons per integer token, which is what putting this on the walk's hottest path
     /// costs; `examples/cost` is where that was checked rather than assumed.
-    pub(super) fn note_integer(&mut self, value: i64, page: usize) {
+    pub(super) fn note_integer(&mut self, value: i128, page: usize) {
         let literals = &mut self.survey.literals;
         if literals
             .largest_integer
@@ -119,7 +119,7 @@ impl Walk<'_> {
         }
         self.budget = self.budget.saturating_sub(1);
         match object {
-            Object::Integer(value) => self.note_integer(*value, page),
+            Object::Integer(value) => self.note_integer(i128::from(*value), page),
             Object::Real(value) => self.note_real(*value, page),
             Object::Name(name) => self.note_length(name.as_bytes().len(), page, Extent::Name),
             Object::String(text) => {

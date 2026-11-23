@@ -57,29 +57,30 @@ Three disagreements found outside it (ADR 2652 section 2):
 - 6.2.10.7 on `219789`'s part 4 output (ADR 3266): veraPDF and mupdf read a carriage return inside a literal string of page 53's damaged stream as code 13, where §7.3.4.2 treats an unescaped end-of-line marker in a literal string as 0Ah; this tree reads code 10, which has its empty glyph, so the standard reads for this tree.
 - 6.2.11.4.1 on `178360`'s `ICLJGJ+Glypha` was no disagreement: the 1009-byte `Type1C` program holds no `0x00` byte where a CFF's header and Name INDEX hold several, its Name INDEX counts 8193 names in the bytes of one, and this tree now fails it as veraPDF does and substitutes it (ADR 2636 decision 5); `178360` passes veraPDF at 2b and 4.
 
-Session 2168's census of its own kept outputs: 5512 written as conforming, veraPDF 1.30.3 failed
-95 outputs of 29 documents over 24 rules, 20 unfinished (session 2164: 109 outputs of 33 documents
-over 26 rules). Those outputs predate two corrections of ADRs 3374 and 3375 that convert
-`bug1157493` and `checkbox-bad-appearance` again; their eight outputs pass veraPDF one by one, and
-section 1's census lines are the corrected source's. Session 2164's census of session 2159's kept outputs (5512 written as conforming; veraPDF 1.30.3
+Session 2173's census of its own kept outputs: 5518 written as conforming, veraPDF 1.30.3 failed
+87 outputs of 26 documents over 21 rules, 20 unfinished (session 2168: 95 outputs of 29 documents
+over 24 rules; session 2164: 109 of 33 over 26). The three documents that left are `475121`,
+`issue1350` and `issue17679_2` (ADRs 3393, 3395, 3396). Session 2164's census of session 2159's kept outputs (5512 written as conforming; veraPDF 1.30.3
 failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled against the clause:
 - **Ours** (each the source's defect carried through). Answered by session 2168: PFB segment
   headers (`bug860632`, `issue14462_reduced`), a hexadecimal encrypted portion with `Length2 0`
   (`issue4630`), 6.2.11.4.1 (ADR 3375: unframed, binary, measured; `issue14462_reduced` still
   fails inside its Private dictionary, the program's content); an empty `/CharSet ()`
   (`issue2462`), 6.2.11.4.2, and `/AP /N` states naming `null` (`issue15557`, now refused),
-  6.3.3 (ADR 3374). Diagnosed, left (ADR 3376): 34-digit integers in a content stream (`475121`),
-  6.1.13, which the lexer reads as reals; undescribed `illustrator` and `xmpTPg` properties
-  (`PDFBOX-4532-reduced`), 6.6.2.3.1, found and then withdrawn by the reach exemption under an
-  object nothing reaches; a `/BaseFont` string (`issue1350`), 6.2.11.2, which no row reads. Not
-  reached: malformed CFF reals (`bug1068432`, `bug1308536`) and `extgstate`, `bug866395`,
+  6.3.3 (ADR 3374). Answered by session 2173: 34-digit integers in a content stream (`475121`),
+  6.1.13, now integers to the validator and refused at 2b by the fence (ADR 3393); a `/BaseFont`
+  string (`issue1350`), 6.2.11.2, a row and the program's PostScript name (ADR 3395); `BDC` naming
+  an undefined `/Properties` entry after a numeric tag (`issue17679_2`), 6.2.2, read and defined
+  empty (ADR 3396). Not reached: malformed CFF reals (`bug1068432`, `bug1308536`) and `extgstate`, `bug866395`,
   6.2.11.4.1; `issue7901`'s `/W` read through a `CIDToGIDMap` Table 115 gives only a
   `CIDFontType2`, 6.2.11.5; `bug920426`'s Encoding CMap mapping by `beginbfchar` (§9.7.5.4),
-  6.2.11.4.1 and 6.2.11.8; at 4, a font without `/Subtype` (`T02-04-01_005`) and `BDC` names no
-  `/Properties` defines (`issue17679_2`), 6.2.2; DeviceGray under no intent where text is shown
+  6.2.11.4.1 and 6.2.11.8; at 4, a font without `/Subtype` (`T02-04-01_005`), 6.2.2; DeviceGray under no intent where text is shown
   with no font (`T02-05-01_004`, `_008`) or a corrupt appearance stream (`PDFBOX-3148-2-fuzzed`),
   6.2.4.3, undetermined.
-- **veraPDF's reading**: `re%` read as one operator where §7.2.3 makes `%` a delimiter (`calgray`,
+- **veraPDF's reading**: undescribed XMP properties in the metadata of a named resource no
+  content stream references (`PDFBOX-4532-reduced`, 6.6.2.3.1), which section 6.2.2's exemption
+  takes out of the requirement; removing the exempt entry would satisfy both and is queued (ADR
+  3394). `re%` read as one operator where §7.2.3 makes `%` a delimiter (`calgray`,
   `calrgb`), and an inline image cut at an `EI` inside its samples where §8.9.7 fixes its length
   (`029016`, which states no `/L`), 6.2.2; a format 12 `cmap` skipped (`issue14881`) and `lenIV -1`
   not honoured (`issue7769`), 6.2.11.5 and 6.2.11.4.1; a CFF encoding supplement read as a glyph
@@ -92,11 +93,11 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
 | pdf.js `as-if-printed` 2b | 942 | 1 | 17 | 11 | 5 |
-| corpora `as-if-printed` 2b | 449 | 6 | 29 | 16 | 3 |
+| corpora `as-if-printed` 2b | 448 | 6 | 30 | 16 | 3 |
 | pdf.js `as-if-printed` 4 | 956 | 0 | 4 | 11 | 5 |
 | corpora `as-if-printed` 4 | 483 | 0 | 2 | 16 | 2 |
 | pdf.js `as-shown` 2b | 908 | 1 | 51 | 11 | 5 |
-| corpora `as-shown` 2b | 414 | 6 | 62 | 16 | 5 |
+| corpora `as-shown` 2b | 413 | 6 | 63 | 16 | 5 |
 | pdf.js `as-shown` 4 | 921 | 0 | 39 | 11 | 5 |
 | corpora `as-shown` 4 | 433 | 0 | 50 | 16 | 4 |
 
@@ -106,7 +107,7 @@ either way: one pdf.js document stops at R08b without the pack and at R03 with i
 `as-shown` documents move between R08b and R09's `machine-face`. In sessions 2097's and 2102's
 the census lines are again the same either way. In session 2106's, without the pack, pdf.js
 `as-if-printed` is one document worse at each part: `issue15053` stops at R08b's pack sentence;
-in sessions 2110's, 2113's, 2118's, 2123's, 2127's, 2134's, 2138's, 2156's, 2159's, 2164's and 2168's the same.
+in sessions 2110's, 2113's, 2118's, 2123's, 2127's, 2134's, 2138's, 2156's, 2159's, 2164's, 2168's and 2173's the same.
 
 Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
 opacity channel of another depth) fail veraPDF at ISO 19005-2 6.2.8.3 and -4 6.2.7.3 on veraPDF's

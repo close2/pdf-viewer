@@ -2622,6 +2622,7 @@ static READINGS: &[Reading] = &[
                     "fonts/simple-font-states-its-widths",
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
+                    "fonts/base-font-is-a-name",
                 ]),
             },
             Sentence {
@@ -4723,6 +4724,7 @@ static READINGS: &[Reading] = &[
                     "fonts/simple-font-states-its-widths",
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
+                    "fonts/base-font-is-a-name",
                 ]),
             },
             Sentence {

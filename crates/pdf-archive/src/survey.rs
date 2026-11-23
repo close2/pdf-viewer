@@ -729,9 +729,13 @@ pub struct Extreme<T> {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ContentLiterals {
     /// The largest integer any operand stated.
-    pub largest_integer: Option<Extreme<i64>>,
-    /// The smallest integer any operand stated.
-    pub smallest_integer: Option<Extreme<i64>>,
+    ///
+    /// Wider than `i64` because ISO 32000-2 §7.3.3 bounds an integer's spelling by nothing, and
+    /// a content stream that writes 34 digits has written an integer past every part's limit
+    /// (ADR 3393); one past even `i128` is held at `i128::MAX`, which is past them all as well.
+    pub largest_integer: Option<Extreme<i128>>,
+    /// The smallest integer any operand stated, held at `i128::MIN` the same way.
+    pub smallest_integer: Option<Extreme<i128>>,
     /// The largest magnitude any real operand stated.
     pub largest_real_magnitude: Option<Extreme<f64>>,
     /// The smallest non-zero magnitude any real operand stated.
@@ -1426,6 +1430,9 @@ enum Step {
     Name(Vec<u8>),
     /// An integer operand.
     Integer(i64),
+    /// An integer operand too large for `i64`, which the reader hands over as the run it is
+    /// (`ContentReader::with_runs_as_written`), saturated at `i128`'s bounds.
+    WideInteger(i128),
     /// A real operand, kept for its magnitude alone; see [`ContentLiterals`].
     Real(f64),
     /// A string operand, which only a text-showing operator takes.
@@ -1471,7 +1478,33 @@ fn keyword_step(word: &[u8]) -> Step {
     if matches!(word, b"true" | b"false" | b"null") {
         return Step::Other;
     }
+    if let Some(value) = wide_integer(word) {
+        return Step::WideInteger(value);
+    }
     Step::Unlisted(word.to_vec())
+}
+
+/// The integer a keyword spells where it is ISO 32000-2 §7.3.3's integer form — "one or more
+/// decimal digits optionally preceded by a sign" — and `None` for any other word.
+///
+/// The reader hands such a run over as a keyword only where `i64` cannot hold it, so this is
+/// what reads the digits back: `i128` holds the 34 of `475121`'s content stream, and a longer
+/// run is held at the bound of its sign, which every limit of ISO 19005-2 section 6.1.13 is far
+/// inside (ADR 3393).
+fn wide_integer(word: &[u8]) -> Option<i128> {
+    let digits = word
+        .strip_prefix(b"-")
+        .or_else(|| word.strip_prefix(b"+"))
+        .unwrap_or(word);
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let negative = word.first() == Some(&b'-');
+    let text = std::str::from_utf8(word).ok()?;
+    Some(
+        text.parse::<i128>()
+            .unwrap_or(if negative { i128::MIN } else { i128::MAX }),
+    )
 }
 
 /// Which operator a content-stream keyword is, or `None` where no operator summary lists it.
@@ -1765,6 +1798,9 @@ struct Operands<'a> {
     strings_complete: bool,
     /// §14.6.2's property list, where one was written into the operands rather than named.
     property: Option<&'a Dictionary>,
+    /// Whether the last operand is a name and another operand stands before it, which is where
+    /// `BDC` names a property list (ADR 3396).
+    named_property: bool,
 }
 
 impl Operands<'_> {
@@ -3040,6 +3076,53 @@ mod tests {
         let repeated = page_with("Xyzzy Xyzzy Xyzzy Plugh", "", &[]);
         let survey = Survey::of(&repeated);
         assert_eq!(survey.unlisted_operators().len(), 2);
+    }
+
+    /// §14.6.2's `tag properties BDC` names its property list in the last operand, so a tag
+    /// written as a number leaves the name after it a named resource the dictionary must define;
+    /// one name alone, or a name before a number, names none (ADR 3396).
+    #[test]
+    fn a_bdc_names_its_property_list_in_its_last_operand_whatever_the_tag_is() {
+        let missing = |content: &str| -> Vec<String> {
+            Survey::of(&page_with(content, "", &[]))
+                .missing_resources()
+                .iter()
+                .map(|missing| missing.name.clone())
+                .collect()
+        };
+        assert_eq!(missing("123 /oc1 BDC EMC"), vec!["oc1".to_owned()]);
+        assert_eq!(missing("/Span /oc2 BDC EMC"), vec!["oc2".to_owned()]);
+        assert_eq!(missing("/oc1 BMC EMC"), Vec::<String>::new());
+        assert_eq!(missing("/oc1 123 BDC EMC"), Vec::<String>::new());
+    }
+
+    /// ISO 32000-2 §7.3.3 makes a run of digits an integer however long it is, so 34 of them
+    /// are an integer past section 6.1.13's bound, not a real inside the real bound; and the
+    /// run is no operator either (ADR 3393).
+    #[test]
+    fn an_integer_too_large_for_sixty_four_bits_is_kept_as_an_integer() {
+        let document = page_with(
+            "1234567890123456789012345678901234 -98765432109876543210987654321098765 0 0 0 cm \
+             99999999999999999999.0 w",
+            "",
+            &[],
+        );
+        let survey = Survey::of(&document);
+        let literals = survey.content_literals();
+        assert_eq!(
+            literals.largest_integer.map(|held| held.value),
+            Some(1_234_567_890_123_456_789_012_345_678_901_234)
+        );
+        assert_eq!(
+            literals.smallest_integer.map(|held| held.value),
+            Some(-98_765_432_109_876_543_210_987_654_321_098_765)
+        );
+        assert_eq!(
+            literals.largest_real_magnitude.map(|held| held.value),
+            Some(1e20),
+            "a run with a period is a real however large"
+        );
+        assert!(survey.unlisted_operators().is_empty());
     }
 
     /// The extremes section 6.1.13's limits are read against, taken from the operands themselves.

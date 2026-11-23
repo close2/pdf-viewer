@@ -412,7 +412,8 @@ pub struct ContentReader<'a> {
 enum Runs {
     /// The number off the front, unless the rest names an operator: what is drawn.
     Salvaged,
-    /// The whole run, as §7.2.3's keyword: what a validator reads.
+    /// The whole run, as §7.2.3's keyword: what a validator reads. An integer `i64` cannot hold
+    /// is handed over as its run too, for the validator to read the digits (ADR 3393).
     AsWritten,
 }
 
@@ -1522,10 +1523,18 @@ fn content_token_at_cursor<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Toke
 /// The token just read, or the whole run where `next_content_token`'s rule, or `runs`, says
 /// the salvage does not stand. The mode is asked only of a salvaged token, so a number §7.3.3
 /// spells pays nothing for it.
+///
+/// Under [`Runs::AsWritten`] an integer too large for `i64` is handed over whole as well
+/// ([`Lexer::integer_out_of_range`]): a reader that draws takes the nearest real, and a validator
+/// needs to know the file wrote an integer, which ISO 19005's limits bound differently from a
+/// real (ADR 3393).
 fn unsalvaged<'b>(lexer: &Lexer<'b>, token: Token<'b>, runs: Runs) -> Token<'b> {
     match lexer.salvaged() {
         Some(salvage) if runs == Runs::AsWritten || !draws_the_salvage(salvage) => {
             Token::Keyword(salvage.run)
+        }
+        None if runs == Runs::AsWritten => {
+            lexer.integer_out_of_range().map_or(token, Token::Keyword)
         }
         _ => token,
     }

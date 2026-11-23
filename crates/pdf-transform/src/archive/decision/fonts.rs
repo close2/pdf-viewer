@@ -217,6 +217,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/font-dictionary-states-type-font",
         answer: Answer::Mechanical(Rewrite::FontTypeStated),
     },
+    // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through Table 109's type name
+    // and §9.6.3's source for a TrueType font's name: the program's own, so the value written is
+    // decided by the file (ADR 3395).
+    Remedy {
+        requirement: "fonts/base-font-is-a-name",
+        answer: Answer::Mechanical(Rewrite::BaseFontNamed),
+    },
     // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6 — the two rows of that
     // subclause whose subject is the font dictionary rather than the program. Each is mechanical
     // only where `super::super::sites` has proved the glyph every code reaches is unchanged, and refused

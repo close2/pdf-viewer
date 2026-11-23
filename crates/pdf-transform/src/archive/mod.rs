@@ -137,6 +137,7 @@ mod actual_text;
 mod as_drawn;
 mod attach;
 mod base;
+mod base_font_names;
 mod boundaries;
 mod census;
 mod cmaps;

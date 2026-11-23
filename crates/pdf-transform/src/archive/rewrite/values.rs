@@ -910,6 +910,34 @@ impl Rewriter<'_> {
         changed
     }
 
+    /// §9.6.2.1's Table 109 `/BaseFont`, and Table 120's `/FontName` beside it, written as the
+    /// name `base_font_names::restated` read from the embedded program (ADR 3395).
+    pub(super) fn name_base_font(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(restated) = self
+            .base_font_names
+            .filter(|_| self.wants(Rewrite::BaseFontNamed))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for (key, names) in [
+            (&b"BaseFont"[..], &restated.base_fonts),
+            (&b"FontName"[..], &restated.font_names),
+        ] {
+            if let Some(name) = names.get(&id) {
+                out.insert(Name::new(key), Object::Name(name.clone()));
+                count(applied, Rewrite::BaseFontNamed);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// §8.6.5.6's `/DefaultCMYK` and `/DefaultRGB`, each written wherever [`DefaultSites`] found
     /// a place for it, where this conversion writes it.
     ///

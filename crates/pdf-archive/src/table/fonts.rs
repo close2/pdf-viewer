@@ -168,6 +168,15 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_dictionary_states_type_font),
     },
     Requirement {
+        id: "fonts/base-font-is-a-name",
+        asks: "Every font dictionary and CIDFont dictionary that states BaseFont shall state it \
+               as a name, the type each of the base standard's font dictionary tables gives the \
+               entry.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(base_font_is_a_name),
+    },
+    Requirement {
         id: "fonts/descendant-fonts-holds-one-cidfont",
         asks: "A Type 0 font's DescendantFonts shall be a one-element array whose element is a \
                CIDFont dictionary.",
@@ -677,6 +686,36 @@ fn font_dictionary_states_type_font(exam: &Examination<'_>, findings: &mut Findi
                 .to_owned(),
         };
         findings.record(site.place_named("Type"), said);
+    });
+}
+
+/// Every font dictionary whose `/BaseFont` is of a type other than a name.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109, §9.7.4.1's Table 115 and §9.7.6.1's Table 119 each give
+/// `/BaseFont` the type *name*, and §9.6.3 gives a TrueType font Table 109's entries; ISO 19005-2
+/// section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 hold a font to those clauses. A string is not
+/// a name however it is spelled: a name is §7.3.5's object, and a string's bytes may hold what no
+/// name may, a NUL among them (`issue1350`'s UTF-16 text, ADR 3395). A Type 3 font is left out:
+/// §9.6.4's Table 110 states no `/BaseFont` to give a type. An absent entry is the
+/// required-entries gap the conformance row carries, not this row's.
+fn base_font_is_a_name(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_font(exam, |site, font| {
+        if subtype(document, font).as_deref() == Some("Type3") {
+            return;
+        }
+        let stated = document.get_key(font, "BaseFont");
+        if matches!(stated, Object::Name(_) | Object::Null) {
+            return;
+        }
+        findings.record(
+            site.place_named("BaseFont"),
+            format!(
+                "a font dictionary states BaseFont as a {} where the base standard's font \
+                 dictionary tables give the entry the type name",
+                stated.type_name()
+            ),
+        );
     });
 }
 
@@ -4341,6 +4380,32 @@ mod tests {
     /// A font is a font by where it stands as well as by its `/Type`: the descendant a Type 0
     /// font names without `/Type` — pdf.js's `issue7544.pdf` — is judged by the font rows, and
     /// its missing entry is a finding of its own (`doc/adr/2608`).
+    /// Table 109 gives `/BaseFont` the type name: a string fails however it reads, a name and an
+    /// absent entry do not, and a Type 3 font, whose Table 110 states no `/BaseFont`, is not
+    /// judged (ADR 3395).
+    #[test]
+    fn a_base_font_that_is_no_name_fails() {
+        let font = |base_font: &str, subtype: &str| {
+            page_with(
+                "BT /F1 12 Tf (A) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /{subtype} {base_font} /FirstChar 65 \
+                     /LastChar 65 /Widths [500] >>\nendobj\n"
+                ),
+            )
+        };
+        for (base_font, subtype, failing) in [
+            ("/BaseFont <feff0041>", "TrueType", 1),
+            ("/BaseFont 12", "Type1", 1),
+            ("/BaseFont /Arial", "TrueType", 0),
+            ("", "Type1", 0),
+            ("/BaseFont (A)", "Type3", 0),
+        ] {
+            let found = findings(&font(base_font, subtype), super::base_font_is_a_name);
+            assert_eq!(found.len(), failing, "{base_font} on {subtype}: {found:?}");
+        }
+    }
+
     #[test]
     fn a_font_its_position_names_is_judged_whatever_its_type_says() {
         let descendant = |ty: &str| {

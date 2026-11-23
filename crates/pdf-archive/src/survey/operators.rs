@@ -51,6 +51,11 @@ impl Walk<'_> {
         // §14.6.2's property list, where the operator being assembled was given one written
         // into its operands rather than named through the resources.
         let mut property: Option<Dictionary> = None;
+        // Whether the last operand was a name with another operand before it: §14.6.2's second
+        // form, `tag properties BDC`, names its property list in the last of two operands
+        // whatever the tag was written as (ADR 3396).
+        let mut operands_read = 0_usize;
+        let mut last_was_name = false;
         // Where this stream found the marked-content stack. A stream that opens more sequences
         // than it closes leaves them here, and one that closes more would otherwise close its
         // caller's; §14.6.1 makes neither a thing a conforming stream does, so the depth is
@@ -65,6 +70,19 @@ impl Walk<'_> {
             self.budget = self.budget.saturating_sub(1);
             let step = next_step(reader);
             let names_it = matches!(&step, Step::Name(name) if name == b"ActualText");
+            if matches!(
+                step,
+                Step::Name(_)
+                    | Step::Integer(_)
+                    | Step::WideInteger(_)
+                    | Step::Real(_)
+                    | Step::Text(_)
+                    | Step::Dictionary
+                    | Step::Other
+            ) {
+                operands_read = operands_read.saturating_add(1);
+                last_was_name = matches!(step, Step::Name(_));
+            }
             match step {
                 Step::End => {
                     self.marks.truncate(base);
@@ -90,12 +108,16 @@ impl Walk<'_> {
                 }
                 // The last integer, because `Tr` takes exactly one and it comes last.
                 Step::Integer(value) => {
-                    self.note_integer(value, page);
+                    self.note_integer(i128::from(value), page);
                     numbers.integer(value);
                 }
                 Step::Real(value) => {
                     self.note_real(value, page);
                     numbers.real(value);
+                }
+                Step::WideInteger(value) => {
+                    self.note_integer(value, page);
+                    numbers.wide_integer();
                 }
                 Step::Text(text) => {
                     self.note_length(text.len(), page, Extent::String);
@@ -111,6 +133,8 @@ impl Walk<'_> {
                     strings_complete = true;
                     numbers = Numbers::default();
                     property = None;
+                    operands_read = 0;
+                    last_was_name = false;
                 }
                 Step::Operator(operator) => {
                     if let Some(ledger) = &mut self.ledger {
@@ -137,6 +161,7 @@ impl Walk<'_> {
                             nonzero: numbers.nonzero,
                             strings_complete,
                             property: property.as_ref(),
+                            named_property: last_was_name && operands_read >= 2,
                         },
                         &context,
                         reader,
@@ -147,6 +172,8 @@ impl Walk<'_> {
                     strings_complete = true;
                     numbers = Numbers::default();
                     property = None;
+                    operands_read = 0;
+                    last_was_name = false;
                 }
             }
         }
@@ -348,5 +375,11 @@ impl Numbers {
     /// A real operand.
     fn real(&mut self, value: f64) {
         self.nonzero |= value != 0.0;
+    }
+
+    /// An integer operand too large for `i64`, which is never zero. It is no `Tr` mode either,
+    /// so the last integer is left as it was, as it was when the lexer handed it over as a real.
+    const fn wide_integer(&mut self) {
+        self.nonzero = true;
     }
 }

@@ -59,8 +59,11 @@ impl Walk<'_> {
         if let Some(inline) = operands.property {
             return PropertyList::Read(Cow::Borrowed(inline));
         }
-        // §14.6.2's second form: the tag and then a name, so the name is the last of the two.
-        if operands.names.len() < 2 {
+        // §14.6.2's second form: the tag and then a name, so the name is the last of the two —
+        // whatever the tag was written as, because the operand the operator reads as its
+        // property list is the last one, and a tag written as a number does not make the name
+        // after it any less a named resource (`issue17679_2`'s `123 /oc1 BDC`, ADR 3396).
+        if !operands.named_property {
             return PropertyList::Absent;
         }
         let Some(name) = operands.names.last() else {
