@@ -730,6 +730,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
 
+      # `quorra-sound` ships on every target and links ALSA through `cpal` on Linux (ADR 3317).
+      - name: The sound helper's audio library
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: sudo apt-get install -y libasound2-dev
+
       # Every program a person runs, and the workers are not a detail: each of them is a
       # separate executable that its program *spawns*, looked for beside the running binary and
       # then one directory above it (`confined_transport::program_beside_executable`). A viewer
