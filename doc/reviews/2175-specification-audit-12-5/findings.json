@@ -1,0 +1,88 @@
+[
+ {
+  "id": "2175-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.3",
+   "12.5.5",
+   "12.5.6.4"
+  ],
+  "summary": "A NoZoom or NoRotate annotation is drawn where \u00a712.5.3 moves it but hit-tested at its unaltered /Rect. annotation_at (and field_at, link::at) test the point against /Rect in default user space with no ViewAdjust, so at magnification 0.5 a NoZoom square drawn over [10,50]x[50,90] answers no annotation at (40,55), and a NoRotate one turned about its upper-left corner on a /Rotate 90 page answers none at (20,80) where it is inked. Every Text annotation is affected, since \u00a712.5.6.4 makes it behave as if both flags were set.",
+  "source": "ISO 32000-2 \u00a712.5.3: \"If the NoZoom flag is set, the annotation shall always maintain the same fixed size on the screen ... When the default user space is scaled or rotated, the positions of the other three corners of the annotation rectangle are different in the altered user space than they were in the original user space. The PDF processor shall perform this alteration automatically.\" \u00a712.5.5 ties the rollover and down appearances to \"the annotation's active area\".",
+  "code": "crates/pdf-model/src/view/annotations.rs:248 (active_area_covers) and :282 (rectangle_covers read /Rect alone); crates/pdf-model/src/annotation.rs:770 (ViewGeometry::adjustment, applied to drawing only); crates/pdf-model/src/view/fields.rs:1060 (widgets_at); crates/pdf-model/src/link.rs:165 (region_covers)",
+  "change": "Hit-test against the annotation rectangle as \u00a712.5.3 alters it: map the point through the inverse of the annotation's ViewAdjust (the same adjustment decide applies, including \u00a712.5.6.4's subtype override) before testing /Rect or /QuadPoints, in annotation_at, widgets_at and link::at alike.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_no_zoom_annotations_active_area_is_where_it_is_drawn_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_no_rotate_annotations_active_area_is_where_it_is_drawn_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2175-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.3",
+   "12.5.1",
+   "12.5.6.5"
+  ],
+  "summary": "Table 167's interaction bits are read by annotation_at alone. A click on a Hidden, NoView or ReadOnly link still activates it (viewer_core::interact::activate and link_at take pdf_model::link::links/at, which read no /F): a /F 6 link to page two turns the page and Query::LinkAt answers Link(true). field_at, which a host's click on a field asks (viewer_host::form::clicked), returns a Hidden (/F 2) or NoView (/F 32) widget, so a hidden field can be focused and typed into; and Tab focus walks tab_order::order, which visits every annotation including hidden ones, raising /Fo on them.",
+  "source": "ISO 32000-2 Table 167, bit 2 Hidden: \"If set, do not render the annotation or allow it to interact with the user\"; bit 6 NoView: \"do not render the annotation on the screen or allow it to interact with the user\"; bit 7 ReadOnly: \"do not allow the annotation to interact with the user ... should not respond to mouse clicks\".",
+  "code": "crates/pdf-model/src/link.rs:79 (links reads no /F) and :121 (at); crates/viewer-core/src/interact.rs:95 (link_at) and :125 (activate); crates/pdf-model/src/view/fields.rs:1033 (field_at) and :1060 (widgets_at); crates/viewer-core/src/viewer/editing.rs:637 (move_focus over tab_order::order)",
+  "change": "Ask annotation::interacts (with the view's hide-action state) wherever a pointer or the keyboard reaches an annotation: link activation and Query::LinkAt, field_at/widgets_at, and the focus step over the tab order (the order itself may stay a permutation; the step skips what may not interact).",
+  "execution": "FAIL (expected): crates/viewer-core/tests/annotation_interaction_flags_spec_audit.rs::a_link_that_may_not_interact_is_not_activated_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_hidden_widget_is_not_a_field_under_the_pointer_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2175-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.3",
+   "12.7.4.1"
+  ],
+  "summary": "A widget of a ReadOnly field interacts. annotation::interacts ignores a widget's own /F bit 7, as Table 167 says, but never reads the field's Ff bit 1 that the same row says subsumes it, so annotation_at answers the widget, annotation_interacts is true, and a press shows its down appearance or its /H inversion.",
+  "source": "ISO 32000-2 Table 167, bit 7: \"This flag shall be ignored for widget annotations; its function is subsumed by the ReadOnly flag of the associated form field\". Table 227, bit 1 ReadOnly: \"any associated widget annotations should not interact with the user; that is, they should not respond to mouse clicks nor change their appearance in response to mouse motions.\"",
+  "code": "crates/pdf-model/src/annotation.rs:918 (flags & FLAG_READ_ONLY == 0 || widget)",
+  "change": "For a widget, read the terminal field's inherited Ff (bit 1) in interacts, and in press_changes/hover_changes through it, so a read-only field's widgets neither take the pointer nor change appearance; the host's field editing already refuses the value.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_widget_of_a_read_only_field_does_not_interact_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2175-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.3"
+  ],
+  "summary": "LockedContents on a widget does not restrict filling its field. restriction::asserted reads bit 10 for Operation::Annotate only, and viewer-core's annotation_of passes no annotation for SetField, so a field whose widget sets LockedContents is filled with no restriction asserted. Table 167's Locked row names the value of a form field as an annotation's contents.",
+  "source": "ISO 32000-2 Table 167, bit 10 LockedContents: \"If set, do not allow the contents of the annotation to be modified by the user.\" Bit 8 Locked: \"this flag does not restrict changes to the annotation's contents, such as the value of a form field.\"",
+  "code": "crates/pdf-model/src/restriction.rs:676 (Annotate only); crates/viewer-core/src/viewer/editing.rs:978 (annotation_of answers None for SetField and ChooseFile)",
+  "change": "For FillInForm, assert AnnotationLocked where any widget of the named field sets bit 10 (or have the caller pass the widget); the policy level decides as for every restriction, so the reader can still turn it off.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::locked_contents_on_a_widget_restricts_filling_its_field_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2175-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.2",
+   "12.5.5"
+  ],
+  "summary": "An appearance subdictionary with no /AS draws nothing and says nothing. stored_appearance takes an absent /AS to Normal::StateNotDefined, the case \u00a712.5.5 gives 'displaying nothing' for an /AS that names an undefined state; an absent /AS is a third answer, a file breaking Table 166's requirement, and no Unsupported is noted.",
+  "source": "ISO 32000-2 Table 166, AS: \"(Required if the appearance dictionary AP contains one or more subdictionaries)\". \u00a712.5.5: \"PDF processors shall also attempt to provide reasonable behaviour (such as displaying nothing) if an annotation's AS entry designates an appearance state for which no appearance is defined in the appearance dictionary.\"",
+  "code": "crates/pdf-model/src/annotation.rs:1543 (selected is None when /AS is absent) and :1149 (StateNotDefined => Decision::Nothing)",
+  "change": "Tell an absent /AS from one naming an undefined state: keep drawing nothing, and report the missing required entry (Decision::Unsupported or an owed detail), as a missing /BBox already is.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::an_appearance_subdictionary_without_an_as_is_reported_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ },
+ {
+  "id": "2175-B06",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.5.2",
+   "12.5.5",
+   "7.9.5"
+  ],
+  "summary": "/Rect, /BBox and /Matrix are read by a filter_map that drops non-numbers. /Rect [10 /x 10 50 50] is read as [10 10 50 50], the numbers after the name moving one place, and drawn there unreported; a /Matrix of five numbers is taken as the identity in silence, and one of seven takes its first six. The same filter is in rectangle_covers and widgets_at.",
+  "source": "ISO 32000-2 \u00a77.9.5: \"a rectangle shall be written as an array of four numbers\"; Table 166 Rect (rectangle); \u00a712.5.5 maps by the appearance's Matrix (Table 93: an array of six numbers).",
+  "code": "crates/pdf-model/src/annotation.rs:1905 (numbers: filter_map), :1860 (matrix: fewer than six is identity, more is truncated), :1886 (rectangle: four or more); crates/pdf-model/src/view/annotations.rs:282; crates/pdf-model/src/view/fields.rs:1086",
+  "change": "Read a rectangle as exactly four numbers and a matrix as exactly six; anything else is reported (an unusable /Rect is already 'no usable /Rect'), and the hit tests take the same reading.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_rect_that_is_not_four_numbers_is_reported_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::an_appearance_matrix_that_is_not_six_numbers_is_reported_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
+  "status": "open"
+ }
+]

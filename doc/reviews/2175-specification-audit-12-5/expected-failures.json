@@ -1,0 +1,60 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2175 on main f6e2316a",
+ "failures": [
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::a_no_zoom_annotations_active_area_is_where_it_is_drawn_spec_audit",
+   "finding": "2175-B01",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::a_no_rotate_annotations_active_area_is_where_it_is_drawn_spec_audit",
+   "finding": "2175-B01",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::a_hidden_widget_is_not_a_field_under_the_pointer_spec_audit",
+   "finding": "2175-B02",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "viewer-core::annotation_interaction_flags_spec_audit",
+   "test": "a_link_that_may_not_interact_is_not_activated_spec_audit",
+   "finding": "2175-B02",
+   "log": "round-2175 nextest of viewer-core"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::a_widget_of_a_read_only_field_does_not_interact_spec_audit",
+   "finding": "2175-B03",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::locked_contents_on_a_widget_restricts_filling_its_field_spec_audit",
+   "finding": "2175-B04",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::an_appearance_subdictionary_without_an_as_is_reported_spec_audit",
+   "finding": "2175-B05",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::a_rect_that_is_not_four_numbers_is_reported_spec_audit",
+   "finding": "2175-B06",
+   "log": "round-2175 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::annotations_suite",
+   "test": "annotation_clause12_5_spec_audit::an_appearance_matrix_that_is_not_six_numbers_is_reported_spec_audit",
+   "finding": "2175-B06",
+   "log": "round-2175 nextest of pdf-model"
+  }
+ ]
+}

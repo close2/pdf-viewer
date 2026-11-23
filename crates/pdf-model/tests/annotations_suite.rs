@@ -17,6 +17,7 @@
 
 mod annotation_appearance_audit;
 mod annotation_border_audit;
+mod annotation_clause12_5_spec_audit;
 mod annotation_dictionary_audit;
 mod annotation_flags_audit;
 mod annotation_oc_flags_audit;
