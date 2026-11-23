@@ -40,6 +40,9 @@ pub struct Pcm {
     pub channels: u16,
     /// How many of the run's access units the decoder refused and were played as silence.
     pub concealed: u32,
+    /// The speaker of each output channel as a `WAVE_FORMAT_EXTENSIBLE` channel mask, or `0` where
+    /// the decoder states no order ([`Session::new`]).
+    pub speakers: u32,
     /// The samples, interleaved, each in the most significant bits of an `i32` as `crate::sound`'s.
     pub samples: Vec<i32>,
 }
@@ -51,6 +54,9 @@ pub struct Session {
     output: Option<(u32, u16)>,
     /// Samples a channel of the last access unit decoded: a concealed unit's length.
     last_frames: usize,
+    /// The channel mask of the configuration's output order, before it is checked against the
+    /// channels a unit decodes to ([`speakers`]).
+    layout: u64,
 }
 
 impl std::fmt::Debug for Session {
@@ -59,6 +65,7 @@ impl std::fmt::Debug for Session {
             .debug_struct("Session")
             .field("output", &self.output)
             .field("last_frames", &self.last_frames)
+            .field("layout", &self.layout)
             .finish_non_exhaustive()
     }
 }
@@ -89,12 +96,14 @@ impl Session {
         let frames = stream
             .frame_length
             .saturating_mul(if stream.sbr { 2 } else { 1 });
+        let layout = layout(&stream);
         let decoder = Decoder::with_stream_config(stream)
             .map_err(|error| format!("an AudioSpecificConfig the decoder does not run: {error}"))?;
         Ok(Self {
             decoder,
             output: None,
             last_frames: frames.min(MAX_FRAMES_PER_UNIT),
+            layout,
         })
     }
 
@@ -155,9 +164,43 @@ impl Session {
             rate,
             channels,
             concealed,
+            speakers: speakers(self.layout, channels),
             samples,
         })
     }
+}
+
+/// The channel mask of the order the decoder puts `stream`'s channels out in, or `0`.
+///
+/// `rusty_aac` orders a configuration's channels by speaker, the order a
+/// `WAVE_FORMAT_EXTENSIBLE` channel mask names them in (its layout module, from the channel
+/// configuration's elements or the program configuration element's), and states that order as a
+/// mask whose low eighteen bits are the WAVE mask's speakers bit for bit; it states `0` where a
+/// program configuration names speakers it cannot order, which keeps the element order. A
+/// configuration learned from a program configuration element inside the stream is not known
+/// here, and is `0` too (ADR 3405). ISO/IEC 14496-3, which assigns the speakers, is not held.
+fn layout(stream: &rusty_aac::config::StreamConfig) -> u64 {
+    use rusty_aac::decode::layout::{OutputConfig, default_layout, pce_layout};
+    let map = match (&stream.pce, stream.channel_config) {
+        (Some(pce), _) => pce_layout(pce),
+        (None, 0) => return 0,
+        (None, configuration) => match default_layout(configuration, false) {
+            Some(map) => map,
+            None => return 0,
+        },
+    };
+    OutputConfig::configure(map, false).mask
+}
+
+/// The speakers of `channels` decoded channels under `layout`, as a WAVE channel mask: the layout's
+/// where it names exactly one speaker a channel within the WAVE mask's thirty-two bits, and `0` —
+/// the channels by their order — otherwise, as for a mono core that parametric stereo made two
+/// channels.
+fn speakers(layout: u64, channels: u16) -> u32 {
+    u32::try_from(layout)
+        .ok()
+        .filter(|mask| mask.count_ones() == u32::from(channels))
+        .unwrap_or(0)
 }
 
 /// Refuses `adding` samples to `held` past `max`.
@@ -215,5 +258,28 @@ mod tests {
         let pcm = session.decode(&[&[], &[0x00]], 1 << 20).expect("a run");
         assert_eq!(pcm.concealed, 2);
         assert_eq!(pcm.samples, Vec::<i32>::new());
+    }
+
+    /// The speakers each channel configuration's output order names (ADR 3405): mono is the front
+    /// centre, stereo the front pair, 5.1 the six of the WAVE mask's first six bits — the order the
+    /// decoder puts them out in — and a count the layout does not match, as parametric stereo makes
+    /// of a mono core, is no speaker at all.
+    #[test]
+    fn a_channel_configuration_names_its_speakers_in_the_decoders_order() {
+        // AudioSpecificConfig: object type 2, frequency index 4, channel configuration 1, 2, 6.
+        for (config, channels, mask) in [
+            ([0x12, 0x08], 1, 0x4),
+            ([0x12, 0x10], 2, 0x3),
+            ([0x12, 0x30], 6, 0x3f),
+        ] {
+            let stream = rusty_aac::config::parse(&config).expect("a configuration");
+            assert_eq!(speakers(layout(&stream), channels), mask, "{config:x?}");
+        }
+        assert_eq!(speakers(0x4, 2), 0, "a mono layout decoded to two channels");
+        assert_eq!(
+            speakers(1 << 35, 1),
+            0,
+            "a speaker past the WAVE mask's bits"
+        );
     }
 }

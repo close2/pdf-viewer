@@ -134,6 +134,12 @@ impl Sounds {
         heard
     }
 
+    /// The commands the core is owed about the rectangle a sound plays in, since the last call
+    /// ([`Player::repainted`], ADR 3407).
+    pub fn repainted(&mut self) -> Vec<viewer_core::Command> {
+        self.player.as_mut().map_or_default(Player::repainted)
+    }
+
     /// Starts the sound held at its start — Table 291's `/A` false, "the media shall be initially
     /// paused when activated" — and answers whether there was one: the window's resume control,
     /// which a toolkit gives the space bar while a sound is held (ADR 3351).

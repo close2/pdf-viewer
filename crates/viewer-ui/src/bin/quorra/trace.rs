@@ -379,6 +379,11 @@ pub(crate) fn describe_command(command: &Command) -> String {
             format!("substitute for a null /Font entry {substitute}")
         }
         Command::PlaysHere(plays) => format!("plays a WAVE clip here {plays}"),
+        Command::PlayingIn { document, screen } => format!(
+            "a sound of document {} plays in {:?}",
+            document.0,
+            screen.map(|screen| screen.annotation)
+        ),
         Command::Oversize(oversize) => format!("oversized pages {oversize:?}"),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Scripts(scripting) => describe_scripting(scripting).to_owned(),

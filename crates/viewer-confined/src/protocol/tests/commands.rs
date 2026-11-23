@@ -463,6 +463,21 @@ fn every_carried_command_round_trips() {
         Command::NullFontSubstitute(false),
         Command::PlaysHere(true),
         Command::PlaysHere(false),
+        // Table 294's `/W` 3 background, and its end (ADR 3407).
+        Command::PlayingIn {
+            document: DocumentId(4),
+            screen: Some(viewer_core::Screen {
+                annotation: ObjectId::new(12, 1),
+                background: pdf_model::media::Background {
+                    colour: [0.25, 0.5, 1.0],
+                    opacity: 0.75,
+                },
+            }),
+        },
+        Command::PlayingIn {
+            document: DocumentId(4),
+            screen: None,
+        },
         Command::Beside(None),
         Command::Beside(Some(DocumentId(9))),
         // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:

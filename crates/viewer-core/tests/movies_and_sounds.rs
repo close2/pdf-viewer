@@ -353,6 +353,7 @@ fn a_sound_holding_its_own_samples_carries_them_beside_the_file() {
                 data: vec![0x00, 0x01, 0x7F, 0x80],
             },
             playing: pdf_model::media::Playing::default(),
+            screen: None,
         })],
         "{signed:?}"
     );

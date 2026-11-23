@@ -51,7 +51,7 @@ pub(crate) struct Outcome {
     pub(crate) transitions: Vec<Transition>,
     /// §13.2.4.2: clips §13.2.2 called viable, and §13.3's and §13.4's files, for the reader's
     /// level and then the host.
-    pub(crate) media: Vec<pdf_model::media::Clip>,
+    pub(crate) media: Vec<(pdf_model::media::Clip, Option<ObjectId>)>,
     /// The page to show, where a request named one.
     pub(crate) target: Option<usize>,
     /// Table 149's view of that page, where the destination that named it stated one.
@@ -599,7 +599,7 @@ fn rendered(
                  playing is excluded by CLAUDE.md principle 5's clause 13 entry",
             );
         } else {
-            outcome.media.push(clip.clone());
+            outcome.media.push((clip.clone(), rendition.annotation));
         }
     }
 }

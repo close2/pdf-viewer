@@ -580,6 +580,20 @@ pub struct SoundData {
     /// How it is played: §13.2.5's play parameters — Table 291's for a rendition's clip, Table
     /// 212's for a sound action's sound, the defaults for every other source (ADRs 3341, 3350).
     pub playing: pdf_model::media::Playing,
+    /// Where it plays on the page: the screen annotation a rendition action's Table 218 `/AN`
+    /// names and Table 294's background for its rectangle, where the rendition plays in that
+    /// rectangle (`/W` 3); `None` for a hidden window and for every sound no rendition plays. A
+    /// window hands it back in [`crate::Command::PlayingIn`] while the sound plays (ADR 3407).
+    pub screen: Option<Screen>,
+}
+
+/// A screen annotation a sound plays in, and what is painted over its rectangle meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Screen {
+    /// The screen annotation (ISO 32000-2 §12.5.6.18).
+    pub annotation: pdf_syntax::ObjectId,
+    /// Table 294's `/B` and `/O`.
+    pub background: pdf_model::media::Background,
 }
 
 /// What a [`SoundData`]'s bytes are.

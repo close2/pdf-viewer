@@ -204,7 +204,7 @@ fn a_wave_file_the_worker_does_not_read_is_refused_with_its_reason() {
 /// A `WAVE_FORMAT_EXTENSIBLE` file of 32-bit IEEE floats whose `fmt ` and `data` chunks lie past
 /// the first window, behind cover art larger than one: the worker walks it a window at a time, the
 /// host checks each step, the floats come back at full scale, and a channel mask that is not the
-/// first speakers is said (ADR 3397).
+/// first speakers crosses for the host to mix by (ADRs 3397, 3405).
 #[test]
 fn an_extensible_float_file_past_the_first_window_is_walked_and_decoded() {
     let chunk = |out: &mut Vec<u8>, id: &[u8; 4], bytes: &[u8]| {
@@ -244,12 +244,5 @@ fn an_extensible_float_file_past_the_first_window_is_walked_and_decoded() {
     let sound = media.decode_wave(&file, 16).expect("decoded");
     assert_eq!((sound.rate, sound.channels), (48_000, 2));
     assert_eq!(sound.samples, vec![1 << 30, -(1 << 29), i32::MAX, i32::MIN]);
-    assert!(
-        sound
-            .notes
-            .iter()
-            .any(|note| note.contains("channel mask 0x00000030")),
-        "{:?}",
-        sound.notes
-    );
+    assert_eq!(sound.speakers, 0x30, "the mask crosses for the host's mix");
 }

@@ -21,6 +21,7 @@
 pub mod clock;
 mod convert;
 pub mod helper;
+mod painting;
 mod passes;
 mod window;
 
@@ -35,7 +36,7 @@ use clock::MediaClock;
 use passes::{Pass, Passes, levelled};
 pub use quorra_sound::{Progress, Report};
 
-pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted};
+pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said};
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
 use viewer_core::{DocumentId, Recording, SoundData};
@@ -155,6 +156,8 @@ pub struct Player {
     early: Vec<Heard>,
     /// The clock of the sound now sounding, which the thread moves and the window reads.
     clock: Arc<Mutex<Option<MediaClock>>>,
+    /// The screen annotation a sound plays in, followed from what the player says (ADR 3407).
+    painting: painting::Painting,
 }
 
 /// The player's thread, and the two directions of talk with it.
@@ -185,6 +188,7 @@ impl Player {
             running: None,
             early: Vec::new(),
             clock: Arc::new(Mutex::new(None)),
+            painting: painting::Painting::default(),
         }
     }
 
@@ -206,6 +210,7 @@ impl Player {
         if self.running.is_none() {
             self.start();
         }
+        self.painting.played(played.document, played.sound.screen);
         self.send(Order::Play(played));
     }
 
@@ -242,7 +247,19 @@ impl Player {
         if let Some(running) = &self.running {
             heard.extend(running.heard.try_iter());
         }
+        for said in &heard {
+            self.painting.heard(said);
+        }
         heard
+    }
+
+    /// What the core is owed since the last call about the rectangle a sound plays in: a
+    /// [`viewer_core::Command::PlayingIn`] when a sound with a [`viewer_core::SoundData::screen`]
+    /// starts, and one with no screen when it ends, is stopped or another takes its place — read
+    /// from what [`Self::heard`] took, so a window asks after it (ISO 32000-2 Table 294's `/W` 3,
+    /// ADR 3407).
+    pub fn repainted(&mut self) -> Vec<viewer_core::Command> {
+        self.painting.owed()
     }
 
     fn send(&mut self, order: Order) {
@@ -448,6 +465,7 @@ impl Thread {
         let samples = converted(
             decoded.rate,
             decoded.channels,
+            decoded.speakers,
             &decoded.samples,
             device,
             MAX_PLAYED_SAMPLES,
@@ -464,7 +482,8 @@ impl Thread {
              (ISO 32000-2 {clause})",
             played.label, decoded.rate, decoded.channels, device.rate, device.channels
         );
-        for note in &decoded.notes {
+        let speakers = speakers_said(decoded.speakers, decoded.channels, device);
+        for note in decoded.notes.iter().chain(&speakers) {
             said.push_str("; ");
             said.push_str(note);
         }

@@ -129,6 +129,7 @@ fn played(samples: &[u8], playing: Playing) -> Played {
                 data: samples.to_vec(),
             },
             playing,
+            screen: None,
         },
     }
 }

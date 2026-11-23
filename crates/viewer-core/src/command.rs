@@ -8,6 +8,7 @@
 use pdf_render::Raster;
 use pdf_syntax::{FileBytes, ObjectId};
 
+use crate::event::Screen;
 use crate::recipient::RecipientSecret;
 use crate::secret::Secret;
 use crate::viewer::{DocumentId, RenderToken};
@@ -445,6 +446,21 @@ pub enum Command {
     /// Applies to every open document and to every one opened afterwards, until it is sent
     /// again, which is [`Self::Separations`]' rule for its reason.
     PlaysHere(bool),
+    /// A sound this host plays has started in a screen annotation's rectangle, or the one that
+    /// played there has ended: the window's player knows both, and nothing else does.
+    ///
+    /// ISO 32000-2 Table 294's `/W` 3 plays a media object in "\[t]he rectangle occupied by the
+    /// screen annotation", and its `/B` "shall be used if the media object does not entirely cover
+    /// the rectangle" — all of it, for a sound. While `screen` is `Some`, the document's pages paint
+    /// [`crate::Screen::background`] over that annotation's rectangle; `None` takes it away. Sent
+    /// with the [`crate::SoundData::screen`] the sound arrived with, when the player says it
+    /// sounds, and with `None` when it says it ended, was stopped or was refused (ADR 3407).
+    PlayingIn {
+        /// Which document's sound.
+        document: DocumentId,
+        /// Where it plays and what is painted there, or `None` once it has stopped.
+        screen: Option<Screen>,
+    },
     /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
     ///
     /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**

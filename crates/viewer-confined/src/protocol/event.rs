@@ -847,11 +847,13 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
         viewer_core::Recording::Wave(file) => {
             writer.u8(2).bytes(file);
             write_playing(writer, &sound.playing);
+            write_screen(writer, sound.screen.as_ref());
             return;
         }
         viewer_core::Recording::Mp4(file) => {
             writer.u8(3).bytes(file);
             write_playing(writer, &sound.playing);
+            write_screen(writer, sound.screen.as_ref());
             return;
         }
     };
@@ -871,6 +873,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
         .u8(encoding)
         .bytes(data);
     write_playing(writer, &sound.playing);
+    write_screen(writer, sound.screen.as_ref());
 }
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
@@ -949,6 +952,62 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
     })
 }
 
+/// Where a sound plays on its page (ADR 3407): a byte saying whether, then the screen annotation
+/// and Table 294's background — three colour components and an opacity.
+pub(super) fn write_screen(writer: &mut Writer, screen: Option<&viewer_core::Screen>) {
+    let Some(screen) = screen else {
+        writer.u8(0);
+        return;
+    };
+    let [r, g, b] = screen.background.colour;
+    writer
+        .u8(1)
+        .object(screen.annotation)
+        .f32(r)
+        .f32(g)
+        .f32(b)
+        .f32(screen.background.opacity);
+}
+
+/// [`write_screen`]'s other half; a component or an opacity outside `0.0..=1.0`, which Table 294
+/// does not admit and the core never sends, is refused.
+pub(super) fn read_screen(
+    reader: &mut Reader<'_>,
+) -> Result<Option<viewer_core::Screen>, ProtocolError> {
+    match reader.u8("whether a sound plays in a screen annotation")? {
+        0 => return Ok(None),
+        1 => {}
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "whether a sound plays in a screen annotation",
+                value: u32::from(other),
+            });
+        }
+    }
+    let annotation = reader.object("the screen annotation a sound plays in")?;
+    let mut unit = |what: &'static str| -> Result<f32, ProtocolError> {
+        let value = reader.f32(what)?;
+        if (0.0..=1.0).contains(&value) {
+            Ok(value)
+        } else {
+            Err(ProtocolError::Unrecognised {
+                what,
+                value: value.to_bits(),
+            })
+        }
+    };
+    let colour = [
+        unit("a screen background's red")?,
+        unit("a screen background's green")?,
+        unit("a screen background's blue")?,
+    ];
+    let opacity = unit("a screen background's opacity")?;
+    Ok(Some(viewer_core::Screen {
+        annotation,
+        background: pdf_model::media::Background { colour, opacity },
+    }))
+}
+
 /// [`write_sound`]'s other half.
 fn read_sound(
     reader: &mut Reader<'_>,
@@ -960,12 +1019,14 @@ fn read_sound(
             return Ok(Some(Box::new(viewer_core::SoundData {
                 recording: viewer_core::Recording::Wave(reader.owned_bytes("a sound's WAVE file")?),
                 playing: read_playing(reader)?,
+                screen: read_screen(reader)?,
             })));
         }
         3 => {
             return Ok(Some(Box::new(viewer_core::SoundData {
                 recording: viewer_core::Recording::Mp4(reader.owned_bytes("a sound's MP4 file")?),
                 playing: read_playing(reader)?,
+                screen: read_screen(reader)?,
             })));
         }
         other => {
@@ -1000,5 +1061,6 @@ fn read_sound(
             data: reader.owned_bytes("a sound's samples")?,
         },
         playing: read_playing(reader)?,
+        screen: read_screen(reader)?,
     })))
 }

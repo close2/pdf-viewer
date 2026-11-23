@@ -1207,8 +1207,10 @@ fn a_media_clip_section_is_played_here_as_its_offsets_place_it() {
 
 /// Table 287's `/BU` and Table 294's screen parameters for a clip this program plays itself
 /// (ADRs 3398, 3399): the player resolves no URL, so an `MH` base URL is honoured; it shows a
-/// sound in no window, which is Table 294's hidden window, so an `MH` `/W 2` is honoured with the
-/// entries the table ignores for hidden windows, while any other window type in `MH` is
+/// sound in no window of its own, so an `MH` `/W 2` — Table 294's hidden window — is honoured with
+/// the entries the table ignores for hidden windows and paints nothing, and `/W 3` — the screen
+/// annotation's rectangle — is honoured by painting `/B` there (ADR 3407), while a floating or
+/// full-screen window, an unrecognised type, or a `/B` or `/O` outside the table's range in `MH` is
 /// non-viable and in `BE` is set aside and said.
 #[test]
 fn a_base_url_and_a_hidden_window_are_honoured_by_this_player() {
@@ -1228,7 +1230,15 @@ fn a_base_url_and_a_hidden_window_are_honoured_by_this_player() {
     let hidden = "/SP << /MH << /W 2 /B [1 0 0] /O 0.5 /M 1 >> >>";
     let clip = chosen(hidden, &plain).expect("a hidden window is this player's");
     assert!(clip.unhonoured.is_empty(), "{:?}", clip.unhonoured);
-    for must in ["/W 0", "/W 3", "/W 7", "/B [1 0 0]"] {
+    assert_eq!(clip.background, None, "a hidden window paints nothing");
+    for must in [
+        "/W 0",
+        "/W 7",
+        "/B [1 0]",
+        "/B [1 0 2]",
+        "/O 1.5",
+        "/W 3 /O (half)",
+    ] {
         let screen = format!("/SP << /MH << {must} >> >>");
         assert!(chosen(&screen, &plain).is_none(), "{must}");
     }
@@ -1242,4 +1252,57 @@ fn a_base_url_and_a_hidden_window_are_honoured_by_this_player() {
     );
     let clip = chosen("/SP << /BE << /W 2 /B [0 0 1] >> >>", &plain).expect("BE hidden");
     assert!(clip.unhonoured.is_empty(), "{:?}", clip.unhonoured);
+}
+
+/// ISO 32000-2 Table 294's `/W` 3 for a sound this program plays (ADR 3407): "\[t]he rectangle
+/// occupied by the screen annotation", whose `/B` "shall be used if the media object does not
+/// entirely cover the rectangle" — all of it, for a sound — at `/O`'s opacity. `MH`'s entries come
+/// before `BE`'s; with neither, and with no screen parameters at all (the table's default `/W` is
+/// 3), the background is this program's stated default, opaque black; `/M` and `/F` are ignored
+/// for the type, as the table says; and a `BE` `/B` that is not a colour is set aside, said, and
+/// the default painted. **The control** is the hand-off, which is told no window and paints none.
+#[test]
+fn a_sound_played_in_its_screen_annotations_rectangle_paints_the_background() {
+    use pdf_model::media::Background;
+    let here = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let plain = format!("<< /S /MCD /CT (audio/wav) /D {EMBEDDED} >>");
+    let chosen = |screen: &str| {
+        judged(&format!("<< /S /MR {screen} /C {plain} >>"), here)
+            .chosen()
+            .map(|(_, clip)| clip.clone())
+    };
+    let background = |screen: &str| chosen(screen).and_then(|clip| clip.background);
+    assert_eq!(background(""), Some(Background::default()));
+    assert_eq!(Background::default().colour, [0.0, 0.0, 0.0]);
+    assert_eq!(
+        background("/SP << /MH << /W 3 /B [1 0.5 0] /O 0.25 /M 2 /F << /D [1 1] >> >> >>"),
+        Some(Background {
+            colour: [1.0, 0.5, 0.0],
+            opacity: 0.25,
+        })
+    );
+    assert_eq!(
+        background("/SP << /MH << /B [0 0 1] >> /BE << /B [1 0 0] /O 0.5 >> >>"),
+        Some(Background {
+            colour: [0.0, 0.0, 1.0],
+            opacity: 0.5,
+        }),
+        "MH's /B before BE's, BE's /O where MH states none"
+    );
+    let clip = chosen("/SP << /BE << /B (red) >> >>").expect("a BE /B is best effort");
+    assert_eq!(clip.background, Some(Background::default()));
+    assert!(
+        clip.unhonoured
+            .iter()
+            .any(|entry| entry.contains("/B (Table 294)")),
+        "{:?}",
+        clip.unhonoured
+    );
+    let handed = judged(&format!("<< /S /MR /C {plain} >>"), Processor::default())
+        .chosen()
+        .map(|(_, clip)| clip.background);
+    assert_eq!(handed, Some(None), "the hand-off paints nothing");
 }

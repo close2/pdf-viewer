@@ -19,6 +19,24 @@ impl ViewState {
         self.pointer = at;
     }
 
+    /// Puts a playing sound in a screen annotation's rectangle, or takes it out.
+    ///
+    /// ISO 32000-2 Table 294's `/W` 3 plays a media object in "\[t]he rectangle occupied by the
+    /// screen annotation (see 12.5.6.18, "Screen annotations") associated with the media
+    /// rendition", and its `/B` "shall be used if the media object does not entirely cover the
+    /// rectangle". A sound covers none of it, so while one plays the rectangle is painted with the
+    /// background over the annotation's own appearance; the window calls this when its player
+    /// says the sound has started and again when it has ended (ADR 3407).
+    pub fn set_playing_in(&mut self, playing: Option<(ObjectId, crate::media::Background)>) {
+        self.playing_in = playing;
+    }
+
+    /// The screen annotation a sound plays in now and its background, if one does.
+    #[must_use]
+    pub fn playing_in(&self) -> Option<(ObjectId, crate::media::Background)> {
+        self.playing_in
+    }
+
     /// Which of Table 170's appearances this annotation shows now.
     ///
     /// [`Appearance::Normal`] for every annotation the pointer is not on, which §12.5.5 makes

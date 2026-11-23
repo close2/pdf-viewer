@@ -323,4 +323,25 @@ fn a_wave_clip_is_judged_for_the_player_that_plays_it_here() {
     );
     assert!((sound.playing.level - 0.5).abs() < f64::EPSILON);
     assert!(!sound.playing.auto_play);
+    // Table 294's default `/W` 3: the sound plays in the rectangle of the annotation the action's
+    // `/AN` names, painted with the stated default background while it plays (ADR 3407), which
+    // the window says with `PlayingIn` and the page is drawn again for, once on and once off.
+    let screen = viewer_core::Screen {
+        annotation: pdf_syntax::ObjectId::new(4, 0),
+        background: pdf_model::media::Background::default(),
+    };
+    assert_eq!(sound.screen, Some(screen));
+    for (screen, changes) in [(Some(screen), true), (Some(screen), false), (None, true)] {
+        let events: Vec<Event> = viewer
+            .handle(Command::PlayingIn {
+                document: DOCUMENT,
+                screen,
+            })
+            .collect();
+        assert_eq!(
+            events.iter().any(|event| matches!(event, Event::Damage(_))),
+            changes,
+            "{screen:?}: {events:?}"
+        );
+    }
 }

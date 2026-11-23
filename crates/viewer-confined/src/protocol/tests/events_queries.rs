@@ -217,6 +217,27 @@ fn every_carried_event_round_trips() {
                     synchronous: true,
                     ..pdf_model::media::Playing::default()
                 },
+                screen: None,
+            })),
+        },
+        // A rendition's WAVE clip playing in its screen annotation's rectangle (ADR 3407).
+        Event::Media {
+            document,
+            content_type: Some("audio/wav".to_owned()),
+            media: viewer_core::Media::Embedded {
+                name: "chime.wav".to_owned(),
+                bytes: b"RIFF".to_vec(),
+            },
+            sound: Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Wave(b"RIFF".to_vec()),
+                playing: pdf_model::media::Playing::default(),
+                screen: Some(viewer_core::Screen {
+                    annotation: ObjectId::new(4, 0),
+                    background: pdf_model::media::Background {
+                        colour: [1.0, 0.5, 0.0],
+                        opacity: 0.25,
+                    },
+                }),
             })),
         },
         Event::Media {

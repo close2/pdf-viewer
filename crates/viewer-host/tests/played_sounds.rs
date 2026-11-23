@@ -191,6 +191,7 @@ fn played(document: u64, samples: &[u8]) -> Played {
                 data: samples.to_vec(),
             },
             playing: pdf_model::media::Playing::default(),
+            screen: None,
         },
     }
 }
@@ -428,4 +429,133 @@ fn a_missing_sound_helper_is_said_and_the_player_goes_on() {
         );
     }
     assert!(player.started());
+}
+
+/// A RIFF WAVE file of `samples`, 16-bit mono at 8000 Hz, with one cue point named `name` at the
+/// sample `at`: a `cue ` chunk and a `LIST` `adtl` chunk's `labl`, the RIFF form's marker.
+fn a_wave_with_a_cue_point(samples: &[i16], name: &str, at: u32) -> Vec<u8> {
+    let chunk = |out: &mut Vec<u8>, id: &[u8; 4], bytes: &[u8]| {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&u32::try_from(bytes.len()).unwrap_or(u32::MAX).to_le_bytes());
+        out.extend_from_slice(bytes);
+        if bytes.len() % 2 == 1 {
+            out.push(0);
+        }
+    };
+    let mut format = Vec::new();
+    for field in [1u16, 1] {
+        format.extend_from_slice(&field.to_le_bytes());
+    }
+    format.extend_from_slice(&8000u32.to_le_bytes());
+    format.extend_from_slice(&16_000u32.to_le_bytes());
+    for field in [2u16, 16] {
+        format.extend_from_slice(&field.to_le_bytes());
+    }
+    let data: Vec<u8> = samples
+        .iter()
+        .flat_map(|sample| sample.to_le_bytes())
+        .collect();
+    let mut cue = 1u32.to_le_bytes().to_vec();
+    for field in [1u32, at] {
+        cue.extend_from_slice(&field.to_le_bytes());
+    }
+    cue.extend_from_slice(b"data");
+    cue.extend_from_slice(&[0; 8]);
+    cue.extend_from_slice(&at.to_le_bytes());
+    let mut label = 1u32.to_le_bytes().to_vec();
+    label.extend_from_slice(name.as_bytes());
+    label.push(0);
+    let mut list = b"adtl".to_vec();
+    chunk(&mut list, b"labl", &label);
+    let mut body = b"WAVE".to_vec();
+    chunk(&mut body, b"fmt ", &format);
+    chunk(&mut body, b"data", &data);
+    chunk(&mut body, b"cue ", &cue);
+    chunk(&mut body, b"LIST", &list);
+    let mut file = b"RIFF".to_vec();
+    file.extend_from_slice(&u32::try_from(body.len()).unwrap_or(u32::MAX).to_le_bytes());
+    file.extend_from_slice(&body);
+    file
+}
+
+/// ISO 32000-2 §13.2.4.3, Table 289's `/B` by marker, played here (ADRs 3398, 3406): a screen
+/// annotation's rendition plays a media clip section that begins at the marker "Chapter One", which
+/// the WAVE file's cue point puts at its fifth sample; the section crosses with the sound, the
+/// player cuts the converted frames to it, and the device is handed the last four samples alone —
+/// `4/8` to `7/8` of full scale. The wrong answers excluded: the whole file from its first sample,
+/// and a marker read as a byte offset into the data chunk (which would begin at the third sample).
+#[test]
+fn a_section_that_begins_at_a_wave_files_cue_point_is_played_from_it() {
+    let samples: Vec<i16> = (0..8).map(|k| k * 4096).collect();
+    let wave = a_wave_with_a_cue_point(&samples, "Chapter One", 4);
+    let hex: String = wave
+        .iter()
+        .flat_map(|byte| {
+            [byte >> 4, byte & 0xF].map(|nibble| char::from_digit(u32::from(nibble), 16))
+        })
+        .flatten()
+        .collect();
+    let stream = format!(
+        "<< /Type /EmbeddedFile /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream",
+        hex.len().saturating_add(1)
+    );
+    let document = assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+        "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [0 0 50 50] /A 5 0 R >>",
+        "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>",
+        "<< /Type /Rendition /S /MR /N (chapter) /C << /Type /MediaClip /S /MCS /D 7 0 R /MH << \
+         /B << /Type /MediaOffset /S /M /M (Chapter One) >> >> >> >>",
+        "<< /Type /MediaClip /S /MCD /CT (audio/wav) /D 8 0 R >>",
+        "<< /Type /Filespec /F (chapter.wav) /UF (chapter.wav) /EF << /F 9 0 R >> >>",
+        &stream,
+    ]);
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::HandOverMedia, RestrictionLevel::Off),
+        )))
+        .for_each(drop);
+    viewer.handle(Command::PlaysHere(true)).for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DocumentId(1),
+            bytes: document.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(4, 0)))
+        .collect();
+    let Some(sound) = events.iter().find_map(|event| match event {
+        Event::Media { sound, .. } => sound.clone(),
+        _ => None,
+    }) else {
+        panic!("the rendition plays here: {events:?}");
+    };
+    assert!(
+        (sound.playing.section.begin - 4.0 / 8000.0).abs() < 1e-12,
+        "the marker's place, in seconds: {:?}",
+        sound.playing.section
+    );
+    let (mut player, recorded, woken) = player(
+        DeviceFormat {
+            rate: 8000,
+            channels: 1,
+        },
+        false,
+    );
+    player.play(Played {
+        document: DocumentId(1),
+        label: "chapter".to_owned(),
+        sound: *sound,
+    });
+    let said = heard(&mut player, &woken, 1);
+    assert!(matches!(said.as_slice(), [Heard::Playing(_)]), "{said:?}");
+    assert_eq!(
+        record(&recorded).started,
+        vec![vec![0.5, 0.625, 0.75, 0.875]]
+    );
 }

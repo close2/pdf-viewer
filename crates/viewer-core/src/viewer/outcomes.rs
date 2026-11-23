@@ -269,8 +269,8 @@ impl Viewer {
             });
         }
         self.ask_for_files(id, outcome.needs_file, events);
-        for clip in outcome.media {
-            self.media(id, clip, events);
+        for (clip, screen) in outcome.media {
+            self.media(id, clip, screen, events);
         }
         if let Some(locked) = outcome.locked {
             self.hold(id, into, locked, events);

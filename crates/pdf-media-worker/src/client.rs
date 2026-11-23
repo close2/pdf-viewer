@@ -90,6 +90,12 @@ pub struct Sound {
     /// The samples of every whole frame, interleaved, each in the most significant bits of an
     /// `i32` (`crate::sound`).
     pub samples: Vec<i32>,
+    /// The speaker each channel sounds on, as a `WAVE_FORMAT_EXTENSIBLE` channel mask: the
+    /// channels in frame order take the mask's set bits in ascending order, and `0` names no
+    /// speaker, which is every sound object's (Table 305's `/C` is a count). A WAVE file's
+    /// `dwChannelMask`, or the order the AAC decoder states for its channel configuration (ADR
+    /// 3405); the host's conversion places the channels by it.
+    pub speakers: u32,
     /// What the decode did not carry of the stream's data, each said.
     pub notes: Vec<String>,
 }
@@ -192,6 +198,7 @@ impl MediaWorker {
             rate: format.rate,
             channels: format.channels,
             samples: decoded,
+            speakers: 0,
             notes,
         })
     }
@@ -259,9 +266,7 @@ impl MediaWorker {
         let samples = file.get(start..end).unwrap_or_default();
         let format = layout.described.format;
         let mut sound = self.decode(&format, samples, max_samples)?;
-        if let Some(note) = speakers_note(layout.described.channel_mask, format.channels) {
-            sound.notes.push(note);
-        }
+        sound.speakers = layout.described.channel_mask;
         Ok(sound)
     }
 
@@ -365,6 +370,8 @@ impl MediaWorker {
         let mut decoded: Vec<i32> = Vec::new();
         let mut format: Option<(u32, u16)> = None;
         let mut concealed = 0u64;
+        // The speakers the first run that held samples stated, which every later run must keep.
+        let mut speakers: Option<u32> = None;
         let mut next = 0usize;
         while next < track.units.len() {
             // The first run is one unit, which tells the channels; after it a run is as many as
@@ -405,16 +412,11 @@ impl MediaWorker {
                 }
             };
             concealed = concealed.saturating_add(u64::from(pcm.concealed));
-            if !pcm.samples.is_empty() {
-                let this = (pcm.rate, pcm.channels);
-                if format.is_some_and(|first| first != this) {
-                    self.distrust();
-                    return Err(MediaError::Refused(format!(
-                        "the stream's output changed to {} Hz and {} channel(s) after it began",
-                        pcm.rate, pcm.channels
-                    )));
-                }
-                format = Some(this);
+            if !pcm.samples.is_empty()
+                && let Err(changed) = kept(&mut format, &mut speakers, &pcm)
+            {
+                self.distrust();
+                return Err(MediaError::Refused(changed));
             }
             if let Some((rate, channels)) = format {
                 let (ahead, kept_all) = presented_limit(track, rate, channels, max_samples);
@@ -465,6 +467,7 @@ impl MediaWorker {
             rate,
             channels,
             samples,
+            speakers: speakers.unwrap_or_default(),
             notes,
         })
     }
@@ -647,21 +650,26 @@ fn presented(
     Ok(samples)
 }
 
-/// What a WAVE file's `dwChannelMask` asks that this player does not do, or `None`.
-///
-/// The sink combines a file's channels by their place in a frame (`viewer_host::sound`), which is
-/// the extensible form's own order when the mask names the first speakers of that order, one per
-/// channel, and is no mask at all where the file states none. Any other mask places a channel on a
-/// speaker its position does not, and the person is told so rather than hearing it silently
-/// (ADR 3397).
-fn speakers_note(mask: u32, channels: u16) -> Option<String> {
-    let leading = 1u64
-        .checked_shl(u32::from(channels))
-        .map_or(u64::MAX, |bit| bit.saturating_sub(1));
-    (mask != 0 && u64::from(mask) != leading).then(|| {
-        format!(
-            "the file assigns its {channels} channel(s) to the speakers of channel mask \
-             {mask:#010x}, and this player places each channel by its order in a frame"
-        )
-    })
+/// Holds a run's rate, channels and speakers to the first run's that held samples, which one clip
+/// keeps throughout; the sentence for a run that changes any of them.
+fn kept(
+    format: &mut Option<(u32, u16)>,
+    speakers: &mut Option<u32>,
+    pcm: &crate::aac::Pcm,
+) -> Result<(), String> {
+    if format.is_some_and(|first| first != (pcm.rate, pcm.channels)) {
+        return Err(format!(
+            "the stream's output changed to {} Hz and {} channel(s) after it began",
+            pcm.rate, pcm.channels
+        ));
+    }
+    if speakers.is_some_and(|first| first != pcm.speakers) {
+        return Err(format!(
+            "the stream's speakers changed to channel mask {:#010x} after it began",
+            pcm.speakers
+        ));
+    }
+    *format = Some((pcm.rate, pcm.channels));
+    *speakers = Some(pcm.speakers);
+    Ok(())
 }

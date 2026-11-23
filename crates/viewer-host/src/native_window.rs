@@ -1205,6 +1205,10 @@ pub trait NativeWindow {
         for said in &heard {
             self.say(said.sentence());
         }
+        // Table 294's `/W` 3: the rectangle the sound plays in is painted while it plays (ADR 3407).
+        for command in self.state_mut().sounds.repainted() {
+            self.dispatch(command);
+        }
         self.retitle();
     }
 

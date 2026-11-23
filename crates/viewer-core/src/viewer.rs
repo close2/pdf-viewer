@@ -608,6 +608,20 @@ impl Viewer {
                     open.view.set_players(players_of(plays));
                 }
             }
+            // Table 294's `/W` 3: the rectangle a sound plays in is painted while it plays, and the
+            // page drawn again either way (ADR 3407).
+            Command::PlayingIn { document, screen } => {
+                let viewport = self.viewport;
+                let Some(open) = self.documents.get_mut(&document) else {
+                    return;
+                };
+                let playing = screen.map(|screen| (screen.annotation, screen.background));
+                if open.view.playing_in() != playing {
+                    open.view.set_playing_in(playing);
+                    open.stale();
+                    events.push(damage(viewport));
+                }
+            }
             // A name and nothing else: nothing is opened, nothing is drawn and no document is
             // touched, because what this carries is what the window *could* do rather than
             // something it has been asked to do (ADR 1263).

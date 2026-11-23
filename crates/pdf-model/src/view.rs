@@ -173,6 +173,14 @@ pub struct ViewState {
     /// One annotation rather than a set, because a pointer is in one place. `None` means nothing
     /// is interacting with the user, so every annotation shows its normal appearance.
     pointer: Option<(ObjectId, Pointer)>,
+    /// The screen annotation a sound plays in now, and Table 294's background it is painted with
+    /// while it plays (ADR 3407).
+    ///
+    /// One rather than a set, because a window plays one sound at a time; the window says when it
+    /// starts and when it ends, because only its player knows. Like the pointer, a property of
+    /// what is happening on the screen rather than of the file, and kept here because it decides a
+    /// mark the next render draws.
+    playing_in: Option<(ObjectId, crate::media::Background)>,
     /// How large the page is being drawn, in logical pixels per default user space unit.
     ///
     /// The one thing in this struct that is a property of the *window* rather than of anything
@@ -1089,6 +1097,7 @@ impl ViewState {
             awaiting: Vec::new(),
             supplied: 0,
             pointer: None,
+            playing_in: None,
             magnification: None,
             widget_appearances: WidgetAppearances::default(),
             audience: Audience::NONE,

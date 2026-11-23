@@ -17,6 +17,7 @@ impl Viewer {
         &mut self,
         id: DocumentId,
         clip: pdf_model::media::Clip,
+        screen: Option<pdf_syntax::ObjectId>,
         events: &mut Vec<Event>,
     ) {
         use crate::notes::{Standing as Worded, restricted};
@@ -42,7 +43,7 @@ impl Viewer {
             });
             return;
         }
-        let Some((media, sound)) = media_of(id, &open.document, &clip, events) else {
+        let Some((media, sound)) = media_of(id, &open.document, &clip, screen, events) else {
             return;
         };
         let content_type = clip.content_type;
@@ -91,6 +92,7 @@ fn media_of(
     id: DocumentId,
     document: &pdf_syntax::Document,
     clip: &pdf_model::media::Clip,
+    screen: Option<pdf_syntax::ObjectId>,
     events: &mut Vec<Event>,
 ) -> Option<(crate::Media, Option<Box<crate::SoundData>>)> {
     use pdf_model::media::Data;
@@ -124,9 +126,19 @@ fn media_of(
                 } else {
                     crate::Recording::Mp4(bytes.to_vec())
                 };
+                // Table 294's `/W` 3 plays it in the rectangle of the annotation the rendition
+                // action names (ADR 3407).
+                let screen =
+                    screen
+                        .zip(clip.background)
+                        .map(|(annotation, background)| crate::Screen {
+                            annotation,
+                            background,
+                        });
                 let sound = crate::SoundData {
                     recording,
                     playing: clip.playing,
+                    screen,
                 };
                 let media = crate::Media::Embedded {
                     name,
@@ -147,6 +159,7 @@ fn media_of(
                     data,
                 },
                 playing: clip.playing,
+                screen: None,
             };
             let media = crate::Media::Embedded {
                 name: samples.name.clone(),

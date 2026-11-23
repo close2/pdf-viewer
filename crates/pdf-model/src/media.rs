@@ -170,6 +170,42 @@ pub struct Clip {
     /// and never handed on, since the hand-off was not the player its `MH` entries were judged
     /// against (ADR 3350).
     pub played_here: bool,
+    /// Table 294's background, where this program's player plays the clip in its screen
+    /// annotation's rectangle — `/W` 3, the table's default — and `None` for a hidden window and
+    /// for every clip handed on (ADRs 3399, 3407).
+    pub background: Option<Background>,
+}
+
+/// Table 294's `/B` and `/O` for a media object played in the rectangle of its screen annotation
+/// (`/W` 3): "the background colour for the rectangle in which the media is being played", which
+/// "shall be used if the media object does not entirely cover the rectangle". A sound covers none
+/// of it, so a window paints this over the whole rectangle while the sound plays (ADR 3407).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Background {
+    /// `/B`'s three `DeviceRGB` components, each in `0.0..=1.0`; [`Self::DEFAULT_COLOUR`] where
+    /// the parameters state none.
+    pub colour: [f32; 3],
+    /// `/O`, "the constant opacity value that shall be used in painting the background colour",
+    /// in `0.0..=1.0`; 1.0, the table's default, where none is stated.
+    pub opacity: f32,
+}
+
+impl Background {
+    /// `/B`'s value where the parameters state none: black. Table 294 makes the default
+    /// "implementation-defined" and asks for "a reasonable value based on the value of W"; for the
+    /// annotation's own rectangle on a page this program chooses black, the colour a player's
+    /// surface shows where its media draws nothing, so that the rectangle is seen to be playing
+    /// rather than read as part of the page (ADR 3407). A choice, not a reading.
+    pub const DEFAULT_COLOUR: [f32; 3] = [0.0, 0.0, 0.0];
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Self {
+            colour: Self::DEFAULT_COLOUR,
+            opacity: 1.0,
+        }
+    }
 }
 
 /// One media rendition the walk reached, and the clause's answer about it.
@@ -502,9 +538,12 @@ impl Walk<'_> {
         }
         let screen = document.get_key(dict, "SP");
         let mut screen_set_aside = Vec::new();
+        // Table 294's `/W` defaults to 3, so a rendition that states no screen parameters plays in
+        // its annotation's rectangle too.
+        let mut background = Some(Background::default());
         if let Some(screen) = screen.as_dict() {
             if here {
-                screen_here(document, screen, &mut reasons, &mut screen_set_aside);
+                background = screen_here(document, screen, &mut reasons, &mut screen_set_aside);
             } else {
                 unhonourable(document, screen, "Table 294", &mut reasons);
             }
@@ -545,6 +584,7 @@ impl Walk<'_> {
                         clip.unhonoured.extend(honoured.set_aside);
                     }
                     clip.unhonoured.extend(screen_set_aside);
+                    clip.background = background;
                 }
                 Ok(clip)
             }
@@ -1166,6 +1206,7 @@ impl Walk<'_> {
             unhonoured,
             playing: Playing::default(),
             played_here: false,
+            background: None,
         })
     }
 
@@ -1407,24 +1448,34 @@ fn undefined_in_section(must_honour: &Object, reasons: &mut Vec<String>) {
 }
 
 /// Table 294's media screen parameters for a rendition this program's own player plays: a sound,
-/// heard and never shown (ADR 3399).
+/// heard and never shown in a window of its own (ADRs 3399, 3407), and the background it paints.
 ///
-/// The player opens no window and paints nothing, which is Table 294's `/W` 2, "\[a] hidden
-/// window". Where that is the window type the parameters settle on — `MH`'s `/W`, else `BE`'s,
-/// else the default 3 — the table itself sets the rest aside: `/B` "shall be ignored for hidden
-/// windows", `/O` "shall be ignored for full-screen and hidden windows", `/M` is "\[i]gnored for
-/// other types" than floating or full-screen, and `/F` is "\[r]equired if the value of W is 0;
-/// otherwise ignored". Those are ignored silently because the clause says so. Any other window
-/// type cannot be honoured by a player that shows nothing: in `MH` the parameters are non-viable,
-/// and in `BE` the entry is set aside and said. Table 294's own rule for `/W` stands: "Unrecognised
-/// value in MH : object is non-viable; in BE : treat as default value."
+/// The window type settles as `MH`'s `/W`, else `BE`'s, else the default 3; Table 294's own rule
+/// for `/W` stands: "Unrecognised value in MH : object is non-viable; in BE : treat as default
+/// value."
+///
+/// - **2, "\[a] hidden window"**: the player opens no window and paints nothing, and the table
+///   sets the rest aside — `/B` "shall be ignored for hidden windows", `/O` "shall be ignored for
+///   full-screen and hidden windows", `/M` is "\[i]gnored for other types" than floating or
+///   full-screen, and `/F` is "\[r]equired if the value of W is 0; otherwise ignored". Those are
+///   ignored silently because the clause says so; the answer is `None`.
+/// - **3, "\[t]he rectangle occupied by the screen annotation"**: the media plays in the
+///   rectangle, and `/B` "shall be used if the media object does not entirely cover the
+///   rectangle" — which a sound never covers — painted at `/O`'s opacity. Both are read, `MH`'s
+///   before `BE`'s; `/M` and `/F` are ignored as for 2. A `/B` that is not three numbers in
+///   `0.0..=1.0`, or an `/O` that is not one, cannot be honoured: in `MH` the parameters are
+///   non-viable, and in `BE` the entry is set aside, said, and its default painted. The answer is
+///   the background a window paints while the sound plays.
+/// - **0 and 1** ask for a window a player that shows nothing cannot open: in `MH` the parameters
+///   are non-viable, and in `BE` the entry is set aside and said.
 fn screen_here(
     document: &Document,
     screen: &Dictionary,
     reasons: &mut Vec<String>,
     set_aside: &mut Vec<String>,
-) {
+) -> Option<Background> {
     const HIDDEN: i64 = 2;
+    const RECTANGLE: i64 = 3;
     let window_type = |key: &str| -> Option<Option<i64>> {
         let options = document.get_key(screen, key);
         let options = options.as_dict()?;
@@ -1443,13 +1494,16 @@ fn screen_here(
              recognise"
                 .to_owned(),
         );
-        return;
+        return None;
     }
     // A `BE` value the table does not recognise is the default, 3.
-    let best = window_type("BE").map(|value| value.unwrap_or(3));
-    let settled = must.flatten().or(best).unwrap_or(3);
+    let best = window_type("BE").map(|value| value.unwrap_or(RECTANGLE));
+    let settled = must.flatten().or(best).unwrap_or(RECTANGLE);
     if settled == HIDDEN {
-        return;
+        return None;
+    }
+    if settled == RECTANGLE {
+        return Some(background(document, screen, reasons, set_aside));
     }
     for (key, is_must) in [("MH", true), ("BE", false)] {
         let options = document.get_key(screen, key);
@@ -1471,6 +1525,78 @@ fn screen_here(
             }
         }
     }
+    None
+}
+
+/// Table 294's `/B` and `/O` for a sound played in its annotation's rectangle, `MH`'s entry before
+/// `BE`'s ([`screen_here`]).
+fn background(
+    document: &Document,
+    screen: &Dictionary,
+    reasons: &mut Vec<String>,
+    set_aside: &mut Vec<String>,
+) -> Background {
+    let unit = |value: f64| (0.0..=1.0).contains(&value);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a value already held to 0.0..=1.0 is narrowed to the paint's `f32`"
+    )]
+    let colour = |object: &Object| -> Option<[f32; 3]> {
+        let array = document.resolve(object);
+        let array = array.as_array()?;
+        let values: Vec<f64> = array
+            .iter()
+            .map(|value| document.resolve(value).as_number())
+            .collect::<Option<_>>()?;
+        match values.as_slice() {
+            [r, g, b] if [r, g, b].iter().all(|value| unit(**value)) => {
+                Some([*r as f32, *g as f32, *b as f32])
+            }
+            _ => None,
+        }
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a value already held to 0.0..=1.0 is narrowed to the paint's `f32`"
+    )]
+    let opacity = |object: &Object| -> Option<f32> {
+        document
+            .resolve(object)
+            .as_number()
+            .filter(|value| unit(*value))
+            .map(|value| value as f32)
+    };
+    let mut painted = Background::default();
+    for (name, what) in [
+        ("B", "three numbers from 0.0 to 1.0"),
+        ("O", "a number from 0.0 to 1.0"),
+    ] {
+        for (key, is_must) in [("MH", true), ("BE", false)] {
+            let options = document.get_key(screen, key);
+            let Some(value) = options.as_dict().and_then(|options| options.get(name)) else {
+                continue;
+            };
+            let read = if name == "B" {
+                colour(value).map(|colour| painted.colour = colour)
+            } else {
+                opacity(value).map(|opacity| painted.opacity = opacity)
+            };
+            match (read, is_must) {
+                (Some(()), _) => {}
+                (None, true) => reasons.push(format!(
+                    "its media screen parameters' MH states a Table 294 /{name} that is not \
+                     {what}"
+                )),
+                (None, false) => set_aside.push(format!(
+                    "the best-effort screen parameter /{name} (Table 294), which is not {what}; \
+                     its default is painted"
+                )),
+            }
+            // `MH`'s entry is the one that must be honoured, where both state one.
+            break;
+        }
+    }
+    painted
 }
 
 /// ISO 32000-2 §13.2.5's Table 292 media duration `/D` under the play parameters' `BE`, whose

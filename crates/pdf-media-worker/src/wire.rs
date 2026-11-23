@@ -400,8 +400,8 @@ pub fn decode_units(payload: &[u8]) -> Result<Vec<&[u8]>, String> {
     Ok(units)
 }
 
-/// A run reply's bytes: the version, the rate, the channels, the count of concealed units, then
-/// every sample as four bytes.
+/// A run reply's bytes: the version, the rate, the channels, the count of concealed units, the
+/// speakers' channel mask, then every sample as four bytes.
 #[must_use]
 pub fn encode_pcm(pcm: &crate::aac::Pcm) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(pcm.samples.len().saturating_mul(4).saturating_add(11));
@@ -409,6 +409,7 @@ pub fn encode_pcm(pcm: &crate::aac::Pcm) -> Vec<u8> {
     bytes.extend_from_slice(&pcm.rate.to_le_bytes());
     bytes.extend_from_slice(&pcm.channels.to_le_bytes());
     bytes.extend_from_slice(&pcm.concealed.to_le_bytes());
+    bytes.extend_from_slice(&pcm.speakers.to_le_bytes());
     for sample in &pcm.samples {
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
@@ -429,6 +430,7 @@ pub fn decode_pcm(payload: &[u8], units: usize) -> Result<crate::aac::Pcm, Strin
     let rate = fields.u32().ok_or_else(wrong)?;
     let channels = fields.u16().ok_or_else(wrong)?;
     let concealed = fields.u32().ok_or_else(wrong)?;
+    let speakers = fields.u32().ok_or_else(wrong)?;
     let (words, remainder) = fields.0.as_chunks::<4>();
     let frames = words.len().checked_div(usize::from(channels));
     let most = units.saturating_mul(crate::aac::MAX_FRAMES_PER_UNIT);
@@ -449,6 +451,7 @@ pub fn decode_pcm(payload: &[u8], units: usize) -> Result<crate::aac::Pcm, Strin
         rate,
         channels,
         concealed,
+        speakers,
         samples: words.iter().map(|word| i32::from_le_bytes(*word)).collect(),
     })
 }
@@ -928,6 +931,7 @@ mod tests {
             rate: 48_000,
             channels: 2,
             concealed: 0,
+            speakers: 0x3,
             samples: vec![0; 4_096],
         };
         assert_eq!(decode_pcm(&encode_pcm(&pcm), 1), Ok(pcm.clone()));

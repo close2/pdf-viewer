@@ -161,6 +161,9 @@ pub(super) mod command_kind {
     // the two files (ADR 1134 decision 2, ADR 2822).
     pub(in crate::protocol) const RECIPIENT: u8 = 53;
     pub(in crate::protocol) const PLAYS_HERE: u8 = 54;
+    // A sound the host plays has started in a screen annotation's rectangle or ended, which only
+    // the host's player knows and the confined worker paints (ADR 3407).
+    pub(in crate::protocol) const PLAYING_IN: u8 = 55;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -477,6 +480,10 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::PlaysHere(plays) => {
             writer.u8(k::PLAYS_HERE).bool(*plays);
+        }
+        Command::PlayingIn { document, screen } => {
+            writer.u8(k::PLAYING_IN).document(*document);
+            super::event::write_screen(&mut writer, screen.as_ref());
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -940,6 +947,10 @@ pub(crate) fn decode_command_holding(
         k::PLAYS_HERE => {
             Command::PlaysHere(reader.bool("whether the host plays a WAVE clip itself")?)
         }
+        k::PLAYING_IN => Command::PlayingIn {
+            document: reader.document("the document a sound plays in")?,
+            screen: super::event::read_screen(&mut reader)?,
+        },
         k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
             0 => None,
             1 => Some(reader.document(what)?),

@@ -150,7 +150,7 @@ fn handed(clip: Result<pdf_model::media::Clip, String>, subject: &str, outcome: 
                     format!("{subject} — a player handed the file is not told {entry}")
                 }),
             );
-            outcome.media.push(clip);
+            outcome.media.push((clip, None));
         }
         Err(why) => outcome.notes.push(format!("{subject} — {why}")),
     }

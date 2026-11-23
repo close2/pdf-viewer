@@ -107,6 +107,7 @@ pub fn movie(
         unhonoured,
         playing: Playing::default(),
         played_here: false,
+        background: None,
     })
 }
 
@@ -158,6 +159,7 @@ pub fn sound(
             unhonoured: unhonoured.chain(rounded).collect(),
             playing: Playing::default(),
             played_here: false,
+            background: None,
         });
     }
     let Some(data) = file(document, &specification, "sound") else {
@@ -174,6 +176,7 @@ pub fn sound(
         unhonoured: unhonoured.collect(),
         playing: Playing::default(),
         played_here: false,
+        background: None,
     })
 }
 

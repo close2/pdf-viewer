@@ -139,6 +139,21 @@ impl Interpreter<'_> {
         if view.hidden_by_action == Some(true) {
             return;
         }
+        // Table 294's `/W` 3: a sound playing in this screen annotation's rectangle paints the
+        // table's `/B` over it, after whatever the annotation draws (ADR 3407).
+        // On the screen alone and only where the annotation is shown: a printed sheet plays
+        // nothing, and §12.5.3's Hidden and `NoView` leave no rectangle on the screen to play in.
+        let playing = id
+            .and_then(|id| {
+                self.view
+                    .playing_in()
+                    .filter(|(screen, _)| *screen == id)
+                    .map(|(_, background)| background)
+            })
+            .filter(|_| {
+                self.view.purpose() == crate::optional_content::Purpose::View
+                    && crate::annotation::displayed(self.document, dict, view)
+            });
         match crate::annotation::decide(
             self.document,
             dict,
@@ -210,6 +225,46 @@ impl Interpreter<'_> {
                 }
             }
         }
+        if let Some(background) = playing {
+            self.draw_playing(dict, background, base);
+        }
+    }
+
+    /// ISO 32000-2 Table 294's background for a media object playing in this screen annotation's
+    /// rectangle (`/W` 3): `/B`, "used if the media object does not entirely cover the rectangle",
+    /// at `/O`'s "constant opacity value that shall be used in painting the background colour".
+    /// A sound covers none of the rectangle, so the whole `/Rect` is filled, in default user space
+    /// under the page's transform and above the annotation's appearance, as the media would be.
+    fn draw_playing(
+        &mut self,
+        dict: &Dictionary,
+        background: crate::media::Background,
+        base: Transform,
+    ) {
+        let Some(rect) = crate::annotation::rectangle(self.document, dict, "Rect") else {
+            return;
+        };
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(rect[0], rect[1])));
+        path.push(PathCommand::LineTo(Point::new(rect[2], rect[1])));
+        path.push(PathCommand::LineTo(Point::new(rect[2], rect[3])));
+        path.push(PathCommand::LineTo(Point::new(rect[0], rect[3])));
+        path.push(PathCommand::Close);
+        let [r, g, b] = background.colour;
+        self.draw(Command::Fill {
+            path: Arc::new(path),
+            transform: base,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color {
+                r,
+                g,
+                b,
+                a: background.opacity,
+            }),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
     }
 
     /// §14.9.3's third location for an alternate description: the annotation itself.

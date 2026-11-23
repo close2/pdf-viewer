@@ -1290,12 +1290,17 @@ impl App {
         if heard.is_empty() {
             return;
         }
+        let repainted = player.repainted();
         for said in heard {
             println!("note: {}", said.sentence());
             self.sounding = match said {
                 viewer_host::sound::Heard::Ended(_) | viewer_host::sound::Heard::Stopped(_) => None,
                 holds => Some(holds),
             };
+        }
+        // Table 294's `/W` 3: the rectangle the sound plays in is painted while it plays (ADR 3407).
+        for command in repainted {
+            self.dispatch(command);
         }
         self.retitle();
     }
