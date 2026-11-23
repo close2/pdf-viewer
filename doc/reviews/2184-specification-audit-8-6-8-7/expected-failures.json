@@ -1,0 +1,48 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2184 on main 516e71df",
+ "failures": [
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::a_d1_glyphs_black_generation_is_ignored_spec_audit",
+   "finding": "2184-B01",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::an_unreadable_icc_space_without_alternate_starts_at_zero_spec_audit",
+   "finding": "2184-B02",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::an_unreadable_icc_space_without_alternate_keeps_its_range_spec_audit",
+   "finding": "2184-B02",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::an_indexed_cmyk_colour_takes_nonzero_overprint_mode_spec_audit",
+   "finding": "2184-B03",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::a_shading_in_a_pattern_space_is_not_drawn_as_complete_spec_audit",
+   "finding": "2184-B04",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::an_indexed_space_over_a_pattern_base_is_not_drawn_as_complete_spec_audit",
+   "finding": "2184-B04",
+   "log": "round-2184 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::colour_suite",
+   "test": "colour_8_6_8_7_spec_audit::a_number_in_a_pattern_space_paints_no_colour_spec_audit",
+   "finding": "2184-B04",
+   "log": "round-2184 nextest of pdf-model"
+  }
+ ]
+}

@@ -1,0 +1,90 @@
+[
+ {
+  "id": "2184-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.6.8",
+   "9.6.4",
+   "10.4.2.4",
+   "11.7.5.3"
+  ],
+  "summary": "Table 57's /BG, /BG2, /UCR and /UCR2, which §8.6.8 says shall be ignored when a gs inside a d1 glyph description (or an uncoloured tiling pattern's stream, and everything either invokes) states them, are applied there. apply_ext_gstate reads BlackGeneration before and outside the `uncoloured` test that already guards /TR, /TR2, /HT, /UseBlackPtComp and /RI, so a d1 glyph whose gs states a black-generation pair converts the text's DeviceRGB fill into a DeviceCMYK group through the glyph's pair: a Type 3 glyph filled 0.2 0.4 0.6 rg in a DeviceCMYK page group draws (52, 62, 79) where the same glyph without its gs draws (51, 102, 154). In an uncoloured tiling cell the poured tint is converted under the mark's pair (TintBinding.generation), so that half is not observable today; the read is still unguarded there.",
+  "source": "ISO 32000-2 §8.6.8: \"All of the following entries, if present in the graphics state parameter dictionary of a gs operator shall be ignored\" — TR, TR2, HT, BG, BG2, UCR, UCR2, UseBlackPtComp — \"In any glyph description that uses the d1 operator (see 9.6.4, \\\"Type 3 fonts\\\") and to all other content streams invoked from within the same glyph description\" and \"In the content stream of an uncoloured tiling pattern\".",
+  "code": "crates/pdf-model/src/content/ext_gstate.rs:273 (BlackGeneration::read and state.black_generation assigned unconditionally); crates/pdf-model/src/content/ext_gstate.rs:442 (the comment calling /BG, /BG2, /UCR, /UCR2 read for a flag and never evaluated — D01)",
+  "change": "Leave state.black_generation untouched (and say nothing of an unreadable pair) inside an uncoloured figure, behind the same `!self.uncoloured` test as /TR and /UseBlackPtComp; restate the comment at 442 as today's reason.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_d1_glyphs_black_generation_is_ignored_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; its control (the same pair stated by the page changes the colour) passes",
+  "status": "open"
+ },
+ {
+  "id": "2184-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.6.5.5",
+   "8.6.8"
+  ],
+  "summary": "An ICCBased space whose profile this reader cannot apply and which states no /Alternate is parsed as the bare device space /N implies (DeviceGray, DeviceRGB or DeviceCMYK), so it stops being an ICCBased space for every question the clauses ask of the selected space. Two follow: §8.6.8's initial colour is the device family's rather than the ICCBased one's — /N 4 gives [0 0 0 1], black, where an ICCBased space starts at all-zero (no ink, white) and the same stream with /Alternate /DeviceCMYK does — and Table 65's /Range is not applied before the alternate: /N 1 /Range [0 0.5] with 0.8 sc draws grey 204 where the stated-/Alternate route (ADR 2973, 2038-B25) draws 128. The ADR 2973 construction (ColourSpace::IccAlternate) covers only the route where /Alternate is stated.",
+  "source": "ISO 32000-2 Table 65, /Alternate: \"If this entry is omitted and the PDF reader does not understand the ICC profile data, the colour space that shall be used is DeviceGray , DeviceRGB , or DeviceCMYK , depending on whether the value of N is 1 , 3 , or 4 , respectively. … Colour values within the range of the ICCBased colour space might not be within the range of the alternate colour space. In this case and after constraining to the ICCBased range, the nearest values within the range of the alternate space shall be substituted without error indication.\" §8.6.8: \"In a Lab or ICCBased colour space, the initial colour shall have all components equal to 0.0 un less that falls outside the intervals specified by the space's Range entry\".",
+  "code": "crates/pdf-colour/src/colour/parsing.rs:243 (parse_icc_based's last step answers Self::Gray, Self::Rgb or Self::Cmyk rather than an IccAlternate over that device space)",
+  "change": "Answer the /N-implied device space through the same ColourSpace::IccAlternate construction as a stated /Alternate (range from /Range, else the device space's own), so the initial colour, the /Range clamp, the component ranges and an image's default /Decode are the ICCBased space's on both routes.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_unreadable_icc_space_without_alternate_starts_at_zero_spec_audit and crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_unreadable_icc_space_without_alternate_keeps_its_range_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; their controls (the same stream with /Alternate stated) pass",
+  "status": "open"
+ },
+ {
+  "id": "2184-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.6.7",
+   "11.7.4.3",
+   "8.6.6.3"
+  ],
+  "summary": "Nonzero overprint mode is not applied to a colour in an Indexed space whose base is DeviceCMYK. cmyk_tints answers ProcessTints for DeviceCMYK, a four-channel ICCBased space and a Separation or DeviceN reverting to DeviceCMYK, and None for every other space, Indexed included, so under /OP true /OPM 1 in a DeviceCMYK group an Indexed entry 0.9 0 0 0 erases the backdrop's black where 0.9 0 0 0 k keeps it: (25, 181, 241) against (4, 17, 36). §11.7.4.3 NOTE 2 states that an Indexed space's current colour space is its base, beside the Separation and DeviceN reversion the code already follows.",
+  "source": "ISO 32000-2 §8.6.7: \"Non-zero overprint mode shall apply only to painting operations that use the current colour in the graphics state when the current colour space is DeviceCMYK (or is implicitly converted to DeviceCMYK\". §11.7.4.3 NOTE 2: \"In the case of an Indexed space, it refers to the base colour space (see 8.6.6.3, \\\"Indexed colour spaces\\\"); likewise for Separation and DeviceN spaces that revert to their alternate colour space\".",
+  "code": "crates/pdf-model/src/content/colour.rs:744 (cmyk_tints: no Indexed arm); crates/pdf-model/src/content/colour.rs:772 (reverts_to_cmyk: likewise)",
+  "change": "Give cmyk_tints and reverts_to_cmyk an Indexed arm that asks the base with ColourSpace::entry_of's entry, as the Separation arm asks the alternate with the tint transform's output.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_indexed_cmyk_colour_takes_nonzero_overprint_mode_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; its control (0.9 0 0 0 k over the same backdrop) passes",
+  "status": "open"
+ },
+ {
+  "id": "2184-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.7.4.3",
+   "8.6.6.3",
+   "8.6.8",
+   "8.7.1"
+  ],
+  "summary": "A Pattern space read where it carries no colour is drawn as opaque black and the page reports itself complete. ColourSpace::Pattern { base: None } counts one component and converts to Color::BLACK, so three routes paint a colour no clause gives: a shading whose /ColorSpace is /Pattern (Table 77 excludes it; the 8.7.4.3 ledger row says it is refused), an Indexed space whose base is /Pattern (§8.6.6.3 excludes it), and a bare number given to scn in a /Pattern space (§8.6.8's operand there is a pattern name), which fills black where the initial pattern paints nothing.",
+  "source": "ISO 32000-2 §8.7.1: \"These spaces shall use pattern objects as the equivalent of colour values instead of the numeric component values used with other spaces.\" Table 77, /ColorSpace: \"This may be any colour space except a Pattern space.\" §8.6.6.3: \"It shall be any device or CIE-based colour space or ( PDF 1.3 ) a Separation or DeviceN space, but shall not be a Pattern space or another Indexed space.\" §8.6.8: \"If the current stroking colour space is a Pattern colour space, name shall be the name of an entry in the Pattern subdictionary of the current resource dictionary\".",
+  "code": "crates/pdf-colour/src/colour/to_rgb.rs:277 (Pattern without a base converts to Color::BLACK); crates/pdf-colour/src/colour/queries.rs:246 (and counts one component); crates/pdf-colour/src/shading.rs:638 (kind_of accepts any parsed space); crates/pdf-colour/src/colour/parsing.rs:292 (parse_indexed accepts a Pattern base); crates/pdf-model/src/content/colour.rs:575 (set_colour's equal-count arm paints in a Pattern space)",
+  "change": "Refuse a Pattern space as a shading's /ColorSpace (ShadingError, reported) and as an Indexed base (parse answers None, reported as an unsupported colour space), and let numeric scn operands in a Pattern space select no colour (reported, the current pattern left as it was or cleared to paint nothing); Pattern { base: None } then has no colour to answer at all.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_shading_in_a_pattern_space_is_not_drawn_as_complete_spec_audit, crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::an_indexed_space_over_a_pattern_base_is_not_drawn_as_complete_spec_audit and crates/pdf-model/tests/colour_8_6_8_7_spec_audit.rs::a_number_in_a_pattern_space_paints_no_colour_spec_audit — round 2184, ~/scratch/agent/r2184/probe3.log, probe4.log and g-nextest.log; their controls (DeviceGray in place of /Pattern; cs alone) pass",
+  "status": "open"
+ },
+ {
+  "id": "2184-D01",
+  "kind": "source-interpretation-residual",
+  "clauses": [
+   "8.6.8",
+   "10.4.2.4"
+  ],
+  "summary": "The comment over /UseBlackPtComp in apply_ext_gstate says /BG, /BG2, /UCR and /UCR2 'are §10.4's, which this device does not perform, and are read for a flag and never evaluated'. They are evaluated: BlackGeneration::separate converts DeviceRGB into a DeviceCMYK group (§11.7.5.3, black_generation_transfer_audit), which is why B01 is visible. The sentence is the reason the entries were left outside the uncoloured guard.",
+  "source": "ISO 32000-2 §10.4.2.4 and §11.7.5.3 (the pair controls a conversion into a DeviceCMYK blending space).",
+  "code": "crates/pdf-model/src/content/ext_gstate.rs:442",
+  "change": "Restate the comment as what the code does once B01 is fixed.",
+  "execution": "read; no test",
+  "status": "open"
+ },
+ {
+  "id": "2184-D02",
+  "kind": "source-rationale-overreach",
+  "clauses": [
+   "8.7.3.1"
+  ],
+  "summary": "A tiling pattern whose /XStep or /YStep is zero or absent is tiled at its /BBox's extent, silently, and the comment justifies the fallback as 'what a producer means by it and what other readers assume'. Table 74 says the steps 'shall not be zero' and are required; what a reader does with a file that breaks that is a choice, which principle 5 asks to be written as a choice (and reported, trap 5), not derived from other readers.",
+  "source": "ISO 32000-2 Table 74, /XStep and /YStep: \"( Required ) The desired horizontal spacing between pattern cells … XStep and YStep may be either positive or negative but shall not be zero.\"",
+  "code": "crates/pdf-model/src/content/pattern/tiling.rs:140",
+  "change": "Write the fallback as a recovery with its reason (an ADR), and report it; or refuse the pattern by name.",
+  "execution": "read; no test",
+  "status": "open"
+ }
+]

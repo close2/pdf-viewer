@@ -19,6 +19,7 @@ mod black_generation_paint;
 mod black_generation_transfer_audit;
 mod calrgb_literal_samples_spec_audit;
 mod cmyk_image_overprint_spec_audit;
+mod colour_8_6_8_7_spec_audit;
 mod colour_paths;
 mod default_colour_spaces_audit;
 mod device_rgb_reset_spec_audit;
