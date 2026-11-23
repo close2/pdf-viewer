@@ -438,6 +438,29 @@ What the figures say, part by part:
   here**: principle 5 measures a reader against the standard, and the standard is the one text the
   project does not hold. They are evidence that a PRC reader in Rust is possible, not that one exists.
 
+### 9.1 Audio in use — the command and its readings
+
+Part 1 shipped (rounds 2148–2183), and A946 asks for its clock and sinks measured in use before
+Part 2 is asked about. The command is `tools/audio-in-use.sh` (ADR 3441): it drives a window's
+`viewer_host::sound::Player`, the confined worker and the sound helper onto a stand-in device —
+ALSA's `file` plugin over `null` into a one-page pipe read at 48 kHz on the monotonic clock, since
+this machine's user may open no sound card — with sounds whose frames carry their own index.
+Every row is a line of its `readings.txt`. The readings are four runs of 2026-11-23, under load
+averages from 10 to 358 on 32 processors; `doc/reviews/2185-audio-measured-in-use.md`
+has the method, every reading, and what a stand-in device cannot measure (a card's buffer and a
+crystal's drift).
+
+| figure | its line in `readings.txt` | reading, 2026-11-23 | bound |
+|---|---|---|---|
+| activation → first frame at the device, cold / warm (2 s sound) | `cold start`, `warm start` | medians 42–144 ms / 25–70 ms | — |
+| activation → first frame, a 30 s sound (raw, WAVE, AAC LC, HE-AAC) | `activation -> the player says Playing` | 0.3–3.1 s: the sound is decoded, converted and sent whole first | — |
+| pause → silence, resume → sound, stop → silence | `pause/resume/stop` | 19–25 ms, 9–24 ms, 16–25 ms; a resume repeats 10–40 ms | — |
+| media clock − device's frames over 643–659 s (160 s × 4) | `media clock` | −1.8 to 9.4 ppm by least squares; offset within −37 to +26 ms; no frame lost or repeated in a pass | — |
+| worker peak address space / resident | `worker:` | ≤ 7.2 / ≤ 5.4 MiB | 64 MiB (`Profile::Media`) |
+| worker processor per second of sound | `worker:` | ≤ 8.2 ms (HE-AAC ≈ 12 ms a 1.37 s request at most) | 1 s per request |
+| helper peak resident, 30 s / 160 s sound | `helper:`, `long sound's helper` | 15 / 120 MiB (two passes held at once); 60 ms to 2.6 s of silence between passes | — |
+| underruns in the long sound | `in the long sound`, `underruns by minute` | 841 to 2 414 (0.6–2.5 % of its time); 8–56 a minute at load 10–21, 300–457 at 91–262; no paging | — |
+
 ## 10. Part 5 — rich media, and Part 6 — the two actions
 
 ### 10.1 Rich media

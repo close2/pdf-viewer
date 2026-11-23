@@ -63,5 +63,11 @@ pdf-script.workspace = true
 pdf-transform.workspace = true
 pdf-archive.workspace = true
 
+[dev-dependencies]
+# `tests/audio_in_use.rs`, the instrument that measures the sound path in use (ADR 3441): a named
+# pipe made, opened without waiting and shrunk to one page, which is the stand-in device's buffer.
+# Safe functions of the sandbox's own `rustix`; the `fs` and `pipe` modules are what it adds.
+rustix = { workspace = true, features = ["fs", "pipe"] }
+
 [lints]
 workspace = true

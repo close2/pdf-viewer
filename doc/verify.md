@@ -1369,6 +1369,11 @@ cargo run --release -p pdf-model --example mcid_stream_census -- \
   # How many pages number two content streams' marked-content sequences from zero, and collide.
 cargo run --release -p pdf-model --example media_box_census -- <file.pdf>…
   # How many pages state no usable `/MediaBox` anywhere in their ancestry.
+tools/audio-in-use.sh [<out-dir>]
+  # The sound path in use (ADR 3441, RFC 0015 section 9.1): a window's player, the confined media
+  # worker and the sound helper playing onto a stand-in device read frame by frame — first frame,
+  # pause, resume, stop, the media clock against the device over 643 s, the worker's and the
+  # helper's memory and processor time per format, and underruns. About fifteen minutes.
 cargo run --release -p pdf-model --example mesh_census
   # How many corpus documents state a mesh shading, and how many of them state a `/Function`.
 cargo run --release -p pdf-model --example mesh_triangle_census -- \
