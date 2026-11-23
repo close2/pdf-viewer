@@ -321,6 +321,25 @@ session 2193**, `discard` at `ascii-data-as-decoded`
   with `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers
   `try = ["append-statement", "discard"]`, whose first step composes no page at this site.
 
+### `conformance/adheres-to-the-base-standard`
+ISO 19005-2 5.1, ISO 19005-4 5.1, over the reader's log of repairs (ADR 3506) · all six · **built in
+session 2205** (ADR 3521, ADR 3522), per document
+
+- **Mitigation** — by what the reader repaired. A repair outside content and outside stream data is
+  answered by the whole-file rewrite, losing nothing. Stream data a filter decoded only in part
+  (`syntax/stream-data-damaged`) is `discard` at `damaged-data-as-decoded`: the stream is written as
+  the bytes this reader decoded through every stage in front of any image codec, re-encoded as one
+  `FlateDecode` — the ASCII row's construction for any stage's damage — and the encoded bytes past
+  the damage are the loss; the report and `xmpMM:History` name each stream, the stage and the
+  damage. A stream whose one fault is cut ASCII data is left to the row above. A repair inside a
+  content stream (`pdf_syntax::Site::Content`) is refused by name under the fence, the class and its
+  clause in the sentence; data no filter decodes is refused by name; a `/DecodeParms` that does not
+  pair with its `/Filter` is answered only where a restatement re-encodes the stream anyway.
+- **By target** — none; both parts bind the base standard alike.
+- **From a configuration** — `[site."conformance/adheres-to-the-base-standard"]` with `remedy =
+  "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers `try =
+  ["append-statement", "discard"]`, whose first step composes no page at this site.
+
 ### `file-structure/no-external-stream-data`
 ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · **built** (ADR 1199) for the bytes a caller
 can resolve, and **the tool route with them** (ADR 1209)

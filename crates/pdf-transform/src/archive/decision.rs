@@ -619,11 +619,22 @@ pub enum Loss {
     /// keeps the refusal (`doc/questions/A1011`, `doc/adr/3509`). Each page it is taken on is
     /// named in the report and in the file's history.
     TaggingOfPreservedMarks,
+    /// ISO 19005-2 and ISO 19005-4 section 5.1 over the reader's log of repairs: a stream whose data
+    /// a stage decoded only in part — data that runs out before its end-of-data, that breaks the
+    /// filter's grammar part way, or whose check value disagrees — is written as the bytes this
+    /// reader decoded through it, re-encoded as one `FlateDecode`.
+    ///
+    /// ISO 32000-2 §7.4 defines what each filter's data states, and damaged data states nothing
+    /// past the damage, so another reader may recover more of it, or less, or other bytes. Writing
+    /// what this reader decoded restates what the window drew rather than repairing the data; what
+    /// is lost is the encoded bytes past the damage, and the report and the file's history name
+    /// each stream (ADR 3522).
+    DamagedDataAsDecoded,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 42] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -665,6 +676,7 @@ impl Loss {
         Self::Type3WidthAsDrawn,
         Self::AsciiDataAsDecoded,
         Self::TaggingOfPreservedMarks,
+        Self::DamagedDataAsDecoded,
     ];
 
     /// The word a caller authorises it by.
@@ -712,6 +724,7 @@ impl Loss {
             Self::Type3WidthAsDrawn => "type3-width-as-drawn",
             Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
             Self::TaggingOfPreservedMarks => "tagging-of-preserved-marks",
+            Self::DamagedDataAsDecoded => "damaged-data-as-decoded",
         }
     }
 
@@ -1028,6 +1041,12 @@ impl Loss {
                  by its structure passes over them; the page draws what the window drew, and the \
                  report and the file's history name each page"
             }
+            Self::DamagedDataAsDecoded => {
+                "a stream whose data decodes only in part is written as the bytes this viewer \
+                 decoded from it; the encoded bytes past the damage are gone, which another reader \
+                 may have recovered differently, and the report and the file's history name each \
+                 stream"
+            }
         }
     }
 
@@ -1211,6 +1230,8 @@ pub struct Authorisations {
     /// page `append-statement` composes, one entry an annotation (`doc/adr/3518`). No loss of its
     /// own, as [`Self::page_not_held_stated`] is not.
     pub tagging_of_preserved_marks_stated: bool,
+    /// Whether [`Loss::DamagedDataAsDecoded`] was authorised.
+    pub damaged_data_as_decoded: bool,
 }
 
 impl Authorisations {
@@ -1259,6 +1280,7 @@ impl Authorisations {
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn,
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded,
             Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks,
+            Loss::DamagedDataAsDecoded => self.damaged_data_as_decoded,
         }
     }
 
@@ -1314,6 +1336,7 @@ impl Authorisations {
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn = true,
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded = true,
             Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks = true,
+            Loss::DamagedDataAsDecoded => self.damaged_data_as_decoded = true,
         }
     }
 }
@@ -1830,12 +1853,6 @@ pub(super) const WRITER_EMITS: &[&str] = &[
     "file-structure/cross-reference-keyword-line-endings",
     // Both parts: `/Length` is re-derived as a direct integer from the bytes actually written.
     "file-structure/stream-length-matches-the-data",
-    // ISO 19005-2 and ISO 19005-4 section 5.1, over the reader's log of repairs (ADR 3506): the
-    // output is written from the repaired reading in the serializer's own syntax, so a table
-    // rebuilt, a key repeated, a string unterminated or an `endobj` missing is not in it. A
-    // repair the rewrite cannot undo — a stream whose data was cut short — is in the output's own
-    // log, and the output's own check says so.
-    "conformance/adheres-to-the-base-standard",
     // ISO 19005-2 section 6.1.3, ISO 19005-4 section 6.1.3: nothing follows the last `%%EOF`
     // this writer emits.
     "file-structure/nothing-after-the-last-end-of-file-marker",
@@ -2648,6 +2665,18 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             },
             Decision::Refused,
         ),
+        // ISO 19005-2 and ISO 19005-4 section 5.1 over the reader's log of repairs: where every
+        // repair is one the whole-file rewrite leaves behind, the row loses nothing, as
+        // `CONDITIONAL` says; a damaged stream restated is the loss, and a repair no rewrite
+        // undoes is the refusal `Prepared::obstacle` names (`super::base_standard`, ADR 3521).
+        Answer::Loses(_, Rewrite::DamagedDataAsDecoded)
+            if prepared
+                .base_standard
+                .as_ref()
+                .is_ok_and(super::base_standard::Answered::costs_nothing) =>
+        {
+            Decision::Mechanical(Rewrite::WholeFileRewritten)
+        }
         // A loss the document cannot take is refused rather than offered: telling a user that
         // `--authorise` would allow something this file cannot have is worse than saying why.
         Answer::Loses(loss, rewrite) => match prepared.obstacle(rewrite) {

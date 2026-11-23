@@ -1188,7 +1188,11 @@ target forbids is kept as an embedded file at PDF/A-4f and 4e (ADRs 1245, 1270);
 dictionary a part 4 target forbids moves into the packet under Table 349's properties (ADR 1269).
 **Behaviour a target forbids is taken out and the behaviour behind it is not**, a removed action's
 §12.6.2 `/Next` promoted into its place (ADR 1175); an encryption does not cross, and every flag it
-withheld is named in the report and in the output's `xmpMM:History` (ADR 1187); and where a fact is
+withheld is named in the report and in the output's `xmpMM:History` (ADR 1187); a file the reader had
+to repair is written from the repaired reading, a stream decoded only in part written as the bytes
+decoded under the loss `damaged-data-as-decoded`, and a repair inside a content stream, which crosses
+byte for byte, refused by name unless a photograph or the run rewrite writes it again (ADRs 3521,
+3522); and where a fact is
 the operator's to state — which font program may be embedded, which of an ink's two definitions
 wins, what a stream outside the file holds, what an unnamed optional content configuration is
 called, what their own metadata field means (ADR 2082) — the operator states it and the report says whose

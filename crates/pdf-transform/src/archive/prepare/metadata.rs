@@ -1621,6 +1621,9 @@ pub(super) struct Recording<'a> {
     /// Which streams whose ASCII data stops before its marker were written as the bytes decoded,
     /// where any were (`doc/adr/3494`).
     pub(super) ascii_data: Option<&'a str>,
+    /// Which streams whose data decodes only in part were written as the bytes decoded, where
+    /// any were (ADR 3522).
+    pub(super) damaged_data: Option<&'a str>,
     /// What the source's header was, where it stated no version (`doc/adr/2558`).
     pub(super) header: Option<&'a str>,
     /// Which TrueType fonts had their program's `cmap` restated, where any did (`doc/adr/2520`).
@@ -1747,7 +1750,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 26] = [
+    let actions: [(&'a str, Option<&'a str>); 27] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1770,6 +1773,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (SMOOTHING_OFF_ACTION, recording.type3_widths),
         (SMOOTHING_OFF_ACTION, recording.undecodable),
         (SMOOTHING_OFF_ACTION, recording.ascii_data),
+        (SMOOTHING_OFF_ACTION, recording.damaged_data),
         (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),
         (PARENT_TREE_REBUILT_ACTION, recording.parent_tree),

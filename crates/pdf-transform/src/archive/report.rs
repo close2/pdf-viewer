@@ -1184,6 +1184,11 @@ pub struct Conversion {
     /// `ascii-data-as-decoded`: each by its object, the stage cut and its length. Empty for every
     /// conversion whose ASCII data ended at its marker (`doc/adr/3462`).
     pub ascii_data_restated: Vec<super::AsciiDataRestated>,
+    /// Every stream whose data a stage decoded only in part, written as the bytes this reader
+    /// decoded, the loss `damaged-data-as-decoded`: each by its object, the stage that reported
+    /// the damage, what it reported and its length. Empty for every conversion whose streams
+    /// decoded whole (ADR 3522).
+    pub damaged_data_restated: Vec<super::DamagedDataRestated>,
     /// Every graphics state or halftone whose transfer function other than the identity this
     /// conversion removed, with what the function said (`doc/adr/1964`, `doc/adr/2007`).
     ///
@@ -1525,6 +1530,15 @@ impl Conversion {
                     self.ascii_data_restated
                         .iter()
                         .map(ascii_data_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "damaged_data_restated".to_owned(),
+                Value::Array(
+                    self.damaged_data_restated
+                        .iter()
+                        .map(damaged_data_to_json)
                         .collect(),
                 ),
             ),
@@ -2462,6 +2476,17 @@ impl Conversion {
                 let _ = writeln!(out, "      {}", stream.sentence());
             }
         }
+        if !self.damaged_data_restated.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} stream(s) whose data decodes only in part are written as the bytes this \
+                 viewer decoded, losing damaged-data-as-decoded:",
+                self.damaged_data_restated.len()
+            );
+            for stream in &self.damaged_data_restated {
+                let _ = writeln!(out, "      {}", stream.sentence());
+            }
+        }
         if !self.photographed.is_empty() {
             // The clause about a font is said only where a page was photographed for one: a page
             // photographed for a fault of its content stream or its colour left nothing blank.
@@ -2903,6 +2928,23 @@ fn ascii_data_to_json(stream: &super::AsciiDataRestated) -> Value {
             Value::text(format!("{} {}", stream.object, stream.generation)),
         ),
         ("stage".to_owned(), Value::text(stream.stage.clone())),
+        (
+            "length".to_owned(),
+            Value::Integer(i64::try_from(stream.encoded).unwrap_or(i64::MAX)),
+        ),
+    ])
+}
+
+/// One stream written as the bytes this reader decoded from its damaged data, for the report's
+/// machine-readable form (ADR 3522).
+fn damaged_data_to_json(stream: &super::DamagedDataRestated) -> Value {
+    Value::Object(vec![
+        (
+            "object".to_owned(),
+            Value::text(format!("{} {}", stream.object, stream.generation)),
+        ),
+        ("stage".to_owned(), Value::text(stream.stage.clone())),
+        ("damage".to_owned(), Value::text(stream.damage.to_owned())),
         (
             "length".to_owned(),
             Value::Integer(i64::try_from(stream.encoded).unwrap_or(i64::MAX)),

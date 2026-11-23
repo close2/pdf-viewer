@@ -86,6 +86,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "file-structure/ascii-data-ends-at-its-end-of-data-marker",
         answer: Answer::Loses(Loss::AsciiDataAsDecoded, Rewrite::AsciiDataAsDecoded),
     },
+    // ISO 19005-2 and ISO 19005-4 section 5.1 over the reader's log of repairs (ADR 3506): a
+    // repair outside content is answered by the whole-file rewrite, which writes the repaired
+    // reading in the serializer's own syntax; a stream decoded only in part is written as the
+    // bytes this reader decoded, the bytes past the damage the loss; a repair inside a content
+    // stream, and data no stage decodes, are refused by name (`super::super::base_standard`,
+    // ADR 3521, ADR 3522).
+    Remedy {
+        requirement: "conformance/adheres-to-the-base-standard",
+        answer: Answer::Loses(Loss::DamagedDataAsDecoded, Rewrite::DamagedDataAsDecoded),
+    },
     // The same two subclauses' first sentence, at the names this tree's decoder reads: a filter
     // named by its inline-image abbreviation (`doc/adr/1952`). Any other name is the loss
     // `undecodable-stream`, which `CONDITIONAL` names and `super::answer_of` routes to
@@ -225,6 +235,12 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
         "file-structure/stream-filters-are-standard",
         Conditional::PerDocument(Losses::one(Loss::UndecodableStream)),
+    ),
+    // A file whose every repair the whole-file rewrite leaves behind loses nothing; a damaged
+    // stream restated is the loss `damaged-data-as-decoded` (ADR 3522).
+    (
+        "conformance/adheres-to-the-base-standard",
+        Conditional::PerDocument(Losses::one(Loss::DamagedDataAsDecoded)),
     ),
 ];
 

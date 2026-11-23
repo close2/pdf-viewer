@@ -139,6 +139,7 @@ mod ascii_data;
 mod attach;
 mod base;
 mod base_font_names;
+mod base_standard;
 mod boundaries;
 mod census;
 mod cid_keyed_programs;
@@ -218,6 +219,7 @@ pub use actual_text::RemovedActualText;
 pub use as_drawn::WrittenRun;
 pub use ascii_data::AsciiDataRestated;
 pub use base::ReadFrom;
+pub use base_standard::DamagedDataRestated;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use cmaps::EmbeddedCMap;
@@ -834,6 +836,7 @@ fn conversion_before_deciding(
         restated_type3_widths: Vec::new(),
         undecodable_streams: Vec::new(),
         ascii_data_restated: Vec::new(),
+        damaged_data_restated: Vec::new(),
         removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
@@ -1937,6 +1940,15 @@ fn apply_the_decisions(
     {
         conversion.ascii_data_restated.clone_from(&restated.streams);
     }
+    // ADR 3522: the same for a stream whose data decodes only in part, named with the stage that
+    // reported the damage, because the encoded bytes past it are what went.
+    if wanted.contains(&Rewrite::DamagedDataAsDecoded)
+        && let Ok(answered) = &prepared.base_standard
+    {
+        conversion
+            .damaged_data_restated
+            .clone_from(&answered.streams);
+    }
     // `doc/adr/1964`: a removed transfer function leaves nothing on the page to notice, so each
     // graphics state it went from is named with what it said — the same statement the output's
     // own `xmpMM:History` keeps.
@@ -2086,7 +2098,7 @@ fn apply_the_decisions(
     // costs. Anything else still failing is a real failure, and the file is refused as it would be
     // without any departure: stage three's net is narrowed by a departure, never switched off.
     let stands = stands_as_departed(&achieved, departed_ids, omit_identification);
-    let declined = declined_output(plan, &achieved);
+    let declined = declined_output(plan, &achieved, &output);
     conversion.achieved = Some(achieved);
     if !stands {
         return Ok(Written::Refused(declined));
@@ -2193,13 +2205,15 @@ fn rewrites_wanted(
     // entries it wrote, a condition of the rebuild (`doc/adr/2674`). A halftone's name, and an
     // overprint mode a DeviceCMYK mark was painted under, are named there before they go
     // (`doc/adr/2693`), and so is a stream whose ASCII data stops before its marker before it is
-    // written as the bytes decoded (`doc/adr/3494`).
+    // written as the bytes decoded (`doc/adr/3494`), and a stream whose data decodes only in part
+    // (ADR 3522).
     let recorded_removal = wanted.contains(&Rewrite::TransferFunctionRemoved)
         || wanted.contains(&Rewrite::ParentTreeRebuilt)
         || wanted.contains(&Rewrite::HalftoneNameRemoved)
         || wanted.contains(&Rewrite::OverprintModeZeroed)
         || wanted.contains(&Rewrite::Type3WidthRestated)
-        || wanted.contains(&Rewrite::AsciiDataAsDecoded);
+        || wanted.contains(&Rewrite::AsciiDataAsDecoded)
+        || wanted.contains(&Rewrite::DamagedDataAsDecoded);
     if omit_identification || departed || configured || recorded_removal {
         wanted.insert(Rewrite::IdentificationSchema);
     }
@@ -2384,7 +2398,10 @@ fn copy_the_source(
 /// nothing had established. A *regression* — a requirement the source met and the output does
 /// not — is named separately inside that, because it is the worse of the two failures and a
 /// reader should not have to diff two lists to find it.
-fn declined_output(plan: &ArchivePlan, achieved: &Achieved) -> Declined {
+///
+/// Section 5.1 is named down to the repairs: the output's own log says which classes this reader
+/// still made reading it, so a failure there is never only the row's name (ADR 3521).
+fn declined_output(plan: &ArchivePlan, achieved: &Achieved, output: &Document) -> Declined {
     use std::fmt::Write as _;
 
     let mut detail = format!(
@@ -2400,6 +2417,28 @@ fn declined_output(plan: &ArchivePlan, achieved: &Achieved) -> Declined {
             ". {} of them the source met, which is worse: {}",
             achieved.regressions.len(),
             achieved.regressions.join(", ")
+        );
+    }
+    if achieved
+        .still_failing
+        .contains(&pdf_archive::repairs::BASE_STANDARD)
+    {
+        let classes: BTreeSet<String> = output
+            .repairs()
+            .iter()
+            .filter(|repair| {
+                pdf_archive::repairs::breaches_row(
+                    repair.class.name,
+                    pdf_archive::repairs::BASE_STANDARD,
+                )
+            })
+            .map(|repair| format!("{} ({})", repair.class.name, repair.class.clause))
+            .collect();
+        let _ = write!(
+            detail,
+            ". The output fails ISO 19005 section 5.1 because reading it still needs the repair \
+             {}",
+            classes.into_iter().collect::<Vec<_>>().join(", ")
         );
     }
     Declined {

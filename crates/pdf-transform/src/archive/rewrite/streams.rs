@@ -169,6 +169,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::AsciiDataAsDecoded);
             return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
         }
+        // And once more for a stream a stage decoded only in part, written as the bytes this
+        // reader decoded (`super::super::base_standard`, ADR 3522). The search leaves a stream whose
+        // one fault is cut ASCII data to the rewrite above, and a content repair above writes from
+        // the same decoded bytes.
+        if self.wants(Rewrite::DamagedDataAsDecoded)
+            && let Some(restated) = self.damaged_data.and_then(|restated| restated.at.get(&id))
+        {
+            count(applied, Rewrite::DamagedDataAsDecoded);
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
+        }
         // And once more for an inline image's `/I` written false, which
         // `super::super::inline_smoothing` refuses where any repair above also writes the stream
         // (`doc/adr/3373`). Counted by entry in `count_what_has_no_place`.
@@ -507,6 +517,9 @@ pub(in crate::archive) enum Cut {
     /// An `ASCIIHexDecode` or `ASCII85Decode` stage may stop before its marker, and what it
     /// decoded is what is written (`doc/adr/3462`); every other stage must still end whole.
     AsciiAdmitted,
+    /// Any stage may report damage, and what this reader decoded through it is what is written:
+    /// section 5.1's restatement of a damaged stream (`super::super::base_standard`, ADR 3522).
+    DamageAdmitted,
 }
 
 /// How many of a chain's stages are decoded before it is re-encoded: every one in front of the
@@ -542,29 +555,26 @@ pub(in crate::archive) fn reencoded_through_flate(
         return None;
     }
     let stop = decoded_stages(&chain);
-    let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&stream.data);
-    for (index, filter) in chain.iter().enumerate().take(stop) {
-        let stage = pdf_syntax::filter::decode_with_parms_reported(
-            filter,
-            &data,
-            parms_at(document, &stream.dict, index).as_ref(),
-            document.limits(),
-        )
-        .ok()?;
-        let admitted = cut == Cut::AsciiAdmitted
-            && stage.damage == Some(pdf_syntax::Damage::Truncated)
-            && matches!(
-                filter.as_slice(),
-                b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85"
-            );
-        if !admitted
-            && stage
-                .damage
-                .is_some_and(pdf_syntax::Damage::questions_the_bytes)
-        {
-            return None;
+    let mut whole = true;
+    let data = each_stage_in_front_of_the_codec(document, stream, |filter, damage| {
+        let admitted = match cut {
+            Cut::Refused => false,
+            Cut::AsciiAdmitted => {
+                damage == Some(pdf_syntax::Damage::Truncated)
+                    && matches!(
+                        filter,
+                        b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85"
+                    )
+            }
+            Cut::DamageAdmitted => true,
+        };
+        if !admitted && damage.is_some_and(pdf_syntax::Damage::questions_the_bytes) {
+            whole = false;
         }
-        data = stage.data;
+    })
+    .ok()?;
+    if !whole {
+        return None;
     }
     let parms = decode_parms(dict, names.len())?;
     if parms
@@ -581,6 +591,33 @@ pub(in crate::archive) fn reencoded_through_flate(
         data: encoded.into(),
         decryption_failed: false,
     })))
+}
+
+/// A stream's data decoded through every stage in front of its first image codec, `each` told
+/// each stage's filter name and the damage it reported; the first stage's refusal where one refuses
+/// the data.
+///
+/// The one walk of a chain both [`reencoded_through_flate`] and section 5.1's search for a damaged
+/// stream make (`super::super::base_standard`), so that the stream the search names is the one the
+/// re-encoding reads.
+pub(in crate::archive) fn each_stage_in_front_of_the_codec(
+    document: &pdf_syntax::Document,
+    stream: &Stream,
+    mut each: impl FnMut(&[u8], Option<pdf_syntax::Damage>),
+) -> Result<std::sync::Arc<[u8]>, pdf_syntax::FilterRefusal> {
+    let chain = chain_of(document, &stream.dict);
+    let mut data: std::sync::Arc<[u8]> = std::sync::Arc::clone(&stream.data);
+    for (index, filter) in chain.iter().enumerate().take(decoded_stages(&chain)) {
+        let stage = pdf_syntax::filter::decode_with_parms_reported(
+            filter,
+            &data,
+            parms_at(document, &stream.dict, index).as_ref(),
+            document.limits(),
+        )?;
+        each(filter, stage.damage);
+        data = stage.data;
+    }
+    Ok(data)
 }
 
 /// The form `XObject` a PostScript `XObject` is written as: §8.10's form with an empty content

@@ -185,7 +185,7 @@ impl Walk<'_> {
             origin,
         );
         // As for a page's content (ADR 3477).
-        let site = id.map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object);
+        let site = pdf_syntax::Site::Content(id);
         for class in reader.lexical_repairs() {
             self.document.record_repair(class, site);
         }

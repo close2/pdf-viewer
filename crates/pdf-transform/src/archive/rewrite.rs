@@ -26,7 +26,7 @@ mod reader_resources;
 mod streams;
 mod values;
 
-pub(super) use streams::{Cut, reencoded_through_flate};
+pub(super) use streams::{Cut, each_stage_in_front_of_the_codec, reencoded_through_flate};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -99,6 +99,11 @@ pub enum Rewrite {
     /// complete groups are what this reader drew. It is the loss
     /// [`super::Loss::AsciiDataAsDecoded`] (`doc/adr/3462`).
     AsciiDataAsDecoded,
+    /// A stream whose data a stage decoded only in part is written as the bytes this reader
+    /// decoded through it, re-encoded as one `FlateDecode` — [`Self::AsciiDataAsDecoded`]'s
+    /// construction for any stage's damage, answering ISO 19005 section 5.1 over the reader's log.
+    /// It is the loss [`super::Loss::DamagedDataAsDecoded`] (ADR 3522).
+    DamagedDataAsDecoded,
     /// Every image `XObject` that states an `/Interpolate` other than false has it set false.
     InterpolationOff,
     /// Every inline image that states an `/I` other than false has it written false inside its
@@ -1356,6 +1361,10 @@ impl Rewrite {
                 "an ASCII-armoured stream cut before its end-of-data marker is written as the \
                  bytes this reader decoded, re-encoded as one FlateDecode"
             }
+            Self::DamagedDataAsDecoded => {
+                "a stream whose data decodes only in part is written as the bytes this reader \
+                 decoded, re-encoded as one FlateDecode"
+            }
             Self::InterpolationOff => "an image's /Interpolate is set false",
             Self::InlineInterpolationOff => {
                 "an inline image's /I is set false inside its content stream, every other byte kept"
@@ -1941,6 +1950,7 @@ impl Rewrite {
             Self::WholeFileRewritten => "whole-file-rewritten",
             Self::FlateInsteadOfLzw => "flate-instead-of-lzw",
             Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
+            Self::DamagedDataAsDecoded => "damaged-data-as-decoded",
             Self::InterpolationOff => "interpolation-off",
             Self::InlineInterpolationOff => "inline-interpolation-off",
             Self::ImageAlternatesAndOpi => "image-alternates-and-opi",
@@ -2259,6 +2269,7 @@ impl<'a> Rewriter<'a> {
             boundaries: prepared.boundaries.as_ref().ok(),
             actual_texts: prepared.actual_texts.as_ref().ok(),
             ascii_data: prepared.ascii_data.as_ref().ok(),
+            damaged_data: prepared.base_standard.as_ref().ok(),
             unreferenced: prepared.unreferenced.as_ref(),
             type3_widths: prepared.type3_widths.as_ref().ok(),
             inline_smoothing: prepared.inline_smoothing.as_ref().ok(),
@@ -3323,6 +3334,9 @@ struct Rewriter<'a> {
     /// The streams written as the bytes this reader decoded from their cut ASCII data
     /// (`super::ascii_data`).
     ascii_data: Option<&'a super::ascii_data::Restated>,
+    /// The streams written as the bytes this reader decoded from their damaged data
+    /// (`super::base_standard`).
+    damaged_data: Option<&'a super::base_standard::Answered>,
     /// The named resource entries section 6.2.2's exemption withdrew findings at (ADR 3410).
     unreferenced: Option<&'a super::unreferenced::Removal>,
     /// The Type 3 glyph procedures written with their fonts' widths, and the fonts given a
@@ -4073,6 +4087,18 @@ fn chain_of(document: &Document, dict: &Dictionary) -> Vec<Vec<u8>> {
             .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+/// Whether the stream's `/DecodeParms` fails to pair with its `/Filter` entry for entry, as
+/// §7.3.8.2's Table 5 requires of an array, and of a dictionary beside a chain of other than one:
+/// the stream `pdf_syntax` logs as `syntax/decode-parms-mismatched`.
+pub(super) fn parameters_unpaired(document: &Document, stream: &Stream) -> bool {
+    let stages = chain_of(document, &stream.dict).len();
+    match document.get_key(&stream.dict, "DecodeParms") {
+        Object::Array(items) => items.len() != stages,
+        Object::Dictionary(_) => stages != 1,
+        _ => false,
     }
 }
 

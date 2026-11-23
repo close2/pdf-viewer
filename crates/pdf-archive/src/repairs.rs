@@ -205,9 +205,9 @@ pub(crate) fn adheres_to_the_base_standard(exam: &Examination<'_>, findings: &mu
 /// Where a finding about `repair` is placed.
 fn place(repair: &Repair) -> Where {
     match repair.at {
-        Site::Object(id) | Site::Within(id, _) => Where::object(id),
+        Site::Object(id) | Site::Within(id, _) | Site::Content(Some(id)) => Where::object(id),
         Site::Offset(offset) => Where::file().named(format!("byte {offset}")),
-        Site::WholeFile => Where::file(),
+        Site::WholeFile | Site::Content(None) => Where::file(),
     }
 }
 

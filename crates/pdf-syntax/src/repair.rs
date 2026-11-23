@@ -57,6 +57,11 @@ pub enum Site {
     /// A byte offset inside an indirect object's *data* — a decoded object stream, a content
     /// stream — rather than into the file.
     Within(ObjectId, usize),
+    /// Inside a content stream: the one of the page or form `XObject` with this identifier, or one
+    /// its reader holds without an object. A content stream's data crosses an archival conversion
+    /// byte for byte, so a repair made in it is one a rewrite of the file does not undo, where the
+    /// same class at [`Self::Object`] is one it does (ADR 3521).
+    Content(Option<ObjectId>),
 }
 
 /// One repair: its class, and where it was made.

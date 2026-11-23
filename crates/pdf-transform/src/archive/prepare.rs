@@ -416,6 +416,10 @@ pub(super) struct Prepared {
     /// this reader decoded, or why they are not (ISO 19005-2 and ISO 19005-4 section 5.1,
     /// `doc/adr/3462`).
     pub(super) ascii_data: Result<super::ascii_data::Restated, Because>,
+    /// Section 5.1's answer over the reader's log of repairs: the streams whose damaged data is
+    /// written as the bytes this reader decoded, none where the rewrite alone answers, or the
+    /// refusal by name of a repair nothing undoes (ADR 3521, ADR 3522).
+    pub(super) base_standard: Result<super::base_standard::Answered, Because>,
     /// The named resource entries section 6.2.2's exemption withdrew findings at, to be removed,
     /// or `None` where it withdrew none (ADR 3410).
     pub(super) unreferenced: Option<super::unreferenced::Removal>,
@@ -1443,6 +1447,31 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::ascii_data::Restated::history);
+        // The streams section 5.1's answer writes as the bytes decoded from their damaged data,
+        // each named in the same history before it is written, as the ASCII restatement's are (ADR
+        // 3522).
+        let base_standard = asked(wanted(Rewrite::DamagedDataAsDecoded), || {
+            super::base_standard::answer(document, input, plan.target)
+        });
+        // Its repairs inside content are answered where a photograph or the run rewrite writes
+        // the content again, and refused by name elsewhere; a damaged stream only photographed
+        // pages named is not written (ADR 3521).
+        let photographed: BTreeSet<ObjectId> = substitutes
+            .as_ref()
+            .map_or_default(|substitutes| substitutes.photographs.keys().copied().collect());
+        let base_standard = super::base_standard::settled(
+            base_standard,
+            document,
+            as_drawn.as_ref().ok(),
+            (
+                &photographed,
+                &super::hexadecimal::taken_off_by(document, survey.as_ref(), &photographed),
+            ),
+        );
+        let damaged_data_history = base_standard
+            .as_ref()
+            .ok()
+            .and_then(super::base_standard::Answered::history);
         // The source's header, where it named no version ISO 32000-2 defines: the output's header
         // states the target's, and the record of what the producer wrote there is a condition of
         // writing it (`doc/adr/2558`, `doc/adr/2692`). Read off the source, not a structure this program rebuilt from it.
@@ -1596,6 +1625,7 @@ impl Prepared {
                 type3_widths: type3_history.as_deref(),
                 undecodable: undecodable_history.as_deref(),
                 ascii_data: ascii_data_history.as_deref(),
+                damaged_data: damaged_data_history.as_deref(),
                 header: header_history.as_deref(),
                 parent_tree: parent_tree_history.as_deref(),
                 cmap: cmap_history.as_deref(),
@@ -1660,6 +1690,12 @@ impl Prepared {
                 Err(Because::NotBuiltYet(super::ascii_data::NO_PLACE_TO_RECORD))
             }
             ascii_data => ascii_data,
+        };
+        let base_standard = match base_standard {
+            Ok(_) if damaged_data_history.is_some() && !recorded_it => Err(Because::NotBuiltYet(
+                super::base_standard::NO_PLACE_TO_RECORD,
+            )),
+            base_standard => base_standard,
         };
         // A page the fonts' preparation photographed no longer names the content stream it did,
         // so neither content-stream rewrite writes into a stream only such pages named: what is
@@ -1904,6 +1940,7 @@ impl Prepared {
             boundaries,
             actual_texts,
             ascii_data,
+            base_standard,
             unreferenced: super::unreferenced::removal(document, input, plan.target),
             type3_widths,
             inline_smoothing,
@@ -2140,6 +2177,7 @@ impl Prepared {
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
             Rewrite::ActualTextRemoved => self.actual_texts.as_ref().err().copied(),
             Rewrite::AsciiDataAsDecoded => self.ascii_data.as_ref().err().copied(),
+            Rewrite::DamagedDataAsDecoded => self.base_standard.as_ref().err().copied(),
             Rewrite::Type3WidthRestated => self
                 .type3_widths
                 .as_ref()
