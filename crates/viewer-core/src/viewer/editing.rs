@@ -606,9 +606,9 @@ impl Viewer {
     /// order, one thing losing the focus before the next receives it, exactly as a press does.
     ///
     /// **`/Fo` and `/Bl` still fire for widgets only**, because Table 197 says so of both, while
-    /// the *focus itself* moves through every annotation the page has, because §12.5.1 says "the
-    /// annotations on a page" without qualification and Table 31's `W` exists to name the
-    /// narrower order.
+    /// the *focus itself* moves through every annotation of the page a person may interact with,
+    /// because §12.5.1 says "the annotations on a page" without qualification and Table 31's `W`
+    /// exists to name the narrower order.
     pub(super) fn move_focus(
         &mut self,
         move_to: crate::command::FocusMove,
@@ -634,7 +634,14 @@ impl Viewer {
                 else {
                     return;
                 };
-                let order = pdf_model::tab_order::order(&open.document, page, page_id);
+                // §12.5.1's order over the annotations that are there for a person: Table 167's
+                // `Hidden` and `NoView` forbid an annotation "to interact with the user", and
+                // taking the focus is interaction. A read-only field's widget keeps the focus,
+                // since Table 227 withholds only the pointer's response from it (ADR 3413).
+                let mut order = pdf_model::tab_order::order(&open.document, page, page_id);
+                order.retain(|annotation| {
+                    pdf_model::view::annotation_present(&open.document, *annotation, &open.view)
+                });
                 match direction {
                     crate::command::FocusMove::Previous => {
                         pdf_model::tab_order::previous(&order, open.focus)

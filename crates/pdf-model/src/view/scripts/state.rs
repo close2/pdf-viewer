@@ -119,6 +119,26 @@ impl ViewState {
             .and_then(Overrides::read_only)
     }
 
+    /// Whether a script has set the field this widget belongs to read-only, writable, or neither.
+    ///
+    /// The widget's half of [`Self::script_read_only`], for the hit tests: Table 227's bit 1 is the
+    /// field's, and a script's `readonly` stands over the file's (ADR 1603), so a widget of a field
+    /// a script locked does not interact either (ADR 3413). The field tree is walked only where a
+    /// script has set some property, which no document does until one runs.
+    pub(crate) fn widget_script_read_only(
+        &self,
+        document: &pdf_syntax::Document,
+        widget: ObjectId,
+    ) -> Option<bool> {
+        if self.scripting.overrides.is_empty() {
+            return None;
+        }
+        crate::view::widgets_by_field_name(document)
+            .into_iter()
+            .find(|(_, widgets)| widgets.contains(&widget))
+            .and_then(|(name, _)| self.script_read_only(&name))
+    }
+
     /// Whether a script has set this field required (`Some(true)`), optional (`Some(false)`), or
     /// neither: Table 227 bit 2 as the document's own script left it, which the form's
     /// description and a submission's bit-2 check read over the file's flag (ADR 2980).

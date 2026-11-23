@@ -136,7 +136,7 @@ impl Viewer {
                 .user_space(open, at)
                 .and_then(|(page, (x, y))| {
                     let object = open.placed_page(page)?;
-                    pdf_model::view::field_at(&open.document, object, x, y)
+                    pdf_model::view::field_at_in_view(&open.document, object, &open.view, x, y)
                 })
                 .map_or(Answer::None, |name| {
                     // The value is the *view*'s and the names are the document's, which is why

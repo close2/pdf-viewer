@@ -1028,9 +1028,40 @@ pub(crate) fn alternative_name(document: &Document, widget: ObjectId) -> Option<
     None
 }
 
-/// The name of the form field at a point in default user space, where there is one.
+/// The name of the form field at a point in default user space, where there is one, as the file
+/// alone states it.
+///
+/// A widget Table 167 withdraws — `Hidden`, `NoView` — is no field under the pointer, and a
+/// `NoRotate` widget is found where §12.5.3 turns it. A widget of a read-only field *is* named:
+/// Table 227 withholds a response to the click, and a host names the field in refusing it rather
+/// than dropping the click (trap 5). With no view state there is no
+/// magnification, so `NoZoom` moves nothing; [`field_at_in_view`] is the same test under one
+/// (ADRs 3413, 3414).
 #[must_use]
 pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Option<FieldName> {
+    named(document, page, &widgets_at(document, page, None, x, y))
+}
+
+/// [`field_at`] under what a view state says: a hide action, an import's flags, and the
+/// magnification §12.5.3's `NoZoom` is held against — the test a host's click
+/// on a field takes, so that the field it names is the one drawn under the pointer.
+#[must_use]
+pub fn field_at_in_view(
+    document: &Document,
+    page: &crate::Page,
+    view: &ViewState,
+    x: f32,
+    y: f32,
+) -> Option<FieldName> {
+    named(
+        document,
+        page,
+        &widgets_at(document, page, Some(view), x, y),
+    )
+}
+
+/// The field the last of `widgets` belongs to that §12.7.4.2's tree names.
+fn named(document: &Document, page: &crate::Page, widgets: &[ObjectId]) -> Option<FieldName> {
     let mut names: BTreeMap<ObjectId, String> = BTreeMap::new();
     // The pointer is over this page, so this page's omitted roots are the ones it can reach.
     for (name, widgets) in field_table(document, Omitted::OnPage(&page.dict)) {
@@ -1039,26 +1070,34 @@ pub fn field_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Opti
         }
     }
     let mut found = None;
-    for id in widgets_at(document, page, x, y) {
+    for id in widgets {
         found = names
-            .get(&id)
+            .get(id)
             .map(|qualified| FieldName {
                 qualified: qualified.clone(),
-                alternative: alternative_name(document, id),
+                alternative: alternative_name(document, *id),
             })
             .or(found);
     }
     found
 }
 
-/// Every widget annotation on the page whose `/Rect` covers a point in default user space.
+/// Every widget annotation on the page a point in default user space reaches.
 ///
 /// In `/Annots` order, which is the order §12.5.2 has them drawn in — so the last one is the one
 /// on top where two overlap, and a caller wanting one takes the last. Split out of [`field_at`]
 /// because a caret needs the widget itself rather than the name of the field behind it, and two
-/// walks would be two hit tests that could disagree.
-pub(super) fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<ObjectId> {
-    let (x, y) = (f64::from(x), f64::from(y));
+/// walks would be two hit tests that could disagree. The test is `super::annotations::reaches`,
+/// at [`super::annotations::Gate::Present`], and the active area every hit test shares; a caller
+/// that acts on the widget asks [`super::annotations::Gate::Responds`] of the one on top
+/// (ADRs 3413, 3414).
+pub(super) fn widgets_at(
+    document: &Document,
+    page: &crate::Page,
+    view: Option<&ViewState>,
+    x: f32,
+    y: f32,
+) -> Vec<ObjectId> {
     let annotations = document.get_key(&page.dict, "Annots");
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
@@ -1079,24 +1118,14 @@ pub(super) fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32
         {
             continue;
         }
-        let rect = document.get_key(dict, "Rect");
-        let Some(rect) = rect.as_array() else {
-            continue;
-        };
-        let mut corners = rect
-            .iter()
-            .filter_map(|value| document.resolve(value).as_number());
-        let (Some(x0), Some(y0), Some(x1), Some(y1)) = (
-            corners.next(),
-            corners.next(),
-            corners.next(),
-            corners.next(),
-        ) else {
-            continue;
-        };
-        // Table 166's rectangle is two opposite corners and states no order, so both are
-        // normalised before the point is tested against them.
-        if x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1) {
+        if super::annotations::reaches(
+            super::annotations::Gate::Present,
+            document,
+            page,
+            view,
+            (Some(id), dict),
+            (x, y),
+        ) {
             found.push(id);
         }
     }

@@ -87,8 +87,9 @@ impl Viewer {
     /// node already offers it — never twice, and never given a place in the structure's reading
     /// order it does not state. ADR 1381.
     ///
-    /// §12.5.3's `Hidden`, `NoView` and `ReadOnly` decide whether a widget is offered at all, as they
-    /// decide whether a click reaches it.
+    /// §12.5.3's `Hidden` and `NoView` decide whether a widget is offered at all, as they decide
+    /// whether a click reaches it; a read-only field's widget is offered, since Table 227 withholds
+    /// only the pointer's response from it and a person still reads it (ADR 3413).
     fn unreached_widgets(
         &self,
         open: &Open,
@@ -110,11 +111,7 @@ impl Viewer {
             .iter()
             .filter(|annotation| {
                 !named.contains(*annotation)
-                    && pdf_model::view::annotation_interacts(
-                        &open.document,
-                        **annotation,
-                        &open.view,
-                    )
+                    && pdf_model::view::annotation_present(&open.document, **annotation, &open.view)
             })
             .filter_map(|annotation| {
                 let (field, widget) = fields.iter().find_map(|field| {

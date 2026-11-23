@@ -728,7 +728,7 @@ pub(crate) fn restricted(
             // "does not restrict changes to the annotation's contents".
             Restriction::AnnotationLocked => format!(
                 "this annotation is marked LockedContents (§12.5.3's Table 167, bit 10), so its \
-                 text may not be changed — {tail}"
+                 contents, a form field's value among them, may not be changed — {tail}"
             ),
             // §12.11.6, and the number is §12.11.3's: "if the penalty value exceeds 100 then the
             // PDF processor should not attempt to display or process the document." The sentence

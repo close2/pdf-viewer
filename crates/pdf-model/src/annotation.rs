@@ -842,6 +842,33 @@ impl ViewGeometry {
     }
 }
 
+/// A point on the screen's drawing of an annotation, taken back to the default user space its
+/// `/Rect` and `/QuadPoints` are stated in.
+///
+/// ISO 32000-2 §12.5.3 moves a `NoZoom` or `NoRotate` annotation without touching its rectangle —
+/// "the positions of the other three corners of the annotation rectangle are different in the
+/// altered user space than they were in the original user space" — and §12.5.5's rollover and
+/// down appearances, like §12.6.3's trigger events, belong to "the annotation's active area",
+/// which is where the annotation is shown. So a hit test maps the point through the inverse of
+/// the same [`ViewGeometry::adjustment`] the drawing applies, with [`view_flags`]'s subtype
+/// readings, and then tests the unaltered region (ADR 3414). A transform with no inverse — a
+/// magnification of nought, which [`ViewGeometry::adjustment`] already declines — leaves the
+/// point where it is.
+pub(crate) fn unaltered_point(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    geometry: ViewGeometry,
+    (x, y): (f32, f32),
+) -> (f32, f32) {
+    let flags = view_flags(document, annotation, view);
+    let adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
+    adjust.transform.invert().map_or((x, y), |inverse| {
+        let point = inverse.apply(Point::new(x, y));
+        (point.x, point.y)
+    })
+}
+
 /// Whether §12.5.3's flags let the pointer reach this annotation at all.
 ///
 /// **Three of Table 167's bits say it, and each says it differently.** ISO 32000-2 §12.5.3, on
@@ -879,6 +906,42 @@ pub(crate) fn interacts(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
+    interacts_under(document, annotation, view, None)
+}
+
+/// [`interacts`], with a script's `readonly` on a widget's field where the view state holds one.
+///
+/// `scripted` replaces the field's bit 1 as the file and an import state it, since a script's
+/// property stands over the file's flag (ADR 1603); the annotation's own bits are read either
+/// way, so a script's `readonly = false` does not show a hidden widget. ADR 3413.
+#[must_use]
+pub(crate) fn interacts_under(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    scripted: Option<bool>,
+) -> bool {
+    present(document, annotation, view)
+        && !(is_widget(document, annotation)
+            && scripted.unwrap_or_else(|| field_read_only(document, annotation, view)))
+}
+
+/// Whether an annotation is there for a person at all: every bit of [`interacts`] but a widget's
+/// field `ReadOnly`.
+///
+/// **The difference is Table 227's own definition.** The field's flag says its widgets "should
+/// not interact with the user; that is, they should not respond to mouse clicks nor change their
+/// appearance in response to mouse motions" — the pointer, named twice. A widget of a read-only
+/// field is still drawn, still read, and still a field: the keyboard's focus reaches it
+/// (§12.5.1), an assistive technology announces it as read-only, and a click on it is refused by
+/// name rather than dropped (trap 5). `Hidden`, `NoView`, a non-widget's own `ReadOnly` and a
+/// watermark withdraw the annotation from all of that, and are this function. ADR 3413.
+#[must_use]
+pub(crate) fn present(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
     // §12.5.6.22 states a fourth suppression, for one subtype and whatever its flags say:
     //
     // > Watermark annotations shall have no popup window nor other interactive elements.
@@ -911,11 +974,45 @@ pub(crate) fn interacts(
     if flags & FLAG_NO_VIEW != 0 && flags & FLAG_TOGGLE_NO_VIEW == 0 {
         return false;
     }
-    let widget = document
+    flags & FLAG_READ_ONLY == 0 || is_widget(document, annotation)
+}
+
+fn is_widget(document: &Document, annotation: &Dictionary) -> bool {
+    document
         .get_key(annotation, "Subtype")
         .as_name()
-        .is_some_and(|subtype| subtype.as_bytes() == b"Widget");
-    flags & FLAG_READ_ONLY == 0 || widget
+        .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+}
+
+/// Whether the field a widget belongs to sets Table 227's bit 1, `ReadOnly`, in the file or as
+/// §12.7.8's import left it.
+///
+/// Table 167's bit 7 hands a widget's interaction to this flag, its function being "subsumed" by
+/// the field's, and ISO 32000-2 §12.7.4.1, Table 227, says
+/// what the field's flag asks of the widget:
+///
+/// > If set, an interactive PDF processor shall not allow a user to change the value of the
+/// > field. Additionally, any associated widget annotations should not interact with the user;
+/// > that is, they should not respond to mouse clicks nor change their appearance in response to
+/// > mouse motions.
+///
+/// `/Ff` is one of Table 226's inheritable entries, so it is read up `/Parent`; an import's
+/// `/Ff`, `/SetFf` and `/ClrFf` are Table 249's statements over that same word. A script's
+/// `readonly` is the view state's, keyed by field name, and reaches here as [`interacts_under`]'s
+/// `scripted` (ADR 3413).
+fn field_read_only(
+    document: &Document,
+    widget: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    let stated = crate::inheritance::Inherited::of(document, widget)
+        .integer(document, "Ff")
+        .unwrap_or_default();
+    let flags = match view.value {
+        crate::view::FieldValue::Imported { flags, .. } => flags.applied_to(stated),
+        _ => stated,
+    };
+    flags & 1 != 0
 }
 
 /// Whether this is one of §12.5.6.22's watermark annotations, the subtype that "shall have no
@@ -1147,6 +1244,7 @@ fn decided(
             return construct(document, annotation, &subtype, &name, rect, view, fonts);
         }
         Normal::StateNotDefined => return Decision::Nothing,
+        Normal::NoState => return Decision::Unsupported(no_state(&name)),
     };
 
     // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the two
@@ -1168,6 +1266,7 @@ fn decided(
         (None, Some(bbox)) => transformed(bbox, matrix),
         (None, None) => return Decision::Unsupported(format!("{name}: no usable /Rect")),
     };
+    let shape_faults = shape_faults(document, annotation, &stored.dict, &name);
     // An annotation covering no area cannot show anything, whether its appearance is stored or
     // constructed, and §12.5.5's algorithm is why: it scales the appearance's transformed
     // `/BBox` onto `/Rect`, and a scale onto no extent leaves no mark whatever the stream draws.
@@ -1217,7 +1316,7 @@ fn decided(
     // value, so the stream's `/Tx` marked-content region is rewritten in place. Everything
     // outside it is the file's own artwork and stays, which is what makes this a splice rather
     // than a second construction — see `crate::appearance::regenerate`.
-    let mut owed = missing_bbox;
+    let mut owed = joined([shape_faults, missing_bbox]);
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
@@ -1258,6 +1357,44 @@ fn decided(
         }),
         owed,
     }
+}
+
+/// The report for [`Normal::NoState`]: Table 166's `/AS` absent where `/AP` keys by state.
+fn no_state(name: &str) -> String {
+    format!(
+        "{name}: /AP states appearances by state and no /AS names one, which Table 166 requires \
+         there, so nothing is drawn"
+    )
+}
+
+/// What a stored appearance's placement read past, said beside what is drawn (ADR 3416).
+///
+/// Two entries written in a shape the standard does not admit, each read as a reader must: a
+/// `/Rect` that is not §7.9.5's four numbers is no rectangle, so the appearance is placed by its
+/// own box as for an absent one; a `/Matrix` that is not Table 93's six numbers is the identity
+/// the table states for an absent one. An *absent* `/Rect` is not said, for the reason
+/// `issue14438.pdf` gives in [`decided`]: there it decides nothing a reader sees.
+fn shape_faults(
+    document: &Document,
+    annotation: &Dictionary,
+    form: &Dictionary,
+    name: &str,
+) -> Option<String> {
+    let rect = malformed::<4>(document, annotation, "Rect").then(|| {
+        format!("{name}: /Rect is not four numbers, so the appearance is placed by its /BBox")
+    });
+    let matrix = malformed::<6>(document, form, "Matrix").then(|| {
+        format!("{name}: the appearance's /Matrix is not six numbers and is read as the identity")
+    });
+    joined([rect, matrix])
+}
+
+/// Several reports about one annotation as one, in order; `None` where there is none.
+fn joined<const N: usize>(reports: [Option<String>; N]) -> Option<String> {
+    reports
+        .into_iter()
+        .flatten()
+        .reduce(|said, more| format!("{said}; {more}"))
 }
 
 /// The decision for an annotation whose stored stream no longer describes it, or `None` for one
@@ -1468,6 +1605,12 @@ enum Normal {
     Absent,
     /// `/N` is a state dictionary and `/AS` selected nothing from it.
     StateNotDefined,
+    /// `/N` is a state dictionary and no state is named at all: no `/AS`, or one that is not a
+    /// name, where Table 166 makes the entry "\[r]equired if the appearance dictionary AP
+    /// contains one or more subdictionaries". §12.5.5's "reasonable behaviour (such as displaying
+    /// nothing)" is for a state "for which no appearance is defined", so this third case draws
+    /// the same nothing and is said, being a file that broke a requirement (ADR 3416).
+    NoState,
 }
 
 /// Resolves the appearance the annotation is showing to a single stream.
@@ -1549,7 +1692,10 @@ fn stored_appearance(
         });
     // §12.5.5 keys `/AP`'s subdictionary by the appearance states the *file* names, so the
     // probe is §7.3.5's exact binary match on the bytes `/AS` states (ADR 0439).
-    let state = selected.and_then(|name| states.get_by_name(&Name::new(name)).cloned());
+    let Some(selected) = selected else {
+        return Normal::NoState;
+    };
+    let state = states.get_by_name(&Name::new(selected)).cloned();
     let resolved = state
         .as_ref()
         .map(|state| document.resolve_as(state, StreamRole::Appearance));
@@ -1856,16 +2002,16 @@ pub(crate) fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
     [low.x, low.y, high.x, high.y]
 }
 
-/// Reads a `/Matrix` entry, defaulting to the identity.
+/// Reads a form's `/Matrix`: Table 93's "array of six numbers", or the identity.
+///
+/// The identity is Table 93's default for an absent entry, and it is also what an entry that is
+/// present and is **not** six numbers is read as: which six numbers a five-element or a
+/// name-holding array meant is not the standard's to say, so no reading of its contents is taken,
+/// and [`malformed`] lets the caller drawing the appearance say so (ADR 3416).
 pub(crate) fn matrix(document: &Document, dict: &Dictionary) -> Transform {
-    let Some(values) = numbers(document, dict, "Matrix") else {
-        return Transform::IDENTITY;
-    };
-    let at = |index: usize| values.get(index).copied().unwrap_or_default();
-    if values.len() < 6 {
-        return Transform::IDENTITY;
-    }
-    Transform::new(at(0), at(1), at(2), at(3), at(4), at(5))
+    exactly::<6>(document, dict, "Matrix").map_or(Transform::IDENTITY, |[a, b, c, d, e, f]| {
+        Transform::new(a, b, c, d, e, f)
+    })
 }
 
 /// Reads a rectangle entry, normalised so the first corner is the lower left.
@@ -1888,17 +2034,46 @@ pub(crate) fn rectangle(
     dict: &Dictionary,
     key: &'static str,
 ) -> Option<[f32; 4]> {
-    let values = numbers(document, dict, key)?;
-    let at = |index: usize| values.get(index).copied().unwrap_or_default();
-    if values.len() < 4 || values.iter().any(|value| !value.is_finite()) {
+    // §7.9.5: "A rectangle shall be written as an array of four numbers". An array of any other
+    // length, or one holding a non-number, is no rectangle: dropping the stray item and moving the
+    // numbers after it one place would place the annotation somewhere the file never said
+    // (ADR 3416).
+    let [x0, y0, x1, y1] = exactly::<4>(document, dict, key)?;
+    Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
+}
+
+/// An entry read as exactly `N` finite numbers, or `None` where it is absent or anything else.
+fn exactly<const N: usize>(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+) -> Option<[f32; N]> {
+    let entry = document.get_key(dict, key);
+    let items = entry.as_array()?;
+    if items.len() != N {
         return None;
     }
-    Some([
-        at(0).min(at(2)),
-        at(1).min(at(3)),
-        at(0).max(at(2)),
-        at(1).max(at(3)),
-    ])
+    let mut values = [0.0; N];
+    for (slot, item) in values.iter_mut().zip(items) {
+        let value = narrow(document.resolve(item).as_number()?);
+        if !value.is_finite() {
+            return None;
+        }
+        *slot = value;
+    }
+    Some(values)
+}
+
+/// Whether an entry is present and is not exactly `N` finite numbers — a §7.9.5 rectangle
+/// (`N` = 4) or a Table 93 matrix (`N` = 6) written wrong, which the drawing says rather than
+/// reading past (ADR 3416).
+pub(crate) fn malformed<const N: usize>(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+) -> bool {
+    !matches!(document.get_key(dict, key), Object::Null)
+        && exactly::<N>(document, dict, key).is_none()
 }
 
 /// Reads an array of numbers, resolving each entry.

@@ -764,16 +764,17 @@ impl ViewState {
     /// (trap 5). The sentence is the open's own, so it is said once a document between the two:
     /// [`Self::script_reports`] keeps each sentence once (ADR 1970).
     ///
-    /// The annotation pressed is the topmost one whose `/Rect` covers the point and that §12.5.3's
-    /// flags let interact, which is [`super::annotation_at`]'s choice for the annotations it can
-    /// name.
+    /// The annotation pressed is the topmost one the point reaches — the interaction gate and
+    /// the active area where §12.5.3 draws it — which is [`super::annotation_at`]'s choice for the
+    /// annotations it can name (ADR 3413).
     pub fn report_unreachable_press(
         &mut self,
         document: &Document,
-        page_dict: &Dictionary,
+        page_object: &crate::Page,
         page: usize,
         (x, y): (f32, f32),
     ) {
+        let page_dict = &page_object.dict;
         let annotations = document.get_key(page_dict, "Annots");
         let Some(entries) = annotations.as_array() else {
             return;
@@ -781,14 +782,14 @@ impl ViewState {
         let pressed = entries.iter().rev().find(|entry| {
             let resolved = document.resolve(entry);
             resolved.as_dict().is_some_and(|annotation| {
-                let view = self.annotation_of(entry.as_reference());
-                crate::annotation::interacts(document, annotation, view)
-                    && super::annotations::active_area_covers(
-                        document,
-                        annotation,
-                        f64::from(x),
-                        f64::from(y),
-                    )
+                super::annotations::reaches(
+                    super::annotations::Gate::Responds,
+                    document,
+                    page_object,
+                    Some(self),
+                    (entry.as_reference(), annotation),
+                    (x, y),
+                )
             })
         });
         let Some(pressed) = pressed else {

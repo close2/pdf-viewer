@@ -494,7 +494,7 @@ pub enum Restriction {
     /// signature field lock dictionary" — and [`asserted`] then returns both, which is §12.8.6's
     /// composition rule doing its job rather than a duplicate.
     FieldCovered,
-    /// §12.5.3's Table 167 bit 10, asserted by the annotation being edited.
+    /// §12.5.3's Table 167 bit 10, asserted by the annotation being edited or the field being filled.
     ///
     /// > LockedContents … If set, do not allow the contents of the annotation to be modified by
     /// > the user. This flag does not restrict deletion of the annotation or changes to other
@@ -506,6 +506,10 @@ pub enum Restriction {
     /// "\[h]owever, this flag does not restrict changes to the annotation's contents, such as the
     /// value of a form field". So an annotation carrying bit 8 and not bit 10 may be typed into,
     /// and nothing here consults bit 8.
+    ///
+    /// That same sentence is why a field is asked too: a widget's contents include its field's
+    /// value, so [`Operation::FillInForm`] asserts this where a widget of the field being filled
+    /// sets bit 10 (ADR 3415).
     AnnotationLocked,
     /// Requirements §12.11.3's threshold does not admit a penalty for, as §12.11.6 states it:
     ///
@@ -674,13 +678,26 @@ pub fn asserted(
             out.push(Restriction::FieldCovered);
         }
     }
-    if operation == Operation::Annotate
-        && let Some(annotation) = annotation
-        && let Some(dict) = document.get(annotation).as_dict()
-        && document
-            .get_key(dict, "F")
-            .as_integer()
-            .is_some_and(|flags| flags & LOCKED_CONTENTS != 0)
+    if operation == Operation::Annotate && annotation.is_some_and(|id| locks_contents(document, id))
+    {
+        out.push(Restriction::AnnotationLocked);
+    }
+    // Bit 10 again, for a field: Table 167's bit 8 row names "the value of a form field" as one
+    // of "the annotation's contents", so a field whose widget locks its contents is one a person
+    // may not fill — asserted here, where the four levels attach, and never refused at the
+    // keyboard (ADR 3415). Any widget of the field speaks for it, as §12.7.4.1 makes the value
+    // one value shared by all of them.
+    if operation == Operation::FillInForm
+        && (annotation.is_some_and(|id| locks_contents(document, id))
+            || field.is_some_and(|field| {
+                crate::view::widgets_by_field_name(document)
+                    .get(field)
+                    .is_some_and(|widgets| {
+                        widgets
+                            .iter()
+                            .any(|widget| locks_contents(document, *widget))
+                    })
+            }))
     {
         out.push(Restriction::AnnotationLocked);
     }
@@ -708,6 +725,16 @@ pub fn asserted(
 
 /// Table 167 bit 10, counted from 1 as the table numbers its positions.
 const LOCKED_CONTENTS: i64 = 1 << 9;
+
+/// Whether an annotation sets Table 167's bit 10, `LockedContents`.
+fn locks_contents(document: &Document, annotation: pdf_syntax::ObjectId) -> bool {
+    document.get(annotation).as_dict().is_some_and(|dict| {
+        document
+            .get_key(dict, "F")
+            .as_integer()
+            .is_some_and(|flags| flags & LOCKED_CONTENTS != 0)
+    })
+}
 
 /// Whether any of Table 257's three levels can withhold this operation at all.
 ///

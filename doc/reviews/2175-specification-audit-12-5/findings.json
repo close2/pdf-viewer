@@ -12,7 +12,7 @@
   "code": "crates/pdf-model/src/view/annotations.rs:248 (active_area_covers) and :282 (rectangle_covers read /Rect alone); crates/pdf-model/src/annotation.rs:770 (ViewGeometry::adjustment, applied to drawing only); crates/pdf-model/src/view/fields.rs:1060 (widgets_at); crates/pdf-model/src/link.rs:165 (region_covers)",
   "change": "Hit-test against the annotation rectangle as \u00a712.5.3 alters it: map the point through the inverse of the annotation's ViewAdjust (the same adjustment decide applies, including \u00a712.5.6.4's subtype override) before testing /Rect or /QuadPoints, in annotation_at, widgets_at and link::at alike.",
   "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_no_zoom_annotations_active_area_is_where_it_is_drawn_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_no_rotate_annotations_active_area_is_where_it_is_drawn_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2175-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-model/src/link.rs:79 (links reads no /F) and :121 (at); crates/viewer-core/src/interact.rs:95 (link_at) and :125 (activate); crates/pdf-model/src/view/fields.rs:1033 (field_at) and :1060 (widgets_at); crates/viewer-core/src/viewer/editing.rs:637 (move_focus over tab_order::order)",
   "change": "Ask annotation::interacts (with the view's hide-action state) wherever a pointer or the keyboard reaches an annotation: link activation and Query::LinkAt, field_at/widgets_at, and the focus step over the tab order (the order itself may stay a permutation; the step skips what may not interact).",
   "execution": "FAIL (expected): crates/viewer-core/tests/annotation_interaction_flags_spec_audit.rs::a_link_that_may_not_interact_is_not_activated_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_hidden_widget_is_not_a_field_under_the_pointer_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2175-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-model/src/annotation.rs:918 (flags & FLAG_READ_ONLY == 0 || widget)",
   "change": "For a widget, read the terminal field's inherited Ff (bit 1) in interacts, and in press_changes/hover_changes through it, so a read-only field's widgets neither take the pointer nor change appearance; the host's field editing already refuses the value.",
   "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_widget_of_a_read_only_field_does_not_interact_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2175-B04",
@@ -54,7 +54,7 @@
   "code": "crates/pdf-model/src/restriction.rs:676 (Annotate only); crates/viewer-core/src/viewer/editing.rs:978 (annotation_of answers None for SetField and ChooseFile)",
   "change": "For FillInForm, assert AnnotationLocked where any widget of the named field sets bit 10 (or have the caller pass the widget); the policy level decides as for every restriction, so the reader can still turn it off.",
   "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::locked_contents_on_a_widget_restricts_filling_its_field_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2175-B05",
@@ -68,7 +68,7 @@
   "code": "crates/pdf-model/src/annotation.rs:1543 (selected is None when /AS is absent) and :1149 (StateNotDefined => Decision::Nothing)",
   "change": "Tell an absent /AS from one naming an undefined state: keep drawing nothing, and report the missing required entry (Decision::Unsupported or an owed detail), as a missing /BBox already is.",
   "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::an_appearance_subdictionary_without_an_as_is_reported_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2175-B06",
@@ -83,6 +83,6 @@
   "code": "crates/pdf-model/src/annotation.rs:1905 (numbers: filter_map), :1860 (matrix: fewer than six is identity, more is truncated), :1886 (rectangle: four or more); crates/pdf-model/src/view/annotations.rs:282; crates/pdf-model/src/view/fields.rs:1086",
   "change": "Read a rectangle as exactly four numbers and a matrix as exactly six; anything else is reported (an unusable /Rect is already 'no usable /Rect'), and the hit tests take the same reading.",
   "execution": "FAIL (expected): crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::a_rect_that_is_not_four_numbers_is_reported_spec_audit and crates/pdf-model/tests/annotation_clause12_5_spec_audit.rs::an_appearance_matrix_that_is_not_six_numbers_is_reported_spec_audit \u2014 round 2175, nextest log ~/scratch/agent/r2175/g-nextest.log; its control passes",
-  "status": "open"
+  "status": "fixed"
  }
 ]

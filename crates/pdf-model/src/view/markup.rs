@@ -583,11 +583,17 @@ impl ViewState {
                 continue;
             };
             // §12.5.3's Hidden, NoView and ReadOnly each say "interact with the user", and a
-            // keyboard aimed at an annotation is interaction — so the same three bits that decide
-            // whether a click reaches one decide whether it can be typed into.
+            // keyboard aimed at an annotation is interaction — so the gate and the active area
+            // that decide whether a click reaches one decide whether it can be typed into.
             if !is_free_text(document, dict)
-                || !crate::annotation::interacts(document, dict, self.annotation(id))
-                || !rectangle_covers(document, dict, f64::from(x), f64::from(y))
+                || !super::annotations::reaches(
+                    super::annotations::Gate::Responds,
+                    document,
+                    page,
+                    Some(self),
+                    (Some(id), dict),
+                    (x, y),
+                )
             {
                 continue;
             }
@@ -615,9 +621,21 @@ impl ViewState {
         // The last widget covering the point, which is the one drawn on top (§12.5.2's order) and
         // the one `field_at` names — so the caret and the name a host asked for are the same
         // field's.
-        let widget = widgets_at(document, page, x, y).last().copied()?;
+        // A caret is the widget responding to a click, which Table 227 withholds from a read-only
+        // field's widget; the one on top is asked rather than the next one down, which is not the
+        // one under the pointer (ADR 3413).
+        let widget = widgets_at(document, page, Some(self), x, y)
+            .last()
+            .copied()?;
         let dict = document.get(widget).as_dict().cloned()?;
-        Some((widget, dict))
+        super::annotations::passes(
+            super::annotations::Gate::Responds,
+            document,
+            Some(widget),
+            &dict,
+            Some(self),
+        )
+        .then_some((widget, dict))
     }
 
     /// Every annotation a person added to one page, in the order they added them.

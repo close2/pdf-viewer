@@ -206,18 +206,97 @@ pub fn hover_changes_appearance(
     crate::annotation::hover_changes(document, dict, view)
 }
 
-/// Whether a person may interact with one annotation at all, by the bits [`annotation_at`] reads.
+/// Whether the pointer may act on one annotation, by the bits [`annotation_at`] reads.
 ///
 /// §12.5.3's `Hidden`, `NoView` and `ReadOnly` each say whether an annotation may "interact with the
-/// user", and a node an assistive technology is offered to act on is interaction: a widget a click
-/// cannot reach is not one to announce as a control. `false` for an object that is not a
-/// dictionary. ADR 1369.
+/// user", and for a widget the field's Table 227 `ReadOnly` says it, since it "subsumes" the
+/// widget's own bit 7. What is withdrawn from a person altogether — the focus, an assistive
+/// technology's tree — is [`annotation_present`]'s narrower question. `false` for an object that
+/// is not a dictionary. ADRs 1369, 3413.
 #[must_use]
 pub fn annotation_interacts(document: &Document, annotation: ObjectId, view: &ViewState) -> bool {
     let resolved = document.get(annotation);
-    resolved.as_dict().is_some_and(|dict| {
-        crate::annotation::interacts(document, dict, view.annotation(annotation))
-    })
+    resolved
+        .as_dict()
+        .is_some_and(|dict| passes(Gate::Responds, document, Some(annotation), dict, Some(view)))
+}
+
+/// Whether an annotation is there for a person at all — [`annotation_interacts`] but for a
+/// widget's field `ReadOnly`, which Table 227 defines as not responding to the pointer.
+///
+/// What the keyboard's focus and an assistive technology ask: a read-only field is still reached,
+/// read and announced, and a click on it is refused by name (ADR 3413).
+#[must_use]
+pub fn annotation_present(document: &Document, annotation: ObjectId, view: &ViewState) -> bool {
+    let resolved = document.get(annotation);
+    resolved
+        .as_dict()
+        .is_some_and(|dict| passes(Gate::Present, document, Some(annotation), dict, Some(view)))
+}
+
+/// Which of the two questions of Table 167's interaction bits a route asks (ADR 3413).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Gate {
+    /// `crate::annotation::present`: `Hidden`, `NoView`, a non-widget's own `ReadOnly`, a
+    /// watermark. Asked by what *names* or *reaches by keyboard*: a field's name under the
+    /// pointer, which a host refuses a read-only field's click with, and the focus.
+    Present,
+    /// `crate::annotation::interacts`: [`Gate::Present`] and, for a widget, the field's `ReadOnly`
+    /// that "subsumes" bit 7 — Table 227's "should not respond to mouse clicks nor change their
+    /// appearance in response to mouse motions". Asked by everything the pointer *does*: an
+    /// appearance, a trigger, a link's activation, a caret.
+    Responds,
+}
+
+/// The interaction gate, one function every route asks with the [`Gate`] it needs.
+///
+/// A script's `readonly` on a widget's field is the view state's, and stands over the file's flag
+/// as it does for the value (ADR 1603). `view` is `None` for a caller that asks about the file
+/// alone, [`super::field_at`]'s. ADR 3413.
+pub(super) fn passes(
+    gate: Gate,
+    document: &Document,
+    id: Option<ObjectId>,
+    dict: &Dictionary,
+    view: Option<&ViewState>,
+) -> bool {
+    let annotation = view.map_or_else(AnnotationView::default, |view| view.annotation_of(id));
+    match gate {
+        Gate::Present => crate::annotation::present(document, dict, annotation),
+        Gate::Responds => {
+            let scripted = view
+                .zip(id)
+                .and_then(|(view, id)| view.widget_script_read_only(document, id));
+            crate::annotation::interacts_under(document, dict, annotation, scripted)
+        }
+    }
+}
+
+/// Whether a point in default user space reaches one annotation of `page`: the gate and then
+/// the active area, where §12.5.3's alteration has drawn it. The test every hit test of this
+/// module shares, so that a pointer, a click and a field's name cannot disagree. ADRs 3413, 3414.
+pub(super) fn reaches(
+    gate: Gate,
+    document: &Document,
+    page: &crate::Page,
+    view: Option<&ViewState>,
+    (id, dict): (Option<ObjectId>, &Dictionary),
+    (x, y): (f32, f32),
+) -> bool {
+    if !passes(gate, document, id, dict, view) {
+        return false;
+    }
+    let annotation = view.map_or_else(AnnotationView::default, |view| view.annotation_of(id));
+    let geometry = crate::annotation::ViewGeometry {
+        rotate: page.rotate,
+        // A pointer is on a screen, so the screen's magnification is the one §12.5.3 holds a
+        // NoZoom annotation against; a caller with no view state states none, and NoZoom then
+        // changes nothing, as it does for the drawing (ADR 2813).
+        magnification: view.and_then(ViewState::magnification),
+        media_box: page.media_box,
+    };
+    let (x, y) = crate::annotation::unaltered_point(document, dict, annotation, geometry, (x, y));
+    active_area_covers(document, dict, x, y)
 }
 
 /// The field a point in default user space is on, with its fully qualified name.
@@ -236,7 +315,6 @@ pub fn annotation_at(
     x: f32,
     y: f32,
 ) -> Option<ObjectId> {
-    let (x, y) = (f64::from(x), f64::from(y));
     let annotations = document.get_key(&page.dict, "Annots");
     let annotations = annotations.as_array()?;
     let mut found = None;
@@ -248,17 +326,53 @@ pub fn annotation_at(
         let Some(dict) = resolved.as_dict() else {
             continue;
         };
-        // §12.5.3's Hidden, NoView and ReadOnly each say "interact with the user", and
-        // `annotation::interacts` is those three bits and nothing else — an annotation that
-        // renders no ink still has an activation region, which is what a link is.
-        if !crate::annotation::interacts(document, dict, view.annotation(id)) {
-            continue;
-        }
-        if active_area_covers(document, dict, x, y) {
+        // An annotation that renders no ink still has an activation region, which is what a
+        // link is, so the gate is the interaction bits and not whether anything was drawn.
+        if reaches(
+            Gate::Responds,
+            document,
+            page,
+            Some(view),
+            (Some(id), dict),
+            (x, y),
+        ) {
             found = Some(id);
         }
     }
     found
+}
+
+/// The link a point activates on one page, where one does: [`annotation_at`]'s test, gate
+/// included, over the page's §12.5.6.5 link annotations alone.
+///
+/// The route a click's activation, a hover's cursor and a host's `LinkAt` query all take, so
+/// that a link Table 167 forbids to interact is neither shown as one nor followed (ADR 3413).
+/// The last match, for [`annotation_at`]'s reason.
+#[must_use]
+pub fn link_at(
+    document: &Document,
+    page: &crate::Page,
+    view: &ViewState,
+    x: f32,
+    y: f32,
+) -> Option<crate::link::Link> {
+    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = annotations.as_array()?;
+    annotations.iter().rev().find_map(|annotation| {
+        let id = annotation.as_reference();
+        let resolved = document.resolve(annotation);
+        let dict = resolved.as_dict()?;
+        let link = crate::link::read(document, id, dict)?;
+        reaches(
+            Gate::Responds,
+            document,
+            page,
+            Some(view),
+            (id, dict),
+            (x, y),
+        )
+        .then_some(link)
+    })
 }
 
 /// Whether an annotation's active area covers a point in default user space.
@@ -266,54 +380,29 @@ pub fn annotation_at(
 /// Table 166's `/Rect` for every subtype but one: a link's area is Table 176's `/QuadPoints`
 /// where the clause admits them, "the region in which the link should be activated", so a
 /// press inside `/Rect` and outside every quadrilateral is a press on nothing (ADR 2814).
-pub(super) fn active_area_covers(
-    document: &Document,
-    annotation: &Dictionary,
-    x: f64,
-    y: f64,
-) -> bool {
+fn active_area_covers(document: &Document, annotation: &Dictionary, x: f32, y: f32) -> bool {
     let is_link = document
         .get_key(annotation, "Subtype")
         .as_name()
         .is_some_and(|subtype| subtype.as_bytes() == b"Link");
     if is_link {
-        // Narrowed as `crate::link` narrows every coordinate: a pointer position is an `f32`
-        // already, widened only to share `rectangle_covers`'s signature.
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the point began as an f32 and returns to one"
-        )]
-        let (x, y) = (x as f32, y as f32);
         crate::link::region_covers(document, annotation, x, y)
     } else {
-        rectangle_covers(document, annotation, x, y)
+        rectangle_covers(document, annotation, f64::from(x), f64::from(y))
     }
 }
 
 /// Whether Table 166's `/Rect` covers a point in default user space.
 ///
-/// The rectangle "shall be two opposite corners" and states no order, so both are normalised
-/// before the point is tested against them.
+/// The rectangle is `crate::annotation::rectangle`'s reading — §7.9.5's four numbers, normalised —
+/// so that a `/Rect` the drawing cannot place is not one a pointer lands on either.
 pub(super) fn rectangle_covers(
     document: &Document,
     annotation: &Dictionary,
     x: f64,
     y: f64,
 ) -> bool {
-    let rect = document.get_key(annotation, "Rect");
-    let Some(rect) = rect.as_array() else {
-        return false;
-    };
-    let mut corners = rect
-        .iter()
-        .filter_map(|value| document.resolve(value).as_number());
-    let (Some(x0), Some(y0), Some(x1), Some(y1)) = (
-        corners.next(),
-        corners.next(),
-        corners.next(),
-        corners.next(),
-    ) else {
-        return false;
-    };
-    x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
+    crate::annotation::rectangle(document, annotation, "Rect").is_some_and(|[x0, y0, x1, y1]| {
+        x >= f64::from(x0) && x <= f64::from(x1) && y >= f64::from(y0) && y <= f64::from(y1)
+    })
 }

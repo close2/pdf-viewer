@@ -91,10 +91,13 @@ fn has_a_window(document: &Document, dict: &Dictionary) -> bool {
 /// The annotation under a point in default user space of one page, where it is a link.
 ///
 /// The page is named rather than assumed since Table 29's arrangements arrived: a window showing
-/// a column of pages has a link under the pointer on whichever of them the pointer is over.
+/// a column of pages has a link under the pointer on whichever of them the pointer is over. The
+/// test is `pdf_model::view::link_at`'s, which asks Table 167's interaction bits and finds a
+/// `NoZoom` or `NoRotate` link where it is drawn, so a hover, a host's `LinkAt` and a click agree
+/// (ADRs 3413, 3414).
 pub(crate) fn link_at(open: &Open, page: usize, x: f32, y: f32) -> Option<ObjectId> {
-    let links = pdf_model::link::links(&open.document, open.placed_page(page)?);
-    pdf_model::link::at(&links, x, y).and_then(|link| link.id)
+    pdf_model::view::link_at(&open.document, open.placed_page(page)?, &open.view, x, y)
+        .and_then(|link| link.id)
 }
 
 /// Whether the pointer being here changes what the annotation looks like.
@@ -128,13 +131,11 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
     let Some(object) = open.placed_page(page) else {
         return Outcome::default();
     };
-    let links = pdf_model::link::links(&open.document, object);
-    let Some(link) = pdf_model::link::at(&links, x, y) else {
+    let Some(link) = pdf_model::view::link_at(&open.document, object, &open.view, x, y) else {
         return Outcome::default();
     };
-    let (actions, destination, rect) = (link.actions.clone(), link.destination, link.rect);
-    let link_id = link.id;
-    drop(links);
+    let (actions, destination, rect, link_id) =
+        (link.actions, link.destination, link.rect, link.id);
     // The click is Table 197's `/U` on the link, and a link's `/A` is that event's chain by the
     // table's own precedence, so its scripts are handed to the runner here as a widget's are at
     // the same event (ADRs 1750, 1752), each where the chain puts it among the other actions
@@ -180,11 +181,11 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
 /// keeps it once, so a reader whose level runs no scripts hears it at the press and one whose level
 /// runs them has heard it already (ADR 1970).
 pub(crate) fn say_unreachable(open: &mut Open, page: usize, at: (f32, f32)) {
-    let Some(dict) = open.placed_page(page).map(|object| object.dict.clone()) else {
+    let Some(object) = open.placed_page(page).cloned() else {
         return;
     };
     open.view
-        .report_unreachable_press(&open.document, &dict, page, at);
+        .report_unreachable_press(&open.document, &object, page, at);
 }
 
 /// Activates an object the *host* named, which is §12.3.3's outline item and nothing else yet.

@@ -81,36 +81,42 @@ pub fn links(document: &Document, page: &Page) -> Vec<Link> {
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };
-    let mut out = Vec::new();
-    for annotation in annotations {
-        let id = annotation.as_reference();
-        let annotation = document.resolve(annotation);
-        let Some(annotation) = annotation.as_dict() else {
-            continue;
-        };
-        if document
-            .get_key(annotation, "Subtype")
-            .as_name()
-            .is_none_or(|subtype| subtype.as_bytes() != b"Link")
-        {
-            continue;
-        }
-        let Some(rect) = rectangle(document, annotation) else {
-            continue;
-        };
-        let actions = crate::action::read(
-            document,
-            annotation.get("A").unwrap_or(&pdf_syntax::Object::Null),
-        );
-        out.push(Link {
-            id,
-            region: region(document, annotation, rect),
-            rect,
-            destination: destination(document, annotation, &actions),
-            actions,
-        });
+    annotations
+        .iter()
+        .filter_map(|annotation| {
+            let id = annotation.as_reference();
+            let annotation = document.resolve(annotation);
+            read(document, id, annotation.as_dict()?)
+        })
+        .collect()
+}
+
+/// One annotation dictionary read as a link, or `None` where it is not §12.5.6.5's subtype or
+/// states no usable `/Rect`.
+pub(crate) fn read(
+    document: &Document,
+    id: Option<pdf_syntax::ObjectId>,
+    annotation: &Dictionary,
+) -> Option<Link> {
+    if document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_none_or(|subtype| subtype.as_bytes() != b"Link")
+    {
+        return None;
     }
-    out
+    let rect = rectangle(document, annotation)?;
+    let actions = crate::action::read(
+        document,
+        annotation.get("A").unwrap_or(&pdf_syntax::Object::Null),
+    );
+    Some(Link {
+        id,
+        region: region(document, annotation, rect),
+        rect,
+        destination: destination(document, annotation, &actions),
+        actions,
+    })
 }
 
 /// The link a point activates, or `None`.
@@ -243,24 +249,9 @@ fn inside(quad: &[f32; 8], x: f32, y: f32) -> bool {
     crossings
 }
 
-/// Reads `/Rect`, normalising the corner order as §12.5.2 requires of every annotation.
+/// Reads `/Rect` as every annotation's is read: §7.9.5's four numbers, normalised.
 fn rectangle(document: &Document, annotation: &Dictionary) -> Option<[f32; 4]> {
-    let array = document.get_key(annotation, "Rect");
-    let items = array.as_array()?;
-    let mut values = [0f32; 4];
-    for (slot, item) in values.iter_mut().zip(items) {
-        let number = document.resolve(item).as_number()?;
-        if !number.is_finite() {
-            return None;
-        }
-        *slot = narrow(number);
-    }
-    Some([
-        values[0].min(values[2]),
-        values[1].min(values[3]),
-        values[0].max(values[2]),
-        values[1].max(values[3]),
-    ])
+    crate::annotation::rectangle(document, annotation, "Rect")
 }
 
 /// Narrows a coordinate to the precision the rest of this crate works in.
