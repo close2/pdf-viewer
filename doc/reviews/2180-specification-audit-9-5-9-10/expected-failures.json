@@ -1,0 +1,24 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2180 on main 7368382a",
+ "failures": [
+  {
+   "binary": "pdf-font::fonts_9_5_9_10_spec_audit",
+   "test": "a_referencing_cmaps_range_overrides_the_referenced_cmaps_single_spec_audit",
+   "finding": "2180-B01",
+   "log": "round-2180 nextest of pdf-font"
+  },
+  {
+   "binary": "pdf-font::fonts_9_5_9_10_spec_audit",
+   "test": "a_symbolic_truetype_fonts_ignored_encoding_selects_no_glyph_spec_audit",
+   "finding": "2180-B02",
+   "log": "round-2180 nextest of pdf-font"
+  },
+  {
+   "binary": "pdf-model::text_suite",
+   "test": "type3_widths_range_spec_audit::a_type3_code_past_last_char_advances_by_zero_spec_audit",
+   "finding": "2180-B03",
+   "log": "round-2180 nextest of pdf-model"
+  }
+ ]
+}

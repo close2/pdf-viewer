@@ -63,6 +63,7 @@ mod type3_image_restrictions_spec_audit;
 mod type3_residual_audit;
 mod type3_shape_state_restoration;
 mod type3_spec_audit;
+mod type3_widths_range_spec_audit;
 mod unreadable_program_fallback_control_audit;
 mod unreadable_program_substitute;
 mod unstated_widths;

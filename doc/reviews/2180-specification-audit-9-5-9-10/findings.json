@@ -1,0 +1,98 @@
+[
+ {
+  "id": "2180-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.7.5.3",
+   "9.7.6.2",
+   "9.7.5.4"
+  ],
+  "summary": "A referencing CMap's range does not override a referenced CMap's single mapping. CMap::parse absorbs the referencing file's mappings in front of the referenced one's, but Mapping::get consults every single (cidchar, notdefchar) before any range, so a code the referenced CMap states with begincidchar keeps that CID even where the referencing file restates it with begincidrange: a base '<41> 5' cidchar under a referencing '<41> <42> 10' cidrange maps A to CID 5, while the same override over a base cidrange maps A to CID 10. The predefined CMaps a /UseCMap usually names state most of their codes as cidchar singles, and the notdef mappings are absorbed the same way.",
+  "source": "ISO 32000-2 Table 118, /UseCMap: \"If this entry is present, the referencing CMap shall specify only the character mappings that differ from the referenced CMap.\" §9.7.6.2: \"The code extracted from the string shall be looked up in the character code mappings for codes of that length.\"",
+  "code": "crates/pdf-font/src/cmap.rs:233 (Mapping::get: singles before ranges, whichever file stated them); crates/pdf-font/src/cmap.rs:451 (CMap::absorb: own singles extended into the base's, own ranges put in front of the base's)",
+  "change": "Keep the referencing file's mappings apart from the inherited ones (or drop from the base every code the referencing file states, single or range) so that a code the referencing CMap states is answered by it whatever operator either file used; the same for the notdef mappings. ToUnicode's own()/base split (tounicode.rs) is the shape that already holds.",
+  "execution": "FAIL (expected): crates/pdf-font/tests/fonts_9_5_9_10_spec_audit.rs::a_referencing_cmaps_range_overrides_the_referenced_cmaps_single_spec_audit — round 2180, ~/scratch/agent/r2180/probe1.log and g-nextest.log; its control (a range over a range) passes",
+  "status": "open"
+ },
+ {
+  "id": "2180-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.6.5.4",
+   "9.10.2"
+  ],
+  "summary": "A symbolic TrueType font's /Encoding, which §9.6.5.4 says is ignored when the Symbolic flag is set, still selects glyphs. truetype_code_table builds glyph names from the entry for a symbolic font too (encoding_names with only the StandardEncoding fill turned off) and, for every code the (3,0) and (1,0) steps did not reach, carries that name to the (3,1) subtable through named_glyph — above the reader-chosen tiers and without recording the code in reader_chosen. A symbolic font with only a (3,1) subtable and /Differences [65 /B] draws B's glyph for code 65 where the same font without /Encoding draws A's, and glyph_needed_a_reader_chosen_mapping answers false for it, so the PDF/A check of 6.2.11.6 that reads that set does not see the choice. The function's own documentation says such a font 'reaches no rule above' and is served by the second reader-chosen tier. The same ignored names feed text extraction's second method, which §9.10.2 applies only where 'the glyph selection algorithm (see 9.6.5) uses a glyph name'.",
+  "source": "ISO 32000-2 §9.6.5.4: \"When the font has no Encoding entry, or the font descriptor's Symbolic flag is set (in which case the Encoding entry is ignored), this shall occur:\" followed by the (3, 0) and (1, 0) steps only.",
+  "code": "crates/pdf-font/src/truetype.rs:241 (encoding_names read for a symbolic font), :275-283 (named_glyph run for every code symbol_glyph left, symbolic or not), :288 (reader_chosen recorded only for the two tiers below)",
+  "change": "For a symbolic font take no name from /Encoding: after the (3, 0)/(1, 0) steps go straight to the processor's-choice tiers and record every code they answer in reader_chosen; decide in the same change what glyph_names (and so §9.10.2's second method) holds for such a font. If reading the ignored entry is kept as a recovery, it is a reader-chosen tier, written down as one and recorded.",
+  "execution": "FAIL (expected): crates/pdf-font/tests/fonts_9_5_9_10_spec_audit.rs::a_symbolic_truetype_fonts_ignored_encoding_selects_no_glyph_spec_audit — round 2180; its control (no /Encoding: glyph 1, reader-chosen) passes",
+  "status": "open"
+ },
+ {
+  "id": "2180-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "9.6.4"
+  ],
+  "summary": "A Type 3 font's /LastChar is never read. Type3Font::read keeps /FirstChar and the whole /Widths array, and Type3Font::advance indexes the array from /FirstChar alone, so a /Widths longer than LastChar - FirstChar + 1 gives every code past /LastChar the extra element's width: /FirstChar 97 /LastChar 97 /Widths [1000 1000] advances code 98 by one em where Table 110 gives it 0. The comment in advance quotes the sentence it does not apply to the upper bound; the simple fonts' stated_widths reads both bounds.",
+  "source": "ISO 32000-2 Table 110, /Widths: \"An array of ( LastChar - FirstChar + 1) numbers, each element being the glyph width for the character code that equals FirstChar plus the array index. For character codes outside the range FirstChar to LastChar , the width shall be 0.\"",
+  "code": "crates/pdf-model/src/type3.rs:309-331 (read: /FirstChar and /Widths, no /LastChar), crates/pdf-model/src/type3.rs:406 (advance: lower bound only)",
+  "change": "Read /LastChar (Required in Table 110) and give 0 to every code above it, as metrics::stated_widths does for the simple fonts; decide and write down what an absent /LastChar means.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/type3_widths_range_spec_audit.rs::a_type3_code_past_last_char_advances_by_zero_spec_audit (text_suite) — round 2180; its control (the lower side, and an exact array) passes",
+  "status": "open"
+ },
+ {
+  "id": "2180-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "9.10.2",
+   "9.6.4"
+  ],
+  "summary": "Type3Font::text's doc said 'Only /ToUnicode can answer: see the field's own comment for why the glyph name cannot', while its body applies §9.10.2's second method (the glyph name through the Adobe Glyph List) and the field's comment says the opposite. Fixed in this round: the two lines now state the two methods in order.",
+  "source": "ISO 32000-2 §9.10.2, the second method.",
+  "code": "crates/pdf-model/src/type3.rs:451",
+  "change": "Done in round 2180.",
+  "execution": "doc only",
+  "status": "fixed"
+ },
+ {
+  "id": "2180-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "9.6.4",
+   "9.10.2"
+  ],
+  "summary": "Comments carry their own history, which CLAUDE.md's 'Where knowledge lives' forbids in prose beside code: type3.rs's to_unicode field doc opens 'This comment used to say ...', Type3Font::text's body says 'What the field comment beside to_unicode used to say', and content/text/type3.rs's resource comment ends 'which is what this call site passed until ADR 1059'. The spelled-out history is outside what the round_numbers and spelled_ordinals gates search for.",
+  "source": "CLAUDE.md, Where knowledge lives: a comment carries the current reason and nothing about how it got there.",
+  "code": "crates/pdf-model/src/type3.rs:227, crates/pdf-model/src/type3.rs:467, crates/pdf-model/src/content/text/type3.rs:117",
+  "change": "State the current reading only (a Type 3 glyph name names a procedure and a character; the page's resources, not the invoking stream's) and cite the ADRs.",
+  "execution": "doc only",
+  "status": "open"
+ },
+ {
+  "id": "2180-D03",
+  "kind": "documentation-gap",
+  "clauses": [
+   "9.10.2"
+  ],
+  "summary": "collection_table quotes §9.10.2 step b) — the registry and ordering 'of the character collection used by the font's CMap ... from its CIDSystemInfo dictionary' — and reads the descendant CIDFont's /CIDSystemInfo instead. On a conforming file the two agree (§9.7.3: 'their Registry and Ordering values shall be the same'), and for Identity-H the clause's own second condition names the descendant's collection, so the choice is defensible; it is not written down, and a file whose two disagree, or whose descendant omits the Required entry under a predefined non-Identity CMap, extracts by the descendant's collection or not at all.",
+  "source": "ISO 32000-2 §9.10.2 step b): \"Obtain the registry and ordering of the character collection used by the font's CMap (for example, Adobe and Japan1) from its CIDSystemInfo dictionary.\"",
+  "code": "crates/pdf-font/src/composite.rs:385 (collection_table), :403 (collection_names)",
+  "change": "Write down why the descendant's /CIDSystemInfo stands for the CMap's (or fall back to a predefined CMap's own collection where the descendant states none), and report a CMap and CIDFont whose collections differ.",
+  "execution": "doc only",
+  "status": "open"
+ },
+ {
+  "id": "2180-D04",
+  "kind": "documentation-gap",
+  "clauses": [
+   "9.6.5.4"
+  ],
+  "summary": "truetype_code_table's Err(UnsupportedEncoding) arm and its comment (issue5701's /Encoding /Identity-H on a symbolic font) describe a path base_encoding no longer takes: base_encoding answers Ok(None) for every name outside PERMITTED_ENCODING_NAMES and BaseEncoding::by_name knows all four permitted names, so the arm cannot fire and an unrecognised /Encoding name on a nonsymbolic TrueType font falls back to StandardEncoding without the comment saying so.",
+  "source": "ISO 32000-2 §9.6.5.1: \"The value of the Encoding entry shall be either a named encoding ... or an encoding dictionary.\"",
+  "code": "crates/pdf-font/src/truetype.rs:241-249, crates/pdf-font/src/glyph_names.rs (base_encoding)",
+  "change": "Remove the dead arm or make the comment state the path that is taken (an unrecognised name is no base encoding).",
+  "execution": "doc only",
+  "status": "open"
+ }
+]

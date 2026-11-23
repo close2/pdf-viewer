@@ -450,8 +450,8 @@ impl Type3Font {
 
     /// Appends what a character code means, reporting whether anything was found.
     ///
-    /// Only `/ToUnicode` can answer: see the field's own comment for why the glyph name
-    /// cannot.
+    /// §9.10.2's methods in their order: `/ToUnicode`, then the glyph name the encoding selects,
+    /// looked up in the Adobe Glyph List.
     pub fn text(&self, code: u32, out: &mut String) -> bool {
         if self.to_unicode.append(code, out) {
             return true;
