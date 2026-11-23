@@ -81,14 +81,16 @@ pub enum Profile {
     /// be run. And an address-space ceiling in the tens of megabytes, sized against the engine's own
     /// construction and the budgets one run is held to (ADR 1609).
     Script,
-    /// One sound's samples decoded on one thread: `pdf-media-worker`.
+    /// One clip's samples or frames decoded on one thread: `pdf-media-worker`.
     ///
-    /// [`Profile::Script`]'s list exactly — one thread, no descriptor, no executable memory —
-    /// because a sample format decoder needs less than an engine and nothing the engine does not
-    /// (ADR 3297). What differs is the address-space ceiling, sized against one request of the
-    /// media wire and its decoded copy rather than against an engine's heap. RFC 0015 section 4.3's
-    /// shared-memory ring for video would add one passed descriptor and `mmap` narrowed to it, and
-    /// that is video's to argue when it is opened.
+    /// [`Profile::Script`]'s list — one thread, no executable memory — because a sample format
+    /// decoder needs less than an engine and nothing the engine does not (ADR 3297), with an
+    /// address-space ceiling sized against one request of the media wire and its decoded copy.
+    /// **And one descriptor, the ring's** (RFC 0015 section 4.3, ADR 3514): `recvmsg` on standard
+    /// input only, a descriptor ceiling that leaves exactly one slot, and `mmap` of that slot's
+    /// descriptor shared, read-write and never executable — beside the allocator's `mmap`, which
+    /// is narrowed to private anonymous mappings. No `close`, `fcntl` or `fstat`: the ring's
+    /// descriptor is kept, and the slot it fills refuses any second.
     Media,
 }
 

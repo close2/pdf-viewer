@@ -18,9 +18,20 @@
 //! **What keeps the safe signature honest** is where it is called, which the type system cannot
 //! say: closing a descriptor by number is sound only while no object in the process owns one past
 //! the three. `tests/callers.rs` reads every source in the tree back and asserts that each call is
-//! a program's `main`'s first statement, and that nothing else names this crate.
+//! a program's `main`'s first statement, and that nothing else names this crate but the one
+//! transport that maps a stream's ring.
+//!
+//! **The second thing here is [`shared_mapping`]**, a confined helper's other `unsafe`: the slots
+//! of the shared-memory ring a stream's frames cross in, read by the host and written by the media
+//! worker through one mapping each (ADRs 3513, 3515). It is here for this crate's first reason —
+//! a helper's `unsafe` in the one place the tree's sweep names, so that no helper lifts the denial
+//! and the list does not grow — and the same test pins it: two lifts in that module, each on one
+//! function, and `confined-transport` the only source that names it.
 
 #![deny(unsafe_code)]
+
+#[cfg(target_os = "linux")]
+pub mod shared_mapping;
 
 /// Closes every descriptor this process inherited past standard input, output and error (ADR 1945).
 ///

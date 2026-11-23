@@ -20,7 +20,14 @@ thiserror.workspace = true
 # `rustix`'s `sendmsg`/`recvmsg` are safe functions over the same call — which is what a crate that
 # forbids `unsafe` needs. Unix-only because the mechanism is.
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, features = ["net"] }
+rustix = { workspace = true, features = ["net", "fs"] }
+
+# A stream's ring (ADR 3513): `rustix`'s `fs` makes, sizes and seals the `memfd` with safe calls, and
+# the mapping's two copies through a pointer are `inherited-descriptors`' — the crate the tree's
+# sweep names for a confined helper's `unsafe` — so that this crate keeps `forbid(unsafe_code)`.
+# Linux's, because `memfd` is.
+[target.'cfg(target_os = "linux")'.dependencies]
+inherited-descriptors.workspace = true
 
 [lints]
 workspace = true

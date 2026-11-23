@@ -484,6 +484,42 @@ fn a_confined_media_worker_reaches_none_of_what_its_profile_denies() {
     }
 }
 
+/// The media worker's one widening is the ring's, and it is exactly that wide (ADR 3514): a
+/// descriptor received on standard input maps shared and read-write; the same descriptor mapped
+/// executable, or read-only, is the filter's kill; and a second descriptor, sent while the first is
+/// held, never arrives — the profile's ceiling leaves one slot and the first fills it.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_media_worker_maps_its_ring_and_nothing_wider() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    // One allocator arena: the harness runs the probe on a thread of its own, whose arena reserves
+    // more address space than the media worker's whole ceiling, and every mapping after the
+    // confinement would then fail for want of room — a refusal that is not the filter's, and a
+    // permission that could never be seen (trap 13).
+    let ring = |probe: &str| run_probe_with(probe, &[("MALLOC_ARENA_MAX", "1")]);
+    let status = ring("media-ring");
+    assert_eq!(
+        status.code(),
+        Some(ALLOWED),
+        "the ring maps shared and read-write: {status:?}"
+    );
+    for probe in ["media-ring-exec", "media-ring-read-only"] {
+        let status = ring(probe);
+        assert_eq!(
+            status.signal(),
+            Some(libc::SIGSYS),
+            "{probe}: the filter's kill, got {status:?}"
+        );
+    }
+    let status = ring("media-ring-second");
+    assert_eq!(
+        status.code(),
+        Some(REFUSED),
+        "a second descriptor does not arrive: {status:?}"
+    );
+}
+
 /// Runs one probe in a fresh child and waits for it.
 ///
 /// The child is this same test binary, re-executed with a filter that selects the one test
@@ -491,9 +527,16 @@ fn a_confined_media_worker_reaches_none_of_what_its_profile_denies() {
 /// and process-wide, so the first thing it would break is the test harness.
 #[cfg(target_os = "linux")]
 fn run_probe(probe: &str) -> std::process::ExitStatus {
+    run_probe_with(probe, &[])
+}
+
+/// [`run_probe`], with `variables` set in the child's environment.
+#[cfg(target_os = "linux")]
+fn run_probe_with(probe: &str, variables: &[(&str, &str)]) -> std::process::ExitStatus {
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "confined_probe", "--test-threads=1"])
         .env(PROBE_VARIABLE, probe)
+        .envs(variables.iter().copied())
         .output()
         .unwrap()
         .status
@@ -523,6 +566,9 @@ fn confined_probe() {
 
     if let Some(denied) = probe.strip_prefix("script-") {
         script_probe(pdf_sandbox::lockdown::Profile::Script, denied);
+    }
+    if let Some(ring) = probe.strip_prefix("media-ring") {
+        ring_probe(ring);
     }
     if let Some(denied) = probe.strip_prefix("media-") {
         script_probe(pdf_sandbox::lockdown::Profile::Media, denied);
@@ -569,6 +615,96 @@ fn script_probe(profile: pdf_sandbox::lockdown::Profile, probe: &str) -> ! {
             .and_then(memmap2::MmapMut::make_exec)
             .is_ok(),
         other => panic!("no script probe named {other}"),
+    };
+    std::process::exit(if permitted { ALLOWED } else { REFUSED });
+}
+
+/// The ring probes: two `memfd`s sent over a socket pair, the receiving end put on standard input,
+/// everything else closed — the arrangement a host makes — then `Profile::Media`, then one thing.
+///
+/// No descriptor is dropped once confined, because `close` is not on the profile: a received one is
+/// released from its owner, and the process exits before anything else would close it.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "the child half of a test, called only from `confined_probe`: a probe that cannot \
+              arrange itself, or is asked for a probe it does not have, should fail as loudly as \
+              the test that started it"
+)]
+fn ring_probe(probe: &str) -> ! {
+    use std::os::fd::AsFd as _;
+
+    use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
+
+    /// One byte from standard input and the descriptor beside it, released from its owner.
+    fn receive_one() -> Option<std::os::fd::RawFd> {
+        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+
+        let mut byte = [0u8; 1];
+        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut ancillary = RecvAncillaryBuffer::new(&mut space);
+        rustix::net::recvmsg(
+            std::io::stdin(),
+            &mut [std::io::IoSliceMut::new(&mut byte)],
+            &mut ancillary,
+            RecvFlags::empty(),
+        )
+        .ok()?;
+        let mut arrived = None;
+        for message in ancillary.drain() {
+            if let RecvAncillaryMessage::ScmRights(mut rights) = message {
+                arrived = rights.next().map(std::os::fd::IntoRawFd::into_raw_fd);
+            }
+        }
+        arrived
+    }
+
+    let (sender, receiver) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+    for _ in 0..2 {
+        let object = rustix::fs::memfd_create("probe-ring", rustix::fs::MemfdFlags::CLOEXEC)
+            .expect("a memfd");
+        rustix::fs::ftruncate(&object, 4096).expect("sized");
+        let rights = [object.as_fd()];
+        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut ancillary = SendAncillaryBuffer::new(&mut space);
+        assert!(ancillary.push(SendAncillaryMessage::ScmRights(&rights)));
+        rustix::net::sendmsg(
+            &sender,
+            &[std::io::IoSlice::new(b"r")],
+            &mut ancillary,
+            SendFlags::empty(),
+        )
+        .expect("sent");
+    }
+    rustix::stdio::dup2_stdin(&receiver).expect("the socket as standard input");
+    drop((sender, receiver));
+
+    pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Media)
+        .expect("a probe that cannot confine itself proves nothing");
+    let first = receive_one();
+    let permitted = match probe {
+        "" => first.is_some_and(|object| {
+            memmap2::MmapOptions::new()
+                .len(4096)
+                .map_raw(object)
+                .is_ok()
+        }),
+        "-read-only" => first.is_some_and(|object| {
+            memmap2::MmapOptions::new()
+                .len(4096)
+                .map_raw_read_only(object)
+                .is_ok()
+        }),
+        // `PROT_READ | PROT_EXEC` of the ring itself. No safe call asks for an executable mapping
+        // of a descriptor, so this probe holds the one `unsafe` of this file (ADR 3514).
+        "-exec" => first.is_some_and(|object| {
+            // SAFETY: the mapping is never dereferenced — the probe asks only whether the filter
+            // admits the call — and the process exits on the next line either way.
+            unsafe { memmap2::MmapOptions::new().len(4096).map_exec(object) }.is_ok()
+        }),
+        "-second" => first.is_some() && receive_one().is_some(),
+        other => panic!("no ring probe named {other}"),
     };
     std::process::exit(if permitted { ALLOWED } else { REFUSED });
 }

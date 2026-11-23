@@ -17,5 +17,9 @@ confined-transport.workspace = true
 pdf-sandbox.workspace = true
 inherited-descriptors.workspace = true
 
+# The tests send a second ring by hand, a `memfd` beside the frame, to show it never arrives.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
 [lints]
 workspace = true

@@ -1000,8 +1000,9 @@ cd fuzz && cargo +nightly fuzz run confined_stream -- -max_total_time=600   # a 
   # from both sides (ADR 3501): the host's `Reception` over any run of frames a worker sends, and the
   # worker's reading of a host's open request and control frames. No grant passes the window or the
   # frames left, the host writes only once every item it granted has arrived, and no item is handed
-  # on past the credit, the frames budget or the bytes budget. Seeded by
-  # `fuzz/seed_confined_stream.py`, runs that keep the contract.
+  # on past the credit, the frames budget or the bytes budget; with a ring (the window byte's top
+  # bit, ADR 3513), no grant past its slots and no slot item but `q mod slots`, within a slot.
+  # Seeded by `fuzz/seed_confined_stream.py`, runs that keep the contract.
 cd fuzz && cargo +nightly fuzz run media_aac -- -max_total_time=600 -max_len=262144   # an MP4
   # clip end to end in the worker (ADRs 3381, 3382): its boxes placed, its movie read, its AAC
   # decoded by `rusty_aac`'s scalar build in runs, every reply read back by the host's checks.

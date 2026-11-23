@@ -46,6 +46,9 @@ libc.workspace = true
 # The script worker's probe asks for executable memory through a safe call, which is what a test
 # of a crate that forbids `unsafe` needs (ADR 1608).
 memmap2.workspace = true
+# The media worker's ring probes make a `memfd`, pass it over a socket and put the socket on
+# standard input before confining, as a host does (ADR 3514).
+rustix = { workspace = true, features = ["net", "fs", "stdio"] }
 
 [lints]
 workspace = true

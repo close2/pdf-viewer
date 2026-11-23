@@ -6,9 +6,9 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use super::{
-    Accepted, Budget, Control, END, Emitted, Emitter, ITEM, Next, Reason, Reception, STOP, Spent,
-    Stopping, decode_end, decode_open, encode_credit, encode_end, encode_item_header, encode_open,
-    read_control,
+    Accepted, Body, Budget, Control, END, Emitted, Emitter, ITEM, Next, Reason, Reception, STOP,
+    Spent, Stopping, decode_end, decode_open, encode_credit, encode_end, encode_item_header,
+    encode_open, read_control,
 };
 use crate::frame;
 
@@ -74,7 +74,7 @@ fn the_host_grants_a_window_only_when_the_last_has_arrived() {
         let payload = item(sequence, b"x");
         assert_eq!(
             reception.accept(ITEM, &payload).unwrap(),
-            Accepted::Item(b"x")
+            Accepted::Item(Body::Inline(b"x"))
         );
     }
     assert_eq!(reception.to_write(), Next::Credit(n(2)));
@@ -129,7 +129,7 @@ fn an_item_past_the_bytes_stops_the_stream() {
     assert_eq!(reception.admitted(), super::MAX_CLOSING + 1);
     assert_eq!(
         reception.accept(ITEM, &item(0, b"abc")).unwrap(),
-        Accepted::Item(b"abc")
+        Accepted::Item(Body::Inline(b"abc"))
     );
     reception.refused(ITEM, 100).unwrap();
     assert_eq!(reception.stopping(), Some(Stopping::Spent(Spent::Bytes)));
@@ -230,4 +230,85 @@ fn a_control_frame_that_is_neither_a_grant_nor_a_stop_is_refused() {
     assert!(read_control(&mut &wrong[..]).is_err());
     let zero = control(super::CREDIT, &0u32.to_be_bytes());
     assert!(read_control(&mut &zero[..]).is_err());
+}
+
+fn slot_item(sequence: u32, slot: u32, length: u32) -> Vec<u8> {
+    let mut out = encode_item_header(sequence, super::Carriage::Slot).to_vec();
+    out.extend_from_slice(&super::encode_slot(slot, length));
+    out
+}
+
+fn ring(slot_len: usize, slots: u32) -> crate::ring::Shape {
+    crate::ring::Shape::new(slot_len, slots, u64::MAX).unwrap()
+}
+
+#[test]
+fn a_ring_clamps_the_window_to_its_slots_and_items_take_their_slots_in_turn() {
+    let (mut reception, first) =
+        Reception::with_ring(n(8), budget(10, 1 << 20), Some(ring(64, 3))).unwrap();
+    assert_eq!(
+        first,
+        n(3),
+        "a grant never covers more items than the ring has slots"
+    );
+    for sequence in 0..3 {
+        assert_eq!(
+            reception.accept(ITEM, &slot_item(sequence, sequence, 64)),
+            Ok(Accepted::Item(Body::Slot {
+                slot: sequence,
+                length: 64
+            }))
+        );
+    }
+    assert_eq!(reception.to_write(), Next::Credit(n(3)));
+    assert_eq!(
+        reception.accept(ITEM, &slot_item(3, 0, 1)),
+        Ok(Accepted::Item(Body::Slot { slot: 0, length: 1 })),
+        "item three is slot nought again: the ring has turned"
+    );
+    assert_eq!(
+        reception.accept(ITEM, &item(4, b"small")),
+        Ok(Accepted::Item(Body::Inline(b"small"))),
+        "a small item still crosses inline"
+    );
+}
+
+#[test]
+fn an_item_in_a_slot_the_worker_does_not_hold_is_refused() {
+    let (mut reception, _) =
+        Reception::with_ring(n(3), budget(10, 1 << 20), Some(ring(64, 3))).unwrap();
+    assert!(
+        reception.accept(ITEM, &slot_item(0, 1, 8)).is_err(),
+        "item nought is slot nought's"
+    );
+    let (mut reception, _) =
+        Reception::with_ring(n(3), budget(10, 1 << 20), Some(ring(64, 3))).unwrap();
+    assert!(
+        reception.accept(ITEM, &slot_item(0, 0, 65)).is_err(),
+        "no longer than a slot"
+    );
+    let (mut reception, _) = Reception::new(n(3), budget(10, 1 << 20)).unwrap();
+    assert!(
+        reception.accept(ITEM, &slot_item(0, 0, 8)).is_err(),
+        "no slot without a ring"
+    );
+    let mut short = encode_item_header(0, super::Carriage::Slot).to_vec();
+    short.extend_from_slice(&[0; 7]);
+    assert!(super::decode_item(&short).is_err(), "a slot is eight bytes");
+}
+
+#[test]
+fn a_slot_item_counts_its_length_against_the_bytes() {
+    let (mut reception, _) =
+        Reception::with_ring(n(2), budget(10, 100), Some(ring(64, 2))).unwrap();
+    assert!(matches!(
+        reception.accept(ITEM, &slot_item(0, 0, 64)),
+        Ok(Accepted::Item(_))
+    ));
+    assert_eq!(
+        reception.accept(ITEM, &slot_item(1, 1, 64)),
+        Ok(Accepted::Discarded),
+        "128 bytes are past 100"
+    );
+    assert_eq!(reception.stopping(), Some(Stopping::Spent(Spent::Bytes)));
 }

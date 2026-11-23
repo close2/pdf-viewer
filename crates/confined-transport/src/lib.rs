@@ -30,7 +30,9 @@
 //! confinement and a worker whose standard error is a *file* is killed by `SIGXFSZ` before it can
 //! explain itself (ADR 0597) — and reads the greeting. Every exchange after that is
 //! [`Host::exchange`]: one frame out, one frame back — or [`Host::stream`], one request answered
-//! by a bounded run of items the host paces, stops and budgets ([`stream`], ADR 3501).
+//! by a bounded run of items the host paces, stops and budgets ([`stream`], ADR 3501), whose large
+//! items may cross in place through a shared-memory ring attached once with [`Host::attach_ring`]
+//! ([`ring`], ADR 3513).
 //!
 //! The worker's side is [`link::Link`], which reads its frames with `recvmsg` so that a descriptor
 //! sent beside a header arrives with it, and [`greeting::encode`], which it writes before it reads
@@ -42,6 +44,7 @@ pub mod ceiling;
 pub mod frame;
 pub mod greeting;
 pub mod link;
+pub mod ring;
 pub mod stream;
 mod supervision;
 

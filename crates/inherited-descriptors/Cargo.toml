@@ -1,6 +1,6 @@
 [package]
 name = "inherited-descriptors"
-description = "A helper program's first statement: close every descriptor it inherited past the standard three, the tree's one such unsafe call (ADRs 1945, 3361)."
+description = "A confined helper's unsafe in one place: the first statement that closes every descriptor it inherited past the standard three (ADRs 1945, 3361), and the mapping of a stream's shared-memory ring (ADRs 3513, 3515)."
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,12 @@ repository.workspace = true
 # The close is by number, from 3 to the last, which only `libc::close_range` can say: no safe
 # wrapper closes a descriptor no object owns, because that is exactly what I/O safety forbids
 # (ADR 1945). Linux's call, so Linux's dependency.
+#
+# The ring's mapping is `memmap2`'s raw one, a safe call that hands out a pointer and never a slice,
+# so the only `unsafe` left is the copy through that pointer (ADR 3515). `memfd` is Linux's.
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
+memmap2.workspace = true
 
 [lints]
 workspace = true

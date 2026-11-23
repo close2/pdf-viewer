@@ -1,6 +1,8 @@
 //! `confined_transport::stream` through a confined process: flow control, a stop mid-stream, a
 //! worker that over-sends, one that stalls, one that sends a malformed item, and the two budgets
-//! that keep the worker (ADR 3502).
+//! that keep the worker (ADR 3502); and the same stream through a shared-memory ring — slots reused
+//! in turn, a slot the worker does not hold, a second ring, the ring's own bound and the budgets
+//! through it, a host that ends mid-stream — and what the ring saves, measured (ADR 3516).
 //!
 //! Every expected outcome is the stream contract's, stated in `confined_transport::stream`'s module
 //! documentation; none is a measurement.
@@ -15,6 +17,8 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
+use confined_transport::ring::{self, RingError, Shape};
 use confined_transport::stream::{Budget, Spent, StreamError};
 use confined_transport::{Canceller, Host, TransportError};
 
@@ -27,6 +31,12 @@ const KEEP: u8 = 0;
 const OVER_SEND: u8 = 1;
 const STALL: u8 = 2;
 const MALFORMED: u8 = 3;
+#[cfg(target_os = "linux")]
+const RING: u8 = 4;
+#[cfg(target_os = "linux")]
+const RING_WRONG_SLOT: u8 = 5;
+#[cfg(target_os = "linux")]
+const INLINE_FILLED: u8 = 6;
 
 fn start() -> Host {
     Host::start(Path::new(PROGRAM), MAGIC, &Canceller::new()).expect("the witness starts")
@@ -285,4 +295,233 @@ fn a_stream_dropped_open_ends_its_worker() {
         host.exchange(PING, &[], None),
         Err(TransportError::Cancelled)
     ));
+}
+
+/// A ring of three slots of `slot_len` bytes, attached.
+#[cfg(target_os = "linux")]
+fn start_with_ring(slot_len: usize) -> Host {
+    let mut host = start();
+    host.attach_ring(Shape::new(slot_len, 3, 1 << 30).unwrap())
+        .expect("a ring attaches on Linux");
+    host
+}
+
+/// Item `q` of a ring stream is `size` bytes of `q`'s low byte.
+#[cfg(target_os = "linux")]
+fn expected(sequence: u32, size: usize) -> Vec<u8> {
+    vec![sequence.to_be_bytes()[3]; size]
+}
+
+/// Slots in turn: ten items through three slots arrive whole and in order, each slot written three
+/// or four times, and every byte the one its item was given — which a slot read while the worker
+/// wrote the next item into it would not be.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_stream_through_the_ring_reuses_its_slots_and_arrives_whole() {
+    let mut host = start_with_ring(16_384);
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING, 10, 10_000),
+            window(8),
+            budget(100, 1 << 20, 60),
+        )
+        .unwrap();
+    let mut items = 0u32;
+    while let Some(body) = stream.next_item().unwrap() {
+        assert_eq!(body, expected(items, 10_000), "item {items}");
+        items += 1;
+    }
+    assert_eq!(items, 10);
+    assert_eq!(stream.closing(), Some(&b"done"[..]));
+    drop(stream);
+    answers_a_ping(&mut host);
+}
+
+/// A small item still crosses inline on a worker that holds a ring.
+#[cfg(target_os = "linux")]
+#[test]
+fn small_items_cross_inline_beside_the_ring() {
+    let mut host = start_with_ring(16_384);
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING, 4, 100),
+            window(3),
+            budget(100, 1 << 20, 60),
+        )
+        .unwrap();
+    let mut items = 0u32;
+    while let Some(body) = stream.next_item().unwrap() {
+        assert_eq!(body, expected(items, 100));
+        items += 1;
+    }
+    assert_eq!(items, 4);
+}
+
+/// A worker that names a slot it does not hold has broken the contract, and is ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_worker_that_writes_a_slot_it_does_not_hold_is_ended() {
+    let mut host = start_with_ring(4096);
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING_WRONG_SLOT, 1, 1),
+            window(3),
+            budget(10, 1 << 20, 60),
+        )
+        .unwrap();
+    assert!(matches!(stream.next_item(), Err(StreamError::Violation(_))));
+    drop(stream);
+    assert!(host.is_cancelled());
+}
+
+/// Once a worker: the host refuses a second ring, and a descriptor sent beside a second ring frame
+/// by hand never reaches the worker, because the first fills the one slot its confinement leaves.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_second_ring_is_refused_by_the_host_and_its_descriptor_by_the_kernel() {
+    use std::os::fd::AsFd as _;
+
+    let mut host = start_with_ring(4096);
+    let shape = Shape::new(4096, 2, 1 << 20).unwrap();
+    assert!(matches!(host.attach_ring(shape), Err(RingError::Attached)));
+    let object = rustix::fs::memfd_create("second-ring", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+    rustix::fs::ftruncate(&object, 8192).unwrap();
+    let answer = host
+        .exchange(ring::RING, &shape.encode(), Some(object.as_fd()))
+        .expect("the worker answers");
+    assert_eq!(
+        answer,
+        (ring::RING, vec![0]),
+        "no descriptor arrived beside the second ring"
+    );
+    answers_a_ping(&mut host);
+}
+
+/// The ring is bounded by the worker's memory: at most half its address-space ceiling.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_ring_past_half_the_workers_address_space_is_refused() {
+    let mut host = start();
+    let ceiling = host.confinement().address_space_limit;
+    assert!(ceiling > 0, "the witness is confined under a ceiling");
+    let slot = usize::try_from(ceiling / 4).unwrap();
+    let shape = Shape::new(slot, 3, u64::MAX).unwrap();
+    assert!(matches!(host.attach_ring(shape), Err(RingError::Shape(_))));
+    assert!(host.ring_shape().is_none());
+    answers_a_ping(&mut host);
+}
+
+/// The stream's budgets hold through the ring: bytes are a slot item's length, counted before its
+/// slot is copied, and frames bound the grants; both keep the worker.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_budgets_hold_through_the_ring() {
+    let mut host = start_with_ring(16_384);
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING, 6, 10_000),
+            window(3),
+            budget(100, 25_000, 60),
+        )
+        .unwrap();
+    let mut items = 0;
+    let outcome = loop {
+        match stream.next_item() {
+            Ok(Some(_)) => items += 1,
+            other => break other,
+        }
+    };
+    assert!(matches!(outcome, Err(StreamError::Spent(Spent::Bytes))));
+    assert_eq!(items, 2, "the third item's 10 000 bytes pass 25 000");
+    drop(stream);
+    answers_a_ping(&mut host);
+
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING, 10, 10_000),
+            window(3),
+            budget(4, 1 << 20, 60),
+        )
+        .unwrap();
+    let mut items = 0;
+    let outcome = loop {
+        match stream.next_item() {
+            Ok(Some(_)) => items += 1,
+            other => break other,
+        }
+    };
+    assert!(matches!(outcome, Err(StreamError::Spent(Spent::Frames))));
+    assert_eq!(items, 4);
+    drop(stream);
+    answers_a_ping(&mut host);
+}
+
+/// A host that ends mid-stream ends its worker before its own mapping goes: `Host`'s drop kills and
+/// reaps, and only then are its fields — the ring among them — dropped and unmapped. Nothing faults
+/// on either side, and the drop does not wait on the worker.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_host_that_unmaps_its_ring_mid_stream_ends_the_worker_first() {
+    let canceller = Canceller::new();
+    let mut host = Host::start(Path::new(PROGRAM), MAGIC, &canceller).expect("starts");
+    host.attach_ring(Shape::new(16_384, 3, 1 << 20).unwrap())
+        .expect("attaches");
+    let mut stream = host
+        .stream(
+            COUNT,
+            &request(RING, 1000, 10_000),
+            window(3),
+            budget(1000, 1 << 30, 60),
+        )
+        .unwrap();
+    assert_eq!(stream.next_item().unwrap(), Some(expected(0, 10_000)));
+    let began = Instant::now();
+    drop(stream);
+    drop(host);
+    assert!(canceller.is_cancelled(), "the worker was ended");
+    assert!(began.elapsed() < Duration::from_secs(5));
+}
+
+// not a gate: a frame rate read by hand for ADR 3516, which records the three runs it took; a rate
+// under load is no band, and the contract it measures is held by the tests above.
+/// What the ring saves, on this machine: a 1080p RGBA frame — 8 294 400 bytes — streamed inline
+/// and through the ring, each written afresh by the worker for every item, as a decoder would.
+///
+/// Ignored because it is a measurement, not a contract: `cargo test -p stream-witness --test
+/// stream -- --ignored --nocapture the_copy` prints frames per second for each carriage.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "a measurement, printed rather than asserted"]
+fn the_copy_the_ring_saves_measured() {
+    const FRAME: u32 = 1920 * 1080 * 4;
+    const FRAMES: u32 = 120;
+    let size = usize::try_from(FRAME).unwrap();
+    for (name, mode) in [("inline", INLINE_FILLED), ("ring", RING)] {
+        let mut host = start_with_ring(size);
+        let began = Instant::now();
+        let mut stream = host
+            .stream(
+                COUNT,
+                &request(mode, FRAMES, FRAME),
+                window(3),
+                budget(FRAMES, u64::MAX, 600),
+            )
+            .unwrap();
+        let mut items = 0u32;
+        while let Some(body) = stream.next_item().unwrap() {
+            assert_eq!(body.len(), size);
+            items += 1;
+        }
+        let seconds = began.elapsed().as_secs_f64();
+        assert_eq!(items, FRAMES);
+        println!(
+            "{name}: {FRAMES} frames of {FRAME} bytes in {seconds:.3} s, {:.1} frames per second",
+            f64::from(FRAMES) / seconds
+        );
+    }
 }

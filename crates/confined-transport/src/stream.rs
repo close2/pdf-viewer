@@ -49,13 +49,17 @@
 //! end is one the document can decline to end. Every budget spent is said by name
 //! ([`StreamError::Spent`]), never a stream that quietly came up short.
 //!
-//! # What a later round replaces, and what it does not
+//! # Two carriages: the pipe, and the ring
 //!
-//! An item carries its body after a sequence number and a **carriage** byte ([`Carriage`]). Today
-//! the one carriage is [`Carriage::Inline`], the body copied through the pipe. RFC 0015 section
-//! 6's second round adds a shared-memory ring the worker writes frames into; its items name a slot
-//! instead of carrying bytes, and the grant becomes the number of slots the host has freed. The
-//! control frames — [`OPEN`], [`CREDIT`], [`STOP`], [`END`] — and their rules do not change.
+//! An item carries its body after a sequence number and a **carriage** byte ([`Carriage`]).
+//! [`Carriage::Inline`] is the body copied through the pipe, which is what a small item is.
+//! [`Carriage::Slot`] names a slot of the shared-memory ring a host attached to the worker
+//! ([`crate::ring`], ADR 3513): the worker wrote the body there, and the item says which slot and
+//! how many bytes. The control frames — [`OPEN`], [`CREDIT`], [`STOP`], [`END`] — and their rules
+//! are the same for both; what the ring adds is that **a grant is also a lease**: item `q` is
+//! written into slot `q mod slots`, a grant never covers more items than the ring has slots, and
+//! the host copies a slot out before it writes the grant that hands the slot back. An item that
+//! names any other slot is a broken contract.
 
 use std::io::{Read, Write};
 use std::num::NonZeroU32;
@@ -66,6 +70,7 @@ use std::time::Duration;
 
 use crate::frame;
 use crate::host::{Framed, Host, TransportError};
+use crate::ring::{RingWriter, Shape};
 use crate::supervision::Canceller;
 
 /// The kind of the frame that opens a stream: the asking protocol's own kind and request inside.
@@ -99,13 +104,51 @@ const CREDIT_LEN: usize = 4;
 pub enum Carriage {
     /// The body follows the item's header in the same frame, copied through the pipe.
     Inline,
+    /// The body is in a slot of the ring; the item carries the slot and the length, four bytes
+    /// each, big-endian ([`SLOT_LEN`]).
+    Slot,
 }
 
 impl Carriage {
     fn byte(self) -> u8 {
         match self {
             Self::Inline => 0,
+            Self::Slot => 1,
         }
+    }
+}
+
+/// Length of a [`Carriage::Slot`] item's body: the slot and the length of what was written there.
+pub const SLOT_LEN: usize = 4 + 4;
+
+/// An item's body as it arrived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Body<'a> {
+    /// The bytes themselves, after the header.
+    Inline(&'a [u8]),
+    /// A slot of the ring and how many of its bytes the worker wrote.
+    Slot {
+        /// Which slot.
+        slot: u32,
+        /// How many bytes from the slot's start.
+        length: u32,
+    },
+}
+
+impl Body<'_> {
+    /// The body's length in bytes, wherever it is.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        match self {
+            Self::Inline(bytes) => u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            Self::Slot { length, .. } => u64::from(*length),
+        }
+    }
+
+    /// Whether the body is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -259,12 +302,22 @@ pub fn encode_item_header(sequence: u32, carriage: Carriage) -> [u8; ITEM_HEADER
     out
 }
 
+/// A [`Carriage::Slot`] item's body.
+#[must_use]
+pub fn encode_slot(slot: u32, length: u32) -> [u8; SLOT_LEN] {
+    let mut out = [0u8; SLOT_LEN];
+    out[..4].copy_from_slice(&slot.to_be_bytes());
+    out[4..].copy_from_slice(&length.to_be_bytes());
+    out
+}
+
 /// Reads an item's payload into its sequence number and its body.
 ///
 /// # Errors
 ///
-/// A payload shorter than its header, or a carriage this build does not read.
-pub fn decode_item(payload: &[u8]) -> Result<(u32, &[u8]), Malformed> {
+/// A payload shorter than its header, a carriage this build does not read, or a slot item whose
+/// body is not [`SLOT_LEN`] bytes.
+pub fn decode_item(payload: &[u8]) -> Result<(u32, Body<'_>), Malformed> {
     let (Some(sequence), Some(&carriage), Some(body)) = (
         payload.get(..4),
         payload.get(4),
@@ -275,15 +328,32 @@ pub fn decode_item(payload: &[u8]) -> Result<(u32, &[u8]), Malformed> {
             payload.len()
         )));
     };
-    if carriage != Carriage::Inline.byte() {
-        return Err(Malformed(format!(
-            "an item of carriage {carriage}, which this build does not read"
-        )));
-    }
     let sequence: [u8; 4] = sequence
         .try_into()
         .map_err(|_| Malformed("an item's sequence number is not four bytes".to_owned()))?;
+    let body = if carriage == Carriage::Inline.byte() {
+        Body::Inline(body)
+    } else if carriage == Carriage::Slot.byte() {
+        let (Some(slot), Some(length), SLOT_LEN) =
+            (be_u32(body.get(..4)), be_u32(body.get(4..)), body.len())
+        else {
+            return Err(Malformed(format!(
+                "a slot item whose body is {} bytes, which is {SLOT_LEN}",
+                body.len()
+            )));
+        };
+        Body::Slot { slot, length }
+    } else {
+        return Err(Malformed(format!(
+            "an item of carriage {carriage}, which this build does not read"
+        )));
+    };
     Ok((u32::from_be_bytes(sequence), body))
+}
+
+/// Four bytes, big-endian, where `bytes` is exactly four.
+pub(crate) fn be_u32(bytes: Option<&[u8]>) -> Option<u32> {
+    bytes?.try_into().ok().map(u32::from_be_bytes)
 }
 
 /// An end frame's payload.
@@ -345,8 +415,8 @@ pub enum Next {
 /// What one frame read inside a stream was.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Accepted<'a> {
-    /// An item for the host's caller: its body.
-    Item(&'a [u8]),
+    /// An item for the host's caller: its body, or the slot it is in.
+    Item(Body<'a>),
     /// An item read while the stream is stopping, or one past the bytes: counted and thrown away.
     Discarded,
     /// The worker's end.
@@ -367,6 +437,8 @@ pub enum Accepted<'a> {
 pub struct Reception {
     budget: Budget,
     window: NonZeroU32,
+    /// The ring the worker holds, if the host attached one.
+    ring: Option<Shape>,
     /// Items granted and not yet arrived.
     outstanding: u32,
     /// Items arrived, which is also the sequence number the next must carry.
@@ -383,11 +455,25 @@ impl Reception {
     /// budget of no frames, which has nothing to open.
     #[must_use]
     pub fn new(window: NonZeroU32, budget: Budget) -> Option<(Self, NonZeroU32)> {
+        Self::with_ring(window, budget, None)
+    }
+
+    /// As [`Self::new`], on a worker that holds a ring of `ring`'s shape: the window is clamped to
+    /// the ring's slots, so that the items one grant covers name distinct slots ([`crate::ring`]'s
+    /// ownership rule).
+    #[must_use]
+    pub fn with_ring(
+        window: NonZeroU32,
+        budget: Budget,
+        ring: Option<Shape>,
+    ) -> Option<(Self, NonZeroU32)> {
+        let window = ring.map_or(window, |ring| window.min(ring.slots()));
         let first = NonZeroU32::new(window.get().min(budget.frames))?;
         Some((
             Self {
                 budget,
                 window,
+                ring,
                 outstanding: first.get(),
                 received: 0,
                 bytes: 0,
@@ -498,9 +584,11 @@ impl Reception {
                         self.received
                     )));
                 }
+                if let Body::Slot { slot, length } = body {
+                    self.check_slot(sequence, slot, length)?;
+                }
                 self.count_item()?;
-                let length = u64::try_from(body.len()).unwrap_or(u64::MAX);
-                self.bytes = self.bytes.saturating_add(length);
+                self.bytes = self.bytes.saturating_add(body.len());
                 if self.bytes > self.budget.bytes {
                     self.stopping.get_or_insert(Stopping::Spent(Spent::Bytes));
                 }
@@ -524,6 +612,28 @@ impl Reception {
                 "a frame of kind {other} inside a stream"
             ))),
         }
+    }
+
+    /// Whether a slot item names the slot the worker holds for it, and fits it.
+    fn check_slot(&self, sequence: u32, slot: u32, length: u32) -> Result<(), Malformed> {
+        let Some(ring) = self.ring else {
+            return Err(Malformed(format!(
+                "item {sequence} in ring slot {slot} on a worker that holds no ring"
+            )));
+        };
+        let held = ring.slot_of(sequence);
+        if slot != held {
+            return Err(Malformed(format!(
+                "item {sequence} in ring slot {slot}, where the worker holds slot {held} for it"
+            )));
+        }
+        if usize::try_from(length).map_or(true, |length| length > ring.slot_len()) {
+            return Err(Malformed(format!(
+                "item {sequence} of {length} bytes in a ring slot of {}",
+                ring.slot_len()
+            )));
+        }
+        Ok(())
     }
 
     fn count_item(&mut self) -> Result<(), Malformed> {
@@ -623,8 +733,8 @@ impl<'h> Stream<'h> {
         budget: Budget,
     ) -> Result<Self, StreamError> {
         host.still_running()?;
-        let (reception, credit) =
-            Reception::new(window, budget).ok_or(StreamError::Spent(Spent::Frames))?;
+        let (reception, credit) = Reception::with_ring(window, budget, host.ring_shape())
+            .ok_or(StreamError::Spent(Spent::Frames))?;
         let watch = Watch::arm(host.canceller(), budget.wall).map_err(StreamError::Watch)?;
         host.write(OPEN, &encode_open(kind, credit, request))?;
         Ok(Self {
@@ -741,11 +851,25 @@ impl<'h> Stream<'h> {
             }
             Framed::Frame(kind, mut payload) => {
                 match self.reception.accept(kind, &payload) {
-                    Ok(Accepted::Item(_)) => {
+                    Ok(Accepted::Item(Body::Inline(_))) => {
                         // The body is the payload past the item's header; dropping the header in
                         // place moves the body once rather than copying it into a second buffer.
                         payload.drain(..ITEM_HEADER_LEN);
                         Ok(Step::Item(payload))
+                    }
+                    Ok(Accepted::Item(Body::Slot { slot, length })) => {
+                        // The slot is the host's from the item's arrival to the next grant, which
+                        // this copy comes before: the next grant is written by the next step.
+                        let length = usize::try_from(length).unwrap_or(usize::MAX);
+                        self.host
+                            .copy_from_ring(slot, length)
+                            .map(Step::Item)
+                            .ok_or_else(|| {
+                                StreamError::Violation(format!(
+                                    "an item in ring slot {slot} of {length} bytes, which the \
+                                     ring does not have"
+                                ))
+                            })
                     }
                     Ok(Accepted::Discarded) => Ok(Step::Again),
                     Ok(Accepted::Ended { reason, closing }) => {
@@ -853,6 +977,68 @@ impl Emitter {
         output: &mut impl Write,
         body: &[u8],
     ) -> Result<Emitted, std::io::Error> {
+        if !self.hold_credit(input, output)? {
+            return Ok(Emitted::Stopped);
+        }
+        output.write_all(&frame::header(
+            ITEM,
+            ITEM_HEADER_LEN.saturating_add(body.len()),
+        ))?;
+        output.write_all(&encode_item_header(self.sequence, Carriage::Inline))?;
+        output.write_all(body)?;
+        output.flush()?;
+        self.spend_credit();
+        Ok(Emitted::Sent)
+    }
+
+    /// Sends the next item through the ring: first the grant or the stop, if the credit is spent,
+    /// and only then the slot, to `write`, which fills it and answers how many bytes it wrote.
+    ///
+    /// The order is the ring's ownership rule ([`crate::ring`]): the slot item `q` is written into
+    /// is the worker's once it holds the credit for item `q`, and not before, so the closure is not
+    /// called on a stopped stream at all.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::emit`], and a length `write` answers past the slot it was given.
+    pub fn emit_in_ring(
+        &mut self,
+        input: &mut impl Read,
+        output: &mut impl Write,
+        ring: &mut RingWriter,
+        write: impl FnOnce(&mut [u8]) -> usize,
+    ) -> Result<Emitted, std::io::Error> {
+        if !self.hold_credit(input, output)? {
+            return Ok(Emitted::Stopped);
+        }
+        let Some((slot, region)) = ring.slot_mut(self.sequence) else {
+            return Err(std::io::Error::other("a ring slot this ring does not have"));
+        };
+        let capacity = region.len();
+        let written = write(region);
+        let length = u32::try_from(written)
+            .ok()
+            .filter(|_| written <= capacity)
+            .ok_or_else(|| {
+                std::io::Error::other(format!(
+                    "{written} bytes written into a ring slot of {capacity}"
+                ))
+            })?;
+        output.write_all(&frame::header(ITEM, ITEM_HEADER_LEN + SLOT_LEN))?;
+        output.write_all(&encode_item_header(self.sequence, Carriage::Slot))?;
+        output.write_all(&encode_slot(slot, length))?;
+        output.flush()?;
+        self.spend_credit();
+        Ok(Emitted::Sent)
+    }
+
+    /// Whether the worker holds credit for one more item, reading the host's grant or stop where
+    /// it is spent; a stop is answered with the end, and with `false`.
+    fn hold_credit(
+        &mut self,
+        input: &mut impl Read,
+        output: &mut impl Write,
+    ) -> Result<bool, std::io::Error> {
         if self.ended {
             return Err(std::io::Error::other("an item after the stream's end"));
         }
@@ -862,20 +1048,16 @@ impl Emitter {
                 Control::Stop => {
                     self.ended = true;
                     write_end(output, Reason::Stopped, &[])?;
-                    return Ok(Emitted::Stopped);
+                    return Ok(false);
                 }
             }
         }
-        output.write_all(&frame::header(
-            ITEM,
-            ITEM_HEADER_LEN.saturating_add(body.len()),
-        ))?;
-        output.write_all(&encode_item_header(self.sequence, Carriage::Inline))?;
-        output.write_all(body)?;
-        output.flush()?;
+        Ok(true)
+    }
+
+    fn spend_credit(&mut self) {
         self.credit = self.credit.saturating_sub(1);
         self.sequence = self.sequence.wrapping_add(1);
-        Ok(Emitted::Sent)
     }
 
     /// Ends the stream with nothing more to send, first reading the grant or stop the host owes a

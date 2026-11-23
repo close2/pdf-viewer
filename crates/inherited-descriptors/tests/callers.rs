@@ -5,7 +5,8 @@
 //! three — which no type can state. So this file states it, as `viewer-qt`'s `unsafe_position.rs`
 //! states its own crate's position: the crate lifts the denial once, on the close, whose one
 //! `unsafe` is the one call; every source in the tree that names the crate is a helper program
-//! whose root forbids `unsafe` and whose `main` calls it first; and the helpers are the ones named.
+//! whose root forbids `unsafe` and whose `main` calls it first, or the transport that maps a
+//! stream's ring; and the ring's mapping lifts it twice, once for each side's copy (ADR 3515).
 //!
 //! What the close *does* is asked of a running worker by `pdf-sandbox`'s
 //! `tests/inherited_descriptors.rs`.
@@ -26,6 +27,9 @@ const CALLERS: [&str; 7] = [
     "quorra-sound/src/bin/quorra-sound.rs",
     "viewer-confined/src/bin/pdf-view-worker.rs",
 ];
+
+/// The one source that maps a stream's ring: the transport's (ADRs 3513, 3515).
+const MAPPERS: [&str; 1] = ["confined-transport/src/ring.rs"];
 
 /// The tree's crates directory.
 fn crates() -> PathBuf {
@@ -124,11 +128,22 @@ fn every_caller_is_a_helper_whose_main_calls_it_first() {
                 .is_ok_and(|text| text.contains("inherited_descriptors"))
         })
         .collect();
+    let mut expected: Vec<&str> = CALLERS.iter().chain(MAPPERS.iter()).copied().collect();
+    expected.sort_unstable();
     assert_eq!(
-        naming, CALLERS,
-        "the sources that name the crate are the seven helpers' programs, and a new caller is a new \
-         helper to name here (ADR 3361)"
+        naming, expected,
+        "the sources that name the crate are the seven helpers' programs and the ring's transport, \
+         and a new caller is a new helper to name here (ADRs 3361, 3515)"
     );
+    for path in MAPPERS {
+        let source = std::fs::read_to_string(root.join(path))
+            .unwrap_or_else(|error| panic!("{path} maps the ring: {error}"));
+        assert!(
+            source.contains("inherited_descriptors::shared_mapping")
+                && !source.contains("keep_only_the_standard_descriptors"),
+            "{path}: the transport maps the ring and never closes by number"
+        );
+    }
     for path in CALLERS {
         let source = std::fs::read_to_string(root.join(path))
             .unwrap_or_else(|error| panic!("{path} is a helper: {error}"));
@@ -155,4 +170,51 @@ fn every_caller_is_a_helper_whose_main_calls_it_first() {
             "{path}: and the call is `main`'s first statement"
         );
     }
+}
+
+#[test]
+fn the_mapping_lifts_the_denial_twice_each_on_one_copy() {
+    let path = crates().join("inherited-descriptors/src/shared_mapping.rs");
+    let source = std::fs::read_to_string(&path).expect("the mapping's module");
+    let lines: Vec<&str> = source.lines().collect();
+    let lifted: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(at, line)| {
+            line.trim() == "#[expect("
+                && lines
+                    .get(at.saturating_add(1))
+                    .is_some_and(|next| next.trim() == "unsafe_code,")
+        })
+        .filter_map(|(at, _)| {
+            lines
+                .iter()
+                .skip(at.saturating_add(1))
+                .map(|line| line.trim())
+                .find(|line| line.starts_with("pub fn "))
+        })
+        .collect();
+    assert_eq!(
+        lifted,
+        vec![
+            "pub fn copy_out(&self, offset: usize, into: &mut [u8]) -> bool {",
+            "pub fn region_mut(&mut self, offset: usize, length: usize) -> Option<&mut [u8]> {",
+        ],
+        "the host's copy out and the worker's slot are the two lifts (ADR 3515)"
+    );
+    let uses: Vec<String> = lines
+        .iter()
+        .map(|line| code_only(line))
+        .filter(|line| line.contains("unsafe"))
+        .map(|line| line.trim().to_owned())
+        .collect();
+    assert_eq!(
+        uses,
+        vec![
+            "unsafe {".to_owned(),
+            "Some(unsafe { std::slice::from_raw_parts_mut(self.map.as_mut_ptr().add(offset), length) })"
+                .to_owned(),
+        ],
+        "and each has one `unsafe`"
+    );
 }

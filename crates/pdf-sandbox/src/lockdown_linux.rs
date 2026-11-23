@@ -133,6 +133,25 @@ const SCRIPT_DESCRIPTOR_LIMIT: u64 = 0;
 /// to its 8 MiB, and still a refusal of anything a sound does not need.
 const MEDIA_ADDRESS_SPACE_LIMIT: u64 = 64 << 20;
 
+/// Ceiling on a media worker's descriptors: the three it inherits and **one slot**, for the ring
+/// a host may pass it (RFC 0015 section 4.3, ADR 3514).
+///
+/// `RLIMIT_NOFILE` bounds the number a new descriptor may take, so four leaves exactly number 3,
+/// and nothing on [`PERMITTED_SCRIPT`] or [`PERMITTED_MEDIA_RING`] makes a descriptor: the only way
+/// that slot is filled is a descriptor received beside a frame. The worker keeps the ring's
+/// descriptor for its life — it has no `close` — so once a ring is attached the slot is full and the
+/// kernel drops every later descriptor sent to it, setting `MSG_CTRUNC`: a second descriptor is
+/// refused by the kernel, not by the worker's good conduct.
+const MEDIA_DESCRIPTOR_LIMIT: u64 = 4;
+
+/// The number the ring's descriptor arrives as: the one [`MEDIA_DESCRIPTOR_LIMIT`] leaves, the
+/// lowest free number past the three inherited.
+const MEDIA_RING_DESCRIPTOR: u64 = 3;
+const _: () = assert!(
+    MEDIA_RING_DESCRIPTOR + 1 == MEDIA_DESCRIPTOR_LIMIT,
+    "the ring's descriptor is the one slot the media worker's ceiling leaves"
+);
+
 /// Confines the calling thread. There is no way to undo this.
 ///
 /// # Errors
@@ -146,8 +165,9 @@ pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement,
         Profile::Decoder => (ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
         Profile::Interpreter => (INTERPRETER_ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
         Profile::Script => (SCRIPT_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
-        // A media worker is handed no descriptor either: its frames arrive on standard input.
-        Profile::Media => (MEDIA_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
+        // A media worker's frames arrive on standard input, and the one descriptor it may be
+        // handed is a stream's ring (ADR 3514).
+        Profile::Media => (MEDIA_ADDRESS_SPACE_LIMIT, MEDIA_DESCRIPTOR_LIMIT),
     };
     let address_space_limit = wider.map_or(own, |wider| wider.max(own));
     limit_resources(address_space_limit)?;
@@ -468,6 +488,56 @@ const _: () = assert!(
     "PROT_EXEC_BIT is the value this platform's PROT_EXEC has"
 );
 
+/// What a media worker is permitted beside [`PERMITTED_SCRIPT`] — `PROT_EXEC`'s condition left
+/// aside — and every entry is narrowed by argument: the ring of RFC 0015 section 4.3, which section
+/// 6 calls "the one widening of a profile this plan asks for" (ADR 3514).
+///
+/// - **`recvmsg` on standard input only** (argument 0, the descriptor, equal to 0): the ring's
+///   descriptor arrives beside a frame's header with `SCM_RIGHTS`, and a socket is the only
+///   transport the kernel passes one over. The worker has no other socket, and with this condition
+///   could not use one if it had.
+/// - **`mmap` of the ring, shared and read-write and nothing else**: protection exactly
+///   `PROT_READ | PROT_WRITE` (argument 2), mapping type `MAP_SHARED` without `MAP_ANONYMOUS`
+///   (argument 3 masked by both), and the descriptor [`MEDIA_RING_DESCRIPTOR`] (argument 4). No
+///   `PROT_EXEC`, and `mprotect` stays absent, so the ring can never hold code.
+/// - **`mmap` for the allocator, private and anonymous**: protection without `PROT_EXEC`, as the
+///   script list's rule, and the type `MAP_PRIVATE | MAP_ANONYMOUS`, which is every mapping the
+///   allocator makes. Narrower than the script worker's rule, which admits any mapping type —
+///   the media worker's two uses of `mmap` are told apart instead of sharing one condition.
+///
+/// What the ring is not given: `close` (the descriptor is kept, which is what keeps the slot full),
+/// `fcntl` (nothing is asked of the descriptor), `fstat` (the ring's frame says its size), and any
+/// call that makes a descriptor. `madvise` is on the script list already, so a worker can discard
+/// its own pages of the ring and the host reads zeros — a frame the worker could have sent anyway.
+const PERMITTED_MEDIA_RING: [i64; 2] = [libc::SYS_recvmsg, libc::SYS_mmap];
+
+/// `recvmsg(fd, msg, flags)` and `mmap(addr, length, prot, flags, fd, offset)`: the arguments the
+/// media worker's conditions read.
+const RECVMSG_DESCRIPTOR_ARGUMENT: u8 = 0;
+/// `mmap`'s flags.
+const MMAP_FLAGS_ARGUMENT: u8 = 3;
+/// `mmap`'s descriptor.
+const MMAP_DESCRIPTOR_ARGUMENT: u8 = 4;
+
+/// `PROT_READ | PROT_WRITE`, the ring's one protection. Literals for [`F_GETFD_COMMAND`]'s reason,
+/// held to the platform's by the assertions beneath.
+const PROT_READ_WRITE: u64 = 3;
+/// The bits of `mmap`'s flags the media worker's rules compare: the mapping type and
+/// `MAP_ANONYMOUS`.
+const MAP_TYPE_AND_ANONYMOUS: u64 = 0x03 | 0x20;
+/// `MAP_SHARED`, a file's shared mapping: the ring's.
+const MAP_SHARED_FILE: u64 = 0x01;
+/// `MAP_PRIVATE | MAP_ANONYMOUS`: the allocator's.
+const MAP_PRIVATE_ANONYMOUS: u64 = 0x02 | 0x20;
+const _: () = assert!(
+    libc::PROT_READ | libc::PROT_WRITE == 3
+        && libc::MAP_SHARED == 0x01
+        && libc::MAP_PRIVATE == 0x02
+        && libc::MAP_SHARED_VALIDATE == 0x03
+        && libc::MAP_ANONYMOUS == 0x20,
+    "the media worker's mmap literals are this platform's values"
+);
+
 /// Installs the seccomp-BPF allow-list.
 ///
 /// The mismatch action is `KillProcess` rather than `Errno`: a worker that reaches a
@@ -483,7 +553,8 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
         Profile::Decoder => (PERMITTED, &[]),
         Profile::Interpreter => (PERMITTED, PERMITTED_INTERPRETER_EXTRA),
         // The media worker reads frames, allocates on one thread and writes frames, which is the
-        // script list's whole shape (ADR 3297).
+        // script list's whole shape (ADR 3297); the ring's two narrowed calls are added below
+        // (ADR 3514).
         Profile::Script | Profile::Media => (PERMITTED_SCRIPT, &[]),
     };
     // An empty rule vector means "this call, unconditionally", which is what every entry of
@@ -493,7 +564,9 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
         .chain(extra)
         .map(|number| (*number, Vec::new()))
         .collect();
-    if matches!(profile, Profile::Script | Profile::Media) {
+    if profile == Profile::Media {
+        insert_media_rules(&mut rules)?;
+    } else if profile == Profile::Script {
         // [`PERMITTED_SCRIPT_UNLESS_EXECUTABLE`]'s condition: the protection masked by
         // `PROT_EXEC` is zero. `Dword` for the reason the `fcntl` rule below gives: the kernel
         // reads `prot` as flags in its low 32 bits, and the executable bit is among them.
@@ -543,5 +616,65 @@ fn restrict_system_calls(profile: Profile) -> Result<(), LockdownError> {
     // would, and the surprising version of this function is the one that quietly protects a
     // single thread.
     seccompiler::apply_filter_all_threads(&program)?;
+    Ok(())
+}
+
+/// [`PERMITTED_MEDIA_RING`]'s conditions, and the allocator's `mmap`, for the media worker.
+///
+/// Every comparison is `Dword` for the `fcntl` rule's reason: the kernel reads the descriptor of
+/// `recvmsg` and of `mmap` as an `int`, and the protection and the flags as flags whose bits are all
+/// in the low half. Two rules on one call match where either does; a rule's conditions all hold.
+fn insert_media_rules(
+    rules: &mut std::collections::BTreeMap<i64, Vec<SeccompRule>>,
+) -> Result<(), LockdownError> {
+    let [recvmsg, mmap] = PERMITTED_MEDIA_RING;
+    rules.insert(
+        recvmsg,
+        vec![SeccompRule::new(vec![SeccompCondition::new(
+            RECVMSG_DESCRIPTOR_ARGUMENT,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::Eq,
+            0,
+        )?])?],
+    );
+    rules.insert(
+        mmap,
+        vec![
+            SeccompRule::new(vec![
+                SeccompCondition::new(
+                    PROTECTION_ARGUMENT,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::MaskedEq(PROT_EXEC_BIT),
+                    0,
+                )?,
+                SeccompCondition::new(
+                    MMAP_FLAGS_ARGUMENT,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::MaskedEq(MAP_TYPE_AND_ANONYMOUS),
+                    MAP_PRIVATE_ANONYMOUS,
+                )?,
+            ])?,
+            SeccompRule::new(vec![
+                SeccompCondition::new(
+                    PROTECTION_ARGUMENT,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::Eq,
+                    PROT_READ_WRITE,
+                )?,
+                SeccompCondition::new(
+                    MMAP_FLAGS_ARGUMENT,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::MaskedEq(MAP_TYPE_AND_ANONYMOUS),
+                    MAP_SHARED_FILE,
+                )?,
+                SeccompCondition::new(
+                    MMAP_DESCRIPTOR_ARGUMENT,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::Eq,
+                    MEDIA_RING_DESCRIPTOR,
+                )?,
+            ])?,
+        ],
+    );
     Ok(())
 }

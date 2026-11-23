@@ -8,6 +8,7 @@ use pdf_sandbox::lockdown::Confinement;
 
 use std::num::NonZeroU32;
 
+use crate::ring::{HostRing, RING, RingError, Shape};
 use crate::stream::{Budget, Stream, StreamError};
 use crate::supervision::Canceller;
 use crate::{Channel, SentDescriptor, frame, greeting};
@@ -120,6 +121,8 @@ pub struct Host {
     resources: Option<Broker>,
     /// What this host hands a notice to, if it listens at all.
     notices: Option<Listener>,
+    /// The ring the worker holds, once one is attached (ADR 3513).
+    ring: Option<HostRing>,
 }
 
 /// Written by hand because a [`Broker`] and a [`Listener`] are closures and have nothing to print.
@@ -132,6 +135,7 @@ impl std::fmt::Debug for Host {
             .field("confinement", &self.confinement)
             .field("resources", &self.resources.as_ref().map(|_| "a broker"))
             .field("notices", &self.notices.as_ref().map(|_| "a listener"))
+            .field("ring", &self.ring)
             .finish()
     }
 }
@@ -237,6 +241,7 @@ impl Host {
             confinement,
             resources: None,
             notices: None,
+            ring: None,
         })
     }
 
@@ -374,6 +379,54 @@ impl Host {
         budget: Budget,
     ) -> Result<Stream<'_>, StreamError> {
         Stream::open(self, kind, request, window, budget)
+    }
+
+    /// Attaches a shared-memory ring of `shape` to the worker, so that its streams' large items
+    /// cross in place rather than through the pipe ([`crate::ring`], ADR 3513).
+    ///
+    /// **Once a worker**: the worker keeps the ring's descriptor in the one slot its confinement
+    /// leaves, so a second could not reach it; a stream whose items do not fit asks for a new
+    /// worker. **Half the worker's address space at most**, where its greeting reports a ceiling:
+    /// the other half is the decoder's.
+    ///
+    /// # Errors
+    ///
+    /// See [`RingError`]. A worker that answers the ring with anything but an empty [`RING`] has
+    /// broken the contract, and is ended.
+    pub fn attach_ring(&mut self, shape: Shape) -> Result<(), RingError> {
+        if self.ring.is_some() {
+            return Err(RingError::Attached);
+        }
+        let ceiling = self.confinement.address_space_limit;
+        if ceiling != 0 && u64::try_from(shape.total()).unwrap_or(u64::MAX) > ceiling / 2 {
+            return Err(RingError::Shape(format!(
+                "a ring of {} bytes, past half of the worker's address-space ceiling of {ceiling}",
+                shape.total()
+            )));
+        }
+        let ring = HostRing::create(shape)?;
+        let (kind, answer) =
+            self.exchange(RING, &ring.shape().encode(), Some(ring.descriptor()))?;
+        if kind != RING || !answer.is_empty() {
+            self.canceller.cancel();
+            return Err(RingError::Refused {
+                kind,
+                length: answer.len(),
+            });
+        }
+        self.ring = Some(ring);
+        Ok(())
+    }
+
+    /// The shape of the ring the worker holds, if one is attached.
+    #[must_use]
+    pub fn ring_shape(&self) -> Option<Shape> {
+        self.ring.as_ref().map(HostRing::shape)
+    }
+
+    /// The first `length` bytes of `slot`, copied out of the ring.
+    pub(crate) fn copy_from_ring(&self, slot: u32, length: usize) -> Option<Vec<u8>> {
+        self.ring.as_ref()?.copy_slot(slot, length)
     }
 
     /// Fails with [`TransportError::Cancelled`] once a canceller has ended the worker.

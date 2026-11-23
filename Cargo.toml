@@ -42,7 +42,8 @@ viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-raster = { path = "crates/render-raster", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
 confined-transport = { path = "crates/confined-transport", version = "0.1.0" }
-# Every confined helper's first statement, and the one `unsafe` it needs, in one place (ADR 3361).
+# Every confined helper's `unsafe` in one place: its first statement (ADR 3361) and the
+# mapping of a stream's ring (ADR 3515).
 inherited-descriptors = { path = "crates/inherited-descriptors", version = "0.1.0" }
 viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
 viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
@@ -656,7 +657,8 @@ landlock = "0.4.6"
 seccompiler = "0.5.0"
 # A safe anonymous mapping and a safe request to make it executable, for one confinement probe:
 # that the script worker's filter refuses executable memory (ADR 1608). Already locked by the
-# font stack; a dev-dependency of `pdf-sandbox` and nothing else.
+# font stack. Also the raw shared mapping of a stream's ring, in `inherited-descriptors` — the one
+# crate that may copy through its pointer (ADR 3515).
 memmap2 = "0.9.11"
 rustix = { version = "1.1.4", default-features = false, features = [
     "std",

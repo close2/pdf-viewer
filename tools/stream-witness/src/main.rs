@@ -8,13 +8,18 @@
 //!
 //! Its vocabulary is two kinds. [`PING`] is answered with [`PING`] and `pong`, which is how a test
 //! shows the worker kept after a stream. A stream opened with [`COUNT`] carries a mode byte, a
-//! count and an item size, each number four bytes big-endian; see [`Mode`].
+//! count and an item size, each number four bytes big-endian; see [`Mode`]. And the transport's
+//! [`ring::RING`] attaches a shared-memory ring (ADR 3513): it is answered with an empty
+//! [`ring::RING`] once mapped, and a second is answered with one byte, the number of descriptors
+//! that arrived beside it — which the confinement makes nought (ADR 3514).
 
 #![forbid(unsafe_code)]
 
 use std::io::{Read, Write};
 use std::process::ExitCode;
 
+use confined_transport::link::{Link, ReceivedDescriptor, Source as _};
+use confined_transport::ring::{self, RingWriter};
 use confined_transport::stream::{self, Emitted, Emitter};
 use confined_transport::{frame, greeting};
 use pdf_sandbox::lockdown::{self, Profile};
@@ -39,6 +44,30 @@ enum Mode {
     Stall,
     /// Sends two items under its credit, then an item whose carriage no build reads.
     Malformed,
+    /// Keeps the contract through the ring: `count` items of `size` bytes, every byte of item `q`
+    /// the low byte of `q`, an item past [`INLINE_BELOW`] in its slot and a smaller one inline.
+    Ring,
+    /// Names, for its first item, the slot its second item would hold.
+    RingWrongSlot,
+    /// [`Mode::Ring`]'s items, every one inline: what the ring is measured against.
+    InlineFilled,
+}
+
+/// Items smaller than this cross inline in [`Mode::Ring`]: a few kilobytes cost less through the
+/// pipe than an item's slot bookkeeping, and that is the case the inline carriage is kept for.
+const INLINE_BELOW: usize = 4096;
+
+/// The worker's standard input as a reader, keeping what arrives beside its bytes.
+struct Input {
+    link: Link,
+    arrived: Vec<ReceivedDescriptor>,
+}
+
+impl Read for Input {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.link.fill(buffer, &mut self.arrived)?;
+        Ok(buffer.len())
+    }
 }
 
 fn main() -> ExitCode {
@@ -58,13 +87,25 @@ fn main() -> ExitCode {
 
 fn serve() -> Result<(), std::io::Error> {
     let confinement = lockdown::apply_for(Profile::Media).map_err(std::io::Error::other)?;
-    let mut input = std::io::stdin().lock();
+    let mut input = Input {
+        link: Link::stdin("stream-witness"),
+        arrived: Vec::new(),
+    };
     let mut output = std::io::stdout().lock();
     output.write_all(&greeting::encode(MAGIC, confinement))?;
     output.flush()?;
+    let mut held: Option<RingWriter> = None;
     while let Some((kind, payload)) = read_request(&mut input)? {
         match kind {
             PING => reply(&mut output, PING, b"pong")?,
+            ring::RING if held.is_some() => {
+                let arrived = u8::try_from(input.arrived.len()).unwrap_or(u8::MAX);
+                reply(&mut output, ring::RING, &[arrived])?;
+            }
+            ring::RING => {
+                held = Some(RingWriter::attach(&payload, &mut input.arrived)?);
+                reply(&mut output, ring::RING, &[])?;
+            }
             stream::OPEN => {
                 let opened = stream::decode_open(&payload).map_err(std::io::Error::other)?;
                 if opened.kind != COUNT {
@@ -73,7 +114,12 @@ fn serve() -> Result<(), std::io::Error> {
                     ));
                 }
                 let (mode, count, size) = decode_count(opened.request)?;
-                run(mode, count, size, opened.credit, &mut input, &mut output)?;
+                let wire = Wire {
+                    input: &mut input,
+                    output: &mut output,
+                    ring: held.as_mut(),
+                };
+                run(mode, count, size, opened.credit, wire)?;
             }
             other => {
                 return Err(std::io::Error::other(format!(
@@ -85,15 +131,26 @@ fn serve() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn run(
+/// What a stream is run over: the worker's two pipes and the ring, if one is attached.
+struct Wire<'a, I, O> {
+    input: &'a mut I,
+    output: &'a mut O,
+    ring: Option<&'a mut RingWriter>,
+}
+
+fn run<I: Read, O: Write>(
     mode: Mode,
     count: u32,
     size: usize,
     credit: std::num::NonZeroU32,
-    input: &mut impl Read,
-    output: &mut impl Write,
+    wire: Wire<'_, I, O>,
 ) -> Result<(), std::io::Error> {
-    let body = vec![0x5A; size];
+    let Wire {
+        input,
+        output,
+        ring,
+    } = wire;
+    let mut body = vec![0x5A; size];
     match mode {
         Mode::Keep => {
             let mut emitter = Emitter::new(credit);
@@ -120,6 +177,48 @@ fn run(
             }
             item(output, 2, 9, &body)?;
             stream::read_control(input).map(|_| ())
+        }
+        Mode::Ring => {
+            let ring = ring.ok_or_else(|| std::io::Error::other("a ring stream with no ring"))?;
+            let mut emitter = Emitter::new(credit);
+            for sequence in 0..count {
+                let fill = sequence.to_be_bytes()[3];
+                let outcome = if size < INLINE_BELOW {
+                    body.fill(fill);
+                    emitter.emit(input, output, &body)?
+                } else {
+                    emitter.emit_in_ring(input, output, ring, |slot| {
+                        let written = size.min(slot.len());
+                        if let Some(region) = slot.get_mut(..written) {
+                            region.fill(fill);
+                        }
+                        written
+                    })?
+                };
+                if outcome == Emitted::Stopped {
+                    return Ok(());
+                }
+            }
+            emitter.finish(input, output, b"done")
+        }
+        Mode::RingWrongSlot => {
+            let ring = ring.ok_or_else(|| std::io::Error::other("a ring stream with no ring"))?;
+            // Item one's slot, named for item nought: on a ring of more than one slot, not its own.
+            let wrong = ring.shape().slot_of(1);
+            let mut payload = stream::encode_item_header(0, stream::Carriage::Slot).to_vec();
+            payload.extend_from_slice(&stream::encode_slot(wrong, 1));
+            reply(output, stream::ITEM, &payload)?;
+            stream::read_control(input).map(|_| ())
+        }
+        Mode::InlineFilled => {
+            let mut emitter = Emitter::new(credit);
+            for sequence in 0..count {
+                body.fill(sequence.to_be_bytes()[3]);
+                if emitter.emit(input, output, &body)? == Emitted::Stopped {
+                    return Ok(());
+                }
+            }
+            emitter.finish(input, output, b"done")
         }
     }
 }
@@ -156,6 +255,9 @@ fn decode_count(request: &[u8]) -> Result<(Mode, u32, usize), std::io::Error> {
         Some(1) => Mode::OverSend,
         Some(2) => Mode::Stall,
         Some(3) => Mode::Malformed,
+        Some(4) => Mode::Ring,
+        Some(5) => Mode::RingWrongSlot,
+        Some(6) => Mode::InlineFilled,
         _ => return Err(std::io::Error::other("a count request of no known mode")),
     };
     let size = usize::try_from(number(5)?).map_err(std::io::Error::other)?;
