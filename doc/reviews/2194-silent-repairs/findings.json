@@ -1,0 +1,196 @@
+[
+ {
+  "id": "2194-B01",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.3.3"
+  ],
+  "summary": "An integer past 64 bits in a dictionary is read as the nearest real, and implementation-limits/integer-values reads the real. ADR 3393 carried Lexer::integer_out_of_range to the validator for content streams only (Runs::AsWritten); the parser path never asks it. ISO 19005 rule: 6.1.13.",
+  "source": "ISO 32000-2 §7.3.3 (an integer is a run of digits whatever its length); ISO 19005-2 section 6.1.13 and ISO 19005-4 section 6.1.13 bound integers (paraphrased).",
+  "code": "crates/pdf-syntax/src/lexer.rs:822 (wide_integer set, Token::Real returned); crates/pdf-syntax/src/parser.rs (no read of integer_out_of_range); crates/pdf-archive/src/table/file_structure.rs integer-values",
+  "change": "Log the class syntax/integer-past-i64 with the object, and map it to integer-values.",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_integer_past_sixty_four_bits_in_a_dictionary_is_an_integer_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B02",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.3.10",
+   "7.5.4"
+  ],
+  "summary": "An indirect object the reader cannot load — bytes that do not parse, or a table entry whose offset holds another object's header — is cached as Object::Null, the value of an undefined reference. The page's content stream leaves the walk, and the damaged file fails fewer rows than its twin. misfiled_objects records the second case; no row asks it. ISO 19005 rule: 5.1, 6.1.4, every content row.",
+  "source": "ISO 32000-2 §7.3.10 (null is the value of a reference to an object that does not exist, not of one that exists and is damaged); §7.5.4 (the entry's offset is the object's).",
+  "code": "crates/pdf-syntax/src/document/objects.rs:79 (load(id).unwrap_or((id.generation, Object::Null))); crates/pdf-syntax/src/document/reports.rs:123 misfiled_objects",
+  "change": "Log syntax/object-unreadable and syntax/object-misfiled; map both to 5.1 and to the content rows' completeness (a page whose content was lost is not certified).",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_unparsable_content_stream_object_is_not_an_empty_page_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_cross_reference_entry_at_another_objects_header_is_not_null_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B03",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.3.10"
+  ],
+  "summary": "An indirect object with no endobj is read whole, and file-structure/indirect-object-syntax's end_of_object returns when it finds no keyword to judge — the validator's own tolerance stacked on the reader's. ISO 19005 rule: 6.1.9.",
+  "source": "ISO 32000-2 §7.3.10 (an indirect object is bracketed by obj and endobj); ISO 19005-2 section 6.1.9 sets the endobj keyword's end-of-line markers (paraphrased).",
+  "code": "crates/pdf-archive/src/table/file_structure.rs:2926 (rposition … else { return; }); crates/pdf-syntax/src/parser.rs parse_indirect_object (endobj optional)",
+  "change": "Log syntax/endobj-missing; end_of_object records a finding where the region holds no endobj.",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_object_without_endobj_fails_the_object_syntax_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B04",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.5.4",
+   "7.5.6",
+   "7.5.8"
+  ],
+  "summary": "Cross-reference repairs: offsets that miss their objects are followed to the objects without a rebuild or a record; a /Prev chain that loops is rebuilt by scanning (Document::was_recovered). The validator's population is the repaired table and no row asks either. ISO 19005 rule: 5.1, 6.1.4.",
+  "source": "ISO 32000-2 §7.5.4 (each entry's offset is the object's), §7.5.6 (/Prev is the previous section's offset).",
+  "code": "crates/pdf-syntax/src/document/objects.rs:277 (offset search); crates/pdf-syntax/src/xref.rs:1091 (/Prev cycle); crates/pdf-syntax/src/document/reports.rs:106 was_recovered; crates/pdf-archive/src/examination.rs:150",
+  "change": "Log syntax/xref-offset-searched, syntax/xref-rebuilt, syntax/xref-chain-cut, syntax/xref-entries-lost; map to 5.1 (and 6.1.4 where the table's own syntax is the subject).",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::cross_reference_offsets_that_miss_their_objects_are_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_prev_chain_that_loops_is_reported_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B05",
+  "kind": "silent-repair",
+  "clauses": [
+   "9.9"
+  ],
+  "summary": "An embedded TrueType program the reader repaired (head.indexToLocFormat wrong: sfnt::repaired_font_program rewrites the loca format) or could only partly read (cut in half) loads without FontError::Malformed, so program_unparsed and every font row pass it. fonts/font-programs-conform-to-their-own-specifications is Unchecked. ISO 19005 rule: 6.2.11.4.1 / 6.2.10.4.1.",
+  "source": "ISO 32000-2 §9.9 (the embedded program is the font program in its own format); ISO 19005-2 section 6.2.11.4.1 (the embedded program is what a reader renders, and it defines every glyph used), paraphrased.",
+  "code": "crates/pdf-font/src/sfnt.rs:471 repaired_font_program (with :183, :385, :519); crates/pdf-archive/src/table/fonts.rs:1840 program_unparsed",
+  "change": "Log font/sfnt-loca-extent, font/sfnt-loca-format, font/sfnt-loca-order and font/program-truncated; map to font-programs-embedded and the conform row.",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_truetype_program_whose_loca_format_is_wrong_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_truetype_program_cut_in_half_is_reported_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B06",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.3.4.2",
+   "7.3.7"
+  ],
+  "summary": "Base-standard syntax tolerated with no row: a repeated dictionary key (first kept), an unterminated literal string (runs to the end of the stream), a key that is not a name (skipped). Section 5.1's row is Unchecked, so the verdict is Conforms. ISO 19005 rule: 5.1.",
+  "source": "ISO 32000-2 §7.3.7: \"Multiple entries in the same dictionary shall not have the same key\" and every key is a name; §7.3.4.2 (balanced parentheses).",
+  "code": "crates/pdf-syntax/src/parser.rs:384 (duplicate), :443 (non-name key); crates/pdf-syntax/src/lexer.rs:591 (unterminated string)",
+  "change": "Log syntax/duplicate-key, syntax/key-not-a-name, syntax/string-unterminated; section 5.1's row becomes Implemented over the log (ADR 3477).",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_dictionary_with_a_repeated_key_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_unterminated_literal_string_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_dictionary_key_that_is_not_a_name_is_reported_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B07",
+  "kind": "silent-repair",
+  "clauses": [
+   "7.7.3.3"
+  ],
+  "summary": "Page entries of the wrong type or value are substituted: a /MediaBox that is a name (Page::substituted_media_box), a /Rotate of 45 (read as 0). Neither record reaches the validator. ISO 19005 rule: 5.1.",
+  "source": "ISO 32000-2 §7.7.3.3, Table 31 (MediaBox a rectangle; Rotate \"shall be a multiple of 90\").",
+  "code": "crates/pdf-model/src/page.rs:301 MediaBoxSubstitution, :281 (Rotate)",
+  "change": "Log model/media-box-substituted and model/rotate-not-a-multiple; map to 5.1.",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_media_box_that_is_not_a_rectangle_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_rotation_that_is_not_a_multiple_of_ninety_is_reported_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-B08",
+  "kind": "silent-repair",
+  "clauses": [
+   "8.2",
+   "8.4.2",
+   "8.5.2.1",
+   "8.6.8",
+   "9.4.1"
+  ],
+  "summary": "Content operators given operands they do not take are repaired by the interpreter (an operator with a wrong-typed operand does nothing; one short of operands is dispatched with what is there; Q with nothing saved is ignored; Tj outside BT is drawn; three sc operands under DeviceGray are read as DeviceRGB). Several are reported to the viewer (Unsupported::OperandShortfall, StreamSyntaxFault::TextOperatorOutsideATextObject); the survey walks tokens and never interprets, so none reaches the validator — and the colour case paints in a space the validator never records. ISO 19005 rule: 5.1, 6.2.4.3.",
+  "source": "ISO 32000-2 §8.2 and the operator tables (Table 58, Table 73), §8.4.2 (\"Occurrences of the q and Q operators shall be balanced within a given content stream\"), §9.4.1.",
+  "code": "crates/pdf-model/src/content/run.rs:268; crates/pdf-model/src/content/run/graphics.rs:48, :66; crates/pdf-model/src/content/colour.rs:609; crates/pdf-archive/src/survey.rs (token walk)",
+  "change": "Either the survey takes the interpreter's Unsupported/StreamSyntaxFault for each page (one walk, ADR 3477's log), or the content reader logs its classes as it tokenises; map to 5.1, and the colour case to 6.2.4.3's rows.",
+  "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_operand_of_the_wrong_type_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_operator_short_of_its_operands_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_restore_with_nothing_saved_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_text_operator_outside_a_text_object_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::colour_operands_that_do_not_fit_the_space_are_reported_silent_repair",
+  "status": "open"
+ },
+ {
+  "id": "2194-T01",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "7.4"
+  ],
+  "summary": "decoded_stream_data drops filter::Damage: every caller of the unreported API (images, xref streams, object streams, ICC profiles, metadata) takes a damaged prefix as a whole decode.",
+  "source": "ISO 32000-2 §7.4 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-syntax/src/document/decoding.rs:23; crates/pdf-syntax/src/document/images.rs:70; crates/pdf-syntax/src/xref.rs:1933",
+  "change": "A class on ADR 3477's channel for each site; Inventory S040, S044 and the xref-stream row; the fix is the channel's first class.",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ },
+ {
+  "id": "2194-T02",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "7.5.8",
+   "7.5.7"
+  ],
+  "summary": "Object-stream and xref-stream losses the existing reports miss: a member that fails to parse is dropped and not added to objects_lost_to_damage; a missing /N reads as 0 with short_by 0; non-integer /Index pairs are dropped and the subsections shift.",
+  "source": "ISO 32000-2 §7.5.8, §7.5.7 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-syntax/src/document/object_streams.rs:67, :126; crates/pdf-syntax/src/xref.rs:1605",
+  "change": "A class on ADR 3477's channel for each site; Silent to the viewer's own reports as well as to the validator.",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ },
+ {
+  "id": "2194-T03",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "9.7.5",
+   "9.10.3"
+  ],
+  "summary": "Font maps read leniently with no record: a damaged ToUnicode keeps the prefix that parsed, an absent and a damaged one are one empty map, a damaged Encoding CMap skips entries, a malformed /W or /W2 stops at the first bad entry, a malformed /Differences is skipped item by item, an /Encoding name outside Table 112 becomes no encoding.",
+  "source": "ISO 32000-2 §9.7.5, §9.10.3 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-font/src/tounicode.rs:190; crates/pdf-font/src/loading.rs:1369; crates/pdf-font/src/cmap.rs:389, :577, :615; crates/pdf-font/src/metrics.rs:737, :1113; crates/pdf-font/src/glyph_names.rs:112, :160",
+  "change": "A class on ADR 3477's channel for each site; Probed: a damaged ToUnicode on a non-symbolic TrueType font passes (6.2.11.7.2 exempts the font, so 5.1 only).",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ },
+ {
+  "id": "2194-T04",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "9.9"
+  ],
+  "summary": "CFF and Type 1 programs read leniently: an unreadable subroutine INDEX or Private DICT becomes none, a TrueType collection is cut to one face (face 0 where /FontName matches none), a failed hinting instance is dropped.",
+  "source": "ISO 32000-2 §9.9 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-font/src/cff.rs:2455, :2489, :2512; crates/pdf-font/src/program.rs:116; crates/pdf-font/src/collection.rs:58; crates/pdf-font/src/loading/drawing.rs:256",
+  "change": "A class on ADR 3477's channel for each site; FontDictRepair is the one CFF repair already recorded.",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ },
+ {
+  "id": "2194-T05",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "8.4.5",
+   "8.10.1",
+   "8.11.3"
+  ],
+  "summary": "Interpreter tolerances silent to the viewer's own Unsupported: extra operands before an operator dropped; EMC, EX and BX unbalanced; a BDC /OC naming no property list shows the content; an ExtGState entry of the wrong type ignored and an unparsable transfer function discarded; a form's malformed /Matrix read as identity and /BBox as no clip.",
+  "source": "ISO 32000-2 §8.4.5, §8.10.1, §8.11.3 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-model/src/content/run.rs:268, :454; crates/pdf-model/src/content/run/marked_ops.rs:77, :141; crates/pdf-model/src/content/run/compat_type3_ops.rs:11; crates/pdf-model/src/content/ext_gstate.rs:200, :289; crates/pdf-model/src/content/xobject.rs:151, :169",
+  "change": "A class on ADR 3477's channel for each site; The viewer's report (trap 5) misses these whatever the validator does.",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ },
+ {
+  "id": "2194-T06",
+  "kind": "silent-repair-viewer",
+  "clauses": [
+   "7.6.4"
+  ],
+  "summary": "A /P that does not read as an integer becomes 0, which states permissions; a string that cannot be decrypted becomes empty.",
+  "source": "ISO 32000-2 §7.6.4 (the entry's form; cited, not quoted).",
+  "code": "crates/pdf-syntax/src/crypt.rs:404; crates/pdf-syntax/src/encryption.rs:268",
+  "change": "A class on ADR 3477's channel for each site; PDF/A forbids encryption (6.1.3), so the validator fails such a file anyway; the viewer's silence is the finding.",
+  "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
+  "status": "open"
+ }
+]

@@ -1,0 +1,114 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2194 on main da7f8269",
+ "failures": [
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_integer_past_sixty_four_bits_in_a_dictionary_is_an_integer_silent_repair",
+   "finding": "2194-B01",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_unparsable_content_stream_object_is_not_an_empty_page_silent_repair",
+   "finding": "2194-B02",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_cross_reference_entry_at_another_objects_header_is_not_null_silent_repair",
+   "finding": "2194-B02",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_object_without_endobj_fails_the_object_syntax_silent_repair",
+   "finding": "2194-B03",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "cross_reference_offsets_that_miss_their_objects_are_reported_silent_repair",
+   "finding": "2194-B04",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_prev_chain_that_loops_is_reported_silent_repair",
+   "finding": "2194-B04",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_truetype_program_whose_loca_format_is_wrong_is_reported_silent_repair",
+   "finding": "2194-B05",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_truetype_program_cut_in_half_is_reported_silent_repair",
+   "finding": "2194-B05",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_dictionary_with_a_repeated_key_is_reported_silent_repair",
+   "finding": "2194-B06",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_unterminated_literal_string_is_reported_silent_repair",
+   "finding": "2194-B06",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_dictionary_key_that_is_not_a_name_is_reported_silent_repair",
+   "finding": "2194-B06",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_media_box_that_is_not_a_rectangle_is_reported_silent_repair",
+   "finding": "2194-B07",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_rotation_that_is_not_a_multiple_of_ninety_is_reported_silent_repair",
+   "finding": "2194-B07",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_operand_of_the_wrong_type_is_reported_silent_repair",
+   "finding": "2194-B08",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "an_operator_short_of_its_operands_is_reported_silent_repair",
+   "finding": "2194-B08",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_restore_with_nothing_saved_is_reported_silent_repair",
+   "finding": "2194-B08",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "a_text_operator_outside_a_text_object_is_reported_silent_repair",
+   "finding": "2194-B08",
+   "log": "round-2194 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::silent_repairs_spec_audit",
+   "test": "colour_operands_that_do_not_fit_the_space_are_reported_silent_repair",
+   "finding": "2194-B08",
+   "log": "round-2194 nextest of pdf-archive"
+  }
+ ]
+}
