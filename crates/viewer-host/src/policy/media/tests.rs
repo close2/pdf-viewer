@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     Handed, Handing, MEDIA_FILES, MediaFiles, Opener, Portal, PortalCalls, SWEPT_AFTER,
-    file_name_for, gvariant_string, hand_media, handing, media_files, sweep,
+    file_name_for, gvariant_string, hand_media, handing, handing_without_helper, is_a_sound,
+    media_files, sweep,
 };
 
 /// A directory of the test's own, removed afterwards.
@@ -100,6 +101,69 @@ fn each_level_answers_as_it_is_named() {
         Handing::Hand { note: None, handed: Handed::Written { file_name, .. } }
             if file_name == "clip.wav"
     ));
+}
+
+/// **A window without its sound helper hands a sound on, at the reader's level, and says why**
+/// (ADR 3417): the file goes where any window that plays nothing sends it — never `Handed::Here`,
+/// which nothing would play — the sentence naming the missing helper rides beside the hand-over
+/// and inside the question, and a refusal stays the refusal it was.
+#[test]
+fn a_window_without_its_helper_hands_a_sound_on_and_says_why() {
+    const MISSING: &str = "the sound helper `quorra-sound` was not found next to /bin/x";
+    let at = |level| {
+        handing_without_helper(
+            "a.pdf",
+            None,
+            Some("audio/wav"),
+            embedded(RIFF),
+            MISSING,
+            level,
+        )
+    };
+    assert!(matches!(
+        at(MediaFiles::Open),
+        Handing::Hand { handed: Handed::Written { file_name, bytes, .. }, note: Some(note) }
+            if file_name == "clip.wav" && bytes == RIFF
+                && note.contains(MISSING) && note.contains("this machine's player")
+    ));
+    assert!(matches!(
+        at(MediaFiles::Warn),
+        Handing::Hand { note: Some(note), .. }
+            if note.contains(MISSING) && note.contains("without asking")
+    ));
+    assert!(matches!(
+        at(MediaFiles::Ask),
+        Handing::Ask { question, handed: Handed::Written { .. } }
+            if question.reasons.contains("intro.wav") && question.reasons.contains(MISSING)
+    ));
+    assert!(matches!(
+        at(MediaFiles::Refuse),
+        Handing::Refuse(said) if said.contains("--media-files=refuse") && !said.contains(MISSING)
+    ));
+    // Control: the same clip with no helper missing carries no such sentence.
+    assert!(matches!(
+        handing(
+            "a.pdf",
+            None,
+            Some("audio/wav"),
+            embedded(RIFF),
+            MediaFiles::Open
+        ),
+        Handing::Hand { note: None, .. }
+    ));
+}
+
+/// A sound by its samples or its type, and nothing else: a movie handed on for want of a sound
+/// helper would be a false sentence (ADR 3417).
+#[test]
+fn a_sound_is_known_by_its_samples_or_its_type() {
+    assert!(is_a_sound(None, true));
+    assert!(is_a_sound(Some("audio/mpeg"), false));
+    assert!(is_a_sound(Some("AUDIO/X-AIFF"), false));
+    assert!(is_a_sound(Some("audio/vnd.wave"), false));
+    assert!(!is_a_sound(Some("video/mp4"), false));
+    assert!(!is_a_sound(Some("aud"), false));
+    assert!(!is_a_sound(None, false));
 }
 
 /// The level is the reader's alone: nothing a document states reaches it, so the most permissive

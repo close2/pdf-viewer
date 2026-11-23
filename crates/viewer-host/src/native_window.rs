@@ -503,6 +503,16 @@ impl WindowState {
         Self { archive, ..self }
     }
 
+    /// The same state, its sounds played by `hearing`'s player: what the launch told the core
+    /// (ADR 3417).
+    #[must_use]
+    pub fn heard_by(self, hearing: crate::sound::Hearing) -> Self {
+        Self {
+            sounds: self.sounds.heard_by(hearing),
+            ..self
+        }
+    }
+
     /// The same state, with the reader's words for whom it believes, which the trusted lists'
     /// fetch reads (ADR 2886).
     #[must_use]
@@ -1137,15 +1147,41 @@ pub trait NativeWindow {
         sound: Option<Box<viewer_core::SoundData>>,
     ) {
         let label = self.state().documents.label_of(document);
-        let sound = sound.filter(|_| self.plays_sounds()).map(|sound| *sound);
-        let decided = crate::handing_here(
-            &label,
-            self.state().showing.directory.as_deref(),
-            content_type,
-            media,
-            sound,
-            self.state().restrictions.media_files(),
-        );
+        let missing = self
+            .plays_sounds()
+            .then(|| self.state().sounds.hearing().missing().map(str::to_owned))
+            .flatten()
+            .filter(|_| crate::is_a_sound(content_type, sound.is_some()));
+        let directory = self.state().showing.directory.clone();
+        let level = self.state().restrictions.media_files();
+        let decided = if let Some(missing) = &missing {
+            // No helper to play it through: handed on as any window that plays nothing hands it,
+            // and said (ADR 3417).
+            crate::handing_without_helper(
+                &label,
+                directory.as_deref(),
+                content_type,
+                media,
+                missing,
+                level,
+            )
+        } else {
+            let sound = sound
+                .filter(|_| self.plays_sounds() && self.state().sounds.hearing().plays_here())
+                .map(|sound| *sound);
+            crate::handing_here(
+                &label,
+                directory.as_deref(),
+                content_type,
+                media,
+                sound,
+                level,
+            )
+        };
+        if missing.is_some() && matches!(decided, crate::Handing::Hand { .. }) {
+            self.state_mut().sounds.handed_on();
+            self.retitle();
+        }
         match decided {
             crate::Handing::Hand {
                 handed: crate::Handed::Here { name, sound },

@@ -163,6 +163,8 @@ struct Policies {
     reader: viewer_host::ReaderWords,
     /// Whether §10.8.3's separation simulation is what this reader asked for.
     separations: bool,
+    /// Whether this window plays a sound itself: `viewer_host::sound::Hearing::plays_here`.
+    plays_here: bool,
 }
 
 /// Reads the file and opens it, wherever this is called from.
@@ -187,6 +189,7 @@ fn open_document(
         restrictions,
         reader,
         separations,
+        plays_here,
     } = policies;
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
     // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
@@ -222,9 +225,10 @@ fn open_document(
     for command in supply.commands {
         drop(viewer.handle(command));
     }
-    // This window plays a RIFF WAVE clip itself, so a rendition is judged for that player
-    // (ISO 32000-2 §13.2.2, ADR 3350).
-    drop(viewer.handle(Command::PlaysHere(true)));
+    // This window plays a RIFF WAVE clip itself where its sound helper is there, so a rendition
+    // is judged for that player, and for this machine's where it is not (ISO 32000-2 §13.2.2,
+    // ADRs 3350, 3417).
+    drop(viewer.handle(Command::PlaysHere(plays_here)));
     for refusal in supply
         .refused
         .into_iter()
@@ -286,6 +290,10 @@ pub(crate) fn drawing_ahead() -> viewer_host::Ahead {
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the launch path in the order it runs, which a split into helpers would hide"
+)]
 fn main() {
     let mut launch = Launch::new();
     let Arguments {
@@ -325,10 +333,13 @@ fn main() {
         .with(viewer_host::ActLevel::MediaFiles(media_files));
     let archive = reader.archive.clone();
     let trusting = reader.trusting();
+    // One look for the sound helper, which only the first sound starts (ADR 3417).
+    let hearing = viewer_host::sound::Hearing::of_a_playing_window();
     let policies = Policies {
         restrictions,
         reader,
         separations,
+        plays_here: hearing.plays_here(),
     };
     launch.mark("arguments");
 
@@ -416,6 +427,7 @@ fn main() {
         ahead,
         instancing,
         launch,
+        hearing,
     });
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");

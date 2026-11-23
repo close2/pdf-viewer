@@ -89,8 +89,7 @@ impl Backing for Shared {
 /// The names a directory lists, in its order, or none where it does not list.
 fn names(vfs: &Vfs, directory: &str) -> Vec<String> {
     vfs.list(directory)
-        .map(|entries| entries.into_iter().map(|entry| entry.name).collect())
-        .unwrap_or_default()
+        .map_or_default(|entries| entries.into_iter().map(|entry| entry.name).collect())
 }
 
 /// One of `names` by `selector`, or a name one past them shaped like the first.

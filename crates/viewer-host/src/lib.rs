@@ -225,6 +225,7 @@ pub use policy::{
 };
 pub use policy::{
     Handed, Handing, MEDIA_FILES, MediaFiles, hand_over_media, handing, handing_here,
+    handing_without_helper, is_a_sound,
 };
 pub use policy::{LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments};
 pub use popup::Window;

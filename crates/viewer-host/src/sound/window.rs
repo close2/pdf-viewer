@@ -30,6 +30,50 @@ pub const HELD: &str = "a sound is playing synchronously (ISO 32000-2 §12.6.4.9
 /// What the title says while a sound is held at its start (ADR 3351).
 pub const PAUSED: &str = "a sound is held at its start, Space plays it and Escape stops it";
 
+/// What the title says while a window without its sound helper has handed a sound to this
+/// machine's player (ADR 3417); the terminal has the whole sentence, with the helper's place.
+pub const HANDED_ON: &str = "no sound helper here, so a sound is handed to this machine's player";
+
+/// Who plays a sound a window is handed, settled once at its launch, before the core is told
+/// whether the window plays a sound itself (ISO 32000-2 §13.2.2's viability is judged for the
+/// player a clip reaches; ADRs 3350, 3417).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Hearing {
+    /// The window plays nothing itself and hands every clip on: the C ABI's window, whose host is
+    /// the platform's own player (ADR 3217).
+    HandsOn,
+    /// The window plays a sound itself, through the helper found beside it.
+    Here,
+    /// The window would play a sound itself and its helper is missing, so every clip is handed to
+    /// this machine's player as a window that does not play is, and the sentence saying why is
+    /// said beside each sound handed on.
+    WithoutHelper(String),
+}
+
+impl Hearing {
+    /// A window that plays sounds, asked whether its helper is there: [`super::helper::missing`],
+    /// one look for a file and no process started.
+    #[must_use]
+    pub fn of_a_playing_window() -> Self {
+        super::helper::missing().map_or(Self::Here, Self::WithoutHelper)
+    }
+
+    /// What the window tells the core with `viewer_core::Command::PlaysHere`.
+    #[must_use]
+    pub const fn plays_here(&self) -> bool {
+        matches!(self, Self::Here)
+    }
+
+    /// The sentence saying why a sound is handed on, where the window has no helper.
+    #[must_use]
+    pub fn missing(&self) -> Option<&str> {
+        match self {
+            Self::WithoutHelper(why) => Some(why),
+            Self::HandsOn | Self::Here => None,
+        }
+    }
+}
+
 /// A window's sounds: none, and no thread, worker or helper, until the first (`CLAUDE.md`'s
 /// startup rules).
 pub struct Sounds {
@@ -45,6 +89,11 @@ pub struct Sounds {
     sounding: Option<Heard>,
     /// A sound handed over and not yet answered with [`Heard::Playing`] or [`Heard::Refused`].
     awaiting: bool,
+    /// Who plays the window's sounds, as its launch settled it.
+    hearing: Hearing,
+    /// Whether the last sound was handed to this machine's player for want of the helper, which
+    /// the title says until the next sound ([`HANDED_ON`]).
+    handed_on: bool,
 }
 
 impl std::fmt::Debug for Sounds {
@@ -54,6 +103,8 @@ impl std::fmt::Debug for Sounds {
             .field("player", &self.player)
             .field("sounding", &self.sounding)
             .field("awaiting", &self.awaiting)
+            .field("hearing", &self.hearing)
+            .field("handed_on", &self.handed_on)
             .finish_non_exhaustive()
     }
 }
@@ -74,7 +125,27 @@ impl Sounds {
             player: None,
             sounding: None,
             awaiting: false,
+            hearing: Hearing::Here,
+            handed_on: false,
         }
+    }
+
+    /// The same, played by `hearing`'s player: the answer the window's launch gave the core.
+    #[must_use]
+    pub fn heard_by(self, hearing: Hearing) -> Self {
+        Self { hearing, ..self }
+    }
+
+    /// Who plays the window's sounds, as its launch settled it.
+    #[must_use]
+    pub const fn hearing(&self) -> &Hearing {
+        &self.hearing
+    }
+
+    /// A sound was handed to this machine's player for want of the helper: the title says so until
+    /// the next sound (ADR 3417).
+    pub fn handed_on(&mut self) {
+        self.handed_on = true;
     }
 
     /// The same, opening `open` in place of the helper: a test's recording double.
@@ -98,6 +169,7 @@ impl Sounds {
     /// Plays `played` in place of whatever sounds. The first sound makes the player, with `wake`
     /// as what wakes the window's loop from the player's thread; later sounds do not call it.
     pub fn play(&mut self, played: Played, wake: impl FnOnce() -> Wake) {
+        self.handed_on = false;
         if self.player.is_none() {
             let open = self
                 .open
@@ -194,7 +266,7 @@ impl Sounds {
             ),
             Some(Heard::Paused(_)) => Some(PAUSED),
             Some(said) => Some(said.sentence()),
-            None => None,
+            None => self.handed_on.then_some(HANDED_ON),
         }
     }
 

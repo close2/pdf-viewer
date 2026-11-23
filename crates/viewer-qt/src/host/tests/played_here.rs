@@ -51,7 +51,11 @@ fn a_window(document: &Path, sounds: Sounds) -> Host {
     .expect("the sounding document opens in the Qt host");
     host.resized(400, 400, 1.0);
     super::drawn(&mut host);
+    // The core told what the double plays, whatever the launch found beside the test binary
+    // (ADR 3417).
+    let plays_here = sounds.hearing().plays_here();
     host.state.sounds = sounds;
+    host.dispatch(Command::PlaysHere(plays_here));
     host
 }
 

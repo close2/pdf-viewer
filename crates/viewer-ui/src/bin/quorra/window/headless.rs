@@ -57,6 +57,7 @@ fn window_on(path: &Path, reader: viewer_host::ReaderWords) -> App {
                     restrictions: RestrictionPolicy::uniform(RestrictionLevel::Off),
                     reader,
                     separations: false,
+                    plays_here: true,
                 },
             )
         }
@@ -85,6 +86,9 @@ fn window_on(path: &Path, reader: viewer_host::ReaderWords) -> App {
         ahead: None,
         instancing: None,
         launch,
+        // As the launch's when the helper is there: a sound is played as the window plays one
+        // (ADRs 3301, 3417).
+        hearing: viewer_host::sound::Hearing::Here,
     });
     app.take_the_opening();
     app.dispatch(Command::Resize {

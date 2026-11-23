@@ -24,7 +24,23 @@ const _: () = assert!(quorra_sound::wire::MAX_SAMPLES >= MAX_PLAYED_SAMPLES);
 /// The sentence to say where the helper is missing, could not be loaded, or could not open the
 /// device.
 pub fn open() -> Result<Box<dyn Sink>, String> {
-    let program = confined_transport::program_beside_executable(
+    open_at(&located()?)
+}
+
+/// The sentence to say where this window has no sound helper to play through, or `None` where it
+/// has one: the question a window asks once, at its launch, before it tells the core whether it
+/// plays a sound here (ADR 3417).
+///
+/// A look for one file — the environment variable, then the places beside this executable — and
+/// no process started, so the helper is still started only by the first sound.
+#[must_use]
+pub fn missing() -> Option<String> {
+    located().err()
+}
+
+/// Where the helper is: the program `QUORRA_SOUND` names, or the one beside this executable.
+fn located() -> Result<std::path::PathBuf, String> {
+    confined_transport::program_beside_executable(
         quorra_sound::HELPER_PROGRAM,
         quorra_sound::HELPER_PATH_VARIABLE,
     )
@@ -35,8 +51,7 @@ pub fn open() -> Result<Box<dyn Sink>, String> {
             quorra_sound::HELPER_PROGRAM,
             quorra_sound::HELPER_PATH_VARIABLE
         )
-    })?;
-    open_at(&program)
+    })
 }
 
 /// The helper `program`, started and its device opened.

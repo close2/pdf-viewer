@@ -40,7 +40,7 @@ pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, 
 use pdf_media_worker::MediaWorker;
 use pdf_media_worker::sound::{Encoding, SoundFormat};
 use viewer_core::{DocumentId, Recording, SoundData};
-pub use window::{HELD, LOOK, PAUSED, Sounds};
+pub use window::{HANDED_ON, HELD, Hearing, LOOK, PAUSED, Sounds};
 
 /// Where the converted samples go: a device, or a test's record of what reached it.
 ///

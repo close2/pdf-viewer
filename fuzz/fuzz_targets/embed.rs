@@ -42,8 +42,10 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let used: BTreeSet<u16> = indices
-        .chunks_exact(2)
-        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_be_bytes(*pair))
         .collect();
     let Ok(embedded) = for_embedding(program, &used) else {
         return;

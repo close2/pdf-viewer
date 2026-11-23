@@ -134,7 +134,7 @@ fuzz_target!(|data: &[u8]| {
                 inside(octets);
                 let read = pdf_signature::saml::Saml::of(octets);
                 if read.signature.is_invalid() {
-                    assert!(read.attributes_relied_on().is_empty());
+                    assert_eq!(read.attributes_relied_on(), []);
                 }
             }
         }

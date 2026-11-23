@@ -170,6 +170,8 @@ impl Window {
             settings,
             reader,
             Refusals::Sent(refusing),
+            // The host plays: every clip is judged for the hand-off and given to it (ADR 3408).
+            viewer_host::sound::Hearing::HandsOn,
         );
         Ok(Self {
             state: launch.state(path, Trace::off(std::time::Instant::now())),

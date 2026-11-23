@@ -1259,6 +1259,7 @@ impl App {
         sound: viewer_core::SoundData,
         note: Option<&str>,
     ) {
+        self.handed_on = false;
         let player = self.player.get_or_insert_with(|| {
             let waker = self.waker.clone();
             viewer_host::sound::Player::new(
@@ -1360,24 +1361,47 @@ impl App {
         sound: Option<viewer_core::SoundData>,
     ) {
         let label = self.documents.label_of(document);
+        let missing = self
+            .hearing
+            .missing()
+            .filter(|_| viewer_host::is_a_sound(content_type, sound.is_some()))
+            .map(str::to_owned);
         // This window plays a sound holding its own samples itself, at the same level; every
-        // other clip is handed to this machine's player (ADRs 3201, 3301).
-        match viewer_host::handing_here(
-            &label,
-            self.directory.as_deref(),
-            content_type,
-            media,
-            sound,
-            self.restrictions.media_files(),
-        ) {
+        // other clip is handed to this machine's player (ADRs 3201, 3301) — and a sound too, said,
+        // where the window has no helper to play it through (ADR 3417).
+        let decided = match &missing {
+            Some(missing) => viewer_host::handing_without_helper(
+                &label,
+                self.directory.as_deref(),
+                content_type,
+                media,
+                missing,
+                self.restrictions.media_files(),
+            ),
+            None => viewer_host::handing_here(
+                &label,
+                self.directory.as_deref(),
+                content_type,
+                media,
+                sound,
+                self.restrictions.media_files(),
+            ),
+        };
+        match decided {
             viewer_host::Handing::Hand {
                 handed: viewer_host::Handed::Here { name, sound },
                 note,
             } => self.play(document, &label, &name, sound, note.as_deref()),
-            viewer_host::Handing::Hand { handed, note } => println!(
-                "note: {}",
-                viewer_host::hand_over_media(&label, &handed, note.as_deref())
-            ),
+            viewer_host::Handing::Hand { handed, note } => {
+                println!(
+                    "note: {}",
+                    viewer_host::hand_over_media(&label, &handed, note.as_deref())
+                );
+                if missing.is_some() {
+                    self.handed_on = true;
+                    self.retitle();
+                }
+            }
             viewer_host::Handing::Ask { handed, question } => self.put_a_question(
                 crate::app::Pending::Media {
                     id: document,

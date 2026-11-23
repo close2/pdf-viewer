@@ -1,7 +1,8 @@
 //! §13.3's sound played in the GTK window, at the window: the sound annotation activated, the
 //! level `open` playing it here, the confined media worker decoding it, the player's thread waking
-//! GTK's loop, the title naming Escape, Escape stopping it, and a missing sound helper said in the
-//! window (RFC 0015 section 5, step 3; ADR 3329).
+//! GTK's loop, the title naming Escape, Escape stopping it, a sound helper that will not start
+//! said in the window, and a window launched without one handing the sound to this machine's
+//! player (RFC 0015 section 5, step 3; ADRs 3329, 3417).
 //!
 //! **The window is the one `quorra-gtk` builds** (ADR 3098), on a registered application that is
 //! never run, as `trusted_lists_shift_t` builds it. The audio device is a recording double
@@ -19,7 +20,8 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use pdf_model::view::WidgetAppearances;
 use viewer_core::Command;
-use viewer_host::sound::Sounds;
+use viewer_host::policy::PortalCalls;
+use viewer_host::sound::{Hearing, Sounds};
 use viewer_host::{ReaderWords, Scripts, Settings, trace::Trace};
 
 use super::{Host, Opening};
@@ -79,7 +81,11 @@ fn a_window(document: &Path, sounds: Sounds) -> Rc<RefCell<Host>> {
     turn_until(&host, "took the opened document", |host| {
         host.state.anticipated.is_none() && host.state.awaiting.is_none()
     });
+    // The core told what the double plays, whatever the launch found beside the test binary
+    // (ADR 3417).
+    let plays_here = sounds.hearing().plays_here();
     host.borrow_mut().state.sounds = sounds;
+    host.borrow_mut().dispatch(Command::PlaysHere(plays_here));
     host
 }
 
@@ -178,4 +184,60 @@ fn a_missing_sound_helper_is_said_in_the_gtk_window() {
         "a refused sound leaves nothing for the timer to look at"
     );
     let _ = std::fs::remove_file(&document);
+}
+
+/// **A window launched without its sound helper hands the sound to this machine's player, and
+/// says so** (ADR 3417): the file goes through the portal — a double here, which records the call
+/// and starts no player — the status line names the missing helper, the title says a sound is
+/// handed on, and nothing is made for playing it here. The wrong answers excluded: the sound kept
+/// for a player that cannot start, said only as a refusal and handed nowhere (what the window did
+/// before), and a device opened for it.
+#[cfg(unix)]
+#[gtk4::test]
+fn a_window_without_its_helper_hands_the_sound_to_this_machines_player() {
+    use std::os::unix::fs::PermissionsExt as _;
+    const MISSING: &str = "the sound helper `quorra-sound` was not found next to this test";
+    let document = temporary("handed-on.pdf");
+    let called = temporary("handed-on-call");
+    let portal = temporary("handed-on-gdbus");
+    let _ = std::fs::remove_file(&called);
+    std::fs::write(
+        &portal,
+        format!(
+            "#!/bin/sh\ncat > /dev/null\necho \"$@\" > '{}'\nexit 0\n",
+            called.display()
+        ),
+    )
+    .expect("the portal's double is written");
+    std::fs::set_permissions(&portal, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    let (open, record) = sounding::recording();
+    let host = a_window(
+        &document,
+        Sounds::opening_with(open).heard_by(Hearing::WithoutHelper(MISSING.to_owned())),
+    );
+    host.borrow_mut().state.portal_calls = PortalCalls::calling(portal.clone());
+
+    host.borrow_mut()
+        .dispatch(Command::Activate(sounding::ANNOTATION));
+    turn_until(&host, "handed the sound on", |host| {
+        host.state
+            .title_notes()
+            .contains(viewer_host::sound::HANDED_ON)
+    });
+    let said = host.borrow().ui.status.text().to_string();
+    assert!(
+        said.contains(MISSING) && said.contains("this machine's player"),
+        "the status line names the missing helper: {said}"
+    );
+    turn_until(&host, "called the portal", |_| {
+        std::fs::read_to_string(&called).is_ok_and(|call| !call.is_empty())
+    });
+    assert!(
+        !host.borrow().state.sounds.started(),
+        "nothing is made for playing it here"
+    );
+    assert_eq!(sounding::record(&record).opened, 0, "no device was opened");
+    for file in [&document, &called, &portal] {
+        let _ = std::fs::remove_file(file);
+    }
 }

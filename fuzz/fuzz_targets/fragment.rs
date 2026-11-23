@@ -63,7 +63,7 @@ fuzz_target!(|data: &[u8]| {
         );
         // Every parameter names itself, and the four this program cannot carry out say why. A
         // host reports from these two and from nothing of its own.
-        assert!(!parameter.name().is_empty());
+        assert_ne!(parameter.name(), "");
         assert!(parameter.unhonoured().is_none_or(|why| !why.is_empty()));
     }
 

@@ -185,6 +185,11 @@ published pairs (`doc/questions/A308`, ADR 1916); no clause 13 row is owed in th
 its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
 or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 2447, 2452, 2472, 2473).
 
+- §12.6.4.14 — Table 218's stop, pause and resume act on "any rendition being played in
+  association with the annotation specified by AN", and a sound a window plays keeps no such
+  association, so the three are said and not performed (ADR 3418). What moves it: the core
+  recording the annotation a sound was played for, and the windows stopping, pausing and resuming
+  that sound on the action.
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a `JPXDecode` component past the twenty-four bits the decoder reads exactly (ADRs 1371,
   2470) and a two-input calculator function under a function-based shading the region meets (ADR
@@ -291,7 +296,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-None is open: §12.8, §12.8.3 and §12.8.3.4 were the last, and are `implemented` (ADR 3171).
+§12.6 and §12.6.4, over the leaf in bucket 4 (ADR 3418).
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

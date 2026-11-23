@@ -537,12 +537,15 @@ pub(crate) fn page_trigger(
     perform(open, &actions, None, None, None, "this page")
 }
 
-/// §12.6.4.14's action, as far as a processor that plays nothing performs it: the precondition
-/// checked, §13.2.2's viability judged and said, and the chosen clip kept for the hand-off.
+/// §12.6.4.14's action, as far as this program performs it: the precondition checked, §13.2.2's
+/// viability judged and said, and the chosen clip kept for the player it was judged for — a
+/// window's own, for a sound that window plays (ADR 3350), or this machine's.
 ///
-/// Every arm says something, because each is a click a person made on a page (trap 5): stopping
-/// what does not play has "no effect" and says so, and pause and resume carry the clause's own
-/// "the user should be notified of the failure to perform the operation". ADR 1960.
+/// Of Table 218's operations only playing is performed. A window that plays a sound keeps no
+/// association between it and the annotation `/AN` names, which stop, pause and resume act
+/// through, so those three are not performed. Every arm says something, because each is a click a
+/// person made on a page (trap 5), and pause and resume carry the clause's own "the user should be
+/// notified of the failure to perform the operation". ADRs 1960, 3418.
 fn rendered(
     open: &Open,
     rendition: &pdf_model::action::Rendition,
@@ -556,15 +559,17 @@ fn rendered(
         RenditionOperation::Stop => {
             return note(
                 outcome,
-                "Rendition: stop, and nothing plays in this program, so §12.6.4.14 says it has no \
-                 effect",
+                "Rendition: stop, which this program does not perform — a sound a window plays \
+                 is not associated with the annotation /AN names, so nothing is stopped by this \
+                 action (§12.6.4.14)",
             );
         }
         RenditionOperation::Pause | RenditionOperation::Resume => {
             return note(
                 outcome,
-                "Rendition: pause or resume, and nothing plays in this program to pause or resume \
-                 (§12.6.4.14)",
+                "Rendition: pause or resume, which this program does not perform — a sound a \
+                 window plays is not associated with the annotation /AN names, so nothing is \
+                 paused or resumed by this action (§12.6.4.14)",
             );
         }
         RenditionOperation::None => {

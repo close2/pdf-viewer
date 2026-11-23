@@ -696,6 +696,35 @@ fn a_quote_with_a_wrong_aw_keeps_the_word_spacing_and_sets_the_character_spacing
     assert_eq!(faults, vec![StreamSyntaxFault::TextOperandNotANumber]);
 }
 
+/// ISO 32000-2 Table 107 gives `Tj`, `'` and `"` a `string` operand. One of another type shows
+/// nothing and is said; `'` "shall have the same effect as this code: T* string Tj", so its move
+/// to the next line is still made, and the glyph after it stands where it would have (ADR 3419).
+#[test]
+fn a_shown_operand_that_is_not_a_string_shows_nothing_and_is_said() {
+    let wrong = "BT /F1 10 Tf 12 TL 0 62 Td /A Tj 65 ' (A) Tj ET";
+    let stated = "BT /F1 10 Tf 12 TL 0 62 Td T* (A) Tj ET";
+    assert_eq!(placements(wrong), placements(stated));
+    assert_eq!(placements(stated).len(), 1, "control: one glyph is shown");
+    let faults: Vec<_> = interpret(wrong)
+        .unsupported
+        .iter()
+        .filter_map(pdf_model::Unsupported::stream_syntax_fault)
+        .collect();
+    assert_eq!(
+        faults,
+        vec![
+            StreamSyntaxFault::TextOperandNotAString,
+            StreamSyntaxFault::TextOperandNotAString
+        ]
+    );
+    let shown: Vec<_> = interpret("BT /F1 10 Tf 0 62 Td (A) Tj ET")
+        .unsupported
+        .iter()
+        .filter_map(pdf_model::Unsupported::stream_syntax_fault)
+        .collect();
+    assert!(shown.is_empty(), "control: a string is not said: {shown:?}");
+}
+
 /// ISO 32000-2 §7.3.6 sets an array no length and Annex C's "Size of arrays" names no figure, so
 /// a valid `TJ` array of ten thousand elements draws every string in it and reaches no bound
 /// (ADR 3380). Each adjustment takes back the advance of the `A` before it — Helvetica's 667 —

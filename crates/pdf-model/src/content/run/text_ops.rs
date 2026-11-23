@@ -12,8 +12,8 @@ use crate::content::font::Font;
 use crate::content::reader::Operator;
 use crate::content::report::{
     ELEMENT_NEITHER_STRING_NOR_NUMBER, OUTSIDE_A_TEXT_OBJECT, OUTSIDE_ITS_ARRAY,
-    POSITIONING_OPERAND_NOT_A_NUMBER, SPACING_OPERAND_NOT_A_NUMBER, TEXT_OBJECT_NESTED,
-    TEXT_STATE_OPERAND_TYPE, Unsupported,
+    POSITIONING_OPERAND_NOT_A_NUMBER, SHOWN_OPERAND_NOT_A_STRING, SPACING_OPERAND_NOT_A_NUMBER,
+    TEXT_OBJECT_NESTED, TEXT_STATE_OPERAND_TYPE, Unsupported,
 };
 use crate::content::text::TextObject;
 use crate::content::{GraphicsState, Interpreter};
@@ -307,6 +307,7 @@ impl Interpreter<'_> {
         }
         match operator {
             Operator::ShowText => {
+                self.note_unless_a_string(operator, operands, 0);
                 if let Some(bytes) = string_at(operands, 0) {
                     self.show_text(&bytes, state, text_object);
                 }
@@ -362,6 +363,7 @@ impl Interpreter<'_> {
                 text_object.line =
                     Transform::translate(0.0, -state.text.leading).then(text_object.line);
                 text_object.matrix = text_object.line;
+                self.note_unless_a_string(operator, operands, 0);
                 if let Some(bytes) = string_at(operands, 0) {
                     self.show_text(&bytes, state, text_object);
                 }
@@ -382,6 +384,7 @@ impl Interpreter<'_> {
                 text_object.line =
                     Transform::translate(0.0, -state.text.leading).then(text_object.line);
                 text_object.matrix = text_object.line;
+                self.note_unless_a_string(operator, operands, 2);
                 if let Some(bytes) = string_at(operands, 2) {
                     self.show_text(&bytes, state, text_object);
                 }
@@ -397,6 +400,23 @@ impl Interpreter<'_> {
         self.note(Unsupported::Operator {
             operator: format!("{}{sentence}", String::from_utf8_lossy(operator.name())),
         });
+    }
+
+    /// Reports a `Tj`, `'` or `"` whose operand at `index` is present and not the string Table 107
+    /// states; an operand short of the count is the loop's shortfall report and is not judged
+    /// again. Nothing is shown for it (ADR 3419).
+    fn note_unless_a_string(&mut self, operator: Operator, operands: &[Object], index: usize) {
+        if operands
+            .get(index)
+            .is_some_and(|operand| operand.as_string().is_none())
+        {
+            self.note(Unsupported::Operator {
+                operator: format!(
+                    "{}{SHOWN_OPERAND_NOT_A_STRING}",
+                    String::from_utf8_lossy(operator.name())
+                ),
+            });
+        }
     }
 
     /// Reports a text-positioning or text-showing operator met with no text object open.

@@ -285,7 +285,22 @@ fn a_text_objects_faults_are_faults_of_the_stream() {
             "{wrong}"
         );
     }
-    for right in ["1 2 Td", "1 2 TD", "1 0 0 1 5 5 Tm", "1 2 (A) \""] {
+    // Table 107 (ADR 3419): `Tj`'s, `'`'s and `"`'s `string` operand not a string.
+    for wrong in ["/A Tj", "65 '", "1 2 /A \"", "true Tj"] {
+        assert_eq!(
+            faults(&format!("BT /F1 10 Tf {wrong} ET")),
+            vec![StreamSyntaxFault::TextOperandNotAString],
+            "{wrong}"
+        );
+    }
+    for right in [
+        "1 2 Td",
+        "1 2 TD",
+        "1 0 0 1 5 5 Tm",
+        "1 2 (A) \"",
+        "(A) Tj",
+        "<41> '",
+    ] {
         assert_eq!(
             faults(&format!("BT /F1 10 Tf {right} ET")),
             vec![],

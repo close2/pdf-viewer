@@ -262,6 +262,11 @@ pub(crate) struct App {
     /// carries for [`Self::on_the_processor`]'s reason: a line on standard output is not said to a
     /// person looking at the window. `None` once a sound ends or is stopped.
     pub(crate) sounding: Option<viewer_host::sound::Heard>,
+    /// Who plays this window's sounds, as the core was told at the launch (ADRs 3350, 3417).
+    pub(crate) hearing: viewer_host::sound::Hearing,
+    /// Whether the last sound was handed to this machine's player for want of the helper, which
+    /// the title says until the next sound, for [`Self::sounding`]'s reason (ADR 3417).
+    pub(crate) handed_on: bool,
     /// The bar of how much of the frame in flight the processor has drawn, or nothing — ADR 1811's
     /// bar carrying the draw's share once the read is over (ADR 1831), in the title for
     /// [`Self::still_drawing`]'s reason. Written only when the bar changes.
@@ -819,6 +824,8 @@ pub(crate) struct Launching {
     pub(crate) instancing: Option<std::thread::JoinHandle<raster_gpu::LaunchInstance>>,
     /// The launch's clock.
     pub(crate) launch: Launch,
+    /// [`App::hearing`]'s value.
+    pub(crate) hearing: viewer_host::sound::Hearing,
 }
 
 impl App {
@@ -850,6 +857,7 @@ impl App {
             ahead,
             instancing,
             launch,
+            hearing,
         } = launching;
         Self {
             // No viewport until the window exists. The core renders nothing into one with no
@@ -890,6 +898,8 @@ impl App {
             on_the_processor: None,
             player: None,
             sounding: None,
+            handed_on: false,
+            hearing,
             drawn_so_far: None,
             measuring: viewer_host::Measuring::default(),
             measured: String::new(),
@@ -1379,6 +1389,10 @@ impl App {
             Some(said) => {
                 drawing.push_str(" — ");
                 drawing.push_str(said.sentence());
+            }
+            None if self.handed_on => {
+                drawing.push_str(" — ");
+                drawing.push_str(viewer_host::sound::HANDED_ON);
             }
             None => {}
         }

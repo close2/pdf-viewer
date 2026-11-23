@@ -44,6 +44,8 @@ impl Told {
 pub struct PortalCalls {
     told: Told,
     receiver: Receiver<Option<String>>,
+    /// The program [`Self::portal`] calls in place of `gdbus`, where a test named one.
+    program: Option<std::path::PathBuf>,
 }
 
 impl Default for PortalCalls {
@@ -63,15 +65,29 @@ impl PortalCalls {
                 out: Arc::new(AtomicUsize::new(0)),
             },
             receiver,
+            program: None,
+        }
+    }
+
+    /// The same, every call made through `program` in place of `gdbus`: a test's double for a
+    /// whole window, which never reaches this machine's player.
+    #[must_use]
+    pub fn calling(program: std::path::PathBuf) -> Self {
+        Self {
+            program: Some(program),
+            ..Self::new()
         }
     }
 
     /// The desktop portal, its calls' failures brought back here.
     #[must_use]
     pub fn portal(&self) -> super::Portal {
-        super::Portal {
-            told: Some(self.told.clone()),
-            ..super::Portal::default()
+        match &self.program {
+            Some(program) => self.portal_through(program.clone()),
+            None => super::Portal {
+                told: Some(self.told.clone()),
+                ..super::Portal::default()
+            },
         }
     }
 

@@ -272,6 +272,61 @@ pub fn handing_here(
     leveled(document, content_type, Handed::Here { name, sound }, level)
 }
 
+/// What becomes of a media clip in a window that would play a sound itself and has no sound
+/// helper: [`handing`]'s answer, as for a window that plays nothing, with `missing` — the sentence
+/// saying where the helper was looked for — said beside a sound handed on and put in the
+/// question before one (ADR 3417).
+///
+/// The window told the core at its launch that it plays nothing here, so the clip was judged for
+/// this machine's player (§13.2.2) and is a file, not samples: what is handed is what any window
+/// that plays nothing hands.
+#[must_use]
+pub fn handing_without_helper(
+    document: &str,
+    directory: Option<&Path>,
+    content_type: Option<&str>,
+    media: viewer_core::Media,
+    missing: &str,
+    level: MediaFiles,
+) -> Handing {
+    let why = format!(
+        "a sound goes to this machine's player instead, because this window plays a sound \
+         through its sound helper and {missing}"
+    );
+    match handing(document, directory, content_type, media, level) {
+        Handing::Hand { handed, note } => Handing::Hand {
+            handed,
+            note: Some(match note {
+                Some(note) => format!("{why}; {note}"),
+                None => why,
+            }),
+        },
+        Handing::Ask {
+            handed,
+            question: crate::restriction::Question { reasons, choice },
+        } => Handing::Ask {
+            handed,
+            question: crate::restriction::Question {
+                reasons: format!("{reasons} Here {why}."),
+                choice,
+            },
+        },
+        refused @ Handing::Refuse(_) => refused,
+    }
+}
+
+/// Whether a clip is a sound, by Table 285's `/CT` or by the samples it carries: the clips a window
+/// without its helper says it hands on for want of one (ADR 3417).
+#[must_use]
+pub fn is_a_sound(content_type: Option<&str>, samples: bool) -> bool {
+    samples
+        || content_type.is_some_and(|kind| {
+            kind.get(..6)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("audio/"))
+                || pdf_model::media::container::is_wave(kind)
+        })
+}
+
 /// [`MediaFiles`]' four answers over what would be handed over or played.
 fn leveled(
     document: &str,

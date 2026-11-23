@@ -18,6 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
 
@@ -768,6 +769,13 @@ pub struct Pages<'a> {
     /// Empty for every document whose tree yields a page, which is every well-formed file —
     /// see [`Pages::new`] for why this exists, what it costs and where it declines to run.
     scanned: Vec<Recovered>,
+    /// How many walks of the tree [`Self::index_of`] and [`Self::indices`] have begun, which
+    /// [`Self::searches`] answers.
+    ///
+    /// One relaxed increment a walk, never one a node, so that the cost a caller pays for a
+    /// reference — a walk apiece, or one map — is a number a test can count where a clock under
+    /// load would lie about it (ADR 3420). Atomic so that `Pages` stays `Sync`.
+    searches: AtomicUsize,
 }
 
 impl<'a> Pages<'a> {
@@ -922,7 +930,18 @@ impl<'a> Pages<'a> {
                 print: (preferences.print_area, preferences.print_clip),
             },
             scanned,
+            searches: AtomicUsize::new(0),
         }
+    }
+
+    /// How many times this tree has been searched for a page's index: one for each
+    /// [`Self::index_of`] and each [`Self::indices`], however far the walk went.
+    ///
+    /// The measure of ADR 0124's bound: resolving many references costs one search when they are
+    /// resolved through [`Self::indices`]' map, and one apiece when each asks [`Self::index_of`].
+    #[must_use]
+    pub fn searches(&self) -> usize {
+        self.searches.load(Ordering::Relaxed)
     }
 
     /// Returns the number of pages.
@@ -1102,6 +1121,7 @@ impl<'a> Pages<'a> {
     #[must_use]
     pub fn index_of(&self, id: ObjectId) -> Option<usize> {
         let root = self.root.as_ref()?;
+        self.searches.fetch_add(1, Ordering::Relaxed);
         let mut counted = 0usize;
         locate(
             self.document,
@@ -1132,6 +1152,7 @@ impl<'a> Pages<'a> {
     /// [`Self::get`] uses, because the tree that would have stated an order is gone.
     #[must_use]
     pub fn indices(&self) -> BTreeMap<ObjectId, usize> {
+        self.searches.fetch_add(1, Ordering::Relaxed);
         let mut out = BTreeMap::new();
         if !self.scanned.is_empty() {
             for (index, recovered) in self.scanned.iter().enumerate() {

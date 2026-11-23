@@ -31,7 +31,7 @@ fuzz_target!(|data: &[u8]| {
     let first = Saml::of(octets);
     assert_eq!(first, Saml::of(octets));
     if first.signature.is_invalid() {
-        assert!(first.attributes_relied_on().is_empty());
+        assert_eq!(first.attributes_relied_on(), []);
     }
     if let Ok(assertion) = &first.assertion {
         assert!(assertion.attributes.len() <= MAX_ATTRIBUTES);

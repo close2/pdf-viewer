@@ -154,6 +154,8 @@ impl Opening {
                 settings,
                 reader,
                 Refusals::Terminal,
+                // This window plays a sound itself where its helper is there (ADR 3417).
+                viewer_host::sound::Hearing::of_a_playing_window(),
             ),
         })
     }

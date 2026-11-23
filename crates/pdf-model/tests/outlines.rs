@@ -184,20 +184,6 @@ fn a_stated_count_agrees_with_the_count_the_clause_defines() {
     assert_eq!(agreeing, 144);
 }
 
-/// Resolving a whole outline against the page tree costs **one** walk of it, not one per item.
-///
-/// The property is algorithmic and the test is a ratio, so it says the same thing on any
-/// machine: `Pages::index_of` is a search that cannot skip a subtree, and an outline that asks
-/// it once per item is quadratic in the document. ISO 32000-2's own outline is 988 items over
-/// 1023 pages, which cost **344 ms on every page turn** asked the quadratic way — a third of a
-/// second of arrow key, on the largest document anyone had opened (ADR 0124).
-///
-/// The bound is ten searches for 988 destinations. A version that walked per item would need
-/// nearly a thousand and fails this by two orders of magnitude; the fixed one uses one walk to
-/// build the map and then a lookup apiece. Timed rather than counted because the walk is not
-/// instrumented, and stated as a *ratio against a search this same test performs* so that a
-/// slow machine cannot fail it — the handover's rule that a wall-clock number lies under load
-/// applies to the absolute time and not to the shape of the curve.
 /// Every item of an outline, counted through its children.
 fn tally(items: &[pdf_model::outline::Item]) -> usize {
     items
@@ -206,6 +192,17 @@ fn tally(items: &[pdf_model::outline::Item]) -> usize {
         .sum()
 }
 
+/// Resolving a whole outline against the page tree costs **one** walk of it, not one per item.
+///
+/// `Pages::index_of` is a search that cannot skip a subtree, and an outline that asks it once per
+/// item is quadratic in the document. ISO 32000-2's own outline is 988 items over 1023 pages,
+/// which cost **344 ms on every page turn** asked the quadratic way — a third of a second of
+/// arrow key, on the largest document anyone had opened (ADR 0124).
+///
+/// The walks are counted, not timed (ADR 3420): `Pages::searches` goes up by one for each walk of
+/// the tree, so the bound is exactly one for the whole outline, and a version that searched per
+/// item would count nearly a thousand. A count says the same on any machine at any load, which a
+/// wall-clock ratio does not.
 #[test]
 fn an_outline_resolves_against_the_page_tree_once() {
     let path =
@@ -219,21 +216,19 @@ fn an_outline_resolves_against_the_page_tree_once() {
     let items = tally(&outline.items);
     assert!(items > 500, "{items} items is enough for the shape to show");
 
-    // One search, for a page near the end — which is what an outline's later items ask for.
+    // Control: one reference asked of `index_of` is one search, so the counter counts walks.
     let last = pages.indices().into_iter().max_by_key(|(_, index)| *index);
     let (id, _) = last.expect("the tree names its pages");
-    let start = std::time::Instant::now();
+    let before = pages.searches();
     assert_eq!(pages.index_of(id), Some(pages.len() - 1));
-    let one_search = start.elapsed();
+    assert_eq!(pages.searches() - before, 1, "one reference is one search");
 
-    let start = std::time::Instant::now();
+    let before = pages.searches();
     let section = outline.section_at(&document, &pages, 500);
-    let whole_outline = start.elapsed();
+    let searched = pages.searches() - before;
     assert_eq!(section, Some("12.5.6.7 Line annotations"));
-
-    assert!(
-        whole_outline < one_search * 10,
-        "{items} destinations resolved in {whole_outline:?}, against {one_search:?} for one \
-         search: that is a walk per item"
+    assert_eq!(
+        searched, 1,
+        "{items} destinations resolved in {searched} walks of the tree: that is a walk per item"
     );
 }

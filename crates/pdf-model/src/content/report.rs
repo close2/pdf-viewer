@@ -583,6 +583,11 @@ pub(super) const POSITIONING_OPERAND_NOT_A_NUMBER: &str =
 pub(super) const SPACING_OPERAND_NOT_A_NUMBER: &str =
     " with a spacing operand that is not a number, which Table 107 requires";
 
+/// What follows `Tj`, `'` or `"` in the sentence an [`Unsupported::Operator`] carries for a
+/// `string` operand that is not the string Table 107 gives it.
+pub(super) const SHOWN_OPERAND_NOT_A_STRING: &str =
+    " with a string operand that is not a string, which Table 107 requires";
+
 /// What follows the keyword in the sentence an [`Unsupported::Operator`] carries for a keyword
 /// inside an array.
 pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits only objects into";
@@ -636,6 +641,10 @@ pub enum StreamSyntaxFault {
     /// `TD` sets the leading from a numeric `ty`, `"` sets whichever spacing is a number and shows
     /// its string; the position does not move (ADR 3379).
     TextOperandNotANumber,
+    /// A `Tj`, `'` or `"` whose `string` operand is not the string ISO 32000-2 Table 107 states:
+    /// nothing is shown, and what the operator's stated equivalent does before the showing — `'`'s
+    /// and `"`'s move to the next line, `"`'s spacings — is still done (ADR 3419).
+    TextOperandNotAString,
 }
 
 impl Unsupported {
@@ -699,6 +708,11 @@ impl Unsupported {
         ) || operator.strip_suffix(SPACING_OPERAND_NOT_A_NUMBER) == Some("\"")
         {
             Some(StreamSyntaxFault::TextOperandNotANumber)
+        } else if matches!(
+            operator.strip_suffix(SHOWN_OPERAND_NOT_A_STRING),
+            Some("Tj" | "'" | "\"")
+        ) {
+            Some(StreamSyntaxFault::TextOperandNotAString)
         } else {
             None
         }

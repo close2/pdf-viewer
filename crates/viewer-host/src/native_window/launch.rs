@@ -80,6 +80,8 @@ pub struct Launch {
     archive: Option<viewer_core::Archiving>,
     /// The reader's words for whom it believes, kept for the trusted lists' fetch (ADR 2886).
     trusting: crate::Trusting,
+    /// Who plays the window's sounds, as the core was told (ADRs 3350, 3417).
+    hearing: crate::sound::Hearing,
 }
 
 impl Launch {
@@ -89,6 +91,9 @@ impl Launch {
     /// before the document: reading an anchor or a target directory is not needed to show page one
     /// (`CLAUDE.md` principle 2), and a policy applied halfway through is not a policy (ADR 1580).
     /// What each named directory refused goes where `refusals` says, before the document opens.
+    /// `hearing` is who plays the window's sounds, which the core is told on that thread too:
+    /// [`crate::sound::Hearing::of_a_playing_window`] for GTK's and Qt's windows, and
+    /// [`crate::sound::Hearing::HandsOn`] for the C ABI's.
     ///
     /// The file is the caller's to open — on disk rather than read whole, so that the core reads
     /// what page one needs through the handle (ADR 0809) — because what an unreadable file is
@@ -105,6 +110,7 @@ impl Launch {
         settings: crate::Settings,
         reader: crate::ReaderWords,
         refusals: Refusals,
+        hearing: crate::sound::Hearing,
     ) -> Self {
         let commands = opening_commands(
             standing(settings).window(),
@@ -118,6 +124,7 @@ impl Launch {
         let drawing_ahead = ahead.clone();
         let archive = reader.archive.clone();
         let trusting = reader.trusting();
+        let plays_here = hearing.plays_here();
         let anticipated = crate::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
@@ -127,9 +134,10 @@ impl Launch {
             for command in supply.commands {
                 events.extend(viewer.handle(command));
             }
-            // GTK's and Qt's windows play a RIFF WAVE clip themselves, so a rendition is judged
-            // for that player (ISO 32000-2 §13.2.2, ADR 3350).
-            events.extend(viewer.handle(Command::PlaysHere(true)));
+            // A window that plays a sound itself, and has the helper to play it through, has a
+            // rendition judged for that player; every other window has it judged for this
+            // machine's (ISO 32000-2 §13.2.2, ADRs 3350, 3417).
+            events.extend(viewer.handle(Command::PlaysHere(plays_here)));
             for refusal in supply
                 .refused
                 .into_iter()
@@ -157,6 +165,7 @@ impl Launch {
             anticipated,
             archive,
             trusting,
+            hearing,
         }
     }
 
@@ -180,6 +189,7 @@ impl Launch {
         )
         .archiving(self.archive)
         .trusting(self.trusting)
+        .heard_by(self.hearing)
         .opening(self.anticipated)
     }
 }
