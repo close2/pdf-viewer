@@ -44,6 +44,7 @@ mod missing_attribute_class_spec_audit;
 mod movie_poster;
 mod named_pages_spec_audit;
 mod named_property_actualtext_spec_audit;
+mod navigation_12_3_12_4_12_6_spec_audit;
 mod nested_mcaf_spec_audit;
 mod outlines;
 mod page_label_missing_style_spec_audit;

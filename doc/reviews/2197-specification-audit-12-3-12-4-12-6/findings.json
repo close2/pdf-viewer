@@ -1,0 +1,84 @@
+[
+ {
+  "id": "2197-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.3.3",
+   "12.6.4.2"
+  ],
+  "summary": "An outline item whose /A is a go-to action stating /SD resolves to /D's page. outline::destination reads the action's /D alone (Destination::read(document, action.get(\"D\")?)), while a link's go-to, the catalog's /OpenAction and a named destination's dictionary form all go through Destination::of_go_to / preferring_structure, which takes /SD first. Item::destination is what Outline::section_at maps pages back to items with, so the section a page is announced under (Event::PageChanged's section, the title bar) is the /D page's; activating the item is not affected, because interact::activate_object reads /A through action::read.",
+  "source": "ISO 32000-2 §12.6.4.2, Table 202, SD: \"If present, the structure destination should take precedence over destination in the D entry.\" §12.3.3, Table 151, A: \"The action that shall be performed when this item is activated\".",
+  "code": "crates/pdf-model/src/outline.rs:296 (destination: `Destination::read(document, action.get(\"D\")?)` at :308); crates/pdf-model/src/outline.rs:70 (Item::destination's doc, \"the /D of a go-to action in its /A\")",
+  "change": "Read the go-to action through Destination::of_go_to, as link.rs and action::one do, and restate Item::destination's doc.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/navigation_12_3_12_4_12_6_spec_audit.rs::an_outline_items_go_to_action_prefers_its_structure_destination_spec_audit — round 2197; its control (the same /D and /SD reached through /Dest naming a /Dests dictionary value) passes",
+  "status": "open"
+ },
+ {
+  "id": "2197-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.3.2.3",
+   "12.6.4.3"
+  ],
+  "summary": "A remote go-to's structure destination decides only the page. remote_go_to keeps /SD's first element (the element's ID) and drops the rest of the array, and interact's place_remote applies /D's view only where /D named the same page (ADR 2964), so /SD [(id) /XYZ 40 700 2] shows the element's page at whatever view was current. And where the element is found but identifies no page, RemoteGoTo::page_in falls through to /D, where §12.3.2.3 (and the local reading, Destination::resolve) take the first page.",
+  "source": "ISO 32000-2 §12.3.2.3: \"The structure element shall be used to identify the page to which the content belongs and, using that page, the structure destination shall behave identically to a destination.\" and \"In the case where no page content is identified, then the page reference shall be assumed to be the first page in the document.\" §12.6.4.3, Table 203, SD: \"If present, the structure destination should take precedence over destination in the D entry.\"",
+  "code": "crates/pdf-model/src/action.rs:1235 (structure_destination: the array's first element only); crates/pdf-model/src/action.rs:873 (RemoteGoTo::page_in: no first-page answer for an element found without content); crates/viewer-core/src/interact.rs place_remote (the view taken from /D only)",
+  "change": "Carry /SD's Table 149 view beside the element ID (or the whole array), apply it on the page the element identified, and answer page 0 for a found element that identifies no page, as Destination::resolve does locally.",
+  "execution": "FAIL (expected): crates/viewer-core/tests/navigation_12_3_12_4_12_6_spec_audit.rs::a_remote_structure_destination_applies_its_own_view_spec_audit and ::a_remote_structure_destination_without_content_takes_the_first_page_spec_audit — round 2197; each control (/D's /XYZ applied; /SD's element with content deciding over /D) passes",
+  "status": "open"
+ },
+ {
+  "id": "2197-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.6.2",
+   "12.6.4.12"
+  ],
+  "summary": "A /Next chain moves the view once. interact::resolve keeps the first page any request names (Jump::take is a no-op once a page is set, Request::Page uses `or_else`) and computes Named NextPage/PrevPage from the page the chain started on, so NextPage followed by NextPage advances one page, a go-to to page 2 followed by NextPage stays on page 2, and a go-to followed by a second go-to shows the first. The comment beside it says a chain that jumps twice \"has shown the second page either way\" (D02).",
+  "source": "ISO 32000-2 §12.6.2, Table 196, Next: \"The value is either a single action dictionary or an array of action dictionaries that shall be performed in order\"; §12.6.4.12, Table 215: NextPage \"Go to the next page of the document.\"",
+  "code": "crates/viewer-core/src/interact.rs:673 (Jump::take), :747 and :763 (resolve: first request wins; NextPage from open.page_index)",
+  "change": "Fold the page-naming requests in order: each destination replaces the page and view, and a named action is computed from the page the previous request reached.",
+  "execution": "FAIL (expected): crates/viewer-core/tests/navigation_12_3_12_4_12_6_spec_audit.rs::a_chain_of_page_actions_is_performed_in_order_spec_audit — round 2197; its controls (one NextPage, one go-to) pass; the three chains end on page index 1 where 2 is due",
+  "status": "open"
+ },
+ {
+  "id": "2197-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.3.3"
+  ],
+  "summary": "No host draws an outline item's colour or style. pdf_model::outline reads /C (clamped to DeviceRGB) and Table 152's italic and bold bits into Item, and viewer_host::outline_rows, which builds every host's outline panel row, copies the title, the open state, the action and the children and nothing else; PanelRow has no field for either, so a red bold item is the row a black plain one is. The 12.3.3 ledger note lists the three as read.",
+  "source": "ISO 32000-2 §12.3.3, Table 151, C: \"An array of three numbers in the range 0.0 to 1.0, representing the components in the DeviceRGB colour space of the colour that shall be used for the outline entry's text.\" §12.3.3: \"The value of the outline item dictionar y's F entry ( PDF 1.4 ) shall be an integer interpreted as one-bit flags specifying style characteristics for displaying the item.\"",
+  "code": "crates/viewer-host/src/panel.rs:323 (row_of_item); crates/viewer-host/src/panel.rs PanelRow (no colour or style field)",
+  "change": "Give PanelRow the item's colour and style and draw them in each toolkit's outline tree (viewer-ui, viewer-qt, viewer-gtk, viewer-ffi's panel rows).",
+  "execution": "FAIL (expected): crates/viewer-host/tests/outline_item_style_spec_audit.rs::an_outline_items_colour_and_style_reach_its_row_spec_audit — round 2197; its control (a different /Title is a different row) passes",
+  "status": "open"
+ },
+ {
+  "id": "2197-D01",
+  "kind": "documentation",
+  "clauses": [
+   "12.3.3",
+   "12.6.4"
+  ],
+  "summary": "outline::destination's doc says an item with an action other than a go-to has no destination because \"nothing this program does could follow one\". The program follows them: Item::id's own doc and interact::activate_object perform the item's whole /A chain (URI, GoToR, Named, SetOCGState, …) on Command::Activate.",
+  "source": "ISO 32000-2 §12.3.3, Table 151, A, as quoted in 2197-B01.",
+  "code": "crates/pdf-model/src/outline.rs:290-295",
+  "change": "Restate: Item::destination is the go-to's view for section_at; activation reads /A itself.",
+  "execution": "Read against interact::activate_object and crates/viewer-core/tests/headless.rs::an_outline_item_whose_action_is_a_uri_hands_it_over.",
+  "status": "open"
+ },
+ {
+  "id": "2197-D02",
+  "kind": "documentation",
+  "clauses": [
+   "12.6.2"
+  ],
+  "summary": "Jump's doc and resolve's comment say \"[t]he first request that names a page wins, because a chain that jumps twice has shown the second page either way and §12.6.2 states no rule for the pair\". The code shows the first page, not the second, and §12.6.2's rule is the order of performance (B03's cause).",
+  "source": "ISO 32000-2 §12.6.2, Table 196, Next, as quoted in 2197-B03.",
+  "code": "crates/viewer-core/src/interact.rs:661 and :747",
+  "change": "Restate with B03's fix.",
+  "execution": "Read; B03's test shows the first page kept.",
+  "status": "open"
+ }
+]

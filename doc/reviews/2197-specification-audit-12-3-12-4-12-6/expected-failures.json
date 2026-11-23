@@ -1,0 +1,36 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2197 on main 66ec8652",
+ "failures": [
+  {
+   "binary": "pdf-model::navigation_suite",
+   "test": "navigation_12_3_12_4_12_6_spec_audit::an_outline_items_go_to_action_prefers_its_structure_destination_spec_audit",
+   "finding": "2197-B01",
+   "log": "round-2197 nextest of pdf-model"
+  },
+  {
+   "binary": "viewer-core::navigation_12_3_12_4_12_6_spec_audit",
+   "test": "a_remote_structure_destination_applies_its_own_view_spec_audit",
+   "finding": "2197-B02",
+   "log": "round-2197 nextest of viewer-core"
+  },
+  {
+   "binary": "viewer-core::navigation_12_3_12_4_12_6_spec_audit",
+   "test": "a_remote_structure_destination_without_content_takes_the_first_page_spec_audit",
+   "finding": "2197-B02",
+   "log": "round-2197 nextest of viewer-core"
+  },
+  {
+   "binary": "viewer-core::navigation_12_3_12_4_12_6_spec_audit",
+   "test": "a_chain_of_page_actions_is_performed_in_order_spec_audit",
+   "finding": "2197-B03",
+   "log": "round-2197 nextest of viewer-core"
+  },
+  {
+   "binary": "viewer-host::outline_item_style_spec_audit",
+   "test": "an_outline_items_colour_and_style_reach_its_row_spec_audit",
+   "finding": "2197-B04",
+   "log": "round-2197 nextest of viewer-host"
+  }
+ ]
+}
