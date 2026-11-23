@@ -33,7 +33,7 @@
 
 use std::sync::Arc;
 
-use super::{BTreeMap, Document, Instant, MAX_SEQUENCE_TIME, ObjectId, ScriptRunner, ViewState};
+use super::{BTreeMap, Document, Duration, Instant, ObjectId, ScriptRunner, ViewState};
 use crate::xfa::{Change, Form, FormLanguage, Limits, Overridden, Ran, Resource, Runner, Stimulus};
 
 /// Most field names kept as entered by a person: a document's fields are its own, and a name past
@@ -178,7 +178,7 @@ impl<'a> Raised<'a> {
 }
 
 /// A runner seen as the [`Runner`] an activation runs its scripts through, counting the scripts
-/// that ran to an end and holding the whole activation to [`MAX_SEQUENCE_TIME`].
+/// that ran to an end and holding the whole activation to the view state's sequence budget.
 ///
 /// Each script is held to its runner's own deadline, and an activation may run ten thousand of
 /// them (`Limits::DEFAULT`), so thirty calculations each just under the deadline would hold the
@@ -189,15 +189,17 @@ struct ThroughRunner<'r> {
     runner: &'r dyn ScriptRunner,
     ran: usize,
     started: Instant,
+    budget: Duration,
     timed_out: bool,
 }
 
 impl<'r> ThroughRunner<'r> {
-    fn new(runner: &'r dyn ScriptRunner, started: Instant) -> Self {
+    fn new(runner: &'r dyn ScriptRunner, started: Instant, budget: Duration) -> Self {
         Self {
             runner,
             ran: 0,
             started,
+            budget,
             timed_out: false,
         }
     }
@@ -212,7 +214,7 @@ impl Runner for ThroughRunner<'_> {
         script: &str,
         steps_left: u64,
     ) -> Ran {
-        if self.timed_out || self.started.elapsed() > MAX_SEQUENCE_TIME {
+        if self.timed_out || self.started.elapsed() > self.budget {
             self.timed_out = true;
             return Ran {
                 steps: u64::MAX,
@@ -856,10 +858,10 @@ impl ViewState {
             self.report(format!("the XFA form: {sentence}"));
         }
         if timed_out {
-            self.report(format!(
+            self.report_stop(format!(
                 "the XFA form's scripts were stopped: they ran longer than their budget of \
                  {} ms, and the values they had calculated were dropped (ADR 2525)",
-                MAX_SEQUENCE_TIME.as_millis()
+                self.sequence_budget.as_millis()
             ));
         }
         let mut result = activation.result();
@@ -872,11 +874,11 @@ impl ViewState {
         self.hold_submits(activation.submits);
         let mut changed = applied.values;
         for name in &before_the_merge {
-            if started.elapsed() > MAX_SEQUENCE_TIME {
-                self.report(format!(
+            if started.elapsed() > self.sequence_budget {
+                self.report_stop(format!(
                     "the XFA form's entries made before its calculations ran were not all \
                      raised: the sequence ran longer than its budget of {} ms (ADR 2525)",
-                    MAX_SEQUENCE_TIME.as_millis()
+                    self.sequence_budget.as_millis()
                 ));
                 break;
             }
@@ -907,7 +909,7 @@ impl ViewState {
                 resource.activate_unscripted(fields, stimulus, keys, Limits::DEFAULT, validity);
             return (activation, false);
         };
-        let mut through = ThroughRunner::new(runner.as_ref(), started);
+        let mut through = ThroughRunner::new(runner.as_ref(), started, self.sequence_budget);
         let activation = resource.activate_held(
             fields,
             stimulus,

@@ -1,8 +1,8 @@
 //! Script requests, reports and saved-state comparisons exposed to the host.
 
 use super::{
-    ConsoleRequest, FocusRequest, Keys, MAX_REPORTS, ObjectId, Overrides, Property, Saved,
-    ViewChange, ViewState, WindowView,
+    ConsoleRequest, FocusRequest, Keys, MAX_REPORTS, MAX_STOP_REPORTS, ObjectId, Overrides,
+    Property, Saved, ViewChange, ViewState, WindowView,
 };
 
 impl ViewState {
@@ -225,5 +225,45 @@ impl ViewState {
         if self.script_reports.len() < MAX_REPORTS && !self.script_reports.contains(&sentence) {
             self.script_reports.push(sentence);
         }
+    }
+
+    /// Records that a sequence of scripts ran past its budget and was stopped, with the
+    /// sentence that says where: counted always, and reported even once ordinary sentences have
+    /// filled the report, up to a cap of its own (ADR 3469).
+    pub(in crate::view) fn report_stop(&mut self, sentence: String) {
+        self.sequences_stopped = self.sequences_stopped.saturating_add(1);
+        if self.script_reports.len() < MAX_REPORTS.saturating_add(MAX_STOP_REPORTS)
+            && !self.script_reports.contains(&sentence)
+        {
+            self.script_reports.push(sentence);
+        }
+    }
+
+    /// Holds every sequence of scripts to `budget` rather than the one second a person waiting on
+    /// a commit is owed (ADR 1603): a commit's walk of Table 224's `/CO` (ISO 32000-2 §12.7.3),
+    /// the open sequence, a document trigger's chain, an FDF file's scripts, an XFA form's
+    /// activation.
+    ///
+    /// For a host nobody watches — RFC 0008 section 6.7's corpus walk is the one this tree has —
+    /// whose figures must be a function of the bytes and not of how loaded the machine was: one
+    /// second is a measure of the machine, and a document whose walk runs near it is stopped at an
+    /// entry the load chooses (ADR 3469). Each script stays held to its runner's own budget, in
+    /// steps and in time, and a walk to Table 224's first 4 096 entries, so a longer sequence budget
+    /// is still a bound. Every stop is still counted in [`Self::sequences_stopped`] and said.
+    pub fn hold_sequences_to(&mut self, budget: std::time::Duration) {
+        self.sequence_budget = budget;
+    }
+
+    /// How many sequences of scripts were stopped by their time budget: a commit's walk of Table
+    /// 224's `/CO` (ISO 32000-2 §12.7.3), the open sequence, a document trigger's chain, an FDF
+    /// file's scripts, an XFA form's activation.
+    ///
+    /// Each such sequence is held to one second unless [`Self::hold_sequences_to`] said otherwise
+    /// (ADR 1603), so how far a stopped one ran depends on the machine as well as the file: a
+    /// caller that holds a figure to the bytes counts a document this answers non-zero for apart
+    /// (ADR 3469).
+    #[must_use]
+    pub fn sequences_stopped(&self) -> usize {
+        self.sequences_stopped
     }
 }

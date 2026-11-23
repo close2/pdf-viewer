@@ -49,6 +49,7 @@ mod script_annotations;
 mod script_properties;
 mod script_unreachable;
 mod script_unread;
+mod sequence_budget;
 mod signature_field_lock_spec_audit;
 mod signature_fields_spec_audit;
 mod signed_field_lock_shapes;

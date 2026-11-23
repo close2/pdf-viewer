@@ -365,6 +365,16 @@ pub struct ViewState {
     /// RFC 0008 section 6.8's rule for a failing script — reported once per document per site,
     /// never a storm — which a keystroke script raised per character would otherwise break.
     script_reports: Vec<String>,
+    /// Longest one sequence of scripts may take: `MAX_SEQUENCE_TIME` unless a host has held it
+    /// to another with [`Self::hold_sequences_to`] (ADR 3469).
+    sequence_budget: std::time::Duration,
+    /// How many sequences of scripts [`Self::sequence_budget`] stopped: a commit's walk of
+    /// `/CO`, the open sequence, a document trigger's chain, an FDF file's scripts or an XFA form's.
+    ///
+    /// Counted beside [`Self::script_reports`] rather than read from it, because the sentences are
+    /// capped and the count is what a caller holding a figure to the bytes needs: a sequence the
+    /// clock stopped ran as far as the machine's load let it (ADR 3469).
+    sequences_stopped: usize,
     /// What runs a field script Tier 0 does not, where a host has supplied one.
     ///
     /// RFC 0008 section 6.3's policy hook: absent is the level `off`, and nothing a host has not
@@ -1117,6 +1127,8 @@ impl ViewState {
             allocated: 0,
             uncommitted: BTreeMap::new(),
             script_reports: Vec::new(),
+            sequence_budget: scripts::MAX_SEQUENCE_TIME,
+            sequences_stopped: 0,
             runner: scripts::Runner::default(),
             scripting: scripts::Scripting::default(),
         }

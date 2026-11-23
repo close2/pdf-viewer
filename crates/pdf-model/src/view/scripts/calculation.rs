@@ -1,8 +1,8 @@
 //! Calculation-order walks and the values and formatting they update.
 
 use super::{
-    BTreeMap, Displayed, Document, Entry, Instant, MAX_SEQUENCE_TIME, Object, ObjectId,
-    ScriptEvent, ScriptSite, Site, Trigger, ViewState, calculation_order, site, supplied_script,
+    BTreeMap, Displayed, Document, Entry, Instant, Object, ObjectId, ScriptEvent, ScriptSite, Site,
+    Trigger, ViewState, calculation_order, site, supplied_script,
 };
 
 impl ViewState {
@@ -46,7 +46,7 @@ impl ViewState {
     /// The script's `event.value` is the value the field takes and `event.rc` set false leaves the
     /// field's value as it was. Every sentence a script's run owes is reported with the entry's
     /// position in the order, so a calculation stopped by its budget names where in the chain it
-    /// was; the walk as a whole is held to [`MAX_SEQUENCE_TIME`].
+    /// was; the walk as a whole is held to [`Self::sequence_budget`].
     pub(in crate::view) fn recalculate_scripts(
         &mut self,
         document: &Document,
@@ -73,12 +73,12 @@ impl ViewState {
         let started = Instant::now();
         for (index, field) in order.into_iter().enumerate() {
             let position = index.saturating_add(1);
-            if source.is_some() && started.elapsed() > MAX_SEQUENCE_TIME {
-                self.report(format!(
+            if source.is_some() && started.elapsed() > self.sequence_budget {
+                self.report_stop(format!(
                     "the calculation order was stopped at entry {position} of {count}: the walk \
                      ran longer than its budget of {} ms, and the entries from there on were not \
                      recalculated (ADR 1603)",
-                    MAX_SEQUENCE_TIME.as_millis()
+                    self.sequence_budget.as_millis()
                 ));
                 return;
             }

@@ -24,8 +24,10 @@
 //! # What one document's line holds
 //!
 //! For every field with a script at one of the four sites, a synthetic commit of the value it
-//! already holds: [`ViewState::set_field`] with its own text (Table 199's `/K` in its typing form,
-//! then Table 224's `/CO` walked), then [`ViewState::commit_field`] (`/K`'s commit form, then
+//! already holds: [`ViewState::set_field`] with its own text — or, for a choice field without
+//! Table 233's `Edit` flag, with the options its value selects, since a list is all such a field
+//! takes (`support/synthetic_commit.rs`, ADR 3470) — (Table 199's `/K` in its typing form, then
+//! Table 224's `/CO` walked), then [`ViewState::commit_field`] (`/K`'s commit form, then
 //! `/V`, then `/CO` again). Then every field's [`ViewState::displayed_value`] — `/F` applied —
 //! digested in name order. Beside the digest, five counts, each a column so that a change in one
 //! is visible as itself: fields, sites Tier 0 runs, sites it reports as not run, fields whose own
@@ -37,7 +39,13 @@
 //! tools/bounded.sh --lock --round <session> --data 8 --tree 12 -- \
 //!     cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
 //! PDFVIEWER_SCRIPT_CORPUS=update …   # rewrites tests/script_corpus.tsv and prints what moved
+//! PDFVIEWER_SCRIPT_CORPUS_HELD=1 …    # walks only the documents the file holds (ADR 3471)
 //! ```
+//!
+//! The held-only walk reads only the documents `tests/script_corpus.tsv` names, a minute rather
+//! than hours, for a round that changes how a field's value is read, set or committed. It cannot
+//! find a document newly carrying a field script, so `update` under it rewrites only the lines it
+//! read; a whole walk is what adds a document.
 
 // no sandbox worker: the walk reads field dictionaries, sets and commits field values and asks what each displays; no content stream is interpreted, so no image reaches `pdf-sandbox` (`tools/conformance/tests/sandbox_gates.rs`).
 
@@ -56,7 +64,7 @@ use std::time::Instant;
 
 use pdf_model::aform::Trigger;
 use pdf_model::aform::site::{self, Site};
-use pdf_model::view::{Committed, Entered, ViewState, widgets_by_field_name};
+use pdf_model::view::{Committed, ViewState, widgets_by_field_name};
 use pdf_syntax::{Document, Limits};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use sha2::{Digest as _, Sha256};
@@ -72,7 +80,10 @@ mod corpus_passwords;
 #[path = "support/script_population.rs"]
 mod script_population;
 
-use script_population::{MAX_FILE_BYTES, password_for, population, repository};
+use script_population::{MAX_FILE_BYTES, held_only, password_for, repository, walked};
+
+#[path = "support/synthetic_commit.rs"]
+mod synthetic_commit;
 
 /// The environment variable that turns the check into a regeneration.
 const UPDATE_VARIABLE: &str = "PDFVIEWER_SCRIPT_CORPUS";
@@ -185,6 +196,8 @@ fn examine(path: &Path) -> Examined {
     }
 
     let mut view = ViewState::of(&document);
+    view.hold_sequences_to(synthetic_commit::WALK_SEQUENCE_BUDGET);
+    let selection = synthetic_commit::selection_fields(&document, &view);
     let mut untaken = 0_usize;
     let mut refused = 0_usize;
     for name in scripted {
@@ -194,7 +207,8 @@ fn examine(path: &Path) -> Examined {
         if shown.obscured {
             continue;
         }
-        if view.set_field(&document, name, &Entered::Text(shown.text)) == 0 {
+        let entered = synthetic_commit::re_entered(&document, &view, name, shown.text, &selection);
+        if entered.is_none_or(|entered| view.set_field(&document, name, &entered) == 0) {
             untaken = untaken.saturating_add(1);
             continue;
         }
@@ -372,14 +386,19 @@ fn compare(
 fn every_scripted_field_displays_what_it_displayed_when_held() {
     let started = Instant::now();
     let root = repository();
-    let files = population(&root);
+    let files = walked(&root);
     let walked = walk(&files, &root);
     let measured = &walked.measured;
     let sum = |column: fn(&Line) -> usize| -> usize { measured.values().map(column).sum() };
     println!(
-        "{} PDF(s) walked, {} not opened; {} carry a field script at a Table 199 site: \
+        "{} PDF(s) walked{}, {} not opened; {} carry a field script at a Table 199 site: \
          {} sites run by Tier 0, {} reported as not run, {} values untaken, {} commits refused",
         files.len(),
+        if held_only() {
+            " (the held documents only)"
+        } else {
+            ""
+        },
         walked.unopened,
         measured.len(),
         sum(|line| line.run),

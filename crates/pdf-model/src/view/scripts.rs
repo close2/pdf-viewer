@@ -57,6 +57,15 @@ const MAX_CALCULATIONS: usize = 4096;
 /// Most distinct sentences [`ViewState::script_reports`] keeps.
 const MAX_REPORTS: usize = 256;
 
+/// Most sentences past [`MAX_REPORTS`] a stopped sequence may still add.
+///
+/// The cap holds a storm of throws to one screen, and a document whose throws fill it is the one
+/// most likely to run a sequence past [`MAX_SEQUENCE_TIME`]: a cap that hid the sentence saying
+/// the walk was stopped would hide the reason the values are what they are. The stops have a cap
+/// of their own, because a document can be committed field by field and stopped at each (ADR
+/// 3469).
+const MAX_STOP_REPORTS: usize = 16;
+
 /// Longest script text, in bytes, handed to a runner.
 ///
 /// Table 221's `/JS` is the document's, so its length is too. A field script is a few hundred bytes
@@ -69,7 +78,9 @@ pub(crate) const MAX_SCRIPT_BYTES: usize = 1 << 20;
 /// Each script is held to its runner's own budget; a sequence is a document's choice of how many
 /// scripts to run back to back, and four thousand calculations each just under a field event's
 /// budget would hold a commit for minutes. Ten field events' worth is longer than any sequence a
-/// form fills with and short enough that a person still reads the stop as one (ADR 1603).
+/// form fills with and short enough that a person still reads the stop as one (ADR 1603). It is
+/// the view state's default; a host nobody waits on may hold sequences to another budget with
+/// [`ViewState::hold_sequences_to`] (ADR 3469).
 pub(super) const MAX_SEQUENCE_TIME: Duration = Duration::from_secs(1);
 
 /// One script a runner is handed, at one of §12.6.3's sites or the document's open.

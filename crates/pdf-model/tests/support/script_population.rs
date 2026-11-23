@@ -51,6 +51,51 @@ pub(crate) fn password_for(path: &Path) -> &'static str {
         .map_or("", |known| known.password)
 }
 
+/// The environment variable that narrows both walks to the documents Tier 0's held file names.
+///
+/// Set to `1`, a walk reads only those documents — a few minutes rather than hours, because the
+/// census population is mostly documents with no field script, each opened to find that out — for a
+/// round that changes how a field's value is read, set or committed (ADR 3471).
+pub(crate) const HELD_ONLY_VARIABLE: &str = "PDFVIEWER_SCRIPT_CORPUS_HELD";
+
+/// Tier 0's held file, relative to the repository: its first column names every document either
+/// walk has found a field script in.
+const HELD_FILE: &str = "crates/pdf-model/tests/script_corpus.tsv";
+
+/// Whether [`HELD_ONLY_VARIABLE`] narrows this walk.
+pub(crate) fn held_only() -> bool {
+    std::env::var(HELD_ONLY_VARIABLE).as_deref() == Ok("1")
+}
+
+/// What this walk reads: [`population`], or under [`HELD_ONLY_VARIABLE`] the documents of the held
+/// file that are on this machine.
+pub(crate) fn walked(root: &Path) -> Vec<PathBuf> {
+    if !held_only() {
+        return population(root);
+    }
+    let held = std::fs::read_to_string(root.join(HELD_FILE)).unwrap_or_default();
+    let named: Vec<PathBuf> = held
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split('\t').next())
+        .filter(|key| !key.is_empty())
+        .map(|key| root.join(key))
+        .collect();
+    let mut files: Vec<PathBuf> = named
+        .iter()
+        .filter(|path| path.is_file())
+        .cloned()
+        .collect();
+    println!(
+        "{HELD_ONLY_VARIABLE}=1: {} document(s) held, {} on this machine",
+        named.len(),
+        files.len()
+    );
+    files.sort();
+    files.dedup();
+    files
+}
+
 /// Every PDF of the census population on this machine, sorted, each root's count printed.
 pub(crate) fn population(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();

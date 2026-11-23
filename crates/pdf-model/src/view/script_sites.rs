@@ -29,7 +29,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 use super::ViewState;
 use super::script_model::{DocumentTrigger, ScriptSite};
-use super::scripts::{MAX_SEQUENCE_TIME, ScriptEvent, ScriptText, read_script};
+use super::scripts::{ScriptEvent, ScriptText, read_script};
 use crate::action::{PageTrigger, Trigger as AnnotationTrigger};
 
 /// Most document-level scripts the open sequence runs.
@@ -146,13 +146,13 @@ impl ViewState {
         let mut calculate = false;
         let disabled = crate::requirements::disabled_handlers(document);
         for (index, (label, script, unread)) in library.iter().enumerate() {
-            if started.elapsed() > MAX_SEQUENCE_TIME {
-                self.report(format!(
+            if started.elapsed() > self.sequence_budget {
+                self.report_stop(format!(
                     "the open sequence was stopped at document-level script {} of {}: it ran \
                      longer than its budget of {} ms (ADR 1602)",
                     index.saturating_add(1),
                     library.len(),
-                    MAX_SEQUENCE_TIME.as_millis()
+                    self.sequence_budget.as_millis()
                 ));
                 return handed;
             }
@@ -226,13 +226,13 @@ impl ViewState {
         let started = Instant::now();
         let (mut changed, mut calculate) = (false, false);
         for (index, (label, script)) in scripts.iter().enumerate() {
-            if started.elapsed() > MAX_SEQUENCE_TIME {
-                self.report(format!(
+            if started.elapsed() > self.sequence_budget {
+                self.report_stop(format!(
                     "the FDF file's scripts were stopped at {} of {}: they ran longer than their \
                      budget of {} ms (ADR 1602)",
                     index.saturating_add(1),
                     scripts.len(),
-                    MAX_SEQUENCE_TIME.as_millis()
+                    self.sequence_budget.as_millis()
                 ));
                 break;
             }
@@ -653,13 +653,13 @@ impl ViewState {
         let started = Instant::now();
         let (mut handed, mut changed, mut calculate) = (0_usize, false, false);
         for (index, script) in scripts.iter().enumerate() {
-            if started.elapsed() > MAX_SEQUENCE_TIME {
-                self.report(format!(
+            if started.elapsed() > self.sequence_budget {
+                self.report_stop(format!(
                     "{subject} chain was stopped at script {} of {}: it ran longer than its \
                      budget of {} ms (ADR 1614)",
                     index.saturating_add(1),
                     scripts.len(),
-                    MAX_SEQUENCE_TIME.as_millis()
+                    self.sequence_budget.as_millis()
                 ));
                 break;
             }

@@ -12,7 +12,7 @@
 //! does for each such field: its own value typed in, committed (so `/K`, `/V`, `/CO` and `/F` fire)
 //! and its displayed value asked — and then Table 200's five, a save, a print and the close — with
 //! one [`pdf_script::Engine`] for the document, so every event runs in the realm the open filled,
-//! under [`Budget::FIELD_EVENT`]. Each run is counted in exactly
+//! under [`Budget::FIELD_EVENT`]'s steps and [`WALK_RUN_BUDGET`]'s clock. Each run is counted in exactly
 //! one of five columns: finished with no refusal, finished having been refused at least one call,
 //! stopped by a budget, thrown, and unparsed; beside them, the runs by site, which members were
 //! refused most, which names a `ReferenceError` found undefined, what the commonest uncaught throws
@@ -26,12 +26,18 @@
 //! RFC 0008 section 6.7's three columns with a ratchet each, and a floor under the population: no
 //! run over a budget ([`HELD_EXCEEDED`], held at zero, because a document that finishes under the
 //! budgets of section 4.3 stays under them), and ceilings on the runs that threw, the runs refused a
-//! call, and the scripts that do not parse; and at least [`HELD_RUNS`] runs, so that a walk which
-//! reached fewer documents cannot pass the ceilings by running less. The three are ceilings rather
-//! than equalities because the bridge grows every batch and each member bridged moves them; a
-//! figure below its ceiling is printed so the ceiling is lowered with it. `tools/batch.sh gates`
+//! call, and the scripts that do not parse; and at least [`Figures::runs`] runs, so that a walk
+//! which reached fewer documents cannot pass the ceilings by running less. The three are ceilings
+//! rather than equalities because the bridge grows every batch and each member bridged moves them;
+//! a figure below its ceiling is printed so the ceiling is lowered with it. `tools/batch.sh gates`
 //! runs this as `t2-script_corpus_engine`, building the `engine` feature for its own test binary
 //! and for nothing a person runs (ADR 1625).
+//!
+//! **A document a sequence budget stopped is named and not held.** ADR 1603 holds a commit's walk
+//! of `/CO`, and every other sequence of scripts, to one second, so how far such a walk runs is the
+//! machine's as well as the document's; its runs and throws are printed apart, and the throws,
+//! the unparsed scripts and the floor count only the documents no sequence budget stopped, which
+//! are a function of the bytes (ADR 3469).
 //!
 //! # Running it
 //!
@@ -39,7 +45,12 @@
 //! tools/bounded.sh --lock --round <session> --data 8 --tree 12 -- \
 //!     cargo test --profile gates -p pdf-script --features engine --test script_corpus -- \
 //!     --ignored --nocapture
+//! PDFVIEWER_SCRIPT_CORPUS_HELD=1 …   # only the documents Tier 0's held file names (ADR 3471)
 //! ```
+//!
+//! The held-only walk reads the documents `pdf-model`'s `tests/script_corpus.tsv` names, a few
+//! minutes rather than hours, and holds them to [`HELD_ONLY_FIGURES`]: for a round that changes how
+//! a field's value is read, set or committed.
 
 // no sandbox worker: the walk reads field dictionaries, sets and commits field values and asks what each displays; no content stream is interpreted, so no image reaches `pdf-sandbox`.
 
@@ -50,11 +61,11 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use pdf_model::aform::Trigger;
 use pdf_model::aform::site::{self, Site};
@@ -78,31 +89,68 @@ mod corpus_passwords;
 #[path = "../../pdf-model/tests/support/script_population.rs"]
 mod script_population;
 
-use script_population::{MAX_FILE_BYTES, password_for, population, repository};
+use script_population::{MAX_FILE_BYTES, held_only, password_for, repository, walked};
+
+#[path = "../../pdf-model/tests/support/synthetic_commit.rs"]
+mod synthetic_commit;
+
+/// The budget each run of the walk is held to: a field event's, its clock sixty times as long.
+///
+/// `Budget::FIELD_EVENT`'s steps bound the work a script may do, and they are a function of the
+/// script; its 100 ms clock is a measure of the machine, and a whole walk on a loaded one stopped a
+/// run by it that the steps let finish (ADR 3469). The ratio is the walk's sequence budget's to the
+/// viewer's, so the steps decide here as they do wherever the machine is not starved.
+const WALK_RUN_BUDGET: Budget = Budget {
+    wall: Duration::from_secs(6),
+    ..Budget::FIELD_EVENT
+};
 
 /// Runs a budget may stop: none (RFC 0008 section 6.7, ADR 1625).
 const HELD_EXCEEDED: usize = 0;
 
-/// Most runs that may end in an uncaught throw.
-const HELD_THREW: usize = 9_315;
+/// The figures a walk is held to that move with what the bridge carries: RFC 0008 section 6.7's
+/// ceilings on throws and unparsed scripts, and the floor under the runs (ADR 1625). Each counts
+/// only the documents no sequence budget stopped (ADR 3469).
+#[derive(Debug)]
+struct Figures {
+    /// Which population these are for, as the report names it.
+    population: &'static str,
+    /// Most runs that may end in an uncaught throw.
+    threw: usize,
+    /// Most runs whose script may not parse.
+    unparsed: usize,
+    /// Fewest runs the walk may hand the engine.
+    runs: usize,
+}
+
+/// The census population's figures.
+const WHOLE_FIGURES: Figures = Figures {
+    population: "the census population",
+    threw: 9_315,
+    unparsed: 8,
+    runs: 21_162,
+};
+
+/// The figures over the documents Tier 0's held file names, which
+/// `PDFVIEWER_SCRIPT_CORPUS_HELD=1` walks alone (ADR 3471).
+const HELD_ONLY_FIGURES: Figures = Figures {
+    population: "the held documents",
+    threw: 9_315,
+    unparsed: 8,
+    runs: 21_162,
+};
 
 /// Most runs that may finish having been refused a call: none, since a write to `this.pageNum` —
 /// the one refusal three scripts caught — is a page turn the host makes (ADR 1640).
 const HELD_FINISHED_REFUSED: usize = 0;
 
-/// Most runs whose script may not parse.
-const HELD_UNPARSED: usize = 8;
-
-/// Fewest runs the walk may hand the engine.
-const HELD_RUNS: usize = 21_101;
-
 /// One refused member's runs, the documents they were in, and whether the refusal was of an
 /// admitted member the bridge does not carry.
 type Refused = (usize, BTreeSet<String>, bool);
 
-/// How the runs ended, counted across the walk.
+/// How runs ended: RFC 0008 section 6.7's columns.
 #[derive(Debug, Default)]
-struct Tally {
+struct Endings {
     /// Runs that finished and were refused nothing.
     finished: AtomicUsize,
     /// Runs that finished having been refused at least one call.
@@ -113,6 +161,66 @@ struct Tally {
     threw: AtomicUsize,
     /// Runs whose script does not parse.
     unparsed: AtomicUsize,
+}
+
+/// [`Endings`] read out, for one document or a sum of them.
+#[derive(Debug, Default, Clone, Copy)]
+struct Counts {
+    /// Runs that finished and were refused nothing.
+    finished: usize,
+    /// Runs that finished having been refused at least one call.
+    finished_refused: usize,
+    /// Runs a budget stopped.
+    exceeded: usize,
+    /// Runs that threw.
+    threw: usize,
+    /// Runs whose script does not parse.
+    unparsed: usize,
+}
+
+impl Counts {
+    /// What `endings` holds now.
+    fn of(endings: &Endings) -> Self {
+        let count = |column: &AtomicUsize| column.load(Ordering::Relaxed);
+        Self {
+            finished: count(&endings.finished),
+            finished_refused: count(&endings.finished_refused),
+            exceeded: count(&endings.exceeded),
+            threw: count(&endings.threw),
+            unparsed: count(&endings.unparsed),
+        }
+    }
+
+    /// The two added, column by column.
+    fn add(self, other: Self) -> Self {
+        Self {
+            finished: self.finished.saturating_add(other.finished),
+            finished_refused: self.finished_refused.saturating_add(other.finished_refused),
+            exceeded: self.exceeded.saturating_add(other.exceeded),
+            threw: self.threw.saturating_add(other.threw),
+            unparsed: self.unparsed.saturating_add(other.unparsed),
+        }
+    }
+
+    /// Every run, however it ended.
+    fn runs(self) -> usize {
+        [
+            self.finished,
+            self.finished_refused,
+            self.exceeded,
+            self.threw,
+            self.unparsed,
+        ]
+        .into_iter()
+        .fold(0_usize, usize::saturating_add)
+    }
+}
+
+/// How the runs ended, counted across the walk.
+#[derive(Debug, Default)]
+struct Tally {
+    /// Every run's ending, whether or not its document's figures are held.
+    ended: Endings,
     /// Every refusal, by member, with how many runs, which documents, and whether it was an
     /// admitted member the bridge does not carry.
     members: Mutex<BTreeMap<String, Refused>>,
@@ -149,6 +257,9 @@ struct Counting {
     engine: Engine,
     /// The document's file name, for the largest library.
     document: String,
+    /// This document's runs alone, so that a document a sequence budget stopped can be counted
+    /// apart (ADR 3469).
+    own: Arc<Endings>,
     /// Whether each throw is printed with its site, field and script: one document's reading.
     print_throws: bool,
 }
@@ -181,9 +292,9 @@ impl ScriptRunner for Counting {
         {
             *largest = (event.script.len(), self.document.clone());
         }
-        let column = match &outcome.ending {
-            Ending::Finished if outcome.refusals.is_empty() => &self.tally.finished,
-            Ending::Finished => &self.tally.finished_refused,
+        let column: fn(&Endings) -> &AtomicUsize = match &outcome.ending {
+            Ending::Finished if outcome.refusals.is_empty() => |ended| &ended.finished,
+            Ending::Finished => |ended| &ended.finished_refused,
             Ending::Exceeded(exceeded) => {
                 if let Ok(mut budgets) = self.tally.budgets.lock() {
                     let kind = format!("{exceeded:?}");
@@ -191,7 +302,7 @@ impl ScriptRunner for Counting {
                     let held = budgets.entry(kind).or_default();
                     *held = held.saturating_add(1);
                 }
-                &self.tally.exceeded
+                |ended| &ended.exceeded
             }
             Ending::Threw(thrown) | Ending::Declined(thrown) => {
                 if self.print_throws {
@@ -235,11 +346,12 @@ impl ScriptRunner for Counting {
                     held.0 = held.0.saturating_add(1);
                     held.1.insert(self.document.clone());
                 }
-                &self.tally.threw
+                |ended| &ended.threw
             }
-            Ending::Unparsed(_) => &self.tally.unparsed,
+            Ending::Unparsed(_) => |ended| &ended.unparsed,
         };
-        column.fetch_add(1, Ordering::Relaxed);
+        column(&self.tally.ended).fetch_add(1, Ordering::Relaxed);
+        column(&self.own).fetch_add(1, Ordering::Relaxed);
         if let Ok(mut members) = self.tally.members.lock() {
             for refusal in &outcome.refusals {
                 let held = members.entry(refusal.member.clone()).or_default();
@@ -252,18 +364,30 @@ impl ScriptRunner for Counting {
     }
 }
 
-/// Runs the open sequence and every field script of one document that Tier 0 does not, answering
-/// how many fields had one; `print_throws` prints each throw with its script.
-fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
+/// One document's walk: how many fields had a script Tier 0 does not run, how its runs ended, and
+/// how many of its sequences of scripts `MAX_SEQUENCE_TIME` stopped.
+#[derive(Debug, Default, Clone, Copy)]
+struct Examined {
+    /// Fields with a `/K`, `/F`, `/V` or `/C` Tier 0 does not run.
+    fields: usize,
+    /// The document's runs, by how they ended.
+    counts: Counts,
+    /// [`ViewState::sequences_stopped`] at the end of the document's session.
+    stopped: usize,
+}
+
+/// Runs the open sequence and every field script of one document that Tier 0 does not;
+/// `print_throws` prints each throw with its script.
+fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> Examined {
     if std::fs::metadata(path).is_ok_and(|meta| meta.len() > MAX_FILE_BYTES) {
-        return 0;
+        return Examined::default();
     }
     let Ok(bytes) = std::fs::read(path) else {
-        return 0;
+        return Examined::default();
     };
     let Ok(document) = Document::open_with_password(bytes, Limits::DEFAULT, password_for(path))
     else {
-        return 0;
+        return Examined::default();
     };
     let table = widgets_by_field_name(&document);
     let scripted: Vec<&String> = table
@@ -287,18 +411,22 @@ fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
         .map(|(name, _)| name)
         .collect();
     if scripted.is_empty() {
-        return 0;
+        return Examined::default();
     }
     let mut view = ViewState::of(&document);
+    view.hold_sequences_to(synthetic_commit::WALK_SEQUENCE_BUDGET);
+    let own = Arc::new(Endings::default());
     view.run_scripts_with(Some(Arc::new(Counting {
         tally: Arc::clone(tally),
-        engine: Engine::new(Budget::FIELD_EVENT),
+        own: Arc::clone(&own),
+        engine: Engine::new(WALK_RUN_BUDGET),
         document: path
             .file_name()
             .map_or_default(|name| name.to_string_lossy().into_owned()),
         print_throws,
     })));
     view.run_open_scripts(&document, 0);
+    let selection = synthetic_commit::selection_fields(&document, &view);
     for name in &scripted {
         let Some(shown) = view.field_value(&document, name) else {
             continue;
@@ -306,7 +434,12 @@ fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
         if shown.obscured {
             continue;
         }
-        view.set_field(&document, name, &Entered::Text(shown.text));
+        let Some(entered) =
+            synthetic_commit::re_entered(&document, &view, name, shown.text, &selection)
+        else {
+            continue;
+        };
+        view.set_field(&document, name, &entered);
         view.commit_field(&document, name);
         let _ = view.displayed_value(&document, name);
     }
@@ -329,7 +462,11 @@ fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
             println!("  {sentence}");
         }
     }
-    scripted.len()
+    Examined {
+        fields: scripted.len(),
+        counts: Counts::of(&own),
+        stopped: view.sequences_stopped(),
+    }
 }
 
 #[test]
@@ -337,34 +474,33 @@ fn examine(path: &Path, tally: &Arc<Tally>, print_throws: bool) -> usize {
 fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted() {
     let started = Instant::now();
     let root = repository();
-    let files = population(&root);
+    let files = walked(&root);
     let tally = Arc::new(Tally::default());
-    let fields: usize = files
+    let examined: Vec<(&PathBuf, Examined)> = files
         .par_iter()
-        .map(|path| examine(path, &tally, false))
-        .sum();
-    let count = |column: &AtomicUsize| column.load(Ordering::Relaxed);
-    let runs = [
-        &tally.finished,
-        &tally.finished_refused,
-        &tally.exceeded,
-        &tally.threw,
-        &tally.unparsed,
-    ]
-    .into_iter()
-    .map(count)
-    .fold(0_usize, usize::saturating_add);
+        .map(|path| (path, examine(path, &tally, false)))
+        .collect();
+    let fields: usize = examined.iter().map(|(_, one)| one.fields).sum();
+    let all = Counts::of(&tally.ended);
+    let runs = all.runs();
     println!(
-        "{} PDF(s) walked; {fields} field(s) with a /K, /F, /V or /C Tier 0 does not run; {runs} engine \
-         run(s): {} finished, {} finished refused, {} over a budget, {} threw, {} unparsed; {} s",
+        "{} PDF(s) walked{}; {fields} field(s) with a /K, /F, /V or /C Tier 0 does not run; {runs} \
+         engine run(s): {} finished, {} finished refused, {} over a budget, {} threw, {} unparsed; \
+         {} s",
         files.len(),
-        count(&tally.finished),
-        count(&tally.finished_refused),
-        count(&tally.exceeded),
-        count(&tally.threw),
-        count(&tally.unparsed),
+        if held_only() {
+            " (the held documents only)"
+        } else {
+            ""
+        },
+        all.finished,
+        all.finished_refused,
+        all.exceeded,
+        all.threw,
+        all.unparsed,
         started.elapsed().as_secs()
     );
+    let held = unstopped(&root, &examined);
     if let Ok(budgets) = tally.budgets.lock() {
         println!("budgets exceeded: {budgets:?}");
     }
@@ -381,6 +517,39 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
     if let Ok(thrown_at) = tally.thrown_at.lock() {
         println!("throws by site: {thrown_at:?}");
     }
+    undefined_names(&tally);
+    if let Ok(kinds) = tally.kinds.lock() {
+        println!("throws by name: {kinds:?}");
+    }
+    if let Ok(members) = tally.members.lock() {
+        let mut ranked: Vec<_> = members.iter().collect();
+        ranked.sort_by(|left, right| right.1.0.cmp(&left.1.0).then(left.0.cmp(right.0)));
+        for (member, (refused, documents, _)) in ranked.iter().take(25) {
+            println!(
+                "refused {refused:>6} run(s) {:>4} document(s)  {member}",
+                documents.len()
+            );
+        }
+        not_bridged(&members);
+    }
+    throws_by_cause(&tally);
+    assert!(
+        fields == 0 || runs > 0,
+        "the hook handed none of {fields} field script(s) to the engine"
+    );
+    hold(
+        held,
+        all,
+        if held_only() {
+            &HELD_ONLY_FIGURES
+        } else {
+            &WHOLE_FIGURES
+        },
+    );
+}
+
+/// Every name a `ReferenceError` found undefined, the most widespread first.
+fn undefined_names(tally: &Tally) {
     if let Ok(undefined) = tally.undefined.lock() {
         let mut ranked: Vec<(&String, &(usize, BTreeSet<String>))> = undefined.iter().collect();
         ranked.sort_by(|left, right| {
@@ -410,26 +579,35 @@ fn every_script_tier_0_does_not_run_is_run_in_its_document_s_realm_and_counted()
             );
         }
     }
-    if let Ok(kinds) = tally.kinds.lock() {
-        println!("throws by name: {kinds:?}");
-    }
-    if let Ok(members) = tally.members.lock() {
-        let mut ranked: Vec<_> = members.iter().collect();
-        ranked.sort_by(|left, right| right.1.0.cmp(&left.1.0).then(left.0.cmp(right.0)));
-        for (member, (refused, documents, _)) in ranked.iter().take(25) {
-            println!(
-                "refused {refused:>6} run(s) {:>4} document(s)  {member}",
-                documents.len()
-            );
+}
+
+/// The runs of the documents no sequence budget stopped, naming each one a budget did stop.
+///
+/// A document a sequence budget stopped ran as far as the machine's load let it, so its runs are
+/// counted apart from the held figures and named (ADR 3469).
+fn unstopped(root: &Path, examined: &[(&PathBuf, Examined)]) -> Counts {
+    let mut held = Counts::default();
+    let mut stopped = Counts::default();
+    for (path, one) in examined {
+        if one.stopped == 0 {
+            held = held.add(one.counts);
+            continue;
         }
-        not_bridged(&members);
+        stopped = stopped.add(one.counts);
+        let key = path.strip_prefix(root).unwrap_or(path).display();
+        println!(
+            "stopped {:>3} sequence(s), {:>6} run(s), {:>6} threw: {key}",
+            one.stopped,
+            one.counts.runs(),
+            one.counts.threw
+        );
     }
-    throws_by_cause(&tally);
-    assert!(
-        fields == 0 || runs > 0,
-        "the hook handed none of {fields} field script(s) to the engine"
+    println!(
+        "documents a sequence budget stopped: {} run(s), {} threw, not held (ADR 3469)",
+        stopped.runs(),
+        stopped.threw
     );
-    hold(&tally, runs);
+    held
 }
 
 /// The census of what RFC 0008 section 4.2 admits and the bridge does not carry: every member of
@@ -530,40 +708,49 @@ fn depth_and_questions(tally: &Tally) {
 
 /// Holds the walk's endings to the column's ceilings and its runs to the floor (ADR 1625), printing
 /// the held figures and each one the walk has moved below them.
-fn hold(tally: &Tally, runs: usize) {
-    let count = |column: &AtomicUsize| column.load(Ordering::Relaxed);
-    let held = [
-        ("over a budget", count(&tally.exceeded), HELD_EXCEEDED),
-        ("threw", count(&tally.threw), HELD_THREW),
+///
+/// `held` is the documents no sequence budget stopped, which the throws, the unparsed scripts and
+/// the floor count (ADR 3469); `all` is every run, which the two zero ceilings hold, since a run a
+/// budget stopped or a call refused is one too many in any document.
+fn hold(held: Counts, all: Counts, figures: &Figures) {
+    let runs = held.runs();
+    let columns = [
+        ("over a budget", all.exceeded, HELD_EXCEEDED),
+        ("threw", held.threw, figures.threw),
         (
             "finished refused",
-            count(&tally.finished_refused),
+            all.finished_refused,
             HELD_FINISHED_REFUSED,
         ),
-        ("unparsed", count(&tally.unparsed), HELD_UNPARSED),
+        ("unparsed", held.unparsed, figures.unparsed),
     ];
     println!(
-        "held: {HELD_EXCEEDED} over a budget, {HELD_THREW} threw, {HELD_FINISHED_REFUSED} finished \
-         refused, {HELD_UNPARSED} unparsed at most; {HELD_RUNS} run(s) at least (ADR 1625)"
+        "held over {}: {HELD_EXCEEDED} over a budget, {} threw, {HELD_FINISHED_REFUSED} finished \
+         refused, {} unparsed at most; {} run(s) at least (ADRs 1625, 3469)",
+        figures.population, figures.threw, figures.unparsed, figures.runs
     );
-    for (column, now, ceiling) in held {
+    for (column, now, ceiling) in columns {
         if now < ceiling {
             println!("ratchet: {column} fell from {ceiling} to {now}; lower its ceiling to it");
         }
     }
-    if runs > HELD_RUNS {
-        println!("ratchet: the runs rose from {HELD_RUNS} to {runs}; raise the floor to it");
+    if runs > figures.runs {
+        println!(
+            "ratchet: the runs rose from {} to {runs}; raise the floor to it",
+            figures.runs
+        );
     }
-    let over: Vec<String> = held
+    let over: Vec<String> = columns
         .iter()
         .filter(|(_, now, ceiling)| now > ceiling)
         .map(|(column, now, ceiling)| format!("{column}: {now} against {ceiling}"))
         .collect();
     assert!(
-        over.is_empty() && runs >= HELD_RUNS,
+        over.is_empty() && runs >= figures.runs,
         "the Tier 1 column moved past what it holds — a run a budget stopped, a script that now \
-         throws or is refused, or fewer runs ({runs} against {HELD_RUNS}): {over:?}. Read the \
-         throws and refusals above before moving a figure (ADR 1625)"
+         throws or is refused, or fewer runs ({runs} against {}): {over:?}. Read the throws and \
+         refusals above before moving a figure (ADR 1625)",
+        figures.runs
     );
 }
 
@@ -582,10 +769,13 @@ fn one_document_s_throws_are_printed_with_their_scripts() {
         return;
     };
     let tally = Arc::new(Tally::default());
-    let fields = examine(Path::new(&path), &tally, true);
+    let one = examine(Path::new(&path), &tally, true);
     println!(
-        "{fields} scripted field(s); {} run(s) threw",
-        tally.threw.load(Ordering::Relaxed)
+        "{} scripted field(s); {} run(s), {} threw; {} sequence(s) stopped by their budget",
+        one.fields,
+        one.counts.runs(),
+        one.counts.threw,
+        one.stopped
     );
 }
 

@@ -523,6 +523,18 @@ cargo run --profile gates -p pdf-model --example parallel_sweep -- [file.pdf] [t
   # apiece, since the two arrangements differ most on the second, and `VmHWM` from
   # `/proc/self/status` so the memory is the kernel's number rather than ours. ADR 0260
 cargo build --release -p pdf-script-worker --features engine --bins   # the script stage's worker (ADR 1620)
+PDFVIEWER_SCRIPT_CORPUS_HELD=1 tools/bounded.sh --lock --round <N> --data 6 --tree 6 -- \
+  cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
+PDFVIEWER_SCRIPT_CORPUS_HELD=1 tools/bounded.sh --lock --round <N> --data 6 --tree 6 -- \
+  cargo test --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture
+  # **the two script walks over the documents Tier 0's held file names, and nothing else** (ADR
+  # 3471): under a minute and about eight minutes once built, where the whole census population
+  # takes hours and is the train's. Owed by a round that changes how a field's value is read, set
+  # or committed — three commits moved the held file unseen because neither walk was a round's
+  # (record 2188). Tier 0's `PDFVIEWER_SCRIPT_CORPUS=update` under it rewrites only the held lines;
+  # Tier 1 holds the held documents to `HELD_ONLY_FIGURES`. Both hold every sequence of scripts to a
+  # minute rather than the viewer's second, so neither figure moves with the machine's load (ADR
+  # 3469); a document a sequence budget still stops is named and not held.
 PDFVIEWER_LAUNCH_CLOCKS=1 cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
   # **the launch gate's other half, run when a round has the machine to itself.** `doc/todo/02`
   # section 2 runs this same gate with the variable unset and judges the figures no machine can

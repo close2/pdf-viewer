@@ -277,7 +277,7 @@ corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-11677-0.pdf	12	6	0	2	0	83a1
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-11677-1.pdf	12	6	0	2	0	83a15be5abdc81ab
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-12430-0.pdf	147	116	0	0	0	d82bc5766a257846
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-12430-1.pdf	147	116	0	0	0	4da10281d6933ce6
-corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-8048-0.pdf	15	18	9	6	0	f5bb272682400b53
+corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-8048-0.pdf	15	18	9	3	0	f5bb272682400b53
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-8143-0.pdf	154	0	43	43	0	7ebd8ca7966af4a1
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-8159-0.pdf	154	0	43	43	0	7ebd8ca7966af4a1
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-9907-0.pdf	161	44	0	0	0	56701ed86191f436
@@ -295,11 +295,11 @@ corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-LINK-12475-0.pdf	67	34	9	6	
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-LINK-6394-4.pdf	42	20	0	0	0	c4cb84c8436901d3
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-LINK-6708-0.pdf	10	2	0	0	1	870b5ce4ae3ac2e4
 corpus-cache/tika-issue-tracker/batch4/pdf.js/pdf.js-LINK-7549-1.pdf	13	2	0	0	0	5502a89fd09ac79c
-corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-4.pdf	9	0	4	1	0	71d55c58186ee093
-corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-5.pdf	9	0	4	1	0	71d55c58186ee093
-corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-7.pdf	9	0	4	1	0	71d55c58186ee093
-corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-8.pdf	9	0	4	1	0	71d55c58186ee093
-corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-9.pdf	9	0	4	1	0	71d55c58186ee093
+corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-4.pdf	9	0	4	0	0	71d55c58186ee093
+corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-5.pdf	9	0	4	0	0	71d55c58186ee093
+corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-7.pdf	9	0	4	0	0	71d55c58186ee093
+corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-8.pdf	9	0	4	0	0	71d55c58186ee093
+corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2216-9.pdf	9	0	4	0	0	71d55c58186ee093
 corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2944-0.pdf	9	0	1	0	0	d90fed5e5a1d6af5
 corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-1496-2.pdf	75	0	83	12	0	273a88c6f7926fd1
 corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-361-0.pdf	627	356	76	76	0	9a405351ec7a745e
