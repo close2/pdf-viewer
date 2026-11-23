@@ -370,11 +370,23 @@ pub(crate) fn cid_to_glyph(
     })
 }
 
-/// Reads a font's `/ToUnicode` `CMap`, which is absent more often than not.
 /// ISO 32000-2 §9.10.2's third method, steps b) to d): the character collection's own table.
 ///
 /// > b. Obtain the registry and ordering of the character collection used by the font's CMap
 /// > (for example, Adobe and Japan1) from its CIDSystemInfo dictionary.
+///
+/// # The descendant's `/CIDSystemInfo` stands for the `CMap`'s, by choice
+///
+/// The step names the `CMap`'s dictionary, and this reads the descendant `CIDFont`'s. The
+/// reason is §9.7.3's statement of what that entry is: the collection assumed by the `CIDFont`
+/// the `CMap` is used with, "the interpretation of the CID numbers used by the `CIDFont`".
+/// Step e) maps a CID the `CIDFont` draws, so the collection that interprets it is the
+/// `CIDFont`'s; on a conforming file the two are one, because "\[i]n order for a `CIDFont` and
+/// a `CMap` to be compatible, their Registry and Ordering values shall be the same"; and under
+/// `Identity-H` or `Identity-V`, which §9.7.3 makes "compatible with all `CIDFonts`" and which
+/// name no collection a table could exist for, the clause's own condition for using this
+/// method is the descendant's collection. Where a file's two disagree, the glyph drawn is the
+/// descendant's, and its collection says what that glyph is.
 ///
 /// `None` where the descendant states no `/CIDSystemInfo`, or states one this binary carries no
 /// table for — which is every registry but Adobe's, and `Identity` orderings, where the codes

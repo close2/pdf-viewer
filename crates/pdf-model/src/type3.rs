@@ -216,7 +216,7 @@ pub struct Type3Font {
     /// defines as painting nothing, so nothing is substituted and the residue is namable.
     /// ADR 0866.
     char_procs_damage: Option<CharProcsDamage>,
-    /// `/Widths`, in glyph space, starting at `/FirstChar`.
+    /// `/Widths`, in glyph space, starting at `/FirstChar` and ending at `/LastChar`.
     widths: Vec<f32>,
     /// `/FirstChar`: the code `widths[0]` describes.
     first_char: i64,
@@ -224,12 +224,10 @@ pub struct Type3Font {
     resources: Option<Dictionary>,
     /// `/ToUnicode`, the first of §9.10.2's methods and the producer's own statement.
     ///
-    /// **This comment used to say a Type 3 glyph name "names a procedure, so — unlike every
-    /// other simple font — the name is no evidence at all about the character".** It names a
-    /// procedure *and* a character: §9.6.4's step b) is "\[g]et the glyph name from the Encoding
-    /// entry", which is the glyph selection algorithm §9.10.2's second method asks about, and a
-    /// producer that calls its procedure `/colon` has said which character it draws. See
-    /// [`Type3Font::text`] for the two methods that follow this one.
+    /// A Type 3 glyph name names a procedure *and* a character: §9.6.4's step b) is "\[g]et the
+    /// glyph name from the Encoding entry", which is the glyph selection algorithm §9.10.2's
+    /// second method asks about, and a producer that calls its procedure `/colon` has said which
+    /// character it draws. See [`Type3Font::text`] for the two methods that follow this one.
     to_unicode: pdf_font::tounicode::ToUnicode,
 }
 
@@ -310,12 +308,25 @@ impl Type3Font {
             .get_key(dict, "FirstChar")
             .as_integer()
             .unwrap_or_default();
+        // Table 110 bounds `/Widths` on both sides — "[f]or character codes outside the range
+        // FirstChar to LastChar, the width shall be 0" — so an array longer than the range
+        // states nothing for the codes past `/LastChar`, and it is cut there once rather than
+        // asked again at every code. An absent `/LastChar`, which the table makes Required,
+        // leaves the array its own length: the range then ends where the array does, as
+        // `pdf_font`'s `stated_widths` reads a simple font that never stated the endpoint.
+        let stated = document
+            .get_key(dict, "LastChar")
+            .as_integer()
+            .map(|last_char| {
+                usize::try_from(last_char.saturating_sub(first_char).saturating_add(1)).unwrap_or(0)
+            });
         let widths = document
             .get_key(dict, "Widths")
             .as_array()
             .map_or_default(|items| {
                 items
                     .iter()
+                    .take(stated.unwrap_or(usize::MAX))
                     .map(|item| document.resolve(item))
                     .map(|item| item.as_number().map_or(0.0, narrow))
                     .collect()
@@ -405,7 +416,8 @@ impl Type3Font {
     #[must_use]
     pub fn advance(&self, code: u32) -> f32 {
         // "For character codes outside the range FirstChar to LastChar, the width shall be
-        // 0" — Table 110, which is why nothing here consults `/MissingWidth`.
+        // 0" — Table 110, which is why nothing here consults `/MissingWidth`. The array was
+        // cut at `/LastChar` when it was read, so both sides of the range end it here.
         let width = i64::from(code)
             .checked_sub(self.first_char)
             .and_then(|index| usize::try_from(index).ok())
@@ -464,12 +476,11 @@ impl Type3Font {
         // for this font". So a name *is* used, and where it is a name the Adobe Glyph List knows,
         // the clause says what it means.
         //
-        // What the field comment beside `to_unicode` used to say — that a Type 3 glyph name
-        // "names a procedure, so … the name is no evidence at all about the character" — is
-        // true of the procedure and not of the name: a producer that calls its procedure
-        // `/colon` has said which character it draws, in the same table the clause sends every
-        // other simple font to. `pr4922.pdf`'s Type 3 font names its twenty glyphs `/P`, `/a`,
-        // `/colon`, `/five`, `/hyphen`, `/slash` and so on, and nothing in it is invented.
+        // The name is the procedure's and the character's at once: a producer that calls its
+        // procedure `/colon` has said which character it draws, in the same table the clause
+        // sends every other simple font to. `pr4922.pdf`'s Type 3 font names its twenty glyphs
+        // `/P`, `/a`, `/colon`, `/five`, `/hyphen`, `/slash` and so on, and nothing in it is
+        // invented.
         if let Some(text) = self
             .encoding
             .get(&u8::try_from(code).unwrap_or(0))

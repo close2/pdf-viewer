@@ -250,6 +250,39 @@ impl Mapping {
         None
     }
 
+    /// Lays a referencing file's mappings for this length over the ones it inherited.
+    ///
+    /// Table 118's `/UseCMap`: "If this entry is present, the referencing `CMap` shall specify
+    /// only the character mappings that differ from the referenced `CMap`." A code the
+    /// referencing file states is therefore answered by that file, whichever operator either
+    /// file used for it; [`Mapping::get`] asks singles before ranges, so the order of the two
+    /// kinds alone cannot carry that. Each pair is settled here instead:
+    ///
+    /// - a single over a single replaces it in the map;
+    /// - a single over a range answers first, because singles are asked first;
+    /// - a range over a range is put in front, and the first range to hold a code answers;
+    /// - a range over a single removes the inherited single, which would otherwise answer
+    ///   before the range is reached.
+    ///
+    /// The last is the only pair that needs removal, and it costs one ordered-map range walk
+    /// per range the referencing file states, bounded by the inherited singles it removes.
+    fn override_with(&mut self, own: Self) {
+        for &(low, high, _) in &own.ranges {
+            let restated: Vec<u32> = self
+                .singles
+                .range(low..=high)
+                .map(|(&code, _)| code)
+                .collect();
+            for code in restated {
+                self.singles.remove(&code);
+            }
+        }
+        self.singles.extend(own.singles);
+        let mut ranges = own.ranges;
+        ranges.append(&mut self.ranges);
+        self.ranges = ranges;
+    }
+
     /// Whether this mapping says nothing at all.
     fn is_empty(&self) -> bool {
         self.singles.is_empty() && self.ranges.is_empty()
@@ -466,17 +499,10 @@ impl CMap {
             }
         }
         for (into, from) in self.mappings.iter_mut().zip(own.mappings) {
-            into.singles.extend(from.singles);
-            // In front, so a referencing file's range wins over the one it replaces.
-            let mut ranges = from.ranges;
-            ranges.append(&mut into.ranges);
-            into.ranges = ranges;
+            into.override_with(from);
         }
         for (into, from) in self.notdef.iter_mut().zip(own.notdef) {
-            into.singles.extend(from.singles);
-            let mut ranges = from.ranges;
-            ranges.append(&mut into.ranges);
-            into.ranges = ranges;
+            into.override_with(from);
         }
     }
 
@@ -1202,6 +1228,39 @@ mod tests {
         assert!(over.has_codespace(), "inherited from the referenced CMap");
         assert_eq!(over.cid(over.next_code(&[0x41])), Some(1), "inherited");
         assert_eq!(over.cid(over.next_code(&[0x42])), Some(99), "overridden");
+    }
+
+    /// Table 118's `/UseCMap` makes what the referencing file states the mapping for that code,
+    /// so every pairing of the two operators across the inheritance gives the referencing
+    /// file's CID, for the character mappings and the notdef mappings alike.
+    #[test]
+    fn a_referencing_cmap_overrides_whichever_operator_either_file_used() {
+        let single = |kind: &str, cid: u32| format!("1 begin{kind}char <41> {cid} end{kind}char ");
+        let range =
+            |kind: &str, cid: u32| format!("1 begin{kind}range <41> <41> {cid} end{kind}range ");
+        for kind in ["cid", "notdef"] {
+            for (base_says, over_says) in [
+                (single(kind, 5), single(kind, 10)),
+                (single(kind, 5), range(kind, 10)),
+                (range(kind, 5), single(kind, 10)),
+                (range(kind, 5), range(kind, 10)),
+            ] {
+                let base = CMap::parse(
+                    format!("1 begincodespacerange <00> <FF> endcodespacerange {base_says}")
+                        .as_bytes(),
+                    None,
+                );
+                let over =
+                    CMap::parse(format!("/Base usecmap {over_says}").as_bytes(), Some(&base));
+                let code = over.next_code(&[0x41]);
+                let answer = if kind == "cid" {
+                    over.cid(code)
+                } else {
+                    over.notdef_cid(code)
+                };
+                assert_eq!(answer, Some(10), "{over_says} over {base_says}");
+            }
+        }
     }
 
     #[test]

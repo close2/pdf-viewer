@@ -194,13 +194,20 @@ fn fill_dictionary_gaps_from_standard(
 /// its `/ToUnicode` says U+00A0 and its (3, 1) subtable has a glyph for that, where the code offered
 /// to the (1, 0) subtable as a Mac OS Roman code reached a superscript two (ADR 1943).
 ///
-/// The second offers the code to every subtable the font has, in the font's own order,
-/// which is what this crate did for every font before the algorithm above existed. It still
+/// The second offers the code to every subtable the font has, in the font's own order. It
 /// earns its place twice over: a symbolic font carrying only a (3, 1) subtable — common,
 /// and contrary to the guidelines — reaches no rule above and its codes really are ASCII;
 /// and `issue5501.pdf`'s subset carries its byte-to-glyph map in a (0, 0) subtable, which
 /// §9.6.5.4 does not mention at all and which is nonetheless the only correct answer for
 /// that font.
+///
+/// Below it, and for a **symbolic** font only, the glyph name the ignored `/Encoding` gives
+/// the code is carried through the (3, 1) subtable, the (1, 0) subtable or `post` as the
+/// clause's second route carries a nonsymbolic font's. §9.6.5.4 ignores the entry, so this is
+/// no step of the clause; it is this processor's choice, taken only where the code as a
+/// character reached nothing, so that a font the producer flagged symbolic and named glyphs
+/// for anyway is not drawn blank. Its codes are recorded with the other tiers', and the
+/// names it used are the only ones a symbolic font keeps for §9.10.2's second method.
 ///
 /// The third treats the code as a glyph index, and applies **only to a font with no
 /// readable `cmap` at all**. That restriction is the point: the old code fell through to it
@@ -235,25 +242,30 @@ pub(crate) fn truetype_code_table(
             CodeToGlyph::Keyed { .. } => None,
         });
     let symbolic = descriptor.is_some_and(|d| is_symbolic(document, d));
-    // §9.6.5.4 fills undefined entries from StandardEncoding, which `encoding_names` does
-    // by starting there — but only for a font whose names are Latin at all. A symbolic
-    // font's are not, and it takes the first route below rather than this one.
-    let names = match encoding_names(document, dict, name, None, !symbolic) {
-        Ok(names) => names,
-        // §9.6.5.4 again: when the symbolic flag is set the `/Encoding` entry "is ignored".
-        // So an entry naming an encoding this crate has no table for — `issue5701.pdf`
-        // writes `/Encoding /Identity-H` on a simple `TrueType` font, which is not a base
-        // encoding at all — is not a font this crate cannot read. It is an entry the
-        // specification tells us not to read.
-        Err(FontError::UnsupportedEncoding { .. }) if symbolic => no_names(),
-        Err(other) => return Err(other),
-    };
-    let names = if symbolic {
-        names
+    // §9.6.5.4: when the symbolic flag is set "the Encoding entry is ignored", so a symbolic
+    // font takes no glyph name from it in any of the clause's own steps. The names are read
+    // for it all the same, as `ignored_names`, for one recovery of this processor's choosing
+    // below the other two (see the note above); the clause's steps see none of them.
+    //
+    // A name the entry states that is not a base encoding at all — `issue5701.pdf` writes
+    // `/Encoding /Identity-H` on a simple `TrueType` font — is no base encoding, which
+    // `base_encoding` already answers, so the one error `encoding_names` can return is a
+    // permitted name without a table, and every permitted name has one. For a nonsymbolic font
+    // that error is the font's; for a symbolic one it only takes the recovery away.
+    let (mut names, ignored_names) = if symbolic {
+        (
+            no_names(),
+            encoding_names(document, dict, name, None, false).ok(),
+        )
     } else {
-        fill_dictionary_gaps_from_standard(document, dict, names)
+        // §9.6.5.4 fills undefined entries from StandardEncoding, which `encoding_names` does
+        // by starting there and `fill_dictionary_gaps_from_standard` finishes.
+        let names = encoding_names(document, dict, name, None, true)?;
+        (
+            fill_dictionary_gaps_from_standard(document, dict, names),
+            None,
+        )
     };
-
     // The `post` names are inverted once for the whole table, and only if some code's name
     // reaches them (ADR 1584).
     let post = PostNames::new(&font);
@@ -280,7 +292,7 @@ pub(crate) fn truetype_code_table(
             .and_then(|glyph_name| named_glyph(&post, &subtables, charset.as_ref(), glyph_name));
     }
 
-    // The two tiers the specification leaves to the processor; see the note above. Which codes they
+    // The tiers the specification leaves to the processor; see the note above. Which codes they
     // answered is recorded rather than forgotten: ISO 19005-2 section 6.2.11.6 and ISO 19005-4
     // Section 6.2.10.6 forbid a conforming file from needing them, and the fact is knowable here
     // and nowhere afterwards — the table that comes out cannot say how a slot was filled.
@@ -306,13 +318,27 @@ pub(crate) fn truetype_code_table(
         let Ok(code) = u32::try_from(code) else {
             continue;
         };
-        *slot = as_character(&subtables, code).or_else(|| {
-            subtables
-                .all
-                .is_none()
-                .then(|| u16::try_from(code).ok())
-                .flatten()
-        });
+        *slot = as_character(&subtables, code)
+            .or_else(|| {
+                // The ignored `/Encoding`'s name, for a symbolic font only, and recorded in
+                // `names` because §9.10.2's second method applies where "the glyph selection
+                // algorithm (see 9.6.5) uses a glyph name" — which here it now has.
+                let ignored = ignored_names.as_ref()?;
+                let index = usize::try_from(code).ok()?;
+                let glyph_name = ignored.get(index).filter(|n| !n.is_empty())?;
+                let glyph = named_glyph(&post, &subtables, charset.as_ref(), glyph_name)?;
+                if let Some(selected) = names.get_mut(index) {
+                    selected.clone_from(glyph_name);
+                }
+                Some(glyph)
+            })
+            .or_else(|| {
+                subtables
+                    .all
+                    .is_none()
+                    .then(|| u16::try_from(code).ok())
+                    .flatten()
+            });
         if slot.is_some() {
             reader_chosen.insert(code);
         }
@@ -1098,6 +1124,47 @@ pub(crate) mod truetype_encoding_tests {
         assert!(
             chosen.contains(0x00),
             "WinAnsiEncoding names no glyph for code 0, so only the last resort reached one"
+        );
+    }
+
+    /// §9.6.5.4 ignores a symbolic font's `/Encoding`, so its names reach a glyph only through
+    /// the recovery below the code-as-character tier: never for a code that tier answers, and
+    /// recorded as reader-chosen where they do answer. The names kept for §9.10.2 are the ones
+    /// a glyph was selected by.
+    #[test]
+    fn a_symbolic_fonts_ignored_encoding_is_a_recorded_recovery_only() {
+        // (3, 1) from U+0041: `A` is glyph 1, `B` glyph 2.
+        let data = sfnt(&[(*b"cmap", cmap(3, 1, 0x41, &[1, 2]))]);
+        let body = b"1 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Fixture \
+             /Encoding << /Differences [1 /B 65 /B] >> /FontDescriptor << /Flags 4 >> >>\nendobj\n";
+        let (document, dict) = crate::fixture::document_of(&[body.as_slice()]);
+        let descriptor = document.get_key(&dict, "FontDescriptor");
+        let (table, names, chosen) = truetype_code_table(
+            &document,
+            &dict,
+            descriptor.as_dict(),
+            &data,
+            &ToUnicode::default(),
+            "F1",
+        )
+        .expect("the fixture loads");
+
+        assert_eq!(
+            table[0x41],
+            Some(1),
+            "code 65 as U+0041, whatever /Differences says"
+        );
+        assert!(chosen.contains(0x41));
+        assert_eq!(names[0x41], "", "no name selected code 65's glyph");
+        assert_eq!(
+            table[1],
+            Some(2),
+            "code 1 is no character, so the ignored name answers"
+        );
+        assert!(chosen.contains(1), "and the answer is the reader's choice");
+        assert_eq!(
+            names[1], "B",
+            "the name that selected the glyph is kept for §9.10.2"
         );
     }
 

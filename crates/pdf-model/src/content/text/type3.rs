@@ -118,8 +118,8 @@ impl Interpreter<'_> {
         // the page and what §7.7.3.4 gave it — Errata Collection 3's Issue #128, stated in full
         // on [`crate::type3::Type3Font::resources`], whose last parameter is the page's for that
         // reason. **Not the stream whose text-showing operator reached this glyph**, which is a
-        // different dictionary whenever that stream is a form with `/Resources` of its own, and
-        // which is what this call site passed until ADR 1059.
+        // different dictionary whenever that stream is a form with `/Resources` of its own
+        // (ADR 1059).
         // The page's dictionary is reached through an `Arc` rather than borrowed, because
         // `run` takes `&mut self`: one pointer clone per glyph description, against a `Dictionary`
         // that has to outlive the call. [`Interpreter::page_resources`](crate::content::Interpreter::page_resources) says why it is owned.

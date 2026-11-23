@@ -12,7 +12,7 @@
   "code": "crates/pdf-font/src/cmap.rs:233 (Mapping::get: singles before ranges, whichever file stated them); crates/pdf-font/src/cmap.rs:451 (CMap::absorb: own singles extended into the base's, own ranges put in front of the base's)",
   "change": "Keep the referencing file's mappings apart from the inherited ones (or drop from the base every code the referencing file states, single or range) so that a code the referencing CMap states is answered by it whatever operator either file used; the same for the notdef mappings. ToUnicode's own()/base split (tounicode.rs) is the shape that already holds.",
   "execution": "FAIL (expected): crates/pdf-font/tests/fonts_9_5_9_10_spec_audit.rs::a_referencing_cmaps_range_overrides_the_referenced_cmaps_single_spec_audit — round 2180, ~/scratch/agent/r2180/probe1.log and g-nextest.log; its control (a range over a range) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2180-B02",
@@ -26,7 +26,7 @@
   "code": "crates/pdf-font/src/truetype.rs:241 (encoding_names read for a symbolic font), :275-283 (named_glyph run for every code symbol_glyph left, symbolic or not), :288 (reader_chosen recorded only for the two tiers below)",
   "change": "For a symbolic font take no name from /Encoding: after the (3, 0)/(1, 0) steps go straight to the processor's-choice tiers and record every code they answer in reader_chosen; decide in the same change what glyph_names (and so §9.10.2's second method) holds for such a font. If reading the ignored entry is kept as a recovery, it is a reader-chosen tier, written down as one and recorded.",
   "execution": "FAIL (expected): crates/pdf-font/tests/fonts_9_5_9_10_spec_audit.rs::a_symbolic_truetype_fonts_ignored_encoding_selects_no_glyph_spec_audit — round 2180; its control (no /Encoding: glyph 1, reader-chosen) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2180-B03",
@@ -39,7 +39,7 @@
   "code": "crates/pdf-model/src/type3.rs:309-331 (read: /FirstChar and /Widths, no /LastChar), crates/pdf-model/src/type3.rs:406 (advance: lower bound only)",
   "change": "Read /LastChar (Required in Table 110) and give 0 to every code above it, as metrics::stated_widths does for the simple fonts; decide and write down what an absent /LastChar means.",
   "execution": "FAIL (expected): crates/pdf-model/tests/type3_widths_range_spec_audit.rs::a_type3_code_past_last_char_advances_by_zero_spec_audit (text_suite) — round 2180; its control (the lower side, and an exact array) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2180-D01",
@@ -67,7 +67,7 @@
   "code": "crates/pdf-model/src/type3.rs:227, crates/pdf-model/src/type3.rs:467, crates/pdf-model/src/content/text/type3.rs:117",
   "change": "State the current reading only (a Type 3 glyph name names a procedure and a character; the page's resources, not the invoking stream's) and cite the ADRs.",
   "execution": "doc only",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2180-D03",
@@ -80,7 +80,7 @@
   "code": "crates/pdf-font/src/composite.rs:385 (collection_table), :403 (collection_names)",
   "change": "Write down why the descendant's /CIDSystemInfo stands for the CMap's (or fall back to a predefined CMap's own collection where the descendant states none), and report a CMap and CIDFont whose collections differ.",
   "execution": "doc only",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2180-D04",
@@ -93,6 +93,6 @@
   "code": "crates/pdf-font/src/truetype.rs:241-249, crates/pdf-font/src/glyph_names.rs (base_encoding)",
   "change": "Remove the dead arm or make the comment state the path that is taken (an unrecognised name is no base encoding).",
   "execution": "doc only",
-  "status": "open"
+  "status": "fixed"
  }
 ]
