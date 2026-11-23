@@ -22,7 +22,9 @@
 //! where either is spent. The sizes an argument can ask a built-in to allocate are checked before
 //! the built-in runs (`guard`), and how deep a script's text nests before the parser is handed it
 //! (`crate::depth`, ADR 1626) — its own text, and any string `eval` or `Function` compiles while it
-//! runs. Boa's AST optimizer is off, for ADR 1626's figures. What none of these bounds — work inside one native call that
+//! runs. Boa's AST optimizer is off, for ADR 1626's figures. The jobs a script enqueues — a
+//! promise's reactions, an `async` function's continuations — run after it returns, under the same
+//! wall budget checked between jobs (`jobs`, ADR 2865). What none of these bounds — work inside one native call that
 //! calls back into script, growth through an operator, and a realm's heap across its lifetime — is
 //! the process's to bound, and ADRs 1590 and 1602 name each.
 
@@ -31,6 +33,7 @@ mod bookmarks;
 mod bridge;
 mod choices;
 mod guard;
+mod jobs;
 mod members;
 mod pages;
 mod util;
@@ -48,6 +51,7 @@ use std::task::{Context as TaskContext, Poll, Waker};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use boa_engine::builtins::promise::{OperationType, Promise};
 use boa_engine::context::HostHooks;
 use boa_engine::context::time::{Clock, JsInstant};
 use boa_engine::error::{EngineError, RuntimeLimitError};
@@ -79,6 +83,10 @@ const MAX_LOG_LINES: usize = 64;
 
 /// Most notes one run keeps.
 const MAX_NOTES: usize = 64;
+
+/// Most rejected promises one run follows to the end of its jobs: as many as it keeps notes, since
+/// each one still unhandled then is a note. A rejection past it is counted, not followed.
+const MAX_REJECTIONS: usize = MAX_NOTES;
 
 /// Longest logged line kept, in characters.
 const MAX_LOG_CHARACTERS: usize = 1024;
@@ -126,6 +134,8 @@ pub struct Realm {
     budget: Budget,
     /// How long the current run's question waited on its answer.
     waited: Rc<Cell<Duration>>,
+    /// The jobs the context has enqueued, run after each script (ADR 2865).
+    jobs: Rc<jobs::Jobs>,
 }
 
 impl Realm {
@@ -157,10 +167,12 @@ impl Realm {
         // built — a `realpath`, which the script worker's confinement kills for (trap 31, ADR
         // 1608). A document's scripts import nothing, so the loader is the one that refuses every
         // module and reads nothing.
+        let jobs = Rc::new(jobs::Jobs::default());
         let mut context = Context::builder()
             .host_hooks(Rc::new(hooks))
             .clock(Rc::clone(&clock))
             .module_loader(Rc::new(IdleModuleLoader))
+            .job_executor(Rc::clone(&jobs))
             .build()
             .map_err(|error| format!("the engine could not be constructed: {error}"))?;
         let limits = context.runtime_limits_mut();
@@ -181,6 +193,7 @@ impl Realm {
             utc_offset_seconds,
             budget,
             waited,
+            jobs,
         })
     }
 
@@ -212,7 +225,36 @@ impl Realm {
             Err(error) => return Outcome::unchanged(Ending::Unparsed(error.to_string())),
         };
         self.waited.set(Duration::ZERO);
-        let ending = evaluate(&script, &mut self.context, &self.budget, &self.waited);
+        self.jobs.clear();
+        let started = Instant::now();
+        let mut ending = evaluate(
+            &script,
+            &mut self.context,
+            &self.budget,
+            &self.waited,
+            started,
+        );
+        // ECMA-262 section 8.4: what the script enqueued is performed once no execution context
+        // is running, which is so once it has returned, normally or by a throw; the realm performs
+        // it then (`jobs`). A script stopped by a budget leaves its jobs unrun.
+        if matches!(ending, Ending::Finished | Ending::Threw(_)) {
+            let (settled, notes) = jobs::settle(
+                &self.jobs,
+                &mut self.context,
+                &self.budget,
+                started,
+                &self.waited,
+            );
+            State::with(&self.context, |record| {
+                for note in &notes {
+                    record.note(note);
+                }
+            });
+            if settled != Ending::Finished {
+                ending = settled;
+            }
+        }
+        self.jobs.clear();
         let recorded = State::take(&self.context);
         let ending = match (ending, recorded.exceeded) {
             (_, Some(exceeded)) => Ending::Exceeded(exceeded),
@@ -288,8 +330,8 @@ fn evaluate(
     context: &mut Context,
     budget: &Budget,
     waited: &Cell<Duration>,
+    started: Instant,
 ) -> Ending {
-    let started = Instant::now();
     let mut spent = 0_u64;
     let mut waker = TaskContext::from_waker(Waker::noop());
     let mut evaluation = pin!(script.evaluate_async_with_budget(context, SLICE));
@@ -408,6 +450,11 @@ pub(crate) struct Record {
     pub(crate) unasked: u32,
     /// What a script set `this.dirty` to in this run, which it reads back until the run ends.
     pub(crate) dirty_written: Option<bool>,
+    /// The promises rejected with no handler and not handled since, in the order they were
+    /// rejected (ECMA-262 section 25.6.1.9, ADR 2866).
+    pub(crate) rejected: Vec<boa_engine::JsObject>,
+    /// How many rejections past [`MAX_REJECTIONS`] were counted and not followed.
+    pub(crate) rejections_unfollowed: u32,
 }
 
 impl State {
@@ -580,6 +627,26 @@ impl Record {
         }
     }
 
+    /// Follows a promise's rejection: a rejection with no handler is held, and a handler added
+    /// later lets it go (ECMA-262 section 25.6.1.9's two operations).
+    pub(crate) fn track_rejection(
+        &mut self,
+        promise: boa_engine::JsObject,
+        operation: OperationType,
+    ) {
+        match operation {
+            OperationType::Reject if self.rejected.len() < MAX_REJECTIONS => {
+                self.rejected.push(promise);
+            }
+            OperationType::Reject => {
+                self.rejections_unfollowed = self.rejections_unfollowed.saturating_add(1);
+            }
+            OperationType::Handle => self
+                .rejected
+                .retain(|held| !boa_engine::JsObject::equals(held, &promise)),
+        }
+    }
+
     /// Records a note, cut to [`MAX_LOG_CHARACTERS`].
     pub(crate) fn note(&mut self, sentence: &str) {
         if self.notes.len() < MAX_NOTES {
@@ -661,6 +728,21 @@ impl HostHooks for Hooks {
 
     fn max_buffer_size(&self, _context: &mut Context) -> u64 {
         self.buffer_bytes
+    }
+
+    /// ECMA-262 section 25.6.1.9's `HostPromiseRejectionTracker`, which the standard leaves to the
+    /// host and defaults to doing nothing. Here it follows each rejection to the end of the run's
+    /// jobs, so that an error nothing handled — thrown after an `await`, say — is said in the
+    /// outcome rather than lost (principle 1, ADR 2866). It completes normally in every case, as
+    /// the section requires: a record that cannot be borrowed is passed over.
+    fn promise_rejection_tracker(
+        &self,
+        promise: &boa_engine::JsObject<Promise>,
+        operation: OperationType,
+        context: &mut Context,
+    ) {
+        let promise = promise.clone().upcast();
+        State::with(context, |record| record.track_rejection(promise, operation));
     }
 
     fn create_global_this(
