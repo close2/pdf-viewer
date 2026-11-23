@@ -68,6 +68,37 @@ static WITNESSES: &[Witness] = &[
               19005-4 section 6.2.10.2: the font the page shows states no Subtype, so no table \
               describes it, and it embeds no program (ADR 3409)",
     },
+    Witness {
+        repository: "pdf.js",
+        path: "pdf.js/test/pdfs/bug1068432.pdf",
+        rows: &["fonts/compact-font-reals-state-a-number"],
+        why: "Adobe Technical Note #5176 section 4 through ISO 32000-2 section 9.9's Table 124, at \
+              ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2: the Top DICT states \
+              UnderlinePosition and UnderlineThickness as reals with no digit (ADR 3426)",
+    },
+    Witness {
+        repository: "pdf.js",
+        path: "pdf.js/test/pdfs/bug1308536.pdf",
+        rows: &["fonts/compact-font-reals-state-a-number"],
+        why: "the same clauses: the Private DICT states reals with no digit before the exponent \
+              or the end (ADR 3426)",
+    },
+    Witness {
+        repository: "pdf.js",
+        path: "pdf.js/test/pdfs/bug866395.pdf",
+        rows: &["fonts/font-programs-embedded"],
+        why: "ISO 32000-2 section 9.9's Table 124, at ISO 19005-2 section 6.2.11.4.1 and ISO \
+              19005-4 section 6.2.10.4.1: the /FontFile3 decodes to no bytes, so the file holds \
+              no program for the font the page shows (ADR 3427)",
+    },
+    Witness {
+        repository: "pdf.js",
+        path: "pdf.js/test/pdfs/bug920426.pdf",
+        rows: &["fonts/encoding-cmap-maps-codes-to-cids"],
+        why: "ISO 32000-2 section 9.7.5.4 c), at ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 \
+              section 6.2.10.3.3: the Type 0 font's embedded Encoding CMap maps every code with \
+              beginbfchar (ADR 3428)",
+    },
 ];
 
 #[test]

@@ -1978,6 +1978,8 @@ impl Prepared {
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::BaseFontNamed => self.owed.base_font_names.as_ref().err().copied(),
             Rewrite::FontSubtypeStated => self.owed.font_subtypes.as_ref().err().copied(),
+            Rewrite::CompactFontRealsRestated => self.owed.compact_reals.as_ref().err().copied(),
+            Rewrite::EncodingCmapRestated => self.owed.encoding_cmaps.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::CollectionRestated => self.owed.collections.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
@@ -2293,6 +2295,10 @@ pub(super) struct Owed {
     pub(super) base_font_names: Result<super::base_font_names::Restated, Because>,
     /// The kind each font stating none is given from its program (ADR 3409).
     pub(super) font_subtypes: Result<super::font_subtypes::Stated, Because>,
+    /// The CFF programs whose digitless DICT reals are restated, or why none are (ADR 3426).
+    pub(super) compact_reals: Result<super::compact_reals::Restated, Because>,
+    /// The `Encoding` `CMap`s restated with `begincidchar`, or why none are (ADR 3428).
+    pub(super) encoding_cmaps: Result<super::encoding_cmaps::Restated, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The `CIDFont`s whose `/CIDSystemInfo` is restated as their `CMap`'s, or why none is
@@ -2450,6 +2456,12 @@ impl Owed {
             }),
             font_subtypes: asked(wanted(Rewrite::FontSubtypeStated), || {
                 super::font_subtypes::stated(document, input, substitutes)
+            }),
+            compact_reals: asked(wanted(Rewrite::CompactFontRealsRestated), || {
+                super::compact_reals::restated(document, input)
+            }),
+            encoding_cmaps: asked(wanted(Rewrite::EncodingCmapRestated), || {
+                super::encoding_cmaps::restated(document, input)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, truetype_input, spare)

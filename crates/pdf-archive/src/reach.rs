@@ -755,12 +755,9 @@ fn owners(document: &Document, objects: &[(ObjectId, Object)]) -> BTreeMap<Objec
             has_content = true;
             read_names(document, &Object::Stream(stream.clone()), &mut names);
         }
-        // A page is associated with the streams its `/Contents` names.
-        if document
-            .get_key(dict, "Type")
-            .as_name()
-            .is_some_and(|kind| kind.0.as_ref() == b"Page")
-        {
+        // A page is associated with the streams its `/Contents` names, and with every stream
+        // drawn on it that states no `/Resources` (`Lender`, below).
+        if is_page(document, dict) {
             let contents = document.get_key(dict, "Contents");
             has_content |= holds_a_stream(document, &contents);
             read_names(document, &contents, &mut names);
@@ -777,7 +774,169 @@ fn owners(document: &Document, objects: &[(ObjectId, Object)]) -> BTreeMap<Objec
             found.insert(*id, names);
         }
     }
+    let lent: Vec<(ObjectId, Names)> = objects
+        .iter()
+        .filter_map(|(id, object)| {
+            let Object::Dictionary(page) = object else {
+                return None;
+            };
+            let stated = found.get(id)?;
+            if !is_page(document, page) {
+                return None;
+            }
+            let lent = Lender::names_lent_to(document, page, stated, &found);
+            (!lent.is_empty()).then_some((*id, lent))
+        })
+        .collect();
+    for (id, names) in lent {
+        found.entry(id).or_default().extend(names);
+    }
     found
+}
+
+/// Whether a dictionary states `/Type /Page`.
+fn is_page(document: &Document, dict: &Dictionary) -> bool {
+    document
+        .get_key(dict, "Type")
+        .as_name()
+        .is_some_and(|kind| kind.0.as_ref() == b"Page")
+}
+
+/// The names a page's resources dictionary answers for content streams that state no
+/// `/Resources` of their own, drawn anywhere on that page (ADR 3425).
+///
+/// ISO 32000-2 §7.8.3 associates each resources dictionary with the content stream that states
+/// it, and then names the one case where a stream draws with a dictionary it does not state:
+///
+/// > PDF files written obeying earlier versions of PDF may have omitted the Resources entry in
+/// > all form XObjects and Type 3 fonts used on a page. All resources that are referenced from
+/// > those forms and fonts shall be inherited from the resource dictionary of the page on which
+/// > they are used.
+///
+/// So such a stream's names are references into **the page's** dictionary, and an owner list
+/// that read only each page's `/Contents` would call the entries they draw unreferenced and
+/// exempt them. The page is the lender whatever the depth: a stream stating no `/Resources`
+/// inside a form that states its own still draws from the page, which is the reading
+/// `pdf_model`'s interpreter takes (ADR 1059), and an annotation appearance stating none does
+/// the same (`pdf_model::content::annotations`, ADR 0255).
+///
+/// The descent follows every name a stream states through the `/XObject`, `/Pattern`, `/Font`
+/// and `/ExtGState` entries of the dictionary that stream draws with — a form, a tiling pattern,
+/// a Type 3 font's glyph procedures, a soft mask's group — and visits each indirect object once
+/// per page, so it ends on any graph. Reading every name as a reference is the module's one
+/// approximation and runs the same way here: a name the descent should not have followed only
+/// adds names, and names only keep entries.
+struct Lender<'d> {
+    document: &'d Document,
+    owners: &'d BTreeMap<ObjectId, Names>,
+    seen: BTreeSet<ObjectId>,
+    lent: Names,
+    /// Streams' names still to follow, with the dictionary each draws with: `None` is the page's.
+    queue: VecDeque<(Names, Option<Dictionary>)>,
+}
+
+impl<'d> Lender<'d> {
+    /// The names lent to `page` by everything drawn on it that states no `/Resources`.
+    fn names_lent_to(
+        document: &'d Document,
+        page: &Dictionary,
+        stated: &Names,
+        owners: &'d BTreeMap<ObjectId, Names>,
+    ) -> Names {
+        let Object::Dictionary(resources) = document.get_key(page, "Resources") else {
+            return Names::new();
+        };
+        let mut lender = Self {
+            document,
+            owners,
+            seen: BTreeSet::new(),
+            lent: Names::new(),
+            queue: VecDeque::from([(stated.clone(), None)]),
+        };
+        if let Object::Array(annotations) = document.get_key(page, "Annots") {
+            for annotation in &annotations {
+                let Object::Dictionary(annotation) = document.resolve(annotation) else {
+                    continue;
+                };
+                let Object::Dictionary(appearances) = document.get_key(&annotation, "AP") else {
+                    continue;
+                };
+                for (_, appearance) in appearances.iter() {
+                    if let Object::Dictionary(by_state) = document.resolve(appearance) {
+                        for (_, state) in by_state.iter() {
+                            lender.visit(state);
+                        }
+                    } else {
+                        lender.visit(appearance);
+                    }
+                }
+            }
+        }
+        while let Some((names, own)) = lender.queue.pop_front() {
+            let drawn_with = own.as_ref().unwrap_or(&resources);
+            for category in ["XObject", "Pattern", "Font", "ExtGState"] {
+                let Object::Dictionary(entries) = document.get_key(drawn_with, category) else {
+                    continue;
+                };
+                for (name, value) in entries.iter() {
+                    if names.contains(name.0.as_ref()) {
+                        lender.visit(value);
+                    }
+                }
+            }
+        }
+        lender.lent
+    }
+
+    /// Follows one resource value to the content streams it draws, if any.
+    fn visit(&mut self, value: &Object) {
+        let id = match value {
+            Object::Reference(id) => Some(*id),
+            _ => None,
+        };
+        if id.is_some_and(|id| !self.seen.insert(id)) {
+            return;
+        }
+        let target = self.document.resolve(value);
+        let (dict, contents) = match &target {
+            Object::Stream(stream)
+                if stream.dict.get("BBox").is_some()
+                    || stream.dict.get("PatternType").is_some() =>
+            {
+                (&stream.dict, target.clone())
+            }
+            Object::Dictionary(dict) => {
+                if let Object::Dictionary(procedures) = self.document.get_key(dict, "CharProcs") {
+                    (
+                        dict,
+                        Object::Array(procedures.iter().map(|(_, proc)| proc.clone()).collect()),
+                    )
+                } else {
+                    // An `ExtGState`'s soft mask draws its group, Table 142's `/G`.
+                    if let Object::Dictionary(mask) = self.document.get_key(dict, "SMask") {
+                        let group = mask.get("G").cloned().unwrap_or(Object::Null);
+                        self.visit(&group);
+                    }
+                    return;
+                }
+            }
+            _ => return,
+        };
+        let names = id
+            .and_then(|id| self.owners.get(&id))
+            .cloned()
+            .unwrap_or_else(|| {
+                let mut names = Names::new();
+                read_names(self.document, &contents, &mut names);
+                names
+            });
+        if let Object::Dictionary(own) = self.document.get_key(dict, "Resources") {
+            self.queue.push_back((names, Some(own)));
+        } else {
+            self.lent.extend(names.iter().cloned());
+            self.queue.push_back((names, None));
+        }
+    }
 }
 
 /// Every name any content stream in the file states as an operand, whatever owns it: each page's

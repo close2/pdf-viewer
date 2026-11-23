@@ -2623,6 +2623,7 @@ static READINGS: &[Reading] = &[
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
                     "fonts/font-dictionary-states-its-subtype",
+                    "fonts/compact-font-reals-state-a-number",
                     "fonts/base-font-is-a-name",
                 ]),
             },
@@ -2672,7 +2673,10 @@ static READINGS: &[Reading] = &[
             Sentence {
                 says: "every CMap the file uses that the base standard does not predefine is \
                        embedded in the file as the base standard describes",
-                carried: Carried::By(&["fonts/cmap-embedded-or-predefined"]),
+                carried: Carried::By(&[
+                    "fonts/cmap-embedded-or-predefined",
+                    "fonts/encoding-cmap-maps-codes-to-cids",
+                ]),
             },
             Sentence {
                 says: "an embedded CMap's WMode entry is the same integer as the write mode the \
@@ -4726,6 +4730,7 @@ static READINGS: &[Reading] = &[
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
                     "fonts/font-dictionary-states-its-subtype",
+                    "fonts/compact-font-reals-state-a-number",
                     "fonts/base-font-is-a-name",
                 ]),
             },
@@ -4775,7 +4780,10 @@ static READINGS: &[Reading] = &[
             Sentence {
                 says: "every CMap the file uses that the base standard does not predefine is \
                        embedded in the file as the base standard describes",
-                carried: Carried::By(&["fonts/cmap-embedded-or-predefined"]),
+                carried: Carried::By(&[
+                    "fonts/cmap-embedded-or-predefined",
+                    "fonts/encoding-cmap-maps-codes-to-cids",
+                ]),
             },
             Sentence {
                 says: "an embedded CMap's WMode entry is the same integer as the write mode the \

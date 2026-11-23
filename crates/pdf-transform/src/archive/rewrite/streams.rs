@@ -68,6 +68,26 @@ impl Rewriter<'_> {
             count(applied, Rewrite::DerivedEmbeddedFile);
             return Rewritten::Changed(derived.clone());
         }
+        // A CFF program's digitless DICT reals restated in their own bytes: new bytes and a new
+        // `/Filter` together, so a whole stream (ADR 3426).
+        if self.wants(Rewrite::CompactFontRealsRestated)
+            && let Some(restated) = self
+                .compact_reals
+                .and_then(|restated| restated.programs.get(&id))
+        {
+            count(applied, Rewrite::CompactFontRealsRestated);
+            return Rewritten::Changed(restated.clone());
+        }
+        // An Encoding CMap's bfchar sections restated as cidchar: new bytes and a new `/Filter`
+        // together, so a whole stream (ADR 3428).
+        if self.wants(Rewrite::EncodingCmapRestated)
+            && let Some(restated) = self
+                .encoding_cmaps
+                .and_then(|restated| restated.streams.get(&id))
+        {
+            count(applied, Rewrite::EncodingCmapRestated);
+            return Rewritten::Changed(restated.clone());
+        }
         // The operator said the dictionary's writing mode stands, so the program's own entry is
         // restated: new bytes and a new `/Filter` together, so a whole stream (`doc/adr/1286`).
         if self.wants(Rewrite::WriteModeAgreed)

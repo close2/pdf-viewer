@@ -1056,7 +1056,7 @@ fn restate_program_write_mode(program: &[u8], mode: i64) -> Option<Vec<u8>> {
 ///
 /// The dictionary is the producer's but for the three entries the new data changes together:
 /// `/Filter`, `/DecodeParms` and `/Length`.
-fn restated_stream(dict: &Dictionary, program: &[u8]) -> Option<Object> {
+pub(super) fn restated_stream(dict: &Dictionary, program: &[u8]) -> Option<Object> {
     let encoded = flate_encode(program, super::COMPRESSION_LEVEL)?;
     let mut dict = dict.clone();
     dict.remove("DecodeParms");

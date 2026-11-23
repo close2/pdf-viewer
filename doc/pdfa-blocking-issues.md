@@ -76,11 +76,16 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
   an undefined `/Properties` entry after a numeric tag (`issue17679_2`), 6.2.2, read and defined
   empty (ADR 3396). Answered by session 2177: a font without `/Subtype` (`T02-04-01_005`), 6.2.2
   at 4, a row and the kind of the program or face embedded (ADR 3409); a font set by `gs`
-  (`extgstate`), 6.2.11.4.1, now in the survey's population and given a face (ADR 3411). Not
-  reached (ADR 3412): malformed CFF reals (`bug1068432`, `bug1308536`) and `bug866395`,
-  6.2.11.4.1; `issue7901`'s `/W` read through a `CIDToGIDMap` on a `CIDFontType0`, 6.2.11.5, two
-  readings; `bug920426`'s Encoding CMap mapping by `beginbfchar`, 6.2.11.4.1 and 6.2.11.8;
-  DeviceGray under no intent where text is shown
+  (`extgstate`), 6.2.11.4.1, now in the survey's population and given a face (ADR 3411).
+  Answered by session 2181: CFF DICT reals with no digit (`bug1068432`, `bug1308536`), 6.2.11.4.1,
+  a row and the zero this reader read restated in the operand's own bytes (ADR 3426); an empty
+  `/FontFile3` (`bug866395`), ours, now a program the file does not hold and given a face (ADR
+  3427); `bug920426`'s Encoding CMap mapping by `beginbfchar`, 6.2.11.4.1 and 6.2.11.8, a row and
+  the same mappings restated with `begincidchar` (ADR 3428); and the exemption now counts a form
+  stating no `/Resources` against the page it is drawn on (`issue6541`, ADR 3425). Not reached
+  (ADR 3428 item 2): `issue7901`'s `/W` read through a `CIDToGIDMap` on a `CIDFontType0`,
+  6.2.11.5, where §9.7.4.2 uses the CIDs as glyph indices; the remedy is a CID-keyed rewrite of
+  the program whose charset states the map, not built. DeviceGray under no intent where text is shown
   with no font (`T02-05-01_004`, `_008`) or a corrupt appearance stream (`PDFBOX-3148-2-fuzzed`),
   6.2.4.3, undetermined.
 - **veraPDF's reading**: undescribed XMP properties in the metadata of a named resource no

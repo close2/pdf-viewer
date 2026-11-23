@@ -168,6 +168,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_dictionary_states_type_font),
     },
     Requirement {
+        id: "fonts/compact-font-reals-state-a-number",
+        asks: "Every real operand of an embedded Compact Font Format program's Top, Font and \
+               Private DICTs shall state a number, as the format's specification encodes one.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(compact_font_reals_state_a_number),
+    },
+    Requirement {
         id: "fonts/font-dictionary-states-its-subtype",
         asks: "Every font dictionary and CIDFont dictionary shall state its Subtype entry as one \
                of the names the base standard's font dictionary tables give it.",
@@ -240,6 +248,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("6.2.11.3.3", "6.2.10.3.3"),
         applies: Applies::Always,
         check: Check::Implemented(embedded_cmap_states_its_own_write_mode),
+    },
+    Requirement {
+        id: "fonts/encoding-cmap-maps-codes-to-cids",
+        asks: "An embedded CMap used as a Type 0 font's Encoding shall not state its mappings \
+               with beginbfchar and endbfchar, the operators of a ToUnicode CMap.",
+        clauses: Clauses::both("6.2.11.3.3", "6.2.10.3.3"),
+        applies: Applies::Always,
+        check: Check::Implemented(encoding_cmap_maps_codes_to_cids),
     },
     Requirement {
         id: "fonts/cmap-uses-only-predefined-cmaps",
@@ -751,6 +767,64 @@ fn font_dictionary_states_its_subtype(exam: &Examination<'_>, findings: &mut Fin
             ),
         };
         findings.record(site.place_named("Subtype"), said);
+    });
+}
+
+/// Every embedded bare CFF program a DICT real operand of which states no digit.
+///
+/// ISO 32000-2 §9.9's Table 124 holds a `/FontFile3` of `/Subtype` `Type1C` or `CIDFontType0C` to
+/// Adobe Technical Note #5176, whose section 4 encodes a real operand as a decimal number's digits
+/// in nibbles; ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 hold the program to
+/// that note. A real whose nibbles reach an exponent or their end with no digit states no number
+/// (`pdf_font::cff::digitless_reals`, ADR 3426). This is one corner of what
+/// `fonts/font-programs-conform-to-their-own-specifications` asks, the one a reader that parses the
+/// number as a decimal string refuses a whole program over: `bug1068432`'s Top DICT and
+/// `bug1308536`'s Private DICT. A program `/OpenType` wraps is not read here; its `CFF ` table sits
+/// under a table directory whose checksums a restatement would have to restate too.
+fn compact_font_reals_state_a_number(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut read = BTreeSet::new();
+    for_each_font(exam, |_, font| {
+        let holder = if subtype(document, font).as_deref() == Some("Type0") {
+            descendant(document, font).map(|(_, dict)| dict)
+        } else {
+            Some(font.clone())
+        };
+        let Some((key, at)) = holder
+            .and_then(|holder| descriptor(document, &holder))
+            .and_then(|descriptor| embedded_under(document, &descriptor))
+        else {
+            return;
+        };
+        if key != "FontFile3" || !read.insert(at) {
+            return;
+        }
+        let Object::Stream(stream) = document.get(at) else {
+            return;
+        };
+        let bare = document
+            .get_key(&stream.dict, "Subtype")
+            .as_name()
+            .is_some_and(|name| matches!(name.as_bytes(), b"Type1C" | b"CIDFontType0C"));
+        let Some(data) = document.decoded_stream_data(&stream).filter(|_| bare) else {
+            return;
+        };
+        let Ok(found) = pdf_font::cff::digitless_reals(&data) else {
+            return;
+        };
+        if let Some(first) = found.first() {
+            findings.record(
+                Where::object(at),
+                format!(
+                    "the embedded CFF program states {} real operand(s) with no digit, the first \
+                     in its {:?} DICT at byte {}, which Adobe Technical Note #5176's encoding of a \
+                     real number does not admit",
+                    found.len(),
+                    first.dict,
+                    first.bytes.start
+                ),
+            );
+        }
     });
 }
 
@@ -1496,6 +1570,57 @@ fn embedded_cmap_states_its_own_write_mode(exam: &Examination<'_>, findings: &mu
     }
 }
 
+/// Every embedded `CMap` a Type 0 font names as its `/Encoding` whose program maps with
+/// `beginbfchar`.
+///
+/// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3 have such a `CMap` embedded
+/// as ISO 32000 section 9.7.5 describes, and ISO 32000-2 §9.7.5.4 constrains what its program may
+/// state:
+///
+/// > c) The beginbfchar and endbfchar shall not appear in a CMap that is used as the Encoding
+/// > entry of a Type 0 font; however, they may appear in the definition of a ToUnicode CMap.
+///
+/// The program is read as tokens, so an operator inside a comment or a string is not one
+/// (`bug920426`'s Encoding `CMap` maps every code with `beginbfchar`, ADR 3428).
+fn encoding_cmap_maps_codes_to_cids(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut read = BTreeSet::new();
+    for_each_font(exam, |_, font| {
+        if subtype(document, font).as_deref() != Some("Type0") {
+            return;
+        }
+        let Some(at) = font.get("Encoding").and_then(Object::as_reference) else {
+            return;
+        };
+        if !read.insert(at) {
+            return;
+        }
+        let Object::Stream(stream) = document.get(at) else {
+            return;
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            return;
+        };
+        let mut lexer = Lexer::new(&bytes);
+        let mut sections = 0usize;
+        while let Some(token) = lexer.next_token() {
+            if matches!(token, Token::Keyword(b"beginbfchar")) {
+                sections = sections.saturating_add(1);
+            }
+        }
+        if sections > 0 {
+            findings.record(
+                Where::object(at),
+                format!(
+                    "a Type 0 font's embedded Encoding CMap maps its codes in {sections} \
+                     beginbfchar section(s), which ISO 32000-2 section 9.7.5.4 c) reserves for a \
+                     ToUnicode CMap"
+                ),
+            );
+        }
+    });
+}
+
 // --------------------------------------------------------------------------------------------
 // 6.2.11.4 / 6.2.10.4 — embedding, and the content walk that decides who it binds.
 // --------------------------------------------------------------------------------------------
@@ -1636,6 +1761,13 @@ pub fn program_stopping_short(
 /// so a font this crate refuses for its dictionary, or for a program it names none of, is not
 /// this row's (ADR 2636).
 ///
+/// **A stream that decodes to no bytes is the same finding**, though [`LoadedFont::load`] gives
+/// no refusal for it: no format Table 124 names admits the empty string, so `pdf_font` reads such
+/// a descriptor as one that provides no program and draws a substitute in its place, which is
+/// §9.8.1's state of a font whose program "is unavailable" and not a program the file holds.
+/// `bug866395`'s `/FontFile3` is the witness: ten bytes of a valid Flate stream of nothing (ADR
+/// 3427).
+///
 /// The converter asks the same question of the same font, so that the font it hands to a
 /// substitute is the font this row fails.
 #[must_use]
@@ -1649,12 +1781,23 @@ pub fn program_unparsed(
     } else {
         font.clone()
     };
-    let (key, _) = embedded_under(document, &descriptor(document, &holder)?)?;
+    let (key, at) = embedded_under(document, &descriptor(document, &holder)?)?;
+    if let Object::Stream(stream) = document.get(at)
+        && document
+            .decoded_stream_data(&stream)
+            .is_some_and(|data| data.is_empty())
+    {
+        return Some((key, PROGRAM_OF_NO_BYTES.to_owned()));
+    }
     match LoadedFont::load(document, font, name) {
         Err(pdf_font::FontError::Malformed { detail, .. }) => Some((key, detail)),
         _ => None,
     }
 }
+
+/// [`program_unparsed`]'s reason for a program stream that decodes to nothing.
+const PROGRAM_OF_NO_BYTES: &str = "the stream decodes to no bytes, and no format ISO 32000-2 \
+     Table 124 names admits the empty string";
 
 /// The three names ISO 32000-2 §9.9's Table 125 lets a `/FontFile3` stream state as `/Subtype`.
 const FONT_FILE3_SUBTYPES: [&str; 3] = ["Type1C", "CIDFontType0C", "OpenType"];
@@ -3915,10 +4058,11 @@ mod tests {
     use super::{
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
-        cmap_embedded_or_predefined, consistent, descendant_fonts_holds_one_cidfont,
-        embedded_cmap_states_its_own_write_mode, font_dictionary_states_type_font,
-        font_programs_embedded, font_programs_filed_by_their_format, glyph_procedure_width,
-        is_private_use, no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
+        cmap_embedded_or_predefined, compact_font_reals_state_a_number, consistent,
+        descendant_fonts_holds_one_cidfont, embedded_cmap_states_its_own_write_mode,
+        encoding_cmap_maps_codes_to_cids, font_dictionary_states_type_font, font_programs_embedded,
+        font_programs_filed_by_their_format, glyph_procedure_width, is_private_use,
+        no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         simple_font_states_its_widths, symbolic_truetype_states_no_encoding, table_124_rows,
         to_unicode_present, to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
@@ -4167,6 +4311,118 @@ mod tests {
                 .iter()
                 .all(|found| !found.contains("does not decode whole")),
             "{whole:?}"
+        );
+    }
+
+    /// A Type 0 font over an embedded `Encoding` `CMap` whose program is `program`.
+    fn composite_with_cmap(program: &str) -> Document {
+        page_with(
+            "BT /F1 12 Tf <0041> Tj ET",
+            &format!(
+                "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding 6 0 R \
+                 /DescendantFonts [7 0 R] >>\nendobj\n\
+                 6 0 obj\n<< /Type /CMap /CMapName /C /CIDSystemInfo << /Registry (Adobe) \
+                 /Ordering (Identity) /Supplement 0 >> /Length {} >>\nstream\n{program}\n\
+                 endstream\nendobj\n\
+                 7 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /BaseFont /F /CIDSystemInfo \
+                 << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>\nendobj\n",
+                program.len()
+            ),
+        )
+    }
+
+    #[test]
+    fn an_encoding_cmap_mapping_with_bfchar_is_reported_and_one_with_cidchar_is_not() {
+        // ISO 32000-2 §9.7.5.4 c) reserves beginbfchar for a ToUnicode CMap (ADR 3428).
+        let codespace = "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n";
+        let bf = composite_with_cmap(&format!(
+            "{codespace}1 beginbfchar\n<0041> <0003>\nendbfchar\n"
+        ));
+        let found = findings(&bf, encoding_cmap_maps_codes_to_cids);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let cid = composite_with_cmap(&format!(
+            "{codespace}1 begincidchar\n<0041> 3\nendcidchar\n"
+        ));
+        assert_eq!(
+            findings(&cid, encoding_cmap_maps_codes_to_cids),
+            Vec::<String>::new()
+        );
+        let commented = composite_with_cmap(&format!(
+            "% 1 beginbfchar\n{codespace}1 begincidchar\n<0041> 3\nendcidchar\n"
+        ));
+        assert_eq!(
+            findings(&commented, encoding_cmap_maps_codes_to_cids),
+            Vec::<String>::new(),
+            "an operator in a comment is not one"
+        );
+    }
+
+    /// A name-keyed CFF of one name and a Top DICT whose `ItalicAngle` (12 2) is `real`, in hex.
+    fn cff_with_italic_angle(real: &[u8]) -> String {
+        let mut top = real.to_vec();
+        top.extend_from_slice(&[12, 2]);
+        let mut program = vec![1u8, 0, 4, 1, 0, 1, 1, 1, 2, b'A', 0, 1, 1, 1];
+        program.push(u8::try_from(top.len().saturating_add(1)).unwrap_or(0));
+        program.extend_from_slice(&top);
+        program.iter().fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+    }
+
+    #[test]
+    fn a_cff_real_with_no_digit_is_reported_and_one_with_a_digit_is_not() {
+        // Adobe Technical Note #5176 section 4 through §9.9's Table 124 (ADR 3426).
+        let with = |real: &[u8]| {
+            let hex = format!("{}>", cff_with_italic_angle(real));
+            page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n\
+                     << /Type /FontDescriptor /FontName /F /Flags 32 /FontBBox [0 0 1 1] \
+                     /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile3 7 0 R \
+                     >>\nendobj\n7 0 obj\n<< /Subtype /Type1C /Filter /ASCIIHexDecode /Length {} \
+                     >>\nstream\n{hex}\nendstream\nendobj\n",
+                    hex.len()
+                ),
+            )
+        };
+        let digitless = findings(&with(&[0x1e, 0xff]), compact_font_reals_state_a_number);
+        assert_eq!(digitless.len(), 1, "{digitless:?}");
+        assert_eq!(
+            findings(&with(&[0x1e, 0x0f]), compact_font_reals_state_a_number),
+            Vec::<String>::new(),
+            "a real stating the digit 0 is the number zero"
+        );
+    }
+
+    #[test]
+    fn a_program_stream_of_no_bytes_is_not_embedded() {
+        // ISO 32000-2 §9.9's Table 124: every format it names begins with a header, so a
+        // `/FontFile3` that decodes to nothing holds no program, and `pdf_font` substitutes for it
+        // without a refusal (ADR 3427). An empty `ASCIIHexDecode` stream is the shortest witness.
+        let with = |hex: &str| {
+            page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n\
+                     << /Type /FontDescriptor /FontName /F /Flags 32 /FontBBox [0 0 1 1] \
+                     /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile3 7 0 R \
+                     >>\nendobj\n7 0 obj\n<< /Subtype /Type1C /Filter /ASCIIHexDecode /Length {} \
+                     >>\nstream\n{hex}\nendstream\nendobj\n",
+                    hex.len()
+                ),
+            )
+        };
+        let empty = findings(&with(">"), font_programs_embedded);
+        assert_eq!(empty.len(), 1, "{empty:?}");
+        assert!(empty[0].contains("decodes to no bytes"), "{empty:?}");
+        let one_byte = findings(&with("01>"), font_programs_embedded);
+        assert!(
+            one_byte.iter().all(|found| !found.contains("no bytes")),
+            "a byte that is no CFF is the parse's refusal, not this one: {one_byte:?}"
         );
     }
 

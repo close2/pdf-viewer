@@ -220,6 +220,20 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through the four font tables
     // required `/Subtype`: the kind the embedded program's filing decides, or the embedded face's
     // (ADR 3409).
+    // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through §9.9's Table 124 and
+    // Adobe Technical Note #5176: a digitless DICT real restated as the zero this reader read, in
+    // the same bytes (ADR 3426).
+    // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3, through §9.7.5.4 c): an
+    // Encoding CMap's bfchar sections restated as the cidchar sections this reader read (ADR
+    // 3428).
+    Remedy {
+        requirement: "fonts/encoding-cmap-maps-codes-to-cids",
+        answer: Answer::Mechanical(Rewrite::EncodingCmapRestated),
+    },
+    Remedy {
+        requirement: "fonts/compact-font-reals-state-a-number",
+        answer: Answer::Mechanical(Rewrite::CompactFontRealsRestated),
+    },
     Remedy {
         requirement: "fonts/font-dictionary-states-its-subtype",
         answer: Answer::Mechanical(Rewrite::FontSubtypeStated),

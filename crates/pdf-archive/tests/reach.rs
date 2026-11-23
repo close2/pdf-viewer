@@ -158,6 +158,66 @@ fn a_name_after_an_inline_images_data_is_still_read() {
     );
 }
 
+/// A form stating no `/Resources`, whose one operator invokes `/GS0`.
+fn resourceless_form(number: u32) -> String {
+    let content = "/GS0 gs";
+    format!(
+        "{number} 0 obj\n<< /Subtype /Form /BBox [0 0 1 1] /Length {} >>\nstream\n{content}\n\
+         endstream\nendobj\n",
+        content.len()
+    )
+}
+
+/// ISO 32000-2 §7.8.3's last bullet: a form that omits `/Resources` draws with "the resource
+/// dictionary of the page on which they are used", so `/GS0`, which only that form states, is a
+/// name the page's dictionary answers and not an unreferenced one (pdf.js `issue6541`'s shape).
+#[test]
+fn a_name_a_form_stating_no_resources_invokes_is_the_pages() {
+    let document = page_with(
+        "<< /ExtGState << /GS0 5 0 R >> /XObject << /Fm0 6 0 R >> >>",
+        "/Fm0 Do",
+        &format!("{UNINVOKED_STATE}{}", resourceless_form(6)),
+    );
+    let exam = Examination::new(&document, Target::Four(Flavour::Plain));
+    assert!(
+        !exam.exempt().holds(ObjectId::new(5, 0)),
+        "the form the page draws states /GS0 and draws with the page's resources"
+    );
+    let undrawn = page_with(
+        "<< /ExtGState << /GS0 5 0 R >> /XObject << /Fm0 6 0 R >> >>",
+        "0 0 200 200 re f",
+        &format!("{UNINVOKED_STATE}{}", resourceless_form(6)),
+    );
+    let exam = Examination::new(&undrawn, Target::Four(Flavour::Plain));
+    assert!(
+        exam.exempt().holds(ObjectId::new(5, 0)),
+        "a form the page never draws lends it nothing, so the control still exempts /GS0"
+    );
+}
+
+/// The page lends its dictionary at any depth: a form stating no `/Resources`, drawn by a form
+/// stating its own, still looks `/GS0` up in the page's (ADR 1059's reading in `pdf_model`).
+#[test]
+fn a_form_stating_no_resources_inside_one_that_does_still_draws_from_the_page() {
+    let outer = "/Fm1 Do";
+    let document = page_with(
+        "<< /ExtGState << /GS0 5 0 R >> /XObject << /Fm0 7 0 R >> >>",
+        "/Fm0 Do",
+        &format!(
+            "{UNINVOKED_STATE}{}7 0 obj\n<< /Subtype /Form /BBox [0 0 1 1] \
+             /Resources << /XObject << /Fm1 6 0 R >> >> /Length {} >>\nstream\n{outer}\n\
+             endstream\nendobj\n",
+            resourceless_form(6),
+            outer.len()
+        ),
+    );
+    let exam = Examination::new(&document, Target::Four(Flavour::Plain));
+    assert!(
+        !exam.exempt().holds(ObjectId::new(5, 0)),
+        "the inner form's /GS0 is the page's to answer"
+    );
+}
+
 #[test]
 fn the_exemption_withdraws_a_failure_outside_the_carve_out() {
     let invoked = page_with(

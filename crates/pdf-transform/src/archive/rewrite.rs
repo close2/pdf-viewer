@@ -630,6 +630,19 @@ pub enum Rewrite {
     /// Table 119 each make the entry required; a font embedding no program is given the kind of
     /// the face the substitution embeds for it, by that route (ADR 3409).
     FontSubtypeStated,
+    /// Every embedded CFF program whose Top, Font or Private DICT states a real operand with no
+    /// digit states it as the zero this reader read, in the same bytes.
+    ///
+    /// ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2, through ISO 32000-2 §9.9's
+    /// Table 124 and Adobe Technical Note #5176's encoding of a real; every other byte of the
+    /// program is unchanged, and every glyph draws as it did (ADR 3426).
+    CompactFontRealsRestated,
+    /// Every embedded `Encoding` `CMap` that mapped codes with `beginbfchar` states the same
+    /// mappings with `begincidchar`, each destination the CID this reader read it as.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3, through ISO 32000-2
+    /// §9.7.5.4 c); every code selects the CID it selected (ADR 3428).
+    EncodingCmapRestated,
     /// Every named resource entry ISO 19005 section 6.2.2's exemption takes out of the
     /// requirements, and whose name no content stream in the file states, is removed where the
     /// exemption withdrew a finding at what it reaches (ADR 3410).
@@ -1554,6 +1567,16 @@ impl Rewrite {
                  section 6.2.2 makes not used for rendering and exempt, is removed with what only \
                  it reached; nothing on a page draws it"
             }
+            Self::EncodingCmapRestated => {
+                "an embedded Encoding CMap that mapped codes with beginbfchar, which ISO 32000-2 \
+                 \u{a7}9.7.5.4 c) reserves for a ToUnicode CMap, states each mapping with \
+                 begincidchar as the CID this reader read, so every code selects what it selected"
+            }
+            Self::CompactFontRealsRestated => {
+                "an embedded CFF program's DICT real that stated no digit states the zero this \
+                 reader read it as, in the same bytes, so every other byte of the program and \
+                 every glyph it draws are unchanged"
+            }
             Self::FontSubtypeStated => {
                 "a font dictionary that stated no Subtype, or one no font dictionary table names, \
                  states the kind its embedded program is filed as under ISO 32000-2 \u{a7}9.9's \
@@ -1940,6 +1963,8 @@ impl Rewrite {
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::FontTypeStated => "font-type-stated",
             Self::FontSubtypeStated => "font-subtype-stated",
+            Self::CompactFontRealsRestated => "compact-font-reals-restated",
+            Self::EncodingCmapRestated => "encoding-cmap-restated",
             Self::UnreferencedResourceRemoved => "unreferenced-resource-removed",
             Self::BaseFontNamed => "base-font-named",
             Self::PacketHeaderAttributes => "packet-header-attributes",
@@ -2176,6 +2201,8 @@ impl<'a> Rewriter<'a> {
             font_types: prepared.owed.font_types.as_ref().ok(),
             base_font_names: prepared.owed.base_font_names.as_ref().ok(),
             font_subtypes: prepared.owed.font_subtypes.as_ref().ok(),
+            compact_reals: prepared.owed.compact_reals.as_ref().ok(),
+            encoding_cmaps: prepared.owed.encoding_cmaps.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
             collections: prepared.owed.collections.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
@@ -3204,6 +3231,10 @@ struct Rewriter<'a> {
     base_font_names: Option<&'a super::base_font_names::Restated>,
     /// The kinds `font_subtypes::stated` read from each font's program (ADR 3409).
     font_subtypes: Option<&'a super::font_subtypes::Stated>,
+    /// The CFF programs whose digitless DICT reals are restated (ADR 3426).
+    compact_reals: Option<&'a super::compact_reals::Restated>,
+    /// The `Encoding` `CMap`s whose `bfchar` sections are restated as `cidchar` (ADR 3428).
+    encoding_cmaps: Option<&'a super::encoding_cmaps::Restated>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The `/CIDSystemInfo` each `CIDFont` whose collection is restated states instead (ADR 2717).
