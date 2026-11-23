@@ -2192,12 +2192,14 @@ fn rewrites_wanted(
     // removal is (`doc/adr/1964`). A rebuilt parent tree says in the same history how many
     // entries it wrote, a condition of the rebuild (`doc/adr/2674`). A halftone's name, and an
     // overprint mode a DeviceCMYK mark was painted under, are named there before they go
-    // (`doc/adr/2693`).
+    // (`doc/adr/2693`), and so is a stream whose ASCII data stops before its marker before it is
+    // written as the bytes decoded (`doc/adr/3494`).
     let recorded_removal = wanted.contains(&Rewrite::TransferFunctionRemoved)
         || wanted.contains(&Rewrite::ParentTreeRebuilt)
         || wanted.contains(&Rewrite::HalftoneNameRemoved)
         || wanted.contains(&Rewrite::OverprintModeZeroed)
-        || wanted.contains(&Rewrite::Type3WidthRestated);
+        || wanted.contains(&Rewrite::Type3WidthRestated)
+        || wanted.contains(&Rewrite::AsciiDataAsDecoded);
     if omit_identification || departed || configured || recorded_removal {
         wanted.insert(Rewrite::IdentificationSchema);
     }

@@ -176,3 +176,28 @@ fn a_parameter_array_shorter_than_the_chain_is_read_as_no_parameters() {
         assert_eq!(page_contents(&output), vec![DECODED.to_vec()]);
     }
 }
+
+/// Each stream restated is named in the output's own `xmpMM:History`, by the sentence the report
+/// gives it, as every other loss's construction is: ISO 19005-2 section 6.6.6 and ISO 19005-4
+/// section 6.7.5 ask a converter to record what it did (`doc/adr/3494`).
+#[test]
+fn each_stream_restated_is_named_in_the_files_own_history() {
+    for profile in ["as-if-printed", "as-shown"] {
+        for target in TARGETS {
+            let source = a_page_under(target, "ASCII85Decode", CUT_BASE_85);
+            let (report, output) = convert(&source, target, authorised_by(profile, target));
+            let output = written(&report, output);
+            let restated = &conversion(&report).ascii_data_restated;
+            let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+            assert!(
+                packet.contains("xmpMM:History"),
+                "{profile} at {target}:\n{packet}\n{}",
+                conversion(&report).render()
+            );
+            assert!(
+                packet.contains(&restated[0].sentence()),
+                "{profile} at {target}: the entry names the stream:\n{packet}"
+            );
+        }
+    }
+}

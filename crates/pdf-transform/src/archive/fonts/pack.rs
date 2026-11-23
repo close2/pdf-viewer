@@ -362,6 +362,7 @@ pub(super) fn embed(
         losses: Losses::default().with(Loss::MachineFace),
         fitting: None,
         empty_glyphs: Vec::new(),
+        unreached_glyphs: Vec::new(),
         empty_cids: Vec::new(),
         descendant_written: false,
         twin_codes: Vec::new(),

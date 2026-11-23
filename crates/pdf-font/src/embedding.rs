@@ -207,6 +207,114 @@ pub fn wrapped_cff_glyph_names(program: &[u8]) -> Option<std::collections::BTree
     }
 }
 
+/// The units per em of an `OpenType` program's `CFF ` table, read off its `FontMatrix` as
+/// [`cff::units_per_em`] reads a bare program's: the units [`with_empty_cff_glyphs`] takes its
+/// advances in. `None` where the program carries no `CFF ` table this crate reads.
+#[must_use]
+pub fn wrapped_cff_units_per_em(program: &[u8]) -> Option<f32> {
+    cff::units_per_em(sfnt_table(program, b"CFF ")?).ok()
+}
+
+/// An `OpenType` program with `CFF ` outlines, with one empty glyph appended per advance — the
+/// construction [`cff::with_empty_glyphs`] makes of a bare program, carried through the tables an
+/// sfnt counts its glyphs in — and the glyphs added.
+///
+/// The `CFF ` table gains the glyphs and their names, `maxp` counts them, and `hmtx` states each
+/// one's advance and a zero left side bearing, written as long metrics for every glyph so that the
+/// appended advances are their own rather than the last one repeated (`hhea`'s
+/// `numberOfHMetrics`, OpenType's `hmtx`). Where the face carries vertical metrics, `vmtx` gains an
+/// entry per glyph at the last advance height the table states, which `vhea` counts the same way.
+/// The advances are in the program's units, as [`cff::with_empty_glyphs`] takes them.
+/// Every glyph the program held keeps its index, its name, its charstring and its metrics.
+///
+/// `None` where the bytes are not an sfnt carrying a `CFF ` table and the metrics tables, or
+/// where [`cff::with_empty_glyphs`] refuses the table.
+#[must_use]
+pub fn with_empty_cff_glyphs(
+    program: &[u8],
+    advances: &[i64],
+) -> Option<(Vec<u8>, Vec<cff::AddedGlyph>)> {
+    let (table, added) = cff::with_empty_glyphs(sfnt_table(program, b"CFF ")?, advances).ok()?;
+    let held = glyph_count(program, Format::Sfnt)?;
+    let count = held.checked_add(u16::try_from(added.len()).ok()?)?;
+    let mut maxp = sfnt_table(program, b"maxp")?.to_vec();
+    maxp.get_mut(NUM_GLYPHS..NUM_GLYPHS.checked_add(2)?)?
+        .copy_from_slice(&count.to_be_bytes());
+    let given: Vec<Option<u16>> = advances
+        .iter()
+        .map(|advance| u16::try_from(*advance).ok().map(Some))
+        .collect::<Option<_>>()?;
+    let (hhea, hmtx) = long_metrics(
+        sfnt_table(program, b"hhea")?,
+        sfnt_table(program, b"hmtx")?,
+        held,
+        &given,
+    )?;
+    let mut tables = vec![
+        (*b"CFF ", table),
+        (*b"maxp", maxp),
+        (*b"hhea", hhea),
+        (*b"hmtx", hmtx),
+    ];
+    if let (Some(vhea), Some(vmtx)) = (sfnt_table(program, b"vhea"), sfnt_table(program, b"vmtx")) {
+        let (vhea, vmtx) = long_metrics(vhea, vmtx, held, &vec![None; given.len()])?;
+        tables.extend([(*b"vhea", vhea), (*b"vmtx", vmtx)]);
+    }
+    Some((with_tables(program, &tables)?, added))
+}
+
+/// A metrics header and table (`hhea` and `hmtx`, or `vhea` and `vmtx`, which share a layout)
+/// restated as one long metric per glyph: `held` glyphs as the table states them, then one per
+/// entry of `added` at a zero side bearing — at the advance given, or at the last advance the
+/// table states where none is.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "every count is a glyph index under 2^16 and `long` is checked to lie in 1..=held, so \
+              no offset passes 2^18 and no subtraction goes below zero"
+)]
+fn long_metrics(
+    header: &[u8],
+    table: &[u8],
+    held: u16,
+    added: &[Option<u16>],
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let read = |bytes: &[u8], at: usize| -> Option<u16> {
+        Some(u16::from_be_bytes(
+            bytes.get(at..at.checked_add(2)?)?.try_into().ok()?,
+        ))
+    };
+    let long = usize::from(read(header, 34)?);
+    let held = usize::from(held);
+    if long == 0 || long > held {
+        return None;
+    }
+    let last = read(table, (long - 1) * 4)?;
+    let mut metrics: Vec<(u16, u16)> = Vec::with_capacity(held + added.len());
+    for glyph in 0..held {
+        metrics.push(if glyph < long {
+            (read(table, glyph * 4)?, read(table, glyph * 4 + 2)?)
+        } else {
+            (last, read(table, long * 4 + (glyph - long) * 2)?)
+        });
+    }
+    metrics.extend(added.iter().map(|advance| (advance.unwrap_or(last), 0)));
+    let mut header = header.to_vec();
+    let count = u16::try_from(metrics.len()).ok()?;
+    header
+        .get_mut(34..36)?
+        .copy_from_slice(&count.to_be_bytes());
+    let table = metrics
+        .iter()
+        .flat_map(|(advance, bearing)| {
+            advance
+                .to_be_bytes()
+                .into_iter()
+                .chain(bearing.to_be_bytes())
+        })
+        .collect();
+    Some((header, table))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Keying, cff_keying, glyph_count, sfnt_tables, without_tables};

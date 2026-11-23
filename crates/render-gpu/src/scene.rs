@@ -409,10 +409,26 @@ fn encode_stroke(
     let at = spaces.at;
     let layer = compose.layer(blend);
     let (brush, brush_at, rastered) = stroke_brush(paint, spaces.page_to_path)?;
-    // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
-    // coverage it implies, decided there for all three backends (trap 2, ADR 3334): `kurbo`'s
-    // dasher has no bound of its own, and would build every dash.
-    let rest_coverage = pdf_render::past_the_dash_bound(path, s, s.device_width(to_path));
+    // A pattern past the dashes `pdf-render` lets a stroke be cut into is cut over the part of
+    // the path the target can show where that is within the bound, and drawn solid at the
+    // coverage it implies where not, decided there for all three backends (trap 2, ADRs 3334 and
+    // 3495): `kurbo`'s dasher has no bound of its own, and would build every dash.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a target's extent is bounded by MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let corner = Point::new(target.width as f32, target.height as f32);
+    let region = pdf_render::DashRegion {
+        area: pdf_render::Rect::from_corners(Point::new(0.0, 0.0), corner),
+        from_path: to_path,
+    };
+    let (cut, rest_coverage) =
+        match pdf_render::dashing(path, s, s.device_width(to_path), Some(region)) {
+            pdf_render::Dashing::AsStated => (None, None),
+            pdf_render::Dashing::OnTheRegion(cut) => (Some(cut), None),
+            pdf_render::Dashing::Coverage(coverage) => (None, Some(coverage)),
+        };
+    let path = cut.as_ref().unwrap_or(path);
     // §8.4.3.5's zero mitre length of the thinnest line, stated once in `pdf-render` (ADR 3333).
     let drawn = s.as_drawn(to_path);
     let solid_stroke;

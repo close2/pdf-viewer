@@ -1433,6 +1433,16 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::undecodable::Undecodable::history);
+        // The streams whose ASCII data stops before its marker, each named in the same history
+        // before it is written as the bytes decoded, a condition of the rewrite as the streams no
+        // reader decodes are of theirs (`doc/adr/3494`).
+        let ascii_data = asked(wanted(Rewrite::AsciiDataAsDecoded), || {
+            super::ascii_data::restate(document, input)
+        });
+        let ascii_data_history = ascii_data
+            .as_ref()
+            .ok()
+            .and_then(super::ascii_data::Restated::history);
         // The source's header, where it named no version ISO 32000-2 defines: the output's header
         // states the target's, and the record of what the producer wrote there is a condition of
         // writing it (`doc/adr/2558`, `doc/adr/2692`). Read off the source, not a structure this program rebuilt from it.
@@ -1585,6 +1595,7 @@ impl Prepared {
                 as_drawn: as_drawn_history.as_deref(),
                 type3_widths: type3_history.as_deref(),
                 undecodable: undecodable_history.as_deref(),
+                ascii_data: ascii_data_history.as_deref(),
                 header: header_history.as_deref(),
                 parent_tree: parent_tree_history.as_deref(),
                 cmap: cmap_history.as_deref(),
@@ -1643,6 +1654,12 @@ impl Prepared {
                 Err(Because::NotBuiltYet(super::undecodable::NO_PLACE_TO_RECORD))
             }
             undecodable => undecodable,
+        };
+        let ascii_data = match ascii_data {
+            Ok(_) if ascii_data_history.is_some() && !recorded_it => {
+                Err(Because::NotBuiltYet(super::ascii_data::NO_PLACE_TO_RECORD))
+            }
+            ascii_data => ascii_data,
         };
         // A page the fonts' preparation photographed no longer names the content stream it did,
         // so neither content-stream rewrite writes into a stream only such pages named: what is
@@ -1831,9 +1848,6 @@ impl Prepared {
         });
         let actual_texts = asked(wanted(Rewrite::ActualTextRemoved), || {
             super::actual_text::removal(document, input)
-        });
-        let ascii_data = asked(wanted(Rewrite::AsciiDataAsDecoded), || {
-            super::ascii_data::restate(document, input)
         });
         let already = Already {
             packet_headers: headers,

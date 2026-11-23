@@ -87,11 +87,18 @@ pub(super) fn written(
     format: Format,
     codes: &BTreeMap<u8, f32>,
 ) -> Result<(Vec<u8>, BTreeMap<u8, String>), Because> {
-    if format != Format::BareCff {
+    // An `OpenType` program's `CFF ` table is name-keyed as a bare one is, and gains its glyphs
+    // the same way, the sfnt's glyph count and metrics with it (`doc/adr/3493`).
+    let wrapped = format == Format::Sfnt && pdf_font::embed::has_cff_outlines(program);
+    if format != Format::BareCff && !wrapped {
         return Err(Because::TheFence(NOTDEF_UNDER_A_TRUETYPE_DICTIONARY));
     }
-    let units = pdf_font::cff::units_per_em(program)
-        .map_err(|_| Because::NotBuiltYet(EMPTY_GLYPH_NOT_WRITTEN))?;
+    let units = if wrapped {
+        pdf_font::embedding::wrapped_cff_units_per_em(program)
+    } else {
+        pdf_font::cff::units_per_em(program).ok()
+    }
+    .ok_or(Because::NotBuiltYet(EMPTY_GLYPH_NOT_WRITTEN))?;
     let mut by_advance: BTreeMap<i64, Vec<u8>> = BTreeMap::new();
     for (code, thousandths) in codes {
         let exact = thousandths * units / 1000.0;
@@ -107,8 +114,12 @@ pub(super) fn written(
         by_advance.entry(whole as i64).or_default().push(*code);
     }
     let advances: Vec<i64> = by_advance.keys().copied().collect();
-    let (rebuilt, added) = pdf_font::cff::with_empty_glyphs(program, &advances)
-        .map_err(|_| Because::NotBuiltYet(EMPTY_GLYPH_NOT_WRITTEN))?;
+    let (rebuilt, added) = if wrapped {
+        pdf_font::embedding::with_empty_cff_glyphs(program, &advances)
+    } else {
+        pdf_font::cff::with_empty_glyphs(program, &advances).ok()
+    }
+    .ok_or(Because::NotBuiltYet(EMPTY_GLYPH_NOT_WRITTEN))?;
     let mut names = BTreeMap::new();
     for (codes, AddedGlyph { name, .. }) in by_advance.values().zip(added) {
         for code in codes {

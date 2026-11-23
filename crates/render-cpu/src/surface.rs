@@ -211,6 +211,7 @@ impl Surface {
     pub(crate) fn to_device(self, band: Band) -> ToDevice {
         ToDevice {
             page: self.page.transform,
+            extent: (self.page.width, self.page.height),
             top: band.top,
             left: self.shown.left,
         }
@@ -229,6 +230,9 @@ impl Surface {
 pub(crate) struct ToDevice {
     /// Page space to the whole page's device grid.
     pub(crate) page: Transform,
+    /// The whole page's device grid, pixels across and down: what a mark can reach, whichever
+    /// band or window of it is drawn (`pdf_render::dashing`'s region).
+    pub(crate) extent: (u32, u32),
     /// First page row of the surface being drawn into.
     pub(crate) top: u32,
     /// First page column of the surface being drawn into: a window's, and 0 on a page.
@@ -375,12 +379,19 @@ mod tests {
             for mark in marks {
                 let whole = ToDevice {
                     page,
+                    extent: (0, 0),
                     top: 0,
                     left: 0,
                 }
                 .of(mark);
                 for top in [1_u32, 8, 64, 236, 512, 887, 1024] {
-                    let strip = ToDevice { page, top, left: 0 }.of(mark);
+                    let strip = ToDevice {
+                        page,
+                        extent: (0, 0),
+                        top,
+                        left: 0,
+                    }
+                    .of(mark);
                     assert_eq!(
                         (
                             strip.a.to_bits(),

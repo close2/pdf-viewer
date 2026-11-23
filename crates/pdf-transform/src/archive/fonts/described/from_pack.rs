@@ -52,6 +52,11 @@ use super::{
 /// [`Because::NotBuiltYet`] where the face's advances cannot be restated or measured, the font as
 /// written does not read back to the pack face's glyphs at the file's advances, or no object is
 /// spare for the program or the descriptor.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one font's substitution, its record written field by field as `SubstitutedFont` \
+              states it, beside the steps that fill it"
+)]
 pub(in crate::archive::fonts) fn described_from_pack(
     document: &Document,
     used: &SelectedFont,
@@ -156,6 +161,7 @@ pub(in crate::archive::fonts) fn described_from_pack(
         losses: Losses::one(Loss::MachineFace),
         fitting: None,
         empty_glyphs: Vec::new(),
+        unreached_glyphs: Vec::new(),
         empty_cids: Vec::new(),
         descendant_written: false,
         twin_codes: Vec::new(),

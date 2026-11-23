@@ -125,10 +125,13 @@ impl CpuRasterizer {
         let (path, stroke) = fitted
             .as_ref()
             .map_or((path, stroke), |f| (&f.path, &f.stroke));
-        // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
-        // coverage it implies, decided there for all three backends (trap 2, ADR 3334): never
-        // `tiny-skia`'s refusal, which returned no dashed path and drew the stroke as nothing.
-        let rest_coverage = pdf_render::past_the_dash_bound(path, stroke, stroke.device_width(at));
+        // A pattern past the dashes `pdf-render` lets a stroke be cut into is cut over the part of
+        // the path the page's grid can show where that is within the bound, and drawn solid at
+        // the coverage it implies where not, decided there for all three backends (trap 2, ADRs
+        // 3334 and 3495): never `tiny-skia`'s refusal, which returned no dashed path and drew the
+        // stroke as nothing.
+        let (cut, rest_coverage) = dashing_on_the_page(path, stroke, transform, to_device);
+        let path = cut.as_ref().unwrap_or(path);
         // §8.4.3.5's zero mitre length of the thinnest line, stated once in `pdf-render` (ADR
         // 3333), so every route below — the long mitres and the outline among them — sees a bevel.
         let drawn = stroke.as_drawn(at);
@@ -924,6 +927,33 @@ pub(crate) fn outlined_whole(stroke: &pdf_render::PlannedStroke<'_>) -> bool {
     };
     let half = convert::stroke(stroke.stroke, stroke.at).width / 2.0;
     half.is_finite() && half > 0.0 && !curves_may_fold(&converted, half)
+}
+
+/// `pdf_render::dashing` over the whole page's device grid, so that every band and window of a
+/// page answers as the page does (ADR 3495): the path to stroke in place of the given one, where
+/// the pattern is cut over the part the grid shows, and the coverage to draw it solid at, where it
+/// is past the bound even there.
+fn dashing_on_the_page(
+    path: &Path,
+    stroke: &Stroke,
+    transform: Transform,
+    to_device: ToDevice,
+) -> (Option<Path>, Option<f32>) {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "rasterize rejects a target beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let corner = pdf_render::Point::new(to_device.extent.0 as f32, to_device.extent.1 as f32);
+    let grid = pdf_render::DashRegion {
+        area: pdf_render::Rect::from_corners(pdf_render::Point::new(0.0, 0.0), corner),
+        from_path: transform.then(to_device.page),
+    };
+    let width = stroke.device_width(to_device.of(transform));
+    match pdf_render::dashing(path, stroke, width, Some(grid)) {
+        pdf_render::Dashing::AsStated => (None, None),
+        pdf_render::Dashing::OnTheRegion(cut) => (Some(cut), None),
+        pdf_render::Dashing::Coverage(coverage) => (None, Some(coverage)),
+    }
 }
 
 #[cfg(test)]

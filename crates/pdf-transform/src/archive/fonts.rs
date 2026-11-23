@@ -197,10 +197,15 @@ pub struct SubstitutedFont {
     /// The horizontal scale the viewer drew the shipped face at, where it drew one, and what
     /// embedding did with it.
     pub fitting: Option<Fitting>,
-    /// The codes the file's own encoding sent to `.notdef` that were given an empty glyph in the
-    /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
-    /// recorded (`doc/adr/2458`).
+    /// The codes the file's own encoding sent to `.notdef`, or named by a name no route reaches
+    /// ([`Self::unreached_glyphs`]), that were given an empty glyph in the embedded program, which
+    /// `doc/questions/A48` allows on condition that each is reported and recorded (`doc/adr/2458`).
     pub empty_glyphs: Vec<u8>,
+    /// The codes of [`Self::empty_glyphs`] the file's encoding names by a glyph name no route
+    /// reaches a glyph by — neither the Adobe Glyph List nor a face's `post` table — rather than
+    /// sending them to `.notdef`: the window drew nothing for them (`doc/adr/2880`,
+    /// `doc/adr/3493`).
+    pub unreached_glyphs: Vec<u8>,
     /// The CIDs a composite font's pages show that the window drew no glyph for, each sent by the
     /// `/CIDToGIDMap` to a glyph that draws nothing rather than to `.notdef` (`doc/adr/2824`),
     /// reported and recorded on `doc/questions/A48`'s condition.
@@ -311,13 +316,35 @@ pub(super) fn empty_glyphs_given(font: &SubstitutedFont) -> String {
     } else {
         "named outside the Adobe Glyph List"
     };
-    format!(
-        "the codes {} reached .notdef under the file's own encoding, which ISO 19005-2 section \
-         6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to reference, \
-         and were each given a glyph that draws nothing at the width the font dictionary states, \
-         {reached} so that no character is stated for them",
-        empty::listed(&font.empty_glyphs)
-    )
+    let on_notdef: Vec<u8> = font
+        .empty_glyphs
+        .iter()
+        .copied()
+        .filter(|code| !font.unreached_glyphs.contains(code))
+        .collect();
+    let mut clauses = Vec::new();
+    if !on_notdef.is_empty() {
+        clauses.push(format!(
+            "the codes {} reached .notdef under the file's own encoding, which ISO 19005-2 section \
+             6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to \
+             reference, and were each given a glyph that draws nothing at the width the font \
+             dictionary states, {reached} so that no character is stated for them",
+            empty::listed(&on_notdef)
+        ));
+    }
+    // The file's own `/ToUnicode` may state a character for such a code; it is the producer's
+    // and is kept, and the glyph this conversion gives states none of its own (`doc/adr/3493`).
+    if !font.unreached_glyphs.is_empty() {
+        clauses.push(format!(
+            "the codes {} are named by the file's own encoding with glyph names that neither the \
+             Adobe Glyph List nor any face's post table reaches, so this viewer drew nothing for \
+             them (doc/adr/2880); they were each given a glyph that draws nothing at the width \
+             the font dictionary states, {reached} so that this conversion states no character \
+             for them (doc/adr/3493)",
+            empty::listed(&font.unreached_glyphs)
+        ));
+    }
+    clauses.join("; ")
 }
 
 /// What an empty glyph given to a CID the window drew nothing for is, in one clause naming the
@@ -1545,12 +1572,14 @@ fn embed_pass(
             && !emptied
             && matches!(face, Face::Shipped(_) | Face::Machine(..))
             && match face.format() {
-                Format::Sfnt => {
-                    !pdf_font::embed::has_cff_outlines(face.program())
-                        && restated.as_ref().is_none_or(|restatement| {
-                            restatement.described == Described::RestatedAsTrueType
-                        })
-                }
+                // An `OpenType` face with `CFF ` outlines goes under the `Type1` dictionary it is
+                // restated as, and names its empty glyphs as a bare one does (`doc/adr/3493`).
+                Format::Sfnt if pdf_font::embed::has_cff_outlines(face.program()) => restated
+                    .as_ref()
+                    .is_some_and(|restatement| restatement.described == Described::RestatedAsType1),
+                Format::Sfnt => restated.as_ref().is_none_or(|restatement| {
+                    restatement.described == Described::RestatedAsTrueType
+                }),
                 Format::BareCff => restated
                     .as_ref()
                     .is_none_or(|restatement| restatement.described == Described::RestatedAsType1),
@@ -1629,6 +1658,7 @@ fn embed_pass(
             route,
             splits,
             empty,
+            unreached,
         } = found;
         // A renamed code that still reaches its twin's glyph is given a copy of it (`twin_codes`).
         let copied = if splits.is_empty() {
@@ -1686,12 +1716,14 @@ fn embed_pass(
         let mut named_empty: BTreeMap<u8, String> = BTreeMap::new();
         let (program, made) = if empty.is_empty() {
             (program, None)
-        } else if face.format() == Format::BareCff {
+        } else if face.format() == Format::BareCff
+            || pdf_font::embed::has_cff_outlines(face.program())
+        {
             let advances: BTreeMap<u8, f32> = empty
                 .iter()
                 .map(|byte| (*byte, font.advance(Code::single_byte(*byte)) * 1000.0))
                 .collect();
-            let (rebuilt, names) = empty::written(&program, Format::BareCff, &advances)?;
+            let (rebuilt, names) = empty::written(&program, face.format(), &advances)?;
             named_empty = names;
             (rebuilt, None)
         } else {
@@ -1975,6 +2007,7 @@ fn embed_pass(
                 || named_empty.keys().copied().collect(),
                 |made| made.given.keys().copied().collect(),
             ),
+            unreached_glyphs: unreached.into_iter().collect(),
             empty_cids: Vec::new(),
             descendant_written: false,
             twin_codes: twins.map_or_default(|twins| twins.codes),
@@ -2352,9 +2385,10 @@ fn shown_bytes(font: &LoadedFont, used: &SelectedFont) -> Vec<u8> {
 /// asked after every other code so that the glyph's own advance is the other code's
 /// (`twin_codes`, `doc/adr/2723`).
 ///
-/// Where `empty_allowed`, a code the file's own encoding sends to `.notdef` is returned among the
-/// empty codes rather than refused: the font is then made the symbolic font §9.6.5.4 describes,
-/// and the code reaches a glyph that draws nothing (`made_symbolic`, `doc/adr/3125`).
+/// Where `empty_allowed`, a code the file's own encoding sends to `.notdef`, or whose name the
+/// file's route takes to no glyph of any face, is returned among the empty codes rather than
+/// refused: the font is then made the symbolic font §9.6.5.4 describes, and the code reaches a
+/// glyph that draws nothing (`made_symbolic`, `doc/adr/3125`, `doc/adr/3493`).
 fn face_widths(
     font: &LoadedFont,
     face: &Face,
@@ -2365,6 +2399,7 @@ fn face_widths(
     let mut route = MetricRoute::FaceMetrics;
     let mut splits: Vec<(u8, u16, f32)> = Vec::new();
     let mut empty: BTreeSet<u8> = BTreeSet::new();
+    let mut unreached_codes: BTreeSet<u8> = BTreeSet::new();
     let mut codes: Vec<Code> = used
         .shown
         .keys()
@@ -2379,8 +2414,16 @@ fn face_widths(
             // written on the route that writes the descriptor (`empty`, `doc/adr/2458`), and on
             // this one by making the font symbolic where the caller allows it (`doc/adr/3125`).
             let on_notdef = empty::reaches_notdef(font, code);
-            if on_notdef && empty_allowed {
+            // A code the file's own route takes to no glyph of any face — a name neither the Adobe
+            // Glyph List nor a face's `post` table answers — is one the window drew as nothing
+            // (`LoadedFont::unreached_in_substitute`, `doc/adr/2880`), so the same empty glyph
+            // draws what it drew (`doc/adr/3493`).
+            let unreached = font.unreached_in_substitute(code).is_some();
+            if (on_notdef || unreached) && empty_allowed {
                 empty.insert(byte);
+                if !on_notdef {
+                    unreached_codes.insert(byte);
+                }
                 continue;
             }
             let missing = if on_notdef {
@@ -2425,17 +2468,20 @@ fn face_widths(
         route,
         splits,
         empty,
+        unreached: unreached_codes,
     })
 }
 
 /// What [`face_widths`] finds: the advance each glyph is to state, the route, each code that is
-/// to reach a copy of its glyph — the code, the glyph, its own width — and each code the file's
-/// encoding sends to `.notdef` that is to reach a glyph drawing nothing.
+/// to reach a copy of its glyph — the code, the glyph, its own width — each code the file's
+/// encoding sends to `.notdef` or names by a name no route reaches that is to reach a glyph drawing
+/// nothing, and which of those were the latter.
 struct FaceWidths {
     widths: BTreeMap<u16, f32>,
     route: MetricRoute,
     splits: Vec<(u8, u16, f32)>,
     empty: BTreeSet<u8>,
+    unreached: BTreeSet<u8>,
 }
 
 /// The program an operator named for one `/BaseFont`, where they named one.

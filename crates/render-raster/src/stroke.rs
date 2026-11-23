@@ -37,6 +37,20 @@ use raster_scene::SceneBuilder;
 use crate::QuorraRasterError;
 use crate::scene::{Encoder, blend_mode, colour, compose, overprinted};
 
+/// The target's pixels as the region `pdf_render::dashing` counts a pattern over, under the map
+/// from the path's space onto them (ADR 3495).
+fn target_region(target: pdf_render::TargetSpec, from_path: Transform) -> pdf_render::DashRegion {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a target's extent is bounded by MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let corner = Point::new(target.width as f32, target.height as f32);
+    pdf_render::DashRegion {
+        area: pdf_render::Rect::from_corners(Point::new(0.0, 0.0), corner),
+        from_path,
+    }
+}
+
 /// Encodes one stroke command.
 pub(crate) fn encode(
     enc: &mut Encoder<'_>,
@@ -57,12 +71,23 @@ pub(crate) fn encode(
     if thin_line(enc, builder, path, transform, s, paint, (clip, mask, blend))? {
         return Ok(());
     }
-    // A pattern past the dashes `pdf-render` lets a stroke be cut into is drawn solid at the
-    // coverage it implies, decided there for all three backends (trap 2, ADR 3334): `kurbo`'s
-    // dasher has no bound of its own, and would build every dash. The pattern is a statement in
-    // the path's own space, so its count asks nothing of the view.
+    // A pattern past the dashes `pdf-render` lets a stroke be cut into is cut over the part of
+    // the path the target can show where that is within the bound, and drawn solid at the
+    // coverage it implies where not, decided there for all three backends (trap 2, ADRs 3334 and
+    // 3495): `kurbo`'s dasher has no bound of its own, and would build every dash.
     let to_device = transform.then(enc.target().transform);
-    let rest_coverage = pdf_render::past_the_dash_bound(path, s, s.device_width(to_device));
+    let dashing = pdf_render::dashing(
+        path,
+        s,
+        s.device_width(to_device),
+        Some(target_region(enc.target(), to_device)),
+    );
+    let (cut, rest_coverage) = match dashing {
+        pdf_render::Dashing::AsStated => (None, None),
+        pdf_render::Dashing::OnTheRegion(cut) => (Some(Arc::new(cut)), None),
+        pdf_render::Dashing::Coverage(coverage) => (None, Some(coverage)),
+    };
+    let path = cut.as_ref().unwrap_or(path);
     let solid_stroke;
     let s: &Stroke = if rest_coverage.is_some() {
         solid_stroke = Stroke {

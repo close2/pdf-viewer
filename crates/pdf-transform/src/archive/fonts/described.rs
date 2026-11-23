@@ -901,6 +901,7 @@ pub(super) fn describe(
         losses,
         fitting,
         empty_glyphs: [empty.keys().copied().collect(), empty_codes_made].concat(),
+        unreached_glyphs: Vec::new(),
         empty_cids: Vec::new(),
         descendant_written: false,
         twin_codes: Vec::new(),

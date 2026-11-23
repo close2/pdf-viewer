@@ -63,7 +63,7 @@ pub use collapsed::{
     ClipRegion, CollapsedFill, clip_region, collapsed_by_transform, split_collapsed_fill,
 };
 pub use crop::cropped_rectangle;
-pub use dash_bound::{MAX_DASHES, dash_count, past_the_dash_bound, pattern_coverage};
+pub use dash_bound::{DashRegion, Dashing, MAX_DASHES, dash_count, dashing, pattern_coverage};
 pub use dash_end::extended_to_a_zero_dash_at_the_end;
 pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,

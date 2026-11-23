@@ -19,7 +19,9 @@
 //!
 //! Only where every stream the validator named can be re-encoded: one whose data lives outside
 //! the file, did not decrypt, names its parameters through another object, or whose later stage
-//! reports damage of its own over the bytes the cut handed on keeps the refusal, by name.
+//! reports damage of its own over the bytes the cut handed on keeps the refusal, by name. Each
+//! stream restated is named in the file's own `xmpMM:History` as the report names it, and the
+//! restatement is not written where the packet will not take that entry (`doc/adr/3494`).
 
 use std::collections::BTreeMap;
 
@@ -66,6 +68,27 @@ pub(super) struct Restated {
     /// What the report names, one entry per stream.
     pub(super) streams: Vec<AsciiDataRestated>,
 }
+
+impl Restated {
+    /// The `xmpMM:History` parameters naming every stream restated, the report's sentences joined;
+    /// `None` where none is (`doc/adr/3494`).
+    pub(super) fn history(&self) -> Option<String> {
+        (!self.streams.is_empty()).then(|| {
+            let sentences: Vec<String> = self
+                .streams
+                .iter()
+                .map(AsciiDataRestated::sentence)
+                .collect();
+            sentences.join("; ")
+        })
+    }
+}
+
+/// Why a stream is not restated where the file's own history cannot name it.
+pub(super) const NO_PLACE_TO_RECORD: &str = "writing a stream whose ASCII data stops before its \
+     end-of-data marker as the bytes this viewer decoded names it in this file's own \
+     xmpMM:History, and this document's XMP packet will not take that entry, so the stream is \
+     not restated and no file is written (doc/adr/3494)";
 
 /// Every stream the requirement was failed at, re-encoded from what this reader decoded, or why
 /// the restatement does not answer the document.

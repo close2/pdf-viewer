@@ -179,6 +179,7 @@ pub(super) fn written(
         losses: Losses::default(),
         fitting: None,
         empty_glyphs: Vec::new(),
+        unreached_glyphs: Vec::new(),
         empty_cids: shown_cids(used),
         descendant_written: true,
         twin_codes: Vec::new(),

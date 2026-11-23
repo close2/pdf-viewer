@@ -16,13 +16,27 @@ use super::transparency::{Painted, implicit_knockout_group};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
-    /// Names `MAX_DASHES` where a path is stroked and `stroke`'s dash pattern would cut `path` into more dashes than
-    /// a backend cuts one stroke into: such a pattern is drawn as the coverage it implies
-    /// (`pdf_render::past_the_dash_bound`, ADR 3334), which is not the pattern. The count is the
-    /// path's own and asks nothing of the device.
-    fn note_the_dash_bound(&mut self, path: &Path, stroke: Option<&pdf_render::Stroke>) {
-        if let Some(stroke) = stroke
-            && pdf_render::dash_count(path, &stroke.dash_array) > pdf_render::MAX_DASHES
+    /// Names `MAX_DASHES` where a path is stroked and `stroke`'s dash pattern would cut it into
+    /// more dashes than a backend cuts one stroke into, over the part of it the page's boundary
+    /// can show: such a pattern is drawn as the coverage it implies (`pdf_render::dashing`, ADRs
+    /// 3334 and 3495), which is not the pattern. The region is the page's own boundary under the
+    /// stated width, and asks nothing of the device; a list that is not a page counts the whole
+    /// path, as a backend drawing it into its own raster may.
+    fn note_the_dash_bound(
+        &mut self,
+        path: &Path,
+        stroke: Option<&pdf_render::Stroke>,
+        transform: Transform,
+    ) {
+        let Some(stroke) = stroke else {
+            return;
+        };
+        let region = self.list.content_clip().map(|area| pdf_render::DashRegion {
+            area,
+            from_path: transform,
+        });
+        if let pdf_render::Dashing::Coverage(_) =
+            pdf_render::dashing(path, stroke, stroke.width, region)
         {
             self.note(Unsupported::LimitReached {
                 limit: "MAX_DASHES",
@@ -60,7 +74,7 @@ impl Interpreter<'_> {
             // `B` fills *and* strokes one path, and both commands then describe the same
             // geometry; sharing it means the copy happens once rather than twice.
             let shared = Arc::new(path.clone());
-            self.note_the_dash_bound(&shared, stroke.and(Some(&state.stroke)));
+            self.note_the_dash_bound(&shared, stroke.and(Some(&state.stroke)), state.transform);
             // Where the two portions start, for §11.6.2 below.
             let mark = self.list.command_count();
             // Which of §11.6.4.3's readings the portions paint under, for §11.7.4.4's group:

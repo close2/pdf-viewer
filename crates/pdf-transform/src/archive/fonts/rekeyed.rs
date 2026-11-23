@@ -179,6 +179,11 @@ fn noticed(
 ///
 /// [`Because::NotBuiltYet`] naming the condition met, and [`Because::TheFence`] where one glyph of
 /// a `glyf` face would have to state two advances.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one font's substitution, its record written field by field as `SubstitutedFont` \
+              states it, beside the steps that fill it"
+)]
 pub(super) fn embed(
     document: &Document,
     used: &SelectedFont,
@@ -280,6 +285,7 @@ pub(super) fn embed(
         losses: Losses::one(Loss::MachineFace).with(Loss::GlyphsFromToUnicode),
         fitting: None,
         empty_glyphs: Vec::new(),
+        unreached_glyphs: Vec::new(),
         empty_cids: Vec::new(),
         descendant_written: false,
         twin_codes: Vec::new(),
