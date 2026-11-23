@@ -66,6 +66,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
 
+      # `quorra-sound` is the one crate that links the sound library, through `cpal` (ADR 3317),
+      # and `alsa-sys`'s `build.rs` finds ALSA's development files through `pkg-config`.
+      - name: The sound helper's audio library
+        run: sudo apt-get install -y libasound2-dev
+
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
 
@@ -133,6 +138,10 @@ jobs:
       # its platform's development files. ADRs 0244 and 0246.
       - name: The two native hosts' toolkits
         run: sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
+
+      # As in the `check` job: `quorra-sound` links ALSA through `cpal` (ADR 3317).
+      - name: The sound helper's audio library
+        run: sudo apt-get install -y libasound2-dev
 
       # Two `sfnt` faces, named because eleven `pdf-model` tests need them and a test's
       # requirement belongs to this file rather than to some other package's dependency graph.
