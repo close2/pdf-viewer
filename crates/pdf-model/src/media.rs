@@ -48,7 +48,7 @@ mod playing;
 mod wave;
 
 pub use deprecated::{movie, sound};
-pub use playing::{Honoured, Playing, SimpleDuration};
+pub use playing::{Honoured, Playing, Section, SimpleDuration};
 pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
@@ -356,6 +356,14 @@ struct Span {
     ends: bool,
 }
 
+/// Which of a media clip section's `/B` and `/E` a section above it stated in its `MH`, so that
+/// every deeper one is evaluated as must-honour (§13.2.4.3).
+#[derive(Debug, Clone, Copy, Default)]
+struct Forced {
+    begin: bool,
+    end: bool,
+}
+
 /// A §13.2.6.2 media offset, as Tables 296 to 300 read it.
 enum Offset {
     /// Table 297's time, in seconds, over a Table 300 simple timespan.
@@ -493,8 +501,13 @@ impl Walk<'_> {
             unrecognised_duration(document, parameters, &mut reasons);
         }
         let screen = document.get_key(dict, "SP");
+        let mut screen_set_aside = Vec::new();
         if let Some(screen) = screen.as_dict() {
-            unhonourable(document, screen, "Table 294", &mut reasons);
+            if here {
+                screen_here(document, screen, &mut reasons, &mut screen_set_aside);
+            } else {
+                unhonourable(document, screen, "Table 294", &mut reasons);
+            }
         }
         let Some(clip) = clip.as_dict() else {
             // §13.2.3.2: "C may be omitted only in cases where a referenced player takes no
@@ -507,7 +520,15 @@ impl Walk<'_> {
             );
             return Err(reasons);
         };
-        let clip = self.clip(clip, play_players.as_ref(), 0, &mut reasons, set_aside);
+        let forced = here.then_some(Forced::default());
+        let clip = self.clip(
+            clip,
+            play_players.as_ref(),
+            0,
+            forced,
+            &mut reasons,
+            set_aside,
+        );
         match clip {
             Some(mut clip) if reasons.is_empty() => {
                 if here {
@@ -516,9 +537,14 @@ impl Walk<'_> {
                     // order to play a media clip" — governs nothing it does.
                     clip.temporary_file = None;
                     if let Some(honoured) = honoured {
+                        // The section is the clip's, read from its sections; the rest is the
+                        // play parameters'.
+                        let section = clip.playing.section;
                         clip.playing = honoured.playing;
+                        clip.playing.section = section;
                         clip.unhonoured.extend(honoured.set_aside);
                     }
+                    clip.unhonoured.extend(screen_set_aside);
                 }
                 Ok(clip)
             }
@@ -527,27 +553,29 @@ impl Walk<'_> {
     }
 
     /// Whether this program's own player takes `clip`: the host plays here, and the clip is
-    /// §13.2.4.2's media clip data holding an embedded file whose Table 285 `/CT` names a RIFF
-    /// WAVE file or an MP4 file of sound alone (ADR 3384) — "If D references a file specification
-    /// that has an embedded file stream … the media clip data dictionary's CT entry shall identify
-    /// the type of data".
+    /// §13.2.4.2's media clip data, or a chain of §13.2.4.3's sections ending in it (ADR 3398),
+    /// holding an embedded file whose Table 285 `/CT` names a RIFF WAVE file or an MP4 file of
+    /// sound alone (ADR 3384) — "If D references a file specification that has an embedded file
+    /// stream … the media clip data dictionary's CT entry shall identify the type of data".
     fn played_here(&self, clip: &Dictionary) -> bool {
         let document = self.document;
         self.processor.players == Players::AlsoHere
-            && document
-                .get_key(clip, "S")
-                .as_name()
-                .is_some_and(|kind| kind.as_bytes() == b"MCD")
-            && content_type(document, clip).is_some_and(|kind| container::is_played_here(&kind))
-            && matches!(self.data(clip, &mut Vec::new()), Some(Data::Embedded(_)))
+            && self.terminal(clip, 0).is_some_and(|data| {
+                content_type(document, &data).is_some_and(|kind| container::is_played_here(&kind))
+                    && matches!(self.data(&data, &mut Vec::new()), Some(Data::Embedded(_)))
+            })
     }
 
     /// Table 284's two subtypes: §13.2.4.2's data and §13.2.4.3's section.
+    ///
+    /// `here` is `None` where the clip is judged for the hand-off, and where this program's own
+    /// player takes it, which `/B` and `/E` a section above stated in its `MH`.
     fn clip(
         &self,
         dict: &Dictionary,
         play_players: Option<&Object>,
         depth: usize,
+        here: Option<Forced>,
         reasons: &mut Vec<String>,
         set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
@@ -561,7 +589,10 @@ impl Walk<'_> {
         }
         let kind = document.get_key(dict, "S");
         match kind.as_name().map(pdf_syntax::Name::as_bytes) {
-            Some(b"MCD") => self.clip_data(dict, play_players, reasons, set_aside),
+            Some(b"MCD") => self.clip_data(dict, play_players, here.is_some(), reasons, set_aside),
+            Some(b"MCS") if here.is_some() => {
+                self.section_here(dict, play_players, depth, here, reasons, set_aside)
+            }
             Some(b"MCS") => {
                 // The next level is judged first because its content type decides whether this
                 // section's offsets count at all; its reasons are said after this section's own.
@@ -572,6 +603,7 @@ impl Walk<'_> {
                         next,
                         play_players,
                         depth.saturating_add(1),
+                        None,
                         &mut below,
                         set_aside,
                     )
@@ -663,6 +695,131 @@ impl Walk<'_> {
                 None
             }
         }
+    }
+
+    /// A media clip section this program's own player plays (§13.2.4.3, ADR 3398): its next-level
+    /// clip read first, then its `/B` and `/E` placed on that clip's own section, so the chain's
+    /// section is the one [`Playing::section`] carries to the player.
+    ///
+    /// The player plays a stretch of its file, so a time offset is honoured, and so is a marker,
+    /// whose place the container states; §13.2.4.3: "If this offset is not within the range
+    /// defined by the next-level media clip (if any), or if the marker is not present in the
+    /// underlying media clip, the existence of the entry shall be ignored, and there is no effect
+    /// on viability." A frame offset is not: a sound's container counts no frames
+    /// ([`container::Timeline::frames`]). An entry that cannot be honoured makes the section
+    /// non-viable where it is in an `MH`, or where a section above states the same entry in its
+    /// `MH` — "all B or E entries, respectively, at deeper levels (closer to the media clip data),
+    /// shall be evaluated as if they were in an MH dictionary" — and is set aside and said
+    /// otherwise.
+    fn section_here(
+        &self,
+        dict: &Dictionary,
+        play_players: Option<&Object>,
+        depth: usize,
+        here: Option<Forced>,
+        reasons: &mut Vec<String>,
+        set_aside: &mut Vec<String>,
+    ) -> Option<Clip> {
+        let document = self.document;
+        let forced = here.unwrap_or_default();
+        let must_honour = document.get_key(dict, "MH");
+        let best_effort = document.get_key(dict, "BE");
+        let names = |options: &Object, key: &str| {
+            options
+                .as_dict()
+                .is_some_and(|options| options.get(key).is_some())
+        };
+        let below_forced = Forced {
+            begin: forced.begin || names(&must_honour, "B"),
+            end: forced.end || names(&must_honour, "E"),
+        };
+        let next = document.get_key(dict, "D");
+        let Some(next) = next.as_dict() else {
+            reasons.push(
+                "its media clip section names no next-level clip (Table 288's /D)".to_owned(),
+            );
+            return None;
+        };
+        let mut below = Vec::new();
+        let clip = self.clip(
+            next,
+            play_players,
+            depth.saturating_add(1),
+            Some(below_forced),
+            &mut below,
+            set_aside,
+        );
+        // "If the next-level media object is non-viable, the media clip section shall be also
+        // non-viable."
+        let mut clip = clip?;
+        let terminal = self.terminal(next, depth.saturating_add(1));
+        let outer = clip.playing.section;
+        let mut section = outer;
+        for key in ["B", "E"] {
+            let forced_here = if key == "B" { forced.begin } else { forced.end };
+            // The `MH` entry where both state one: it is the one that must be honoured.
+            let entry = [(&must_honour, true), (&best_effort, false)]
+                .into_iter()
+                .find_map(|(options, must)| {
+                    let options = options.as_dict()?;
+                    options
+                        .get(key)
+                        .map(|_| (document.get_key(options, key), must))
+                });
+            let Some((offset, must)) = entry else {
+                continue;
+            };
+            let must = must || forced_here;
+            let placed = match read_offset(document, &offset) {
+                Offset::Unrecognised(table) => {
+                    // Tables 296 and 300 name the rendition, in `MH` or `BE` (ADR 2447).
+                    let options = if must { "MH" } else { "BE" };
+                    reasons.push(unrecognised(options, key, table));
+                    continue;
+                }
+                Offset::Unviable => Err(
+                    "it is not an offset Tables 296 to 300 recognise, which they make non-viable"
+                        .to_owned(),
+                ),
+                Offset::Frame(_) => Err(
+                    "a sound's container counts no frames for Table 298's offset to name"
+                        .to_owned(),
+                ),
+                // "When B or E are specified by time or frames, their value shall be considered
+                // to be relative to the start of the next-level media clip."
+                Offset::Time(seconds) => Ok(Some(outer.begin + seconds)),
+                Offset::Marker(name) => self.timeline(terminal.as_ref()).map(|timeline| {
+                    timeline
+                        .markers
+                        .iter()
+                        .find(|marker| marker.name == name)
+                        .map(|marker| marker.seconds)
+                        .filter(|seconds| {
+                            *seconds >= outer.begin && outer.end.is_none_or(|end| *seconds <= end)
+                        })
+                }),
+            };
+            match placed {
+                Ok(None) => {}
+                Ok(Some(seconds)) if key == "B" => section.begin = seconds,
+                // "If E specifies an offset beyond the end of the next-level media clip, the end
+                // value shall be used instead, and there is no effect on viability."
+                Ok(Some(seconds)) => {
+                    section.end = Some(outer.end.map_or(seconds, |end| seconds.min(end)));
+                }
+                Err(why) if must => reasons.push(format!(
+                    "its media clip section must start or end at Table 289's /{key}, and this \
+                     player cannot place it: {why}"
+                )),
+                Err(why) => clip.unhonoured.push(format!(
+                    "the section's best-effort /{key} (Table 289): {why}"
+                )),
+            }
+        }
+        undefined_in_section(&must_honour, reasons);
+        reasons.extend(below);
+        clip.playing.section = section;
+        Some(clip)
     }
 
     /// What the next-level clip `dict` spans of its file (§13.2.4.3): media clip data spans the
@@ -924,6 +1081,7 @@ impl Walk<'_> {
         &self,
         dict: &Dictionary,
         play_players: Option<&Object>,
+        here: bool,
         reasons: &mut Vec<String>,
         set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
@@ -960,7 +1118,10 @@ impl Walk<'_> {
 
         // Table 287's `/BU` in an `MH`: "If BU is in the MH dictionary and the base URL is not
         // honoured the media clip data shall be nonviable", and a player handed only the file is
-        // told no base URL.
+        // told no base URL. This program's own player honours it: §13.2.4.2's base URL is for
+        // "resolving any relative URLs found within the media data", and the player resolves none
+        // — it plays a WAVE file's samples, and an MP4 file only where every data reference says
+        // the media is in the file itself — so nothing it does is relative to any base (ADR 3398).
         let mut unhonoured = Vec::new();
         for (key, must) in [("MH", true), ("BE", false)] {
             let options = document.get_key(dict, key);
@@ -970,6 +1131,7 @@ impl Walk<'_> {
             for (name, _) in options.iter() {
                 let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
                 match (must, name == "BU") {
+                    (_, true) if here => {}
                     (true, true) => reasons.push(
                         "it must be played against Table 287's base URL /BU, and a player handed \
                          the file is told none"
@@ -1225,6 +1387,89 @@ fn unhonourable(document: &Document, dict: &Dictionary, table: &str, reasons: &m
              told nothing about how to play it",
             String::from_utf8_lossy(name.as_bytes())
         ));
+    }
+}
+
+/// Each entry of a media clip section's `MH` that Table 289 does not define, as a reason the section
+/// is non-viable.
+fn undefined_in_section(must_honour: &Object, reasons: &mut Vec<String>) {
+    let Some(options) = must_honour.as_dict() else {
+        return;
+    };
+    for (name, _) in options.iter() {
+        if !matches!(name.as_bytes(), b"B" | b"E") {
+            reasons.push(format!(
+                "its media clip section's MH holds /{}, which Table 289 does not define",
+                String::from_utf8_lossy(name.as_bytes())
+            ));
+        }
+    }
+}
+
+/// Table 294's media screen parameters for a rendition this program's own player plays: a sound,
+/// heard and never shown (ADR 3399).
+///
+/// The player opens no window and paints nothing, which is Table 294's `/W` 2, "\[a] hidden
+/// window". Where that is the window type the parameters settle on — `MH`'s `/W`, else `BE`'s,
+/// else the default 3 — the table itself sets the rest aside: `/B` "shall be ignored for hidden
+/// windows", `/O` "shall be ignored for full-screen and hidden windows", `/M` is "\[i]gnored for
+/// other types" than floating or full-screen, and `/F` is "\[r]equired if the value of W is 0;
+/// otherwise ignored". Those are ignored silently because the clause says so. Any other window
+/// type cannot be honoured by a player that shows nothing: in `MH` the parameters are non-viable,
+/// and in `BE` the entry is set aside and said. Table 294's own rule for `/W` stands: "Unrecognised
+/// value in MH : object is non-viable; in BE : treat as default value."
+fn screen_here(
+    document: &Document,
+    screen: &Dictionary,
+    reasons: &mut Vec<String>,
+    set_aside: &mut Vec<String>,
+) {
+    const HIDDEN: i64 = 2;
+    let window_type = |key: &str| -> Option<Option<i64>> {
+        let options = document.get_key(screen, key);
+        let options = options.as_dict()?;
+        options.get("W")?;
+        Some(
+            document
+                .get_key(options, "W")
+                .as_integer()
+                .filter(|value| (0..=3).contains(value)),
+        )
+    };
+    let must = window_type("MH");
+    if must == Some(None) {
+        reasons.push(
+            "its media screen parameters' MH states a Table 294 /W this program does not \
+             recognise"
+                .to_owned(),
+        );
+        return;
+    }
+    // A `BE` value the table does not recognise is the default, 3.
+    let best = window_type("BE").map(|value| value.unwrap_or(3));
+    let settled = must.flatten().or(best).unwrap_or(3);
+    if settled == HIDDEN {
+        return;
+    }
+    for (key, is_must) in [("MH", true), ("BE", false)] {
+        let options = document.get_key(screen, key);
+        let Some(options) = options.as_dict() else {
+            continue;
+        };
+        for (name, _) in options.iter() {
+            let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
+            if is_must {
+                reasons.push(format!(
+                    "it must be played with Table 294's /{name} honoured in a window of type \
+                     {settled}, and this program's player plays a sound in no window"
+                ));
+            } else {
+                set_aside.push(format!(
+                    "the best-effort screen parameter /{name} (Table 294): this program's player \
+                     plays a sound in no window, as Table 294's hidden window does"
+                ));
+            }
+        }
     }
 }
 

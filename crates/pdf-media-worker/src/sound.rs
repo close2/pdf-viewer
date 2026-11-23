@@ -52,6 +52,9 @@ pub enum Encoding {
     /// first, two's complement (`crate::wave`, ADR 3349). Eight-bit WAVE samples are unsigned and
     /// cross as [`Self::Raw`].
     Little,
+    /// A RIFF WAVE file's IEEE 754 single-precision sample (RFC 2361's `WAVE_FORMAT_IEEE_FLOAT`):
+    /// four bytes, least significant first, full scale at ±1 (`crate::wave`, ADR 3397).
+    Float,
 }
 
 impl Encoding {
@@ -64,6 +67,7 @@ impl Encoding {
             Self::MuLaw => 2,
             Self::ALaw => 3,
             Self::Little => 4,
+            Self::Float => 5,
         }
     }
 
@@ -76,6 +80,7 @@ impl Encoding {
             2 => Some(Self::MuLaw),
             3 => Some(Self::ALaw),
             4 => Some(Self::Little),
+            5 => Some(Self::Float),
             _ => None,
         }
     }
@@ -133,6 +138,12 @@ impl SoundFormat {
             return Some(format!(
                 "a little-endian WAVE sample is two, three or four whole bytes, and the sound \
                  states {} bits",
+                self.bits
+            ));
+        }
+        if self.encoding == Encoding::Float && self.bits != 32 {
+            return Some(format!(
+                "an IEEE float WAVE sample is 32 bits, and the sound states {} bits",
                 self.bits
             ));
         }
@@ -240,6 +251,9 @@ fn convert(format: SoundFormat, code: u32) -> i32 {
         // least significant, so the bytes are reversed into the top of the word, which is where
         // the sample's amplitude sits, and read as two's complement.
         Encoding::Little => ((code << shift).swap_bytes() << shift).cast_signed(),
+        // Thirty-two bits read most significant first are the float's four bytes reversed; a
+        // float is scaled as the AAC decoder's are, full scale at ±1.
+        Encoding::Float => crate::aac::top_aligned(f32::from_bits(code.swap_bytes())),
         // Offset binary: an unsigned code less half its range is the same top-aligned word with
         // its most significant bit flipped.
         Encoding::Raw => ((code << shift) ^ 0x8000_0000).cast_signed(),

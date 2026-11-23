@@ -874,7 +874,8 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
 }
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
-/// and seconds, the repeat count, and the three flags.
+/// and seconds, the repeat count, the three flags, and §13.2.4.3's section — its beginning, then
+/// its end or a negative number for the clip's own end (ADR 3398).
 fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
     use pdf_model::media::SimpleDuration;
     let (kind, seconds) = match playing.duration {
@@ -889,7 +890,9 @@ fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
         .f64(playing.repeat)
         .bool(playing.auto_play)
         .bool(playing.synchronous)
-        .bool(playing.mix);
+        .bool(playing.mix)
+        .f64(playing.section.begin)
+        .f64(playing.section.end.unwrap_or(-1.0));
 }
 
 /// [`write_playing`]'s other half. The confined side is the less trusted one, so each number is
@@ -932,6 +935,17 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
         auto_play: reader.bool("whether a sound plays at once")?,
         synchronous: reader.bool("whether a sound plays synchronously")?,
         mix: reader.bool("whether a sound is mixed")?,
+        section: pdf_model::media::Section {
+            begin: unsigned(
+                reader.f64("where a sound's section begins")?,
+                "where a sound's section begins",
+            )?,
+            end: match reader.f64("where a sound's section ends")? {
+                // A negative number marks the clip's own end.
+                end if end < 0.0 => None,
+                end => Some(unsigned(end, "where a sound's section ends")?),
+            },
+        },
     })
 }
 

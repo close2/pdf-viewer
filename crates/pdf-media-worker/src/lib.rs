@@ -38,7 +38,9 @@ pub mod wave;
 pub mod wire;
 mod worker;
 
-pub use client::{MAX_TOP_LEVEL_BOXES, MediaError, MediaWorker, PROCESSOR_BUDGET, Sound};
+pub use client::{
+    MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET, Sound,
+};
 pub use worker::{Worker, answer, serve};
 
 /// The worker program's name, which is also the name its diagnostics are reported under.

@@ -6,11 +6,11 @@ use confined_transport::{frame, greeting};
 use pdf_sandbox::lockdown::{self, Profile};
 
 use crate::wire::{
-    FRAME_BOX, FRAME_BOXED, FRAME_DECODE, FRAME_LAYOUT, FRAME_MOVIE, FRAME_PCM, FRAME_PLACED,
-    FRAME_REFUSED, FRAME_SAMPLES, FRAME_TRACK, FRAME_UNITS, MAGIC, MAX_MOVIE_REQUEST_BYTES,
-    MAX_REQUEST_BYTES, MAX_SAMPLES_PER_REQUEST, MAX_UNIT_BYTES, Track, decode_box_request,
-    decode_layout_request, decode_movie_request, decode_request, decode_units, encode_boxed,
-    encode_pcm, encode_placed, encode_samples, encode_track,
+    FRAME_BOX, FRAME_BOXED, FRAME_DECODE, FRAME_LAYOUT, FRAME_MOVIE, FRAME_PCM, FRAME_REFUSED,
+    FRAME_SAMPLES, FRAME_TRACK, FRAME_UNITS, MAGIC, MAX_LAYOUT_REQUEST_BYTES,
+    MAX_MOVIE_REQUEST_BYTES, MAX_REQUEST_BYTES, MAX_SAMPLES_PER_REQUEST, MAX_UNIT_BYTES, Track,
+    decode_box_request, decode_layout_request, decode_movie_request, decode_request, decode_units,
+    encode_boxed, encode_found, encode_pcm, encode_samples, encode_track,
 };
 use crate::{aac, mp4, sound, wave};
 
@@ -85,8 +85,13 @@ impl Worker {
         };
         match kind {
             FRAME_LAYOUT => {
-                let (total, head) = decode_layout_request(&payload)?;
-                Ok((FRAME_PLACED, encode_placed(&wave::layout(head, total)?)))
+                let request = decode_layout_request(&payload)?;
+                Ok(encode_found(&wave::layout(
+                    request.window,
+                    request.at,
+                    request.total,
+                    request.described,
+                )?))
             }
             FRAME_BOX => {
                 let (total, at, header) = decode_box_request(&payload)?;
@@ -143,6 +148,8 @@ impl Worker {
 fn limit(kind: u8) -> usize {
     if kind == FRAME_MOVIE {
         MAX_MOVIE_REQUEST_BYTES
+    } else if kind == FRAME_LAYOUT {
+        MAX_LAYOUT_REQUEST_BYTES
     } else {
         MAX_REQUEST_BYTES
     }

@@ -46,8 +46,9 @@ def main():
             for channels, rate in ((1, 8000), (2, 22050), (3, 11025)):
                 for length in (0, 1, 9, 64, 255):
                     written += write(out, request(rate, channels, bits, encoding, ramp[:length]))
-    # RIFF WAVE layout requests (ADR 3349): a version byte, the file's length as a `u64`, then the
-    # file — PCM at three widths, A-law and µ-law, with and without a chunk before the format.
+    # RIFF WAVE layout requests (ADRs 3349, 3397): a version byte, the file's length and the
+    # window's offset as `u64`s, the carried format (thirteen zero bytes: none yet), then the file —
+    # PCM at three widths, A-law and µ-law, with and without a chunk before the format.
     for tag, channels, bits in ((1, 1, 8), (1, 2, 16), (1, 1, 24), (6, 1, 8), (7, 2, 8)):
         for before in (b"", b"LIST" + struct.pack("<I", 3) + b"abc\0"):
             container = (bits + 7) // 8
@@ -56,7 +57,19 @@ def main():
             body = b"WAVE" + before + b"fmt " + struct.pack("<I", len(fmt)) + fmt
             body += b"data" + struct.pack("<I", 8) + ramp[:8]
             wave = b"RIFF" + struct.pack("<I", len(body)) + body
-            written += write(out, struct.pack("<BQ", VERSION, len(wave)) + wave)
+            written += write(out, struct.pack("<BQQ", VERSION, len(wave), 0) + bytes(13) + wave)
+    # WAVE_FORMAT_EXTENSIBLE: the common fields, cbSize 22, valid bits, the channel mask, and a
+    # SubFormat GUID naming PCM (1) or IEEE float (3) over the base GUID's tail.
+    tail = bytes([0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71])
+    for subtag, channels, bits, mask in ((1, 2, 16, 0x3), (1, 6, 24, 0x3F), (3, 2, 32, 0x3), (1, 4, 16, 0x33)):
+        container = bits // 8
+        fmt = struct.pack("<HHIIHH", 0xFFFE, channels, 48000, 48000 * channels * container,
+                          channels * container, bits)
+        fmt += struct.pack("<HHII", 22, bits, mask, subtag) + tail
+        body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt
+        body += b"data" + struct.pack("<I", 8) + ramp[:8]
+        wave = b"RIFF" + struct.pack("<I", len(body)) + body
+        written += write(out, struct.pack("<BQQ", VERSION, len(wave), 0) + bytes(13) + wave)
     print(f"{written} seeds written to {out}")
 
 

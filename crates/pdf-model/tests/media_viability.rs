@@ -1133,3 +1133,113 @@ fn a_rendition_non_viable_for_this_player_falls_to_the_next() {
     assert!((chosen.playing.level - 0.25).abs() < f64::EPSILON);
     assert!(judged(&body, Processor::default()).chosen().is_none());
 }
+
+/// §13.2.4.3's media clip sections over a clip this program plays itself (ADR 3398): time offsets
+/// are placed on the next-level clip's own section, an `/E` past the next level is held to it, a
+/// beginning past the end is "an empty range" and valid, a frame offset — which a sound's
+/// container does not count — makes an `MH` section non-viable and a `BE` one set aside and said,
+/// and an `MH` `/B` above makes a deeper `BE` `/B` must-honour.
+#[test]
+fn a_media_clip_section_is_played_here_as_its_offsets_place_it() {
+    use pdf_model::media::Section;
+    let here = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let wave = format!("<< /S /MCD /CT (audio/wav) /D {EMBEDDED} >>");
+    let time = |seconds: f64| format!("<< /S /T /T << /S /S /V {seconds} >> >>");
+    let section = |options: &str, next: &str| format!("<< /S /MCS {options} /D {next} >>");
+    let chosen = |clip: &str| {
+        judged(&format!("<< /S /MR /C {clip} >>"), here)
+            .chosen()
+            .map(|(_, clip)| clip.clone())
+    };
+    let inner = section(
+        &format!("/MH << /B {} /E {} >>", time(1.0), time(5.0)),
+        &wave,
+    );
+    let outer = section(
+        &format!("/BE << /B {} /E {} >>", time(0.5), time(9.0)),
+        &inner,
+    );
+    let clip = chosen(&outer).expect("a section of a WAVE clip is played here");
+    assert!(clip.played_here);
+    assert_eq!(
+        clip.playing.section,
+        Section {
+            begin: 1.5,
+            end: Some(5.0)
+        },
+        "B relative to the next level's start; E past its end held to it"
+    );
+    let empty = section(
+        &format!("/MH << /B {} /E {} >>", time(4.0), time(2.0)),
+        &wave,
+    );
+    let clip = chosen(&empty).expect("an empty range is valid");
+    assert_eq!(
+        clip.playing.section,
+        Section {
+            begin: 4.0,
+            end: Some(2.0)
+        }
+    );
+    let frame = "<< /S /F /F 10 >>";
+    assert!(chosen(&section(&format!("/MH << /B {frame} >>"), &wave)).is_none());
+    let clip = chosen(&section(&format!("/BE << /B {frame} >>"), &wave)).expect("BE");
+    assert_eq!(clip.playing.section, Section::WHOLE);
+    assert!(
+        clip.unhonoured
+            .iter()
+            .any(|entry| entry.contains("/B (Table 289)")),
+        "{:?}",
+        clip.unhonoured
+    );
+    let deeper = section(&format!("/BE << /B {frame} >>"), &wave);
+    let forced = section(&format!("/MH << /B {} >>", time(1.0)), &deeper);
+    assert!(
+        chosen(&forced).is_none(),
+        "an MH /B above makes the deeper /B must-honour"
+    );
+    // The hand-off still plays a file from its start, so the same section is not viable there.
+    assert!(!viable(&format!("<< /S /MR /C {inner} >>")));
+}
+
+/// Table 287's `/BU` and Table 294's screen parameters for a clip this program plays itself
+/// (ADRs 3398, 3399): the player resolves no URL, so an `MH` base URL is honoured; it shows a
+/// sound in no window, which is Table 294's hidden window, so an `MH` `/W 2` is honoured with the
+/// entries the table ignores for hidden windows, while any other window type in `MH` is
+/// non-viable and in `BE` is set aside and said.
+#[test]
+fn a_base_url_and_a_hidden_window_are_honoured_by_this_player() {
+    let here = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let wave = |options: &str| format!("<< /S /MCD /CT (audio/wav) {options} /D {EMBEDDED} >>");
+    let chosen = |screen: &str, clip: &str| {
+        judged(&format!("<< /S /MR {screen} /C {clip} >>"), here)
+            .chosen()
+            .map(|(_, clip)| clip.clone())
+    };
+    let clip = chosen("", &wave("/MH << /BU (http://example.org/) >>")).expect("BU honoured");
+    assert!(clip.played_here && clip.unhonoured.is_empty(), "{clip:?}");
+    let plain = wave("");
+    let hidden = "/SP << /MH << /W 2 /B [1 0 0] /O 0.5 /M 1 >> >>";
+    let clip = chosen(hidden, &plain).expect("a hidden window is this player's");
+    assert!(clip.unhonoured.is_empty(), "{:?}", clip.unhonoured);
+    for must in ["/W 0", "/W 3", "/W 7", "/B [1 0 0]"] {
+        let screen = format!("/SP << /MH << {must} >> >>");
+        assert!(chosen(&screen, &plain).is_none(), "{must}");
+    }
+    let clip = chosen("/SP << /BE << /W 1 >> >>", &plain).expect("BE");
+    assert!(
+        clip.unhonoured
+            .iter()
+            .any(|entry| entry.contains("/W (Table 294)")),
+        "{:?}",
+        clip.unhonoured
+    );
+    let clip = chosen("/SP << /BE << /W 2 /B [0 0 1] >> >>", &plain).expect("BE hidden");
+    assert!(clip.unhonoured.is_empty(), "{:?}", clip.unhonoured);
+}

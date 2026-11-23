@@ -16,22 +16,24 @@
 //! - **What the worker encodes the host reads back to the same.**
 //! - **What decodes as a request re-encodes to the same bytes.**
 //!
-//! The same input is then a RIFF WAVE layout request (ADR 3349): its file's header read by
-//! `wave::layout` as the worker's `answer` reads it, with one more property — **the samples the
-//! worker places lie inside the file the request describes**, so the host's own check on the reply
-//! (`decode_placed`) accepts every honest answer.
+//! The same input is then a RIFF WAVE layout request (ADRs 3349, 3397): one window of a file's
+//! chunks read by `wave::layout` as the worker's `answer` reads it, with one more property — **the
+//! samples the worker places lie inside the file the request describes, and a walk it sends onward
+//! moves forward inside that file**, so the host's own checks on the reply (`decode_placed`,
+//! `decode_onward`) accept every honest answer.
 
 #![no_main]
 #![expect(
     clippy::expect_used,
-    reason = "a fuzz target states its properties by failing: `expect` is how a violated one reaches libFuzzer, and each message names the property"
+    clippy::panic,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message names the property"
 )]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_media_worker::sound::{decode, sample_counts};
 use pdf_media_worker::wire::{
-    FRAME_LAYOUT, FRAME_PLACED, MAX_SAMPLES_PER_REQUEST, decode_layout_request, decode_placed,
-    decode_request, decode_samples, encode_request, encode_samples,
+    FRAME_LAYOUT, FRAME_ONWARD, FRAME_PLACED, MAX_SAMPLES_PER_REQUEST, decode_layout_request,
+    decode_onward, decode_placed, decode_request, decode_samples, encode_request, encode_samples,
 };
 
 fuzz_target!(|data: &[u8]| {
@@ -56,18 +58,25 @@ fuzz_target!(|data: &[u8]| {
         // The same bytes as a reply a subverted worker sent: refused or read, never a panic.
         let _ = decode_samples(run, &format, run.len());
     }
-    if let Ok((total, head)) = decode_layout_request(data) {
+    if let Ok(request) = decode_layout_request(data) {
+        let (total, at) = (request.total, request.at);
         if let Ok((kind, reply)) = pdf_media_worker::answer(FRAME_LAYOUT, Some(data.to_vec())) {
-            assert_eq!(kind, FRAME_PLACED, "a layout request is answered with a layout");
-            let placed = decode_placed(&reply, total)
-                .expect("the host accepts the samples the worker placed inside the file");
+            let found = match kind {
+                FRAME_PLACED => decode_placed(&reply, total)
+                    .map(pdf_media_worker::wave::Found::Placed)
+                    .expect("the host accepts the samples the worker placed inside the file"),
+                FRAME_ONWARD => decode_onward(&reply, at, total)
+                    .expect("the host accepts a walk the worker sent forward inside the file"),
+                _ => panic!("a layout request is answered with a layout or a next window"),
+            };
             assert_eq!(
-                Ok(placed),
-                pdf_media_worker::wave::layout(head, total),
-                "the reply is the layout the reader found"
+                Ok(found),
+                pdf_media_worker::wave::layout(request.window, at, total, request.described),
+                "the reply is what the reader found"
             );
         }
-        // The same bytes as a layout reply a subverted worker sent: refused or read, never a panic.
-        let _ = decode_placed(head, total);
+        // The same bytes as a reply a subverted worker sent: refused or read, never a panic.
+        let _ = decode_placed(request.window, total);
+        let _ = decode_onward(request.window, at, total);
     }
 });

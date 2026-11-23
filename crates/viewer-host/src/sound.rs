@@ -484,6 +484,7 @@ impl Thread {
             said.push_str(&note);
         }
         let channels = usize::from(format.channels.max(1));
+        sectioned(&mut samples, playing.section, format.rate, channels);
         let intrinsic = u64::try_from(samples.len().checked_div(channels).unwrap_or_default())
             .unwrap_or(u64::MAX);
         let mut passes = Passes::new(&playing, intrinsic, format.rate);
@@ -692,11 +693,52 @@ impl Thread {
     }
 }
 
+/// Cuts `samples` — interleaved frames of `channels` at `rate` — to §13.2.4.3's `section`: from
+/// its beginning to its end, or to the clip's own end where it states none or one past it. A
+/// beginning at or past the end leaves nothing, which the clause calls "an empty range" and "valid"
+/// (ADR 3398).
+fn sectioned(
+    samples: &mut Vec<f32>,
+    section: pdf_model::media::Section,
+    rate: u32,
+    channels: usize,
+) {
+    let frames = samples.len().checked_div(channels).unwrap_or_default();
+    let frame_at = |seconds: f64| -> usize {
+        let at = (seconds * f64::from(rate)).round();
+        // A finite, non-negative position past `usize` is past every clip, which `min` holds.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a non-negative float to integer `as` saturates, and the result is held to the clip's frames"
+        )]
+        let at = at as usize;
+        at.min(frames)
+    };
+    let end = section.end.map_or(frames, frame_at);
+    let begin = frame_at(section.begin).min(end);
+    samples.truncate(end.saturating_mul(channels));
+    samples.drain(..begin.saturating_mul(channels));
+}
+
 /// The parameters that differ from their defaults, each a sentence, so that a person told a sound
 /// plays is told how (trap 5).
 fn described(playing: &pdf_model::media::Playing) -> Vec<String> {
     use pdf_model::media::SimpleDuration;
     let mut said = Vec::new();
+    let section = playing.section;
+    if section != pdf_model::media::Section::WHOLE {
+        said.push(match section.end {
+            Some(end) => format!(
+                "from {} s to {end} s of its clip (§13.2.4.3's media clip section)",
+                section.begin
+            ),
+            None => format!(
+                "from {} s of its clip to its end (§13.2.4.3's media clip section)",
+                section.begin
+            ),
+        });
+    }
     if (playing.level - 1.0).abs() >= f64::EPSILON {
         said.push(format!(
             "at {:.0} % of its recorded level",
@@ -750,5 +792,29 @@ fn worker_format(format: pdf_model::media::SampleFormat) -> SoundFormat {
             pdf_model::media::Encoding::MuLaw => Encoding::MuLaw,
             pdf_model::media::Encoding::ALaw => Encoding::ALaw,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sectioned;
+    use pdf_model::media::Section;
+
+    /// §13.2.4.3's section cuts whole frames: from its beginning to its end, to the clip's end
+    /// where it states none or one past it, and to nothing where it begins at or past its end.
+    #[test]
+    fn a_section_cuts_whole_frames_and_an_empty_range_leaves_none() {
+        let frames: Vec<f32> = (0..20u8).map(f32::from).collect();
+        let cut = |begin: f64, end: Option<f64>| {
+            let mut samples = frames.clone();
+            sectioned(&mut samples, Section { begin, end }, 4, 2);
+            samples
+        };
+        assert_eq!(cut(0.0, None), frames);
+        assert_eq!(cut(0.5, Some(1.0)), vec![4.0, 5.0, 6.0, 7.0]);
+        assert_eq!(cut(2.0, None), vec![16.0, 17.0, 18.0, 19.0]);
+        assert_eq!(cut(1.0, Some(99.0)).len(), 12);
+        assert_eq!(cut(2.0, Some(1.0)), Vec::<f32>::new());
+        assert_eq!(cut(9.0, None), Vec::<f32>::new());
     }
 }

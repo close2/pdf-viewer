@@ -26,6 +26,29 @@ pub enum SimpleDuration {
     Seconds(f64),
 }
 
+/// The part of a clip a chain of §13.2.4.3 media clip sections defines, in seconds from the start
+/// of the media clip data it ends in (ADR 3398).
+///
+/// §13.2.4.3: "If the absolute offset derived from the values of all B entries in a media clip
+/// section chain is greater than or equal to the absolute offset derived from the values of all E
+/// entries, an empty range shall be defined. An empty range is valid."
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Section {
+    /// Where the section begins, never negative; zero is the clip's start.
+    pub begin: f64,
+    /// Where it ends, never negative, or `None` for the clip's own end.
+    pub end: Option<f64>,
+}
+
+impl Section {
+    /// The whole clip: Table 289's defaults, "the start of the next-level media object" and "the
+    /// end of the next-level media object".
+    pub const WHOLE: Self = Self {
+        begin: 0.0,
+        end: None,
+    };
+}
+
 /// How a sound is played: §13.2.5's play parameters, with each default the tables state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Playing {
@@ -47,6 +70,9 @@ pub struct Playing {
     /// Table 212's `/Mix`: "A flag specifying whether to mix this sound with any other sound
     /// already playing."
     pub mix: bool,
+    /// The part of the clip a chain of media clip sections defines (§13.2.4.3); the whole of it
+    /// for a sound object and for media clip data.
+    pub section: Section,
 }
 
 impl Default for Playing {
@@ -60,6 +86,7 @@ impl Default for Playing {
             auto_play: true,
             synchronous: false,
             mix: false,
+            section: Section::WHOLE,
         }
     }
 }

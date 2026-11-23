@@ -193,10 +193,63 @@ fn a_wave_file_the_worker_does_not_read_is_refused_with_its_reason() {
     );
     let mut float = wave_file(&[0, 0]);
     // The format tag sits after "RIFF", the size, "WAVE", the LIST chunk (8 + 6) and the fmt
-    // chunk's header: 3 is IEEE float, which this player does not decode.
-    float[12 + 14 + 8] = 3;
-    let refused = media.decode_wave(&float, 16).expect_err("float");
+    // chunk's header: 2 is Microsoft ADPCM, which this player does not decode.
+    float[12 + 14 + 8] = 2;
+    let refused = media.decode_wave(&float, 16).expect_err("ADPCM");
     assert!(format!("{refused}").contains("format tag"), "{refused}");
     assert!(media.decode_wave(&wave_file(&[5, 6]), 16).is_ok());
     assert_eq!(media.starts(), 1, "a refusal is an answer, not a death");
+}
+
+/// A `WAVE_FORMAT_EXTENSIBLE` file of 32-bit IEEE floats whose `fmt ` and `data` chunks lie past
+/// the first window, behind cover art larger than one: the worker walks it a window at a time, the
+/// host checks each step, the floats come back at full scale, and a channel mask that is not the
+/// first speakers is said (ADR 3397).
+#[test]
+fn an_extensible_float_file_past_the_first_window_is_walked_and_decoded() {
+    let chunk = |out: &mut Vec<u8>, id: &[u8; 4], bytes: &[u8]| {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&u32::try_from(bytes.len()).unwrap_or(u32::MAX).to_le_bytes());
+        out.extend_from_slice(bytes);
+        if bytes.len() % 2 == 1 {
+            out.push(0);
+        }
+    };
+    let mut body = b"WAVE".to_vec();
+    chunk(&mut body, b"LIST", &vec![0x55; 300 << 10]);
+    let mut fields = Vec::new();
+    fields.extend_from_slice(&0xFFFEu16.to_le_bytes()); // WAVE_FORMAT_EXTENSIBLE
+    fields.extend_from_slice(&2u16.to_le_bytes());
+    fields.extend_from_slice(&48_000u32.to_le_bytes());
+    fields.extend_from_slice(&(48_000u32 * 8).to_le_bytes());
+    fields.extend_from_slice(&8u16.to_le_bytes());
+    fields.extend_from_slice(&32u16.to_le_bytes());
+    fields.extend_from_slice(&22u16.to_le_bytes()); // cbSize
+    fields.extend_from_slice(&32u16.to_le_bytes()); // wValidBitsPerSample
+    fields.extend_from_slice(&0x0000_0030u32.to_le_bytes()); // back left and back right
+    fields.extend_from_slice(&3u32.to_le_bytes()); // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+    fields.extend_from_slice(&[
+        0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71,
+    ]);
+    chunk(&mut body, b"fmt ", &fields);
+    let data: Vec<u8> = [0.5f32, -0.25, 1.0, -1.0]
+        .iter()
+        .flat_map(|sample| sample.to_le_bytes())
+        .collect();
+    chunk(&mut body, b"data", &data);
+    let mut file = b"RIFF".to_vec();
+    file.extend_from_slice(&u32::try_from(body.len()).unwrap_or(u32::MAX).to_le_bytes());
+    file.extend_from_slice(&body);
+    let mut media = worker();
+    let sound = media.decode_wave(&file, 16).expect("decoded");
+    assert_eq!((sound.rate, sound.channels), (48_000, 2));
+    assert_eq!(sound.samples, vec![1 << 30, -(1 << 29), i32::MAX, i32::MIN]);
+    assert!(
+        sound
+            .notes
+            .iter()
+            .any(|note| note.contains("channel mask 0x00000030")),
+        "{:?}",
+        sound.notes
+    );
 }

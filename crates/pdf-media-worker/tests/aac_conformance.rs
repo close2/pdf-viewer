@@ -5,16 +5,17 @@
 //! committed: `PDF_MEDIA_MP4_STREAMS` names the directory of `compressedMp4/` files and
 //! `PDF_MEDIA_AAC_REFERENCES` the directory of `referencesWav/` files. The references are 24-bit
 //! PCM; a stream with several is referenced one output channel a file (`_f00`, `_b00`, `_s00`,
-//! `_l00`), and each such file is compared with the decoded channel nearest it, because this walk
-//! has not read the suite's channel order.
+//! `_l00`), and each such file is compared with the decoded channel nearest it, because the suite's
+//! names label a speaker and not a decoder's output order (al07 decodes as L, R, C, LFE, Ls, Rs,
+//! and its references are named f01, f02, f00, l00, b00, b01).
 //!
 //! **The tolerance is not the standard's.** The suite's readme files state no criterion for
 //! comparing a decoder's output with a reference, and ISO/IEC 14496-4 and -26, which would, are not
 //! held (Q988's kind). The verdict printed is RFC 0012 section 3.3's bar — the largest difference at
 //! most one least significant bit of sixteen — named as that RFC's choice, and every figure is
 //! printed so that the standard's criterion can be applied once its text is held. Both sides are
-//! aligned by the lag in ±4 096 samples that minimises their difference over the first 16 384
-//! frames, and the lag is printed: the references may or may not carry the encoder's priming, and
+//! aligned by the lag in ±4 096 samples that minimises their difference over 16 384 frames from
+//! where the reference first carries signal, and the lag is printed: the references may or may not carry the encoder's priming, and
 //! the walk does not assume either.
 // not a gate: it reads streams the tree does not hold, prints a verdict a person reads, and
 // asserts only that every stream decodes; the standard's criterion is not held to assert against.
@@ -136,12 +137,50 @@ fn compared(a: &[f64], b: &[f64], lag: i64, limit: usize) -> (f64, f64, usize) {
     (largest, (sum / length.max(1) as f64).sqrt(), length)
 }
 
-/// The lag in ±4 096 minimising the RMS difference over the first 16 384 frames.
+/// The RMS difference of `decoded` against `reference` delayed by `lag`, over the 16 384
+/// reference frames from `from`.
+fn windowed(decoded: &[f64], reference: &[f64], lag: i64, from: usize) -> f64 {
+    let mut sum = 0f64;
+    let mut count = 0usize;
+    for index in from..from + 16_384 {
+        let (Some(y), Some(x)) = (
+            reference.get(index),
+            index
+                .checked_add_signed(lag as isize)
+                .and_then(|at| decoded.get(at)),
+        ) else {
+            continue;
+        };
+        let difference = (x - y) / LSB16;
+        sum += difference * difference;
+        count += 1;
+    }
+    if count == 0 {
+        f64::INFINITY
+    } else {
+        (sum / count as f64).sqrt()
+    }
+}
+
+/// Where the reference first carries signal — a sample past sixteen 16-bit LSB — so that a lag
+/// and a pairing are chosen where a wrong one shows: over digital silence every lag and every
+/// channel scores nothing, and the first of them wins (al07's four quiet-opening channels were
+/// paired and aligned that way, ADR 3400).
+fn signal_start(reference: &[f64]) -> usize {
+    reference
+        .iter()
+        .position(|sample| sample.abs() > 16.0 * LSB16)
+        .unwrap_or(0)
+}
+
+/// The lag in ±4 096 minimising the RMS difference over 16 384 frames from where the reference
+/// first carries signal.
 fn best_lag(decoded: &[f64], reference: &[f64]) -> i64 {
+    let from = signal_start(reference);
     (-4096..=4096)
         .min_by(|&left, &right| {
-            let l = compared(decoded, reference, left, 16_384).1;
-            let r = compared(decoded, reference, right, 16_384).1;
+            let l = windowed(decoded, reference, left, from);
+            let r = windowed(decoded, reference, right, from);
             l.total_cmp(&r)
         })
         .unwrap_or(0)
@@ -200,14 +239,15 @@ fn the_held_conformance_streams_decode_against_their_references() {
                 } else {
                     (0..decoded_channels).collect()
                 };
-                // The nearest channel is chosen at whole-frame lags over the first frames, and
-                // the lag searched sample by sample for it alone.
+                // The nearest channel is chosen at whole-frame lags where the reference first
+                // carries signal, and the lag searched sample by sample for it alone.
+                let from = signal_start(&reference);
                 let nearest = candidates.into_iter().min_by(|&left, &right| {
                     let near = |decoded_channel| {
                         let decoded = channel(&sound.samples, decoded_channels, decoded_channel);
                         [-2048, -1024, 0, 1024, 2048]
                             .into_iter()
-                            .map(|lag| compared(&decoded, &reference, lag, 16_384).1)
+                            .map(|lag| windowed(&decoded, &reference, lag, from))
                             .fold(f64::INFINITY, f64::min)
                     };
                     near(left).total_cmp(&near(right))

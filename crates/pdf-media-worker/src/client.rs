@@ -11,12 +11,14 @@ use pdf_sandbox::{Allowance, Ended};
 use crate::aac::MAX_FRAMES_PER_UNIT;
 use crate::mp4::{TOP_HEADER_BYTES, rescaled};
 use crate::sound::{Decoded, SoundFormat};
+use crate::wave::Found;
 use crate::wire::{
-    FRAME_BOX, FRAME_BOXED, FRAME_DECODE, FRAME_LAYOUT, FRAME_MOVIE, FRAME_PCM, FRAME_PLACED,
-    FRAME_REFUSED, FRAME_SAMPLES, FRAME_TRACK, FRAME_UNITS, MAGIC, MAX_MOVIE_BYTES,
+    FRAME_BOX, FRAME_BOXED, FRAME_DECODE, FRAME_LAYOUT, FRAME_MOVIE, FRAME_ONWARD, FRAME_PCM,
+    FRAME_PLACED, FRAME_REFUSED, FRAME_SAMPLES, FRAME_TRACK, FRAME_UNITS, MAGIC, MAX_MOVIE_BYTES,
     MAX_REQUEST_BYTES, MAX_RUN_BYTES, MAX_SAMPLES_PER_REQUEST, MAX_UNITS_PER_RUN, Track,
-    decode_boxed, decode_pcm, decode_placed, decode_samples, decode_track, encode_box_request,
-    encode_layout_request, encode_movie_request, encode_request, encode_units, sentence,
+    decode_boxed, decode_onward, decode_pcm, decode_placed, decode_samples, decode_track,
+    encode_box_request, encode_layout_request, encode_movie_request, encode_request, encode_units,
+    sentence,
 };
 
 /// The most boxes at the top of an MP4 file the host walks to find its movie.
@@ -25,6 +27,13 @@ use crate::wire::{
 /// file has one pair a fragment, and is declined anyway once its movie is read. Each step is one
 /// request, so the bound keeps a hostile file's walk to a second or so.
 pub const MAX_TOP_LEVEL_BOXES: usize = 1024;
+
+/// The most windows of a RIFF WAVE file the host shows the worker to find its samples (ADR 3397).
+///
+/// A file's `fmt ` and `data` chunks follow a handful of others, and one more window is spent only
+/// on a chunk that ends past the last; the bound keeps a hostile file's walk, one request a
+/// window, to a second or so, as [`MAX_TOP_LEVEL_BOXES`] does an MP4 file's.
+pub const MAX_WAVE_WINDOWS: usize = 1024;
 
 /// Processor time one request may spend in the worker before it is killed (ADR 3133's budget,
 /// read from outside the worker).
@@ -190,37 +199,70 @@ impl MediaWorker {
     /// Decodes a RIFF WAVE file — a rendition's media clip (ADR 3349) — into at most
     /// `max_samples` samples.
     ///
-    /// The worker reads the file's header from its first [`MAX_RUN_BYTES`] and answers where the
-    /// samples are and their format; this half checks both against `file` and sends the samples as
-    /// [`Self::decode`] sends a sound object's, so that no byte of the header is read here.
+    /// The worker reads the file's chunks a window of [`MAX_RUN_BYTES`] at a time and answers where
+    /// the samples are and their format, or where the next window begins (ADR 3397); this half
+    /// checks every answer against `file` and sends the samples as [`Self::decode`] sends a sound
+    /// object's, so that no byte of the header is read here.
     ///
     /// # Errors
     ///
-    /// [`Self::decode`]'s, and the worker's refusal of the header.
+    /// [`Self::decode`]'s, the worker's refusal of the header, and a walk past
+    /// [`MAX_WAVE_WINDOWS`].
     pub fn decode_wave(&mut self, file: &[u8], max_samples: usize) -> Result<Sound, MediaError> {
         let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
-        let head = file.get(..MAX_RUN_BYTES).unwrap_or(file);
-        let payload = encode_layout_request(total, head);
-        let layout = match self.exchange(FRAME_LAYOUT, &payload)? {
-            (FRAME_PLACED, bytes) => decode_placed(&bytes, total).map_err(|wrong| {
-                // A worker that places the samples outside the file is not believed again.
+        let mut at = 0u64;
+        let mut described = None;
+        let mut layout = None;
+        for _ in 0..MAX_WAVE_WINDOWS {
+            let start = usize::try_from(at).unwrap_or(usize::MAX);
+            let window = file.get(start..).unwrap_or_default();
+            let window = window.get(..MAX_RUN_BYTES).unwrap_or(window);
+            let payload = encode_layout_request(total, at, described.as_ref(), window);
+            let found = match self.exchange(FRAME_LAYOUT, &payload)? {
+                (FRAME_PLACED, bytes) => decode_placed(&bytes, total).map(Found::Placed),
+                (FRAME_ONWARD, bytes) => decode_onward(&bytes, at, total),
+                (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
+                (kind, _) => Err(format!(
+                    "a reply of kind {kind}, which no layout request is answered with"
+                )),
+            }
+            .map_err(|wrong| {
+                // A worker that places the samples outside the file, or walks backwards, is not
+                // believed again.
                 self.distrust();
                 MediaError::Refused(wrong)
-            })?,
-            (FRAME_REFUSED, bytes) => return Err(MediaError::Refused(sentence(&bytes))),
-            (kind, _) => {
-                self.distrust();
-                return Err(MediaError::Refused(format!(
-                    "a reply of kind {kind}, which no layout request is answered with"
-                )));
+            })?;
+            match found {
+                Found::Placed(placed) => {
+                    layout = Some(placed);
+                    break;
+                }
+                Found::Onward {
+                    at: next,
+                    described: read,
+                } => {
+                    at = next;
+                    described = read;
+                }
             }
+        }
+        let Some(layout) = layout else {
+            return Err(MediaError::Refused(format!(
+                "the file's data chunk is not found within {MAX_WAVE_WINDOWS} windows of its \
+                 chunks"
+            )));
         };
         // `decode_placed` held the offset and the length inside the file.
         let start = usize::try_from(layout.offset).unwrap_or(usize::MAX);
         let end =
             usize::try_from(layout.offset.saturating_add(layout.length)).unwrap_or(usize::MAX);
         let samples = file.get(start..end).unwrap_or_default();
-        self.decode(&layout.format, samples, max_samples)
+        let format = layout.described.format;
+        let mut sound = self.decode(&format, samples, max_samples)?;
+        if let Some(note) = speakers_note(layout.described.channel_mask, format.channels) {
+            sound.notes.push(note);
+        }
+        Ok(sound)
     }
 
     /// Decodes an MP4 file's AAC sound track — a rendition's media clip (ADR 3381) — into at most
@@ -603,4 +645,23 @@ fn presented(
     let mut samples = vec![0; delay];
     samples.extend_from_slice(after.get(..kept).unwrap_or(after));
     Ok(samples)
+}
+
+/// What a WAVE file's `dwChannelMask` asks that this player does not do, or `None`.
+///
+/// The sink combines a file's channels by their place in a frame (`viewer_host::sound`), which is
+/// the extensible form's own order when the mask names the first speakers of that order, one per
+/// channel, and is no mask at all where the file states none. Any other mask places a channel on a
+/// speaker its position does not, and the person is told so rather than hearing it silently
+/// (ADR 3397).
+fn speakers_note(mask: u32, channels: u16) -> Option<String> {
+    let leading = 1u64
+        .checked_shl(u32::from(channels))
+        .map_or(u64::MAX, |bit| bit.saturating_sub(1));
+    (mask != 0 && u64::from(mask) != leading).then(|| {
+        format!(
+            "the file assigns its {channels} channel(s) to the speakers of channel mask \
+             {mask:#010x}, and this player places each channel by its order in a frame"
+        )
+    })
 }
