@@ -2156,11 +2156,18 @@ ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
     this program's. Re-badging it as a `Stamp` remains fenced — that invents an annotation — and an
     annotation that drew nothing refuses by name rather than having an appearance constructed for
     it to preserve. The marks go back onto the page they came off where nothing forbids it
-    (`doc/questions/A65`, ADRs 1120 and 1123), and a **tagged** document refuses either placement by
-    name: ISO 32000-2 §14.8.2.2.1 puts the producer's real content in the structure tree, Table 355
-    makes a structure type required, and what an appearance *is* semantically is a fact only its
-    producer held (ADR 1163 section 6). An operator who knows is the `supply` this site does not
-    have yet;
+    (`doc/questions/A65`, ADRs 1120 and 1123). A **tagged** document is refused a structure type for
+    the marks: ISO 32000-2 §14.8.2.2.1 puts the producer's real content in the structure tree,
+    Table 355 makes a structure type required, and what an appearance *is* semantically is a fact
+    only its producer held (ADR 1163 section 6). **Built in session 2202** instead, at PDF/A-2b and
+    every PDF/A-4 flavour: the marks go on an appended page — never back onto the producer's
+    tagged page — enclosed as §14.8.2.2.2's generic artifact (`/Artifact BMC … EMC`), outside the
+    tree, the loss **`tagging-of-preserved-marks`**, named per page in the report and in
+    `xmpMM:History`; a profile takes it with `[profile] tagging-of-preserved-marks = "discard"`
+    (`as-shown` and `state-every-loss` do; `as-if-printed` discards the annotation and appends no
+    marks). Level A keeps the refusal, and so does Level U, which the owner's answer did not name
+    (`doc/questions/A1011`, `doc/questions/Q1023`, ADR 3509). An operator who knows the type is the
+    `supply` this site does not have yet;
   - `preserve` the **media stream** of a `Screen`, `Movie` or `Sound` annotation by attaching it,
     which 4f and 4e allow for any file type. The sound is then in the archive, as a file, instead of
     being deleted. **Not built**;

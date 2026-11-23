@@ -357,6 +357,7 @@ pub(super) fn compose(
     keeps: &[Keep<'_>],
     has_output_intent: bool,
     rebuilt: Option<&super::parent_tree::Rebuilt>,
+    marks_outside_the_tree: bool,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
     let sets_text = keeps
@@ -376,8 +377,11 @@ pub(super) fn compose(
     // [`tagged::MARKS_IN_A_TAGGED_DOCUMENT`]'s rather than a shortfall: Table 355 makes a structure
     // element's `/S` required and what an annotation's appearance is semantically is a fact only
     // its producer held. Checked before the tree is read so that its own refusals cannot speak for
-    // this one.
-    if tagged::describes_its_content(document)
+    // this one. Where the caller found [`tagged::marks_may_stand_outside`], the marks are the
+    // other class instead: enclosed as an artifact, the loss named on each page (`doc/adr/3509`).
+    let tagged = tagged::describes_its_content(document);
+    if tagged
+        && !marks_outside_the_tree
         && keeps
             .iter()
             .any(|keep| matches!(keep.content, Kept::Marks(_)))
@@ -428,7 +432,7 @@ pub(super) fn compose(
                 )?;
             }
             Kept::Marks(marks) => {
-                place_the_marks(document, marks, spare, &mut composed)?;
+                place_the_marks(document, marks, tagged, spare, &mut composed)?;
             }
         }
         composed.carried.push(Preserved {
@@ -451,6 +455,7 @@ pub(super) fn compose(
             // relocating it onto the producer's page was refused, and the caller named that reason
             // on the keep. A text packet was never on a page to relocate onto and declines nothing.
             declined: keep.declined,
+            outside_the_tree: tagged && matches!(keep.content, Kept::Marks(_)),
         });
     }
     // **Only where pages were appended.** A relocation-only preservation appends no page, so a
@@ -597,6 +602,7 @@ fn set_the_text(
 fn place_the_marks(
     document: &Document,
     marks: &Marks,
+    as_an_artifact: bool,
     spare: &mut Spare,
     composed: &mut Composed,
 ) -> Result<(), Because> {
@@ -611,7 +617,7 @@ fn place_the_marks(
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
     composed.written.push((
         content,
-        marks_stream(marks).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+        marks_stream(marks, as_an_artifact).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
     ));
     composed
         .written
@@ -1054,6 +1060,16 @@ pub(super) fn preserved_history(rows: &[Preserved]) -> Option<String> {
                     format!(", in {face}, a face this program embedded for it"),
             }
         );
+        // The loss is named where the page is, so the file itself says which of its pages a
+        // reader by structure passes over (`doc/adr/3509`).
+        if row.outside_the_tree {
+            let _ = write!(
+                out,
+                ", standing outside the structure tree as an artifact (ISO 32000-2 \u{a7}14.8.2.2.2), \
+                 losing {}",
+                super::Loss::TaggingOfPreservedMarks.word()
+            );
+        }
     }
     Some(out)
 }
@@ -1935,8 +1951,18 @@ const PRESERVED_MARKS: &[u8] = b"PreservedMarks";
 /// `cm` and `Do` with the matching `Q` — the concatenation the algorithm computes and the
 /// invocation §8.10.1 defines — and §8.10.2 makes the stream's own `/BBox` clip it, so the
 /// appearance draws exactly what it drew inside the annotation.
-fn marks_stream(marks: &Marks) -> Option<Object> {
-    let mut content = String::from("q\n");
+///
+/// **In a tagged document the four are enclosed as an artifact**, `/Artifact BMC` before and `EMC`
+/// after — ISO 32000-2 §14.8.2.2.2's EXAMPLE 1, the form it requires for a generic artifact — so
+/// that the class §14.8.2.2.2's last sentence would give the marks by their absence from the tree is
+/// written on the page as well (`super::tagged::marks_may_stand_outside`, `doc/adr/3509`). The
+/// sequence encloses whole operators and states no property list, so it changes nothing drawn.
+fn marks_stream(marks: &Marks, as_an_artifact: bool) -> Option<Object> {
+    let mut content = String::from(if as_an_artifact {
+        "/Artifact BMC\nq\n"
+    } else {
+        "q\n"
+    });
     for value in marks.placement {
         content.push_str(&matrix_operand(value));
         content.push(' ');
@@ -1944,6 +1970,9 @@ fn marks_stream(marks: &Marks) -> Option<Object> {
     content.push_str("cm\n/");
     content.push_str(std::str::from_utf8(PRESERVED_MARKS).ok()?);
     content.push_str(" Do\nQ\n");
+    if as_an_artifact {
+        content.push_str("EMC\n");
+    }
     let data = flate_encode(content.as_bytes(), COMPRESSION_LEVEL)?;
     let mut dict = Dictionary::new();
     dict.insert(

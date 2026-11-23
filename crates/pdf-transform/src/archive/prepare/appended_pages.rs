@@ -191,6 +191,7 @@ pub(super) fn the_preserved_pages(
     } else {
         Vec::new()
     };
+    let outside_the_tree = tagged::marks_may_stand_outside(plan.authorised, plan.target);
     let annotation_site = SUBTYPE_REQUIREMENTS
         .into_iter()
         .find(|site| asked(site))
@@ -199,8 +200,12 @@ pub(super) fn the_preserved_pages(
             // the producer's own page are drawn by operators no marked-content sequence brackets,
             // which §14.8.2.2.1 makes an artifact in a tagged document — and the marks are the
             // producer's real content. Naming a structure type for them is what this conversion
-            // will not do, so the refusal is the same one an appended page of marks gets.
-            if tagged::describes_its_content(document) {
+            // will not do, so the refusal is the same one an appended page of marks gets — unless
+            // the profile took `tagging-of-preserved-marks` at a level that admits it, and then
+            // every mark takes an appended page as an artifact: the answer the owner gave is for
+            // an appended page, and a producer's own page is the producer's tagging (ADR 3509).
+            let tagged = tagged::describes_its_content(document);
+            if tagged && !outside_the_tree {
                 return Err(Because::NotBuiltYet(tagged::MARKS_IN_A_TAGGED_DOCUMENT));
             }
             // The removal is what makes the file conform and the marks are what a preserve keeps,
@@ -208,6 +213,9 @@ pub(super) fn the_preserved_pages(
             // own construction, for its reason.
             let removals = forbidden.map_err(|because| *because)?;
             let marks = marks_of(document, removals)?;
+            if tagged {
+                return Ok((site, all_appended(&marks, TAGGED_PRODUCER_PAGE)));
+            }
             relocate_marks(document, site, removals, &marks, spare).map(|plan| (site, plan))
         })
         .transpose()?;
@@ -493,8 +501,14 @@ pub(super) fn the_preserved_pages(
     // The text keeps a fallback composition leaves out, so that the rows after them are found.
     let mut texts_dropped = 0;
     let before = spare.next;
-    let mut composed = match preserve::compose(document, &keeps, has_output_intent, rebuilt, spare)
-    {
+    let mut composed = match preserve::compose(
+        document,
+        &keeps,
+        has_output_intent,
+        rebuilt,
+        outside_the_tree,
+        spare,
+    ) {
         Ok(composed) => composed,
         // **A file no page can carry takes `on-failure`, and so does one whose page cannot be
         // composed** (`doc/adr/2536`): with `discard`, the files set as text and the files drawn
@@ -578,7 +592,14 @@ pub(super) fn the_preserved_pages(
                 link_the_annotations(&mut composed, embedded);
                 return Ok(composed);
             }
-            let composed = preserve::compose(document, &others, has_output_intent, rebuilt, spare)?;
+            let composed = preserve::compose(
+                document,
+                &others,
+                has_output_intent,
+                rebuilt,
+                outside_the_tree,
+                spare,
+            )?;
             attachments.texts.clear();
             texts_dropped = laid_out;
             composed
@@ -1331,6 +1352,22 @@ struct RelocationPlan {
     fallback: Vec<(preserve::Marks, String, &'static str)>,
 }
 
+/// Every mark on an appended page, each declining the producer's page for one reason.
+fn all_appended(
+    marks: &[(&RemovedAnnotation, preserve::Marks)],
+    reason: &'static str,
+) -> RelocationPlan {
+    RelocationPlan {
+        relocations: BTreeMap::new(),
+        written: Vec::new(),
+        rows: Vec::new(),
+        fallback: marks
+            .iter()
+            .map(|(removed, marks)| (marks.clone(), annotation_subject(removed), reason))
+            .collect(),
+    }
+}
+
 /// One removed annotation's report subject, named as the report names it.
 fn annotation_subject(removed: &RemovedAnnotation) -> String {
     format!(
@@ -1443,6 +1480,7 @@ fn relocate_marks(
                 placement: preserve::PLACEMENT_ON_PAGE,
                 face: SetIn::NoText,
                 declined: None,
+                outside_the_tree: false,
             });
         }
         if on_page.is_empty() {
@@ -1538,6 +1576,16 @@ const HIDDEN: i64 = 1 << 1;
 
 /// §12.5.3's Table 167 `NoView` flag: bit 6, counting from 1.
 const NO_VIEW: i64 = 1 << 5;
+
+/// Why a tagged document's marks take an appended page rather than the producer's own.
+///
+/// Relocated onto the producer's page, the marks would be content of a page the producer tagged
+/// that no element of its tree describes; the owner's answer places them outside the tree on a page
+/// this conversion appended, where nothing the producer described is beside them
+/// (`doc/questions/A1011`, `doc/adr/3509`).
+const TAGGED_PRODUCER_PAGE: &str = "this document describes its content in a structure tree, and \
+     marks no structure element describes stand outside it as an artifact only on a page this \
+     conversion appended, never among the producer's own tagged content";
 
 /// Why a page with no object identity of its own takes the appended page for its marks.
 const PAGE_NOT_RESOLVED: &str = "the page the annotation was on could not be resolved to an object \

@@ -137,13 +137,59 @@ pub(super) const TREE_ROOT_NOT_A_DICTIONARY: &str = "this document's catalog nam
 /// Annot structure element and one or more corresponding PDF annotations", and the annotation is
 /// exactly what this remedy has had to remove. An operator who knows what the artwork is could say
 /// so, which is the `supply` shape `doc/rfc/0007` section 0.2 already has a word for.
+///
+/// **What lifts it is the other class**, not a type: where [`marks_may_stand_outside`] holds, the
+/// marks go on an appended page as an artifact and the loss is named. Level A keeps this refusal,
+/// and so does a profile that did not take the loss.
 pub(super) const MARKS_IN_A_TAGGED_DOCUMENT: &str = "these marks are an annotation's appearance \
      stream, and putting them on a page of a document that describes its content in a structure \
      tree would need a structure type for them — which ISO 32000-2 Table 355 makes required and \
      which only the producer knew. This conversion will not choose one: ISO 19005-2 clause 6.7.1 \
      advises a writer against adding structural information the source does not state, and the \
-     Annot type is an association with an annotation this remedy has had to remove. Authorising \
-     the loss with --authorise forbidden-annotation is the answer today";
+     Annot type is an association with an annotation this remedy has had to remove. At PDF/A-2b \
+     and PDF/A-4, --authorise tagging-of-preserved-marks keeps the marks on an appended page \
+     outside the structure tree, as an artifact; at Level A, whose subject is the logical \
+     structure, authorising the loss with --authorise forbidden-annotation is the answer";
+
+/// Why an attachment's own pages, drawn by this reader, are not appended to a tagged document.
+///
+/// Not an annotation's appearance, so not what [`marks_may_stand_outside`] answers: the owner's
+/// answer is for the marks a removed annotation drew in the window (`doc/questions/A1011`), and a
+/// file drawn as pages is a second document's content, which no window drew on these pages. The
+/// row's `on-failure` answers it (`doc/adr/2536`, `doc/adr/3509`).
+pub(super) const DRAWN_FILE_IN_A_TAGGED_DOCUMENT: &str = "this attachment's pages would be drawn \
+     onto pages appended to a document that describes its content in a structure tree, and \
+     naming a structure type for another document's content is what this conversion will not do \
+     (ISO 32000-2 Table 355, ISO 19005-2 clause 6.7.1); the file is answered by the row's \
+     on-failure instead";
+
+/// Whether a tagged document's preserved annotation marks may stand outside its structure tree.
+///
+/// ISO 32000-2 §14.8.2.2.1 divides content into real content and artifacts, and §14.8.2.2.2 closes
+/// the division:
+///
+/// > Any content that is not included in the structure tree is an artifact even when not enclosed
+/// > in a markedcontent sequence using the tag Artifact .
+///
+/// So a page of marks the tree does not reach is described — as an artifact — and the page encloses
+/// them in the generic form §14.8.2.2.2's EXAMPLE 1 gives, `/Artifact BMC … EMC`, so that the
+/// classification is written rather than only implied. What is lost is the marks' place in the
+/// document's logical structure, the loss [`super::Loss::TaggingOfPreservedMarks`], which the
+/// profile has to have taken.
+///
+/// **Level A is not offered it**: ISO 19005-2's Level A is the level whose subject is the logical
+/// structure, and the owner kept the refusal there (`doc/questions/A1011`). Level U is not named by
+/// that answer either, so it keeps the refusal too (`doc/adr/3509`, `doc/questions/Q1023`); the
+/// three PDF/A-4 flavours require no structure and are all offered it.
+#[must_use]
+pub(super) const fn marks_may_stand_outside(
+    authorised: super::Authorisations,
+    target: pdf_archive::Target,
+) -> bool {
+    use pdf_archive::{Level, Target};
+    authorised.grants(super::Loss::TaggingOfPreservedMarks)
+        && matches!(target, Target::Two(Level::B) | Target::Four(_))
+}
 
 /// Whether the document says its content is described — a structure tree, or a claim of one.
 ///

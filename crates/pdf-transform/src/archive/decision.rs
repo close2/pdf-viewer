@@ -605,11 +605,25 @@ pub enum Loss {
     /// window drew rather than repairing the data; what is lost is the cut group's characters,
     /// and the report names each stream (`doc/adr/3462`).
     AsciiDataAsDecoded,
+    /// ISO 32000-2 §14.8.2.2.2's last sentence: where a tagged document's annotation marks are
+    /// kept on a page this conversion appended, the marks stand outside the document's structure
+    /// tree, enclosed in a marked-content sequence tagged `Artifact`, rather than in an element
+    /// whose structure type this conversion would have chosen.
+    ///
+    /// A loss of its own, because what it takes is the marks' place in the document's logical
+    /// structure and not the marks: the page draws what the window drew, and a reader that reads
+    /// the document by its structure passes over it. What the annotation's appearance *was* —
+    /// figure, text, decoration — was a fact only its producer held, and Table 355 makes the
+    /// structure type required wherever an element is written (`doc/adr/1163`). Taken only at
+    /// PDF/A-2b and the three PDF/A-4 flavours; Level A, whose subject is the logical structure,
+    /// keeps the refusal (`doc/questions/A1011`, `doc/adr/3509`). Each page it is taken on is
+    /// named in the report and in the file's history.
+    TaggingOfPreservedMarks,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 41] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -650,6 +664,7 @@ impl Loss {
         Self::ActualTextPrivateUse,
         Self::Type3WidthAsDrawn,
         Self::AsciiDataAsDecoded,
+        Self::TaggingOfPreservedMarks,
     ];
 
     /// The word a caller authorises it by.
@@ -696,6 +711,7 @@ impl Loss {
             Self::ActualTextPrivateUse => "actual-text-private-use",
             Self::Type3WidthAsDrawn => "type3-width-as-drawn",
             Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
+            Self::TaggingOfPreservedMarks => "tagging-of-preserved-marks",
         }
     }
 
@@ -1006,6 +1022,12 @@ impl Loss {
                  characters of a group the cut ended are gone, which another reader may have \
                  padded into bytes, and the report names each stream"
             }
+            Self::TaggingOfPreservedMarks => {
+                "an annotation's marks kept on an appended page of a tagged document stand \
+                 outside its structure tree, as an artifact, so a reader that reads the document \
+                 by its structure passes over them; the page draws what the window drew, and the \
+                 report and the file's history name each page"
+            }
         }
     }
 
@@ -1183,6 +1205,8 @@ pub struct Authorisations {
     pub type3_width_as_drawn: bool,
     /// Whether [`Loss::AsciiDataAsDecoded`] was authorised.
     pub ascii_data_as_decoded: bool,
+    /// Whether [`Loss::TaggingOfPreservedMarks`] was authorised.
+    pub tagging_of_preserved_marks: bool,
 }
 
 impl Authorisations {
@@ -1230,6 +1254,7 @@ impl Authorisations {
             Loss::ActualTextPrivateUse => self.actual_text_private_use,
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn,
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded,
+            Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks,
         }
     }
 
@@ -1284,6 +1309,7 @@ impl Authorisations {
             Loss::ActualTextPrivateUse => self.actual_text_private_use = true,
             Loss::Type3WidthAsDrawn => self.type3_width_as_drawn = true,
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded = true,
+            Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks = true,
         }
     }
 }

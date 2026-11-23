@@ -1402,6 +1402,13 @@ pub struct Configuration {
     /// (`doc/questions/A727`, `doc/adr/2596`). `discard` takes the loss, `append-statement` takes it
     /// and states it on the appended page as well, and anything else leaves the refusal in place.
     page_not_held: StructureLoss,
+    /// `[profile] tagging-of-preserved-marks` — whether a tagged document's annotation marks kept on
+    /// an appended page may stand outside its structure tree, under the loss
+    /// [`Loss::TaggingOfPreservedMarks`]. No site's key, because the condition is the document's
+    /// structure tree and every row whose `preserve` appends marks meets it alike
+    /// (`doc/questions/A1011`, `doc/adr/3509`). `discard` takes the loss; anything else leaves the
+    /// refusal in place, and Level A keeps it whatever the profile says.
+    tagging_of_preserved_marks: bool,
     /// `[profile] base`, and the sites read from it (`doc/rfc/0014` section 6).
     inherited: Option<Inherited>,
 }
@@ -1587,6 +1594,7 @@ impl Configuration {
         let mut press = None;
         let mut recovered_structure = StructureLoss::Refused;
         let mut page_not_held = StructureLoss::Refused;
+        let mut tagging_of_preserved_marks = false;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut flag_shapes = Vec::new();
@@ -1603,6 +1611,7 @@ impl Configuration {
                         .map(str::to_owned);
                     recovered_structure = structure_loss_key(tbl, "recovered-structure");
                     page_not_held = structure_loss_key(tbl, "page-not-held");
+                    tagging_of_preserved_marks = loss_taken(tbl, "tagging-of-preserved-marks");
                     check_profile_default(tbl)?;
                     press = press_key(tbl)?.map(|path| (path, tbl.line));
                 }
@@ -1683,6 +1692,7 @@ impl Configuration {
             annotation_flags,
             recovered_structure,
             page_not_held,
+            tagging_of_preserved_marks,
             inherited,
         };
         press_is_assumed(&read, press.map(|(_, line)| line), target)?;
@@ -1795,6 +1805,11 @@ impl Configuration {
         if self.page_not_held != StructureLoss::Refused {
             authorised.authorise(Loss::PageNotHeld);
             authorised.page_not_held_stated = self.page_not_held == StructureLoss::Stated;
+        }
+        // A third that belongs to no site: the condition is the document's structure tree, and
+        // the target's level is asked where the marks are placed (`doc/adr/3509`).
+        if self.tagging_of_preserved_marks {
+            authorised.authorise(Loss::TaggingOfPreservedMarks);
         }
         authorised
     }
@@ -2569,6 +2584,12 @@ fn structure_loss_key(tbl: &toml::Table, key: &str) -> StructureLoss {
         Some((Kind::Discard, false)) => StructureLoss::Discarded,
         _ => StructureLoss::Refused,
     }
+}
+
+/// `[profile] tagging-of-preserved-marks`: `discard` takes the loss, and anything else — its
+/// statement page is not built — leaves the refusal in place (`doc/adr/3509`).
+fn loss_taken(tbl: &toml::Table, key: &str) -> bool {
+    structure_loss_key(tbl, key) == StructureLoss::Discarded
 }
 
 /// `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be `stop` — today's

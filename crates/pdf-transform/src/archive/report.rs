@@ -282,6 +282,13 @@ pub struct Preserved {
     /// `q`/`Q` do not balance, or a remaining annotation over where the marks would land — so the
     /// report says which of the two constructions each preserved thing got.
     pub declined: Option<&'static str>,
+    /// Whether these marks stand outside the document's structure tree, as an artifact — the loss
+    /// [`crate::archive::Loss::TaggingOfPreservedMarks`], taken on each of [`Self::pages`].
+    ///
+    /// `true` only for an annotation's marks on an appended page of a tagged document
+    /// (`doc/questions/A1011`, `doc/adr/3509`); a text packet on a tagged document's page is
+    /// described in its structure tree, and an untagged document has no tree to stand outside.
+    pub outside_the_tree: bool,
 }
 
 /// What an appended page's content is set in.
@@ -338,6 +345,15 @@ impl Preserved {
             (
                 "declined_relocation".to_owned(),
                 self.declined.map_or(Value::Null, Value::text),
+            ),
+            (
+                "losses".to_owned(),
+                Value::Array(
+                    self.outside_the_tree
+                        .then(|| Value::text(crate::archive::Loss::TaggingOfPreservedMarks.word()))
+                        .into_iter()
+                        .collect(),
+                ),
             ),
             (
                 "warns".to_owned(),
@@ -1887,6 +1903,51 @@ fn recovered_structure_json(recovered: Option<&crate::archive::RecoveredStructur
 }
 
 impl Conversion {
+    /// The rows a `preserve` kept on appended pages, each with why it declined the producer's page
+    /// and the loss it took there, where it took one.
+    fn render_preserved(&self, out: &mut String) {
+        use std::fmt::Write as _;
+        if !self.preserved.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} thing(s) this conversion preserved rather than lost — {}:",
+                self.preserved.len(),
+                crate::archive::PRESERVED_AS_A_PAGE
+            );
+            for row in &self.preserved {
+                let _ = writeln!(
+                    out,
+                    "      {} is on page(s) {}, answering {} — {}{}",
+                    row.subject,
+                    row.pages
+                        .iter()
+                        .map(|page| page.saturating_add(1).to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    row.site,
+                    row.placement,
+                    row.face.sentence()
+                );
+                if let Some(declined) = row.declined {
+                    let _ = writeln!(
+                        out,
+                        "          onto an appended page rather than the producer's own, because \
+                         {declined}"
+                    );
+                }
+                if row.outside_the_tree {
+                    let _ = writeln!(
+                        out,
+                        "          outside this document's structure tree, an artifact by ISO \
+                         32000-2 \u{a7}14.8.2.2.2, losing {}: {}",
+                        crate::archive::Loss::TaggingOfPreservedMarks.word(),
+                        crate::archive::Loss::TaggingOfPreservedMarks.describe()
+                    );
+                }
+            }
+        }
+    }
+
     /// What a `derive` remedy made and what a `supply` remedy stated, per document.
     ///
     /// **`doc/questions/A55`'s condition, in the answer's own words**: the report says *what was
@@ -1955,36 +2016,7 @@ impl Conversion {
         for unstated in &self.unstated {
             let _ = writeln!(out, "  not stated: {}", unstated.sentence());
         }
-        if !self.preserved.is_empty() {
-            let _ = writeln!(
-                out,
-                "  {} thing(s) this conversion preserved rather than lost — {}:",
-                self.preserved.len(),
-                crate::archive::PRESERVED_AS_A_PAGE
-            );
-            for row in &self.preserved {
-                let _ = writeln!(
-                    out,
-                    "      {} is on page(s) {}, answering {} — {}{}",
-                    row.subject,
-                    row.pages
-                        .iter()
-                        .map(|page| page.saturating_add(1).to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    row.site,
-                    row.placement,
-                    row.face.sentence()
-                );
-                if let Some(declined) = row.declined {
-                    let _ = writeln!(
-                        out,
-                        "          onto an appended page rather than the producer's own, because \
-                         {declined}"
-                    );
-                }
-            }
-        }
+        self.render_preserved(&mut out);
         if !self.supplied.is_empty() {
             let _ = writeln!(
                 out,

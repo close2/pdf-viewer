@@ -265,10 +265,10 @@ impl Remedies {
                 let Some(shape) = super::drawn::shape_of(&bytes) else {
                     continue;
                 };
-                // Checked before the conversion it would make useless: an appended page of
-                // marks is the shape a tagged document refuses (`super::tagged`).
+                // Checked before the conversion it would make useless: a file drawn as appended
+                // pages is the shape a tagged document refuses (`super::tagged`).
                 let drawn = if super::tagged::describes_its_content(document) {
-                    Err(super::tagged::MARKS_IN_A_TAGGED_DOCUMENT.to_owned())
+                    Err(super::tagged::DRAWN_FILE_IN_A_TAGGED_DOCUMENT.to_owned())
                 } else if shape == super::drawn::Shape::Pdf {
                     super::derived::convert(
                         plan,

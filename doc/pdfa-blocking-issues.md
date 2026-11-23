@@ -3,7 +3,7 @@
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
 section 2's table are `rank.py`'s output (`--table` for section 2), re-taken with section 9's lists
-by session 2168 over `14396225` and ADRs 3373 to 3375's changes, with the pack; the figures in
+by session 2202 over `416c024e` and ADR 3509's change, with the pack; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -81,6 +81,9 @@ programs share.
 | `issue14462_reduced` | 4 | 6.2.11.4.1-1 | the program is measured whole; veraPDF fails inside its Private dictionary (ADR 3375) | the document's: the program's own content |
 | `PDFBOX-3148-2-fuzzed` | 4 | 6.2.4.3-4 (DeviceGray) | the widget appearance is `ASCII85Decode` data with no `~>`: this reader decodes `/Tx `, veraPDF `/Tx B` | ours: new row at section 5.1, §7.4.3's end-of-data marker; the stream is written as the bytes decoded, loss `ascii-data-as-decoded`, and veraPDF passes all four (ADRs 3462, 3473) |
 
+Session 2202's census of its own kept outputs: 5533 written as conforming, veraPDF 1.30.3 failed
+47 outputs of 15 documents over 14 rules, 20 unfinished, the list 2198's; the eight new outputs — the
+five tagged documents ADR 3463 named, under `as-shown` at the parts each now reaches — pass (ADR 3509).
 Session 2198's census of its own kept outputs: 5525 written as conforming, veraPDF 1.30.3 failed
 47 outputs of 15 documents over 14 rules, 20 unfinished, the list 2193's; the five new outputs —
 `020747` at part 4 under `as-if-printed`, `issue13316_reduced` and `issue20489` at both parts under
@@ -138,14 +141,14 @@ failed 109 of 33 documents over 26 rules, 20 unfinished), each rule settled agai
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 942 | 1 | 17 | 11 | 5 |
+| pdf.js `as-if-printed` 2b | 943 | 1 | 16 | 11 | 5 |
 | corpora `as-if-printed` 2b | 448 | 6 | 30 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 956 | 0 | 4 | 11 | 5 |
-| corpora `as-if-printed` 4 | 483 | 0 | 2 | 16 | 2 |
-| pdf.js `as-shown` 2b | 908 | 1 | 51 | 11 | 5 |
-| corpora `as-shown` 2b | 413 | 6 | 63 | 16 | 5 |
-| pdf.js `as-shown` 4 | 921 | 0 | 39 | 11 | 5 |
-| corpora `as-shown` 4 | 433 | 0 | 50 | 16 | 4 |
+| pdf.js `as-if-printed` 4 | 957 | 0 | 3 | 11 | 5 |
+| corpora `as-if-printed` 4 | 484 | 0 | 1 | 16 | 2 |
+| pdf.js `as-shown` 2b | 911 | 1 | 48 | 11 | 5 |
+| corpora `as-shown` 2b | 415 | 6 | 61 | 16 | 5 |
+| pdf.js `as-shown` 4 | 925 | 0 | 35 | 11 | 5 |
+| corpora `as-shown` 4 | 436 | 0 | 47 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
 part, which is why the pack is taken as installed. In session 2094's the census lines are the same
@@ -198,10 +201,9 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 8 | R10-font-refiling | 0 | 0 | 3 / 3 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723), in an embedded glyf program (ADR 3153) and in a shipped CFF face (ADR 3154), a CFF program under a TrueType dictionary (ADRs 3078, 3089), a Type 0 font naming no CIDFont (ADR 3109), a Type 1 program under a CIDFontType0 (ADR 3173), a descriptor inside a font with no program and its name as the program's (ADRs 3209, 3210); a CFF width a subroutine states is read where it occurs (ADR 3240); left, what another row refuses first |
 | 9 | R11-truetype-route | 0 | 0 | 2 / 1 | builds only | built: A694 item 3, ADR 2520; a font a photograph takes out of the file, and a page tree node's resources no page inherits (ADR 3193); a program the window refused, restated over the face it drew (ADR 3326); left, a font R10 or another row refuses first |
 | 10 | R14-appended-page-composition | 0 | 0 | 2 / 2 | builds only | built: ADRs 2678, 2682, the second step under `as-if-printed` as a discard (ADR 3141), a schema described inside the producer's own container (ADR 3339); left under `as-shown`, each the file's own content refused by name (ADR 3463): a packet stating no filter over deflate bytes, and a packet holding a C0 control, whose character-by-character step is `as-if-printed`'s |
-| 11 | R15-embedded-files | 0 | 0 | 3 / 5 | builds only | built: ADR 2536; an associated file stating no media type given §14.13.2's application/octet-stream (ADR 3357); left, a tagged document's attachment, owner-blocked on Q1011, and office files below 4f, which 4f admits (ADR 3463) |
-| 12 | R16-annotations-and-forms | 0 | 0 | 4 / 6 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858), a check box or radio button the window draws nothing for, its states written drawing nothing under `field-appearances` (ADR 3340), an annotation stating no Subtype and no appearance preserved as the nothing it drew, and one removal answering every subtype row (ADR 3359), a button whose states name no stream written drawing nothing in each under `field-appearances` (ADR 3461); left, a tagged document's preserved marks, owner-blocked on Q1011, and `stand-in-face` unauthorised under `as-shown` (ADR 3463) |
-| 13 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 14 | X2-no-page-to-see | — | — | 7 / 7 | exception | the reader draws no page of it |
+| 11 | R16-annotations-and-forms | 0 | 0 | 1 / 1 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858), a check box or radio button the window draws nothing for, its states written drawing nothing under `field-appearances` (ADR 3340), an annotation stating no Subtype and no appearance preserved as the nothing it drew, and one removal answering every subtype row (ADR 3359), a button whose states name no stream written drawing nothing in each under `field-appearances` (ADR 3461); a tagged document's preserved marks standing outside its tree as an artifact under `tagging-of-preserved-marks`, at 2b and part 4 (A1011, ADR 3509); left, `stand-in-face` unauthorised under `as-shown` (ADR 3463) |
+| 12 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 13 | X2-no-page-to-see | — | — | 7 / 7 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest rows are R03 and R08, each held by an answer of the owner's (A694 item
 1) rather than by a build, then R09 (its row of the table above, its simple fonts with a descriptor
@@ -355,11 +357,13 @@ are restated over the face embedded for them once R10 and the UTF-8 name are ans
 3210). `507676`'s three rows here failed on two fonts whose programs fail their check values, which the
 restatement loaded as the file states them rather than as the window draws them (ADR 3326); it
 converts at part 4. **Left**: under `as-shown`, which takes no wider photograph (A694 item 1),
-`issue6127` and `issue20489`. `issue13316_reduced`'s R11 refusal was the embedding's carried, and
+`issue6127`. `issue13316_reduced`'s R11 refusal was the embedding's carried, and
 the embedding now gives the five codes its `/Differences` takes to no glyph (ADR 2880) the empty
 glyph ADR 3125 gives a code on `.notdef`, named outside the Adobe Glyph List in the machine's
 OpenType `CFF ` face; it converts under `as-shown` at both parts, veraPDF passes, and page 1 renders
-as the source (ADR 3493). A conversion
+as the source (ADR 3493). `issue20489`, a code on `.notdef` under the same kind of face, converts
+under `as-shown` at both parts by the same embedding, veraPDF passing (ADR 3493). The synthetic
+proof is `crates/pdf-transform/tests/archive/unreached_name.rs`. A conversion
 copies at most 32 MiB of font program and copies none for a file another requirement refuses by
 name. Probe of the 32 named documents: exit 0 rose from 2 to 14 under each of the four arms, veraPDF
 at the arm's own target passing 13 and failing `pdf.js:issue6961` (a checker defect, section 8).
@@ -764,8 +768,12 @@ answer for the office files. Part 4's missing media type (2) is §14.13.2's
 `application/octet-stream`, or the type the bytes' own header names. Mitigations section 11;
 limits 3.1. **Built** (ADR 2536): a text, PDF, PNG or JPEG attachment appended as pages under a
 `preserve` row with `on-failure` per file, a PDF converted one level deep; HTML and XML as text.
-Still blocked: an attachment in a tagged document (its pages need structure elements) and office
-files below 4f. **Built** (ADR 3357): an associated file stating no media type is given
+Still blocked: an attachment drawn as pages in a tagged document (its pages need structure
+elements, `tagged::DRAWN_FILE_IN_A_TAGGED_DOCUMENT`, answered by the row's `on-failure`) and office
+files below 4f. **Built** (ADR 3509, A1011): a tagged document's annotation marks, preserved on an
+appended page, stand outside its structure tree as an artifact under the loss
+`tagging-of-preserved-marks` at 2b and part 4, which frees the five documents ADR 3463 named under
+`as-shown`. **Built** (ADR 3357): an associated file stating no media type is given
 §14.13.2's `application/octet-stream`, the clause's value for a type the writer does not know
 (`issue17056`, `issue18030` at 4).
 
@@ -852,8 +860,7 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
    R10-font-refiling (3): corpora:0000490.pdf, corpora:T02-04-01_006_resources_subtype_wrong.pdf, pdf.js:issue5470.pdf
    R11-truetype-route (2): corpora:507676.pdf, pdf.js:issue6127.pdf
    R14-appended-page-composition (2): corpora:241573_ftp.pdf, corpora:balloon_a1b_jp2k.pdf
-   R15-embedded-files (5): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf
-   R16-annotations-and-forms (6): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:poppler-395-0-fuzzed.pdf
+   R16-annotations-and-forms (1): pdf.js:poppler-395-0-fuzzed.pdf
    X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf
    X2-no-page-to-see (7): corpora:PDFBOX-6041-example.pdf, corpora:T02-03_006_page-object-missing.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf
 ```

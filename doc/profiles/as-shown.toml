@@ -34,6 +34,13 @@ default = "stop"
 # loss by name and not a repair, and both profiles carry it because both draw the pages the
 # viewer found (ADR 2490, ADR 2502). It is no site's key: the refusal it lifts is the source's.
 recovered-structure = "discard"
+# A tagged document's annotation marks, kept on an appended page by the annotation rows' preserve
+# below, stand outside its structure tree, enclosed as an artifact (ISO 32000-2 14.8.2.2.2), the
+# loss `tagging-of-preserved-marks`: the page draws what the window drew, and a reader that reads
+# by structure passes over it; each page is named in the report and xmpMM:History. Taken at
+# PDF/A-2b and every PDF/A-4 flavour; Level A and Level U keep the refusal whatever this says
+# (doc/questions/A1011, ADR 3509). It is no site's key: the condition is the document's tree.
+tagging-of-preserved-marks = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
