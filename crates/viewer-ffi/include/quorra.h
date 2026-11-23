@@ -1724,6 +1724,10 @@ int32_t quorra_outline_depth(const quorra_outline *outline, size_t row, uint32_t
 /* §7.3.10's two numbers, which quorra_activate takes. */
 int32_t quorra_outline_object(const quorra_outline *outline, size_t row, uint32_t *number,
                             uint16_t *generation);
+/* Table 151's /C as 0xRRGGBB (the table's default black is 0) and Table 152's italic and bold
+ * flags: how the row's text is drawn. Any out-parameter may be null. */
+int32_t quorra_outline_style(const quorra_outline *outline, size_t row, uint32_t *rgb,
+                           bool *italic, bool *bold);
 
 /* ------------------------------------------------------------------------------------------- */
 /* THE OTHER HALF OF THE QUERIES (ADR 0576).                                                     */

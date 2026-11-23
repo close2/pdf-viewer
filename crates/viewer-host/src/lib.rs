@@ -196,9 +196,9 @@ pub use keys::{
 pub use loading::{Ahead, Loading};
 pub use measuring::Measuring;
 pub use panel::{
-    Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,
-    attachment_rows, collection_rows, external_rows, file_rows, layer_rows, outline_rows,
-    page_entry, property_rows, stamp,
+    Held, ItemStyle, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab,
+    article_rows, attachment_rows, collection_rows, external_rows, file_rows, layer_rows,
+    outline_rows, page_entry, property_rows, stamp,
 };
 pub use password::{Ask, Asking, Supplied, Wording};
 /// What a signature names as its policy's published copy, as `viewer_core` hands it over (ADR

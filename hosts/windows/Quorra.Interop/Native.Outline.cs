@@ -44,4 +44,13 @@ internal static unsafe partial class Native
         nuint row,
         uint* number,
         ushort* generation);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_outline_style(
+        nint outline,
+        nuint row,
+        uint* rgb,
+        byte* italic,
+        byte* bold);
 }

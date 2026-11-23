@@ -160,7 +160,7 @@ pub use kinds::{
     ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind,
     TextKind, ZoomKind,
 };
-pub use panels::{Outline, Panel};
+pub use panels::{Outline, OutlineStyle, Panel};
 pub use reads::Reads;
 pub use session::{
     FrameInfo, Session, clock_date, data_format_of_media_type, rasterise, rasterise_window,

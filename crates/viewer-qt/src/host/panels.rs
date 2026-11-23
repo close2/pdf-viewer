@@ -371,6 +371,13 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 locked,
                 note: row.note,
                 emphasis: row.emphasis,
+                inked: row.style.is_some(),
+                ink: row.style.map_or(0, |style| {
+                    let [red, green, blue] = style.ink;
+                    u32::from_be_bytes([0, red, green, blue])
+                }),
+                italic: row.style.is_some_and(|style| style.italic),
+                bold: row.style.is_some_and(|style| style.bold),
                 headings: row.cells.iter().map(|cell| cell.heading.clone()).collect(),
                 values: row.cells.iter().map(|cell| cell.value.clone()).collect(),
                 icon: row

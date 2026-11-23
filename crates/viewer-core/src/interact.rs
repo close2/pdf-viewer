@@ -658,32 +658,52 @@ fn handed_over(actions: Vec<Action>, scripted: bool, runs: bool) -> Vec<Action> 
 ///
 /// Where a chain of §12.6.2 actions says to go, and how to look at it there.
 ///
-/// **The first request that names a page wins**, because a chain that jumps twice has shown the
-/// second page either way and §12.6.2 states no rule for the pair — and Table 149's view is taken
-/// from the *same* destination as the page, always. A jump that took its page from one
-/// destination and its magnification from another would show a place no link in the file names.
+/// **Each request that names a page replaces the one before it**, because §12.6.2's `/Next` is
+/// "an array of action dictionaries that shall be performed in order": a go-to followed by another
+/// ends on the second, and a named `NextPage` counts from the page the previous action reached
+/// (ADR 3497). Table 149's view is taken from the *same* request as the page, always: a jump that
+/// took its page from one destination and its magnification from another would show a place no
+/// link in the file names. A request that names no page this document has moves nothing.
 #[derive(Debug, Default)]
 struct Jump {
     /// The page index, zero-based.
     page: Option<usize>,
-    /// §12.3.2.1's other two items, where the destination that won stated them.
+    /// §12.3.2.1's other two items, where the request that named the page stated them.
     view: Option<pdf_model::destination::View>,
+    /// How many requests have moved it, which tells a transition whether a later one did.
+    moves: usize,
 }
 
 impl Jump {
-    /// Takes this destination's page and view, if nothing has named a page yet.
+    /// Takes this destination's page and view, where it names a page of this document.
     fn take(
         &mut self,
         document: &Document,
         pages: &Pages,
         destination: &pdf_model::destination::Destination,
     ) {
-        if self.page.is_none()
-            && let Some(page) = destination.page_index(document, pages)
-        {
-            self.page = Some(page);
-            self.view = Some(destination.view);
+        if let Some(page) = destination.page_index(document, pages) {
+            self.moved(page, Some(destination.view));
         }
+    }
+
+    /// Moves to `page`, which states no view of its own, where it is a page at all.
+    fn turn_to(&mut self, page: Option<usize>) {
+        if let Some(page) = page {
+            self.moved(page, None);
+        }
+    }
+
+    /// Moves to `page` and looks at it as `view` says.
+    fn moved(&mut self, page: usize, view: Option<pdf_model::destination::View>) {
+        self.page = Some(page);
+        self.view = view;
+        self.moves = self.moves.saturating_add(1);
+    }
+
+    /// The page the chain has reached so far: the last one a request named, or the page showing.
+    fn reached(&self, showing: usize) -> usize {
+        self.page.unwrap_or(showing)
     }
 }
 
@@ -744,8 +764,8 @@ fn resolve(
         }
     }
 
-    // The first request that names a page wins, because a chain that jumps twice has shown the
-    // second page either way and §12.6.2 states no rule for the pair.
+    // §12.6.2: the requests are folded in the chain's order, so the page a chain ends on is the
+    // last one it named and a named action counts from the page the one before it reached.
     let pages = Pages::new(&open.document);
     let mut jump = Jump::default();
     if let Some(destination) = destination.as_ref() {
@@ -754,18 +774,17 @@ fn resolve(
     let (mut import, mut embedded, mut remote) = (None, None, None);
     let mut threaded: Option<ThreadJump> = None;
     let mut movies = Vec::new();
+    let mut staged = Vec::new();
     for request in &requests {
         match request {
             Request::Display(destination) => jump.take(&open.document, &pages, destination),
             Request::Page(named) => {
-                jump.page = jump
-                    .page
-                    .or_else(|| named.page_from(open.page_index, open.page_count));
+                jump.turn_to(named.page_from(jump.reached(open.page_index), open.page_count));
             }
             // §12.6.4.5: "changes the view to the Start page of a specified DPart" — a page of
             // *this* document, so it resolves here beside the other two that name one.
             Request::DocumentPart(part) => {
-                jump.page = jump.page.or_else(|| part.page_in(&open.document, &pages));
+                jump.turn_to(part.page_in(&open.document, &pages));
             }
             Request::Resolve(uri) => outcome.uris.push(match at {
                 Some((point, rect)) => uri.at_position(point, rect),
@@ -789,11 +808,14 @@ fn resolve(
             Request::Import(request) => import = Some(request.clone()),
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Remote(request) => remote = Some(request.clone()),
-            Request::Transition(transition) => outcome.transitions.push(transition.clone()),
+            Request::Transition(transition) => {
+                outcome.transitions.push(transition.clone());
+                staged.push((jump.reached(open.page_index), jump.moves));
+            }
             Request::Rendition(rendition) => rendered(open, rendition, subject, &mut outcome),
-            // After the loop, because a `/T` is looked for on the page a jump in the same chain
-            // reached (§12.6.4.10).
-            Request::Movie(movie) => movies.push(movie),
+            // After the loop, because the movie's own work needs `&mut open`; a `/T` is looked
+            // for on the page the chain had reached when the movie action came (§12.6.4.10).
+            Request::Movie(movie) => movies.push((movie, jump.reached(open.page_index))),
             Request::Sound(sound) => {
                 deprecated_media::sound_requested(open, sound, subject, &mut outcome);
             }
@@ -822,20 +844,35 @@ fn resolve(
                 // `Open::apply_view` carries out all eight of Table 149's forms (ADR 0162), and
                 // this composes one of them rather than adding a ninth.
                 if let Some(bead) = bead
-                    && let Some(rect) = bead.rect
-                    && jump.view.is_none()
+                    && let Some(page) = bead.page_index(&pages)
                 {
-                    jump.view = Some(pdf_model::destination::View::FitR { rect });
+                    jump.moved(
+                        page,
+                        bead.rect
+                            .map(|rect| pdf_model::destination::View::FitR { rect }),
+                    );
                 }
-                jump.page = jump
-                    .page
-                    .or_else(|| bead.and_then(|bead| bead.page_index(&pages)));
             }
         }
     }
     drop(pages);
-    let associated = jump.page.unwrap_or(open.page_index);
-    for movie in movies {
+    // §12.6.4.15 has a transition "render the state of the page viewing area as it exists after
+    // completion of the previous action", and drawing is suspended for the rest of the chain. A
+    // transition no later request moved away from therefore shows the place the chain ends on,
+    // which is what a host plays it into. One a later page request moved away from shows a place
+    // this viewer does not draw: a host draws a chain's end once (`Event::Transition` names an
+    // effect, and the next page drawn is its face), so the transition is played into the end and
+    // the difference is said (trap 5, ADR 3497).
+    for (reached, moves) in staged {
+        if moves != jump.moves {
+            outcome.notes.push(format!(
+                "{subject} plays a transition on page {} and then moves on; the transition is \
+                 shown arriving on the page the actions end on",
+                reached.saturating_add(1)
+            ));
+        }
+    }
+    for (movie, associated) in movies {
         deprecated_media::movie_requested(open, movie, associated, subject, &mut outcome);
     }
 
@@ -1493,23 +1530,17 @@ pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Resul
     // remote document", and Table 203's `/SD` names "a structure element ID in the remote
     // document".
     let pages = Pages::new(&replacement.document);
-    let page_index = remote
+    let place = remote
         .page_in(&replacement.document, &pages)
-        .filter(|index| *index < replacement.page_count);
-    let Some(page_index) = page_index else {
+        .filter(|(index, _)| *index < replacement.page_count);
+    let Some((page_index, view)) = place else {
         return Err(format!(
             "this link declines — {act}: {name} holds no page this action names"
         ));
     };
     // Table 203's `/D` is "\[t]he destination to jump to", and a destination is a page *and*
-    // Table 149's view of it — so the view is applied where `/D` is what named the page, and not
-    // where `/SD`'s element took precedence over it (ADR 2964).
-    let view =
-        pdf_model::destination::Destination::read(&replacement.document, &remote.destination)
-            .filter(|destination| {
-                destination.page_index_in_target(&replacement.document, &pages) == Some(page_index)
-            })
-            .map(|destination| destination.view);
+    // Table 149's view of it — so the view applied is the one the entry that named the page
+    // states, `/SD`'s own where its element decided (§12.3.2.3, ADR 3498).
     drop(pages);
     replacement.page_index = page_index;
     replacement.pending_views = view.into_iter().collect();

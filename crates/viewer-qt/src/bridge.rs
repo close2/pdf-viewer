@@ -92,6 +92,16 @@ pub mod ffi {
         /// initially presented in the user interface". The clause states no appearance, so Qt
         /// says it with a bold `Qt::FontRole` and GTK with a `heading` class.
         emphasis: bool,
+        /// Whether [`Self::ink`] is the row's text colour: `viewer_host::PanelRow::style`, Table
+        /// 151's `/C`, set on every outline row and on no other.
+        inked: bool,
+        /// Table 151's `/C` as `0xRRGGBB`, eight bits a component; read only where
+        /// [`Self::inked`]. Drawn as `Qt::ForegroundRole`.
+        ink: u32,
+        /// Table 152's bit 1, "display the item in italic", drawn in `Qt::FontRole`.
+        italic: bool,
+        /// Table 152's bit 2, "display the item in bold", drawn in `Qt::FontRole`.
+        bold: bool,
         /// Table 155's `/N` for each of Table 154's schema fields, in `/O` order.
         ///
         /// `viewer_host::PanelRow::cells`' headings. Empty for every panel but §12.3.5's, where

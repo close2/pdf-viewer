@@ -489,10 +489,19 @@ QVariant PanelModel::data(const QModelIndex& index, int role) const
     // presented in the user interface". The clause states no appearance for it, so this is Qt's
     // own way of setting one row before the others; GTK adds a `heading` class and `viewer-ui`
     // draws the label bold. Which row it is, is the one shared decision.
-    if (role == Qt::FontRole && row.emphasis) {
-        QFont bold;
-        bold.setBold(true);
-        return bold;
+    // Table 152's flags, "display the item in italic" and "display the item in bold", set the
+    // same `Qt::FontRole` §12.3.5.1's mark does; an outline row never carries that mark, so the
+    // two never meet on one row, and bold is bold whichever asked.
+    if (role == Qt::FontRole && (row.emphasis || row.bold || row.italic)) {
+        QFont font;
+        font.setBold(row.emphasis || row.bold);
+        font.setItalic(row.italic);
+        return font;
+    }
+    // Table 151's `/C`, "the colour that shall be used for the outline entry's text", in the
+    // DeviceRGB components `viewer_host::ItemStyle::ink` rounded to eight bits.
+    if (role == Qt::ForegroundRole && row.inked) {
+        return QBrush(QColor::fromRgb(static_cast<QRgb>(row.ink)));
     }
     if (role == Qt::ToolTipRole && !row.detail.empty()) {
         return text(row.detail);

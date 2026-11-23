@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/outline.rs:296 (destination: `Destination::read(document, action.get(\"D\")?)` at :308); crates/pdf-model/src/outline.rs:70 (Item::destination's doc, \"the /D of a go-to action in its /A\")",
   "change": "Read the go-to action through Destination::of_go_to, as link.rs and action::one do, and restate Item::destination's doc.",
   "execution": "FAIL (expected): crates/pdf-model/tests/navigation_12_3_12_4_12_6_spec_audit.rs::an_outline_items_go_to_action_prefers_its_structure_destination_spec_audit — round 2197; its control (the same /D and /SD reached through /Dest naming a /Dests dictionary value) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2197-B02",
@@ -25,7 +25,7 @@
   "code": "crates/pdf-model/src/action.rs:1235 (structure_destination: the array's first element only); crates/pdf-model/src/action.rs:873 (RemoteGoTo::page_in: no first-page answer for an element found without content); crates/viewer-core/src/interact.rs place_remote (the view taken from /D only)",
   "change": "Carry /SD's Table 149 view beside the element ID (or the whole array), apply it on the page the element identified, and answer page 0 for a found element that identifies no page, as Destination::resolve does locally.",
   "execution": "FAIL (expected): crates/viewer-core/tests/navigation_12_3_12_4_12_6_spec_audit.rs::a_remote_structure_destination_applies_its_own_view_spec_audit and ::a_remote_structure_destination_without_content_takes_the_first_page_spec_audit — round 2197; each control (/D's /XYZ applied; /SD's element with content deciding over /D) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2197-B03",
@@ -39,7 +39,7 @@
   "code": "crates/viewer-core/src/interact.rs:673 (Jump::take), :747 and :763 (resolve: first request wins; NextPage from open.page_index)",
   "change": "Fold the page-naming requests in order: each destination replaces the page and view, and a named action is computed from the page the previous request reached.",
   "execution": "FAIL (expected): crates/viewer-core/tests/navigation_12_3_12_4_12_6_spec_audit.rs::a_chain_of_page_actions_is_performed_in_order_spec_audit — round 2197; its controls (one NextPage, one go-to) pass; the three chains end on page index 1 where 2 is due",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2197-B04",
@@ -52,7 +52,7 @@
   "code": "crates/viewer-host/src/panel.rs:323 (row_of_item); crates/viewer-host/src/panel.rs PanelRow (no colour or style field)",
   "change": "Give PanelRow the item's colour and style and draw them in each toolkit's outline tree (viewer-ui, viewer-qt, viewer-gtk, viewer-ffi's panel rows).",
   "execution": "FAIL (expected): crates/viewer-host/tests/outline_item_style_spec_audit.rs::an_outline_items_colour_and_style_reach_its_row_spec_audit — round 2197; its control (a different /Title is a different row) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2197-D01",
@@ -66,7 +66,7 @@
   "code": "crates/pdf-model/src/outline.rs:290-295",
   "change": "Restate: Item::destination is the go-to's view for section_at; activation reads /A itself.",
   "execution": "Read against interact::activate_object and crates/viewer-core/tests/headless.rs::an_outline_item_whose_action_is_a_uri_hands_it_over.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2197-D02",
@@ -79,6 +79,6 @@
   "code": "crates/viewer-core/src/interact.rs:661 and :747",
   "change": "Restate with B03's fix.",
   "execution": "Read; B03's test shows the first page kept.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

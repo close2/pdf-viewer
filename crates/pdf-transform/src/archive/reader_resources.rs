@@ -981,7 +981,7 @@ pub(super) fn supply(
                 }
                 GlyphResources::Written(id, _) => Some((*id, Place::Itself)),
                 GlyphResources::Object(id) => {
-                    Some(place_in(document, &Location::Object(*id), miss.category)?)
+                    Some(page_in(document, &Location::Object(*id), miss.category)?)
                 }
             }
         } else {
@@ -1084,7 +1084,7 @@ fn target_of(
             }
         }
     };
-    place_in(document, &location, miss.category)
+    page_in(document, &location, miss.category)
 }
 
 /// The holder and the dictionary a stream that states its own resources was read against.
@@ -1116,7 +1116,7 @@ fn own_location(
 }
 
 /// The object that holds a category's table of names, and the place in it.
-fn place_in(
+fn page_in(
     document: &Document,
     location: &Location,
     category: &str,

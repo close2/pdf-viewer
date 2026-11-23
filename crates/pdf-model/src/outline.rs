@@ -67,7 +67,8 @@ pub struct Item {
     /// A *text string*, so §7.9.2.2's three encodings apply and `pdf_syntax::text_string`
     /// decodes it — the same route a page label's prefix and a field's value take.
     pub title: String,
-    /// Where the item goes: its `/Dest`, or the `/D` of a go-to action in its `/A`.
+    /// Where the item goes: its `/Dest`, or the destination of a go-to action in its `/A` —
+    /// `/SD` where it names one, `/D` otherwise (Table 202).
     ///
     /// Table 151 makes those mutually exclusive — `/Dest` "shall not be present if an A entry
     /// is present" — so a file writing both has said something the clause forbids, and `/Dest`
@@ -289,10 +290,12 @@ fn read_item(
 
 /// Table 151's `/Dest`, or the destination inside `/A`'s go-to action.
 ///
-/// §12.6.4.2 is the only action type that states a view of *this* document; a `/GoToR` names a
-/// page in another file and an ECMAScript action is on `CLAUDE.md`'s exclusion list. An item
-/// with any other action has no destination here, which is the truth about it rather than a
-/// gap: nothing this program does could follow one.
+/// This is the view [`Outline::section_at`] maps pages back to items with, not what activating
+/// the item does: activation reads `/A` itself, of whatever type and with its `/Next` chain.
+/// §12.6.4.2 is the only action type that states a view of *this* document, so an item whose
+/// `/A` is of any other type names no page here. The go-to is read through
+/// [`Destination::of_go_to`], the one reader every route to a go-to action shares, so Table
+/// 202's `/SD` takes precedence over `/D` here as it does on a link and an `/OpenAction`.
 fn destination(document: &Document, dict: &Dictionary) -> Option<Destination> {
     if let Some(dest) = dict.get("Dest")
         && let Some(destination) = Destination::read(document, dest)
@@ -305,7 +308,7 @@ fn destination(document: &Document, dict: &Dictionary) -> Option<Destination> {
     if kind.as_name()?.as_bytes() != b"GoTo" {
         return None;
     }
-    Destination::read(document, action.get("D")?)
+    Destination::of_go_to(document, action)
 }
 
 /// Table 151's `/C`, defaulting to black.

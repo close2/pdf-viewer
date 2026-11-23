@@ -143,6 +143,41 @@ pub unsafe extern "C" fn quorra_outline_object(
     }
 }
 
+/// Table 151's `/C` as `0xRRGGBB` and Table 152's italic and bold flags for a row.
+///
+/// Any out-parameter may be null.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_outline_style(
+    outline: *const Outline,
+    row: usize,
+    rgb: *mut u32,
+    italic: *mut bool,
+    bold: *mut bool,
+) -> c_int {
+    let Some(outline) = outline.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match outline.style(row) {
+        Ok(style) => {
+            if let Some(rgb) = rgb.as_mut() {
+                *rgb = style.rgb;
+            }
+            if let Some(italic) = italic.as_mut() {
+                *italic = style.italic;
+            }
+            if let Some(bold) = bold.as_mut() {
+                *bold = style.bold;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // §8.11.4.3's layers and §7.11.4's files: the other two panels, flattened as the outline is.
 // ---------------------------------------------------------------------------------------------

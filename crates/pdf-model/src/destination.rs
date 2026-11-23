@@ -93,7 +93,7 @@ impl View {
     /// A form whose name the table does not list is not a view, and neither is one whose
     /// required parameters are absent — `/FitR` is the only form with any, and a `/FitR`
     /// short of its four numbers states no rectangle at all.
-    fn read(document: &Document, name: &[u8], rest: &[Object]) -> Option<Self> {
+    pub(crate) fn read(document: &Document, name: &[u8], rest: &[Object]) -> Option<Self> {
         let numbers: Vec<Option<f32>> = rest
             .iter()
             .map(|object| {

@@ -166,6 +166,9 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>, pictures: &Previews) 
     if row.emphasis {
         label.add_css_class("heading");
     }
+    if let Some(attributes) = item_style(&row) {
+        label.set_attributes(Some(&attributes));
+    }
     text.append(&label);
     // Table 153's `/View D` asks for "all information in the Schema dictionary presented in a
     // multi- column format", and `/View T` for a subset of the same fields. A `GtkGrid` of
@@ -220,6 +223,32 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>, pictures: &Previews) 
     }
 
     item.set_child(Some(&expander));
+}
+
+/// Table 151's `/C` and Table 152's italic and bold, as the attributes of the row's label.
+///
+/// Pango attributes rather than CSS, because the colour is the document's own and a stylesheet
+/// per row would be a string built from it; an attribute covers the whole label, which is the
+/// item's whole text. `None` on every panel's rows but the outline's, which leaves the label to
+/// the theme.
+fn item_style(row: &PanelRow) -> Option<pango::AttrList> {
+    let style = row.style?;
+    let attributes = pango::AttrList::new();
+    let [red, green, blue] = style.ink;
+    // Pango's components are sixteen bits; 257 maps 255 onto 65535 exactly.
+    let wide = |component: u8| u16::from(component) * 257;
+    attributes.insert(pango::AttrColor::new_foreground(
+        wide(red),
+        wide(green),
+        wide(blue),
+    ));
+    if style.italic {
+        attributes.insert(pango::AttrInt::new_style(pango::Style::Italic));
+    }
+    if style.bold {
+        attributes.insert(pango::AttrInt::new_weight(pango::Weight::Bold));
+    }
+    Some(attributes)
 }
 
 /// The widget a row's [`Picture`] is drawn as.
@@ -315,3 +344,38 @@ const SCATTER_ROOM: i32 = 600;
 
 /// How much room one of those thumbnails takes under its own place.
 const SCATTER_ITEM: i32 = 96;
+
+#[cfg(test)]
+mod tests {
+    use viewer_host::{ItemStyle, PanelRow, RowAction};
+
+    use super::item_style;
+
+    /// Table 151's `/C` and Table 152's flags reach the label as Pango attributes, and a row that
+    /// states none of them is left to the theme.
+    #[test]
+    fn an_outline_rows_colour_and_style_are_its_labels_attributes() {
+        let plain = PanelRow::item("Chapter".to_owned());
+        assert!(
+            item_style(&plain).is_none(),
+            "not an outline row: the theme's ink"
+        );
+
+        let styled = PanelRow {
+            action: RowAction::Inert,
+            style: Some(ItemStyle {
+                ink: [255, 0, 0],
+                italic: true,
+                bold: true,
+            }),
+            ..PanelRow::item("Chapter".to_owned())
+        };
+        let attributes = item_style(&styled)
+            .expect("a row stating a colour has attributes")
+            .to_str()
+            .to_string();
+        for wanted in ["foreground #ffff00000000", "style italic", "weight bold"] {
+            assert!(attributes.contains(wanted), "{wanted} in {attributes}");
+        }
+    }
+}

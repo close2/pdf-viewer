@@ -119,6 +119,10 @@ pub struct PanelRow {
     ///
     /// [`Qt::FontRole`]: https://doc.qt.io/qt-6/qt.html#ItemDataRole-enum
     pub emphasis: bool,
+    /// How the row's text is drawn, where the document states it: an outline item's Table 151
+    /// `/C` and Table 152 flags, and `None` on every other panel's rows, whose ink and face are
+    /// the toolkit's own.
+    pub style: Option<ItemStyle>,
     /// Table 154's schema for this row, one cell per field, in Table 155's `/O` order.
     ///
     /// Empty for every panel but §12.3.5's, where Table 153's `/View D` asks for "all information
@@ -135,6 +139,21 @@ pub struct PanelRow {
     pub picture: Option<Picture>,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
+}
+
+/// An outline item's text colour and style (ISO 32000-2 §12.3.3, ADR 3499).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemStyle {
+    /// Table 151's `/C`: the colour, in the `DeviceRGB` colour space, that the clause says shall
+    /// be used for the entry's text.
+    ///
+    /// Eight bits a component, rounded, because that is what all three toolkits draw text in.
+    /// Black included — the table's default is a colour the file states, not an absence.
+    pub ink: [u8; 3],
+    /// Table 152's bit 1, "\[i]f set to 1, display the item in italic".
+    pub italic: bool,
+    /// Table 152's bit 2, "\[i]f set to 1, display the item in bold".
+    pub bold: bool,
 }
 
 /// One of Table 154's schema fields, as it stands against one file.
@@ -293,6 +312,7 @@ impl PanelRow {
             action: RowAction::Inert,
             note: false,
             emphasis: false,
+            style: None,
             cells: Vec::new(),
             picture: None,
             children: Vec::new(),
@@ -328,10 +348,28 @@ fn row_of_item(item: &Item) -> PanelRow {
         action: RowAction::Activate(item.id),
         note: false,
         emphasis: false,
+        style: Some(ItemStyle {
+            ink: item.colour.map(eight_bits),
+            italic: item.italic,
+            bold: item.bold,
+        }),
         cells: Vec::new(),
         picture: None,
         children: item.children.iter().map(row_of_item).collect(),
     }
+}
+
+/// A `DeviceRGB` component in 0.0 to 1.0 as the eight bits a toolkit draws text in.
+fn eight_bits(component: f32) -> u8 {
+    // Clamped to 0..=255 first, so the conversion cannot truncate; a NaN clamps to NaN and
+    // `as` turns that into 0, which is the table's default black.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 0..=255 above"
+    )]
+    let bits = (component * 255.0).round().clamp(0.0, 255.0) as u8;
+    bits
 }
 
 /// §8.11.4.3's `/Order`, as rows.
@@ -367,6 +405,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             },
             note: false,
             emphasis: false,
+            style: None,
             cells: Vec::new(),
             picture: None,
             children: Vec::new(),
@@ -378,6 +417,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             action: RowAction::Inert,
             note: false,
             emphasis: false,
+            style: None,
             cells: Vec::new(),
             picture: None,
             children: children.iter().map(row_of_layer).collect(),
@@ -418,6 +458,7 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             },
             note: false,
             emphasis: false,
+            style: None,
             // §12.3.5's schema is what fills these, and this list is the one a document with no
             // `/Collection` gets: the same files, unarranged.
             cells: Vec::new(),

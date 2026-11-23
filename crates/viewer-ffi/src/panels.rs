@@ -44,6 +44,20 @@ struct Row {
     /// Both, because §7.3.10 makes an indirect reference two numbers and a viewer that dropped
     /// the second would name a different object in a file that reused a number.
     object: (u32, u16),
+    /// Table 151's `/C` and Table 152's flags.
+    style: OutlineStyle,
+}
+
+/// How an outline row's text is drawn: Table 151's `/C` and Table 152's two flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutlineStyle {
+    /// `/C` as `0xRRGGBB`, eight bits a component (`viewer_host::ItemStyle::ink`); `0` is the
+    /// table's default black.
+    pub rgb: u32,
+    /// Table 152's bit 1, "display the item in italic".
+    pub italic: bool,
+    /// Table 152's bit 2, "display the item in bold".
+    pub bold: bool,
 }
 
 impl Outline {
@@ -100,6 +114,18 @@ impl Outline {
         self.rows
             .get(row)
             .map(|row| row.expanded)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// The colour and style the row's text is drawn in.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such row.
+    pub fn style(&self, row: usize) -> Result<OutlineStyle, Status> {
+        self.rows
+            .get(row)
+            .map(|row| row.style)
             .ok_or(Status::OutOfRange)
     }
 
@@ -311,7 +337,50 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Row>) {
                 RowAction::Activate(id) => (id.number, id.generation),
                 RowAction::Toggle { .. } | RowAction::Extract { .. } | RowAction::Inert => (0, 0),
             },
+            style: OutlineStyle {
+                rgb: row.style.map_or(0, |style| {
+                    let [red, green, blue] = style.ink;
+                    u32::from_be_bytes([0, red, green, blue])
+                }),
+                italic: row.style.is_some_and(|style| style.italic),
+                bold: row.style.is_some_and(|style| style.bold),
+            },
         });
         push_rows(&row.children, depth.saturating_add(1), into);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_model::outline::{Item, Outline as Items};
+    use pdf_syntax::ObjectId;
+
+    use super::{Outline, OutlineStyle};
+
+    /// Table 151's `/C` and Table 152's flags reach `quorra_outline_style`'s row, `/C` as
+    /// `0xRRGGBB` from the `DeviceRGB` components rounded to eight bits.
+    #[test]
+    fn an_outline_rows_colour_and_style_reach_the_abi() {
+        let items = Items {
+            items: vec![Item {
+                id: ObjectId::new(10, 0),
+                title: "Chapter".to_owned(),
+                destination: None,
+                open: false,
+                italic: true,
+                bold: false,
+                colour: [1.0, 0.5, 0.0],
+                children: Vec::new(),
+            }],
+            stated_count: None,
+        };
+        assert_eq!(
+            Outline::of(&items).style(0),
+            Ok(OutlineStyle {
+                rgb: 0x00ff_8000,
+                italic: true,
+                bold: false,
+            })
+        );
     }
 }

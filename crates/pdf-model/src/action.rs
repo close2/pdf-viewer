@@ -800,13 +800,19 @@ pub struct RemoteGoTo {
     /// > ID in the remote document, instead of an indirect reference to a structure element
     /// > dictionary.
     ///
-    /// The identifier only, because the identifier is what names the page: §12.3.2.3 makes a
-    /// structure destination "the same view mechanism as a destination" over an element rather
-    /// than a page, and the element is found in the *remote* document through §14.7.2's
-    /// `/IDTree`. The table's precedence — "\[i]f present, the structure destination should take
-    /// precedence over destination in the D entry" — is applied by [`Self::page_in`], and it is
-    /// a `should`, so an identifier that document does not hold falls back to `/D`.
+    /// The element is found in the *remote* document through §14.7.2's `/IDTree`, which is why
+    /// the identifier is carried as bytes rather than read here. The table's precedence —
+    /// "\[i]f present, the structure destination should take precedence over destination in the
+    /// D entry" — is applied by [`Self::page_in`], and it is a `should`, so an identifier that
+    /// document does not hold falls back to `/D`.
     pub structure_destination: Option<Vec<u8>>,
+    /// The rest of Table 203's `/SD` array: Table 149's view of the page the element identifies.
+    ///
+    /// §12.3.2.3: "using that page, the structure destination shall behave identically to a
+    /// destination" — so the array after its identifier is the same name and parameters an
+    /// explicit destination states after its page. `None` where `/SD` states no view Table 149
+    /// lists.
+    pub structure_view: Option<crate::destination::View>,
     /// Table 203's `/NewWindow`.
     ///
     /// §12.6.4.3, Table 203:
@@ -856,12 +862,17 @@ impl RemoteAct {
 }
 
 impl RemoteGoTo {
-    /// The zero-based index of the page this action names, in the document it names.
+    /// The zero-based index of the page this action names in the document it names, with Table
+    /// 149's view of it as the same entry states it.
     ///
     /// Table 203's `/SD` first, because the table says so — "\[i]f present, the structure
     /// destination should take precedence over destination in the D entry" — and `/D` behind it,
     /// which is where a `should` leaves a reader when the identifier names nothing: §14.7.2's
-    /// `/IDTree` is optional and an untagged remote document holds none.
+    /// `/IDTree` is optional and an untagged remote document holds none. An element the
+    /// identifier does name decides, content or none: §12.3.2.3 — "\[i]n the case where no page
+    /// content is identified, then the page reference shall be assumed to be the first page in
+    /// the document" — which is the local reading's answer too. The page and the view always
+    /// come from the same entry, so a jump never shows `/D`'s view on `/SD`'s page.
     ///
     /// `/D`'s explicit form is read as §12.3.2.2 states it for this action: "\[t]he first page
     /// shall be numbered 0", which is [`crate::destination::Destination::page_index_in_target`].
@@ -870,15 +881,22 @@ impl RemoteGoTo {
     /// `None` where neither names a page there, which is a document pointing into a file that
     /// does not hold what it said; the caller says so rather than guessing.
     #[must_use]
-    pub fn page_in(&self, target: &Document, pages: &crate::page::Pages<'_>) -> Option<usize> {
+    pub fn page_in(
+        &self,
+        target: &Document,
+        pages: &crate::page::Pages<'_>,
+    ) -> Option<(usize, Option<crate::destination::View>)> {
         if let Some(id) = &self.structure_destination
             && let Some(tree) = crate::structure::Tree::of(target)
             && let Some(element) = tree.element_by_id(target, id)
-            && let Some(page) = crate::destination::structure_element_page(target, &element, pages)
         {
-            return Some(page);
+            let page =
+                crate::destination::structure_element_page(target, &element, pages).unwrap_or(0);
+            return Some((page, self.structure_view));
         }
-        Destination::read(target, &self.destination)?.page_index_in_target(target, pages)
+        let destination = Destination::read(target, &self.destination)?;
+        let page = destination.page_index_in_target(target, pages)?;
+        Some((page, Some(destination.view)))
     }
 }
 
@@ -1227,16 +1245,22 @@ fn remote_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
     if destination.is_null() {
         return None;
     }
+    // Table 203's `/SD`: an identifier, then Table 149's name and parameters (§12.3.2.3).
+    let structure = document.get_key(dict, "SD");
+    let structure = structure.as_array();
     Some(Action::GoToR(RemoteGoTo {
         file,
         destination,
-        // The array's first element and nothing else: the rest of a structure destination is
-        // Table 149's view, and §12.3.2.3 makes the element decide the page.
-        structure_destination: document
-            .get_key(dict, "SD")
-            .as_array()
-            .and_then(|array| array.first().cloned())
-            .and_then(|first| document.resolve(&first).as_string().map(<[u8]>::to_vec)),
+        structure_destination: structure.and_then(|array| {
+            array
+                .first()
+                .and_then(|first| document.resolve(first).as_string().map(<[u8]>::to_vec))
+        }),
+        structure_view: structure.and_then(|array| {
+            let name = document.resolve(array.get(1)?);
+            let rest = array.get(2..).unwrap_or_default();
+            crate::destination::View::read(document, name.as_name()?.as_bytes(), rest)
+        }),
         new_window: match document.get_key(dict, "NewWindow") {
             Object::Boolean(value) => Some(value),
             _ => None,
@@ -2091,6 +2115,7 @@ fn launch(document: &Document, dict: &Dictionary) -> Action {
             file,
             destination: Object::Null,
             structure_destination: None,
+            structure_view: None,
             new_window: match document.get_key(dict, "NewWindow") {
                 Object::Boolean(value) => Some(value),
                 _ => None,

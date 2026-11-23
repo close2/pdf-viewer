@@ -723,6 +723,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
             },
             note: false,
             emphasis: false,
+            style: None,
             cells: Vec::new(),
             picture: None,
             children: vec![PanelRow {
@@ -732,6 +733,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
                 action: RowAction::Inert,
                 note: false,
                 emphasis: false,
+                style: None,
                 cells: Vec::new(),
                 picture: None,
                 children: Vec::new(),
@@ -748,6 +750,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
             // §12.3.5.1's `/D` crosses the bridge like every other row flag, and this one
             // carries it so that the bold row is the one the *document* named.
             emphasis: true,
+            style: None,
             cells: Vec::new(),
             picture: None,
             children: Vec::new(),
@@ -771,6 +774,29 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
         flat.iter().map(|one| one.row.emphasis).collect::<Vec<_>>(),
         vec![false, false, true]
     );
+}
+
+/// Table 151's `/C` and Table 152's flags cross the bridge on the row they belong to.
+#[test]
+fn an_outline_rows_colour_and_style_cross_the_bridge() {
+    let rows = vec![
+        PanelRow {
+            style: Some(viewer_host::ItemStyle {
+                ink: [0x12, 0x34, 0x56],
+                italic: true,
+                bold: true,
+            }),
+            ..PanelRow::item("styled".to_owned())
+        },
+        PanelRow::item("plain".to_owned()),
+    ];
+    let flat = flatten(&rows);
+    assert!(flat[0].row.inked && flat[0].row.italic && flat[0].row.bold);
+    assert_eq!(
+        flat[0].row.ink, 0x0012_3456,
+        "0xRRGGBB, as QColor::fromRgb reads it"
+    );
+    assert!(!flat[1].row.inked && !flat[1].row.italic && !flat[1].row.bold);
 }
 
 /// Every control kind has a number, and the two the clause gives no control to have none.
