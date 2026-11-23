@@ -171,3 +171,34 @@ What they say:
 - **What the loopback adds and leaves**: a driver's period and buffer and ALSA's own delay figure;
   still no converter, no crystal (its timer is the machine's clock) and no speaker, and every time
   read from it is late by up to a capture period, about 12 ms.
+
+## The underruns explained, the period and the pause — round 2191, 2026-11-23
+
+Round 2191 traced every callback of the helper (`AUDIO_IN_USE_TRACE=1`, ADR 3465) beside the
+device's underruns on the same wall clock, and sampled the stream thread's `/proc` state each
+millisecond.
+
+- **Run 6's 2.2 s a minute was the pipe's node, not the helper.** Every long underrun had a gap in
+  the helper's callbacks beside it, the underrun plus 15.7 ms long, while each callback took
+  microseconds; in the gaps the thread sat in state `D` at `do_get_write_access`, ext4's journal.
+  The pipe's node was on the scratch disk; a write into a named pipe updates the node's times and waited
+  for the journal's five-second commit, 20–670 ms on the rotating disk under the other lanes' load.
+  The slice's memory events in the gaps were nil. With the node on a memory file system the long
+  sound's underruns fell to 0.1–0.7 s a minute at load 21–56, the longest from 655 to 26.5 ms;
+  2185's and 2189's pipe figures carry the journal too.
+- **What is left on the pipe is the scheduler's**: the one-page pipe is empty every 10.7 ms and a
+  wakeup 2 ms late is an underrun; with the round's changes, 0.2 s a minute at load 46 and 4.4–5.6
+  s at 268–440, none longer than 29 ms. The machine grants no real-time priority (`RLIMIT_RTPRIO` 0,
+  `RLIMIT_NICE` 0, no RealtimeKit), so the helper's lever is its period (ADR 3466).
+- **The loopback's pairs are its xruns** (ADR 3468): `snd-aloop` copies the playback ring's stale
+  contents when the application is late and the core finds the xrun after. Its default buffer left
+  the helper 4–7 ms at a wakeup; a 20 ms period (40 ms buffer) left 12–16 ms and took the long
+  sound's silences from 291 (1.49 s) at load 20–144 to none at 127–212 and again at 15–38. The warm
+  start rose from 27 to 47 ms at comparable load.
+- **The resumption keeps the device's delay** (ADR 3467). With the 20 ms period the loopback's
+  resumption repeated 1.1–10.4 ms at load 127–212: the device plays on until the stream's thread
+  is joined. Pausing the device first took it to +0.1–6.1 ms at load 15–38, inside `snd-aloop`'s
+  4 ms tick, but on the pipe it stretched the pause's tail from 50–64 ms to 97–573 ms, outside the
+  helper (which a thread sampler showed done within 61 ms) and unexplained, so the pause stays a
+  drop. On the pipe, `null` states no delay and `file` writes its two held periods at the close,
+  so its repeat (to 14.9 ms) and its tail grew with the period; the loopback is the reading.

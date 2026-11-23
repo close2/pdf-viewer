@@ -151,6 +151,9 @@ struct DeviceLog {
     taken: Vec<Taken>,
     /// Each underrun: when, and how long the read waited past its frames' due time.
     underruns: Vec<(Instant, Duration)>,
+    /// Each read that began more than [`STARVED`] after its frames were due, on the pipe: when,
+    /// and how late — the reader's own lateness, which [`Self::underruns`] does not count.
+    late: Vec<(Instant, Duration)>,
     /// Frames whose index was not the one before plus one, inside a stream: where, from, to.
     jumps: Vec<(Instant, u64, u64)>,
     /// Each stream's frames and the span they were taken over, for the clock's own rate.
@@ -221,8 +224,13 @@ impl Device {
 
     /// 2185's stand-in: the helper's default is ALSA's `file` plugin over `null`, writing into a
     /// named pipe of one page that this file reads at the device's rate.
+    ///
+    /// The pipe's node is made on a memory file system, never beside the readings: a write into a
+    /// named pipe updates its node's times, and on a journalled disk file system the writer then
+    /// waits for the journal's commit — every five seconds, for 20 to 520 ms on this machine's
+    /// scratch disk, which was every underrun the pipe showed before (ADR 3465).
     fn pipe(directory: &std::path::Path) -> std::fs::File {
-        let fifo = directory.join("device.fifo");
+        let fifo = fifo_path();
         let _ = std::fs::remove_file(&fifo);
         rustix::fs::mknodat(
             rustix::fs::CWD,
@@ -362,6 +370,8 @@ impl Device {
         if let Some(reader) = self.reader.take() {
             reader.join().expect("the device's thread");
         }
+        // The pipe's node, where this device made one; the loopback made none.
+        let _ = std::fs::remove_file(fifo_path());
         std::mem::take(&mut *self.log())
     }
 }
@@ -389,11 +399,10 @@ fn take(
     let mut silent = 0_u64;
     while !done.load(Ordering::Relaxed) {
         if paced && let Some((zero, frames, _)) = open {
-            let due = zero + Duration::from_nanos(frames * 1_000_000_000 / u64::from(RATE));
-            let now = Instant::now();
-            if due > now {
-                std::thread::sleep(due - now);
-            }
+            until_due(
+                zero + Duration::from_nanos(frames * 1_000_000_000 / u64::from(RATE)),
+                log,
+            );
         }
         let asked = Instant::now();
         let mut filled = 0;
@@ -479,6 +488,30 @@ fn take(
             .unwrap_or_else(PoisonError::into_inner)
             .streams
             .push((frames, last.saturating_duration_since(zero)));
+    }
+}
+
+/// Where the stand-in's named pipe is made: `$XDG_RUNTIME_DIR`, else `/dev/shm` — memory file
+/// systems both, whose nodes no journal holds (ADR 3465) — named for this process.
+fn fifo_path() -> PathBuf {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map_or_else(|| PathBuf::from("/dev/shm"), PathBuf::from);
+    runtime.join(format!("quorra-audio-in-use-{}.fifo", std::process::id()))
+}
+
+/// Sleeps until `due`, and logs the reader's own lateness where it woke more than [`STARVED`] after.
+fn until_due(due: Instant, log: &Mutex<DeviceLog>) {
+    let now = Instant::now();
+    if due > now {
+        std::thread::sleep(due - now);
+    }
+    let woke = Instant::now();
+    let late = woke.saturating_duration_since(due);
+    if late > STARVED {
+        log.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .late
+            .push((woke, late));
     }
 }
 
@@ -1099,9 +1132,35 @@ fn clock_read(
     offsets.len()
 }
 
+/// Where the helper keeps a trace of its callbacks (`QUORRA_SOUND_TRACE`, ADR 3465), the device's
+/// underruns and its reader's late reads go beside it as `device.tsv`, each on the wall clock in
+/// nanoseconds since the epoch, so that the two are read against each other.
+fn traced(seen: &DeviceLog) {
+    let Some(directory) = std::env::var_os("QUORRA_SOUND_TRACE") else {
+        return;
+    };
+    let (now, wall) = (Instant::now(), std::time::SystemTime::now());
+    let epoch = wall
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let on_the_wall = |at: Instant| {
+        epoch
+            .saturating_sub(now.saturating_duration_since(at))
+            .as_nanos()
+    };
+    let mut lines = String::from("wall_ns\tkind\tus\n");
+    for (kind, list) in [("underrun", &seen.underruns), ("late", &seen.late)] {
+        for (at, span) in list {
+            let _ = writeln!(lines, "{}\t{kind}\t{}", on_the_wall(*at), span.as_micros());
+        }
+    }
+    std::fs::write(PathBuf::from(directory).join("device.tsv"), lines).expect("the device's trace");
+}
+
 /// What the device saw over the whole run: its own clock, frames out of order, underruns by
 /// phase, and the silence between the long sound's passes.
 fn device_read(seen: &DeviceLog, began: Instant, origin: Instant, report: &mut String) {
+    traced(seen);
     // The device's own rate against the monotonic clock, over every stream longer than a second.
     let (frames, span) = seen
         .streams

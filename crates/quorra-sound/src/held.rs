@@ -38,9 +38,13 @@ impl Held {
         if samples.is_empty() {
             return;
         }
+        // The run is copied into its shared slice before the lock is taken: the device's callback
+        // takes the same lock, and a copy of a run of seconds, with the pages it is given, is
+        // what it would otherwise wait for (ADR 3465 measured a 150 ms wait).
+        let run: Arc<[f32]> = samples.into();
         let mut runs = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        runs.len = runs.len.saturating_add(samples.len());
-        runs.list.push(samples.into());
+        runs.len = runs.len.saturating_add(run.len());
+        runs.list.push(run);
     }
 
     /// Every sample has arrived.

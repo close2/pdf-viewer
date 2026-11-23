@@ -13,9 +13,10 @@
 
 #![forbid(unsafe_code)]
 
+use std::io::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use quorra_sound::{Device, Format, Pass, Progress, Report};
@@ -100,6 +101,26 @@ impl Timing {
     }
 }
 
+/// The device's period asked for: [`PERIOD`] in its frames, where the device says it can take a
+/// period of that size, and otherwise the device's own choice.
+///
+/// `cpal` makes a fixed period's buffer two periods long, and wakes the callback when one is free,
+/// so the period is the time the helper's thread has to be scheduled before the device runs dry.
+/// A device's own choice on ALSA's loopback was 512 frames in a buffer of 1 024 — 4 to 7 ms of
+/// samples left at a wakeup, which a loaded machine's scheduler overran (ADR 3466).
+fn period(config: &cpal::SupportedStreamConfig) -> cpal::BufferSize {
+    let frames = u32::try_from(frames_in(PERIOD, config.sample_rate())).unwrap_or(u32::MAX);
+    match *config.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } if (min..=max).contains(&frames) => {
+            cpal::BufferSize::Fixed(frames)
+        }
+        _ => cpal::BufferSize::Default,
+    }
+}
+
+/// The period [`period`] asks the device for, measured in ADR 3466.
+const PERIOD: Duration = Duration::from_millis(20);
+
 /// The frames of a device of `rate` in `span`, rounded down.
 fn frames_in(span: Duration, rate: u32) -> u64 {
     let frames = span.as_nanos().saturating_mul(u128::from(rate)) / 1_000_000_000;
@@ -116,7 +137,10 @@ impl Device for Output {
 
     fn start(&mut self, pass: Pass, report: Report) -> Result<(), String> {
         self.stop();
-        let config = self.config.config();
+        let config = cpal::StreamConfig {
+            buffer_size: period(&self.config),
+            ..self.config.config()
+        };
         let timing = Arc::new(Mutex::new(Timing::default()));
         let shared = Arc::clone(&timing);
         let stream = match self.config.sample_format() {
@@ -140,7 +164,8 @@ impl Device for Output {
         let (stream, timing) = self.stream.take()?;
         let now = Instant::now();
         // Read before the stream is dropped, and after the instant: the callback that runs between
-        // the two wrote frames the device cannot yet have reached by `now`.
+        // the two wrote frames the device cannot yet have reached by `now`. The stream is not
+        // paused first: ADR 3467 measured that and kept the drop.
         let timing = *timing.lock().unwrap_or_else(PoisonError::into_inner);
         drop(stream);
         Some(timing.reached(now, self.config.sample_rate()))
@@ -182,10 +207,12 @@ where
     let step = u64::from(config.sample_rate / 20).max(1);
     let mut reported = 0_u64;
     let said = Arc::new(AtomicBool::new(false));
+    let mut trace = Trace::asked(&pass.held);
     device
         .build_output_stream::<T, _, _>(
             config,
             move |out: &mut [T], info: &cpal::OutputCallbackInfo| {
+                let entered = trace.as_ref().map(|_| Instant::now());
                 buffer.clear();
                 buffer.resize(out.len(), 0.0);
                 let read = if ended {
@@ -196,6 +223,7 @@ where
                 } else {
                     reader.read(&mut buffer)
                 };
+                let read_at = trace.as_ref().map(|_| Instant::now());
                 for (slot, sample) in out.iter_mut().zip(&buffer) {
                     *slot = T::from_sample_(*sample);
                 }
@@ -216,6 +244,17 @@ where
                         delay: stamp.playback.duration_since(stamp.callback),
                         at: Some(Instant::now()),
                     };
+                }
+                if let (Some(trace), Some(entered), Some(read_at)) =
+                    (trace.as_mut(), entered, read_at)
+                {
+                    trace.callback(
+                        entered,
+                        read_at.saturating_duration_since(entered),
+                        [out.len(), read.copied, reader.position()]
+                            .map(|samples| samples.checked_div(channels).unwrap_or(0)),
+                        stamp.playback.duration_since(stamp.callback),
+                    );
                 }
                 if ended {
                     return;
@@ -242,4 +281,138 @@ where
             None,
         )
         .map_err(|error| format!("no output stream: {error}"))
+}
+
+/// A trace of every callback of one pass, kept where `QUORRA_SOUND_TRACE` names a directory and
+/// written there, one line a callback, when the pass's stream is dropped (ADR 3465): where the
+/// device starves, the trace says whether the callback was late, slow, short of samples or kept
+/// waiting for the sound's lock. Unset, there is no trace and the callback reads no clock for it.
+struct Trace {
+    /// The directory the pass's file goes in.
+    directory: std::path::PathBuf,
+    /// The sound, whose lock each callback takes once more to read how much of it has arrived.
+    held: quorra_sound::Held,
+    /// This process's monotonic clock against the wall clock, so that a line's instant can be
+    /// set beside a reading taken in another process.
+    anchor: (Instant, SystemTime),
+    /// One entry a callback, allocated before the first so that recording one allocates nothing.
+    lines: Vec<Callback>,
+    /// Callbacks past the capacity, counted and not recorded.
+    dropped: u64,
+}
+
+/// One callback, as [`Trace`] records it.
+#[derive(Clone, Copy)]
+struct Callback {
+    /// When it began.
+    entered: Instant,
+    /// How long reading the sound took.
+    read: Duration,
+    /// Frames the device asked for, frames the sound gave, and the pass's frame after them.
+    frames: [usize; 3],
+    /// The delay `cpal` stated for its first frame.
+    delay: Duration,
+    /// Frames of the sound that had arrived, read under its lock.
+    arrived: usize,
+    /// How long that lock took to take.
+    locked: Duration,
+    /// How long the callback took, to its last line.
+    spent: Duration,
+}
+
+/// The callbacks a trace holds: about an hour's at a period of 1 024 frames, 9 MiB.
+const TRACED_CALLBACKS: usize = 1 << 18;
+
+impl Trace {
+    /// A trace of the pass on `held`, where `QUORRA_SOUND_TRACE` asks for one.
+    fn asked(held: &quorra_sound::Held) -> Option<Self> {
+        let directory = std::env::var_os("QUORRA_SOUND_TRACE")?;
+        Some(Self {
+            directory: directory.into(),
+            held: held.clone(),
+            anchor: (Instant::now(), SystemTime::now()),
+            lines: Vec::with_capacity(TRACED_CALLBACKS),
+            dropped: 0,
+        })
+    }
+
+    /// Records the callback that began at `entered`.
+    fn callback(&mut self, entered: Instant, read: Duration, frames: [usize; 3], delay: Duration) {
+        let asked_lock = Instant::now();
+        let arrived = self.held.len();
+        let locked = asked_lock.elapsed();
+        if self.lines.len() == self.lines.capacity() {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.lines.push(Callback {
+            entered,
+            read,
+            frames,
+            delay,
+            arrived,
+            locked,
+            spent: entered.elapsed(),
+        });
+    }
+
+    /// The trace's lines: each callback's wall-clock instant in nanoseconds since the epoch, the
+    /// gap since the last ended, and its times in microseconds beside its counts.
+    fn written(&self, to: &mut impl std::io::Write) -> std::io::Result<()> {
+        let (instant, wall) = self.anchor;
+        let epoch = wall
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default();
+        writeln!(
+            to,
+            "wall_ns\tgap_us\tread_us\tlocked_us\tspent_us\tasked\tcopied\tposition\tarrived\tdelay_us"
+        )?;
+        let mut ended: Option<Instant> = None;
+        for line in &self.lines {
+            let at = epoch
+                .saturating_add(line.entered.saturating_duration_since(instant))
+                .as_nanos();
+            let gap = ended.map_or(0, |ended| {
+                line.entered.saturating_duration_since(ended).as_micros()
+            });
+            let [asked, copied, position] = line.frames;
+            writeln!(
+                to,
+                "{at}\t{gap}\t{}\t{}\t{}\t{asked}\t{copied}\t{position}\t{}\t{}",
+                line.read.as_micros(),
+                line.locked.as_micros(),
+                line.spent.as_micros(),
+                line.arrived,
+                line.delay.as_micros()
+            )?;
+            ended = line.entered.checked_add(line.spent);
+        }
+        writeln!(to, "# dropped {}", self.dropped)
+    }
+}
+
+impl Drop for Trace {
+    fn drop(&mut self) {
+        let epoch = self
+            .anchor
+            .1
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = self
+            .directory
+            .join(format!("pass-{}-{epoch}.tsv", std::process::id()));
+        let written = std::fs::File::create(&path).and_then(|file| {
+            let mut file = std::io::BufWriter::new(file);
+            self.written(&mut file)?;
+            file.flush()
+        });
+        if let Err(error) = written {
+            eprintln!(
+                "note: {}: the trace {} was not written: {error}",
+                quorra_sound::HELPER_PROGRAM,
+                path.display()
+            );
+        }
+    }
 }

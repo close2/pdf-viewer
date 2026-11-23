@@ -461,7 +461,7 @@ loopback table below, dated beside the first.
 | worker peak address space / resident | `worker:` | ≤ 7.2 / ≤ 5.4 MiB | ≤ 7.2 / ≤ 5.5 MiB | 64 MiB (`Profile::Media`) |
 | worker processor per second of sound | `worker:` | ≤ 8.2 ms (HE-AAC ≈ 12 ms a 1.37 s request at most) | ≤ 15.6 ms (HE-AAC, at load 30–70) | 1 s per request |
 | helper peak resident, 30 s / 160 s sound | `helper:`, `long sound's helper` | 15 / 120 MiB (two passes held at once); 60 ms to 2.6 s of silence between passes | 15 / 62.5–62.6 MiB (one copy, ADR 3457); 0–5 ms of silence between passes | — |
-| underruns in the long sound | `in the long sound`, `underruns by minute` | 841 to 2 414 (0.6–2.5 % of its time); 8–56 a minute at load 10–21, 300–457 at 91–262; no paging | 3 178 and 714; 46 s (6.7 %, the round's own gates building beside it) and 25 s (3.8 %); in the second, about 2.2 s a minute at every load from 15 to 49 — longer than 2185's, and not yet explained; no paging | — |
+| underruns in the long sound | `in the long sound`, `underruns by minute` | 841 to 2 414 (0.6–2.5 % of its time); 8–56 a minute at load 10–21, 300–457 at 91–262; no paging | 3 178 and 714; 46 s (6.7 %, the round's own gates building beside it) and 25 s (3.8 %); in the second, about 2.2 s a minute at every load from 15 to 49 — the pipe node's journal on the scratch disk (ADR 3465); no paging | — |
 
 On ALSA's loopback card (ADR 3459), one run of 2026-11-23, load averages 16 to 254 — frames reach
 the test a capture period late (about 12 ms), and the card has no converter, no crystal and no
@@ -476,6 +476,28 @@ speaker:
 | underruns in the long sound | 768 silences, 4.0 s, the longest 32 ms; 4–12 a minute at load 16–24, 74–177 at 75–220 |
 | frames out of order | 4 462, in pairs of a 1 024-frame step back and a step forward: the loopback replaying a stale period at a playback xrun, which the helper's `cpal` reported beside them |
 | helper peak resident, 160 s sound | 62.7 MiB |
+
+Round 2191 explained the pipe's underruns and changed the helper's period (ADRs 3465–3468). **The
+pipe's underrun figures above measure the scratch disk's journal as much as the helper**: the pipe's
+node sat on the scratch disk, and a write into it waited for ext4's journal commit every five
+seconds, 20–670 ms at a time (ADR 3465, from a trace of every callback). The node is now on a memory
+file system and the helper asks for a 20 ms period (ADR 3466); the resumption keeps the device's
+stated delay (ADR 3467); the loopback's out-of-order pairs are its own copy of a stale ring at a
+playback xrun (ADR 3468). Runs of 2026-11-23 with a 60 s sound played four times:
+
+| figure | pipe, node on tmpfs, device's period | pipe, node on tmpfs, 20 ms period | loopback, device's period (512/1 024) | loopback, 20 ms period (two runs) |
+|---|---|---|---|---|
+| load average over the long sound | 21–56 | 46–440 | 20–144 | 127–212; 15–38 |
+| underruns in the long sound | 0.1–0.7 s a minute, the longest 26.5 ms | 0.2 s a minute at load 46, 1.0 at 90, 4.4–5.6 at 268–440; the longest 28.9 ms | 291 silences, 1.49 s; 1 711 frames out of order | none in either; 124 and 21 frames out of order, mostly the passes' and pauses' own |
+| activation → first frame, cold / warm, median | — | 98 / 69 ms | 75 / 27 ms | 393 / 82 ms; 79 / 47 ms |
+| a resume skips (+) or repeats (−) | −1.6, −4.1, 0 ms | −14.9, −1.1, −9.5 ms | +1.5, +2.5 ms | −1.1, −6.4, −10.4 ms (the first run) |
+| pause → last frame; stop → last frame | 16–24; 17–24 ms | 50–64; 58–62 ms | 1–3; 0–5 ms | 11–23; 6–45 ms (the first run) |
+
+On the pipe what is left is the scheduler's: its one-page buffer is empty every 10.7 ms, and a
+wakeup 2 ms late is an underrun, so the figure follows the load. ALSA's `null` states a delay of 0
+and the `file` plugin writes the two periods it holds back when the stream closes, so the pipe's
+pause tail and its repeat grew with the period and are its plumbing; the loopback, a kernel
+device, is the reading for both, and its repeat is the stream thread's join under load (ADR 3467).
 
 ## 10. Part 5 — rich media, and Part 6 — the two actions
 

@@ -5,6 +5,7 @@
 #   tools/audio-in-use.sh [<out-dir>]          # the whole run: about fifteen minutes of wall time
 #   AUDIO_IN_USE_LONG_SECONDS=5 tools/audio-in-use.sh   # a dry run of the same, a minute and a half
 #   AUDIO_IN_USE_ROUTE=loopback tools/audio-in-use.sh <out-dir>   # on ALSA's loopback card (ADR 3459)
+#   AUDIO_IN_USE_TRACE=1 tools/audio-in-use.sh <out-dir>   # and a trace of each callback (ADR 3465)
 #
 # Builds the sound helper and the media worker in the `gates` profile (release-grade optimisation,
 # thin LTO), makes the AAC LC clip with `ffmpeg`'s own encoder and fetches ISO/IEC 14496-26's two
@@ -62,6 +63,12 @@ export AUDIO_IN_USE_WORKER="$target/gates/pdf-media-worker"
 export AUDIO_IN_USE_DIR="$out/device"
 export AUDIO_IN_USE_CLIPS="AAC LC 48 kHz stereo (ffmpeg's encoder, 30 s)=$lc;HE-AAC al_sbr_cm_48_2 (ISO/IEC 14496-26)=$out/streams/al_sbr_cm_48_2.mp4;HE-AAC v2 al_sbr_ps_01_new (ISO/IEC 14496-26)=$out/streams/al_sbr_ps_01_new.mp4"
 export AUDIO_IN_USE_ROUTE=${AUDIO_IN_USE_ROUTE:-pipe}
+# The helper's trace of each callback, and the device's underruns beside it on the wall clock
+# (ADR 3465): `<out-dir>/trace/pass-*.tsv` and `<out-dir>/trace/device.tsv`.
+if [ "${AUDIO_IN_USE_TRACE:-0}" = 1 ]; then
+    rm -rf "$out/trace" && mkdir -p "$out/trace"
+    export QUORRA_SOUND_TRACE="$out/trace"
+fi
 run=(cargo test --profile gates -p viewer-host --test audio_in_use -- --ignored --nocapture --test-threads 1)
 if [ "$AUDIO_IN_USE_ROUTE" = loopback ]; then
     grep -q '^Loopback' <(sed -n 's/^ *[0-9]* \[\([A-Za-z]*\) *\].*/\1/p' /proc/asound/cards) \
