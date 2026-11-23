@@ -26,11 +26,13 @@
 #![forbid(unsafe_code)]
 
 mod client;
+pub mod held;
 mod helper;
 pub mod wire;
 
 pub use client::{Helper, HelperError};
-pub use helper::{Device, serve};
+pub use held::Held;
+pub use helper::{Device, Pass, serve};
 pub use wire::Format;
 
 /// What a device says of the sound it plays, as it plays it: the media clock's master (ADR 3342).
@@ -39,13 +41,13 @@ pub use wire::Format;
 /// rate and not the processor's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress {
-    /// This many of the sound's frames have been written to the device since it started.
+    /// This many of the pass's frames have been written to the device since it started.
     Played(u64),
-    /// The sound's last frame has been written.
+    /// The pass's last frame has been written.
     Ended,
 }
 
-/// Where a device reports a sound's [`Progress`], from whichever thread it runs on. Called with
+/// Where a device reports a pass's [`Progress`], from whichever thread it runs on. Called with
 /// [`Progress::Ended`] at most once, and never after it.
 pub type Report = Box<dyn FnMut(Progress) + Send>;
 

@@ -7,20 +7,27 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use quorra_sound::{Device, Format, Helper, HelperError, Progress, Report};
+use quorra_sound::{Device, Format, Helper, HelperError, Pass, Progress, Report};
 
 /// What the recording device saw.
 #[derive(Debug, Default)]
 struct Record {
+    /// Each pass's samples, read from the one copy the helper holds.
     started: Vec<Vec<f32>>,
     stops: usize,
+    pauses: usize,
 }
 
-/// The device's double: when `ends` holds it plays a sound at once — half its frames reported,
-/// then all of them, then its end — and it refuses an empty one.
+/// The frames the double says the device had reached at a pause.
+const REACHED: u64 = 7;
+
+/// The device's double: when `ends` holds it plays a pass as fast as its samples arrive — on a
+/// thread of its own, as a device does, so that a pass can start before its sound is whole — and
+/// reports half its frames, then all of them, then its end. It refuses a pass of no frames.
 struct Recording {
     record: Arc<Mutex<Record>>,
     ends: bool,
+    playing: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Device for Recording {
@@ -31,21 +38,57 @@ impl Device for Recording {
         }
     }
 
-    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
-        if samples.is_empty() {
+    fn start(&mut self, pass: Pass, mut report: Report) -> Result<(), String> {
+        if pass.frames == 0 {
             return Err("nothing to play".to_owned());
         }
-        let frames = u64::try_from(samples.len() / 2).unwrap_or(u64::MAX);
-        recorded(&self.record).started.push(samples);
-        if self.ends {
+        let from = usize::try_from(pass.from)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(2);
+        let end = usize::try_from(pass.frames)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(2)
+            .saturating_add(from);
+        let mut reader = pass.held.reader(from, end);
+        let record = Arc::clone(&self.record);
+        if !self.ends {
+            recorded(&record).started.push(Vec::new());
+            return Ok(());
+        }
+        self.playing = Some(std::thread::spawn(move || {
+            let mut samples = Vec::new();
+            let mut buffer = [0.0_f32; 64];
+            let deadline = std::time::Instant::now().checked_add(Duration::from_secs(10));
+            loop {
+                let read = reader.read(&mut buffer);
+                samples.extend_from_slice(buffer.get(..read.copied).unwrap_or_default());
+                if read.over || deadline.is_none_or(|deadline| std::time::Instant::now() > deadline)
+                {
+                    break;
+                }
+                if read.copied == 0 {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            let frames = u64::try_from(samples.len() / 2).unwrap_or(u64::MAX);
+            recorded(&record).started.push(samples);
             report(Progress::Played(frames / 2));
             report(Progress::Played(frames));
             report(Progress::Ended);
-        }
+        }));
         Ok(())
     }
 
+    fn pause(&mut self) -> Option<u64> {
+        let mut record = recorded(&self.record);
+        record.pauses = record.pauses.saturating_add(1);
+        Some(REACHED)
+    }
+
     fn stop(&mut self) {
+        if let Some(playing) = self.playing.take() {
+            let _ = playing.join();
+        }
         let mut record = recorded(&self.record);
         record.stops = record.stops.saturating_add(1);
     }
@@ -70,6 +113,7 @@ fn served(ends: bool) -> Result<Served, Box<dyn std::error::Error>> {
     let device = Recording {
         record: Arc::clone(&record),
         ends,
+        playing: None,
     };
     let serving = std::thread::spawn(move || {
         quorra_sound::serve(orders_read, replies_write, move || Ok(device))
@@ -99,8 +143,16 @@ fn next(ends: &Receiver<(u32, u64)>) -> Option<(u32, Vec<u64>)> {
     }
 }
 
+/// The sound whole, then complete: what [`Helper::load`], [`Helper::append`] and
+/// [`Helper::complete`] send for a sound already in hand.
+fn sent(helper: &mut Helper, samples: &[f32]) -> Result<(), HelperError> {
+    helper.load()?;
+    helper.append(samples)?;
+    helper.complete()
+}
+
 #[test]
-fn a_sound_crosses_whole_and_its_end_comes_back() {
+fn a_sound_is_held_once_and_each_pass_reads_it() {
     let (mut helper, record, serving) = served(true).expect("served");
     assert_eq!(
         helper.format(),
@@ -112,34 +164,70 @@ fn a_sound_crosses_whole_and_its_end_comes_back() {
     let samples: Vec<f32> = (0..100_000_u32)
         .map(|n| if n % 2 == 0 { 0.25 } else { -0.25 })
         .collect();
+    sent(&mut helper, &samples).expect("sent");
     let (ends, ended) = channel();
     helper
-        .play(&samples, ended_into(ends.clone(), 1))
+        .play(0, u64::MAX, ended_into(ends.clone(), 1))
         .expect("started");
     // 100,000 samples of two channels are 50,000 frames: the device's counts cross the wire as
     // the media clock reads them (ADR 3342).
     assert_eq!(next(&ended), Some((1, vec![25_000, 50_000])));
+    // A repeat is a pass over the same copy, which nothing sends again (ADR 3457).
     helper
-        .play(&[0.5, -0.5], ended_into(ends, 2))
+        .play(49_999, 10, ended_into(ends.clone(), 2))
         .expect("started");
     assert_eq!(next(&ended), Some((2, vec![0, 1])));
+    sent(&mut helper, &[0.5, -0.5]).expect("sent");
+    helper
+        .play(0, u64::MAX, ended_into(ends, 3))
+        .expect("started");
+    assert_eq!(next(&ended), Some((3, vec![0, 1])));
     drop(helper);
     serving
         .join()
         .expect("the helper's half ended at the pipe's end")
         .expect("every order was read");
     let record = recorded(&record);
-    assert_eq!(record.started, vec![samples, vec![0.5, -0.5]]);
-    // One stop before each sound, and one at the end of the input.
-    assert_eq!(record.stops, 3);
+    assert_eq!(
+        record.started,
+        vec![samples, vec![0.25, -0.25], vec![0.5, -0.5]]
+    );
+}
+
+/// A pass starts on the first run and plays the runs that follow as they arrive; it ends only once
+/// the sound is said complete (ADR 3457).
+#[test]
+fn a_pass_starts_before_its_sound_is_whole() {
+    let (mut helper, record, serving) = served(true).expect("served");
+    helper.load().expect("a new sound");
+    helper.append(&[0.1, 0.2]).expect("the first run");
+    let (ends, ended) = channel();
+    helper
+        .play(0, u64::MAX, ended_into(ends, 1))
+        .expect("started on the first run");
+    helper
+        .append(&[0.3, 0.4, 0.5, 0.6])
+        .expect("the second run");
+    helper.complete().expect("its end");
+    assert_eq!(next(&ended), Some((1, vec![1, 3])));
+    drop(helper);
+    serving
+        .join()
+        .expect("ended")
+        .expect("every order was read");
+    assert_eq!(
+        recorded(&record).started,
+        vec![vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6]]
+    );
 }
 
 #[test]
 fn a_stop_is_carried_and_a_stopped_sound_s_end_is_not_called() {
     let (mut helper, record, serving) = served(false).expect("served");
+    sent(&mut helper, &[0.25; 64]).expect("sent");
     let (ends, ended) = channel();
     helper
-        .play(&[0.25; 64], ended_into(ends, 1))
+        .play(0, u64::MAX, ended_into(ends, 1))
         .expect("started");
     helper.stop();
     drop(helper);
@@ -148,21 +236,44 @@ fn a_stop_is_carried_and_a_stopped_sound_s_end_is_not_called() {
         .expect("ended")
         .expect("every order was read");
     assert_eq!(ended.try_recv().ok(), None);
-    assert_eq!(recorded(&record).stops, 3);
+    // One at the new sound, one before the pass, the order's, and one at the end of the input.
+    assert_eq!(recorded(&record).stops, 4);
+}
+
+/// A pause stops the pass and brings back the frame the device reached; a pause with nothing
+/// sounding brings back nothing (ADR 3458).
+#[test]
+fn a_pause_says_where_the_device_reached() {
+    let (mut helper, record, serving) = served(false).expect("served");
+    sent(&mut helper, &[0.25; 64]).expect("sent");
+    let (ends, ended) = channel();
+    helper
+        .play(0, u64::MAX, ended_into(ends, 1))
+        .expect("started");
+    assert_eq!(helper.pause().expect("answered"), Some(REACHED));
+    assert_eq!(helper.pause().expect("answered"), None);
+    drop(helper);
+    serving
+        .join()
+        .expect("ended")
+        .expect("every order was read");
+    assert_eq!(ended.try_recv().ok(), None);
+    assert_eq!(recorded(&record).pauses, 2);
 }
 
 #[test]
 fn a_sound_the_device_refuses_is_said() {
     let (mut helper, _record, serving) = served(true).expect("served");
+    sent(&mut helper, &[1.0, 1.0]).expect("sent");
     let (ends, ended) = channel();
-    let refused = helper.play(&[], ended_into(ends.clone(), 1));
+    let refused = helper.play(0, 0, ended_into(ends.clone(), 1));
     assert!(
         matches!(&refused, Err(HelperError::Refused(why)) if why == "nothing to play"),
         "{refused:?}"
     );
-    // The helper is still there for the next sound.
+    // The helper is still there for the next pass.
     helper
-        .play(&[1.0, 1.0], ended_into(ends, 2))
+        .play(0, u64::MAX, ended_into(ends, 2))
         .expect("started");
     assert_eq!(next(&ended), Some((2, vec![0, 1])));
     drop(helper);

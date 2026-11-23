@@ -197,46 +197,108 @@ impl Helper {
         self.format
     }
 
-    /// Plays `samples` in place of whatever sounds; `report` is told on the helper's reader thread
-    /// each count of frames the helper says has been written, and once that the last has been.
+    /// Begins a new sound in place of the one the helper holds, stopping what sounds; its samples
+    /// follow by [`Self::append`] and end with [`Self::complete`] (ADR 3457).
+    ///
+    /// # Errors
+    ///
+    /// The helper's having ended or broken its pipe.
+    pub fn load(&mut self) -> Result<(), HelperError> {
+        self.forget();
+        self.ordered(wire::write_sound)
+    }
+
+    /// Adds `samples`, interleaved at [`Self::format`], at the end of the sound held.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`], and a run past `wire::MAX_SAMPLES`.
+    pub fn append(&mut self, samples: &[f32]) -> Result<(), HelperError> {
+        self.ordered(|input| wire::write_samples(input, samples))
+    }
+
+    /// Says that the sound held has had its last samples.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`].
+    pub fn complete(&mut self) -> Result<(), HelperError> {
+        self.ordered(wire::write_complete)
+    }
+
+    /// Plays the sound held from frame `from` for at most `frames` frames, in place of whatever
+    /// sounds; `report` is told on the helper's reader thread each count of frames the helper says
+    /// has been written of the pass, and once that its last has been. The pass may start before
+    /// the sound has all arrived.
     ///
     /// # Errors
     ///
     /// [`HelperError::Refused`] with the device's reason, or the helper's having ended, gone
     /// silent, or broken its pipe.
-    pub fn play(&mut self, samples: &[f32], report: crate::Report) -> Result<(), HelperError> {
-        self.serial = self.serial.wrapping_add(1);
+    pub fn play(
+        &mut self,
+        from: u64,
+        frames: u64,
+        report: crate::Report,
+    ) -> Result<(), HelperError> {
+        self.serial = self.serial.wrapping_add(1).max(1);
         let serial = self.serial;
-        // Set before the order is written: a short sound's end may arrive before its start.
+        // Set before the order is written: a short pass's end may arrive before its start.
         *self.waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some((serial, report));
-        let written = match self.input.as_mut() {
-            Some(input) => wire::write_play(input, serial, samples).map_err(HelperError::from),
-            None => Err(HelperError::Ended(None)),
-        };
-        let answered = written.and_then(|()| {
+        let answered = self
+            .ordered(|input| wire::write_play(input, serial, from, frames))
+            .and_then(|()| {
+                loop {
+                    match self.answer()? {
+                        Reply::Started(started) if started == serial => break Ok(()),
+                        Reply::Refused {
+                            serial: refused,
+                            why,
+                        } if refused == serial => {
+                            break Err(HelperError::Refused(why));
+                        }
+                        // A reply to an earlier pass, superseded before it was read.
+                        Reply::Started(_) | Reply::Refused { .. } | Reply::Paused { .. } => {}
+                        Reply::Opened(_)
+                        | Reply::Failed(_)
+                        | Reply::Ended(_)
+                        | Reply::Played { .. } => {
+                            break Err(HelperError::OutOfTurn);
+                        }
+                    }
+                }
+            });
+        if answered.is_err() {
+            self.forget();
+        }
+        answered.map_err(|error| self.with_status(error))
+    }
+
+    /// Stops the pass that sounds and answers how many of its frames the device had reached, or
+    /// `None` where no pass sounded; its `report` is told nothing more (ADR 3458).
+    ///
+    /// # Errors
+    ///
+    /// The helper's having ended, gone silent, or broken its pipe.
+    pub fn pause(&mut self) -> Result<Option<u64>, HelperError> {
+        self.forget();
+        let serial = self.serial;
+        let answered = self.ordered(wire::write_pause).and_then(|()| {
             loop {
                 match self.answer()? {
-                    Reply::Started(started) if started == serial => break Ok(()),
-                    Reply::Refused {
-                        serial: refused,
-                        why,
-                    } if refused == serial => {
-                        break Err(HelperError::Refused(why));
-                    }
-                    // A reply to an earlier sound, superseded before it was read.
+                    Reply::Paused {
+                        serial: paused,
+                        frames,
+                    } => break Ok((paused == serial && serial != 0).then_some(frames)),
+                    // A reply to a pass started before, read only now.
                     Reply::Started(_) | Reply::Refused { .. } => {}
                     Reply::Opened(_)
                     | Reply::Failed(_)
                     | Reply::Ended(_)
-                    | Reply::Played { .. } => {
-                        break Err(HelperError::OutOfTurn);
-                    }
+                    | Reply::Played { .. } => break Err(HelperError::OutOfTurn),
                 }
             }
         });
-        if answered.is_err() {
-            self.forget();
-        }
         answered.map_err(|error| self.with_status(error))
     }
 
@@ -246,6 +308,17 @@ impl Helper {
         self.forget();
         if let Some(input) = self.input.as_mut() {
             let _ = wire::write_stop(input);
+        }
+    }
+
+    /// One order written, or the helper's having gone said.
+    fn ordered(
+        &mut self,
+        write: impl FnOnce(&mut Box<dyn Write + Send>) -> Result<(), WireError>,
+    ) -> Result<(), HelperError> {
+        match self.input.as_mut() {
+            Some(input) => write(input).map_err(HelperError::from),
+            None => Err(HelperError::Ended(None)),
         }
     }
 

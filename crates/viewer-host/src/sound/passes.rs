@@ -27,6 +27,9 @@ pub(super) struct Passes {
     simple: Option<u64>,
     /// The passes still owed: `None` for ever, otherwise what is left of the repeat count.
     left: Option<f64>,
+    /// Whether a pass is the sound's own length (Table 292's intrinsic duration), which
+    /// [`Self::learned`] then restates.
+    intrinsic_duration: bool,
 }
 
 impl Passes {
@@ -41,6 +44,36 @@ impl Passes {
             intrinsic,
             simple,
             left: (playing.repeat > 0.0).then_some(playing.repeat),
+            intrinsic_duration: matches!(playing.duration, SimpleDuration::Intrinsic),
+        }
+    }
+
+    /// The sound's length, learned once its last run arrived: passes cut while it was still
+    /// arriving were cut as if it were endless, and those to come are cut to it (ADR 3457).
+    pub(super) fn learned(&mut self, intrinsic: u64) {
+        self.intrinsic = intrinsic;
+        if self.intrinsic_duration {
+            self.simple = Some(intrinsic);
+        }
+    }
+
+    /// `pass`, cut while the sound's length was not known and now from frame `from`, restated for
+    /// the length [`Self::learned`]: it sounds no further than the sound's end, and where its
+    /// duration is stated in seconds the frames it no longer sounds are frozen instead (Table 291's
+    /// "the media is logically frozen"). A pass of the sound's own length, or an endless one,
+    /// freezes nothing more.
+    pub(super) fn restated(&self, pass: Pass, from: u64) -> Pass {
+        let end = from.saturating_add(pass.sounding);
+        let sounded_to = end.min(self.intrinsic).max(from);
+        let cut = end.saturating_sub(sounded_to);
+        let stated_in_seconds = !self.intrinsic_duration && self.simple.is_some();
+        Pass {
+            sounding: sounded_to.saturating_sub(from),
+            frozen: if stated_in_seconds {
+                pass.frozen.map(|frozen| frozen.saturating_add(cut))
+            } else {
+                pass.frozen
+            },
         }
     }
 

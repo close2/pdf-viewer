@@ -18,6 +18,15 @@
 //! frame of the sound the device is taking at every instant: a pause's resumption, a lost or
 //! repeated frame and the media clock's error are read off the frames, not inferred.
 //!
+//! **Or the device is ALSA's loopback card** (`AUDIO_IN_USE_ROUTE=loopback`, ADR 3459): the helper
+//! plays into `hw:Loopback,0,0` and `ffmpeg` captures `hw:Loopback,1,0` for this file to read. That
+//! is a kernel device with its own timer, period and buffer, which the driver enforces, so it
+//! measures what the pipe cannot — a driver's buffer and its period wakeups between the helper and
+//! the frames taken. It still is no card: no converter, no crystal (the loopback's timer runs on the
+//! machine's own clock), no speaker; and its frames reach this file a capture period late, so
+//! every time read from it is late by up to a period (about 12 ms here), and an underrun is a
+//! stretch of silence inside a sound whose frames go on in order, not a read that waited.
+//!
 //! `tools/audio-in-use.sh` builds the helper and the worker in the `gates` profile, makes or fetches
 //! the AAC clips and runs this file; the variables it sets are named in [`Setup::from_environment`].
 // not a gate: it needs a sound device this file builds from ALSA plugins, the gates-profile helper
@@ -80,6 +89,8 @@ struct Setup {
     clips: Vec<(String, PathBuf)>,
     /// `AUDIO_IN_USE_LONG_SECONDS`: the long sound's length; it is played four times over.
     long_seconds: u32,
+    /// `AUDIO_IN_USE_ROUTE`: `pipe` (the default) or `loopback`.
+    loopback: bool,
 }
 
 impl Setup {
@@ -110,6 +121,11 @@ impl Setup {
             directory: path("AUDIO_IN_USE_DIR"),
             clips,
             long_seconds,
+            loopback: match std::env::var("AUDIO_IN_USE_ROUTE").as_deref() {
+                Ok("loopback") => true,
+                Ok("pipe") | Err(_) => false,
+                Ok(other) => panic!("AUDIO_IN_USE_ROUTE is pipe or loopback, not {other}"),
+            },
         }
     }
 }
@@ -152,12 +168,60 @@ struct Device {
     reader: Option<std::thread::JoinHandle<()>>,
     /// The wrapper that starts the helper with this device as its default.
     wrapper: PathBuf,
+    /// The loopback's capture, where the device is the loopback card.
+    capture: Option<std::process::Child>,
 }
 
 impl Device {
     fn open(setup: &Setup) -> Self {
         let directory = &setup.directory;
         std::fs::create_dir_all(directory).expect("the device's directory");
+        let (pipe, capture) = if setup.loopback {
+            Self::loopback(directory)
+        } else {
+            (Self::pipe(directory), None)
+        };
+        let wrapper = directory.join("quorra-sound");
+        std::fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nexec env HOME='{}' '{}' \"$@\"\n",
+                directory.display(),
+                setup.helper.display()
+            ),
+        )
+        .expect("the helper's wrapper");
+        std::fs::set_permissions(
+            &wrapper,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .expect("the wrapper made executable");
+        let paced = !setup.loopback;
+        let log = Arc::new(Mutex::new(DeviceLog::default()));
+        let done = Arc::new(AtomicBool::new(false));
+        let indexed = Arc::new(AtomicBool::new(true));
+        let reader = {
+            let log = Arc::clone(&log);
+            let done = Arc::clone(&done);
+            let indexed = Arc::clone(&indexed);
+            std::thread::Builder::new()
+                .name("device".to_owned())
+                .spawn(move || take(pipe, &log, &done, &indexed, paced))
+                .expect("the device's thread")
+        };
+        Self {
+            log,
+            done,
+            indexed,
+            reader: Some(reader),
+            wrapper,
+            capture,
+        }
+    }
+
+    /// 2185's stand-in: the helper's default is ALSA's `file` plugin over `null`, writing into a
+    /// named pipe of one page that this file reads at the device's rate.
+    fn pipe(directory: &std::path::Path) -> std::fs::File {
         let fifo = directory.join("device.fifo");
         let _ = std::fs::remove_file(&fifo);
         rustix::fs::mknodat(
@@ -181,21 +245,6 @@ impl Device {
             ),
         )
         .expect("the device's configuration");
-        let wrapper = directory.join("quorra-sound");
-        std::fs::write(
-            &wrapper,
-            format!(
-                "#!/bin/sh\nexec env HOME='{}' '{}' \"$@\"\n",
-                directory.display(),
-                setup.helper.display()
-            ),
-        )
-        .expect("the helper's wrapper");
-        std::fs::set_permissions(
-            &wrapper,
-            std::os::unix::fs::PermissionsExt::from_mode(0o755),
-        )
-        .expect("the wrapper made executable");
         // Opened without waiting for a writer, shrunk before any writes, then made to wait.
         let fd = rustix::fs::open(
             &fifo,
@@ -206,25 +255,48 @@ impl Device {
         let size = rustix::pipe::fcntl_setpipe_size(&fd, PIPE_BYTES).expect("the pipe shrunk");
         assert_eq!(size, PIPE_BYTES, "the pipe is one page");
         rustix::fs::fcntl_setfl(&fd, rustix::fs::OFlags::empty()).expect("the pipe made to wait");
-        let log = Arc::new(Mutex::new(DeviceLog::default()));
-        let done = Arc::new(AtomicBool::new(false));
-        let indexed = Arc::new(AtomicBool::new(true));
-        let reader = {
-            let log = Arc::clone(&log);
-            let done = Arc::clone(&done);
-            let indexed = Arc::clone(&indexed);
-            std::thread::Builder::new()
-                .name("device".to_owned())
-                .spawn(move || take(std::fs::File::from(fd), &log, &done, &indexed))
-                .expect("the device's thread")
-        };
-        Self {
-            log,
-            done,
-            indexed,
-            reader: Some(reader),
-            wrapper,
-        }
+        std::fs::File::from(fd)
+    }
+
+    /// ALSA's loopback card (ADR 3459): the helper's default is `hw:Loopback,0,0` as 48 kHz
+    /// stereo `S16_LE` — the format the capture opens first, which the loopback then holds the
+    /// playback side to — and `ffmpeg` captures `hw:Loopback,1,0` as floats for this file to read.
+    /// The indices survive: a frame's sixteen-bit halves are exact in `S16_LE`.
+    fn loopback(directory: &std::path::Path) -> (std::fs::File, Option<std::process::Child>) {
+        std::fs::write(
+            directory.join(".asoundrc"),
+            format!(
+                "pcm.!default {{ type plug; slave {{ pcm \"hw:Loopback,0,0\"; format S16_LE; \
+                 rate {RATE}; channels {CHANNELS} }} }}\n"
+            ),
+        )
+        .expect("the device's configuration");
+        let mut child = std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-f", "alsa"])
+            .args([
+                "-sample_rate",
+                &RATE.to_string(),
+                "-channels",
+                &CHANNELS.to_string(),
+            ])
+            .args([
+                "-i",
+                "hw:Loopback,1,0",
+                "-f",
+                "f32le",
+                "-flush_packets",
+                "1",
+                "pipe:1",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("ffmpeg captures the loopback (run under `sg audio`)");
+        let out = child.stdout.take().expect("the capture's output");
+        (
+            std::fs::File::from(std::os::fd::OwnedFd::from(out)),
+            Some(child),
+        )
     }
 
     /// A player on this device and the gates-profile worker.
@@ -282,6 +354,11 @@ impl Device {
 
     fn close(mut self) -> DeviceLog {
         self.done.store(true, Ordering::Relaxed);
+        // The capture's end ends the reader's last read.
+        if let Some(mut capture) = self.capture.take() {
+            let _ = capture.kill();
+            let _ = capture.wait();
+        }
         if let Some(reader) = self.reader.take() {
             reader.join().expect("the device's thread");
         }
@@ -291,15 +368,27 @@ impl Device {
 
 /// The device's thread: a millisecond's frames when they are due, for as long as a writer has the
 /// pipe open, and a look each millisecond for the next writer while none has.
-fn take(mut pipe: std::fs::File, log: &Mutex<DeviceLog>, done: &AtomicBool, indexed: &AtomicBool) {
+///
+/// Where the device is the loopback (`paced` false), its frames come when its own clock gives
+/// them, so nothing is waited for here, and an underrun is silence between two frames whose
+/// indices follow one another, read off the frames.
+fn take(
+    mut pipe: std::fs::File,
+    log: &Mutex<DeviceLog>,
+    done: &AtomicBool,
+    indexed: &AtomicBool,
+    paced: bool,
+) {
     let mut chunk = vec![0_u8; CHUNK_FRAMES * FRAME_BYTES];
     let mut stream = 0_u32;
     // While a stream lasts: when its frame zero was due, how many frames it has given, and when
     // the last of them came.
     let mut open: Option<(Instant, u64, Instant)> = None;
     let mut previous: Option<u64> = None;
+    // Silent frames since the last sounding one, on the loopback.
+    let mut silent = 0_u64;
     while !done.load(Ordering::Relaxed) {
-        if let Some((zero, frames, _)) = open {
+        if paced && let Some((zero, frames, _)) = open {
             let due = zero + Duration::from_nanos(frames * 1_000_000_000 / u64::from(RATE));
             let now = Instant::now();
             if due > now {
@@ -337,7 +426,7 @@ fn take(mut pipe: std::fs::File, log: &Mutex<DeviceLog>, done: &AtomicBool, inde
             }
             Some((zero, _, _)) => {
                 let waited = at.saturating_duration_since(asked);
-                if waited > STARVED {
+                if paced && waited > STARVED {
                     log.underruns.push((at, waited));
                     // The device would have played silence; this one waits, and its clock goes
                     // on from where the frames came.
@@ -361,10 +450,16 @@ fn take(mut pipe: std::fs::File, log: &Mutex<DeviceLog>, done: &AtomicBool, inde
             let left = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
             let right = f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
             if left == 0.0 && right == 0.0 {
+                silent += 1;
                 continue;
             }
             taken.sounding += 1;
             let index = carried(left, right);
+            if !paced && indexed.load(Ordering::Relaxed) {
+                log.underruns
+                    .extend(silence_inside(at, silent, index, previous));
+            }
+            silent = 0;
             if taken.first.is_none() {
                 taken.first = index;
             }
@@ -385,6 +480,23 @@ fn take(mut pipe: std::fs::File, log: &Mutex<DeviceLog>, done: &AtomicBool, inde
             .streams
             .push((frames, last.saturating_duration_since(zero)));
     }
+}
+
+/// An underrun on the loopback: `silent` frames between the frame `previous` and the frame
+/// `index` that follows it, which the device played as silence where the helper had none ready.
+fn silence_inside(
+    at: Instant,
+    silent: u64,
+    index: Option<u64>,
+    previous: Option<u64>,
+) -> Option<(Instant, Duration)> {
+    let (index, before) = (index?, previous?);
+    (silent > 0 && index == before + 1).then(|| {
+        (
+            at,
+            Duration::from_nanos(silent * 1_000_000_000 / u64::from(RATE)),
+        )
+    })
 }
 
 /// The index a frame of [`indexed`] carries; `None` where the frame is not one (a right channel
@@ -783,9 +895,16 @@ fn pauses(device: &Device, setup: &Setup, report: &mut String) {
         let stopped = Instant::now();
         player.stop();
         std::thread::sleep(Duration::from_millis(500));
-        let gone = device
-            .last_sound_between(paused, resumed)
-            .expect("the paused sound was heard before it paused");
+        // On the loopback a capture period can carry the pause's last frames entirely before it,
+        // so a trial that took none after the pause is said rather than read.
+        let Some(gone) = device.last_sound_between(paused, resumed) else {
+            let _ = writeln!(
+                report,
+                "pause/resume/stop trial {trial}: no sounding frame was taken between the pause and the resumption"
+            );
+            player.stop();
+            continue;
+        };
         let last = device
             .last_sound_between(stopped, Instant::now())
             .map_or(0.0, |taken| signed_ms(taken.at, stopped));
@@ -1074,10 +1193,17 @@ fn the_sound_path_measured_in_use() {
     let setup = Setup::from_environment();
     let device = Device::open(&setup);
     let mut report = String::new();
-    let _ = writeln!(
-        report,
-        "device: ALSA plug -> file -> null, read from a {PIPE_BYTES}-byte pipe at {RATE} Hz stereo FLOAT_LE on the monotonic clock"
-    );
+    let _ = if setup.loopback {
+        writeln!(
+            report,
+            "device: ALSA plug -> hw:Loopback,0,0 at {RATE} Hz stereo S16_LE, captured from hw:Loopback,1,0 by ffmpeg (times late by up to a capture period)"
+        )
+    } else {
+        writeln!(
+            report,
+            "device: ALSA plug -> file -> null, read from a {PIPE_BYTES}-byte pipe at {RATE} Hz stereo FLOAT_LE on the monotonic clock"
+        )
+    };
     let _ = writeln!(report, "at the start: {}", load());
     let cold = starts(&device, &setup, &mut report);
     formats(&device, &setup, &mut report);

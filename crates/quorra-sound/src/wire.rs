@@ -5,8 +5,15 @@
 //!
 //! | from the window | fields |
 //! |---|---|
-//! | [`PLAY`] | the sound's serial (`u64`), its sample count (`u32`), the samples (`f32` each) |
+//! | [`SOUND`] | none: a new sound, whose samples follow, in place of the one held |
+//! | [`SAMPLES`] | a count (`u32`) and that many samples (`f32` each), added at the sound's end |
+//! | [`COMPLETE`] | none: the sound's last samples have been sent |
+//! | [`PLAY`] | a pass's serial (`u64`), the frame of the sound it starts at (`u64`) and how many frames it plays (`u64`, at most) |
+//! | [`PAUSE`] | none: stop the pass, and say the frame the device reached |
 //! | [`STOP`] | none |
+//!
+//! A sound is sent a run at a time as it is decoded and held once by the helper, which starts a
+//! pass at its first samples and plays a repeat or a resumption from the same copy (ADR 3457).
 //!
 //! The end of the window's pipe is the order to end: the helper stops what sounds and exits.
 //!
@@ -17,17 +24,26 @@
 //! | [`STARTED`] | the serial of the sound now sounding |
 //! | [`REFUSED`] | the serial of a sound the device would not start, and why (text) |
 //! | [`PLAYED`] | the serial of a sound and how many of its frames (`u64`) have been written — the media clock's master |
-//! | [`ENDED`] | the serial of a sound whose last sample has been written |
+//! | [`ENDED`] | the serial of a pass whose last sample has been written |
+//! | [`PAUSED`] | the serial of a pass stopped by [`PAUSE`], and the frames of it the device had reached (`u64`) |
 //!
 //! Text is a `u32` byte count and that many bytes of UTF-8, at most [`MAX_TEXT`]. Every count is
 //! checked against its bound before anything is allocated.
 
 use std::io::{Read, Write};
 
-/// An order to play a sound in place of whatever sounds.
-pub const PLAY: u8 = 1;
+/// A new sound, its samples to follow, in place of the one held; what sounds is stopped.
+pub const SOUND: u8 = 1;
 /// An order to stop whatever sounds.
 pub const STOP: u8 = 2;
+/// Samples added at the end of the sound held.
+pub const SAMPLES: u8 = 3;
+/// The sound held has had its last samples.
+pub const COMPLETE: u8 = 4;
+/// An order to play a pass of the sound held in place of whatever sounds.
+pub const PLAY: u8 = 5;
+/// An order to stop the pass that sounds and say where the device had reached in it.
+pub const PAUSE: u8 = 6;
 
 /// The device is open, and this is its format.
 pub const OPENED: u8 = 1;
@@ -41,6 +57,8 @@ pub const REFUSED: u8 = 4;
 pub const ENDED: u8 = 5;
 /// This many frames of the sound with this serial have been written to the device (ADR 3342).
 pub const PLAYED: u8 = 6;
+/// The pass with this serial was paused after the device had reached this many of its frames.
+pub const PAUSED: u8 = 7;
 
 /// The most samples one sound may carry: `viewer_host::sound::MAX_PLAYED_SAMPLES`, which bounds
 /// what the window converts, held by the helper as its own bound on what it reads (64 MiB of
@@ -50,7 +68,7 @@ pub const MAX_SAMPLES: usize = 1 << 24;
 /// The longest text either side reads, in bytes: a sentence from the device, never a document's.
 pub const MAX_TEXT: usize = 4096;
 
-/// How many samples cross per write and per read, so that a sound is never held twice in full as
+/// How many samples cross per write and per read, so that a run is never held twice in full as
 /// bytes beside its samples.
 const CHUNK: usize = 16 * 1024;
 
@@ -66,13 +84,25 @@ pub struct Format {
 /// An order, as the helper reads it.
 #[derive(Debug, PartialEq)]
 pub enum Order {
-    /// Play `samples`, interleaved at the device's format, as the sound numbered `serial`.
+    /// A new sound in place of the one held, its samples to follow; what sounds stops.
+    Sound,
+    /// Samples, interleaved at the device's format as fractions of full scale, added at the end of
+    /// the sound held.
+    Samples(Vec<f32>),
+    /// The sound held has had its last samples.
+    Complete,
+    /// Play the sound held from frame `from` for at most `frames` frames, as the pass numbered
+    /// `serial`, in place of whatever sounds.
     Play {
-        /// The window's number for this sound, which its replies carry back.
+        /// The window's number for this pass, which its replies carry back.
         serial: u64,
-        /// The samples, as fractions of full scale.
-        samples: Vec<f32>,
+        /// The frame of the sound the pass starts at.
+        from: u64,
+        /// The most frames the pass plays; it ends sooner where the sound does.
+        frames: u64,
     },
+    /// Stop the pass that sounds, and say how far the device had reached in it.
+    Pause,
     /// Stop whatever sounds.
     Stop,
 }
@@ -93,8 +123,16 @@ pub enum Reply {
         /// Why.
         why: String,
     },
-    /// The sound with this serial came to its end.
+    /// The pass with this serial came to its end.
     Ended(u64),
+    /// The pass with this serial was paused.
+    Paused {
+        /// Its serial.
+        serial: u64,
+        /// The frames of the pass the device had reached: written, less what the device said it
+        /// still held unplayed.
+        frames: u64,
+    },
     /// This many frames of the sound with this serial have been written to the device.
     Played {
         /// Its serial.
@@ -124,21 +162,29 @@ pub enum WireError {
     NotText,
 }
 
-/// Writes the order to play `samples` as the sound numbered `serial`.
+/// Writes the order to hold a new sound, its samples to follow.
+///
+/// # Errors
+///
+/// The pipe's failure.
+pub fn write_sound(to: &mut impl Write) -> Result<(), WireError> {
+    write_tag(to, SOUND)
+}
+
+/// Writes `samples` to be added at the end of the sound held.
 ///
 /// # Errors
 ///
 /// [`WireError::TooManySamples`] past [`MAX_SAMPLES`], before anything is written; otherwise the
 /// pipe's failure.
-pub fn write_play(to: &mut impl Write, serial: u64, samples: &[f32]) -> Result<(), WireError> {
+pub fn write_samples(to: &mut impl Write, samples: &[f32]) -> Result<(), WireError> {
     let count = u32::try_from(samples.len())
         .ok()
         .filter(|count| usize::try_from(*count).is_ok_and(|count| count <= MAX_SAMPLES))
         .ok_or_else(|| {
             WireError::TooManySamples(u64::try_from(samples.len()).unwrap_or(u64::MAX))
         })?;
-    to.write_all(&[PLAY])?;
-    to.write_all(&serial.to_le_bytes())?;
+    to.write_all(&[SAMPLES])?;
     to.write_all(&count.to_le_bytes())?;
     let mut bytes = Vec::with_capacity(CHUNK.saturating_mul(4));
     for chunk in samples.chunks(CHUNK) {
@@ -152,29 +198,79 @@ pub fn write_play(to: &mut impl Write, serial: u64, samples: &[f32]) -> Result<(
     Ok(())
 }
 
+/// Writes that the sound held has had its last samples.
+///
+/// # Errors
+///
+/// The pipe's failure.
+pub fn write_complete(to: &mut impl Write) -> Result<(), WireError> {
+    write_tag(to, COMPLETE)
+}
+
+/// Writes the order to play the sound held from frame `from` for at most `frames` frames, as the
+/// pass numbered `serial`.
+///
+/// # Errors
+///
+/// The pipe's failure.
+pub fn write_play(
+    to: &mut impl Write,
+    serial: u64,
+    from: u64,
+    frames: u64,
+) -> Result<(), WireError> {
+    to.write_all(&[PLAY])?;
+    to.write_all(&serial.to_le_bytes())?;
+    to.write_all(&from.to_le_bytes())?;
+    to.write_all(&frames.to_le_bytes())?;
+    to.flush()?;
+    Ok(())
+}
+
+/// Writes the order to pause the pass that sounds.
+///
+/// # Errors
+///
+/// The pipe's failure.
+pub fn write_pause(to: &mut impl Write) -> Result<(), WireError> {
+    write_tag(to, PAUSE)
+}
+
+/// Writes an order of a tag alone, and flushes it.
+fn write_tag(to: &mut impl Write, tag: u8) -> Result<(), WireError> {
+    to.write_all(&[tag])?;
+    to.flush()?;
+    Ok(())
+}
+
 /// Writes the order to stop whatever sounds.
 ///
 /// # Errors
 ///
 /// The pipe's failure.
 pub fn write_stop(to: &mut impl Write) -> Result<(), WireError> {
-    to.write_all(&[STOP])?;
-    to.flush()?;
-    Ok(())
+    write_tag(to, STOP)
 }
 
 /// Reads the next order; `None` where the window's pipe ended between orders.
 ///
 /// # Errors
 ///
-/// The pipe's failure, an end inside an order, an unknown tag, or a sound past [`MAX_SAMPLES`].
+/// The pipe's failure, an end inside an order, an unknown tag, or a run past [`MAX_SAMPLES`].
 pub fn read_order(from: &mut impl Read) -> Result<Option<Order>, WireError> {
     let Some(tag) = read_tag(from)? else {
         return Ok(None);
     };
     match tag {
-        PLAY => {
-            let serial = u64::from_le_bytes(read_array(from)?);
+        SOUND => Ok(Some(Order::Sound)),
+        COMPLETE => Ok(Some(Order::Complete)),
+        PAUSE => Ok(Some(Order::Pause)),
+        PLAY => Ok(Some(Order::Play {
+            serial: u64::from_le_bytes(read_array(from)?),
+            from: u64::from_le_bytes(read_array(from)?),
+            frames: u64::from_le_bytes(read_array(from)?),
+        })),
+        SAMPLES => {
             let count = u32::from_le_bytes(read_array(from)?);
             let count = usize::try_from(count)
                 .ok()
@@ -195,7 +291,7 @@ pub fn read_order(from: &mut impl Read) -> Result<Option<Order>, WireError> {
                         .map(|word| f32::from_le_bytes(*word)),
                 );
             }
-            Ok(Some(Order::Play { serial, samples }))
+            Ok(Some(Order::Samples(samples)))
         }
         STOP => Ok(Some(Order::Stop)),
         other => Err(WireError::UnknownTag(other)),
@@ -236,6 +332,11 @@ pub fn write_reply(to: &mut impl Write, reply: &Reply) -> Result<(), WireError> 
             to.write_all(&serial.to_le_bytes())?;
             to.write_all(&frames.to_le_bytes())?;
         }
+        Reply::Paused { serial, frames } => {
+            to.write_all(&[PAUSED])?;
+            to.write_all(&serial.to_le_bytes())?;
+            to.write_all(&frames.to_le_bytes())?;
+        }
     }
     to.flush()?;
     Ok(())
@@ -264,6 +365,10 @@ pub fn read_reply(from: &mut impl Read) -> Result<Option<Reply>, WireError> {
         },
         ENDED => Reply::Ended(u64::from_le_bytes(read_array(from)?)),
         PLAYED => Reply::Played {
+            serial: u64::from_le_bytes(read_array(from)?),
+            frames: u64::from_le_bytes(read_array(from)?),
+        },
+        PAUSED => Reply::Paused {
             serial: u64::from_le_bytes(read_array(from)?),
             frames: u64::from_le_bytes(read_array(from)?),
         },
@@ -319,25 +424,36 @@ fn read_text(from: &mut impl Read) -> Result<String, WireError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Format, MAX_SAMPLES, MAX_TEXT, Order, Reply, WireError, read_order, read_reply, write_play,
-        write_reply, write_stop,
+        Format, MAX_SAMPLES, MAX_TEXT, Order, Reply, WireError, read_order, read_reply,
+        write_complete, write_pause, write_play, write_reply, write_samples, write_sound,
+        write_stop,
     };
 
     #[test]
     fn every_order_reads_back_as_written() {
         let samples: Vec<f32> = (0..40_000_u16).map(|n| f32::from(n) / 40_000.0).collect();
         let mut pipe = Vec::new();
-        write_play(&mut pipe, 7, &samples).expect("a vector takes it");
+        write_sound(&mut pipe).expect("a vector takes it");
+        write_samples(&mut pipe, &samples).expect("a vector takes it");
+        write_complete(&mut pipe).expect("a vector takes it");
+        write_play(&mut pipe, 7, 3, u64::MAX).expect("a vector takes it");
+        write_pause(&mut pipe).expect("a vector takes it");
         write_stop(&mut pipe).expect("a vector takes it");
         let mut from = pipe.as_slice();
-        assert_eq!(
-            read_order(&mut from).expect("well formed"),
-            Some(Order::Play { serial: 7, samples })
-        );
-        assert_eq!(
-            read_order(&mut from).expect("well formed"),
-            Some(Order::Stop)
-        );
+        for order in [
+            Order::Sound,
+            Order::Samples(samples),
+            Order::Complete,
+            Order::Play {
+                serial: 7,
+                from: 3,
+                frames: u64::MAX,
+            },
+            Order::Pause,
+            Order::Stop,
+        ] {
+            assert_eq!(read_order(&mut from).expect("well formed"), Some(order));
+        }
         assert_eq!(read_order(&mut from).expect("an end between orders"), None);
     }
 
@@ -359,6 +475,10 @@ mod tests {
                 serial: 3,
                 frames: 4800,
             },
+            Reply::Paused {
+                serial: 3,
+                frames: 4321,
+            },
         ];
         let mut pipe = Vec::new();
         for reply in &replies {
@@ -373,9 +493,8 @@ mod tests {
 
     /// A count past the bound is refused before its samples are allocated.
     #[test]
-    fn a_sound_past_the_bound_is_refused_unread() {
-        let mut pipe = vec![super::PLAY];
-        pipe.extend_from_slice(&1_u64.to_le_bytes());
+    fn a_run_past_the_bound_is_refused_unread() {
+        let mut pipe = vec![super::SAMPLES];
         pipe.extend_from_slice(&u32::MAX.to_le_bytes());
         assert!(matches!(
             read_order(&mut pipe.as_slice()),
@@ -383,7 +502,7 @@ mod tests {
         ));
         let too_many = vec![0.0_f32; MAX_SAMPLES + 1];
         assert!(matches!(
-            write_play(&mut Vec::new(), 1, &too_many),
+            write_samples(&mut Vec::new(), &too_many),
             Err(WireError::TooManySamples(_))
         ));
     }

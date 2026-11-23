@@ -19,7 +19,9 @@ use viewer_core::{
     Command, DocumentId, Event, RestrictionLevel, RestrictionPolicy, RestrictionScope, SoundData,
     Viewer,
 };
-use viewer_host::sound::{DeviceFormat, Heard, Played, Player, Progress, Report, Sink, Sounds};
+use viewer_host::sound::{
+    DeviceFormat, Heard, Held, Played, Player, Progress, Report, Sink, Sounds,
+};
 use viewer_host::{Handed, Handing, MediaFiles};
 
 /// The device: 8000 Hz, mono, so that a sound's 8-bit `Signed` samples reach it unconverted —
@@ -48,6 +50,8 @@ struct Record {
 struct Recording {
     record: Arc<Mutex<Record>>,
     device: Device,
+    /// The sound held, which each pass reads.
+    held: Held,
 }
 
 impl Sink for Recording {
@@ -55,7 +59,34 @@ impl Sink for Recording {
         FORMAT
     }
 
-    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
+    fn load(&mut self) -> Result<(), String> {
+        self.held = Held::new();
+        Ok(())
+    }
+
+    fn append(&mut self, samples: &[f32]) -> Result<(), String> {
+        self.held.append(samples.to_vec());
+        Ok(())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        self.held.complete();
+        Ok(())
+    }
+
+    // The double cannot say where a device reached: the resumption is where the reports put it.
+    fn pause(&mut self) -> Option<u64> {
+        None
+    }
+
+    fn start(&mut self, from: u64, frames: u64, mut report: Report) -> Result<(), String> {
+        let channels = usize::from(FORMAT.channels);
+        let at = |frame: u64| {
+            usize::try_from(frame)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels)
+        };
+        let samples = self.held.copied(at(from), at(from.saturating_add(frames)));
         let frames = u64::try_from(samples.len()).unwrap_or(u64::MAX);
         record(&self.record).started.push(samples);
         report(Progress::Played(frames / 2));
@@ -86,6 +117,7 @@ fn player(device: Device) -> (Player, Arc<Mutex<Record>>, Receiver<()>) {
             Ok(Box::new(Recording {
                 record: Arc::clone(&shared),
                 device,
+                held: Held::new(),
             }) as Box<dyn Sink>)
         }),
         Box::new(move || {
@@ -368,6 +400,7 @@ fn a_sound_action_s_parameters_reach_the_device_and_hold_the_reader() {
         Ok(Box::new(Recording {
             record: Arc::clone(&shared),
             device: Device::Halfway,
+            held: Held::new(),
         }) as Box<dyn Sink>)
     }));
     sounds.play(
@@ -462,6 +495,7 @@ fn a_rendition_s_wave_clip_is_held_at_its_start_until_resumed() {
         Ok(Box::new(Recording {
             record: Arc::clone(&shared),
             device: Device::Halfway,
+            held: Held::new(),
         }) as Box<dyn Sink>)
     }));
     assert!(!sounds.resume(), "nothing is held before a sound");

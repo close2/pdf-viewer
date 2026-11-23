@@ -1,6 +1,7 @@
 //! The host's half: a sound's bytes split into requests, each answered by the worker under its own
 //! processor-time budget, and the worker started only when the first sound is played.
 
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
@@ -100,6 +101,70 @@ pub struct Sound {
     pub notes: Vec<String>,
 }
 
+/// One run of a sound as the worker decoded it, handed on before the next is asked for, so that a
+/// player can start the sound at its first run (ADR 3457).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Run<'s> {
+    /// The sound's rate, the same in every run.
+    pub rate: u32,
+    /// Its channels, the same in every run.
+    pub channels: u16,
+    /// Its speakers, as [`Sound::speakers`], the same in every run.
+    pub speakers: u32,
+    /// The most frames the whole sound holds, where that is known before it is decoded: a sound
+    /// object's and a WAVE file's exactly, an MP4 clip's where its edit list states the length it
+    /// keeps. A player refuses a sound past its bound by it before anything sounds.
+    pub at_most: Option<u64>,
+    /// This run's samples, whole frames interleaved, each in the most significant bits of an `i32`.
+    pub samples: &'s [i32],
+    /// What the decode does not carry of the stream's data, as far as it is known at this run;
+    /// [`Streamed::notes`] holds these and any found later.
+    pub notes: &'s [String],
+    /// Whether this run is the sound's last, so that a sound of one run is taken whole.
+    pub last: bool,
+}
+
+/// A sound's run handed on: [`ControlFlow::Break`] to stop decoding — the sound was stopped while
+/// it was still arriving.
+pub type Deliver<'d> = dyn FnMut(Run<'_>) -> ControlFlow<()> + 'd;
+
+/// What a streamed decode says once its last run has been handed on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Streamed {
+    /// What the decode did not carry of the stream's data, each said, as [`Sound::notes`].
+    pub notes: Vec<String>,
+    /// Whether the receiver stopped it before its end.
+    pub stopped: bool,
+}
+
+/// A whole sound gathered from its runs: what [`MediaWorker::decode`] and its kin answer.
+#[derive(Default)]
+struct Gathered {
+    format: Option<(u32, u16, u32)>,
+    samples: Vec<i32>,
+}
+
+impl Gathered {
+    fn deliver(&mut self) -> impl FnMut(Run<'_>) -> ControlFlow<()> + '_ {
+        |run| {
+            self.format = Some((run.rate, run.channels, run.speakers));
+            self.samples.extend_from_slice(run.samples);
+            ControlFlow::Continue(())
+        }
+    }
+
+    fn sound(self, streamed: Streamed, fallback: (u32, u16)) -> Sound {
+        let (rate, channels, speakers) = self.format.unwrap_or((fallback.0, fallback.1, 0));
+        Sound {
+            rate,
+            channels,
+            samples: self.samples,
+            speakers,
+            notes: streamed.notes,
+        }
+    }
+}
+
 /// The host's handle on a media worker, which it starts at the first sound it is asked to decode.
 ///
 /// Constructing one starts nothing (RFC 0015 section 4.6): a document whose sounds are never
@@ -155,16 +220,71 @@ impl MediaWorker {
         data: &[u8],
         max_samples: usize,
     ) -> Result<Sound, MediaError> {
+        let mut gathered = Gathered::default();
+        let streamed = self.decode_streamed(format, data, max_samples, &mut gathered.deliver())?;
+        Ok(gathered.sound(streamed, (format.rate, format.channels)))
+    }
+
+    /// [`Self::decode`], each run handed to `deliver` as the worker answers it rather than
+    /// gathered, so that the sound can start at its first (ADR 3457). Every bound is checked as
+    /// [`Self::decode`] checks it, the sound's length before the first request.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::decode`]; a run already handed on stays handed on.
+    pub fn decode_streamed(
+        &mut self,
+        format: &SoundFormat,
+        data: &[u8],
+        max_samples: usize,
+        deliver: &mut Deliver<'_>,
+    ) -> Result<Streamed, MediaError> {
+        self.samples_streamed(*format, data, max_samples, 0, deliver)
+    }
+
+    /// What a sound object's or a WAVE file's decode does not carry: the worker's confinement where
+    /// it fell short, and the samples after the last whole frame.
+    fn samples_notes(&self, unframed: u64, channels: u16) -> Vec<String> {
+        let mut notes = self.shortfall();
+        if unframed != 0 {
+            notes.push(format!(
+                "the last {unframed} sample(s) of the sound object complete no frame of {channels} \
+                 channels (§13.3's interleaved order) and were not played"
+            ));
+        }
+        notes
+    }
+
+    /// The worker's confinement where it fell short, said.
+    fn shortfall(&self) -> Vec<String> {
+        self.host
+            .as_ref()
+            .and_then(|host| host.confinement().shortfall())
+            .map(|shortfall| format!("the media worker ran {shortfall}"))
+            .into_iter()
+            .collect()
+    }
+
+    /// A sound object's samples, or a WAVE file's, decoded run by run with `speakers` beside them.
+    fn samples_streamed(
+        &mut self,
+        format: SoundFormat,
+        data: &[u8],
+        max_samples: usize,
+        speakers: u32,
+        deliver: &mut Deliver<'_>,
+    ) -> Result<Streamed, MediaError> {
         if let Some(refusal) = format.refusal() {
             return Err(MediaError::Format(refusal));
         }
-        let (samples, unframed) = crate::sound::sample_counts(format, data.len());
+        let (samples, unframed) = crate::sound::sample_counts(&format, data.len());
         if usize::try_from(samples).map_or(true, |samples| samples > max_samples) {
             return Err(MediaError::TooLarge {
                 samples,
                 limit: max_samples,
             });
         }
+        let at_most = samples.checked_div(u64::from(format.channels));
         let unit = usize::try_from(format.whole_frames_unit()).unwrap_or(usize::MAX);
         // At most `MAX_RUN_BYTES`, cut on a frame: a unit is at most 65,535 channels of 32 bits,
         // 262,140 bytes, under the run's 262,144, so one unit always fits.
@@ -174,33 +294,46 @@ impl MediaWorker {
             .max(1)
             .saturating_mul(unit)
             .max(1);
-        let mut decoded: Vec<i32> = Vec::new();
-        for run in data.chunks(run_len) {
-            let part = self.request(*format, run)?;
-            decoded.extend_from_slice(&part.samples);
+        let mut stopped = false;
+        let mut delivered = false;
+        let mut notes: Option<Vec<String>> = None;
+        let runs = data.len().div_ceil(run_len);
+        for (index, run) in data.chunks(run_len).enumerate() {
+            let part = self.request(format, run)?;
+            let notes = notes.get_or_insert_with(|| self.samples_notes(unframed, format.channels));
+            if part.samples.is_empty() {
+                continue;
+            }
+            delivered = true;
+            let handed = deliver(Run {
+                rate: format.rate,
+                channels: format.channels,
+                speakers,
+                at_most,
+                samples: &part.samples,
+                notes,
+                last: index.saturating_add(1) == runs,
+            });
+            if handed.is_break() {
+                stopped = true;
+                break;
+            }
         }
-        let mut notes = Vec::new();
-        if let Some(shortfall) = self
-            .host
-            .as_ref()
-            .and_then(|host| host.confinement().shortfall())
-        {
-            notes.push(format!("the media worker ran {shortfall}"));
+        let notes = notes.unwrap_or_else(|| self.samples_notes(unframed, format.channels));
+        // A sound of no frames still says its format, which says it lasts nothing.
+        if !delivered {
+            stopped = deliver(Run {
+                rate: format.rate,
+                channels: format.channels,
+                speakers,
+                at_most,
+                samples: &[],
+                notes: &notes,
+                last: true,
+            })
+            .is_break();
         }
-        if unframed != 0 {
-            notes.push(format!(
-                "the last {unframed} sample(s) of the sound object complete no frame of {} \
-                 channels (§13.3's interleaved order) and were not played",
-                format.channels
-            ));
-        }
-        Ok(Sound {
-            rate: format.rate,
-            channels: format.channels,
-            samples: decoded,
-            speakers: 0,
-            notes,
-        })
+        Ok(Streamed { notes, stopped })
     }
 
     /// Decodes a RIFF WAVE file — a rendition's media clip (ADR 3349) — into at most
@@ -216,6 +349,22 @@ impl MediaWorker {
     /// [`Self::decode`]'s, the worker's refusal of the header, and a walk past
     /// [`MAX_WAVE_WINDOWS`].
     pub fn decode_wave(&mut self, file: &[u8], max_samples: usize) -> Result<Sound, MediaError> {
+        let mut gathered = Gathered::default();
+        let streamed = self.decode_wave_streamed(file, max_samples, &mut gathered.deliver())?;
+        Ok(gathered.sound(streamed, (0, 0)))
+    }
+
+    /// [`Self::decode_wave`], each run of samples handed to `deliver` as it is decoded (ADR 3457).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::decode_wave`].
+    pub fn decode_wave_streamed(
+        &mut self,
+        file: &[u8],
+        max_samples: usize,
+        deliver: &mut Deliver<'_>,
+    ) -> Result<Streamed, MediaError> {
         let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
         let mut at = 0u64;
         let mut described = None;
@@ -265,9 +414,13 @@ impl MediaWorker {
             usize::try_from(layout.offset.saturating_add(layout.length)).unwrap_or(usize::MAX);
         let samples = file.get(start..end).unwrap_or_default();
         let format = layout.described.format;
-        let mut sound = self.decode(&format, samples, max_samples)?;
-        sound.speakers = layout.described.channel_mask;
-        Ok(sound)
+        self.samples_streamed(
+            format,
+            samples,
+            max_samples,
+            layout.described.channel_mask,
+            deliver,
+        )
     }
 
     /// Decodes an MP4 file's AAC sound track — a rendition's media clip (ADR 3381) — into at most
@@ -285,6 +438,24 @@ impl MediaWorker {
     /// [`Self::decode`]'s; the worker's refusal of the file, its track or its stream; a file whose
     /// movie is absent, doubled or past [`MAX_MOVIE_BYTES`]; and a clip that decodes to nothing.
     pub fn decode_mp4(&mut self, file: &[u8], max_samples: usize) -> Result<Sound, MediaError> {
+        let mut gathered = Gathered::default();
+        let streamed = self.decode_mp4_streamed(file, max_samples, &mut gathered.deliver())?;
+        Ok(gathered.sound(streamed, (0, 0)))
+    }
+
+    /// [`Self::decode_mp4`], each run of presented samples handed to `deliver` as it is decoded,
+    /// the edit list applied on the way (ADR 3457).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::decode_mp4`]; a clip whose length its edit list does not state and which passes
+    /// `max_samples` is refused at the run that passes it, after the runs before it were handed on.
+    pub fn decode_mp4_streamed(
+        &mut self,
+        file: &[u8],
+        max_samples: usize,
+        deliver: &mut Deliver<'_>,
+    ) -> Result<Streamed, MediaError> {
         let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
         let movie = self.movie(file, total)?;
         let track = match self.exchange(FRAME_MOVIE, &encode_movie_request(total, movie))? {
@@ -300,7 +471,7 @@ impl MediaWorker {
                 )));
             }
         };
-        self.decode_track(file, &track, max_samples)
+        self.decode_track(file, &track, max_samples, deliver)
     }
 
     /// The movie box's payload in `file`, found by the worker's answers about each box at the top.
@@ -359,19 +530,22 @@ impl MediaWorker {
         Ok(movie)
     }
 
-    /// `track`'s access units decoded in runs by the worker's clip decoder, then presented as its
-    /// edit list says.
+    /// `track`'s access units decoded in runs by the worker's clip decoder, each run presented as
+    /// its edit list says and handed on as it is decoded.
     fn decode_track(
         &mut self,
         file: &[u8],
         track: &Track,
         max_samples: usize,
-    ) -> Result<Sound, MediaError> {
-        let mut decoded: Vec<i32> = Vec::new();
+        deliver: &mut Deliver<'_>,
+    ) -> Result<Streamed, MediaError> {
         let mut format: Option<(u32, u16)> = None;
         let mut concealed = 0u64;
         // The speakers the first run that held samples stated, which every later run must keep.
         let mut speakers: Option<u32> = None;
+        let mut presenting: Option<Presenting> = None;
+        let mut notes: Option<Vec<String>> = None;
+        let mut stopped = false;
         let mut next = 0usize;
         while next < track.units.len() {
             // The first run is one unit, which tells the channels; after it a run is as many as
@@ -418,43 +592,43 @@ impl MediaWorker {
                 self.distrust();
                 return Err(MediaError::Refused(changed));
             }
-            if let Some((rate, channels)) = format {
-                let (ahead, kept_all) = presented_limit(track, rate, channels, max_samples);
-                if u64::try_from(decoded.len().saturating_add(pcm.samples.len()))
-                    .unwrap_or(u64::MAX)
-                    > ahead
-                {
-                    // Past what the edit list keeps, the rest is the encoder's padding; past the
-                    // bound, the clip is too long whatever the list keeps.
-                    if !kept_all {
-                        return Err(MediaError::TooLarge {
-                            samples: ahead.saturating_add(1),
-                            limit: max_samples,
-                        });
-                    }
-                    let kept = usize::try_from(ahead).unwrap_or(usize::MAX);
-                    let room = kept.saturating_sub(decoded.len());
-                    decoded.extend_from_slice(pcm.samples.get(..room).unwrap_or(&pcm.samples));
-                    break;
-                }
+            let Some((rate, channels)) = format else {
+                continue;
+            };
+            let presenting = match &mut presenting {
+                Some(presenting) => presenting,
+                None => presenting.insert(Presenting::new(track, rate, channels, max_samples)?),
+            };
+            let (samples, last) = presenting.presented(&pcm.samples)?;
+            let notes = notes.get_or_insert_with(|| {
+                let mut notes = self.shortfall();
+                notes.extend(track.presentation.note.iter().cloned());
+                notes
+            });
+            let handed = deliver(Run {
+                rate,
+                channels,
+                speakers: speakers.unwrap_or_default(),
+                at_most: presenting.at_most,
+                samples: &samples,
+                notes,
+                last: last || next >= track.units.len(),
+            });
+            if handed.is_break() {
+                stopped = true;
+                break;
             }
-            decoded.extend_from_slice(&pcm.samples);
+            if last {
+                break;
+            }
         }
-        let Some((rate, channels)) = format else {
+        if format.is_none() {
             return Err(MediaError::Refused(format!(
                 "none of the clip's {} access units decoded",
                 track.units.len()
             )));
-        };
-        let samples = presented(&decoded, track, rate, channels, max_samples)?;
-        let mut notes = Vec::new();
-        if let Some(shortfall) = self
-            .host
-            .as_ref()
-            .and_then(|host| host.confinement().shortfall())
-        {
-            notes.push(format!("the media worker ran {shortfall}"));
         }
+        let mut notes = notes.unwrap_or_default();
         if concealed != 0 {
             notes.push(format!(
                 "{concealed} of the clip's {} AAC access units could not be decoded and were \
@@ -462,14 +636,7 @@ impl MediaWorker {
                 track.units.len()
             ));
         }
-        notes.extend(track.presentation.note.iter().cloned());
-        Ok(Sound {
-            rate,
-            channels,
-            samples,
-            speakers: speakers.unwrap_or_default(),
-            notes,
-        })
+        Ok(Streamed { notes, stopped })
     }
 
     /// The running worker dropped and killed: it answered what no request could.
@@ -593,61 +760,104 @@ fn within<T>(
     })
 }
 
-/// The most samples worth decoding of `track` at `rate` and `channels` — the skipped priming and
-/// what the edit list keeps, or the skipped priming and `max_samples` where the list keeps more or
-/// everything — and whether that is the whole of what the list keeps, so that decoding stops there
-/// rather than refusing the clip as too long.
-fn presented_limit(track: &Track, rate: u32, channels: u16, max_samples: usize) -> (u64, bool) {
-    let presentation = &track.presentation;
-    let skip = rescaled(presentation.skip, track.time_scale, rate);
-    let max = u64::try_from(max_samples)
-        .unwrap_or(u64::MAX)
-        .checked_div(u64::from(channels))
-        .unwrap_or(0);
-    let kept = presentation
-        .keep
-        .map(|keep| rescaled(keep, track.time_scale, rate))
-        .filter(|kept| *kept <= max);
-    let frames = skip.saturating_add(kept.unwrap_or(max));
-    (frames.saturating_mul(u64::from(channels)), kept.is_some())
+/// A clip's edit list applied run by run (ISO/IEC 14496-12, 8.6.6; [`crate::mp4::presentation`]):
+/// the delay as silence first, the skipped priming dropped, and no more than the kept length after
+/// it — each figure moved from the media's clock to the output's rate.
+#[derive(Debug)]
+struct Presenting {
+    /// Samples of silence still to put before the first decoded sample.
+    delay: usize,
+    /// Decoded samples still to drop.
+    skip: usize,
+    /// Decoded samples still to keep: the edit list's length, or what is left under the bound.
+    keep: usize,
+    /// Whether `keep` is the edit list's own length, so that reaching it is the clip's end and not
+    /// a clip past the bound.
+    stated: bool,
+    /// The samples presented so far, which the bound is reported against.
+    presented: usize,
+    max_samples: usize,
+    /// The most frames the clip presents, where its edit list states its length.
+    at_most: Option<u64>,
 }
 
-/// `decoded` presented as `track`'s edit list says (ISO/IEC 14496-12, 8.6.6; [`crate::mp4::presentation`]):
-/// the delay as silence first, the skipped priming dropped, and no more than the kept length after
-/// it — each figure moved from the media's clock to the output's `rate`.
-///
-/// # Errors
-///
-/// [`MediaError::TooLarge`] where the presented clip passes `max_samples`.
-fn presented(
-    decoded: &[i32],
-    track: &Track,
-    rate: u32,
-    channels: u16,
-    max_samples: usize,
-) -> Result<Vec<i32>, MediaError> {
-    let presentation = &track.presentation;
-    let width = u64::from(channels);
-    let to_samples = |units: u64| {
-        let frames = rescaled(units, track.time_scale, rate);
-        usize::try_from(frames.saturating_mul(width)).unwrap_or(usize::MAX)
-    };
-    let delay = to_samples(presentation.delay);
-    let skip = to_samples(presentation.skip).min(decoded.len());
-    let after = decoded.get(skip..).unwrap_or_default();
-    let kept = presentation
-        .keep
-        .map_or(after.len(), |keep| to_samples(keep).min(after.len()));
-    let length = delay.saturating_add(kept);
-    if length > max_samples {
-        return Err(MediaError::TooLarge {
-            samples: u64::try_from(length).unwrap_or(u64::MAX),
-            limit: max_samples,
+impl Presenting {
+    /// The edit list of `track` at `rate` and `channels`, under `max_samples`.
+    ///
+    /// # Errors
+    ///
+    /// [`MediaError::TooLarge`] where the delay alone passes the bound.
+    fn new(
+        track: &Track,
+        rate: u32,
+        channels: u16,
+        max_samples: usize,
+    ) -> Result<Self, MediaError> {
+        let presentation = &track.presentation;
+        let width = u64::from(channels);
+        let to_samples = |units: u64| {
+            let frames = rescaled(units, track.time_scale, rate);
+            usize::try_from(frames.saturating_mul(width)).unwrap_or(usize::MAX)
+        };
+        let delay = to_samples(presentation.delay);
+        let skip = to_samples(presentation.skip);
+        // A length past the bound is held as no length: the clip is refused only if what it
+        // decodes to passes the bound, which an edit list longer than its media may not.
+        let stated = presentation
+            .keep
+            .map(to_samples)
+            .filter(|kept| delay.saturating_add(*kept) <= max_samples);
+        if delay > max_samples {
+            return Err(MediaError::TooLarge {
+                samples: u64::try_from(delay).unwrap_or(u64::MAX),
+                limit: max_samples,
+            });
+        }
+        let at_most = stated.map(|kept| {
+            u64::try_from(delay.saturating_add(kept))
+                .unwrap_or(u64::MAX)
+                .checked_div(width)
+                .unwrap_or(0)
         });
+        Ok(Self {
+            delay,
+            skip,
+            keep: stated.unwrap_or(max_samples.saturating_sub(delay)),
+            stated: stated.is_some(),
+            presented: 0,
+            max_samples,
+            at_most,
+        })
     }
-    let mut samples = vec![0; delay];
-    samples.extend_from_slice(after.get(..kept).unwrap_or(after));
-    Ok(samples)
+
+    /// `decoded`, the next run, presented — with the delay before the first — and whether the
+    /// clip's stated length has been reached, so that what follows is the encoder's padding.
+    ///
+    /// # Errors
+    ///
+    /// [`MediaError::TooLarge`] where a clip whose list states no length passes the bound.
+    fn presented(&mut self, decoded: &[i32]) -> Result<(Vec<i32>, bool), MediaError> {
+        let mut samples = vec![0; std::mem::take(&mut self.delay)];
+        let skipped = self.skip.min(decoded.len());
+        self.skip = self.skip.saturating_sub(skipped);
+        let after = decoded.get(skipped..).unwrap_or_default();
+        if !self.stated && after.len() > self.keep {
+            return Err(MediaError::TooLarge {
+                samples: u64::try_from(
+                    self.presented
+                        .saturating_add(samples.len())
+                        .saturating_add(after.len()),
+                )
+                .unwrap_or(u64::MAX),
+                limit: self.max_samples,
+            });
+        }
+        let taken = after.len().min(self.keep);
+        samples.extend_from_slice(after.get(..taken).unwrap_or(after));
+        self.keep = self.keep.saturating_sub(taken);
+        self.presented = self.presented.saturating_add(samples.len());
+        Ok((samples, self.stated && self.keep == 0))
+    }
 }
 
 /// Holds a run's rate, channels and speakers to the first run's that held samples, which one clip

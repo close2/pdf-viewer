@@ -74,10 +74,28 @@ impl Sink for HelperSink {
         DeviceFormat { rate, channels }
     }
 
-    fn start(&mut self, samples: Vec<f32>, report: super::Report) -> Result<(), String> {
+    fn load(&mut self) -> Result<(), String> {
+        self.0.load().map_err(|error| error.to_string())
+    }
+
+    fn append(&mut self, samples: &[f32]) -> Result<(), String> {
+        self.0.append(samples).map_err(|error| error.to_string())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        self.0.complete().map_err(|error| error.to_string())
+    }
+
+    fn start(&mut self, from: u64, frames: u64, report: super::Report) -> Result<(), String> {
         self.0
-            .play(&samples, report)
+            .play(from, frames, report)
             .map_err(|error| error.to_string())
+    }
+
+    // A helper that does not answer leaves the resumption where the reports put it, as a device
+    // that cannot say does.
+    fn pause(&mut self) -> Option<u64> {
+        self.0.pause().ok().flatten()
     }
 
     fn stop(&mut self) {

@@ -19,7 +19,7 @@ use viewer_core::{
     Command, DocumentId, Event, RestrictionLevel, RestrictionPolicy, RestrictionScope, SoundData,
     Viewer,
 };
-use viewer_host::sound::{DeviceFormat, Heard, Played, Player, Progress, Report, Sink};
+use viewer_host::sound::{DeviceFormat, Heard, Held, Played, Player, Progress, Report, Sink};
 use viewer_host::{Handed, Handing, MediaFiles};
 
 /// What the recording sink saw.
@@ -39,6 +39,8 @@ struct Recording {
     record: Arc<Mutex<Record>>,
     /// Whether a sound reaches its end as soon as it starts.
     ends: bool,
+    /// The sound held, which each pass reads.
+    held: Held,
 }
 
 impl Sink for Recording {
@@ -46,7 +48,34 @@ impl Sink for Recording {
         self.format
     }
 
-    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
+    fn load(&mut self) -> Result<(), String> {
+        self.held = Held::new();
+        Ok(())
+    }
+
+    fn append(&mut self, samples: &[f32]) -> Result<(), String> {
+        self.held.append(samples.to_vec());
+        Ok(())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        self.held.complete();
+        Ok(())
+    }
+
+    // The double cannot say where a device reached: the resumption is where the reports put it.
+    fn pause(&mut self) -> Option<u64> {
+        None
+    }
+
+    fn start(&mut self, from: u64, frames: u64, mut report: Report) -> Result<(), String> {
+        let channels = usize::from(self.format.channels);
+        let at = |frame: u64| {
+            usize::try_from(frame)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels)
+        };
+        let samples = self.held.copied(at(from), at(from.saturating_add(frames)));
         let frames = u64::try_from(
             samples
                 .len()
@@ -90,6 +119,7 @@ fn player(format: DeviceFormat, ends: bool) -> (Player, Arc<Mutex<Record>>, Rece
                 format,
                 record: Arc::clone(&shared),
                 ends,
+                held: Held::new(),
             }) as Box<dyn Sink>)
         }),
         Box::new(move || {
@@ -558,5 +588,31 @@ fn a_section_that_begins_at_a_wave_files_cue_point_is_played_from_it() {
     assert_eq!(
         record(&recorded).started,
         vec![vec![0.5, 0.625, 0.75, 0.875]]
+    );
+}
+
+/// A sound longer than one request starts at its first run: the device's first pass is started
+/// while the sound is still arriving, with fewer samples than the whole, and the player says it
+/// plays before it has decoded the rest (ADR 3457). 600,000 8-bit samples are three runs of the
+/// worker's 262,144 bytes; on a device of the sound's own format nothing is converted.
+#[test]
+fn a_long_sound_starts_before_it_is_whole() {
+    let format = DeviceFormat {
+        rate: 8000,
+        channels: 1,
+    };
+    let (mut player, recorded, woken) = player(format, false);
+    let samples: Vec<u8> = (0..600_000_u32)
+        .map(|n| if n % 2 == 0 { 0x40 } else { 0xC0 })
+        .collect();
+    player.play(played(1, &samples));
+    let said = heard(&mut player, &woken, 1);
+    assert!(matches!(said.as_slice(), [Heard::Playing(_)]), "{said:?}");
+    let record = record(&recorded);
+    let first = record.started.first().map_or(0, Vec::len);
+    assert!(
+        first > 0 && first < samples.len(),
+        "the first pass started on {first} of {} samples",
+        samples.len()
     );
 }

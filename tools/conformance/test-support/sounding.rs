@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use viewer_host::sound::{DeviceFormat, OpenSink, Report, Sink};
+use viewer_host::sound::{DeviceFormat, Held, OpenSink, Report, Sink};
 
 /// The sound annotation's object.
 pub(super) const ANNOTATION: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(4, 0);
@@ -36,14 +36,41 @@ pub(super) struct Record {
 }
 
 /// The audio device's double, whose sounds never end by themselves.
-struct Recording(Arc<Mutex<Record>>);
+struct Recording(Arc<Mutex<Record>>, Held);
 
 impl Sink for Recording {
     fn format(&self) -> DeviceFormat {
         FORMAT
     }
 
-    fn start(&mut self, samples: Vec<f32>, _report: Report) -> Result<(), String> {
+    fn load(&mut self) -> Result<(), String> {
+        self.1 = Held::new();
+        Ok(())
+    }
+
+    fn append(&mut self, samples: &[f32]) -> Result<(), String> {
+        self.1.append(samples.to_vec());
+        Ok(())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        self.1.complete();
+        Ok(())
+    }
+
+    // The double cannot say where a device reached: the resumption is where the reports put it.
+    fn pause(&mut self) -> Option<u64> {
+        None
+    }
+
+    fn start(&mut self, from: u64, frames: u64, _report: Report) -> Result<(), String> {
+        let channels = usize::from(FORMAT.channels);
+        let at = |frame: u64| {
+            usize::try_from(frame)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels)
+        };
+        let samples = self.1.copied(at(from), at(from.saturating_add(frames)));
         record(&self.0).started.push(samples);
         Ok(())
     }
@@ -61,7 +88,7 @@ pub(super) fn recording() -> (OpenSink, Arc<Mutex<Record>>) {
     let open: OpenSink = Box::new(move || {
         let mut record = record(&shared);
         record.opened = record.opened.saturating_add(1);
-        Ok(Box::new(Recording(Arc::clone(&shared))) as Box<dyn Sink>)
+        Ok(Box::new(Recording(Arc::clone(&shared), Held::new())) as Box<dyn Sink>)
     });
     (open, kept)
 }

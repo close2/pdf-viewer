@@ -4,6 +4,7 @@
 #
 #   tools/audio-in-use.sh [<out-dir>]          # the whole run: about fifteen minutes of wall time
 #   AUDIO_IN_USE_LONG_SECONDS=5 tools/audio-in-use.sh   # a dry run of the same, a minute and a half
+#   AUDIO_IN_USE_ROUTE=loopback tools/audio-in-use.sh <out-dir>   # on ALSA's loopback card (ADR 3459)
 #
 # Builds the sound helper and the media worker in the `gates` profile (release-grade optimisation,
 # thin LTO), makes the AAC LC clip with `ffmpeg`'s own encoder and fetches ISO/IEC 14496-26's two
@@ -11,7 +12,11 @@
 # runs `crates/viewer-host/tests/audio_in_use.rs` in the same profile. That file builds the device
 # it plays on — ALSA's `file` plugin over `null`, writing into a named pipe read at 48 kHz on the
 # monotonic clock — because this machine's user may open no sound card, and says what such a
-# device does not measure. The readings are printed and kept in `<out-dir>/readings.txt`.
+# device does not measure. With `AUDIO_IN_USE_ROUTE=loopback` the device is `snd-aloop`'s card
+# instead — the helper plays into `hw:Loopback,0,0` and `ffmpeg` captures `hw:Loopback,1,0` — a
+# kernel device with a driver's period and buffer; the run goes through `sg audio` where this shell
+# does not carry the group the card's nodes belong to. The readings are printed and kept in
+# `<out-dir>/readings.txt`.
 #
 # A tool and not a gate: its readings are minutes long, read against the budgets RFC 0015 states,
 # and a dummy device's numbers are not a speaker's; nothing here fails on a number.
@@ -56,7 +61,15 @@ export AUDIO_IN_USE_HELPER="$target/gates/quorra-sound"
 export AUDIO_IN_USE_WORKER="$target/gates/pdf-media-worker"
 export AUDIO_IN_USE_DIR="$out/device"
 export AUDIO_IN_USE_CLIPS="AAC LC 48 kHz stereo (ffmpeg's encoder, 30 s)=$lc;HE-AAC al_sbr_cm_48_2 (ISO/IEC 14496-26)=$out/streams/al_sbr_cm_48_2.mp4;HE-AAC v2 al_sbr_ps_01_new (ISO/IEC 14496-26)=$out/streams/al_sbr_ps_01_new.mp4"
-cargo test --profile gates -p viewer-host --test audio_in_use -- --ignored --nocapture --test-threads 1 \
-    2>&1 | tee "$out/run.log"
+export AUDIO_IN_USE_ROUTE=${AUDIO_IN_USE_ROUTE:-pipe}
+run=(cargo test --profile gates -p viewer-host --test audio_in_use -- --ignored --nocapture --test-threads 1)
+if [ "$AUDIO_IN_USE_ROUTE" = loopback ]; then
+    grep -q '^Loopback' <(sed -n 's/^ *[0-9]* \[\([A-Za-z]*\) *\].*/\1/p' /proc/asound/cards) \
+        || { echo "audio-in-use: no loopback card (modprobe snd-aloop, as root)" >&2; exit 1; }
+    if ! id -Gn | tr ' ' '\n' | grep -qx audio; then
+        run=(sg audio -c "$(printf '%q ' "${run[@]}")")
+    fi
+fi
+"${run[@]}" 2>&1 | tee "$out/run.log"
 cp "$out/device/readings.txt" "$out/readings.txt"
 echo "audio-in-use: the readings are in $out/readings.txt"

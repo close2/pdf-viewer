@@ -39,7 +39,8 @@ pub mod wire;
 mod worker;
 
 pub use client::{
-    MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET, Sound,
+    Deliver, MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET, Run,
+    Sound, Streamed,
 };
 pub use worker::{Worker, answer, serve};
 

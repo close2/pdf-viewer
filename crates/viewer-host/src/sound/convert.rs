@@ -110,52 +110,200 @@ pub fn converted(
     device: DeviceFormat,
     limit: usize,
 ) -> Result<Vec<f32>, ConversionError> {
-    if rate == 0 || channels == 0 {
-        return Err(ConversionError::NoSound { rate, channels });
-    }
-    if device.rate == 0 || device.channels == 0 {
-        return Err(ConversionError::NoDevice {
-            rate: device.rate,
-            channels: device.channels,
-        });
-    }
+    let mut converter = Converter::new(rate, channels, speakers, device, limit)?;
     let frames_in = samples
         .len()
         .checked_div(usize::from(channels))
         .unwrap_or(0);
-    let frames_out = frames_after(frames_in, rate, device.rate);
-    let wanted = frames_out.saturating_mul(u64::from(device.channels));
+    let wanted =
+        frames_after(frames_in, rate, device.rate).saturating_mul(u64::from(device.channels));
     if usize::try_from(wanted).map_or(true, |wanted| wanted > limit) {
         return Err(ConversionError::TooLarge {
             samples: wanted,
             limit,
         });
     }
-    let weights = (speakers != 0 && device.channels <= 2).then(|| weights(speakers, channels));
-    let frames: Vec<Vec<f64>> = samples
-        .chunks_exact(usize::from(channels))
-        .map(|frame| match &weights {
-            Some(weights) => mixed(frame, weights, device.channels),
-            None => arranged(frame, device.channels),
-        })
-        .collect();
     let mut out = Vec::with_capacity(usize::try_from(wanted).unwrap_or(0));
-    for k in 0..frames_out {
-        for channel in 0..usize::from(device.channels) {
-            let value = if device.rate < rate {
-                averaged(&frames, channel, k, rate, device.rate)
-            } else {
-                interpolated(&frames, channel, k, rate, device.rate)
-            };
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "the conversion's one narrowing: an `f32` holds every value a 24-bit \
-                          device sample can tell apart, which is the most any device takes"
-            )]
-            out.push(value as f32);
-        }
-    }
+    converter.push(samples, &mut out)?;
+    converter.finish(&mut out)?;
     Ok(out)
+}
+
+/// The most samples `frames` of a sound at `rate` become on `device`: the bound a player checks
+/// before the first run of a sound whose length is known is converted (ADR 3457).
+#[must_use]
+pub(super) fn samples_after(frames: u64, rate: u32, device: DeviceFormat) -> u64 {
+    frames
+        .saturating_mul(u64::from(device.rate))
+        .div_ceil(u64::from(rate.max(1)))
+        .saturating_mul(u64::from(device.channels))
+}
+
+/// [`converted`] a run at a time, for a sound that arrives as it is decoded (ADR 3457).
+///
+/// Every output frame is the one [`converted`] writes for the whole sound: a frame is written once
+/// the input frames it is made of have all arrived, and the input frames no later output frame
+/// reads are let go, so that what is held is the few frames one output frame spans. The sound's
+/// last frames, which [`converted`] makes from the input it has, wait for [`Self::finish`].
+#[derive(Debug)]
+pub(super) struct Converter {
+    rate: u32,
+    device: DeviceFormat,
+    channels: u16,
+    weights: Option<Vec<(f64, f64)>>,
+    /// The input frames still read by an output frame to come, arranged for the device; the first
+    /// is input frame `first`.
+    frames: std::collections::VecDeque<Vec<f64>>,
+    first: u64,
+    /// The input frames that have arrived.
+    arrived: u64,
+    /// The next output frame.
+    next: u64,
+    /// The samples written so far, which `limit` bounds.
+    written: usize,
+    limit: usize,
+}
+
+impl Converter {
+    /// A converter of a sound at `rate` and `channels`, its speakers `speakers`, for `device`,
+    /// under `limit` samples.
+    ///
+    /// # Errors
+    ///
+    /// [`ConversionError::NoSound`] or [`ConversionError::NoDevice`] where either holds no frame.
+    pub(super) fn new(
+        rate: u32,
+        channels: u16,
+        speakers: u32,
+        device: DeviceFormat,
+        limit: usize,
+    ) -> Result<Self, ConversionError> {
+        if rate == 0 || channels == 0 {
+            return Err(ConversionError::NoSound { rate, channels });
+        }
+        if device.rate == 0 || device.channels == 0 {
+            return Err(ConversionError::NoDevice {
+                rate: device.rate,
+                channels: device.channels,
+            });
+        }
+        Ok(Self {
+            rate,
+            device,
+            channels,
+            weights: (speakers != 0 && device.channels <= 2).then(|| weights(speakers, channels)),
+            frames: std::collections::VecDeque::new(),
+            first: 0,
+            arrived: 0,
+            next: 0,
+            written: 0,
+            limit,
+        })
+    }
+
+    /// `samples`, the sound's next whole frames, taken in, and every output frame they complete
+    /// written to `out`.
+    ///
+    /// # Errors
+    ///
+    /// [`ConversionError::TooLarge`] where the sound converted so far passes the bound.
+    pub(super) fn push(
+        &mut self,
+        samples: &[i32],
+        out: &mut Vec<f32>,
+    ) -> Result<(), ConversionError> {
+        for frame in samples.chunks_exact(usize::from(self.channels)) {
+            self.frames.push_back(match &self.weights {
+                Some(weights) => mixed(frame, weights, self.device.channels),
+                None => arranged(frame, self.device.channels),
+            });
+            self.arrived = self.arrived.saturating_add(1);
+        }
+        // An output frame is complete once the input frames it reads have all arrived: those up
+        // to the next one's start where the device is slower, and the one after its start where
+        // it is as fast or faster.
+        let complete = |converter: &Self, k: u64| {
+            let start = converter.position(k);
+            if converter.device.rate < converter.rate {
+                converter.position(k.saturating_add(1)) <= converter.arrived
+            } else if k
+                .saturating_mul(u64::from(converter.rate))
+                .is_multiple_of(u64::from(converter.device.rate))
+            {
+                // On an input frame exactly, which the line through it and the next is.
+                start < converter.arrived
+            } else {
+                start.saturating_add(1) < converter.arrived
+            }
+        };
+        let mut until = self.next;
+        while complete(self, until) {
+            until = until.saturating_add(1);
+        }
+        self.write(until, out)
+    }
+
+    /// The sound's last output frames written to `out`, made as [`converted`] makes them from the
+    /// input there is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::push`].
+    pub(super) fn finish(&mut self, out: &mut Vec<f32>) -> Result<(), ConversionError> {
+        let last = frames_after(
+            usize::try_from(self.arrived).unwrap_or(usize::MAX),
+            self.rate,
+            self.device.rate,
+        );
+        self.write(last, out)
+    }
+
+    /// The input frame output frame `k` starts at, `⌊k·from/to⌋`.
+    fn position(&self, k: u64) -> u64 {
+        k.saturating_mul(u64::from(self.rate))
+            .checked_div(u64::from(self.device.rate))
+            .unwrap_or(0)
+    }
+
+    /// Output frames from the next up to `until` written, and the input no later frame reads let go.
+    fn write(&mut self, until: u64, out: &mut Vec<f32>) -> Result<(), ConversionError> {
+        let count = until.saturating_sub(self.next);
+        let samples = usize::try_from(count.saturating_mul(u64::from(self.device.channels)))
+            .unwrap_or(usize::MAX);
+        let total = self.written.saturating_add(samples);
+        if total > self.limit {
+            return Err(ConversionError::TooLarge {
+                samples: u64::try_from(total).unwrap_or(u64::MAX),
+                limit: self.limit,
+            });
+        }
+        let offset = usize::try_from(self.first).unwrap_or(usize::MAX);
+        let frames = self.frames.make_contiguous();
+        out.reserve(samples);
+        for k in self.next..until {
+            for channel in 0..usize::from(self.device.channels) {
+                let value = if self.device.rate < self.rate {
+                    averaged(frames, offset, channel, k, self.rate, self.device.rate)
+                } else {
+                    interpolated(frames, offset, channel, k, self.rate, self.device.rate)
+                };
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the conversion's one narrowing: an `f32` holds every value a 24-bit \
+                              device sample can tell apart, which is the most any device takes"
+                )]
+                out.push(value as f32);
+            }
+        }
+        self.written = total;
+        self.next = until;
+        // No later output frame reads an input frame before the next one's start.
+        let keep_from = self.position(self.next).min(self.arrived);
+        while self.first < keep_from && self.frames.pop_front().is_some() {
+            self.first = self.first.saturating_add(1);
+        }
+        Ok(())
+    }
 }
 
 /// The frames `frames` input frames at `from` become at `to`: the duration kept, a partial last
@@ -289,13 +437,18 @@ pub fn speakers_said(speakers: u32, channels: u16, device: DeviceFormat) -> Opti
 
 /// Output frame `k`'s `channel` where the device is slower: the mean of the input frames from
 /// `⌊k·from/to⌋` up to, not including, `⌊(k+1)·from/to⌋`, as many of them as the sound holds.
-fn averaged(frames: &[Vec<f64>], channel: usize, k: u64, from: u32, to: u32) -> f64 {
+///
+/// `frames` begins at input frame `offset`, and holds every frame from there the output frame
+/// reads.
+fn averaged(frames: &[Vec<f64>], offset: usize, channel: usize, k: u64, from: u32, to: u32) -> f64 {
     let at = |k: u64| {
         let position = k
             .saturating_mul(u64::from(from))
             .checked_div(u64::from(to))
             .unwrap_or(0);
-        usize::try_from(position).unwrap_or(usize::MAX)
+        usize::try_from(position)
+            .unwrap_or(usize::MAX)
+            .saturating_sub(offset)
     };
     let start = at(k).min(frames.len());
     let end = at(k.saturating_add(1)).min(frames.len()).max(start);
@@ -318,10 +471,20 @@ fn averaged(frames: &[Vec<f64>], channel: usize, k: u64, from: u32, to: u32) -> 
 
 /// Output frame `k`'s `channel` where the device is as fast or faster: on the straight line from
 /// input frame `⌊k·from/to⌋` to the next, the last frame held past the sound's end.
-fn interpolated(frames: &[Vec<f64>], channel: usize, k: u64, from: u32, to: u32) -> f64 {
+///
+/// `frames` begins at input frame `offset`, as in [`averaged`].
+fn interpolated(
+    frames: &[Vec<f64>],
+    offset: usize,
+    channel: usize,
+    k: u64,
+    from: u32,
+    to: u32,
+) -> f64 {
     let position = k.saturating_mul(u64::from(from));
-    let index =
-        usize::try_from(position.checked_div(u64::from(to)).unwrap_or(0)).unwrap_or(usize::MAX);
+    let index = usize::try_from(position.checked_div(u64::from(to)).unwrap_or(0))
+        .unwrap_or(usize::MAX)
+        .saturating_sub(offset);
     let sample = |index: usize| {
         frames
             .get(index.min(frames.len().saturating_sub(1)))
@@ -341,7 +504,9 @@ fn interpolated(frames: &[Vec<f64>], channel: usize, k: u64, from: u32, to: u32)
 
 #[cfg(test)]
 mod tests {
-    use super::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said};
+    use super::{
+        ConversionError, Converter, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said,
+    };
 
     /// Full scale's fractions as the worker's top-aligned `i32`: `x · 2³¹`.
     fn top(fraction: f64) -> i32 {
@@ -530,5 +695,53 @@ mod tests {
         );
         let ordered = speakers_said(0x30, 2, device(48_000, 6)).expect("said");
         assert!(ordered.contains("by its order"), "{ordered}");
+    }
+
+    /// A sound converted a run at a time is the sound converted whole, sample for sample, at a
+    /// slower device, a faster one, the same rate and a mix by speakers, whatever the runs' lengths
+    /// (ADR 3457).
+    #[test]
+    fn a_sound_converted_in_runs_is_the_sound_converted_whole() {
+        let samples: Vec<i32> = (0..1_234_i32)
+            .map(|n| n.wrapping_mul(2_654_435_761_u32.cast_signed()))
+            .collect();
+        for (rate, channels, speakers, to) in [
+            (44_100, 2, 0, device(8_000, 1)),
+            (8_000, 2, 0, device(44_100, 2)),
+            (22_050, 2, 0, device(48_000, 2)),
+            (48_000, 2, 0, device(48_000, 2)),
+            (48_000, 6, 0x3F, device(44_100, 2)),
+        ] {
+            let usable = samples.len() - samples.len() % usize::from(channels);
+            let sound = &samples[..usable];
+            let whole = converted(rate, channels, speakers, sound, to, MAX_PLAYED_SAMPLES)
+                .expect("converted whole");
+            for frames_per_run in [1, 7, 64, 1_000] {
+                let mut converter =
+                    Converter::new(rate, channels, speakers, to, MAX_PLAYED_SAMPLES)
+                        .expect("a converter");
+                let mut out = Vec::new();
+                for run in sound.chunks(frames_per_run * usize::from(channels)) {
+                    converter.push(run, &mut out).expect("a run converted");
+                }
+                converter.finish(&mut out).expect("the last frames");
+                assert_eq!(
+                    out, whole,
+                    "{rate} Hz x{channels} to {to:?}, runs of {frames_per_run}"
+                );
+            }
+        }
+    }
+
+    /// The bound holds a sound arriving in runs as it holds a whole one: at the run that passes it.
+    #[test]
+    fn a_sound_in_runs_past_the_bound_is_refused_where_it_passes() {
+        let mut converter = Converter::new(8_000, 1, 0, device(8_000, 1), 10).expect("a converter");
+        let mut out = Vec::new();
+        converter.push(&[0; 8], &mut out).expect("under the bound");
+        assert!(matches!(
+            converter.push(&[0; 8], &mut out),
+            Err(ConversionError::TooLarge { limit: 10, .. })
+        ));
     }
 }

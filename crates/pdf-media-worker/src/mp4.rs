@@ -12,11 +12,14 @@
 //! # The layout read
 //!
 //! **ISO/IEC 14496-12, the ISO base media file format**, which MP4 (ISO/IEC 14496-14), M4A and
-//! 3GPP files are. None of the three is held in `doc/`; what follows paraphrases the facts this
-//! reader depends on, by section of 14496-12, and claims no sentence of them verbatim:
+//! 3GPP files are. Its fourth edition, ISO/IEC 14496-12:2012, is held at
+//! `doc/ISO-IEC-14496-12-2012.pdf` (A988), and every fact below was read against it and is cited
+//! by its clause there (ADR 3460); what follows restates those facts rather than quoting them.
+//! ISO/IEC 14496-14 is not held:
 //!
 //! - **4.2, the box**: a 32-bit big-endian size, then a four-character type; a size of 1 means a
-//!   64-bit size follows the type, a size of 0 means the box runs to the end of what holds it, and
+//!   64-bit size follows the type, a size of 0 means the box is the last in the file and runs to
+//!   its end — inside another box, a choice this reader makes, to the end of what holds it — and
 //!   a type of `uuid` is followed by a sixteen-byte extended type. A *full box* begins its payload
 //!   with an eight-bit version and 24 bits of flags.
 //! - **8.2.1, `moov`**, the movie box, holds the metadata; there is one. **8.8.1, `mvex`** in it says
@@ -60,7 +63,8 @@
 //! A file with no `moov`, or with two; a fragmented file; a file with no enabled sound track; a
 //! sound track whose first sample entry is not `mp4a` (`enca`, an encrypted one, among them); an
 //! `AudioSampleEntry` of a version other than 0 — `QuickTime`'s versions 1 and 2, which lengthen the
-//! entry, and 14496-12's own `AudioSampleEntryV1`; samples that name a description other than the
+//! entry, and the later editions' `AudioSampleEntryV1`, where the fourth edition holds those bytes
+//! reserved as zero (8.5.2.2); samples that name a description other than the
 //! first; media data in another file; a sample table that disagrees with itself (a chunk run that
 //! does not begin at chunk 1 or does not increase, durations for more or fewer samples than the
 //! sizes count, chunks that hold more or fewer samples than there are); an access unit that lies
@@ -286,8 +290,8 @@ pub struct Presentation {
 /// The ordinary rate of an edit, 1 in 16.16 fixed point.
 const RATE_ONE: i32 = 0x0001_0000;
 
-/// What `track`'s edit list presents (14496-12, 8.6.5 and 8.6.6, paraphrased: the text is not
-/// held, Q988).
+/// What `track`'s edit list presents (ISO/IEC 14496-12:2012, 8.6.5 and 8.6.6; the segment
+/// duration is in the movie header's time scale and the media time in the media's, 8.6.6.3).
 ///
 /// An edit list maps the movie's timeline onto the media's: each entry presents, for its segment
 /// duration in the movie's time scale, the media from its media time on, and an entry whose media
@@ -298,7 +302,9 @@ const RATE_ONE: i32 = 0x0001_0000;
 ///
 /// This player applies the shape a sound track has: empty edits first, which become silence, then
 /// one edit at the ordinary rate. A segment duration of 0 is read as "the rest of the media" — a
-/// choice, because no held text says what a zero-length edit of an unfragmented file means. Any
+/// choice: 8.6.6.1 gives a zero segment duration a meaning only in the empty initial movie of a
+/// fragmented file, and says nothing of one in an unfragmented file, which is all this reader
+/// takes. Any
 /// other list is not applied and the [`Presentation::note`] says so: the media plays whole.
 #[must_use]
 pub fn presentation(track: &SoundTrack) -> Presentation {

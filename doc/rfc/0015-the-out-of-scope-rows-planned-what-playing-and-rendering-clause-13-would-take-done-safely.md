@@ -448,18 +448,34 @@ this machine's user may open no sound card — with sounds whose frames carry th
 Every row is a line of its `readings.txt`. The readings are four runs of 2026-11-23, under load
 averages from 10 to 358 on 32 processors; `doc/reviews/2185-audio-measured-in-use.md`
 has the method, every reading, and what a stand-in device cannot measure (a card's buffer and a
-crystal's drift).
+crystal's drift). Round 2189 streamed the sound to the helper (ADRs 3457, 3458) and measured again,
+on the same pipe and on ALSA's loopback card (ADR 3459); its readings are the later column and the
+loopback table below, dated beside the first.
 
-| figure | its line in `readings.txt` | reading, 2026-11-23 | bound |
-|---|---|---|---|
-| activation → first frame at the device, cold / warm (2 s sound) | `cold start`, `warm start` | medians 42–144 ms / 25–70 ms | — |
-| activation → first frame, a 30 s sound (raw, WAVE, AAC LC, HE-AAC) | `activation -> the player says Playing` | 0.3–3.1 s: the sound is decoded, converted and sent whole first | — |
-| pause → silence, resume → sound, stop → silence | `pause/resume/stop` | 19–25 ms, 9–24 ms, 16–25 ms; a resume repeats 10–40 ms | — |
-| media clock − device's frames over 643–659 s (160 s × 4) | `media clock` | −1.8 to 9.4 ppm by least squares; offset within −37 to +26 ms; no frame lost or repeated in a pass | — |
-| worker peak address space / resident | `worker:` | ≤ 7.2 / ≤ 5.4 MiB | 64 MiB (`Profile::Media`) |
-| worker processor per second of sound | `worker:` | ≤ 8.2 ms (HE-AAC ≈ 12 ms a 1.37 s request at most) | 1 s per request |
-| helper peak resident, 30 s / 160 s sound | `helper:`, `long sound's helper` | 15 / 120 MiB (two passes held at once); 60 ms to 2.6 s of silence between passes | — |
-| underruns in the long sound | `in the long sound`, `underruns by minute` | 841 to 2 414 (0.6–2.5 % of its time); 8–56 a minute at load 10–21, 300–457 at 91–262; no paging | — |
+| figure | its line in `readings.txt` | reading, 2026-11-23 (round 2185) | reading, 2026-11-23 (round 2189, streamed; pipe, two runs) | bound |
+|---|---|---|---|---|
+| activation → first frame at the device, cold / warm (2 s sound) | `cold start`, `warm start` | medians 42–144 ms / 25–70 ms | medians 56, 114 ms / 33, 65 ms | — |
+| activation → first frame, a 30 s sound (raw, WAVE, AAC LC, HE-AAC) | `activation -> the player says Playing` | 0.3–3.1 s: the sound is decoded, converted and sent whole first | first frame 31–38 ms (AAC LC), 66–172 ms (raw), 163–343 ms (WAVE), the second run at load 213 at its start; HE-AAC and v2 164–460 and 210–863 ms, of which the clips' own leading silence is 136 and 184 ms (ADR 3457) | — |
+| pause → silence, resume → sound, stop → silence | `pause/resume/stop` | 19–25 ms, 9–24 ms, 16–25 ms; a resume repeats 10–40 ms | 15–25 ms, 1.1–2.3 ms, 16–25 ms; a resume repeats 0 to 4.7 ms (ADR 3458) | — |
+| media clock − device's frames over 643–684 s (160 s × 4) | `media clock` | −1.8 to 9.4 ppm by least squares; offset within −37 to +26 ms; no frame lost or repeated in a pass | 1.5, 4.9 ppm; offset within −45 to +25 ms | — |
+| worker peak address space / resident | `worker:` | ≤ 7.2 / ≤ 5.4 MiB | ≤ 7.2 / ≤ 5.5 MiB | 64 MiB (`Profile::Media`) |
+| worker processor per second of sound | `worker:` | ≤ 8.2 ms (HE-AAC ≈ 12 ms a 1.37 s request at most) | ≤ 15.6 ms (HE-AAC, at load 30–70) | 1 s per request |
+| helper peak resident, 30 s / 160 s sound | `helper:`, `long sound's helper` | 15 / 120 MiB (two passes held at once); 60 ms to 2.6 s of silence between passes | 15 / 62.5–62.6 MiB (one copy, ADR 3457); 0–5 ms of silence between passes | — |
+| underruns in the long sound | `in the long sound`, `underruns by minute` | 841 to 2 414 (0.6–2.5 % of its time); 8–56 a minute at load 10–21, 300–457 at 91–262; no paging | 3 178 and 714; 46 s (6.7 %, the round's own gates building beside it) and 25 s (3.8 %); in the second, about 2.2 s a minute at every load from 15 to 49 — longer than 2185's, and not yet explained; no paging | — |
+
+On ALSA's loopback card (ADR 3459), one run of 2026-11-23, load averages 16 to 254 — frames reach
+the test a capture period late (about 12 ms), and the card has no converter, no crystal and no
+speaker:
+
+| figure | reading, 2026-11-23 (round 2189, loopback) |
+|---|---|
+| activation → first frame, cold / warm (2 s sound) | medians 168 / 61 ms |
+| activation → first frame, a 30 s sound | 62 ms (AAC LC), 86 ms (WAVE), 281 ms (raw); HE-AAC and v2 200 and 245 ms |
+| pause → silence, resume → sound, stop → silence | 7–11 ms, 6–10 ms, 0 ms; a resume skips 1.1 and 3.5 ms (the third trial took no frame between pause and resume) |
+| media clock − device's frames over 650 s | 7.3 ppm; offset within −43 to +116 ms |
+| underruns in the long sound | 768 silences, 4.0 s, the longest 32 ms; 4–12 a minute at load 16–24, 74–177 at 75–220 |
+| frames out of order | 4 462, in pairs of a 1 024-frame step back and a step forward: the loopback replaying a stale period at a playback xrun, which the helper's `cpal` reported beside them |
+| helper peak resident, 160 s sound | 62.7 MiB |
 
 ## 10. Part 5 — rich media, and Part 6 — the two actions
 

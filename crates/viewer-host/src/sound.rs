@@ -13,6 +13,13 @@
 //! wait on the sound server; the window sends an order and is woken when there is something to
 //! say, which it takes with [`Player::heard`].
 //!
+//! **A sound starts at its first run** (ADR 3457). The worker answers a sound a run at a time; each
+//! run is converted, levelled, cut to the section and handed to the sink as it arrives, and the
+//! first pass starts once the first frames are there, so that the wait before a sound is one run's
+//! and not the whole sound's. The sink holds the one copy every pass reads, so a repeat sends
+//! nothing again, and a pause asks the sink for the frame the device reached, where the
+//! resumption starts (ADR 3458).
+//!
 //! The device is behind [`Sink`], the seam a window fills with [`helper::open`] — the sound helper
 //! program, which alone links an audio library (ADR 3317) — and a test with a recording double.
 //! What crosses it is samples this program decoded, never the document's bytes, which is the
@@ -34,12 +41,15 @@ use std::time::{Duration, Instant};
 
 use clock::MediaClock;
 use passes::{Pass, Passes, levelled};
-pub use quorra_sound::{Progress, Report};
+use pdf_model::media::SimpleDuration;
+pub use quorra_sound::{Held, Progress, Report};
 
 pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said};
-use pdf_media_worker::MediaWorker;
+use convert::{Converter, samples_after};
 use pdf_media_worker::sound::{Encoding, SoundFormat};
+use pdf_media_worker::{MediaWorker, Run};
 use pdf_syntax::ObjectId;
+use std::ops::ControlFlow;
 use viewer_core::{DocumentId, MediaOperation, Recording, Screen, SoundData};
 pub use window::{HANDED_ON, HELD, Hearing, LOOK, PAUSED, Sounds};
 
@@ -48,19 +58,49 @@ pub use window::{HANDED_ON, HELD, Hearing, LOOK, PAUSED, Sounds};
 /// Made on the player's thread by [`OpenSink`] and never moved off it, so that a toolkit whose
 /// stream may not cross threads can be one.
 pub trait Sink {
-    /// The device's rate and channel count, which each sound is converted to before
-    /// [`Self::start`].
+    /// The device's rate and channel count, which each sound is converted to before it is
+    /// handed over.
     fn format(&self) -> DeviceFormat;
 
-    /// Starts `samples`, interleaved at [`Self::format`] as fractions of full scale, in place of
-    /// whatever was sounding; `report` is told, from whichever thread the device runs on, how many
-    /// frames have been written as they are, and once that the last has been — the count the
-    /// media clock is read from ([`clock`], ADR 3342).
+    /// Begins a new sound in place of the one held, stopping whatever sounds; its samples follow
+    /// by [`Self::append`] and end with [`Self::complete`]. The sink holds one sound, which every
+    /// pass of it reads (ADR 3457).
+    ///
+    /// # Errors
+    ///
+    /// The sentence to say where the device has gone.
+    fn load(&mut self) -> Result<(), String>;
+
+    /// Adds `samples`, interleaved at [`Self::format`] as fractions of full scale, at the end of
+    /// the sound held.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`].
+    fn append(&mut self, samples: &[f32]) -> Result<(), String>;
+
+    /// Says that the sound held has had its last samples.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`].
+    fn complete(&mut self) -> Result<(), String>;
+
+    /// Starts a pass of the sound held, from frame `from` for at most `frames` frames, in place of
+    /// whatever was sounding, whether or not every sample has arrived; `report` is told, from
+    /// whichever thread the device runs on, how many frames of the pass have been written as they
+    /// are, and once that the last has been — the count the media clock is read from ([`clock`],
+    /// ADR 3342). A pass reaching samples still to come waits for them, counting nothing, and
+    /// ends only where `frames` ends it or the sound is complete and its last frame written.
     ///
     /// # Errors
     ///
     /// The sentence to say where the device would not start.
-    fn start(&mut self, samples: Vec<f32>, report: Report) -> Result<(), String>;
+    fn start(&mut self, from: u64, frames: u64, report: Report) -> Result<(), String>;
+
+    /// Stops the pass that sounds and answers how many of its frames the device had reached, or
+    /// `None` where it cannot say or nothing sounded (ADR 3458).
+    fn pause(&mut self) -> Option<u64>;
 
     /// Stops what is sounding; nothing where nothing is.
     fn stop(&mut self);
@@ -107,7 +147,9 @@ pub enum Heard {
     /// An order changed nothing, and the sentence says why: §12.6.4.14's stop, pause or resume
     /// found no rendition associated with its annotation, or one not in the state it acts on —
     /// the clause's "there is no effect" — or Table 218's `/OP` 4 found its annotation's rendition
-    /// already playing, where it does nothing (ADR 3433). Whatever sounds sounds on.
+    /// already playing, where it does nothing (ADR 3433). Whatever sounds sounds on. Also what the
+    /// worker found of a sound only once it had decoded the last of it, which sounds on too (ADR
+    /// 3457).
     Unchanged(String),
 }
 
@@ -256,8 +298,8 @@ impl Player {
     ///
     /// **A pause keeps the device and gives up the stream.** The sink is told to stop, which in the
     /// sound helper closes the output stream and keeps the device it opened at the first sound, as
-    /// it is kept between sounds; the samples and the place in them stay here, and the clock holds
-    /// where the device's count stopped. A resume starts the rest of the pass on a new stream of
+    /// it is kept between sounds; the samples stay in the helper and the place in them here, and the
+    /// clock holds the frame the device said it had reached (ADR 3458). A resume starts the rest of the pass on a new stream of
     /// the same device, which costs no probe of the sound server, and a paused sound holds no
     /// stream another program's sound would share the device with.
     pub fn operate(
@@ -393,28 +435,50 @@ enum Stage {
     Paused,
 }
 
-/// The sound now in hand: its document and label, the whole of it converted and levelled, and
-/// where its passes are.
+/// The sound now in hand: its document and label, where its passes are, and how long it is once
+/// its last run has arrived. Its samples are the sink's, which holds the one copy (ADR 3457).
 struct Sounding {
     /// The number of the pass now at the device, which its reports carry.
     serial: u64,
     document: DocumentId,
     label: String,
-    /// Every sample of the sound, converted for the device and scaled to its level; each pass
-    /// sounds the first of them.
-    samples: Vec<f32>,
-    /// The device's channels, so that a pass's frames are counted in samples.
-    channels: usize,
     passes: Passes,
     /// The pass now held, sounding or frozen — after a pause, what was left of it.
     pass: Pass,
-    /// The frame of the samples the pass sounds from: zero, or where a pause stopped it.
+    /// The frame of the sound the pass sounds from: zero, or where a pause stopped it.
     from: u64,
+    /// The sound's frames once its last run has arrived (§13.2.5's intrinsic duration); `None`
+    /// while it is still arriving.
+    intrinsic: Option<u64>,
     /// The screen annotation a rendition action associated it with (Table 218's `/AN`).
     rendition: Option<viewer_core::Associated>,
     stage: Stage,
     /// Whether it holds the reader (Table 212's `/Synchronous`).
     synchronous: bool,
+}
+
+/// A sound arriving a run at a time: what its runs have done so far (ADR 3457).
+#[derive(Default)]
+struct Feed {
+    /// The conversion for the device, made at the first run.
+    converter: Option<Converter>,
+    /// The device's channels.
+    channels: usize,
+    /// Samples still to drop before Table 291's section begins, and still to keep before it ends.
+    skip: usize,
+    keep: usize,
+    /// Frames handed to the sink.
+    sent: u64,
+    /// The sentence for the window, made at the first run.
+    said: String,
+    /// How many of the worker's notes the sentence carries.
+    noted: usize,
+    /// Why the sound cannot go on.
+    failed: Option<String>,
+    /// Whether the sound is in hand: its first pass started, or held.
+    begun: bool,
+    /// Whether an order means it is not to go on.
+    superseded: bool,
 }
 
 /// The player's thread's state.
@@ -481,62 +545,205 @@ impl Thread {
                         continue;
                     }
                     self.silence();
-                    let samples = match self.prepared(&played) {
-                        Ok(samples) => samples,
-                        Err(why) => {
-                            self.tell(Heard::Refused(format!(
-                                "{} was not played: {why}",
-                                played.label
-                            )));
-                            continue;
-                        }
-                    };
-                    // Orders that arrived while the sound was decoded are read before it sounds:
-                    // a stop, a newer sound or its document closing means it never starts.
-                    queued.extend(self.inbox.try_iter());
-                    if queued
-                        .iter()
-                        .any(|order| supersedes(order, played.document))
-                    {
-                        continue;
-                    }
-                    self.sound(played, samples);
+                    self.streamed(&played, &mut queued);
                 }
             }
         }
     }
 
-    /// The sound decoded in the worker and converted for the sink, which is opened here at the
-    /// first sound; the sentence for the window beside the samples.
-    fn prepared(&mut self, played: &Played) -> Result<(Vec<f32>, String), String> {
-        let decoded = match &played.sound.recording {
-            Recording::Samples { format, data } => {
-                self.media
-                    .decode(&worker_format(*format), data, MAX_PLAYED_SAMPLES)
+    /// An order read between two runs of a sound still arriving, which is not one that ends it.
+    fn obeyed(&mut self, order: &Order) {
+        match order {
+            Order::Resume => self.resumed(),
+            Order::Operate {
+                document,
+                annotation,
+                operation,
+            } => self.operated(*document, *annotation, *operation),
+            Order::Progress(serial, progress) => self.progressed(*serial, *progress),
+            Order::Stop => self.silence(),
+            Order::Closed(document) => {
+                if self
+                    .sounding
+                    .as_ref()
+                    .is_some_and(|sounding| sounding.document == *document)
+                {
+                    self.silence();
+                }
             }
+            // Both end the sound arriving, and are queued rather than read here.
+            Order::Play(_) | Order::Quit => {}
+        }
+    }
+
+    /// `played` decoded in the worker a run at a time, each run converted and handed to the sink as
+    /// it arrives, and its first pass started at the first frames (ADR 3457). Orders that arrive
+    /// meanwhile are read between runs: a stop, a newer sound or its document closing ends the
+    /// sound there and is queued for the loop; any other is obeyed at once.
+    fn streamed(&mut self, played: &Played, queued: &mut VecDeque<Order>) {
+        let mut feed = Feed::default();
+        // The worker is lent to the decode so that each run can reach the rest of the thread.
+        let mut media = std::mem::take(&mut self.media);
+        let mut deliver = |run: Run<'_>| self.fed(played, &mut feed, &run, queued);
+        let decoded = match &played.sound.recording {
+            Recording::Samples { format, data } => media.decode_streamed(
+                &worker_format(*format),
+                data,
+                MAX_PLAYED_SAMPLES,
+                &mut deliver,
+            ),
             // A rendition's clip: the worker reads the file's header too (ADR 3349).
-            Recording::Wave(file) => self.media.decode_wave(file, MAX_PLAYED_SAMPLES),
+            Recording::Wave(file) => {
+                media.decode_wave_streamed(file, MAX_PLAYED_SAMPLES, &mut deliver)
+            }
             // An MP4 clip's AAC: the worker walks the file's boxes and decodes its stream, and this
             // side cuts the file where it is told (ADR 3381).
-            Recording::Mp4(file) => self.media.decode_mp4(file, MAX_PLAYED_SAMPLES),
+            Recording::Mp4(file) => {
+                media.decode_mp4_streamed(file, MAX_PLAYED_SAMPLES, &mut deliver)
+            }
+        };
+        self.media = media;
+        if feed.superseded {
+            return;
         }
-        .map_err(|error| error.to_string())?;
+        let why = match decoded {
+            Err(error) => error.to_string(),
+            Ok(_) if feed.failed.is_some() => feed.failed.take().unwrap_or_default(),
+            Ok(streamed) => match self.completed(played, &mut feed) {
+                Ok(()) => {
+                    let later: Vec<&str> = streamed
+                        .notes
+                        .iter()
+                        .skip(feed.noted)
+                        .map(String::as_str)
+                        .collect();
+                    if !later.is_empty() && self.sounding.is_some() {
+                        self.tell(Heard::Unchanged(format!(
+                            "{}: {}",
+                            played.label,
+                            later.join("; ")
+                        )));
+                    }
+                    return;
+                }
+                Err(why) => why,
+            },
+        };
+        if feed.begun {
+            self.silence_saying(&format!(", because {why}"));
+        } else {
+            if let Some(sink) = self.sink.as_mut() {
+                sink.stop();
+            }
+            self.tell(Heard::Refused(format!(
+                "{} was not played: {why}",
+                played.label
+            )));
+        }
+    }
+
+    /// One run of `played` handed on: converted, levelled, cut to the section and given to the
+    /// sink; the sound begun at its first frames; then the orders that arrived meanwhile read.
+    fn fed(
+        &mut self,
+        played: &Played,
+        feed: &mut Feed,
+        run: &Run<'_>,
+        queued: &mut VecDeque<Order>,
+    ) -> ControlFlow<()> {
+        if feed.failed.is_some() || feed.superseded {
+            return ControlFlow::Break(());
+        }
+        let mut converted = Vec::new();
+        let ready = match feed.converter.as_mut() {
+            Some(conversion) => conversion
+                .push(run.samples, &mut converted)
+                .map_err(|error| error.to_string()),
+            None => self.first_run(played, feed, run).and_then(|()| {
+                feed.converter.as_mut().map_or(Ok(()), |converter| {
+                    converter
+                        .push(run.samples, &mut converted)
+                        .map_err(|error| error.to_string())
+                })
+            }),
+        };
+        if let Err(why) = ready.and_then(|()| self.handed(played, feed, converted)) {
+            feed.failed = Some(why);
+            return ControlFlow::Break(());
+        }
+        // A first pass whose length is the sound's own and only part of it — a repeat count below
+        // one of the intrinsic duration — cannot be cut before the sound's length is known.
+        let playing = played.sound.playing;
+        let waits = matches!(playing.duration, SimpleDuration::Intrinsic)
+            && playing.repeat > 0.0
+            && playing.repeat < 1.0;
+        // A sound of one run is taken whole, as it arrived whole.
+        if !feed.begun && feed.sent > 0 && !waits && !run.last {
+            self.begin(played, feed, None);
+        }
+        let arrived: Vec<Order> = self.inbox.try_iter().collect();
+        for order in arrived {
+            if feed.superseded || supersedes(&order, played.document) {
+                feed.superseded = true;
+                queued.push_back(order);
+            } else if feed.begun {
+                self.obeyed(&order);
+            } else {
+                queued.push_back(order);
+            }
+        }
+        // An operation that stopped it (§12.6.4.14's `/OP` 1) ends it as a stop does.
+        if feed.begun && self.sounding.is_none() {
+            feed.superseded = true;
+        }
+        if feed.superseded {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+
+    /// The sink opened at the first sound, the sound's length checked against the bound where it
+    /// is known, the conversion made, the sink told a new sound comes, the section placed, and the
+    /// sentence for the window made.
+    fn first_run(&mut self, played: &Played, feed: &mut Feed, run: &Run<'_>) -> Result<(), String> {
         if self.sink.is_none() {
             self.sink = Some((self.open)().map_err(|why| format!("the audio device: {why}"))?);
         }
-        let Some(sink) = self.sink.as_ref() else {
+        let Some(sink) = self.sink.as_mut() else {
             return Err("the audio device was not opened".to_owned());
         };
         let device = sink.format();
-        let samples = converted(
-            decoded.rate,
-            decoded.channels,
-            decoded.speakers,
-            &decoded.samples,
-            device,
-            MAX_PLAYED_SAMPLES,
-        )
-        .map_err(|error| error.to_string())?;
+        // A sound whose length is known is refused before any of it sounds, as a whole one was.
+        if let Some(frames) = run.at_most {
+            let samples = samples_after(frames, run.rate, device);
+            if usize::try_from(samples).map_or(true, |samples| samples > MAX_PLAYED_SAMPLES) {
+                return Err(ConversionError::TooLarge {
+                    samples,
+                    limit: MAX_PLAYED_SAMPLES,
+                }
+                .to_string());
+            }
+        }
+        feed.converter = Some(
+            Converter::new(
+                run.rate,
+                run.channels,
+                run.speakers,
+                device,
+                MAX_PLAYED_SAMPLES,
+            )
+            .map_err(|error| error.to_string())?,
+        );
+        sink.load()
+            .map_err(|why| format!("the audio device: {why}"))?;
+        let channels = usize::from(device.channels.max(1));
+        let (begin, end) = sectioned(played.sound.playing.section, device.rate);
+        feed.channels = channels;
+        feed.skip = begin.saturating_mul(channels);
+        feed.keep = end.map_or(usize::MAX, |end| {
+            end.saturating_sub(begin).saturating_mul(channels)
+        });
         // §13.3 for a sound object's samples, §13.2.4.2 for a rendition's clip.
         let clause = match played.sound.recording {
             Recording::Samples { .. } => "§13.3",
@@ -546,33 +753,91 @@ impl Thread {
         let mut said = format!(
             "{} is playing: {} Hz, {} channel(s), converted for the device's {} Hz, {} channel(s) \
              (ISO 32000-2 {clause})",
-            played.label, decoded.rate, decoded.channels, device.rate, device.channels
+            played.label, run.rate, run.channels, device.rate, device.channels
         );
-        let speakers = speakers_said(decoded.speakers, decoded.channels, device);
-        for note in decoded.notes.iter().chain(&speakers) {
+        let speakers = speakers_said(run.speakers, run.channels, device);
+        for note in run.notes.iter().chain(&speakers) {
             said.push_str("; ");
             said.push_str(note);
         }
-        Ok((samples, said))
+        feed.noted = run.notes.len();
+        for note in described(&played.sound.playing) {
+            said.push_str("; ");
+            said.push_str(&note);
+        }
+        feed.said = said;
+        Ok(())
     }
 
-    /// The sound in hand from now: levelled, cut into its passes, its clock at zero, and its first
-    /// pass started — or held, where it does not play at once.
-    fn sound(&mut self, played: Played, (mut samples, mut said): (Vec<f32>, String)) {
+    /// Converted samples levelled, cut to the section, and handed to the sink.
+    fn handed(
+        &mut self,
+        played: &Played,
+        feed: &mut Feed,
+        mut samples: Vec<f32>,
+    ) -> Result<(), String> {
+        let dropped = feed.skip.min(samples.len());
+        feed.skip = feed.skip.saturating_sub(dropped);
+        samples.drain(..dropped);
+        samples.truncate(feed.keep);
+        feed.keep = feed.keep.saturating_sub(samples.len());
+        if samples.is_empty() {
+            return Ok(());
+        }
+        levelled(&mut samples, played.sound.playing.level);
+        let Some(sink) = self.sink.as_mut() else {
+            return Err("the audio device was not opened".to_owned());
+        };
+        sink.append(&samples)
+            .map_err(|why| format!("the audio device: {why}"))?;
+        let frames = samples.len().checked_div(feed.channels).unwrap_or_default();
+        feed.sent = feed
+            .sent
+            .saturating_add(u64::try_from(frames).unwrap_or(u64::MAX));
+        Ok(())
+    }
+
+    /// The sound's last runs handed on: the conversion's last frames sent, the sink told the
+    /// sound is complete, and its length — now known — given to its passes, or the sound begun
+    /// where it had not been.
+    fn completed(&mut self, played: &Played, feed: &mut Feed) -> Result<(), String> {
+        let mut last = Vec::new();
+        if let Some(converter) = feed.converter.as_mut() {
+            converter
+                .finish(&mut last)
+                .map_err(|error| error.to_string())?;
+        }
+        self.handed(played, feed, last)?;
+        if let Some(sink) = self.sink.as_mut() {
+            sink.complete()
+                .map_err(|why| format!("the audio device: {why}"))?;
+        }
+        let intrinsic = feed.sent;
+        if !feed.begun {
+            self.begin(played, feed, Some(intrinsic));
+            return Ok(());
+        }
+        let Some(sounding) = self.sounding.as_mut() else {
+            return Ok(());
+        };
+        sounding.intrinsic = Some(intrinsic);
+        sounding.passes.learned(intrinsic);
+        // The pass at the device was started with its provisional length, which the device ends
+        // at the sound's end; restated, it is the length its end and the clock count.
+        sounding.pass = sounding.passes.restated(sounding.pass, sounding.from);
+        Ok(())
+    }
+
+    /// The sound in hand from now: cut into its passes — provisionally where its length is not yet
+    /// known, which [`Passes::learned`] corrects — its clock at zero, and its first pass started,
+    /// or held where it does not play at once.
+    fn begin(&mut self, played: &Played, feed: &mut Feed, intrinsic: Option<u64>) {
+        feed.begun = true;
         let playing = played.sound.playing;
         let Some(format) = self.sink.as_ref().map(|sink| sink.format()) else {
             return;
         };
-        levelled(&mut samples, playing.level);
-        for note in described(&playing) {
-            said.push_str("; ");
-            said.push_str(&note);
-        }
-        let channels = usize::from(format.channels.max(1));
-        sectioned(&mut samples, playing.section, format.rate, channels);
-        let intrinsic = u64::try_from(samples.len().checked_div(channels).unwrap_or_default())
-            .unwrap_or(u64::MAX);
-        let mut passes = Passes::new(&playing, intrinsic, format.rate);
+        let mut passes = Passes::new(&playing, intrinsic.unwrap_or(u64::MAX), format.rate);
         let Some(pass) = passes.next_pass() else {
             self.tell(Heard::Ended(format!(
                 "{} has a duration of nothing (Table 292, Table 291's /RC), so nothing sounded",
@@ -585,17 +850,17 @@ impl Thread {
         self.sounding = Some(Sounding {
             serial: 0,
             document: played.document,
-            label: played.label,
-            samples,
-            channels,
+            label: played.label.clone(),
             passes,
             pass,
             from: 0,
+            intrinsic,
             rendition: played.sound.rendition,
             stage: Stage::Held,
             synchronous: playing.synchronous,
         });
         self.paint(played.sound.screen.map(|screen| (played.document, screen)));
+        let mut said = std::mem::take(&mut feed.said);
         if !playing.auto_play {
             said.push_str(
                 "; it is held at its start, because Table 291's /A is false: \"the media shall be \
@@ -626,28 +891,18 @@ impl Thread {
             return Ok(());
         };
         sounding.serial = serial;
-        let start = usize::try_from(sounding.from)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(sounding.channels)
-            .min(sounding.samples.len());
-        let frames = usize::try_from(sounding.pass.sounding).unwrap_or(usize::MAX);
-        let end = frames
-            .saturating_mul(sounding.channels)
-            .saturating_add(start)
-            .min(sounding.samples.len());
-        if end == start {
+        let past_the_end = sounding
+            .intrinsic
+            .is_some_and(|intrinsic| sounding.from >= intrinsic);
+        if sounding.pass.sounding == 0 || past_the_end {
             sounding.stage = Stage::Frozen;
             self.with_clock(|clock| clock.freeze(Instant::now()));
             return Ok(());
         }
         sounding.stage = Stage::Sounding;
-        let samples = sounding
-            .samples
-            .get(start..end)
-            .unwrap_or_default()
-            .to_vec();
         sink.start(
-            samples,
+            sounding.from,
+            sounding.pass.sounding,
             Box::new(move |progress| {
                 let _ = report.send(Order::Progress(serial, progress));
             }),
@@ -869,6 +1124,16 @@ impl Thread {
     /// for [`Self::resumed`] (Table 218's `/OP` 2).
     fn paused(&mut self) {
         let now = Instant::now();
+        // The device's own word on where it reached, which a report may have run ahead of by the
+        // frames it held unplayed (ADR 3458).
+        if self
+            .sounding
+            .as_ref()
+            .is_some_and(|sounding| sounding.stage == Stage::Sounding)
+            && let Some(reached) = self.sink.as_mut().and_then(|sink| sink.pause())
+        {
+            self.with_clock(|clock| clock.reached(reached));
+        }
         let mut folded = (0, 0);
         self.with_clock(|clock| folded = clock.pause(now));
         let (sounded, frozen) = folded;
@@ -971,28 +1236,26 @@ fn not_in_state(annotation: ObjectId, operation: MediaOperation, state: &str) ->
 /// its beginning to its end, or to the clip's own end where it states none or one past it. A
 /// beginning at or past the end leaves nothing, which the clause calls "an empty range" and "valid"
 /// (ADR 3398).
-fn sectioned(
-    samples: &mut Vec<f32>,
-    section: pdf_model::media::Section,
-    rate: u32,
-    channels: usize,
-) {
-    let frames = samples.len().checked_div(channels).unwrap_or_default();
+/// Table 291's section as frames of a device of `rate`: where it begins and, where it states one,
+/// where it ends — each held to the other, and to the sound's own length by the runs that do not
+/// reach it.
+fn sectioned(section: pdf_model::media::Section, rate: u32) -> (usize, Option<usize>) {
     let frame_at = |seconds: f64| -> usize {
         let at = (seconds * f64::from(rate)).round();
-        // A finite, non-negative position past `usize` is past every clip, which `min` holds.
+        // A finite, non-negative position past `usize` is past every clip, which the runs hold.
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "a non-negative float to integer `as` saturates, and the result is held to the clip's frames"
         )]
         let at = at as usize;
-        at.min(frames)
+        at
     };
-    let end = section.end.map_or(frames, frame_at);
-    let begin = frame_at(section.begin).min(end);
-    samples.truncate(end.saturating_mul(channels));
-    samples.drain(..begin.saturating_mul(channels));
+    let end = section.end.map(frame_at);
+    let begin = end.map_or(frame_at(section.begin), |end| {
+        frame_at(section.begin).min(end)
+    });
+    (begin, end)
 }
 
 /// The parameters that differ from their defaults, each a sentence, so that a person told a sound
@@ -1074,21 +1337,16 @@ mod tests {
     use super::sectioned;
     use pdf_model::media::Section;
 
-    /// §13.2.4.3's section cuts whole frames: from its beginning to its end, to the clip's end
-    /// where it states none or one past it, and to nothing where it begins at or past its end.
+    /// §13.2.4.3's section is placed on whole frames of the device: its beginning and its end,
+    /// none where it states none, and a beginning past its end held to the end, which leaves
+    /// nothing; the runs hold both to the clip's own length.
     #[test]
-    fn a_section_cuts_whole_frames_and_an_empty_range_leaves_none() {
-        let frames: Vec<f32> = (0..20u8).map(f32::from).collect();
-        let cut = |begin: f64, end: Option<f64>| {
-            let mut samples = frames.clone();
-            sectioned(&mut samples, Section { begin, end }, 4, 2);
-            samples
-        };
-        assert_eq!(cut(0.0, None), frames);
-        assert_eq!(cut(0.5, Some(1.0)), vec![4.0, 5.0, 6.0, 7.0]);
-        assert_eq!(cut(2.0, None), vec![16.0, 17.0, 18.0, 19.0]);
-        assert_eq!(cut(1.0, Some(99.0)).len(), 12);
-        assert_eq!(cut(2.0, Some(1.0)), Vec::<f32>::new());
-        assert_eq!(cut(9.0, None), Vec::<f32>::new());
+    fn a_section_is_placed_on_whole_frames_and_an_empty_range_leaves_none() {
+        let placed = |begin: f64, end: Option<f64>| sectioned(Section { begin, end }, 4);
+        assert_eq!(placed(0.0, None), (0, None));
+        assert_eq!(placed(0.5, Some(1.0)), (2, Some(4)));
+        assert_eq!(placed(2.0, None), (8, None));
+        assert_eq!(placed(1.0, Some(99.0)), (4, Some(396)));
+        assert_eq!(placed(2.0, Some(1.0)), (4, Some(4)));
     }
 }

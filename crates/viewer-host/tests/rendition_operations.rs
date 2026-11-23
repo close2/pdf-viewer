@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use pdf_syntax::ObjectId;
 use viewer_core::{Associated, Command, DocumentId, MediaOperation, Screen, SoundData};
-use viewer_host::sound::{DeviceFormat, Heard, Played, Player, Progress, Report, Sink};
+use viewer_host::sound::{DeviceFormat, Heard, Held, Played, Player, Progress, Report, Sink};
 
 /// The frames the stand-in device says it has played of each start before it is stopped.
 const PLAYED: u64 = 2;
@@ -31,8 +31,9 @@ struct Record {
     opened: usize,
 }
 
-/// The device's double: 8000 Hz mono, reporting [`PLAYED`] frames of each start and never its end.
-struct Device(Arc<Mutex<Record>>);
+/// The device's double: 8000 Hz mono, reporting [`PLAYED`] frames of each start and never its end,
+/// and answering a pause with the frames it says it reached, where it says any.
+struct Device(Arc<Mutex<Record>>, Held, Option<u64>);
 
 impl Sink for Device {
     fn format(&self) -> DeviceFormat {
@@ -42,7 +43,34 @@ impl Sink for Device {
         }
     }
 
-    fn start(&mut self, samples: Vec<f32>, mut report: Report) -> Result<(), String> {
+    fn load(&mut self) -> Result<(), String> {
+        self.1 = Held::new();
+        Ok(())
+    }
+
+    fn append(&mut self, samples: &[f32]) -> Result<(), String> {
+        self.1.append(samples.to_vec());
+        Ok(())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        self.1.complete();
+        Ok(())
+    }
+
+    // The double cannot say where a device reached: the resumption is where the reports put it.
+    fn pause(&mut self) -> Option<u64> {
+        self.2
+    }
+
+    fn start(&mut self, from: u64, frames: u64, mut report: Report) -> Result<(), String> {
+        let channels = usize::from(1u16);
+        let at = |frame: u64| {
+            usize::try_from(frame)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels)
+        };
+        let samples = self.1.copied(at(from), at(from.saturating_add(frames)));
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -59,6 +87,11 @@ impl Sink for Device {
 }
 
 fn player() -> (Player, Arc<Mutex<Record>>, Receiver<()>) {
+    player_reaching(None)
+}
+
+/// [`player`] over a device that answers a pause with `reached` frames.
+fn player_reaching(reached: Option<u64>) -> (Player, Arc<Mutex<Record>>, Receiver<()>) {
     let record = Arc::new(Mutex::new(Record::default()));
     let shared = Arc::clone(&record);
     let (wake, woken) = channel();
@@ -67,7 +100,7 @@ fn player() -> (Player, Arc<Mutex<Record>>, Receiver<()>) {
             let mut record = shared.lock().unwrap_or_else(PoisonError::into_inner);
             record.opened = record.opened.saturating_add(1);
             drop(record);
-            Ok(Box::new(Device(Arc::clone(&shared))) as Box<dyn Sink>)
+            Ok(Box::new(Device(Arc::clone(&shared), Held::new(), reached)) as Box<dyn Sink>)
         }),
         Box::new(move || {
             let _ = wake.send(());
@@ -269,4 +302,23 @@ fn op_zero_replaces_the_rendition_associated_with_the_annotation() {
             .len(),
         2
     );
+}
+
+/// A device that says it had reached fewer frames than it had reported written is believed: the
+/// clock stands at its count, and the resumption starts at the frame after it, so nothing the
+/// device had not played is skipped and nothing it had is played again (ADR 3458).
+#[test]
+fn a_pause_resumes_at_the_frame_the_device_reached() {
+    let (mut player, recorded, woken) = player_reaching(Some(1));
+    player.play(played(false));
+    assert!(matches!(one(&mut player, &woken), Heard::Playing(_)));
+    player.operate(DOCUMENT, SCREEN, MediaOperation::Pause);
+    assert!(matches!(one(&mut player, &woken), Heard::Paused(_)));
+    // One frame of an 8000 Hz device, where the reports had said two.
+    assert_eq!(player.position(), Some(Duration::from_micros(125)));
+    player.operate(DOCUMENT, SCREEN, MediaOperation::Resume);
+    assert!(matches!(one(&mut player, &woken), Heard::Playing(_)));
+    let record = recorded.lock().unwrap_or_else(PoisonError::into_inner);
+    let (first, resumed) = (&record.started[0], &record.started[1]);
+    assert_eq!(resumed.as_slice(), &first[1..]);
 }

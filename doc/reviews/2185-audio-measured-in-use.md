@@ -128,3 +128,46 @@ mixing (none is installed here); the Qt window's `QAudioSink`, which is not this
 plays through the same helper since ADR 3317, so nothing separate remains for it); and Windows,
 whose window plays through the same helper and has not been run here. A machine with a card the
 user may open measures the first three by pointing the wrapper's configuration at it.
+
+## Readings after the sound was streamed — round 2189, 2026-11-23
+
+Round 2189 removed the three shortfalls above (ADRs 3457, 3458) and ran the same command again: twice
+on the pipe (run 5 with the round's own gates building beside it, load 33–151; run 6 with nothing of
+its own, load 213 at its start falling to 15), and once on ALSA's loopback card
+(`AUDIO_IN_USE_ROUTE=loopback`, ADR 3459; load 16–254). The figures are beside the first table's,
+not in place of them.
+
+| figure | runs 1–4 (above) | run 5, pipe | run 6, pipe | loopback |
+|---|---|---|---|---|
+| activation → first frame, cold, median | 42–144 ms | 56 ms | 114 | 168 |
+| activation → first frame, warm, median | 25–70 ms | 33 ms | 65 | 61 |
+| the same, a 30 s §13.3 sound / WAVE / AAC LC | 372–626 / 425–3 083 / 316–3 033 ms | 66 / 163 / 31 ms | 172 / 343 / 38 | 281 / 86 / 62 |
+| the same, HE-AAC / HE-AAC v2 | 481–820 / 279–517 ms | 460 / 210 ms | 164 / 863 | 200 / 245 |
+| frames repeated (−) or skipped (+) across a pause | 10–40 ms repeated | −2.6, 0, 0 ms | −4.7, −2.9, −1.6 | +3.5, +1.1, — |
+| media clock drift; offset range | −1.8 to 9.4 ppm; −37 to +26 ms | 1.5 ppm; −45 to +25 | 4.9; −32 to +25 | 7.3; −43 to +116 |
+| silence between passes, median (min–max) | 80–410 (60–2 620) ms | 5 (0–5) ms | 5 (0–5) | 0 (0–60) |
+| helper peak resident, the 160 s sound | 120.1–120.7 MiB | 62.5 MiB | 62.6 | 62.7 |
+| underruns in the long sound: count, time | 841–2 414, 4.0–16.5 s | 3 178, 46 s | 714, 25 s | 768 silences, 4.0 s |
+
+What they say:
+
+- **A sound starts at its first run.** Thirty seconds now start in 31–343 ms on the pipe, the slower
+  figures at load averages near 200; the whole-sound wait of 0.3–3.1 s is gone. The HE-AAC clips'
+  first frames trail `Playing` by about their own leading silence — 136 and 184 ms of zeros, by
+  `ffmpeg`'s decoding of the same files, evidence only — and by more under load, where the helper
+  reached samples still to come (run 6's 863 ms at load 213).
+- **A resume repeats or skips under 5 ms**, where it repeated 10–40 ms: the resumption is the frame
+  the device said it reached. On the pipe the device's stated delay is a little short of what the
+  pipe holds (it repeats up to 4.7 ms); on the loopback a little long (it skips up to 3.5 ms).
+- **One pass is held**: 62.5–62.7 MiB for the 160 s sound, its one copy, where two were; the silence
+  between passes is 0–5 ms where it was 60 ms to 2.6 s.
+- **The underruns are not better, and run 6's are not explained.** Run 6 spent about 2.2 s a minute
+  in underruns at every load from 15 to 49, where 2185's runs followed the load; a stall of the
+  helper's own would look like that, and none was found by reading. On the loopback, the helper's
+  silences were fewer (4–12 a minute at load 16–24) but its 4 462 out-of-order frames come in pairs
+  of a 1 024-frame step back and one forward — the loopback replaying a stale period at a playback
+  xrun, which `cpal` reported beside them — so its xruns are those pairs too. Both are the next
+  round's, with the helper's scheduling priority and its buffer.
+- **What the loopback adds and leaves**: a driver's period and buffer and ALSA's own delay figure;
+  still no converter, no crystal (its timer is the machine's clock) and no speaker, and every time
+  read from it is late by up to a capture period, about 12 ms.

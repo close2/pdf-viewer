@@ -47,6 +47,13 @@ impl MediaClock {
         self.sounding = self.sounding.max(frames);
     }
 
+    /// The device's own count of the frames of the pass it had reached when it was paused, which
+    /// replaces the reports: a report counts frames written, which run ahead of those heard by the
+    /// frames the device still held, so this one may be lower and is taken as it is (ADR 3458).
+    pub fn reached(&mut self, frames: u64) {
+        self.sounding = frames;
+    }
+
     /// The pass now sounding is over after `frames` — its whole length, which the device's last
     /// report may have fallen short of by a period.
     pub fn sounded(&mut self, frames: u64) {

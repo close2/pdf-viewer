@@ -4,7 +4,19 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{Sender, channel};
 
 use crate::Progress;
-use crate::wire::{self, Format, Order, Reply, WireError};
+use crate::held::Held;
+use crate::wire::{self, Format, MAX_SAMPLES, Order, Reply, WireError};
+
+/// One pass of the sound held: where in it the pass starts and how far it may go.
+#[derive(Clone, Debug)]
+pub struct Pass {
+    /// The sound, which may still be arriving.
+    pub held: Held,
+    /// The frame the pass starts at.
+    pub from: u64,
+    /// The most frames it plays; it ends sooner where the sound does.
+    pub frames: u64,
+}
 
 /// The audio device the helper plays on: `cpal`'s default output in the program, a recording double
 /// in a test.
@@ -12,15 +24,21 @@ pub trait Device {
     /// The device's rate and channel count, which the window converts each sound to.
     fn format(&self) -> Format;
 
-    /// Starts `samples`, interleaved at [`Self::format`], in place of whatever sounds; `report` is
-    /// told, from whichever thread the device runs on, how many frames have been written as they
-    /// are — often enough to time against, every twentieth of a second at most — and once that
-    /// the last has been (ADR 3342).
+    /// Starts `pass`, interleaved at [`Self::format`], in place of whatever sounds; `report` is
+    /// told, from whichever thread the device runs on, how many of its frames have been written as
+    /// they are — often enough to time against, every twentieth of a second at most — and once that
+    /// the last has been (ADR 3342). Where the device reaches samples that have not arrived yet it
+    /// writes silence and counts nothing until they do (ADR 3457).
     ///
     /// # Errors
     ///
     /// The sentence to say where the device would not start.
-    fn start(&mut self, samples: Vec<f32>, report: crate::Report) -> Result<(), String>;
+    fn start(&mut self, pass: Pass, report: crate::Report) -> Result<(), String>;
+
+    /// Stops the pass that sounds and answers how many of its frames the device had reached — the
+    /// frames written less those the device said it still held unplayed — or `None` where nothing
+    /// sounded (ADR 3458).
+    fn pause(&mut self) -> Option<u64>;
 
     /// Stops what sounds; nothing where nothing does.
     fn stop(&mut self);
@@ -34,8 +52,9 @@ pub trait Device {
 ///
 /// # Errors
 ///
-/// An order that could not be read. Its sound, if one sounds, is stopped first. A device that would
-/// not open is not an error here: the window has been told, and the helper's work is over.
+/// An order that could not be read, or a sound past [`MAX_SAMPLES`]. Its sound, if one sounds, is
+/// stopped first. A device that would not open is not an error here: the window has been told, and
+/// the helper's work is over.
 pub fn serve<D: Device>(
     mut input: impl Read,
     output: impl Write + Send + 'static,
@@ -78,14 +97,54 @@ fn played(
     device: &mut impl Device,
     replies: &Sender<Reply>,
 ) -> Result<(), WireError> {
+    // The one copy of the sound, which every pass reads (ADR 3457).
+    let mut held = Held::new();
+    // The serial of the pass now sounding, which a pause's reply carries.
+    let mut sounding = None;
     while let Some(order) = wire::read_order(input)? {
         match order {
-            Order::Stop => device.stop(),
-            Order::Play { serial, samples } => {
+            Order::Stop => {
+                device.stop();
+                sounding = None;
+            }
+            Order::Sound => {
+                device.stop();
+                sounding = None;
+                held = Held::new();
+            }
+            Order::Samples(samples) => {
+                let total = held.len().saturating_add(samples.len());
+                if total > MAX_SAMPLES {
+                    return Err(WireError::TooManySamples(
+                        u64::try_from(total).unwrap_or(u64::MAX),
+                    ));
+                }
+                held.append(samples);
+            }
+            Order::Complete => held.complete(),
+            // Answered whatever sounds, so that the window, which waits for the answer, is never
+            // left waiting: serial 0, which no pass is numbered, where nothing did.
+            Order::Pause => {
+                let reached = device.pause();
+                let _ = replies.send(Reply::Paused {
+                    serial: sounding.take().unwrap_or(0),
+                    frames: reached.unwrap_or(0),
+                });
+            }
+            Order::Play {
+                serial,
+                from,
+                frames,
+            } => {
                 device.stop();
                 let progress = replies.clone();
+                let pass = Pass {
+                    held: held.clone(),
+                    from,
+                    frames,
+                };
                 let reply = match device.start(
-                    samples,
+                    pass,
                     Box::new(move |said| {
                         let _ = progress.send(match said {
                             Progress::Played(frames) => Reply::Played { serial, frames },
@@ -93,8 +152,14 @@ fn played(
                         });
                     }),
                 ) {
-                    Ok(()) => Reply::Started(serial),
-                    Err(why) => Reply::Refused { serial, why },
+                    Ok(()) => {
+                        sounding = Some(serial);
+                        Reply::Started(serial)
+                    }
+                    Err(why) => {
+                        sounding = None;
+                        Reply::Refused { serial, why }
+                    }
                 };
                 let _ = replies.send(reply);
             }
