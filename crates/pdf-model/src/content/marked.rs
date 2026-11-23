@@ -428,6 +428,12 @@ impl Interpreter<'_> {
                 });
                 true
             }
+            Visibility::Malformed(what) => {
+                self.note(Unsupported::OptionalContent {
+                    detail: what.to_owned(),
+                });
+                true
+            }
         }
     }
 

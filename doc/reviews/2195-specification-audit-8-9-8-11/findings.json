@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/optional_content.rs:729 (operand: `.unwrap_or(true)` for a group state_of answers None); crates/pdf-model/src/optional_content.rs:716 (the comment saying `true` \"is the same thing as it having no effect on the result\" — D01)",
   "change": "Let a non-participating operand drop out of its operator rather than stand for ON: /And and /Or over the participating operands only, and a /Not (or a whole expression) whose operands all drop out leaving the content unaffected (visible), which is what the /P route's empty-states rule already does; restate the comment.",
   "execution": "FAIL (expected): crates/pdf-model/tests/xobjects_oc_8_9_8_11_spec_audit.rs::a_visibility_expression_or_ignores_a_group_outside_the_intent_spec_audit and ::a_visibility_expression_not_of_a_group_outside_the_intent_shows_spec_audit — round 2195; each test's /P-route control passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2195-B02",
@@ -26,7 +26,7 @@
   "code": "crates/pdf-model/src/content/xobject.rs:690 (optional_content: OptionalContent::read(document), beside the `view` built at :657 with set_magnification and set_purpose)",
   "change": "Take the imported page's optional content from the ViewState enter_imported has just built (its optional_content(), reapplied under the carried purpose and magnification), and carry the audience with the other reader-side factors; restate the comment's list.",
   "execution": "FAIL (expected): crates/pdf-model/tests/xobjects_oc_8_9_8_11_spec_audit.rs::an_imported_pages_layers_take_the_print_event_spec_audit — round 2195; its controls (the target printed directly hides the layer; the import on screen draws it) pass",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2195-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-model/src/content/annotations.rs:120 (the annotation dictionary's /OC, the only one asked on this route); crates/pdf-model/src/content/annotations.rs:401 (draw_appearance, which runs the /AP stream without asking its /OC)",
   "change": "Ask shows_optional_content of the appearance stream's own /OC in draw_appearance (beside the annotation's /OC, both required to be visible), so §12.5.3's flags, the annotation's /OC and the form's /OC all hold.",
   "execution": "FAIL (expected): crates/pdf-model/tests/xobjects_oc_8_9_8_11_spec_audit.rs::an_appearance_streams_own_oc_hides_it_spec_audit — round 2195; its controls (no /OC draws; the annotation's /OC hides) pass",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2195-D01",
@@ -55,7 +55,7 @@
   "code": "crates/pdf-model/src/optional_content.rs:689 and :716",
   "change": "Restate both comments with B01's fix: what a non-participating operand does to each operator, and what a malformed /Not evaluates to.",
   "execution": "Read, and probed: [/Not off off] draws the content (the first operand negated), [/Not on x] would hide it.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2195-D02",
@@ -68,6 +68,6 @@
   "code": "crates/pdf-model/src/optional_content.rs:704 (b\"Not\" => values.first().map(..), None on no operand); crates/pdf-model/src/content/marked.rs:426 (the depth sentence)",
   "change": "Give the malformed /Not the same answer evaluate gives other malformed expressions (visible, Some(true)), or a report of its own; keep None for the depth bound only.",
   "execution": "Probed in round 2195 through pdf_model::interpret: a BDC /OC naming << /Type /OCMD /VE [/Not] >> draws the content and its note reads the depth sentence.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

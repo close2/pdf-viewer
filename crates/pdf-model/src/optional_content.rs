@@ -145,6 +145,20 @@ pub enum Visibility {
     /// hidden is the one a reader can see — and the interpreter reports it, because a bound
     /// reached in silence is the failure mode this project's own habit forbids.
     TooDeep,
+    /// A `/VE` visibility expression §8.11.2.2 gives no reading: what the string names.
+    ///
+    /// Drawn and reported, as [`Visibility::TooDeep`] is and for the same reason; the string
+    /// is the report's sentence, so a malformed expression one level deep is not named as the
+    /// depth bound.
+    Malformed(&'static str),
+}
+
+/// Why a visibility expression has no answer. Each is drawn and reported by the caller.
+enum Unanswerable {
+    /// Nested past [`MAX_EXPRESSION_DEPTH`].
+    TooDeep,
+    /// Not an expression §8.11.2.2 can read; the sentence a report gives.
+    Malformed(&'static str),
 }
 
 /// The visibility policy of a membership dictionary. Table 97, `/P`.
@@ -643,9 +657,10 @@ impl OptionalContent {
         let expression = document.get_key(dictionary, "VE");
         if let Some(array) = expression.as_array() {
             return match self.evaluate(document, array, 0) {
-                Some(true) => Visibility::Visible,
-                Some(false) => Visibility::Hidden,
-                None => Visibility::TooDeep,
+                Ok(Some(true) | None) => Visibility::Visible,
+                Ok(Some(false)) => Visibility::Hidden,
+                Err(Unanswerable::TooDeep) => Visibility::TooDeep,
+                Err(Unanswerable::Malformed(what)) => Visibility::Malformed(what),
             };
         }
 
@@ -685,26 +700,62 @@ impl OptionalContent {
     /// > Its first element shall be a name representing a boolean operator ( And , Or , or
     /// > Not ).
     ///
-    /// `None` means the expression nested past [`MAX_EXPRESSION_DEPTH`]. A malformed
-    /// expression — an unknown operator, a `/Not` with two operands — evaluates to visible
-    /// rather than to an error: it is a defect in the file, and the clause gives no
-    /// alternative reading to report against.
-    fn evaluate(&self, document: &Document, expression: &[Object], depth: usize) -> Option<bool> {
+    /// `Ok(None)` means nothing in the expression takes part in deciding visibility: every
+    /// group it names is outside the configuration's intent or undeclared, and §8.11.2.3 says
+    /// such a group "shall have no effect on visibility". Such an operand drops out of its
+    /// operator — `/And` and `/Or` combine the operands that are left, and a `/Not` whose
+    /// operand dropped out drops out itself — so an expression with nothing left leaves the
+    /// content as the `/OCGs` route's empty set of states leaves it, visible. Reading the
+    /// operand as ON instead would let a group with no effect decide an `/Or` or a `/Not`.
+    ///
+    /// A `/Not` with more than its one operand is answered by its first and the rest are not
+    /// read. An expression that opens with no operator, or with a name that is not one of the
+    /// three, or a `/Not` with no operand at all, is [`Unanswerable::Malformed`]: the clause
+    /// gives it no reading, and the caller draws the content and says so.
+    fn evaluate(
+        &self,
+        document: &Document,
+        expression: &[Object],
+        depth: usize,
+    ) -> Result<Option<bool>, Unanswerable> {
         if depth > MAX_EXPRESSION_DEPTH {
-            return None;
+            return Err(Unanswerable::TooDeep);
         }
-        let operator = expression.first().and_then(Object::as_name)?;
+        let operator =
+            expression
+                .first()
+                .and_then(Object::as_name)
+                .ok_or(Unanswerable::Malformed(
+                    "a /VE visibility expression whose first element is not an operator name",
+                ))?;
         let operands = expression.get(1..).unwrap_or_default();
-        let mut values = Vec::with_capacity(operands.len());
-        for operand in operands {
-            values.push(self.operand(document, operand, depth)?);
-        }
         match operator.as_bytes() {
             // "If the first element is Not , it shall have only one subsequent element."
-            b"Not" => values.first().map(|value| !*value),
-            b"And" => Some(values.iter().all(|value| *value)),
-            b"Or" => Some(values.iter().any(|value| *value)),
-            _ => Some(true),
+            b"Not" => {
+                let operand = operands.first().ok_or(Unanswerable::Malformed(
+                    "a /VE visibility expression whose /Not has no operand",
+                ))?;
+                Ok(self.operand(document, operand, depth)?.map(|value| !value))
+            }
+            b"And" | b"Or" => {
+                let mut taking_part = Vec::with_capacity(operands.len());
+                for operand in operands {
+                    if let Some(value) = self.operand(document, operand, depth)? {
+                        taking_part.push(value);
+                    }
+                }
+                if taking_part.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(if operator.as_bytes() == b"And" {
+                    taking_part.iter().all(|value| *value)
+                } else {
+                    taking_part.iter().any(|value| *value)
+                }))
+            }
+            _ => Err(Unanswerable::Malformed(
+                "a /VE visibility expression whose operator is not And, Or or Not",
+            )),
         }
     }
 
@@ -713,8 +764,13 @@ impl OptionalContent {
     /// §8.11.2.2: "In evaluating a visibility expression, the ON state of an optional
     /// content group shall be equated to the boolean value true ; OFF shall be equated to
     /// false ." A group that takes no part — undeclared, or outside the configuration's
-    /// intent — is `true`, which is the same thing as it having no effect on the result.
-    fn operand(&self, document: &Document, operand: &Object, depth: usize) -> Option<bool> {
+    /// intent — is `None`, and [`OptionalContent::evaluate`] leaves it out of its operator.
+    fn operand(
+        &self,
+        document: &Document,
+        operand: &Object,
+        depth: usize,
+    ) -> Result<Option<bool>, Unanswerable> {
         if let Object::Array(nested) = operand {
             return self.evaluate(document, nested, depth.saturating_add(1));
         }
@@ -723,11 +779,7 @@ impl OptionalContent {
         {
             return self.evaluate(document, &nested, depth.saturating_add(1));
         }
-        Some(
-            reference(operand)
-                .and_then(|group| self.state_of(group))
-                .unwrap_or(true),
-        )
+        Ok(reference(operand).and_then(|group| self.state_of(group)))
     }
 }
 

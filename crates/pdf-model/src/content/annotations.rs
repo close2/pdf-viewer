@@ -198,30 +198,47 @@ impl Interpreter<'_> {
                 // is still in default user space and can undo what the page does to it.
                 self.view_dependent |= adjust.view_dependent;
                 let base = adjust.transform.then(base);
-                // Before the drawing, as a `Do` notes its form before running it: a form the
-                // appearance draws is inside it, and is met first in the reverse search (ADR 3030).
-                self.note_measured_appearance(&appearance, base);
-                self.draw_appearance(&appearance, base, &page.resources);
-                self.describe_annotation(dict, before);
-                // §14.7.5.3: an annotation is one of the two kinds of content item, and Table 359
-                // gives it a `/StructParent` of its own. An appearance stream states no `/MCID`,
-                // so this is the only thing that can say its text is in the structure tree — and
-                // §14.8.2.2.2's rule about content that is not would otherwise reclassify every
-                // filled-in field on a tagged form as an artifact.
-                if let Some(tree) = &self.tagged
-                    && self.text.len() > before
-                    && tree.claims_object(self.document, dict)
+                // §12.5.5: "Each appearance stream is a form XObject", and Table 93's `/OC` of
+                // a form is asked before the form is processed: "If it is determined to be
+                // invisible, the entire form shall be skipped, as if there were no Do operator
+                // to invoke it." The annotation dictionary's `/OC` (§8.11.3.3) was asked above,
+                // and both must show. A constructed appearance is no stream the file wrote and
+                // states none. Silent, as the annotation's is; a sound playing in the rectangle
+                // is still painted below, as it is over an appearance that draws nothing.
+                let skipped = if let crate::annotation::Content::Stored(stream) =
+                    &appearance.content
+                    && let Some(oc) = stream.dict.get("OC").cloned()
                 {
-                    self.structural_annotations.push(ObjectSpan {
-                        object: id,
-                        range: before..self.text.len(),
-                    });
-                }
-                // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
-                // clause calls it a *highlighting* mode, and what it highlights is whatever
-                // the annotation looks like.
-                if let Some(mark) = highlight {
-                    self.draw_highlight(mark, base);
+                    !self.shows_optional_content(&oc)
+                } else {
+                    false
+                };
+                if !skipped {
+                    // Before the drawing, as a `Do` notes its form before running it: a form the
+                    // appearance draws is inside it, and is met first in the reverse search (ADR 3030).
+                    self.note_measured_appearance(&appearance, base);
+                    self.draw_appearance(&appearance, base, &page.resources);
+                    self.describe_annotation(dict, before);
+                    // §14.7.5.3: an annotation is one of the two kinds of content item, and Table 359
+                    // gives it a `/StructParent` of its own. An appearance stream states no `/MCID`,
+                    // so this is the only thing that can say its text is in the structure tree — and
+                    // §14.8.2.2.2's rule about content that is not would otherwise reclassify every
+                    // filled-in field on a tagged form as an artifact.
+                    if let Some(tree) = &self.tagged
+                        && self.text.len() > before
+                        && tree.claims_object(self.document, dict)
+                    {
+                        self.structural_annotations.push(ObjectSpan {
+                            object: id,
+                            range: before..self.text.len(),
+                        });
+                    }
+                    // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
+                    // clause calls it a *highlighting* mode, and what it highlights is whatever
+                    // the annotation looks like.
+                    if let Some(mark) = highlight {
+                        self.draw_highlight(mark, base);
+                    }
                 }
             }
         }

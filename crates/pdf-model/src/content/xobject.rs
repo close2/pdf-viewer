@@ -645,13 +645,14 @@ impl<'a> Interpreter<'a> {
         page: &crate::page::Page,
         clip: Option<pdf_render::ClipId>,
     ) -> ImportedFrame<'a> {
-        // §12.5.3's placement is the *reader's* magnification rather than either file's,
-        // §8.11.4.4's event and §8.9.5.4's step c) are the *operation's* rather than either
-        // file's, and §10.8.3's simulation and the substitute for a null `/Font` entry are
-        // requests the reader made of this program rather than anything either file states (ADRs
-        // 1228, 2612) — so those four are what is carried across; everything else this state
-        // holds, §12.6.4.11's overrides and the annotations a person added, is filed under an
-        // `ObjectId` of the containing document and means nothing here.
+        // §12.5.3's placement and §8.11.4.4's `/Zoom` are the *reader's* magnification rather
+        // than either file's, §8.11.4.4's event and §8.9.5.4's step c) are the *operation's*
+        // purpose rather than either file's, Table 100's `/Language` and `/User` are the
+        // reader's audience, and §10.8.3's simulation and the substitute for a null `/Font`
+        // entry are requests the reader made of this program rather than anything either file
+        // states (ADRs 1228, 2612) — so those five are what is carried across; everything else
+        // this state holds, §12.6.4.11's overrides and the annotations a person added, is filed
+        // under an `ObjectId` of the containing document and means nothing here.
         let (imported_intent, imported_grey) =
             super::colour::output_intent_reading(document, Some(&page.dict));
         let mut view = crate::view::ViewState::of(document);
@@ -659,6 +660,11 @@ impl<'a> Interpreter<'a> {
         view.set_purpose(self.view.purpose());
         view.set_separation_simulation(self.view.separation_simulation());
         view.set_null_font_substitute(self.view.null_font_substitute());
+        view.set_audience(self.view.audience().clone());
+        // The target's groups under §8.11.4.5's usage application, reapplied by the setters
+        // above against the carried factors: a printed page prints its imported page's layers
+        // under the `/Print` event, not the `/View` event a fresh read applies.
+        let imported_optional_content = view.optional_content().cloned();
         ImportedFrame {
             document: std::mem::replace(&mut self.document, document),
             across: self.across.take(),
@@ -687,7 +693,7 @@ impl<'a> Interpreter<'a> {
             // object* it is (§8.11.2.2), in one file.
             optional_content: std::mem::replace(
                 &mut self.optional_content,
-                crate::optional_content::OptionalContent::read(document),
+                imported_optional_content,
             ),
             page_resources: std::mem::replace(
                 &mut self.page_resources,

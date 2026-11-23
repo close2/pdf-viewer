@@ -526,6 +526,83 @@ fn a_visibility_expression_past_the_bound_is_reported_rather_than_recursed() {
     );
 }
 
+/// A `/VE` that §8.11.2.2 gives no reading is drawn and reported in a sentence of its own.
+///
+/// > If the first element is Not , it shall have only one subsequent element.
+///
+/// `[/Not]` has none, and an operator outside And, Or and Not is no expression either. Neither is
+/// the depth bound, which is a resource limit and says so; a malformed expression one level deep
+/// named as that limit would send a reader after the wrong cause.
+#[test]
+fn a_malformed_visibility_expression_is_reported_as_itself_and_drawn() {
+    for (expression, sentence) in [
+        ("[/Not]", "whose /Not has no operand"),
+        ("[/Xor 5 0 R]", "whose operator is not And, Or or Not"),
+        ("[5 0 R]", "whose first element is not an operator name"),
+    ] {
+        let bytes = pdf(
+            ONE_GROUP_OFF,
+            "/Properties << /oc 6 0 R >>",
+            MARKED_SQUARE,
+            "",
+            &format!("{GROUP}6 0 obj\n<< /Type /OCMD /VE {expression} >>\nendobj\n"),
+        );
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let interpretation = pdf_model::interpret(&document, &page);
+        let reported = format!("{:?}", interpretation.unsupported);
+        assert!(
+            reported.contains(sentence) && !reported.contains("bound"),
+            "{expression}: {reported}"
+        );
+        let list = interpretation.display_list;
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let raster = CpuRasterizer::new()
+            .with_medium(pdf_render::Medium::NONE)
+            .rasterize(&list, target)
+            .expect("supported");
+        assert!(drew(&raster), "{expression} is drawn");
+    }
+}
+
+/// §8.11.2.3's group with "no effect on visibility" drops out of a nested operator as well, and
+/// `/Not` with more than its one operand is answered by the first.
+///
+/// `[/And off [/Not design]]` is decided by the OFF group alone — the `/Not` of a group outside
+/// the configuration's intent has nothing left to negate and leaves the `/And` with one operand —
+/// so it hides; `[/Not on off]` negates the ON group and hides; `[/Not off on]` shows.
+#[test]
+fn a_group_with_no_effect_drops_out_of_a_nested_expression() {
+    const TWO_GROUPS: &str = "5 0 obj\n<< /Type /OCG /Name (Off) >>\nendobj\n\
+         7 0 obj\n<< /Type /OCG /Name (Design) /Intent /Design >>\nendobj\n\
+         8 0 obj\n<< /Type /OCG /Name (On) >>\nendobj\n";
+    let page = |expression: &str| {
+        render(pdf(
+            "/OCProperties << /OCGs [5 0 R 7 0 R 8 0 R] /D << /OFF [5 0 R] >> >>",
+            "/Properties << /oc 6 0 R >>",
+            MARKED_SQUARE,
+            "",
+            &format!("{TWO_GROUPS}6 0 obj\n<< /Type /OCMD /VE {expression} >>\nendobj\n"),
+        ))
+    };
+    assert!(
+        !drew(&page("[/And 5 0 R [/Not 7 0 R]]")),
+        "the OFF group decides"
+    );
+    assert!(
+        drew(&page("[/Or [/Not 7 0 R] [/And 7 0 R]]")),
+        "nothing left: visible"
+    );
+    assert!(
+        !drew(&page("[/Not 8 0 R 5 0 R]")),
+        "the first operand, ON, negated"
+    );
+    assert!(
+        drew(&page("[/Not 5 0 R 8 0 R]")),
+        "the first operand, OFF, negated"
+    );
+}
+
 /// §8.11.4.4's `/AS` array switches a group off after the base configuration set it on.
 ///
 /// > For each of the groups in OCGs , the entries in its usage dictionary … specified by
