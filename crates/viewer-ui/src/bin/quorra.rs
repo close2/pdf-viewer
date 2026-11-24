@@ -102,6 +102,8 @@ mod files;
 mod find;
 #[path = "quorra/overlays.rs"]
 mod overlays;
+#[path = "quorra/pictures.rs"]
+mod pictures;
 #[path = "quorra/presentation.rs"]
 mod presentation;
 #[path = "quorra/sidebar.rs"]
@@ -229,6 +231,9 @@ fn open_document(
     // is judged for that player, and for this machine's where it is not (ISO 32000-2 §13.2.2,
     // ADRs 3350, 3417).
     drop(viewer.handle(Command::PlaysHere(plays_here)));
+    // And shows a clip's pictures itself, in its screen annotation, beside the clip's sound (RFC
+    // 0015 section 6, ADRs 3538, 3545).
+    drop(viewer.handle(Command::ShowsVideoHere(plays_here)));
     for refusal in supply
         .refused
         .into_iter()

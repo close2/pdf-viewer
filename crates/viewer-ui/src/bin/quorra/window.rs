@@ -143,149 +143,20 @@ impl ApplicationHandler for App {
             &self.cadence,
         );
     }
-
-    /// Keeps the presenter's clock and §12.4.4's, and only while there is one to keep.
-    ///
-    /// **Four speeds, and the idle one is still the default.** A window reading a document waits
-    /// for an event, which is what `main` sets and what a viewer is doing almost all of the time.
-    /// A window that owes a frame — a reprojection to replace, a redraw the clock deferred, a
-    /// §12.4.4 transition in flight — wakes on the *surface's* cadence ([`crate::cadence`]). A
-    /// presentation between transitions wakes ten times a second, which is enough to notice a
-    /// `/Dur` stated in seconds. A search polls, because a page read is not a frame and the
-    /// cadence has no business slowing one down.
-    ///
-    /// **`doc/todo/36`'s fourth rule is this method's `Wait`**, and it is worth saying which line
-    /// enforces it: every branch below that does not owe a frame leaves the loop waiting for an
-    /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
-    /// is a ceiling on latency and never a duty to draw.
+    /// Keeps the clocks — [`App::come_to_rest`]'s — and a clip's pictures: the picture that is due
+    /// is put up before the loop rests, and the rest ends no later than the next picture's time,
+    /// so a window showing a clip wakes at its pictures' rate and no faster (ADR 3545).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // The document's read or a turn's, while one is out: nothing below runs (ADRs 1811, 2360).
-        if self.waiting_for_a_read(event_loop) {
-            return;
-        }
-        // A card held while the window presented, once it has left full screen (ADR 2329).
-        self.put_up_what_was_held();
-        // A script's question whose wait has run out: a tick of no time is the command after which
-        // the viewer asks, and the withdrawal it then sends takes the card down (ADR 1643).
-        if self
-            .script_wait
-            .is_some_and(|wake| std::time::Instant::now() >= wake)
-        {
-            self.script_wait = None;
-            self.dispatch(Command::Tick { millis: 0 });
-        }
-        // A document's script timers, while no presentation's clock is telling the core the time:
-        // one clock per window, or the core would be told the same time twice (ADR 1702).
-        let script_timer = self.script_timers();
-        // The next document named beside this one, outside every pump: a document that settles
-        // does so inside one, and starting the next from there would nest a second (ADR 1275).
-        if std::mem::take(&mut self.arrival_due) {
-            self.open_the_next();
-        }
-        // **A reprojection may not be what this loop comes to rest on** (`doc/todo/37` rule 1,
-        // ADR 0378), and since `doc/todo/36` the frame that replaces one arrives *on the
-        // cadence* rather than at once. The difference is the whole feature: an immediate
-        // redraw handed the event thread to a render that takes fifty refreshes, so a view
-        // that kept moving could not be answered a second time, while a tick lets the next
-        // reprojection stand in for it and the real frame follow when nothing new is asked.
-        //
-        // It cannot spin — every frame that is not a reprojection clears the flag, including a
-        // frame that drew nothing at all, and `Cadence::presented` moves the tick on.
-        let owes_frame = self.stale.showing_approximation() || self.cadence.owes();
-        if owes_frame {
-            let now = std::time::Instant::now();
-            if self.cadence.due(now) {
-                self.redraw();
-            }
-        }
-        // One page of the search, once per turn round the loop. This is where the choice in
-        // `viewer_core::search` is paid for on this host: the core reads one page per command and
-        // has no thread to read a thousand on, so the loop that would otherwise be idle drives it
-        // and the window keeps drawing while it does.
-        //
-        // **After the redraw above and before the wait below**, deliberately: a page read is not
-        // a frame, so pacing it to the display would take a thousand-page search from the loop's
-        // own speed down to sixty pages a second — while returning before the redraw was asked
-        // for would leave a reprojection on the screen for the length of the search, which is
-        // rule 1's failure.
-        if self.pages_left > 0 {
-            self.dispatch(Command::Find(Find::Continue));
-            event_loop.set_control_flow(ControlFlow::Poll);
-            return;
-        }
-        if owes_frame {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
-            return;
-        }
-        if self.presentation.is_none() {
-            // §12.6.4.15's transition outside a presentation: one effect on the surface's own
-            // cadence, and then the window goes back to waiting for an event. `Clock::spent` is
-            // the turn after it ran out, which is what makes this a *transition* rather than a
-            // second presentation mode (ADR 1216).
-            let Some(effect) = self.effect.as_mut() else {
-                let wake = match (self.script_wait, script_timer) {
-                    (Some(question), Some(timer)) => Some(question.min(timer)),
-                    (question, timer) => question.or(timer),
-                };
-                event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
-                return;
+        let next_picture = self.show_the_pictures();
+        self.come_to_rest(event_loop);
+        if let Some(due) = next_picture {
+            let flow = match event_loop.control_flow() {
+                ControlFlow::Poll => ControlFlow::Poll,
+                ControlFlow::Wait => ControlFlow::WaitUntil(due),
+                ControlFlow::WaitUntil(wake) => ControlFlow::WaitUntil(wake.min(due)),
             };
-            // Armed and not yet begun is not spent: the effect is drawn when the page it moves
-            // *to* arrives, which is one render request away.
-            if effect.clock.spent() && self.arming.is_none() {
-                self.effect = None;
-                self.redraw();
-                event_loop.set_control_flow(ControlFlow::Wait);
-                return;
-            }
-            if !effect.clock.animating() {
-                event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
-                return;
-            }
-            let now = std::time::Instant::now();
-            if self.cadence.due(now) {
-                self.redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
-            return;
+            event_loop.set_control_flow(flow);
         }
-        let Some(presentation) = self.presentation.as_mut() else {
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if presentation.clock.animating() {
-            // §12.4.4's transition is an animation, and since `doc/todo/36` it is an animation on
-            // the *surface's* clock rather than on `ControlFlow::Poll`. It drew as fast as the
-            // loop could go, which on a fast device is frames nobody sees and a core at 100% for
-            // the length of the transition; the cadence gives it one frame per refresh, which is
-            // every frame a person can see and no more.
-            let now = std::time::Instant::now();
-            if self.cadence.due(now) {
-                self.redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
-            return;
-        }
-        let now = std::time::Instant::now();
-        let due = now >= presentation.wake;
-        if due {
-            presentation.wake = now.checked_add(Clock::RESTING).unwrap_or(now);
-        }
-        let wake = presentation.wake;
-        if due {
-            // Whether anybody can see the window, asked at the presentation's own wake because
-            // winit says nothing when X11 iconifies it (`App::window_hidden`, ADR 2300).
-            self.window_shown(!self.window_hidden());
-            if !self.hidden {
-                self.redraw();
-            }
-        }
-        // A hidden window's clock is parked and its script timers carry the time, so it wakes for
-        // whichever comes first: the next look at whether it is shown, or a timer.
-        let wake = script_timer
-            .filter(|_| self.hidden)
-            .map_or(wake, |timer| timer.min(wake));
-        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -531,6 +402,152 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// Keeps the presenter's clock and §12.4.4's, and only while there is one to keep.
+    ///
+    /// **Four speeds, and the idle one is still the default.** A window reading a document waits
+    /// for an event, which is what `main` sets and what a viewer is doing almost all of the time.
+    /// A window that owes a frame — a reprojection to replace, a redraw the clock deferred, a
+    /// §12.4.4 transition in flight — wakes on the *surface's* cadence ([`crate::cadence`]). A
+    /// presentation between transitions wakes ten times a second, which is enough to notice a
+    /// `/Dur` stated in seconds. A search polls, because a page read is not a frame and the
+    /// cadence has no business slowing one down.
+    ///
+    /// **`doc/todo/36`'s fourth rule is this method's `Wait`**, and it is worth saying which line
+    /// enforces it: every branch below that does not owe a frame leaves the loop waiting for an
+    /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
+    /// is a ceiling on latency and never a duty to draw.
+    fn come_to_rest(&mut self, event_loop: &ActiveEventLoop) {
+        // The document's read or a turn's, while one is out: nothing below runs (ADRs 1811, 2360).
+        if self.waiting_for_a_read(event_loop) {
+            return;
+        }
+        // A card held while the window presented, once it has left full screen (ADR 2329).
+        self.put_up_what_was_held();
+        // A script's question whose wait has run out: a tick of no time is the command after which
+        // the viewer asks, and the withdrawal it then sends takes the card down (ADR 1643).
+        if self
+            .script_wait
+            .is_some_and(|wake| std::time::Instant::now() >= wake)
+        {
+            self.script_wait = None;
+            self.dispatch(Command::Tick { millis: 0 });
+        }
+        // A document's script timers, while no presentation's clock is telling the core the time:
+        // one clock per window, or the core would be told the same time twice (ADR 1702).
+        let script_timer = self.script_timers();
+        // The next document named beside this one, outside every pump: a document that settles
+        // does so inside one, and starting the next from there would nest a second (ADR 1275).
+        if std::mem::take(&mut self.arrival_due) {
+            self.open_the_next();
+        }
+        // **A reprojection may not be what this loop comes to rest on** (`doc/todo/37` rule 1,
+        // ADR 0378), and since `doc/todo/36` the frame that replaces one arrives *on the
+        // cadence* rather than at once. The difference is the whole feature: an immediate
+        // redraw handed the event thread to a render that takes fifty refreshes, so a view
+        // that kept moving could not be answered a second time, while a tick lets the next
+        // reprojection stand in for it and the real frame follow when nothing new is asked.
+        //
+        // It cannot spin — every frame that is not a reprojection clears the flag, including a
+        // frame that drew nothing at all, and `Cadence::presented` moves the tick on.
+        let owes_frame = self.stale.showing_approximation() || self.cadence.owes();
+        if owes_frame {
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
+        }
+        // One page of the search, once per turn round the loop. This is where the choice in
+        // `viewer_core::search` is paid for on this host: the core reads one page per command and
+        // has no thread to read a thousand on, so the loop that would otherwise be idle drives it
+        // and the window keeps drawing while it does.
+        //
+        // **After the redraw above and before the wait below**, deliberately: a page read is not
+        // a frame, so pacing it to the display would take a thousand-page search from the loop's
+        // own speed down to sixty pages a second — while returning before the redraw was asked
+        // for would leave a reprojection on the screen for the length of the search, which is
+        // rule 1's failure.
+        if self.pages_left > 0 {
+            self.dispatch(Command::Find(Find::Continue));
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
+        if owes_frame {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+            return;
+        }
+        if self.presentation.is_none() {
+            // §12.6.4.15's transition outside a presentation: one effect on the surface's own
+            // cadence, and then the window goes back to waiting for an event. `Clock::spent` is
+            // the turn after it ran out, which is what makes this a *transition* rather than a
+            // second presentation mode (ADR 1216).
+            let Some(effect) = self.effect.as_mut() else {
+                let wake = match (self.script_wait, script_timer) {
+                    (Some(question), Some(timer)) => Some(question.min(timer)),
+                    (question, timer) => question.or(timer),
+                };
+                event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
+                return;
+            };
+            // Armed and not yet begun is not spent: the effect is drawn when the page it moves
+            // *to* arrives, which is one render request away.
+            if effect.clock.spent() && self.arming.is_none() {
+                self.effect = None;
+                self.redraw();
+                event_loop.set_control_flow(ControlFlow::Wait);
+                return;
+            }
+            if !effect.clock.animating() {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+                return;
+            }
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+            return;
+        }
+        let Some(presentation) = self.presentation.as_mut() else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        if presentation.clock.animating() {
+            // §12.4.4's transition is an animation, and since `doc/todo/36` it is an animation on
+            // the *surface's* clock rather than on `ControlFlow::Poll`. It drew as fast as the
+            // loop could go, which on a fast device is frames nobody sees and a core at 100% for
+            // the length of the transition; the cadence gives it one frame per refresh, which is
+            // every frame a person can see and no more.
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+            return;
+        }
+        let now = std::time::Instant::now();
+        let due = now >= presentation.wake;
+        if due {
+            presentation.wake = now.checked_add(Clock::RESTING).unwrap_or(now);
+        }
+        let wake = presentation.wake;
+        if due {
+            // Whether anybody can see the window, asked at the presentation's own wake because
+            // winit says nothing when X11 iconifies it (`App::window_hidden`, ADR 2300).
+            self.window_shown(!self.window_hidden());
+            if !self.hidden {
+                self.redraw();
+            }
+        }
+        // A hidden window's clock is parked and its script timers carry the time, so it wakes for
+        // whichever comes first: the next look at whether it is shown, or a timer.
+        let wake = script_timer
+            .filter(|_| self.hidden)
+            .map_or(wake, |timer| timer.min(wake));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+    }
+}
+
+impl App {
     /// Shift and Control as the window holds them, remembered for this host's own keys and told to
     /// the core as they change: a script reads them at its event, Control being the reference's
     /// modifier here (ADRs 1762, 1771).
@@ -597,13 +614,21 @@ impl App {
         }
         // **A sound that is sounding takes Escape**, before the table turns it into "clear the
         // selection": the one key a person reaches for to silence a window (ADR 3301).
-        if matches!(key, Key::Named(NamedKey::Escape)) && self.stop_the_sound() {
-            return;
+        // A clip's pictures stop with it, and a silent clip's pictures take the key alone (ADR
+        // 3545).
+        if matches!(key, Key::Named(NamedKey::Escape)) {
+            let pictures = self.stop_the_pictures();
+            if self.stop_the_sound() || pictures {
+                return;
+            }
         }
         // **A sound held at its start takes Space**, which plays it: Table 291's `/A` false
         // pauses it "when activated", and this is the control that resumes it (ADR 3351).
-        if matches!(key, Key::Named(NamedKey::Space)) && self.resume_the_sound() {
-            return;
+        if matches!(key, Key::Named(NamedKey::Space)) {
+            let pictures = self.resume_the_pictures();
+            if self.resume_the_sound() || pictures {
+                return;
+            }
         }
         // **A synchronous sound holds the reader** until it ends: every other key is refused and
         // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).

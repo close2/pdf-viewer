@@ -58,6 +58,7 @@ pub(super) fn end_on_close(window: &gtk4::ApplicationWindow, me: &Weak<RefCell<H
             && let Ok(mut host) = host.try_borrow_mut()
         {
             host.state.sounds.end();
+            host.state.pictures.end();
         }
         glib::Propagation::Proceed
     });

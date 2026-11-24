@@ -16,6 +16,16 @@ use crate::app::{App, Launching, Pending};
 #[path = "../../../../../../tools/conformance/test-support/signed_under_a_policy.rs"]
 mod signed_under_a_policy;
 
+#[path = "../../../../../../tools/conformance/test-support/showing.rs"]
+mod showing;
+
+#[path = "../../../../../pdf-media-worker/tests/support/pcm_stream.rs"]
+#[expect(
+    dead_code,
+    reason = "the fixture's other streams are `pdf-media-worker`'s own tests'"
+)]
+mod pcm_stream;
+
 /// A file under the system's temporary directory, named for this process and `name`.
 fn temporary(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("quorra-headless-{}-{name}", std::process::id()))
@@ -248,4 +258,175 @@ fn a_bound_policy_s_reference_goes_with_shift_t_to_the_refresh() {
     );
     let _ = std::fs::remove_file(&document);
     let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Turns the window's loop as `about_to_wait` does — the picture that is due put up — until
+/// `done` holds, two minutes at most.
+fn show_until(app: &mut App, what: &str, mut done: impl FnMut(&App) -> bool) {
+    let began = std::time::Instant::now();
+    while !done(app) {
+        assert!(
+            began.elapsed() < std::time::Duration::from_mins(2),
+            "the window never {what} (the worker must be built: `cargo build -p pdf-media-worker \
+             --bins`)"
+        );
+        let next = app.show_the_pictures();
+        let now = std::time::Instant::now();
+        let rest = next
+            .map_or(std::time::Duration::from_millis(5), |at| {
+                at.saturating_duration_since(now)
+            })
+            .min(std::time::Duration::from_millis(40));
+        std::thread::sleep(rest);
+    }
+}
+
+/// Which of `pictures` the processor's picture `raster` is: the one whose samples, converted by
+/// the oracle, are its pixels.
+fn which(
+    raster: &pdf_render::Raster,
+    pictures: &[pdf_media_worker::video::Picture],
+) -> Option<usize> {
+    let conversion =
+        pdf_render::video::Conversion::for_signal(pdf_render::video::Signal::default(), 16)
+            .expect("the default signal converts");
+    pictures.iter().position(|samples| {
+        let planes = pdf_render::video::Planes {
+            width: 16,
+            height: 16,
+            y: &samples.y,
+            cb: &samples.u,
+            cr: &samples.v,
+        };
+        render_cpu::video::convert_picture(&planes, &conversion).is_ok_and(|ours| ours == *raster)
+    })
+}
+
+/// The processor's picture composed over a white 800 by 1000 window: drawn at the centre of the
+/// screen annotation's quadrilateral, and not just past its far corner.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "pixel offsets inside an 800 by 1000 window"
+)]
+fn drawn_only_in_its_rectangle(app: &App) {
+    let quad = app
+        .picture_quad()
+        .expect("the screen annotation is on the window");
+    let list = app.picture_list(800, 1000).expect("a picture to draw");
+    let page = pdf_render::Raster {
+        width: 800,
+        height: 1000,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: [255, 255, 255, 255].repeat(800 * 1000),
+    };
+    let composed = viewer_ui::software::compose(&page, &[&list]).expect("compose");
+    let pixel = |x: f32, y: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a point inside an 800 by 1000 window"
+        )]
+        let at = (y as usize * 800 + x as usize) * 4;
+        composed.data[at..at + 3].to_vec()
+    };
+    let (centre_x, centre_y) = (
+        f32::midpoint(quad[0], quad[4]),
+        f32::midpoint(quad[1], quad[5]),
+    );
+    assert_ne!(
+        pixel(centre_x, centre_y),
+        [255, 255, 255],
+        "drawn in the rectangle"
+    );
+    assert_eq!(
+        pixel(quad[4] + 4.0, quad[5] + 4.0),
+        [255, 255, 255],
+        "and only there"
+    );
+}
+
+/// ISO 32000-2 §13.2.6.1's Table 294 `/W` 3 on this window drawn by the processor, end to end: the
+/// screen annotation activated, the clip judged for this window's own player (`ShowsVideoHere`),
+/// the confined worker decoding `pdf-media-worker`'s `I_PCM` clip, and each picture put up as its
+/// samples converted, over the annotation's rectangle and nowhere else, in order, until the clip
+/// ends and the rectangle is the page's again; then a second play paused by Table 218's `/OP` 2,
+/// held still, resumed by Space and stopped by Escape before its end (ADR 3545).
+#[test]
+fn a_clip_plays_in_its_screen_annotation_and_stops_and_pauses() {
+    let (sets, units, pictures) = pcm_stream::stream(8, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("video.pdf");
+    std::fs::write(&document, showing::a_video_document(&clip)).expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    // The reader's level for a clip played here, `open`: the clip is shown without a question.
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+
+    app.dispatch(Command::Activate(showing::SCREEN));
+    let mut seen: Vec<usize> = Vec::new();
+    let mut placed = false;
+    show_until(&mut app, "ended the clip", |app| {
+        if let Some(raster) = &app.picture {
+            let index = which(raster, &pictures);
+            assert!(index.is_some(), "the picture up is one of the clip's own");
+            if seen.last() != index.as_ref() {
+                seen.extend(index);
+            }
+            if !placed {
+                placed = true;
+                drawn_only_in_its_rectangle(app);
+            }
+        }
+        app.video.as_ref().is_some_and(|video| !video.in_hand()) && !seen.is_empty()
+    });
+    assert!(
+        seen.windows(2).all(|pair| pair[0] < pair[1]),
+        "in order: {seen:?}"
+    );
+    assert!(
+        app.picture.is_none(),
+        "the rectangle is the page's again at the end"
+    );
+
+    app.dispatch(Command::Activate(showing::SCREEN));
+    show_until(&mut app, "put a picture up again", |app| {
+        app.picture.is_some()
+    });
+    app.dispatch(Command::Activate(showing::PAUSE));
+    let still = app.picture.clone();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(
+        app.show_the_pictures().is_none(),
+        "a paused clip waits for nothing"
+    );
+    assert_eq!(app.picture, still, "a paused clip holds its picture, still");
+    app.dispatch(Command::Activate(showing::RESUME));
+    show_until(&mut app, "showed a new picture after the resume", |app| {
+        app.picture.is_some() && app.picture != still
+    });
+    app.dispatch(Command::Activate(showing::PAUSE));
+    assert!(app.resume_the_pictures(), "Space shows a paused clip again");
+    assert!(
+        !app.resume_the_pictures(),
+        "and has nothing to resume once it shows"
+    );
+    app.dispatch(Command::Activate(showing::STOP));
+    show_until(&mut app, "took the stopped clip's picture down", |app| {
+        app.picture.is_none()
+    });
+    assert!(
+        !app.stop_the_pictures(),
+        "with none in hand, Escape is the key table's"
+    );
+    app.dispatch(Command::Activate(showing::SCREEN));
+    show_until(&mut app, "put a picture up a third time", |app| {
+        app.picture.is_some()
+    });
+    app.pressed(&Key::Named(NamedKey::Escape));
+    assert!(
+        app.picture.is_none(),
+        "Escape stops a clip that shows and takes its picture down"
+    );
+    let _ = std::fs::remove_file(&document);
 }

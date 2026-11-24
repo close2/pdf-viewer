@@ -63,6 +63,7 @@ mod input;
 mod notes;
 mod opening;
 mod panels;
+mod pictures;
 #[cfg(test)]
 mod played_here;
 mod presentation;
@@ -72,6 +73,8 @@ mod react;
 mod requests;
 mod restrictions;
 mod rich_text;
+#[cfg(test)]
+mod shown_here;
 mod sounds;
 mod stand_in;
 mod tabs;
@@ -154,8 +157,9 @@ impl Opening {
                 settings,
                 reader,
                 Refusals::Terminal,
-                // This window plays a sound itself where its helper is there (ADR 3417).
-                viewer_host::sound::Hearing::of_a_playing_window(),
+                // This window plays a sound itself where its helper is there (ADR 3417), and shows
+                // a clip's pictures itself too (ADR 3545).
+                viewer_host::sound::Hearing::of_a_showing_window(),
             ),
         })
     }
@@ -325,6 +329,8 @@ pub struct Host {
     /// The frame of a transition in flight, which the page area shows in place of the pages; the
     /// presentation pump rasterises it (`viewer_host::presentation_pump`, ADR 2300).
     playing: Option<pdf_render::Raster>,
+    /// A clip's picture held up over its screen annotation, and its next look (ADR 3545).
+    shown: pictures::HeldUp,
     /// The one-shot waiting to ask [`WindowState::drawing`] whether a page has finished.
     ///
     /// **`None` is a window that wakes for this exactly never**, which is the same shape
@@ -502,6 +508,7 @@ impl Host {
                 pointer_at: None,
                 panels_due: false,
                 playing: None,
+                shown: pictures::HeldUp::default(),
                 drawing_armed: None,
                 script_dialogue: None,
                 ui,
@@ -695,6 +702,15 @@ impl NativeWindow for Host {
     /// GTK's main context, invoked from the player's thread (ADR 3329).
     fn sound_wake(&self) -> viewer_host::sound::Wake {
         sounds::wake(self.me.clone())
+    }
+
+    /// GTK's main context, invoked from the video player's decoding thread (ADR 3545).
+    fn picture_wake(&self) -> viewer_host::sound::Wake {
+        pictures::wake(self.me.clone())
+    }
+
+    fn look_at_the_pictures(&mut self) {
+        self.show_the_pictures();
     }
 
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {

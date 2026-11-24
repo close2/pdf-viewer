@@ -44,13 +44,21 @@ impl Host {
             .say(Topic::Events, format_args!("key {stated:?} arrives"));
         // **A sound that sounds takes Escape**, before the table gives the key its other meanings:
         // the one key a person reaches for to silence a window (ADRs 3301, 3329).
-        if matches!(stated, viewer_host::Key::Escape) && self.state.sounds.stop() {
-            return true;
+        // A clip's pictures stop with it, and a silent clip's pictures take the key alone (ADR
+        // 3545).
+        if matches!(stated, viewer_host::Key::Escape) {
+            let pictures = self.stop_the_pictures();
+            if self.state.sounds.stop() || pictures {
+                return true;
+            }
         }
         // **A sound held at its start takes Space**, which plays it: Table 291's `/A` false
         // pauses it "when activated", and this is the control that resumes it (ADR 3351).
-        if matches!(stated, viewer_host::Key::Space) && self.state.sounds.resume() {
-            return true;
+        if matches!(stated, viewer_host::Key::Space) {
+            let pictures = self.resume_the_pictures();
+            if self.state.sounds.resume() || pictures {
+                return true;
+            }
         }
         // **A synchronous sound holds the reader** until it ends: every other key is refused and
         // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).

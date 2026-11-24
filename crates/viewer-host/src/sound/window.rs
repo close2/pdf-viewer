@@ -45,6 +45,10 @@ pub enum Hearing {
     HandsOn,
     /// The window plays a sound itself, through the helper found beside it.
     Here,
+    /// The same, and the window shows a clip's pictures itself as well
+    /// (`viewer_core::Command::ShowsVideoHere`): GTK's, whose frame sink is built (RFC 0015
+    /// section 6, ADR 3545). Qt's and the C ABI's hand every clip with pictures on until theirs are.
+    HereWithPictures,
     /// The window would play a sound itself and its helper is missing, so every clip is handed to
     /// this machine's player as a window that does not play is, and the sentence saying why is
     /// said beside each sound handed on.
@@ -59,10 +63,25 @@ impl Hearing {
         super::helper::missing().map_or(Self::Here, Self::WithoutHelper)
     }
 
+    /// [`Self::of_a_playing_window`] for a window that also shows a clip's pictures itself.
+    #[must_use]
+    pub fn of_a_showing_window() -> Self {
+        match Self::of_a_playing_window() {
+            Self::Here => Self::HereWithPictures,
+            missing => missing,
+        }
+    }
+
     /// What the window tells the core with `viewer_core::Command::PlaysHere`.
     #[must_use]
     pub const fn plays_here(&self) -> bool {
-        matches!(self, Self::Here)
+        matches!(self, Self::Here | Self::HereWithPictures)
+    }
+
+    /// What the window tells the core with `viewer_core::Command::ShowsVideoHere`.
+    #[must_use]
+    pub const fn shows_video(&self) -> bool {
+        matches!(self, Self::HereWithPictures)
     }
 
     /// The sentence saying why a sound is handed on, where the window has no helper.
@@ -70,7 +89,7 @@ impl Hearing {
     pub fn missing(&self) -> Option<&str> {
         match self {
             Self::WithoutHelper(why) => Some(why),
-            Self::HandsOn | Self::Here => None,
+            Self::HandsOn | Self::Here | Self::HereWithPictures => None,
         }
     }
 }

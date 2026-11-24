@@ -559,6 +559,8 @@ pub(crate) struct Overlays {
     matches: Option<pdf_render::DisplayList>,
     /// What is selected on the page, which belongs to the page and so is under everything else.
     selection: Option<pdf_render::DisplayList>,
+    /// A clip's picture over its screen annotation, on a window the processor draws (ADR 3545).
+    picture: Option<pdf_render::DisplayList>,
     /// What is selected inside a form field (ADR 0225).
     field_selection: Option<pdf_render::DisplayList>,
     /// §12.5.1's focus ring, round whatever the tab key last landed on.
@@ -612,6 +614,7 @@ impl Overlays {
             annex_o_highlight: app.annex_o_highlight_list(edge, width, height),
             matches: app.matches_list(edge, width, height),
             selection: app.selection_list(edge, width, height),
+            picture: app.picture_list(width, height),
             field_selection: app.field_selection_list(edge, width, height),
             focus: app.focus_list(edge, width, height),
             caret: app.caret_list(edge, width, height, false),
@@ -635,6 +638,9 @@ impl Overlays {
     /// then the sidebar, then the modal card on top — the order the Vello host drew them in.
     pub(crate) fn lists(&self) -> Vec<&pdf_render::DisplayList> {
         [
+            // A clip's picture over its screen annotation is the page's, and every piece of
+            // chrome is over it (ADR 3545).
+            self.picture.as_ref(),
             self.annex_o_highlight.as_ref(),
             self.matches.as_ref(),
             self.selection.as_ref(),

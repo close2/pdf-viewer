@@ -1267,6 +1267,10 @@ impl App {
         note: Option<&str>,
     ) {
         self.handed_on = false;
+        // A clip with pictures shows them here and sounds its sound through the same player as
+        // any other (ADR 3538); its sound and its pictures start together.
+        let shown =
+            viewer_host::video::Shown::of(id, format!("{document}: the clip {name:?}"), &sound);
         let player = self.player.get_or_insert_with(|| {
             let waker = self.waker.clone();
             viewer_host::sound::Player::new(
@@ -1286,6 +1290,9 @@ impl App {
         if let Some(note) = note {
             println!("note: {document}: the sound {name:?} {note}");
         }
+        if let Some(shown) = shown {
+            self.start_the_pictures(shown);
+        }
     }
 
     /// §12.6.4.14's stop, pause or resume of the rendition associated with `annotation`, handed to
@@ -1297,8 +1304,17 @@ impl App {
         annotation: pdf_syntax::ObjectId,
         operation: viewer_core::MediaOperation,
     ) {
+        // The clip's pictures answer the operation beside its sound (ADR 3545).
+        let pictures = self
+            .video
+            .as_mut()
+            .is_some_and(|video| video.operate(document, annotation, operation));
+        if pictures {
+            self.show_the_pictures();
+        }
         match self.player.as_mut() {
             Some(player) => player.operate(document, annotation, operation),
+            None if pictures => {}
             None => println!(
                 "note: {}: {}",
                 self.documents.label_of(document),

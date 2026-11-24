@@ -179,7 +179,16 @@ The feature draws; the residue is a case the first build did not reach. **What w
 a normal round extending the existing code.
 
 The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out from Adobe's
-published pairs (`doc/questions/A308`, ADR 1916); no clause 13 row is owed in this bucket (ADR 2376).
+published pairs (`doc/questions/A308`, ADR 1916).
+
+- §13.2.5 — Table 291's /F fit for a clip's pictures, which fill the screen annotation's rectangle
+  whatever the value: the fit applied by the sinks, or `/F` 0, 1, 3 and 4 judged non-viable for
+  this program's player in MH and set aside in BE (ADR 3545).
+- §13.4 — a movie annotation's poster retrieved from its movie file (Table 306's /Poster `true`)
+  and its movie played in place (Table 307's activation dictionary), owed since video was opened
+  (`doc/questions/A1006`): an MP4 movie's first H.264 picture taken by `pdf-media-worker` for the
+  poster, and the movie handed to the screen-annotation sink `quorra` and the GTK window draw with
+  (ADR 3545). The movie is handed over meanwhile, as before.
 
 §13.2.6.2 and §13.2.6.3 are `implemented`: `pdf_model::media::judge` reads an offset and
 its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
@@ -270,9 +279,9 @@ ISO 19162's bound CRS — and refused by both datums' names where it states none
 departed from is Table 269's eastings and northings, read as the base system's degrees on
 `doc/questions/A271` (ADR 1918). §12.10 above it is `implemented` with it.
 
-§13.4 was here, and is `implemented`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
-this program chose, and the playing — the boolean form with it — rests on the amended clause 13
-entry rather than on a withholding of the row's own (ADRs 1561, 1946).
+§13.4 was here as `implemented` while the playing rested on the clause 13 entry; with video opened
+it is in bucket 4 (ADR 3545). Table 306's stream `/Poster` is drawn in `/Rect` at a placement this
+program chose (ADR 1561).
 
 §12.6.4.6 was here, and is `departed`: a launch whose Table 207 `/F` is a
 PDF opens under the reader's remote-documents level, and one that names an application is the one
@@ -291,8 +300,10 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-None is open: §12.6, §12.6.4 and §12.6.4.14 were the last, and are `implemented`, the window
-holding the association a rendition's stop, pause and resume act through (ADR 3433).
+§13.2 — over the media play parameters row, Table 291's /F for a clip's pictures (ADR 3545).
+
+The three before it, §12.6, §12.6.4 and §12.6.4.14, are `implemented`, the window holding the
+association a rendition's stop, pause and resume act through (ADR 3433).
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

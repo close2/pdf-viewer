@@ -125,6 +125,7 @@ impl Launch {
         let archive = reader.archive.clone();
         let trusting = reader.trusting();
         let plays_here = hearing.plays_here();
+        let shows_video = hearing.shows_video();
         let anticipated = crate::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
@@ -138,6 +139,9 @@ impl Launch {
             // rendition judged for that player; every other window has it judged for this
             // machine's (ISO 32000-2 §13.2.2, ADRs 3350, 3417).
             events.extend(viewer.handle(Command::PlaysHere(plays_here)));
+            // And a window that shows a clip's pictures itself — GTK's — has a video clip judged
+            // for its own player too (RFC 0015 section 6, ADRs 3538, 3545).
+            events.extend(viewer.handle(Command::ShowsVideoHere(shows_video)));
             for refusal in supply
                 .refused
                 .into_iter()

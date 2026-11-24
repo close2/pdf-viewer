@@ -48,6 +48,10 @@ use viewer_core::{DocumentId, MediaOperation};
 use crate::sound::Wake;
 use crate::sound::clock::MediaClock;
 
+mod window;
+
+pub use window::{Looked, Pictures};
+
 /// How many decoded pictures may wait for their time: enough that a picture is always in hand
 /// when its time comes, few enough that a 1080-line clip holds 9 MiB of them.
 pub const AHEAD: usize = 3;
@@ -75,6 +79,37 @@ pub struct Shown {
     pub repeat: f64,
     /// Whether a simple duration or a section was stated, which the pictures do not follow yet.
     pub cut: bool,
+}
+
+impl Shown {
+    /// The clip `sound` carries, where it is an MP4 file with pictures
+    /// ([`viewer_core::Recording::Mp4Video`]) — what a window that sent
+    /// `viewer_core::Command::ShowsVideoHere` is handed for a rendition it shows itself — with
+    /// §13.2.5's play parameters and Table 294's rectangle as the event states them; `None` for
+    /// every sound without pictures, which is the sound player's alone.
+    #[must_use]
+    pub fn of(document: DocumentId, label: String, sound: &viewer_core::SoundData) -> Option<Self> {
+        let viewer_core::Recording::Mp4Video(file) = &sound.recording else {
+            return None;
+        };
+        let playing = &sound.playing;
+        Some(Self {
+            document,
+            label,
+            file: Arc::from(file.as_slice()),
+            screen: sound.screen.as_ref().map(|screen| screen.annotation),
+            associated: sound
+                .rendition
+                .as_ref()
+                .map(|rendition| rendition.annotation),
+            auto_play: playing.auto_play,
+            repeat: playing.repeat,
+            cut: !matches!(
+                playing.duration,
+                pdf_model::media::SimpleDuration::Intrinsic
+            ) || playing.section != pdf_model::media::Section::WHOLE,
+        })
+    }
 }
 
 /// What the player says, each a sentence for the terminal and the last for the title.
@@ -458,15 +493,22 @@ impl VideoPlayer {
         self.in_hand.is_some()
     }
 
-    /// When the next picture is due, for a window that sleeps until then; `None` where nothing
-    /// is waiting for its time.
+    /// When the window should next ask [`Self::due`], for a window that sleeps until then: the
+    /// next picture's time, or — once a pass's decode has ended — the moment its last picture has
+    /// been up for its interval, when the pass ends. `None` where nothing is waiting for a time,
+    /// and the decoding thread's wake is what comes next.
     #[must_use]
     pub fn next_due(&self, now: Instant) -> Option<Instant> {
         let hand = self.in_hand.as_ref().filter(|hand| hand.running)?;
-        let (at, _) = hand.next.as_ref()?;
+        let at = match (&hand.next, &hand.over) {
+            (Some((at, _)), _) => *at,
+            // The pass's end has nothing after it to wake the window, so it is a time of its own.
+            (None, Some(_)) => hand.last_at.saturating_add(hand.interval),
+            (None, None) => return None,
+        };
         let wait = hand
             .pass_start
-            .saturating_add(*at)
+            .saturating_add(at)
             .saturating_sub(hand.clock.time(now));
         now.checked_add(wait)
     }
@@ -520,6 +562,11 @@ impl VideoPlayer {
             };
             if finished {
                 over = hand.over.take();
+                // A picture taken in this look whose pass has already ended was up for none of
+                // its interval: it is dropped late, and the end's counts include it.
+                if newest.take().is_some() {
+                    hand.dropped = hand.dropped.saturating_add(1);
+                }
             }
         }
         if let Some(result) = over {

@@ -397,6 +397,7 @@ impl App {
             reason = "a panel width in pixels, which is hundreds"
         )]
         let edge = self.inset() as f32;
+        self.place_the_picture();
         let pages = self.arrangement(edge, width, height);
         let Some(first) = pages.first() else {
             // **A window with no page is a window that can still have something on it**, so this

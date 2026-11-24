@@ -379,6 +379,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
             format!("substitute for a null /Font entry {substitute}")
         }
         Command::PlaysHere(plays) => format!("plays a WAVE clip here {plays}"),
+        Command::ShowsVideoHere(shows) => format!("shows a video clip here {shows}"),
         Command::PlayingIn { document, screen } => format!(
             "a sound of document {} plays in {:?}",
             document.0,

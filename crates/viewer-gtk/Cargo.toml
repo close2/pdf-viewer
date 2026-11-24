@@ -48,6 +48,9 @@ gate-ratchet.workspace = true
 # `tools/conformance/test-support/signed_under_a_policy.rs`, which the host's Shift + T test
 # includes, states the policy's digest with the crate the core verifies it with (ADR 3098).
 pdf-signature.workspace = true
+# `src/host/shown_here.rs` plays `pdf-media-worker`'s hand-built `I_PCM` clip, whose builder is
+# that crate's test support, and decodes it with that crate's worker program (ADR 3545).
+pdf-media-worker.workspace = true
 
 [lints]
 workspace = true

@@ -212,6 +212,8 @@ impl Host {
                 spare.set_visible(false);
             }
             self.ui.fixed.set_visible(true);
+            // A clip's picture moves with the pages it is over (ADR 3545).
+            self.hold_up_the_picture();
             self.ui.probe.applied(observation);
             if let Some((page, fraction)) = glimpsed {
                 self.state.trace.say(

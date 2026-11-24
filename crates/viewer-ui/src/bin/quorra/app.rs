@@ -262,6 +262,12 @@ pub(crate) struct App {
     /// carries for [`Self::on_the_processor`]'s reason: a line on standard output is not said to a
     /// person looking at the window. `None` once a sound ends or is stopped.
     pub(crate) sounding: Option<viewer_host::sound::Heard>,
+    /// A clip's pictures this window shows itself (ADR 3545): `None` until the first, so that the
+    /// decoding thread and its worker are made by a clip and never by the launch.
+    pub(crate) video: Option<viewer_host::video::VideoPlayer>,
+    /// The picture up, converted on the processor, where no graphics device draws this window; a
+    /// device's picture is a texture the device keeps (`crate::pictures`).
+    pub(crate) picture: Option<pdf_render::Raster>,
     /// Who plays this window's sounds, as the core was told at the launch (ADRs 3350, 3417).
     pub(crate) hearing: viewer_host::sound::Hearing,
     /// Whether the last sound was handed to this machine's player for want of the helper, which
@@ -898,6 +904,8 @@ impl App {
             on_the_processor: None,
             player: None,
             sounding: None,
+            video: None,
+            picture: None,
             handed_on: false,
             hearing,
             drawn_so_far: None,
@@ -1341,6 +1349,11 @@ impl App {
                 if let Some(player) = self.player.as_mut() {
                     player.closed(closing);
                 }
+                // And its clip's pictures (ADR 3545).
+                if let Some(video) = self.video.as_mut() {
+                    video.closed(closing);
+                }
+                self.show_the_pictures();
                 self.dispatch(Command::Close(closing));
                 self.dispatch(Command::Focus(focused));
                 self.bring_the_presentation_forward();

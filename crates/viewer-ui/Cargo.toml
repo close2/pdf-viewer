@@ -81,6 +81,9 @@ pdf-script-worker.workspace = true
 # `tools/conformance/test-support/signed_under_a_policy.rs`, which the window's Shift + T test
 # includes, states the policy's digest with the crate the core verifies it with (ADR 3062).
 pdf-signature.workspace = true
+# The window's headless video test plays `pdf-media-worker`'s hand-built `I_PCM` clip, whose
+# builder is that crate's test support, through that crate's worker program (ADR 3545).
+pdf-media-worker.workspace = true
 
 # `tests/launch_path.rs` takes each row's memory high-water in a child whose transparent huge
 # pages are off, so that the figure is what the program touched and not which of its buffers the

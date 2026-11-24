@@ -156,3 +156,30 @@ fn a_clip_in_no_rectangle_is_said_and_not_decoded() {
     );
     assert!(matches!(player.seen().as_slice(), [Seen::Refused(_)]));
 }
+
+/// A window that looks only once the pass is over takes its last pictures and the pass's end in
+/// one look: none of them was up for any of its interval, so each is dropped late, nothing is
+/// handed on, and the end counts every picture. The wrong answer excluded: the newest picture
+/// lost from both counts (an end said "after 0 pictures, 2 dropped late" of three).
+#[test]
+fn a_look_after_the_pass_ended_counts_every_picture_it_passes() {
+    let (mut player, outbox, began) = holding(shown(1.0));
+    drop(player.seen());
+    for millis in [0, 40, 80] {
+        send(&outbox, 1, millis);
+    }
+    outbox
+        .send(Decoded::Over {
+            generation: 1,
+            result: Ok(Duration::from_millis(80)),
+        })
+        .expect("queued");
+    assert!(player.due(began + Duration::from_millis(500)).is_none());
+    assert!(!player.holds_a_picture());
+    assert_eq!(
+        player.seen().last(),
+        Some(&Seen::Ended(
+            "the clip \"c.mp4\": ended after 0 pictures, 3 dropped late".to_owned()
+        ))
+    );
+}

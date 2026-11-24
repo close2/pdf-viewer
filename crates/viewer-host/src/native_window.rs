@@ -348,6 +348,10 @@ pub struct WindowState {
     /// no player, thread, worker or helper until the first, looked for on the same timer while
     /// one is decoded or sounds (ADR 3329).
     pub sounds: crate::sound::Sounds,
+    /// A clip's pictures this window shows itself, where it does
+    /// ([`crate::sound::Hearing::shows_video`]): no player, thread or worker until the first,
+    /// looked at by the toolkit when [`NativeWindow::look_at_the_pictures`] asks (ADR 3545).
+    pub pictures: crate::video::Pictures,
     /// §6.3.2.2: who draws §12.7's widgets — the toolkit's controls, or the document's own
     /// pictures.
     ///
@@ -488,6 +492,7 @@ impl WindowState {
             refresher: crate::trusted_list_fetch::Refresher::new(),
             portal_calls: crate::policy::PortalCalls::new(),
             sounds: crate::sound::Sounds::new(),
+            pictures: crate::video::Pictures::default(),
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
@@ -701,6 +706,19 @@ pub trait NativeWindow {
     fn sound_wake(&self) -> crate::sound::Wake {
         Box::new(|| {})
     }
+
+    /// What wakes this toolkit's loop from the video player's decoding thread, asked once, at the
+    /// first clip with pictures. Nothing by default: only a window that sends
+    /// `viewer_core::Command::ShowsVideoHere` is handed one (ADR 3545).
+    fn picture_wake(&self) -> crate::sound::Wake {
+        Box::new(|| {})
+    }
+
+    /// The toolkit's look at the clip's pictures, after anything that may have changed them — a
+    /// clip started, stopped, paused or resumed: take the picture that is due
+    /// ([`crate::video::Pictures::look`]), put it over its screen annotation, and arm the next
+    /// look. Nothing by default, for a window that shows no pictures (ADR 3545).
+    fn look_at_the_pictures(&mut self) {}
 
     /// `CLAUDE.md`'s *ask* level over an operation the document restricts, held as
     /// [`Asked::Restricted`]: the words are `crate::restriction`'s and the dialogue the toolkit's
@@ -1225,6 +1243,9 @@ pub trait NativeWindow {
     ) {
         let first = !self.state().looking();
         let wake = (!self.state().sounds.started()).then(|| self.sound_wake());
+        // A clip with pictures shows them here and sounds its sound through the same player as
+        // any other (ADR 3538); its sound and its pictures start together.
+        let shown = crate::video::Shown::of(id, format!("{document}: the clip {name:?}"), &sound);
         self.state_mut().sounds.play(
             crate::sound::Played {
                 document: id,
@@ -1233,6 +1254,11 @@ pub trait NativeWindow {
             },
             || wake.unwrap_or_else(|| Box::new(|| {})),
         );
+        if let Some(shown) = shown {
+            let wake = self.picture_wake();
+            self.state_mut().pictures.play(shown, || wake);
+            self.look_at_the_pictures();
+        }
         if let Some(note) = note {
             self.say(&format!("{document}: the sound {name:?} {note}"));
         }
@@ -1252,6 +1278,15 @@ pub trait NativeWindow {
         operation: viewer_core::MediaOperation,
     ) {
         let label = self.state().documents.label_of(document);
+        // The clip's pictures answer the operation beside its sound, and the clause's "there is
+        // no effect" is said only where neither acted (ADR 3433).
+        let pictures = self
+            .state_mut()
+            .pictures
+            .operate(document, annotation, operation);
+        if pictures {
+            self.look_at_the_pictures();
+        }
         let unanswered = if self.plays_sounds() {
             self.state_mut()
                 .sounds
@@ -1259,7 +1294,7 @@ pub trait NativeWindow {
         } else {
             Some(crate::sound::unassociated(annotation, operation))
         };
-        if let Some(said) = unanswered {
+        if let Some(said) = unanswered.filter(|_| !pictures) {
             self.say(&format!("{label}: {said}"));
         }
     }
