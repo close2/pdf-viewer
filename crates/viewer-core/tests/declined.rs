@@ -14,7 +14,7 @@ use viewer_core::{Answer, Command, Declined, DocumentId, Event, Query, Viewer};
 fn document() -> Vec<u8> {
     let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
                 2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 20] >>\nendobj\n";
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 20] /Resources << >> >>\nendobj\n";
     let mut out = String::from("%PDF-2.0\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {

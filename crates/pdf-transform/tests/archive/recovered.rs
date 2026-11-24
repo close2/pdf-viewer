@@ -497,9 +497,17 @@ fn a_page_whose_dictionary_stops_being_readable_is_written_as_the_entries_the_re
         let page = first_page(&document);
         let mut keys: Vec<&[u8]> = page.iter().map(|(key, _)| key.as_bytes()).collect();
         keys.sort_unstable();
+        // `/Resources` is the empty dictionary Table 31 names for a page needing none, which a
+        // page stating none is written with (ADR 3543); nothing after the damage is carried.
         assert_eq!(
             keys,
-            [&b"Contents"[..], b"MediaBox", b"Parent", b"Type"],
+            [
+                &b"Contents"[..],
+                b"MediaBox",
+                b"Parent",
+                b"Resources",
+                b"Type"
+            ],
             "{target}: the entries the reader read, and nothing after the damage"
         );
         let carried = document.get_key(&page, "Contents");
@@ -641,7 +649,9 @@ fn a_source_the_reader_draws_no_page_of_is_refused_by_name() {
 #[test]
 fn a_parent_cycle_ends_and_an_ancestor_past_the_bound_is_not_reached() {
     // The walk up a page's `/Parent` chain is bounded, and a cycle ends it at once: the page's
-    // own box is the one carried, and the value 500 x 700 stated past the bound is not.
+    // own box is the one carried, and the value 500 x 700 stated past the bound is not. The second
+    // page is then written with no `/MediaBox`, which Table 31 requires, so the output's reader
+    // draws it on its own box and section 5.1 refuses the output by that repair's name (ADR 3543).
     let mut objects = vec![
         "<< /Type /Catalog /Pages 9 0 R >>".to_owned(),
         "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 200 300] >>".to_owned(),
@@ -665,24 +675,25 @@ fn a_parent_cycle_ends_and_an_ancestor_past_the_bound_is_not_reached() {
     }
     let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
     let source = file(&objects, "/Root 1 0 R");
-    let (report, document, _) = recovered(&source, Target::Two(Level::B));
+    let target = Target::Two(Level::B);
+    let (report, output) = attempt(&source, target, authorised()).expect("the conversion applies");
     let note = conversion(&report)
         .recovered_structure
         .as_ref()
         .expect("rebuilt");
     assert_eq!(note.pages, 2);
-    let pages = pdf_model::Pages::new(&document);
-    let boxes: Vec<Vec<f64>> = pages
-        .every()
-        .into_iter()
-        .flatten()
-        .map(|page| page.media_box.iter().map(|&edge| f64::from(edge)).collect())
-        .collect();
-    assert_eq!(boxes[0], [0.0, 0.0, 200.0, 300.0], "the page's own box");
-    assert_ne!(
-        boxes[1],
-        [0.0, 0.0, 500.0, 700.0],
-        "a box one hundred ancestors up is not reached"
+    assert!(
+        output.is_none(),
+        "a page written with no /MediaBox is not written as conforming"
+    );
+    let achieved = conversion(&report)
+        .achieved
+        .as_ref()
+        .expect("the output was held");
+    assert_eq!(
+        achieved.still_failing,
+        ["conformance/adheres-to-the-base-standard"],
+        "the box past the bound is not reached, and the output's missing box is section 5.1's"
     );
 }
 

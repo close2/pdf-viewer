@@ -255,12 +255,17 @@ impl Walk<'_> {
                     complete,
                 );
                 if complete || scanned.image.is_ok() || want >= bound {
-                    Some((scanned.resume, scanned.image.ok()))
+                    Some((scanned.resume, scanned.image.ok(), scanned.repairs))
                 } else {
                     None
                 }
             };
-            if let Some((resume, image)) = settled {
+            if let Some((resume, image, repairs)) = settled {
+                // What reading the image needed goes with the stream's own repairs, to the page's
+                // or form's content site (ADR 3541).
+                for class in repairs {
+                    reader.note_repair(class);
+                }
                 reader.skip(resume);
                 if let Some(image) = image {
                     let place = Where::page(context.page);

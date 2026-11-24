@@ -506,6 +506,8 @@ impl Viewer {
             // here and never at open. The sentence is the document's rather than the page's and
             // is said once — `crate::notes::losses` — so a page carries it only the first time.
             reports.extend(crate::notes::losses(open));
+            // So are the reader's repairs, each class once, whichever page first met it.
+            reports.extend(crate::notes::repairs(open));
             if !reports.is_empty() {
                 events.push(Event::Reported {
                     document: id,

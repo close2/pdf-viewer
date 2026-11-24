@@ -92,7 +92,7 @@
   "code": "crates/pdf-model/src/page.rs:301 MediaBoxSubstitution, :281 (Rotate)",
   "change": "Log model/media-box-substituted and model/rotate-not-a-multiple; map to 5.1.",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_media_box_that_is_not_a_rectangle_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_rotation_that_is_not_a_multiple_of_ninety_is_reported_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B08",
@@ -109,7 +109,7 @@
   "code": "crates/pdf-model/src/content/run.rs:268; crates/pdf-model/src/content/run/graphics.rs:48, :66; crates/pdf-model/src/content/colour.rs:609; crates/pdf-archive/src/survey.rs (token walk)",
   "change": "Either the survey takes the interpreter's Unsupported/StreamSyntaxFault for each page (one walk, ADR 3477's log), or the content reader logs its classes as it tokenises; map to 5.1, and the colour case to 6.2.4.3's rows.",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_operand_of_the_wrong_type_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::an_operator_short_of_its_operands_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_restore_with_nothing_saved_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_text_operator_outside_a_text_object_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::colour_operands_that_do_not_fit_the_space_are_reported_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-T01",

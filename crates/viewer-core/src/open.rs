@@ -432,6 +432,13 @@ pub(crate) struct Open {
     /// happen at any page — so `pdf_syntax::Document::scan_refused` becomes `Some` whenever it
     /// does, and the sentence is said once, when it first is. ADR 0812.
     pub(crate) scan_refusal_said: bool,
+    /// The classes of repair the reader made in this file whose sentence has been said.
+    ///
+    /// The same shape as [`Self::losses_said`] for the same reason: a repair is recorded when
+    /// the reader makes it, which is whenever a page first reaches the broken part, so each
+    /// class is said once, the first time a page's install finds it in the document's log
+    /// (`crate::notes::repairs`, ADR 3541).
+    pub(crate) repairs_said: std::collections::BTreeSet<&'static str>,
     /// What the *document* says about itself, worded the first time somebody asks for it.
     ///
     /// **Off the launch path on purpose, and the reason is a measurement.** [`crate::notes::about`]
@@ -1179,6 +1186,7 @@ impl Open {
             references: Arc::new(pdf_model::reference::Supply::none()),
             losses_said: 0,
             scan_refusal_said: false,
+            repairs_said: std::collections::BTreeSet::new(),
             about: OnceLock::new(),
             policy_copies: Vec::new(),
         }

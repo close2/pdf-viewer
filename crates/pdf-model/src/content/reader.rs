@@ -43,7 +43,7 @@
 use std::sync::Arc;
 
 use pdf_syntax::{
-    Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, RepairClass, Stream,
+    Damage, Dictionary, Document, Lexer, Name, Object, Pumped, Pumping, RepairClass, Site, Stream,
     StreamRefusal, StreamRole, StreamSource, Token,
 };
 
@@ -303,11 +303,13 @@ impl NestedContent {
                 ))),
                 runs: Runs::Salvaged,
                 repairs: Vec::new(),
+                log: None,
             },
             Nested::Refused { limit } => ContentReader {
                 held: Held::Window(Box::new(Window::refused(*limit))),
                 runs: Runs::Salvaged,
                 repairs: Vec::new(),
+                log: None,
             },
         }
     }
@@ -395,6 +397,52 @@ pub struct ContentReader<'a> {
     /// The classes of repair lexing the stream has needed so far; see
     /// [`ContentReader::lexical_repairs`].
     repairs: Vec<&'static RepairClass>,
+    /// Where this reader's repairs go as it is dropped: the document it reads a page of, and the
+    /// page's content site (ADR 3541). `None` for a reader whose caller records them itself.
+    log: Option<(&'a Document, Site)>,
+}
+
+/// A reader over a page's `/Contents` says what it repaired on the document's one channel, so
+/// a viewer drawing the page is not silent about it and a validator walking it reads the same
+/// log (ADR 3477, ADR 3541). On drop, because a lexical repair is met where the stream is read,
+/// and a reader may be abandoned anywhere in it.
+impl Drop for ContentReader<'_> {
+    fn drop(&mut self) {
+        let Some((document, site)) = self.log else {
+            return;
+        };
+        for class in &self.repairs {
+            document.record_repair(class, site);
+        }
+        if let Held::Window(window) = &self.held {
+            log_issues(document, site, &window.issues);
+        }
+    }
+}
+
+/// Logs the class of each issue a page's `/Contents` raised: a part that is not a stream, and a
+/// bound this reader reached (ADR 3541).
+///
+/// not a repair here: a part whose data decoded only in part or not at all is logged by the
+/// decoder, under `pdf_syntax`'s own classes, where it tells the file's damage from a bound of its
+/// own (ADR 3505); this reader's `Undecodable` holds both, and the page's report says either.
+fn log_issues(document: &Document, site: Site, issues: &[ContentIssue]) {
+    for issue in issues {
+        let (class, at) = match issue {
+            ContentIssue::Unreachable { .. } | ContentIssue::NotAStream { .. } => (
+                &crate::repair::CONTENTS_ENTRY_NOT_A_STREAM,
+                match site {
+                    Site::Content(Some(id)) => Site::Object(id),
+                    other => other,
+                },
+            ),
+            ContentIssue::TokenTooLong { .. } | ContentIssue::TooLarge { .. } => {
+                (&crate::repair::CONTENT_PAST_A_BOUND, site)
+            }
+            ContentIssue::Damaged { .. } | ContentIssue::Undecodable { .. } => continue,
+        };
+        document.record_repair(class, at);
+    }
 }
 
 /// How a [`ContentReader`] hands over a run of regular characters that opens with a number and
@@ -454,6 +502,7 @@ impl<'a> ContentReader<'a> {
             },
             runs: Runs::Salvaged,
             repairs: Vec::new(),
+            log: None,
         }
     }
 
@@ -462,7 +511,7 @@ impl<'a> ContentReader<'a> {
     /// (`Runs`). For a validator's walk, which asks what operators the stream uses rather than
     /// what to draw.
     #[must_use]
-    pub const fn with_runs_as_written(mut self) -> Self {
+    pub fn with_runs_as_written(mut self) -> Self {
         self.runs = Runs::AsWritten;
         self
     }
@@ -479,6 +528,7 @@ impl<'a> ContentReader<'a> {
             },
             runs: Runs::Salvaged,
             repairs: Vec::new(),
+            log: None,
         }
     }
 
@@ -587,6 +637,16 @@ impl<'a> ContentReader<'a> {
             held: Held::Window(Box::new(window)),
             runs: Runs::Salvaged,
             repairs: Vec::new(),
+            log: Some((document, Site::Content(page.id))),
+        }
+    }
+
+    /// Records that reading this stream needed a repair of `class` — one this crate's inline
+    /// object readers make, beside the lexer's own — once per class, as
+    /// [`Self::lexical_repairs`] keeps them.
+    pub fn note_repair(&mut self, class: &'static RepairClass) {
+        if !self.repairs.iter().any(|kept| std::ptr::eq(*kept, class)) {
+            self.repairs.push(class);
         }
     }
 
@@ -608,10 +668,14 @@ impl<'a> ContentReader<'a> {
     /// window is in the middle of the page rather than before it. ADR 0343 requires the
     /// report either way — a page cut short otherwise looks like a page meant to be sparse.
     pub fn take_issues(&mut self) -> Vec<ContentIssue> {
-        match &mut self.held {
+        let issues = match &mut self.held {
             Held::Whole { .. } => Vec::new(),
             Held::Window(window) => std::mem::take(&mut window.issues),
+        };
+        if let Some((document, site)) = self.log {
+            log_issues(document, site, &issues);
         }
+        issues
     }
 
     /// Reads the next token and hands it to `read`, or `None` at the end of the content.
@@ -2057,6 +2121,21 @@ enum Value {
     Array,
     /// The construction's own closer, or the end of the stream.
     End,
+    /// A keyword that is no object — not §7.3.2's `true` or `false`, nor §7.3.9's `null` — where
+    /// a value belongs, read as null (ADR 3541).
+    NoObject,
+}
+
+/// What a keyword is where an inline dictionary's or array's value belongs: §7.3.2's booleans and
+/// §7.3.9's null lex as keywords inside a content stream, and are objects wherever an object
+/// belongs; any other keyword is no object.
+fn keyword_value(word: &[u8]) -> Value {
+    match word {
+        b"true" => Value::Object(Object::Boolean(true)),
+        b"false" => Value::Object(Object::Boolean(false)),
+        b"null" => Value::Object(Object::Null),
+        _ => Value::NoObject,
+    }
 }
 
 /// Converts a content-stream token into an operand.
@@ -2106,6 +2185,7 @@ fn dictionary_at(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
 
     let mut dict = Dictionary::new();
     if depth > MAX_DEPTH {
+        reader.note_repair(&crate::repair::CONTENT_PAST_A_BOUND);
         return dict;
     }
     loop {
@@ -2117,7 +2197,10 @@ fn dictionary_at(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
             Some(_) => Some(None),
         });
         let Some(key) = key else { break };
-        let Some(key) = key else { continue };
+        let Some(key) = key else {
+            reader.note_repair(&crate::repair::INLINE_OBJECT_MALFORMED);
+            continue;
+        };
 
         let value = reader.with_token(|token| match token {
             Some(Token::DictOpen) => Value::Dictionary,
@@ -2127,11 +2210,7 @@ fn dictionary_at(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
             // two corpus documents used to report them as unknown *operators*: an inline
             // property list's booleans were reaching the operator dispatch one token at a
             // time. §7.3.2 makes them objects wherever an object belongs.
-            Some(Token::Keyword(word)) => Value::Object(match word {
-                b"true" => Object::Boolean(true),
-                b"false" => Object::Boolean(false),
-                _ => Object::Null,
-            }),
+            Some(Token::Keyword(word)) => keyword_value(word),
             Some(other) => Value::Object(token_to_object(other)),
         });
         let value = match value {
@@ -2139,6 +2218,10 @@ fn dictionary_at(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
             Value::Dictionary => Object::Dictionary(dictionary_at(reader, depth.saturating_add(1))),
             Value::Array => Object::Array(inline_array(reader, 0)),
             Value::Object(object) => object,
+            Value::NoObject => {
+                reader.note_repair(&crate::repair::INLINE_OBJECT_MALFORMED);
+                Object::Null
+            }
         };
         dict.insert(key, value);
     }
@@ -2158,6 +2241,7 @@ fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
 
     let mut out = Vec::new();
     if depth > MAX_DEPTH {
+        reader.note_repair(&crate::repair::CONTENT_PAST_A_BOUND);
         // Consumed rather than left, so the caller resumes at the right token: an array this
         // deep is nothing this reader will use, and the stream after it still has to parse.
         while reader.with_token(|token| match token {
@@ -2173,11 +2257,7 @@ fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
             Some(Token::DictOpen) => Value::Dictionary,
             // As in a dictionary's values: §7.3.2's booleans and §7.3.9's null lex as
             // keywords inside a content stream.
-            Some(Token::Keyword(word)) => Value::Object(match word {
-                b"true" => Object::Boolean(true),
-                b"false" => Object::Boolean(false),
-                _ => Object::Null,
-            }),
+            Some(Token::Keyword(word)) => keyword_value(word),
             Some(other) => Value::Object(token_to_object(other)),
         });
         let value = match step {
@@ -2185,9 +2265,15 @@ fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
             Value::Array => Object::Array(inline_array(reader, depth.saturating_add(1))),
             Value::Dictionary => Object::Dictionary(dictionary_at(reader, depth.saturating_add(1))),
             Value::Object(object) => object,
+            Value::NoObject => {
+                reader.note_repair(&crate::repair::INLINE_OBJECT_MALFORMED);
+                Object::Null
+            }
         };
         if out.len() < MAX_ELEMENTS {
             out.push(value);
+        } else {
+            reader.note_repair(&crate::repair::CONTENT_PAST_A_BOUND);
         }
     }
     out

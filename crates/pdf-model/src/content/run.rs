@@ -105,6 +105,11 @@ impl Interpreter<'_> {
             super::pattern::PatternInitial::of(initial),
         );
         self.run_reader(&mut reader, resources, initial);
+        // A nested stream's reader keeps the classes lexing it needed, and the stream is this
+        // run's: logged at its site before the caller leaves it (ADR 3541).
+        for class in reader.lexical_repairs() {
+            self.record_repair(class);
+        }
         self.pattern_initial = outer;
         self.nesting = self.nesting.saturating_sub(1);
         self.chain.pop();
@@ -272,6 +277,7 @@ impl Interpreter<'_> {
                 && operands.len() < takes
             {
                 let given = operands.len();
+                self.record_repair(&crate::repair::OPERATOR_SHORT_OF_OPERANDS);
                 self.note_keyword(
                     KeywordNote::Shortfall { given },
                     operator.name(),

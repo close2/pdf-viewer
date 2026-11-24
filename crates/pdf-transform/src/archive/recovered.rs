@@ -471,7 +471,8 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), R
 /// ISO 32000-2 §7.7.3.4 makes `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate` inheritable. The
 /// walk that found the page applied them from the `/Kids` arrays it descended through, so the
 /// [`pdf_model::Page`] carries the values in effect; an entry the file states nowhere is not
-/// invented (a media box the reader guessed, a crop box it defaulted, a rotation of 0).
+/// invented (a media box the reader guessed, a crop box it defaulted, a rotation of 0), except
+/// `/Resources`, whose empty dictionary Table 31 itself names for a page needing none.
 fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
     let mut dict = page.dict;
     let rectangle = |sides: [f32; 4]| {
@@ -482,7 +483,10 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
                 .collect(),
         )
     };
-    if dict.get("Resources").is_none() && page.resources.iter().next().is_some() {
+    // Table 31 makes `/Resources` required, and an empty dictionary is what it asks of a page
+    // that needs none, so a page the reader resolved none for is given that rather than nothing
+    // (ADR 3543).
+    if dict.get("Resources").is_none() {
         dict.insert(
             Name::new(&b"Resources"[..]),
             Object::Dictionary(std::sync::Arc::unwrap_or_clone(page.resources)),
@@ -698,6 +702,16 @@ fn build_page(
         }
     }
     out.insert(Name::new(&b"Parent"[..]), Object::Reference(root));
+    // Table 31 makes `/Resources` required and inheritable, and "[i]f the page requires no
+    // resources, the value of this entry shall be an empty dictionary": a page neither it nor an
+    // ancestor states one for is read with none, and is written with the dictionary that says so
+    // rather than with the omission `pdf_model` logs as `model/resources-absent` (ADR 3543).
+    if out.get("Resources").is_none() {
+        out.insert(
+            Name::new(&b"Resources"[..]),
+            Object::Dictionary(Dictionary::new()),
+        );
+    }
     // ISO 32000-2 §7.7.3.3's Table 31 makes a page object's `/Type` required, and `Page` for a page
     // object (a template, the other value, is never a leaf of the tree). Every page this lists is
     // a leaf of the tree it writes, so one whose dictionary stated no type is stated a page, the

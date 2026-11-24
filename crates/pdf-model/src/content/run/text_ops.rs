@@ -397,6 +397,7 @@ impl Interpreter<'_> {
     /// Reports a text-positioning operator, or `"`, given an operand its table states as a number
     /// and the file gave as something else; `sentence` names the table.
     fn note_operand_not_a_number(&mut self, operator: Operator, sentence: &str) {
+        self.record_repair(&crate::repair::OPERAND_OF_THE_WRONG_TYPE);
         self.note(Unsupported::Operator {
             operator: format!("{}{sentence}", String::from_utf8_lossy(operator.name())),
         });
@@ -421,6 +422,7 @@ impl Interpreter<'_> {
 
     /// Reports a text-positioning or text-showing operator met with no text object open.
     fn note_outside_a_text_object(&mut self, operator: Operator) {
+        self.record_repair(&crate::repair::TEXT_OPERATOR_OUTSIDE_A_TEXT_OBJECT);
         self.note(Unsupported::Operator {
             operator: format!(
                 "{}{OUTSIDE_A_TEXT_OBJECT}",

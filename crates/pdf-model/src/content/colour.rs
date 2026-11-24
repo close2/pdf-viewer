@@ -606,19 +606,20 @@ impl Interpreter<'_> {
                 let named_profile = matches!(space, ColourSpace::Icc { .. }) && !selected_as_family;
                 (self.colour(&space, &values, state), space, named_profile)
             }
-            (1, _) => {
-                let space = self.device_space("DeviceGray", resources);
-                (self.colour(&space, &values, state), space, false)
-            }
-            (3, _) => {
-                let space = self.device_space("DeviceRGB", resources);
-                (self.colour(&space, &values, state), space, false)
-            }
-            (4, _) => {
-                let space = self.device_space("DeviceCMYK", resources);
+            (given @ (1 | 3 | 4), _) => {
+                // §8.6.8's count is the current space's; a device space with this many is this
+                // reader's reading of the producer's intent, logged as such (ADR 3541).
+                self.record_repair(&crate::repair::COLOUR_OPERANDS_DO_NOT_FIT_THE_SPACE);
+                let family = match given {
+                    1 => "DeviceGray",
+                    3 => "DeviceRGB",
+                    _ => "DeviceCMYK",
+                };
+                let space = self.device_space(family, resources);
                 (self.colour(&space, &values, state), space, false)
             }
             (given, takes) => {
+                self.record_repair(&crate::repair::COLOUR_OPERANDS_DO_NOT_FIT_THE_SPACE);
                 self.note(Unsupported::ColourOperands {
                     stroking: !fill,
                     given,

@@ -60,7 +60,11 @@ impl Interpreter<'_> {
                     }
                 }
                 // An unmatched `Q` is ignored: the alternative is to abandon the page,
-                // and files with one extra `Q` render correctly everywhere else.
+                // and files with one extra `Q` render correctly everywhere else. §8.4.2's
+                // "shall be balanced" is broken all the same, and the log says so (ADR 3541).
+                else {
+                    self.record_repair(&crate::repair::RESTORE_WITH_NOTHING_SAVED);
+                }
             }
             Operator::Concatenate => {
                 if let Some(matrix) = matrix_from(operands) {

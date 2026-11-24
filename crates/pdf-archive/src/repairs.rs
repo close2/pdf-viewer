@@ -123,6 +123,49 @@ pub static MAPPING: &[Mapped] = &[
         &["file-structure/no-encryption"],
     ),
     rows("syntax/encryption-entry", &["file-structure/no-encryption"]),
+    // The page tree (ADR 3541). `/Count`, `/Kids` and the scan replace what the tree states, and
+    // section 6.1.4's rows are about the cross-reference table's bytes, so section 5.1 alone.
+    base("model/catalog-unreadable"),
+    base("model/page-count-unusable"),
+    base("model/page-tree-found-by-scanning"),
+    base("model/page-dictionary-damaged"),
+    base("model/kids-entry-not-a-node"),
+    base("model/page-tree-cycle"),
+    no_row("model/page-tree-past-a-bound", A_BOUND_OF_THIS_READER),
+    base("model/resources-not-a-dictionary"),
+    base("model/resources-absent"),
+    // Section 6.1.13's boundary row measures the rectangles a page states and passes over one it
+    // does not, since §14.11.2.1 defaults it to another the row measures. A box that is no
+    // rectangle with an area has no size the limit can be applied to and no default standing
+    // behind it — the reader drew on its own box or read the entry as absent — so the row fails
+    // where the log says so, beside section 5.1.
+    rows(
+        "model/media-box-substituted",
+        &["implementation-limits/page-boundary-sizes"],
+    ),
+    rows(
+        "model/page-boundary-unusable",
+        &["implementation-limits/page-boundary-sizes"],
+    ),
+    base("model/rotate-not-an-integer"),
+    base("model/rotate-not-a-multiple-of-ninety"),
+    base("model/user-unit-unusable"),
+    // A content stream's parts, its inline objects and its operators' operands (ADR 3541).
+    base("model/contents-entry-not-a-stream"),
+    no_row("model/content-past-a-bound", A_BOUND_OF_THIS_READER),
+    base("model/inline-object-malformed"),
+    base("model/inline-image-key-twice"),
+    base("model/inline-image-colour-space-unresolved"),
+    base("model/inline-image-data-extent"),
+    base("model/operand-of-the-wrong-type"),
+    base("model/operator-short-of-operands"),
+    base("model/restore-with-nothing-saved"),
+    base("model/text-operator-outside-a-text-object"),
+    // Section 5.1 alone, and section 6.2.4.3's device-space rows by name not: those rows judge
+    // the space the stream *selected*, which is what the file says, and the device space the
+    // reader painted three operands in under `DeviceGray` is this reader's reading of the
+    // producer's intent rather than a space the file uses.
+    base("model/colour-operands-do-not-fit-the-space"),
 ];
 
 /// A class that breaches section 5.1 alone.

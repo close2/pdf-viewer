@@ -2540,9 +2540,10 @@ impl Owed {
             orders: asked(wanted(Rewrite::OptionalContentOrder), || {
                 sites::completed_orders(document)
             }),
-            page_resources: asked(wanted(Rewrite::PageResources), || {
-                sites::page_resources(document, input, survey)
-            }),
+            page_resources: asked(
+                wanted(Rewrite::PageResources) || !sites::resources_absent(document).is_empty(),
+                || sites::page_resources(document, input, survey),
+            ),
             defined_resources,
             form_resources,
             page_counts: asked(wanted(Rewrite::PageCountRestated), || {

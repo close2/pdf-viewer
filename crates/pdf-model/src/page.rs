@@ -20,7 +20,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
+use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId, Site};
+
+use crate::repair;
 
 /// Deepest page-tree nesting that will be followed.
 ///
@@ -38,6 +40,12 @@ const MAX_TREE_DEPTH: usize = 1024;
 ///
 /// Bounds the work a single lookup can cost regardless of what the tree claims.
 const MAX_NODES_VISITED: usize = 1 << 20;
+
+/// Where a repair of a page tree node or page object is logged: the object, where the file
+/// names one, and the whole file for a node written directly inside another.
+fn site_of(id: Option<ObjectId>) -> Site {
+    id.map_or(Site::WholeFile, Site::Object)
+}
 
 /// What one walk of the page tree has spent, and the nodes it is beneath.
 ///
@@ -83,19 +91,46 @@ impl Walk {
     /// were absent.
     fn stated_resources(&mut self, document: &Document, node: Node<'_>) -> Option<Arc<Dictionary>> {
         let stated = node.stated_key(document, "Resources")?;
-        let Object::Reference(id) = stated else {
-            return owned_dictionary(stated).map(Arc::new);
+        // not a repair: a null, written or reached, is §7.3.9's absent entry, which the
+        // ancestor's value replaces by §7.7.3.4's inheritance.
+        let read = if let Object::Reference(id) = stated {
+            let read = self
+                .resources
+                .entry(id)
+                .or_insert_with(|| owned_dictionary(document.resolve(&stated)).map(Arc::new))
+                .clone();
+            (read.is_some() || document.resolve(&stated).is_null()).then_some(read)
+        } else {
+            let null = stated.is_null();
+            let read = owned_dictionary(stated).map(Arc::new);
+            (read.is_some() || null).then_some(read)
         };
-        self.resources
-            .entry(id)
-            .or_insert_with(|| owned_dictionary(document.resolve(&stated)).map(Arc::new))
-            .clone()
+        read.unwrap_or_else(|| {
+            document.record_repair(&repair::RESOURCES_NOT_A_DICTIONARY, site_of(node.id()));
+            None
+        })
     }
 
-    /// Whether `kid`, named in `node`'s `/Kids`, is `node` itself or a node above it.
-    fn closes_a_cycle(&self, node: Node<'_>, kid: Node<'_>) -> bool {
-        kid.id()
-            .is_some_and(|id| node.id() == Some(id) || self.path.contains(&id))
+    /// Whether `kid`, named in `node`'s `/Kids`, is `node` itself or a node above it — which
+    /// §7.7.3.2's tree cannot state, so stepping over it is a repair and is logged (ADR 3541).
+    fn closes_a_cycle(&self, document: &Document, node: Node<'_>, kid: Node<'_>) -> bool {
+        let closes = kid
+            .id()
+            .is_some_and(|id| node.id() == Some(id) || self.path.contains(&id));
+        if closes {
+            document.record_repair(&repair::PAGE_TREE_CYCLE, site_of(node.id()));
+        }
+        closes
+    }
+
+    /// Whether a walk `depth` levels down has passed `MAX_TREE_DEPTH` or `MAX_NODES_VISITED`: a
+    /// bound of this reader's, logged so that what lies past it is not read in silence.
+    fn past_a_bound(&self, document: &Document, node: Node<'_>, depth: usize) -> bool {
+        let past = depth > MAX_TREE_DEPTH || self.visited > MAX_NODES_VISITED;
+        if past {
+            document.record_repair(&repair::PAGE_TREE_PAST_A_BOUND, site_of(node.id()));
+        }
+        past
     }
 
     /// Steps beneath `node`.
@@ -163,6 +198,17 @@ impl<'a> Node<'a> {
             Object::Stream(stream) => Some(Self::Direct(&stream.dict, None)),
             _ => None,
         }
+    }
+
+    /// [`Self::of`] for an element of `parent`'s `/Kids`, which Table 30 makes "an array of
+    /// indirect references": an element that is neither a reference nor a dictionary is skipped,
+    /// and the skip is logged (ADR 3541).
+    fn kid(document: &Document, parent: Node<'_>, entry: &'a Object) -> Option<Self> {
+        let kid = Self::of(entry);
+        if kid.is_none() {
+            document.record_repair(&repair::KIDS_ENTRY_NOT_A_NODE, site_of(parent.id()));
+        }
+        kid
     }
 
     /// One entry of this node as the file states it, a reference left unfollowed, or `None` where
@@ -251,6 +297,10 @@ struct Inherited {
     media_box_fault: Option<MediaBoxSubstitution>,
     crop_box: Option<[f32; 4]>,
     rotate: Option<i64>,
+    /// Whether the walk up `/Parent` stopped at this reader's bound, so an entry it found nowhere
+    /// may be stated above where it stopped: an absence is then not the file's, and is not logged
+    /// as a repair of it (ADR 3541).
+    cut_short: bool,
 }
 
 impl Inherited {
@@ -277,10 +327,37 @@ impl Inherited {
                 .or_else(|| self.resources.clone()),
             media_box,
             media_box_fault,
-            crop_box: rectangle(document, &entry("CropBox")).or(self.crop_box),
-            rotate: entry("Rotate").as_integer().or(self.rotate),
+            crop_box: stated_rectangle(document, &entry("CropBox"), node.id()).or(self.crop_box),
+            rotate: stated_rotation(document, &entry("Rotate"), node.id()).or(self.rotate),
+            cut_short: self.cut_short,
         }
     }
+}
+
+/// A `/CropBox` (or another optional boundary) as the node at `id` states it: `None` where it is
+/// absent, and where it is no rectangle, which is read as absent and logged (ADR 3541).
+fn stated_rectangle(document: &Document, entry: &Object, id: Option<ObjectId>) -> Option<[f32; 4]> {
+    if entry.is_null() {
+        return None;
+    }
+    let read = rectangle(document, entry);
+    if read.is_none() {
+        document.record_repair(&repair::PAGE_BOUNDARY_UNUSABLE, site_of(id));
+    }
+    read
+}
+
+/// A `/Rotate` as the node at `id` states it: Table 31 makes it an integer, so anything else is
+/// read as absent — the ancestor's value, or none — and logged (ADR 3541).
+fn stated_rotation(document: &Document, entry: &Object, id: Option<ObjectId>) -> Option<i64> {
+    if entry.is_null() {
+        return None;
+    }
+    let read = entry.as_integer();
+    if read.is_none() {
+        document.record_repair(&repair::ROTATE_NOT_AN_INTEGER, site_of(id));
+    }
+    read
 }
 
 /// Why a page's [`Page::media_box`] is [`Page::DEFAULT_MEDIA_BOX`] rather than the file's own.
@@ -786,6 +863,9 @@ impl<'a> Pages<'a> {
     #[must_use]
     pub fn new(document: &'a Document) -> Self {
         let catalog = document.catalog().ok();
+        if catalog.is_none() {
+            document.record_repair(&repair::CATALOG_UNREADABLE, Site::WholeFile);
+        }
         let root = catalog
             .as_ref()
             .map(|catalog| document.get_key(catalog, "Pages"))
@@ -829,6 +909,11 @@ impl<'a> Pages<'a> {
         // witness of an empty `/Kids` writes `/Count 0` beside it, so the two halves of that
         // erratum describe one file between them.
         let believed = declared.filter(|&count| count > 0 && count <= MAX_NODES_VISITED);
+        // A count past `MAX_NODES_VISITED` is a bound of this reader's, and the walk that
+        // replaces it says so where it reaches the bound; what is logged here is the file's own.
+        if root_has_kids && declared.is_none_or(|count| count == 0) {
+            document.record_repair(&repair::PAGE_COUNT_UNUSABLE, site_of(root_id));
+        }
         let count = match believed {
             Some(count) => count,
             None => root.as_ref().map_or(0, |node| {
@@ -912,6 +997,9 @@ impl<'a> Pages<'a> {
         } else {
             Vec::new()
         };
+        if !scanned.is_empty() {
+            document.record_repair(&repair::PAGE_TREE_FOUND_BY_SCANNING, Site::WholeFile);
+        }
 
         Self {
             document,
@@ -999,22 +1087,33 @@ impl<'a> Pages<'a> {
             // `/MediaBox` where its parents state one.
             let mut ancestry = vec![dict.clone()];
             let mut current = dict.clone();
+            let mut cut_short = true;
             for _ in 0..MAX_TREE_DEPTH {
                 let Some(parent) = self.document.get_key(&current, "Parent").as_dict().cloned()
                 else {
+                    cut_short = false;
                     break;
                 };
                 ancestry.push(parent.clone());
                 current = parent;
             }
+            if cut_short {
+                self.document
+                    .record_repair(&repair::PAGE_TREE_PAST_A_BOUND, Site::Object(id));
+            }
             let mut walk = Walk::default();
-            let inherited = ancestry
-                .iter()
-                .rev()
-                .fold(Inherited::default(), |so_far, node| {
-                    so_far.overlay(self.document, Node::Direct(node, None), &mut walk)
-                });
+            let start = Inherited {
+                cut_short,
+                ..Inherited::default()
+            };
+            let inherited = ancestry.iter().rev().fold(start, |so_far, node| {
+                so_far.overlay(self.document, Node::Direct(node, None), &mut walk)
+            });
             let mut page = build_page(self.document, dict, &inherited, self.boundaries, Some(id));
+            if damage.is_some() {
+                self.document
+                    .record_repair(&repair::PAGE_DICTIONARY_DAMAGED, Site::Object(id));
+            }
             page.damaged_dictionary = damage;
             return Some(page);
         }
@@ -1414,7 +1513,7 @@ fn collect_named(
     walk: &mut Walk,
     depth: usize,
 ) {
-    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+    if walk.past_a_bound(document, node, depth) {
         return;
     }
     let Some(kids) = node.key(document, "Kids") else {
@@ -1428,8 +1527,10 @@ fn collect_named(
         if let Object::Reference(id) = entry {
             named.insert(id.number);
         }
-        let Some(kid) = Node::of(entry) else { continue };
-        if walk.closes_a_cycle(node, kid) {
+        let Some(kid) = Node::kid(document, node, entry) else {
+            continue;
+        };
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
         walk.enter(node);
@@ -1447,7 +1548,7 @@ fn locate(
     walk: &mut Walk,
     depth: usize,
 ) -> Option<usize> {
-    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+    if walk.past_a_bound(document, node, depth) {
         return None;
     }
 
@@ -1469,8 +1570,10 @@ fn locate(
         if entry.as_reference() == Some(id) {
             return Some(*counted);
         }
-        let Some(kid) = Node::of(entry) else { continue };
-        if walk.closes_a_cycle(node, kid) {
+        let Some(kid) = Node::kid(document, node, entry) else {
+            continue;
+        };
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
         walk.enter(node);
@@ -1496,7 +1599,7 @@ fn collect(
     walk: &mut Walk,
     depth: usize,
 ) {
-    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+    if walk.past_a_bound(document, node, depth) {
         return;
     }
 
@@ -1526,8 +1629,10 @@ fn collect(
     };
 
     for entry in kids {
-        let Some(kid) = Node::of(entry) else { continue };
-        if walk.closes_a_cycle(node, kid) {
+        let Some(kid) = Node::kid(document, node, entry) else {
+            continue;
+        };
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
         walk.enter(node);
@@ -1539,7 +1644,7 @@ fn collect(
 /// Counts leaf nodes, for a tree whose `/Count` is missing or implausible.
 fn count_leaves(document: &Document, node: Node<'_>) -> usize {
     fn leaves(document: &Document, node: Node<'_>, depth: usize, walk: &mut Walk) -> usize {
-        if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+        if walk.past_a_bound(document, node, depth) {
             return 0;
         }
         // A `/Kids` entry naming something that is not a dictionary is no page and no node.
@@ -1557,8 +1662,11 @@ fn count_leaves(document: &Document, node: Node<'_>) -> usize {
         };
 
         let mut count = 0usize;
-        for kid in kids.iter().filter_map(Node::of) {
-            if walk.closes_a_cycle(node, kid) {
+        for kid in kids
+            .iter()
+            .filter_map(|entry| Node::kid(document, node, entry))
+        {
+            if walk.closes_a_cycle(document, node, kid) {
                 continue;
             }
             walk.enter(node);
@@ -1585,7 +1693,7 @@ fn count_leaves(document: &Document, node: Node<'_>) -> usize {
 /// it must not do is *build* the page — a probe that copied the leaf's dictionary and its
 /// `/Resources` would pay ADR 0330's cost twice on every launch, once here and once in `get(0)`.
 fn reaches_a_page(document: &Document, node: Node<'_>, walk: &mut Walk, depth: usize) -> bool {
-    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+    if walk.past_a_bound(document, node, depth) {
         return false;
     }
     let Some(kids) = node.key(document, "Kids") else {
@@ -1597,8 +1705,11 @@ fn reaches_a_page(document: &Document, node: Node<'_>, walk: &mut Walk, depth: u
         return !declares_a_node(document, node);
     };
 
-    for kid in kids.iter().filter_map(Node::of) {
-        if walk.closes_a_cycle(node, kid) {
+    for kid in kids
+        .iter()
+        .filter_map(|entry| Node::kid(document, node, entry))
+    {
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
         walk.enter(node);
@@ -1626,7 +1737,7 @@ fn find_leaf(
     depth: usize,
     boundaries: Boundaries,
 ) -> Option<Page> {
-    if depth > MAX_TREE_DEPTH || walk.visited > MAX_NODES_VISITED {
+    if walk.past_a_bound(document, node, depth) {
         return None;
     }
 
@@ -1663,8 +1774,10 @@ fn find_leaf(
         // The entry is read before it is resolved, because that is where the child's identity
         // is: §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate
         // children", and a child held by name is a child nothing has copied yet.
-        let Some(kid) = Node::of(entry) else { continue };
-        if walk.closes_a_cycle(node, kid) {
+        let Some(kid) = Node::kid(document, node, entry) else {
+            continue;
+        };
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
 
@@ -1781,8 +1894,10 @@ fn every_leaf(
     let inherited = inherited.overlay(document, node, walk);
     let mut found = 0usize;
     for entry in kids {
-        let Some(kid) = Node::of(entry) else { continue };
-        if walk.closes_a_cycle(node, kid) {
+        let Some(kid) = Node::kid(document, node, entry) else {
+            continue;
+        };
+        if walk.closes_a_cycle(document, node, kid) {
             continue;
         }
         // The `/Count` `find_leaf` would skip this subtree by, read by the same test.
@@ -1864,6 +1979,9 @@ fn build_page(
                 .unwrap_or(MediaBoxSubstitution::Absent),
         ),
     };
+    if substituted_media_box.is_some() && !inherited.cut_short {
+        document.record_repair(&repair::MEDIA_BOX_SUBSTITUTED, site_of(id));
+    }
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
     // §14.11.2.1: "If the bounds of the crop, trim, bleed or art box extends outside of the
@@ -1876,6 +1994,9 @@ fn build_page(
     //
     // A stated box with no area of its own — `[0 0 0 0]` is the form damaged files write — is no
     // rectangle the clause could intersect, and is read as absent, as it always was.
+    if inherited.crop_box.is_some_and(|crop| !has_area(crop)) {
+        document.record_repair(&repair::PAGE_BOUNDARY_UNUSABLE, site_of(id));
+    }
     let crop_exact = inherited
         .crop_box
         .filter(|crop| has_area(*crop))
@@ -1888,8 +2009,14 @@ fn build_page(
     // "attributes that are not explicitly identified in the table as inheritable shall not
     // be inherited" — so they are read from the page object alone.
     let production_box = |key: &str| {
-        rectangle(document, &document.get_key(dict, key))
-            .filter(|stated| has_area(*stated))
+        stated_rectangle(document, &document.get_key(dict, key), id)
+            .filter(|stated| {
+                let usable = has_area(*stated);
+                if !usable {
+                    document.record_repair(&repair::PAGE_BOUNDARY_UNUSABLE, site_of(id));
+                }
+                usable
+            })
             .map_or(crop_exact, |stated| within_medium(stated, media_box))
     };
     let bleed_exact = production_box("BleedBox");
@@ -1926,6 +2053,9 @@ fn build_page(
     // value is normalised rather than trusted.
     let rotate = inherited.rotate.unwrap_or(0).rem_euclid(360);
     let rotate = u16::try_from(rotate).unwrap_or(0);
+    if rotate % 90 != 0 {
+        document.record_repair(&repair::ROTATE_NOT_A_MULTIPLE_OF_NINETY, site_of(id));
+    }
     let rotate = (rotate / 90).saturating_mul(90) % 360;
 
     // "A positive number": zero, a negative and a non-finite one are all refused in favour
@@ -1933,12 +2063,24 @@ fn build_page(
     // implementation's answer to "the range of supported values shall be
     // implementation-dependent" — a page is at most 14 400 units on a side, so a unit of
     // 1000 is a 200-metre page, and the rasteriser's own pixel budget refuses what is left.
-    let user_unit = document
-        .get_key(dict, "UserUnit")
+    let stated_unit = document.get_key(dict, "UserUnit");
+    let user_unit = stated_unit
         .as_number()
         .map(narrow)
         .filter(|unit| unit.is_finite() && *unit > 0.0 && *unit <= 1000.0)
         .unwrap_or(1.0);
+    // not a repair: a unit past 1000 is a positive number Table 31 admits, and "the range of
+    // supported values shall be implementation-dependent" makes refusing it this reader's bound.
+    if !stated_unit.is_null()
+        && !stated_unit
+            .as_number()
+            .is_some_and(|unit| unit.is_finite() && unit > 0.0)
+    {
+        document.record_repair(&repair::USER_UNIT_UNUSABLE, site_of(id));
+    }
+    if inherited.resources.is_none() && !inherited.cut_short {
+        document.record_repair(&repair::RESOURCES_ABSENT, site_of(id));
+    }
 
     Page {
         id,

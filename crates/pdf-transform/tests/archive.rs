@@ -5744,6 +5744,9 @@ fn a_devicen_over(separately: bool) -> Vec<u8> {
     }
     Conforming {
         resources: "/ColorSpace << /CS0 6 0 R /CS1 7 0 R >>".to_owned(),
+        // `/CS0` is the two-colourant `DeviceN`, so §8.6.8's `sc` takes two operands, not the one
+        // the builder's generic selection writes.
+        contents: Some((String::new(), b"/CS0 cs 0 0 sc".to_vec())),
         objects,
         binary_objects: vec![stream(tint, &[0x00, 0xff])],
         ..Conforming::default()
@@ -10077,29 +10080,26 @@ fn an_unbalanced_producer_sends_the_marks_to_an_appended_page() {
         target,
     );
     let (report, output) = convert_with_plan(&source, &plan);
-    let output = output.expect("the preservation converts by appending a page");
-    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
-
-    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
-    let tree = pdf_model::Pages::new(&held);
-    assert_eq!(
-        tree.len(),
-        2,
-        "the marks went onto an appended page, the producer's own untouched"
-    );
-
-    let preserved = &conversion(&report).preserved;
-    let kept = preserved.first().expect("the preserved row");
-    assert_eq!(kept.pages, vec![1], "on the appended page");
-    assert_eq!(
-        kept.placement,
-        pdf_transform::archive::PLACEMENT_OF_MARKS,
-        "placed as marks on a composed page"
-    );
-    let declined = kept.declined.expect("the row says relocation was declined");
+    // The lone `Q` is §8.4.2's departure in its own right, which the reader repairs by ignoring
+    // it; the page's content crosses byte for byte, so section 5.1 refuses the conversion by that
+    // repair's name whatever the marks' placement (ADR 3542).
     assert!(
-        declined.contains("pops the graphics state") && declined.contains("\u{a7}8.4.2"),
-        "and names §8.4.2's balance as the reason: {declined}"
+        output.is_none(),
+        "an unbalanced stream is not written as conforming"
+    );
+    let refused: Vec<String> = conversion(&report)
+        .decided
+        .iter()
+        .filter_map(|decided| match decided.decision {
+            Decision::Refused(because) => Some(because.sentence().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|sentence| sentence.contains("model/restore-with-nothing-saved")),
+        "refused by the repair's name: {refused:?}"
     );
 }
 

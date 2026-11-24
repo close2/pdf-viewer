@@ -1192,7 +1192,7 @@ withheld is named in the report and in the output's `xmpMM:History` (ADR 1187); 
 to repair is written from the repaired reading, a stream decoded only in part written as the bytes
 decoded under the loss `damaged-data-as-decoded`, and a repair inside a content stream, which crosses
 byte for byte, refused by name unless a photograph or the run rewrite writes it again (ADRs 3521,
-3522); and where a fact is
+3522, 3543); and where a fact is
 the operator's to state — which font program may be embedded, which of an ink's two definitions
 wins, what a stream outside the file holds, what an unnamed optional content configuration is
 called, what their own metadata field means (ADR 2082) — the operator states it and the report says whose

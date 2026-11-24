@@ -1441,8 +1441,9 @@ enum Step {
     Real(f64),
     /// A string operand, which only a text-showing operator takes.
     Text(Vec<u8>),
-    /// An operator, which consumes the operands before it.
-    Operator(Operator),
+    /// An operator, which consumes the operands before it, and what its table says it takes
+    /// (`pdf_model::content::grammar`, ADR 3541).
+    Operator(Operator, Option<pdf_model::content::grammar::Signature>),
     /// A keyword ISO 32000's operator summary does not list, which consumes them too.
     Unlisted(Vec<u8>),
     /// A dictionary operand's `<<`, which only §14.6.2's property list is written as.
@@ -1474,7 +1475,7 @@ fn next_step(reader: &mut ContentReader<'_>) -> Step {
 /// One bare keyword, as an operator, an operand, or a word no operator summary lists.
 fn keyword_step(word: &[u8]) -> Step {
     if let Some(operator) = keyword(word) {
-        return Step::Operator(operator);
+        return Step::Operator(operator, pdf_model::content::grammar::signature(word));
     }
     // §7.3.2's booleans and §7.3.9's null are *objects*, and the lexer hands every keyword over
     // the same way — so they arrive here looking like operators and are not. A `BDC` property

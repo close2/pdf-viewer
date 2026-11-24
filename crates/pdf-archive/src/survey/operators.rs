@@ -1,5 +1,6 @@
 //! The content-stream loop: reading one stream's tokens and acting on each operator.
 
+use pdf_model::content::grammar::{Grammar, Operand};
 use pdf_model::content::reader::ContentReader;
 use pdf_syntax::Dictionary;
 
@@ -7,6 +8,19 @@ use super::{
     Context, DefaultSpace, DeviceFamily, Extent, MAX_NESTING, Observation, Operands, Operator,
     Origin, PropertyList, Selected, State, Step, Walk, next_step,
 };
+
+/// What a step is as an operand of the grammar's operators, or `None` for one that is not an
+/// operand.
+const fn grammar_operand(step: &Step) -> Option<Operand> {
+    Some(match step {
+        Step::Name(_) => Operand::Name,
+        Step::Integer(_) | Step::WideInteger(_) | Step::Real(_) => Operand::Number,
+        Step::Text(_) => Operand::Text,
+        Step::Dictionary => Operand::Dictionary,
+        Step::Other => Operand::Other,
+        Step::Operator(..) | Step::Unlisted(_) | Step::End => return None,
+    })
+}
 
 impl Walk<'_> {
     /// Runs one content stream, in the state it inherits.
@@ -61,6 +75,11 @@ impl Walk<'_> {
         // caller's; §14.6.1 makes neither a thing a conforming stream does, so the depth is
         // restored on the way out rather than the imbalance reported.
         let base = self.marks.len();
+        // §7.8.2's operands, §8.4.2's balance, §9.4.1's text object and §8.6.8's component count,
+        // which the interpreter repairs where a stream breaks them and a validator that does not
+        // interpret reads off the tokens (ADR 3541). What it finds goes with the stream's lexical
+        // repairs, which the caller records at the stream's content site.
+        let mut grammar = Grammar::default();
         loop {
             if self.budget == 0 {
                 self.survey.stopped_short = true;
@@ -82,6 +101,9 @@ impl Walk<'_> {
             ) {
                 operands_read = operands_read.saturating_add(1);
                 last_was_name = matches!(step, Step::Name(_));
+            }
+            if let Some(operand) = grammar_operand(&step) {
+                grammar.operand(operand);
             }
             match step {
                 Step::End => {
@@ -124,6 +146,13 @@ impl Walk<'_> {
                     strings_complete &= self.keep_string(text, &mut strings);
                 }
                 Step::Unlisted(word) => {
+                    // A run the drawing reader salvages is an operand to the operator it draws;
+                    // anything else no operator summary lists ends the operands before it.
+                    if pdf_model::content::grammar::drawn_as_a_number(&word) {
+                        grammar.operand(Operand::Number);
+                    } else {
+                        grammar.boundary();
+                    }
                     if let Some(ledger) = &mut self.ledger {
                         ledger.operator(&word);
                     }
@@ -136,9 +165,14 @@ impl Walk<'_> {
                     operands_read = 0;
                     last_was_name = false;
                 }
-                Step::Operator(operator) => {
+                Step::Operator(operator, signature) => {
                     if let Some(ledger) = &mut self.ledger {
                         ledger.operator(operator.label().as_bytes());
+                    }
+                    match signature.map(|signature| grammar.operator(signature)) {
+                        Some(Some(class)) => reader.note_repair(class),
+                        Some(None) => {}
+                        None => grammar.boundary(),
                     }
                     let context = Context {
                         resources,
@@ -166,6 +200,11 @@ impl Walk<'_> {
                         &context,
                         reader,
                     );
+                    if let Operator::SetSpace { stroking } = &operator
+                        && let Some(name) = names.first()
+                    {
+                        grammar.select_space(*stroking, self.space_components(name, &context));
+                    }
                     displaced = displaced.or(self.displacing.take());
                     names.clear();
                     strings.clear();
@@ -177,6 +216,20 @@ impl Walk<'_> {
                 }
             }
         }
+    }
+
+    /// How many components the space a `CS` or `cs` names has, where the walk can count them:
+    /// a family name, or the resources' entry, read without recording anything (the operator's
+    /// own arm records what it selected).
+    fn space_components(&self, name: &[u8], context: &Context<'_>) -> Option<usize> {
+        if let Some(count) = pdf_model::content::grammar::components(
+            self.document,
+            &pdf_syntax::Object::Name(pdf_syntax::Name::new(name.to_vec())),
+        ) {
+            return Some(count);
+        }
+        let entry = self.peek("ColorSpace", name, context)?;
+        pdf_model::content::grammar::components(self.document, &entry)
     }
 
     /// Keeps a string operand where the budget allows, and says whether it did.

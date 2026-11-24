@@ -702,10 +702,14 @@ pub(super) fn page_resources(
     survey: Option<&Survey>,
 ) -> Result<PageResources, Because> {
     let mut found = PageResources::default();
-    if !input
+    let explicit = input
         .failures()
-        .any(|judgement| judgement.id == EXPLICIT_RESOURCES)
-    {
+        .any(|judgement| judgement.id == EXPLICIT_RESOURCES);
+    // The pages whose ancestry states no `/Resources` at all, which Table 31 requires and the
+    // reader logged (`model/resources-absent`): section 5.1's half of the same rewrite, given the
+    // empty dictionary Table 31 names for a page needing none (ADR 3543).
+    let absent = resources_absent(document);
+    if !explicit && absent.is_empty() {
         return Ok(found);
     }
     // A page's own `/Contents` is the one content stream the survey opens with no object beside
@@ -726,12 +730,13 @@ pub(super) fn page_resources(
         let Some(page) = page else {
             continue;
         };
-        if !every_page && !pages.contains(&index) {
-            continue;
-        }
         let Some(id) = page.id else {
             continue;
         };
+        let for_explicit = explicit && (every_page || pages.contains(&index));
+        if !for_explicit && !absent.contains(&id) {
+            continue;
+        }
         if page.dict.get("Resources").is_some() {
             continue;
         }
@@ -745,6 +750,19 @@ pub(super) fn page_resources(
         found.at.insert(id, value);
     }
     Ok(found)
+}
+
+/// The page objects the reader logged `model/resources-absent` at.
+pub(super) fn resources_absent(document: &Document) -> BTreeSet<ObjectId> {
+    document
+        .repairs()
+        .iter()
+        .filter(|repair| repair.class.name == pdf_model::repair::RESOURCES_ABSENT.name)
+        .filter_map(|repair| match repair.at {
+            pdf_syntax::Site::Object(id) => Some(id),
+            _ => None,
+        })
+        .collect()
 }
 
 /// What a copy of `value` costs [`MAX_COPIED_BYTES`], counted no further than `cap`.

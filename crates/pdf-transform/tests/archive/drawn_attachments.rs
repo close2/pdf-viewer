@@ -47,7 +47,7 @@ fn a_plain_pdf_of(count: usize) -> Vec<u8> {
         ),
     ];
     objects.extend((0..count).map(|_| {
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 3 0 R >>".to_owned()
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 3 0 R /Resources << >> >>".to_owned()
     }));
     let mut out = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n".to_vec();
     let mut offsets = Vec::new();

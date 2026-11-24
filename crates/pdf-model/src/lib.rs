@@ -69,6 +69,7 @@ pub mod page_label;
 pub mod popup;
 pub mod progress;
 pub mod reference;
+pub mod repair;
 pub mod requirements;
 pub mod restriction;
 pub mod retrieval;

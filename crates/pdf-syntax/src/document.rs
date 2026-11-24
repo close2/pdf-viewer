@@ -433,6 +433,13 @@ impl Document {
         read(&self.repairs).repairs().collect()
     }
 
+    /// Each class of repair this reader has made so far, once, in name order — what a viewer
+    /// says a file needed without walking every site (ADR 3541).
+    #[must_use]
+    pub fn repair_classes(&self) -> Vec<&'static RepairClass> {
+        read(&self.repairs).classes().collect()
+    }
+
     /// How many repairs of the class named `name` were made past the sites the log keeps (see
     /// [`crate::repair::SITES_KEPT_PER_CLASS`]).
     #[must_use]

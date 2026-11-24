@@ -77,12 +77,17 @@ impl Interpreter<'_> {
             let (ahead, complete) = reader.lookahead(want);
             let scanned = crate::inline_image::scan(self.document, ahead, 0, resources, complete);
             if complete || scanned.image.is_ok() {
+                for class in &scanned.repairs {
+                    reader.note_repair(class);
+                }
                 return scanned;
             }
             if want >= bound {
+                reader.note_repair(&crate::repair::CONTENT_PAST_A_BOUND);
                 return crate::inline_image::Scan {
                     resume: scanned.resume,
                     image: Err(crate::inline_image::InlineImageError::Unbuffered { bound }),
+                    repairs: scanned.repairs,
                 };
             }
             want = want.saturating_mul(2).min(bound);

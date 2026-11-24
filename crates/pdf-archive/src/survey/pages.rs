@@ -46,12 +46,10 @@ impl Walk<'_> {
             ledger.enter(Via::Page, page.id);
         }
         self.run(&mut reader, &page.resources, index, 0, &state, origin);
-        // What lexing the stream repaired goes on the document's one channel, where section
-        // 5.1's row reads it (ADR 3477), at a site that says it was content (ADR 3521).
-        let site = pdf_syntax::Site::Content(page.id);
-        for class in reader.lexical_repairs() {
-            self.document.record_repair(class, site);
-        }
+        // What reading the stream repaired — lexing it, its inline objects, the grammar of its
+        // operators — goes on the document's one channel as the reader is dropped, at the page's
+        // content site, where section 5.1's row reads it (ADR 3477, ADR 3521, ADR 3541).
+        drop(reader);
         if let Some(ledger) = &mut self.ledger {
             ledger.leave();
         }

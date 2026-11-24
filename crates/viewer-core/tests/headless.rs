@@ -658,6 +658,42 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
     );
 }
 
+/// A repair the reader made drawing the page is said, by its class's sentence, once for the
+/// document (ADR 3541): ISO 32000-2 §8.4.2 makes `q` and `Q` "balanced within a given content
+/// stream", and a `Q` with nothing saved is ignored where it is met — which a person looking at
+/// the page is told rather than left to assume the page is as its producer wrote it.
+#[test]
+fn a_repair_the_reader_made_is_said_once() {
+    let bytes = page_with_content("Q 0 0 m 10 10 l S Q");
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let said: Vec<String> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let restore = |note: &String| {
+        note.contains("model/restore-with-nothing-saved") && note.contains("§8.4.2")
+    };
+    assert_eq!(
+        said.iter().filter(|note| restore(note)).count(),
+        1,
+        "two unmatched Qs are one class, said once: {said:?}"
+    );
+    // And kept with the page's notes, so a host asking again is told again.
+    let Answer::Reports(all) = viewer.query(Query::Reports) else {
+        panic!("the reports are answered");
+    };
+    assert!(all.iter().any(|page| page.notes.iter().any(restore)));
+}
+
 /// A page whose codes ISO 32000-2 §9.10.2 cannot name says how many, without reporting one.
 ///
 /// **The counterpart of the test above, and the distinction between them is the whole decision.**
@@ -686,7 +722,7 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
          /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
-         4 0 obj\n<< /Length 45 >>\nstream\nBT /F1 12 Tf 20 40 Td (A\\300a\\340) Tj ET\n\
+         4 0 obj\n<< /Length 40 >>\nstream\nBT /F1 12 Tf 20 40 Td (A\\300a\\340) Tj ET\n\
          endstream\nendobj\n\
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
          /Encoding << /Type /Encoding /Differences [192 /a192 224 /a224] >> >>\nendobj\n";

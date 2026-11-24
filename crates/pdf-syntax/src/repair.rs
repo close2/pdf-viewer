@@ -163,6 +163,17 @@ impl RepairLog {
         self.counts.get(name).map_or(0, |(_, beyond)| *beyond)
     }
 
+    /// Each class the log holds a repair of, once, in name order: what a reader is told a file
+    /// needed, where the sites are the validator's business.
+    pub fn classes(&self) -> impl Iterator<Item = &'static RepairClass> + '_ {
+        let mut last: Option<&'static str> = None;
+        self.kept.iter().filter_map(move |repair| {
+            let new = last != Some(repair.class.name);
+            last = Some(repair.class.name);
+            new.then_some(repair.class)
+        })
+    }
+
     /// Whether nothing was repaired.
     #[must_use]
     pub fn is_empty(&self) -> bool {

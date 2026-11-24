@@ -20,7 +20,10 @@ impl Rewriter<'_> {
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        if !self.wants(Rewrite::PageResources) || out.get("Resources").is_some() {
+        // Wanted by section 6.2.2's row, or by section 5.1's log where the reader found a page whose
+        // ancestry states none (`sites::page_resources`, ADR 3543): either way the pages are the
+        // ones prepared, and none is prepared where neither asked.
+        if out.get("Resources").is_some() {
             return false;
         }
         let Some(resources) = self

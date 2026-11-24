@@ -77,7 +77,9 @@
 
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, EncodedExtent, Lexer, Name, Object, Parser, Stream, Token};
+use pdf_syntax::{
+    Dictionary, Document, EncodedExtent, Lexer, Name, Object, Parser, RepairClass, Stream, Token,
+};
 
 /// Why an inline image could not be read.
 ///
@@ -138,6 +140,10 @@ pub struct Scan {
     /// The image, in the form an image `XObject` would have taken, or why it could not be
     /// read.
     pub image: Result<Stream, InlineImageError>,
+    /// What reading the image needed that the file did not state as §8.9.7 asks, once each
+    /// (ADR 3541): a caller holding the content stream's reader records them there
+    /// ([`crate::content::reader::ContentReader::note_repair`]).
+    pub repairs: Vec<&'static RepairClass>,
 }
 
 /// Reads the inline image whose `BI` has just been consumed, from `at`.
@@ -162,14 +168,22 @@ pub fn scan(
     complete: bool,
 ) -> Scan {
     let mut lexer = Lexer::at(content, at);
-    let dict = match read_dictionary(document, &mut lexer, resources) {
+    let mut repairs = Vec::new();
+    let dict = match read_dictionary(document, &mut lexer, resources, &mut repairs) {
         Ok(dict) => dict,
         Err(error) => {
             // The dictionary is what says where the data ends, so without it there is
             // nothing to do but look for the terminator and carry on from there.
+            let class = match error {
+                InlineImageError::PastABound { .. } => &crate::repair::CONTENT_PAST_A_BOUND,
+                InlineImageError::Truncated => &crate::repair::INLINE_IMAGE_DATA_EXTENT,
+                _ => &crate::repair::INLINE_OBJECT_MALFORMED,
+            };
+            note(&mut repairs, class);
             return Scan {
                 resume: search_for_terminator(content, at).map_or(content.len(), |found| found.1),
                 image: Err(error),
+                repairs,
             };
         }
     };
@@ -198,16 +212,23 @@ pub fn scan(
 
     let (end, resume) = match data_extent(document, &dict, content, start, complete) {
         Extent::At { end, resume } => (end, resume),
+        Extent::Searched { end, resume } => {
+            note(&mut repairs, &crate::repair::INLINE_IMAGE_DATA_EXTENT);
+            (end, resume)
+        }
         Extent::PastTheBuffer => {
             return Scan {
                 resume: content.len(),
                 image: Err(InlineImageError::Truncated),
+                repairs,
             };
         }
         Extent::Missing => {
+            note(&mut repairs, &crate::repair::INLINE_IMAGE_DATA_EXTENT);
             return Scan {
                 resume: content.len(),
                 image: Err(InlineImageError::NoTerminator),
+                repairs,
             };
         }
     };
@@ -223,6 +244,14 @@ pub fn scan(
             // content stream.
             decryption_failed: false,
         }),
+        repairs,
+    }
+}
+
+/// Keeps `class` among `repairs`, once.
+fn note(repairs: &mut Vec<&'static RepairClass>, class: &'static RepairClass) {
+    if !repairs.iter().any(|kept| std::ptr::eq(*kept, class)) {
+        repairs.push(class);
     }
 }
 
@@ -233,6 +262,7 @@ fn read_dictionary(
     document: &Document,
     lexer: &mut Lexer<'_>,
     resources: &Dictionary,
+    repairs: &mut Vec<&'static RepairClass>,
 ) -> Result<Dictionary, InlineImageError> {
     let content = lexer.input();
     let limits = document.limits();
@@ -281,6 +311,9 @@ fn read_dictionary(
             // other dictionary in a file. A key stated once each way keeps the abbreviated
             // one whichever came first; see the note on `expand_key` for why.
             let already = dict.get(full).is_some();
+            if already {
+                note(repairs, &crate::repair::INLINE_IMAGE_KEY_TWICE);
+            }
             if !already || (abbreviated && !by_abbreviation.contains(&full)) {
                 dict.insert(Name::new(full.as_bytes().to_vec()), value);
                 if abbreviated {
@@ -290,7 +323,7 @@ fn read_dictionary(
         }
     }
 
-    expand_names(document, &mut dict, resources);
+    expand_names(document, &mut dict, resources, repairs);
     Ok(dict)
 }
 
@@ -354,7 +387,12 @@ fn expand_key(key: &[u8]) -> Option<&'static str> {
 /// Table 92's abbreviations "are valid only in inline images; they shall not be used in image
 /// `XObject`s", so this is the one place in the tree that has to know them, and after it the
 /// dictionary says what a file written the long way would have said.
-fn expand_names(document: &Document, dict: &mut Dictionary, resources: &Dictionary) {
+fn expand_names(
+    document: &Document,
+    dict: &mut Dictionary,
+    resources: &Dictionary,
+    repairs: &mut Vec<&'static RepairClass>,
+) {
     if let Some(filter) = dict.get("Filter").cloned() {
         let expanded = match filter {
             Object::Name(name) => Object::Name(expand_filter(&name)),
@@ -395,7 +433,13 @@ fn expand_names(document: &Document, dict: &mut Dictionary, resources: &Dictiona
                     .get_key(resources, "ColorSpace")
                     .as_dict()
                     .and_then(|table| table.get_by_name(&name).cloned())
-                    .unwrap_or(Object::Name(name)),
+                    .unwrap_or_else(|| {
+                        note(
+                            repairs,
+                            &crate::repair::INLINE_IMAGE_COLOUR_SPACE_UNRESOLVED,
+                        );
+                        Object::Name(name)
+                    }),
             },
             Object::Array(items) => Object::Array(
                 items
@@ -464,6 +508,14 @@ enum Extent {
     /// the answer is one of the other two once they arrive — which is what makes the reader's
     /// lookahead double rather than settle for the search.
     PastTheBuffer,
+    /// The data ends at `end`, found by the search after a length the file states or §8.9.3
+    /// computes ended elsewhere than at `EI`.
+    Searched {
+        /// End of the data, before the white space delimiting `EI`.
+        end: usize,
+        /// The offset after the terminator.
+        resume: usize,
+    },
     /// No `EI` ends the data.
     Missing,
 }
@@ -486,6 +538,9 @@ fn data_extent(
     // overruns its content stream, or its filter stops short of its own marker — and the search
     // below is what draws the samples that did arrive.
     let mut past_the_buffer = false;
+    // Whether a length the file states or §8.9.3 computes ended somewhere other than at `EI`:
+    // the search below then reads the image to an `EI` no stated length predicted (ADR 3541).
+    let mut missed = false;
 
     // §8.9.7: `/L` "shall be present on all inline images" and is "the length of the data
     // between the ID and EI operators excluding the white-space delimiting those operators".
@@ -501,7 +556,7 @@ fn data_extent(
         match terminator_at(content, end) {
             Terminator::At(resume) => return Extent::At { end, resume },
             Terminator::PastTheBuffer => past_the_buffer |= !complete,
-            Terminator::No => {}
+            Terminator::No => missed = true,
         }
     }
 
@@ -514,7 +569,7 @@ fn data_extent(
             match terminator_at(content, end) {
                 Terminator::At(resume) => return Extent::At { end, resume },
                 Terminator::PastTheBuffer => past_the_buffer |= !complete,
-                Terminator::No => {}
+                Terminator::No => missed = true,
             }
         }
     } else {
@@ -536,7 +591,7 @@ fn data_extent(
                 match terminator_at(content, end) {
                     Terminator::At(resume) => return Extent::At { end, resume },
                     Terminator::PastTheBuffer => past_the_buffer |= !complete,
-                    Terminator::No => {}
+                    Terminator::No => missed = true,
                 }
             }
             // The filter ran out of input before its end-of-data. Through a window that is more
@@ -552,6 +607,7 @@ fn data_extent(
     }
 
     match search_for_terminator(content, start) {
+        Some((end, resume)) if missed => Extent::Searched { end, resume },
         Some((end, resume)) => Extent::At { end, resume },
         None => Extent::Missing,
     }

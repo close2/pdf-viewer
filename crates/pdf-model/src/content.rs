@@ -49,6 +49,7 @@ mod colour;
 pub mod divide;
 mod ext_gstate;
 mod font;
+pub mod grammar;
 mod guidelines;
 mod image;
 pub mod ledger;
@@ -1563,6 +1564,7 @@ impl<'a> Interpreter<'a> {
         };
         Self {
             document,
+            page_id: page.id,
             list: DisplayList::new(size),
             unsupported: report::Notes::default(),
             notes_raised: 0,
@@ -1682,6 +1684,7 @@ impl<'a> Interpreter<'a> {
             // Borrowed, or derived from the page and the view state, so [`Interpreter::for_page`]
             // produces them again from the same inputs.
             document: _,
+            page_id: _,
             across: _,
             references: _,
             annotations_clipped_to: _,
@@ -2789,6 +2792,9 @@ enum KnockoutKind {
 )]
 struct Interpreter<'a> {
     document: &'a Document,
+    /// The page object being read, which is where a repair in its `/Contents` is logged
+    /// ([`Interpreter::record_repair`], ADR 3541).
+    page_id: Option<ObjectId>,
     list: DisplayList,
     /// Keyed so that a page drawing the same unsupported image a thousand times reports it
     /// once rather than flooding the diagnostics — and a repeat costs a lookup (ADR 1521).

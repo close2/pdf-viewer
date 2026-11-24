@@ -1,15 +1,21 @@
 //! ISO 19005-2 and ISO 19005-4 section 5.1 over the reader's log of repairs: what the rewrite
 //! answers, what this conversion restates at a stated loss, and what it refuses by name (ADR 3521).
 //!
-//! # Three answers, by what the reader repaired
+//! # The answers, by what the reader repaired
 //!
-//! `pdf_archive` fails section 5.1 at every repair `pdf_syntax` and the content survey logged on the
-//! source (ADR 3506). Which answer a repair takes depends on where its bytes go:
+//! `pdf_archive` fails section 5.1 at every repair `pdf_syntax`, `pdf_model` and the content
+//! survey logged on the source (ADR 3506, ADR 3541). Which answer a repair takes depends on where
+//! its bytes go:
 //!
 //! - **A repair of the file's structure or of an object outside content** — a table rebuilt, a
 //!   key repeated, an `endobj` missing, a number spelled with an exponent in a dictionary — is
 //!   answered by the whole-file rewrite: the output is the repaired reading written in the
 //!   serializer's own syntax, so the departure is not in it.
+//! - **A repair of a page object's or page tree node's own entries** — a `/Rotate` of 45, a
+//!   `/MediaBox` that is a name, a `/Resources` the page's ancestry never states — is left to the
+//!   rewrites that already restate such a page (a box with no width written as the box this viewer
+//!   draws, a recovered page given the values the reader resolved for it) and to the output's own
+//!   check, whose refusal names each class the output still holds (ADR 3543).
 //! - **A repair inside a content stream** is refused by name. The stream crosses this verb byte
 //!   for byte, so the departure would be in the output too, and correcting it would edit the
 //!   producer's page — ADR 0816's fence. The survey records these at [`pdf_syntax::Site::Content`],
@@ -368,6 +374,26 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content!("syntax/integer-past-i64", "ISO 32000-2 §7.3.3"),
     in_content!("syntax/number-with-an-exponent", "ISO 32000-2 §7.3.3"),
     in_content!("syntax/number-salvaged", "ISO 32000-2 §7.3.3"),
+    // What `pdf_model` logs reading a content stream's inline objects and its operators'
+    // operands (ADR 3541).
+    in_content!("model/inline-object-malformed", "ISO 32000-2 §7.8.2"),
+    in_content!("model/inline-image-key-twice", "ISO 32000-2 §8.9.7"),
+    in_content!(
+        "model/inline-image-colour-space-unresolved",
+        "ISO 32000-2 §8.9.7"
+    ),
+    in_content!("model/inline-image-data-extent", "ISO 32000-2 §8.9.7"),
+    in_content!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
+    in_content!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
+    in_content!("model/restore-with-nothing-saved", "ISO 32000-2 §8.4.2"),
+    in_content!(
+        "model/text-operator-outside-a-text-object",
+        "ISO 32000-2 §9.4.1"
+    ),
+    in_content!(
+        "model/colour-operands-do-not-fit-the-space",
+        "ISO 32000-2 §8.6.8"
+    ),
 ];
 
 /// The sentence for a class inside a content stream that [`IN_CONTENT_BY_CLASS`] does not list.
@@ -405,14 +431,16 @@ const NOT_FOUND: &str = "this reader decoded some stream data of this file only 
 mod tests {
     use super::*;
 
-    /// Each sentence names a class `pdf_syntax` declares, under that class's own clause.
+    /// Each sentence names a class `pdf_syntax` or `pdf_model` declares, under that class's own
+    /// clause.
     #[test]
     fn every_content_sentence_names_a_declared_class_under_its_clause() {
         for (name, clause, sentence) in IN_CONTENT_BY_CLASS {
             let declared = repair::CLASSES
                 .iter()
+                .chain(pdf_model::repair::CLASSES)
                 .find(|class| class.name == *name)
-                .unwrap_or_else(|| panic!("{name} is a class pdf_syntax declares"));
+                .unwrap_or_else(|| panic!("{name} is a class a reader crate declares"));
             assert_eq!(declared.clause, *clause, "{name}");
             assert!(sentence.contains(name) && sentence.contains("section 5.1"));
         }

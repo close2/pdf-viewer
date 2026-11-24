@@ -1140,6 +1140,14 @@ the integer and the real two spellings of one number, so no mark moves. ADR 2638
 `content-as-drawn` writes the number this reader draws in place of a run that is no number, and is
 argued there.
 
+The same holds for a stream this reader had to **repair** to read — a `Q` with nothing saved, an
+operator short of its operands, three `sc` operands under `DeviceGray`, a string with no end. The
+stream breaks ISO 19005's section 5.1, and the conversion refuses it by the repair's name unless the
+page is photographed (ADRs 3521, 3541, 3543). A page object whose own entries were repaired — a
+`/Rotate` of 45, a `/MediaBox` that is a name — converts where a rewrite already restates the page,
+and is otherwise refused by the output's own check, which names the repair: writing the reader's
+reading in its place would put the reader's words in the producer's mouth.
+
 ---
 
 ## 6. Limitations that come from PDF/A-4 being PDF 2.0

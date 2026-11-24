@@ -386,4 +386,20 @@ mod tests {
             [&b"m"[..], b"l", b"Tf", b"Td", b"TD", b"d0", b"DP", b"BDC"]
         );
     }
+
+    /// The validator's walk reads the same table: every operator the interpreter runs has a
+    /// signature in `content::grammar`, stating the count this one does (ADR 3541).
+    #[test]
+    fn operand_counts_are_the_grammars() {
+        for operator in Operator::ALL {
+            let signature = crate::content::grammar::signature(operator.name())
+                .unwrap_or_else(|| panic!("{:?} has a signature", operator.name()));
+            assert_eq!(
+                signature.operand_count(),
+                operator.operand_count(),
+                "{}",
+                String::from_utf8_lossy(operator.name())
+            );
+        }
+    }
 }

@@ -15,6 +15,19 @@ impl Interpreter<'_> {
         self.unsupported.insert(item);
     }
 
+    /// Logs a repair of `class` made in the content stream being read, at its content site: the
+    /// page's `/Contents`, or the form `XObject` or appearance stream the interpreter is inside
+    /// (ADR 3477, ADR 3541). The report entry beside it, where there is one, stays the detail.
+    pub(in crate::content) fn record_repair(&self, class: &'static pdf_syntax::RepairClass) {
+        let holder = match self.stream {
+            crate::content::report::ContentStream::Page => self.page_id,
+            crate::content::report::ContentStream::Object(id) => Some(id),
+            crate::content::report::ContentStream::Unnameable => None,
+        };
+        self.document
+            .record_repair(class, pdf_syntax::Site::Content(holder));
+    }
+
     /// [`Interpreter::note`] for one of the three sentences a content stream's keyword produces,
     /// which builds the sentence only the first time the page meets that keyword under it.
     ///

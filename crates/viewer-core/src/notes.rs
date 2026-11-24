@@ -590,6 +590,27 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
     notes
 }
 
+/// One sentence for each class of repair the reader has made in this file that has not been
+/// said yet (ADR 3477, ADR 3541).
+///
+/// The reader keeps reading a file that departs from ISO 32000-2 — a `/Rotate` of 45, a `Q`
+/// with nothing saved, a string with no end — and what it draws is its own reading of the
+/// departure. A person looking at the page is owed that, once per document rather than once per
+/// page: the class says what the file wrote and what was read in its place, under the clause the
+/// file broke, and the sites are the validator's business rather than a status bar's.
+pub(crate) fn repairs(open: &mut crate::open::Open) -> Vec<String> {
+    let mut notes = Vec::new();
+    for class in open.document.repair_classes() {
+        if open.repairs_said.insert(class.name) {
+            notes.push(format!(
+                "this file departs from {} and is shown as this reader repaired it: {} ({})",
+                class.clause, class.read_instead, class.name
+            ));
+        }
+    }
+    notes
+}
+
 /// The sentence for a scan the process could not hold the file for.
 ///
 /// §C.4 (informative) licenses the scan — "\[w]hen a PDF processor reads a PDF file with a

@@ -149,13 +149,14 @@ fn a_stray_delimiter_after_an_operand_keeps_its_page_photographed() {
     assert_eq!(written.run, b"33600.272.58");
 }
 
-// `hesr13613-sup-0001-Authormatrix.pdf`'s shape: `> Tj` after a string shown, a `>` that closes
-// nothing standing where no operand does. The reader clears nothing at it and the `Tj` after it
-// has no operand either way, so the stream is written with white space in the delimiter's place,
-// the producer's other bytes kept, and the page stays text.
+// A `>` that closes nothing, standing after a string shown where no operand does. The reader
+// clears nothing at it, so the stream is written with white space in the delimiter's place, the
+// producer's other bytes kept, and the page stays text. `hesr13613-sup-0001-Authormatrix.pdf`
+// writes a `Tj` after it, which is given no operand either way: that is §7.8.2's shortfall, which
+// no rewrite answers and which is refused by name (ADR 3542), so it is not this fixture's.
 #[test]
 fn a_lone_delimiter_where_no_operand_stands_is_written_as_white_space() {
-    let source = a_page_drawing(b"BT /F1 12 Tf 10 80 Td (World) Tj > Tj ET");
+    let source = a_page_drawing(b"BT /F1 12 Tf 10 80 Td (World) Tj > ET");
     for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
         let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
         let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
@@ -181,7 +182,7 @@ fn a_lone_delimiter_where_no_operand_stands_is_written_as_white_space() {
         assert_eq!(written.number, [] as [u8; 0]);
         let contents = decoded_contents(&output);
         assert!(
-            holds_bytes(&contents, b"(World) Tj   Tj ET"),
+            holds_bytes(&contents, b"(World) Tj   ET"),
             "{}",
             String::from_utf8_lossy(&contents)
         );
@@ -369,7 +370,7 @@ fn a_form_whose_bytes_are_written_as_drawn_keeps_its_cid_font_s_identity_map() {
                 LIBERATION_SANS,
             ),
             {
-                let data = b"BT /F0 12 Tf 10 100 Td <0024> Tj > Tj ET";
+                let data = b"BT /F0 12 Tf 10 100 Td <0024> Tj > ET";
                 stream(
                     &format!(
                         "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font \
