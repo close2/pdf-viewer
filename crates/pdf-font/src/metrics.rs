@@ -946,13 +946,11 @@ const TOLERANCE: f32 = 2.0;
 ///
 /// and `/Descent`:
 ///
-/// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
-/// > negative number.
+/// > The maximum depth below the baseline reached by glyphs in this font.
 ///
-/// Errata Collection 3 (Issue #190) strikes *negative* from that second sentence and appends
-/// *less than or equal to zero* after *number*, so the amended entry reads *\[t]he value shall be
-/// a number less than or equal to zero*. The blockquote above stays as the published text,
-/// which is what the quotation gate verifies against `doc/md/`.
+/// Issue #190 (published on pdf-issues.pdfa.org, ISO approved) strikes *negative* from the
+/// sentence that follows and appends *less than or equal to zero* after *number*, so the amended
+/// sentence reads *The value shall be a number less than or equal to zero.*
 ///
 /// Three conditions follow, in order:
 ///
@@ -973,18 +971,17 @@ const TOLERANCE: f32 = 2.0;
 ///
 /// # The one repair
 ///
-/// A positive `/Descent` is read as the depth it states, with Table 120's sign convention put
-/// back. That is a **choice**, and the argument for it is that the entry's definition and its
-/// sign are two different sentences: "the maximum depth below the baseline reached by glyphs in
-/// this font" defines a depth, which is a magnitude, and "\[t]he value shall be a negative
-/// number" is the convention for writing it down. A file that writes `905` and `211` for a face
-/// whose real metrics are 905 and −211 has broken the convention and stated the measurement, and
-/// this is by a distance the commonest malformed shape the corpus holds — **42 font dictionaries
-/// of 1629**, against 40 the band rejects outright. Refusing it would cost those fonts a
-/// highlight that stops at the baseline and misses every descender's tail; the cost of accepting
-/// it is that a file which meant something else by a positive descent gets a box the band already
-/// tolerates for anybody. Nothing here reads the *rendering* of a page, so a mistaken repair
-/// cannot move a glyph.
+/// A positive `/Descent` is read as the depth it states, with Table 120's sign convention put back.
+/// That is a **choice**, and the argument for it is that the entry's definition and its sign are
+/// two different sentences: "the maximum depth below the baseline reached by glyphs in this font"
+/// defines a depth, which is a magnitude, and the sentence on the value's sign is the convention
+/// for writing it down. A file that writes `905` and `211` for a face whose real metrics are 905
+/// and −211 has broken the convention and stated the measurement, and this is by a distance the
+/// commonest malformed shape the corpus holds — **42 font dictionaries of 1629**, against 40 the
+/// band rejects outright. Refusing it would cost those fonts a highlight that stops at the baseline
+/// and misses every descender's tail; the cost of accepting it is that a file which meant something
+/// else by a positive descent gets a box the band already tolerates for anybody. Nothing here reads
+/// the *rendering* of a page, so a mistaken repair cannot move a glyph.
 ///
 /// Issue #190's inserted NOTE corroborates the diagnosis without changing the rule: *\[w]hile
 /// different font programs may define descender metrics using either positive or negative

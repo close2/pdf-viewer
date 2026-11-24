@@ -20,8 +20,10 @@
 //! marked-content identifier that uniquely identifies the marked-content sequence within its
 //! content stream", and §14.7.5.4 says what the number is then used for:
 //!
-//! > The array element corresponding to each sequence shall be found by using the sequence's
-//! > marked -content identifier as a zero-based index into the array.
+//! > The array element corresponding to each sequence shall be found by using the
+//!
+//! and Issue #308 (published on pdf-issues.pdfa.org) writes the rest as *sequence's
+//! marked-content identifier (MCID) as a zero-based index into the array*.
 //!
 //! So an identifier means nothing outside the stream that holds it and the one array that
 //! stream's key names. RFC 0002 section 11.1 makes every content stream cross byte for byte, and this
@@ -119,10 +121,11 @@ const MAX_DEPTH: usize = 256;
 
 /// Table 354's entries that are arrays and concatenate across sources.
 ///
-/// `/Namespaces` is "\[a]n array of namespaces used within the document", `/PronunciationLexicon`
-/// "one or more indirect references to file specification dictionaries", `/AF` "one or more file
-/// specification dictionaries" — three lists, none of them a namespace two sources can collide
-/// in, so the union is the whole reconciliation.
+/// `/Namespaces` is, by Issue #396 (published on pdf-issues.pdfa.org), an array of *at least all*
+/// namespaces used within the document *as referenced from structure elements in the structure
+/// hierarchy*, `/PronunciationLexicon` "one or more indirect references to file specification
+/// dictionaries", `/AF` "one or more file specification dictionaries" — three lists, none of them a
+/// namespace two sources can collide in, so the union is the whole reconciliation.
 const LIST_VALUED: [&str; 3] = ["Namespaces", "PronunciationLexicon", "AF"];
 
 /// One page of the output, as the structure carry needs to see it.

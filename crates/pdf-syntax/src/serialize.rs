@@ -1646,10 +1646,11 @@ pub(crate) fn header_version(version: Version, form: Form, encrypted: bool) -> V
 /// §7.5.2's two lines.
 ///
 /// "The PDF file begins with the 5 characters '%PDF-'"; and "\[i]f a PDF file contains binary
-/// data, as most do, the header line shall be immediately followed by a comment line containing
-/// at least four binary characters — that is, characters whose codes are 128 or greater." Every
-/// output of this serializer carries stream data, so the second line is written unconditionally
-/// rather than after a scan.
+/// data, as most do, the header line shall be immediately followed by a" line that, by Issue
+/// #272 (published on pdf-issues.pdfa.org), contains *only a comment that starts with* at least
+/// four binary characters — that is, characters whose codes are 128 or greater. Every output of
+/// this serializer carries stream data, so the second line is written unconditionally rather
+/// than after a scan.
 fn write_header<W: Write>(
     sink: &mut Counted<'_, W>,
     version: Version,

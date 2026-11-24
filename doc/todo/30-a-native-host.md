@@ -237,8 +237,10 @@ These are the places where a native host's shape differs from the tier-2 host's,
 
 Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows with their readings.
 
-- **A note typed into writes a line feed where §12.5.6.2 asks for a carriage return**: "When
-  separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used". `quorra`'s Enter inserts
+- **A note typed into writes a line feed where §12.5.6.2 asks for a carriage return**: *When
+  providing the Contents key, if separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be
+  used* (Issue #90, published on pdf-issues.pdfa.org, inserts *providing the Contents key, if*).
+  `quorra`'s Enter inserts
   `\n`, and the toolkits' editors hand back their own line feeds with `Edit::SetNoteText`. The fix
   touches all three windows' editors and their offset arithmetic (ADR 1798 section 3).
 

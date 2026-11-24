@@ -1401,22 +1401,22 @@ fn check_destination_profiles(
 /// An edition of the ICC specification this project holds, identified by the profile version it
 /// states as its own.
 ///
-/// ISO 32000-2 §8.6.5.5 is what makes this the right key:
+/// ISO 32000-2 §8.6.5.5 as the standard now stands states no such key: Issue #839 (published on
+/// pdf-issues.pdfa.org) deletes the last bullet below Table 66, which tied a profile to the
+/// specification its header version names, and what is left is Table 66 as Issue #181 replaces it,
+/// which sends a header version of 2.x.y.z to ICC.1:2001-04 and 4.x.y.z with x at most 3 to ISO
+/// 15076-1:2010. The key here is the ICC texts' own: each says which version number is consistent
+/// with it, so the header's version at bytes 8 to 11 names the text a profile is to be judged by,
+/// and this enumerates the four texts that are here to judge with, each stating the version
+/// consistent with itself: ICC.1:1998-09 section 6.1.3 gives 2.2.0, ICC.1:2001-12 section 6.1.3
+/// gives 4.0.0, ICC.1:2022 section 7.2.4 gives 4.4.0.0 and ICC.2:2023 section 7.2.6 gives 5.0.0.0.
+/// All four clauses put the major version in byte 8 and the minor and bug-fix versions in the two
+/// halves of byte 9, which is what `pdf_model::icc::Identification` reads.
 ///
-/// > Profiles shall conform to the specification version indicated by the Profile version number
-/// > in its header.
-///
-/// So the header's version at bytes 8 to 11 names the text a profile is to be judged by, and this
-/// enumerates the four texts that are here to judge with, each stating the version consistent with
-/// itself: ICC.1:1998-09 section 6.1.3 gives 2.2.0, ICC.1:2001-12 section 6.1.3 gives 4.0.0,
-/// ICC.1:2022 section 7.2.4 gives 4.4.0.0 and ICC.2:2023 section 7.2.6 gives 5.0.0.0. All four
-/// clauses put the major version in byte 8 and the minor and bug-fix versions in the two halves of
-/// byte 9, which is what `pdf_model::icc::Identification` reads.
-///
-/// **That sentence is ISO 32000-2's and is not in ISO 32000-1:2008**, whose own 8.6.5.5 maps the
-/// *PDF* version to an ICC version in its Table 67 and says a reader shall process an embedded
-/// profile according to the PDF version being processed — a rule about the reader. So a part 2
-/// verdict cannot rest on it, and the rows that judge a part 2 file by this key rest on the ICC
+/// **ISO 32000-2's Table 66 is not in ISO 32000-1:2008**, whose own 8.6.5.5 maps the *PDF*
+/// version to an ICC version in its Table 67 and says a reader shall process an embedded profile
+/// according to the PDF version being processed — a rule about the reader. So a part 2 verdict
+/// cannot rest on it, and the rows that judge a part 2 file by this key rest on the ICC
 /// texts instead: each of the four says its version field identifies the edition the profile
 /// conforms to, ICC.1:2022 section 7.2.4 and ICC.2:2023 section 7.2.6 in those words and the two
 /// older ones by saying the revision numbers match the editions of the specification. A profile
@@ -4206,22 +4206,18 @@ fn jpeg2000_channel_count(exam: &Examination<'_>, findings: &mut Findings) {
 /// for an `ICCBased` space. Table 65's `N` has no counterpart here at all: a profile inside a
 /// `colr` box sits in no PDF dictionary to disagree with.
 ///
-/// **Beyond that the two parts do not send the profile to the same document, and the difference
-/// decides a whole sentence.** ISO 19005-4 section 6.2.7.3 sends it to ISO 32000-2 §8.6.5.5, which
-/// closes with
-///
-/// > Profiles shall conform to the specification version indicated by the Profile version number
-/// > in its header.
-///
-/// so the header's version selects the text that judges the profile, exactly as it does for the
-/// `ICCBased` spaces [`icc_profiles_carry_the_tags_their_version_requires`] and the destination
-/// profiles [`destination_profile_carries_the_tags_its_class_requires`] judge. ISO 19005-2
-/// section 6.2.8.3 sends it to ISO 32000-1:2008, 8.6.5.5 instead, and **that clause states no such
-/// sentence**: its Table 67 maps the *PDF* version to an ICC specification version and tells a
-/// reader to process an embedded profile according to the PDF version being processed, which is a
-/// rule about the reader and not a conformance a profile's own header claims. So the edition check
-/// below is asked of part 4 alone, and a part 2 file's `colr` profile is held to Table 68's two
-/// fields and nothing more.
+/// **Beyond that the two parts do not send the profile to the same document.** ISO 19005-4
+/// section 6.2.7.3 sends it to ISO 32000-2 §8.6.5.5, whose Table 66 (as Issue #181 replaces it,
+/// published on pdf-issues.pdfa.org) lists the ICC profile versions that shall be supported by
+/// header version, so the header's version selects the text that judges the profile, exactly as
+/// it does for the `ICCBased` spaces [`icc_profiles_carry_the_tags_their_version_requires`] and
+/// the destination profiles [`destination_profile_carries_the_tags_its_class_requires`] judge.
+/// ISO 19005-2 section 6.2.8.3 sends it to ISO 32000-1:2008, 8.6.5.5 instead, and **that clause
+/// keys nothing to the profile's own header**: its Table 67 maps the *PDF* version to an ICC
+/// specification version and tells a reader to process an embedded profile according to the PDF
+/// version being processed, which is a rule about the reader and not a conformance a profile's
+/// own header claims. So the edition check below is asked of part 4 alone, and a part 2 file's
+/// `colr` profile is held to Table 68's two fields and nothing more.
 ///
 /// **The ICC texts are held, so the edition is a check here too.** Four editions —
 /// ICC.1:1998-09, ICC.1:2001-12, ICC.1:2022 and ICC.2:2023 — are what [`missing_required_tags`]

@@ -80,7 +80,10 @@ pub enum Error {
 ///
 /// > The group consists of a primary annotation, which shall not have an IRT entry, and one or
 /// > more subordinate annotations, which shall have an IRT entry that refers to the primary
-/// > annotation and an RT entry whose value is Group .
+/// > annotation and an
+///
+/// Issue #297 (published on pdf-issues.pdfa.org, ISO approved) inserts *(PDF 1.6)* after the
+/// `RT`, so the sentence ends *an RT (PDF 1.6) entry whose value is Group.*
 ///
 /// The distinction earns its place because the two are counted differently. A group's members
 /// are one erratum stated in several marks — a strikeout and the caret that replaces it — and a

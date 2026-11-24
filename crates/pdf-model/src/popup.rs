@@ -772,10 +772,10 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 /// characters are the text, by making `/RC` and `/Contents` "textually equivalent" where a file
 /// states both.
 ///
-/// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form — "\[w]hen separating
-/// text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used" — and the rich form spells a
-/// paragraph as an element, so a closing `</p>` and a `<br/>` become the newline the plain form
-/// would have carried. Nothing else in the markup changes the text.
+/// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form, the `/Contents` key
+/// (Issue #90 makes the sentence's condition explicit): a carriage return separates paragraphs.
+/// The rich form spells a paragraph as an element, so a closing `</p>` and a `<br/>` become the
+/// newline the plain form would have carried. Nothing else in the markup changes the text.
 ///
 /// **18 corpus annotations state `/RC` and no `/Contents`** (`examples/markup_text_census`,
 /// counted over every page of all 974 documents), which is 18 popups this program opened with

@@ -304,10 +304,20 @@ impl Document {
             }
             Object::Stream(stream) => {
                 let dict = if self.is_cross_reference_stream(&stream.dict) {
-                    // §7.5.8.2: "strings appearing in the cross-reference stream dictionary
-                    // shall not be encrypted". That dictionary is the trailer, so its `/ID` is
-                    // also §7.6.2's first exception.
-                    stream.dict.clone()
+                    // §7.5.8.2 exempts the strings of the cross-reference stream dictionary
+                    // that Tables 5, 15 and 17 define (Issue #784, published on
+                    // pdf-issues.pdfa.org), and only those. That dictionary is the trailer, so
+                    // its `/ID` is also §7.6.2's first exception.
+                    let mut out = Dictionary::new();
+                    for (key, value) in stream.dict.iter() {
+                        let value = if is_defined_cross_reference_key(key.as_bytes()) {
+                            value.clone()
+                        } else {
+                            self.decrypt_value(encryption, id, value.clone())
+                        };
+                        out.insert(key.clone(), value);
+                    }
+                    out
                 } else {
                     self.decrypt_dict(encryption, id, &stream.dict)
                 };
@@ -391,7 +401,17 @@ impl Document {
                 .map(Object::Dictionary),
             Object::Stream(stream) => {
                 let mut dict = if self.is_cross_reference_stream(&stream.dict) {
-                    stream.dict.clone()
+                    // The same exemption as `decrypt_value`'s, Issue #784's three tables.
+                    let mut out = Dictionary::new();
+                    for (key, value) in stream.dict.iter() {
+                        let value = if is_defined_cross_reference_key(key.as_bytes()) {
+                            value.clone()
+                        } else {
+                            self.encrypt_value(encryption, id, value)?
+                        };
+                        out.insert(key.clone(), value);
+                    }
+                    out
                 } else {
                     self.encrypt_dict(encryption, id, &stream.dict)?
                 };
@@ -707,4 +727,27 @@ pub(crate) fn is_signature_dictionary(dict: &Dictionary) -> bool {
                 && matches!(dict.get("Contents"), Some(Object::String(_)))
         }
     }
+}
+
+/// Whether `key` is an entry of a cross-reference stream dictionary that §7.5.8.2 leaves
+/// unencrypted: one Table 5 (every stream), Table 15 (the trailer) or Table 17 (the
+/// cross-reference stream) defines.
+///
+/// ISO 32000-2 §7.5.8.2 as pdf-issues #784 corrects it — published on pdf-issues.pdfa.org after
+/// the C&P TWG decided it on 2026-10-15, so the corrected text is the standard (ADR 3581, ADR
+/// 3602): *all strings appearing in the cross-reference stream dictionary defined in* Table 5
+/// (the entries common to all stream dictionaries), Table 15 (the file trailer's) and Table 17
+/// (those specific to a cross-reference stream) *shall not be encrypted*. A private entry a
+/// producer adds is in none of the three tables, so its strings are encrypted the way every
+/// other string in the body is.
+fn is_defined_cross_reference_key(key: &[u8]) -> bool {
+    matches!(
+        key,
+        // Table 5.
+        b"Length" | b"Filter" | b"DecodeParms" | b"F" | b"FFilter" | b"FDecodeParms" | b"DL"
+        // Table 15.
+        | b"Size" | b"Prev" | b"Root" | b"Encrypt" | b"Info" | b"ID"
+        // Table 17 (its `/Size` and `/Prev` are Table 15's as well).
+        | b"Type" | b"Index" | b"W"
+    )
 }

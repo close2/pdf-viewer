@@ -214,8 +214,12 @@ fn a_positive_descent_is_the_depth_it_states() {
 /// from what was *drawn* would be empty for every scanned page in the world. §9.3.6 states the
 /// requirement for the position:
 ///
-/// > The e and f components of Tm shall be updated for each glyph drawn when using text rendering
-/// > mode 3 or 7 in exactly the same way as would be done for other text rendering modes.
+/// > The e and f components of
+///
+/// and Issue #372 (published on pdf-issues.pdfa.org), which sets the matrix as *T*<sub>m</sub>
+/// rather than bold `Tm`, has the rest as *shall be updated for each glyph drawn when using
+/// text rendering mode 3 or 7 in exactly the same way as would be done for other text rendering
+/// modes*.
 ///
 /// So mode 3 and mode 7 are compared against mode 0 over the same string: the same readback, the
 /// same number of placements, and every box in the same place to the last bit — while the display

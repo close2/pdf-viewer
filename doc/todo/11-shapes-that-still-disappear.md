@@ -708,9 +708,12 @@ drawn to the length its own angle implies.
 
 §8.4.3.5 states the rule and its closed form, and the NOTE the corpus's own article is about:
 
-> The miter limit shall impose a maximum on the ratio of the miter length to the line width (see
-> "Figure 15 -Miter length"). When the limit is exceeded, the join is converted from a miter to a
-> bevel.
+The first sentence reads, as Issue #154 (published on pdf-issues.pdfa.org) corrects it, *The miter
+limit shall be a number greater than or equal to 1.0 and shall impose a maximum on the ratio of the
+miter length to the line width* (Figure 15 is the miter length), and the next is the standard's
+own words:
+
+> When the limit is exceeded, the join is converted from a miter to a bevel.
 
 > NOTE
 >

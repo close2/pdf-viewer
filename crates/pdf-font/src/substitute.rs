@@ -665,8 +665,10 @@ pub fn glyph_classes(document: &Document, descriptor: &Dictionary) -> Vec<(Strin
 ///
 /// Table 122 on `/FD`: "Each value shall be a dictionary containing entries that shall override
 /// the corresponding values in the main font descriptor dictionary for that class of glyphs",
-/// and §9.8.3.3 again from the other side: "\[t]he entry's value shall be a font descriptor whose
-/// contents shall override the font-wide attributes for that class only."
+/// and §9.8.3.3 again from the other side, as Issue #5 corrects it (published on
+/// pdf-issues.pdfa.org): *the entry's value shall be a font descriptor whose contents shall be a
+/// subset of the keys defined in Table 120 that override the font-wide attributes for that class
+/// only.*
 ///
 /// So the result is the main descriptor with the class's entries written over it, and every
 /// reader of a descriptor in this crate works on it unchanged.

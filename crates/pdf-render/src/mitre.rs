@@ -6,9 +6,11 @@
 //! shall be extended until they meet at an angle, as in a picture frame" — and §8.4.3.5 says how
 //! long that is allowed to be:
 //!
-//! > The miter limit shall impose a maximum on the ratio of the miter length to the line width
-//! > (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted from a
-//! > miter to a bevel.
+//! > shall impose a maximum on the ratio of the miter length to the line width (see "Figure 15
+//! > -Miter length"). When the limit is exceeded, the join is converted from a miter to a bevel.
+//!
+//! where Issue #154 (published on pdf-issues.pdfa.org) writes *The miter limit shall be a number
+//! greater than or equal to 1.0 and* before it.
 //!
 //! The ratio is stated by the clause itself, as a formula the markdown conversion cannot carry
 //! (`doc/md/`'s line reads `formula-not-decoded`; the PDF prints it): for the angle φ between the

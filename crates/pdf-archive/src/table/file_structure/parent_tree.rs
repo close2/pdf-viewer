@@ -4,11 +4,13 @@
 //! The structure tree is written downward — an element's `/K` names its content items — and a
 //! reader holding a page needs the other direction, which is what the parent tree is for:
 //!
-//! > The tree shall contain an entry for each object that is a content item of at least one
-//! > structure element and for each content stream containing at least one marked-content
-//! > sequence that is a content item. The key for each entry shall be an integer given as the
-//! > value of the StructParent or StructParents entry in the object (see "Table 359 -Additional
-//! > dictionary entries for structure element access").
+//! > The tree shall contain an entry for each object that is a content item of
+//!
+//! and Issue #343 (published on pdf-issues.pdfa.org) writes the rest as *a structure element and
+//! for each content stream containing at least one marked-content sequence that is a content
+//! item*. The key for each entry is an integer given as the value of the `StructParent` or
+//! `StructParents` entry in the object (see Table 359, "Additional dictionary entries for
+//! structure element access").
 //!
 //! and, of the values, that a content stream's is "an array of indirect references to the
 //! sequences' parent structure elements", indexed by the marked-content identifier, while an

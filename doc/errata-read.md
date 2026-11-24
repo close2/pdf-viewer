@@ -2801,3 +2801,81 @@ like the last of those it sat under an `implemented` row that quoted the default
   and the thing it corrected was the row's own claim to read Table 18's defaults as written. The
   seven live-touching issues moved nothing. Step 4 rests on that ratio and this use is its strongest
   witness: thirty settled-only issues, one finding, and it was on the settled side.
+
+## The site's errata, read against this tree (ADR 3601 to ADR 3603)
+
+`spec-errata check` reads pdf-issues.pdfa.org's source as a second input (ADR 3589). Its first run
+over `doc/ISO_32000-2_sponsored_EC3.pdf` found **182** quotations that cite a clause and sit on
+text only the site strikes. They come from **62 issues**. The criterion is `CLAUDE.md` principle 5's
+sentence (ADR 3581): an erratum published on the site is agreed, the corrected text governs, and
+the printed text is retired. Every one of the 62 is published. Most carry `data-iso="approved"`.
+Twelve are published without it — #468, #536, #549, #640, #719, #741, #759, #766, #783, #784, #839
+and #850 — and the threads read for the ones this section turns on record the agreement: "PDF TWG
+agree" on #759, #839 and #850, and the C&P TWG's decision on #784.
+
+**How a quotation was restated** (ADR 3603). A rustdoc blockquote, a quotation in marks, or a
+ledger span keeps only its verbatim, untouched part, because `doc/md/` is what the gate verifies
+against. The corrected words follow in *italics*, naming the issue. Records — `doc/adr/`,
+`doc/history/`, `doc/reviews/` and the sections of this file above — keep what they quoted. **70
+of the 182 are in records.**
+
+**What is left** after the reading: `check` prints **71** site-only lines on cited clauses:
+
+- the 70 records;
+- `crates/pdf-model/src/form.rs`'s Table 228 bit 13, *the field's text shall be restricted to a
+  single line*. This is a false match: #392 strikes the capitalised *The* that opens a §12.7.5.3
+  sentence, and the comparison ignores case.
+
+| issue | clause | verdict | what it turned out to be |
+|---|---|---|---|
+| #850 | §12.5.5 | **changes the row** | *values of the BM, ca and CA entries* → *value of the BM entry*. The code already did this (ADR 0030), so the departure is dissolved and the row is `implemented` (ADR 3601). |
+| #784 | §7.5.8.2 | **changes the code** | The exemption is limited to strings under keys Tables 5, 15 and 17 define. `encryption::is_defined_cross_reference_key`, on both paths. New test `a_cross_reference_stream_dictionarys_private_string_is_decrypted`, which fails without the change (ADR 3602). The new `/F` prohibition binds a writer, and ours writes none. |
+| #839 | §8.6.5.5 | confirms; ground restated | The last bullet under Table 66 is deleted. `pdf-archive`'s `IccEdition` and part 4's `colr` check rested their argument on it, and now rest on Table 66 as #181 replaces it, plus the ICC texts' own version fields. No predicate moves. |
+| #226 | §14.7.6 | **owed** | Array-order precedence now applies only *for a specific owner*. `structure::attributes::ranked` still lets array order decide between two *different* owners in one §14.8.5.3 band (Layout, PrintField, Table, List, Artifact). §14.8.5.3 orders bands, not owners within a band, so the corrected text removes the tie-break without naming another. The comment is restated. The behaviour is left for a round that reads §14.8.5 whole. |
+| #5 | §9.8.3.3 | confirms | The override keys are *a subset of the keys defined in Table 120*. `substitute::overridden` already drops the seven forbidden ones. |
+| #10 | §7.3.8.2 | confirms | *should* → *shall* on `/Length`, a writer's obligation. |
+| #14, #374, #215 | §14.13.5, Table 87 | confirms | Typography (#14). `MCAF` in a property list (#374), which `associated_in_property_list` reads. `/Mask` ignored (#215), which `stencil` does. |
+| #16 | §7.6.6 | confirms | `/Recipients` is a *byte* string. |
+| #29 | §7.4.9 | confirms | *except for* → *excluding*. |
+| #36 | §12.4.4.1 | confirms | `/Di` is an *integer*. The reader stays more permissive, as the row says. |
+| #42 | §12.5.6.6 | confirms | *, if present,* struck. `/AP` already outranks `/DA`. |
+| #47, #48 | §9.6.2.2 | confirms | Rewritten as a NOTE, *are required to have*. The 14 fonts are shipped. |
+| #56 | §12.5.2 | confirms | `MK` added to the ignored keys. `/MK` is read only for a construction. |
+| #74 | §7.6.6 | confirms | *4 or 5*. Crypt filters are read at `/V 5`. |
+| #86 | §14.12.4.2 | confirms | DPM name values. Nothing writes DPM, and the reader checks no value types. |
+| #90 | §12.5.6.2 | confirms | The carriage-return rule binds the `/Contents` a writer provides, which `Edit::SetNoteText` is. |
+| #98 | §7.4.3 | confirms | The superscript in 2^32 − 1. |
+| #124 | §12.5.2 | confirms | Zero-based `/Rect` indices. Same comparison. |
+| #134 | §11.6.6 | confirms | *of the transparency group XObject*. `form_resources` already reads the group's own. |
+| #154 | §8.4.3.5 | confirms | Miter limit ≥ 1.0. `miter_limit().max(1.0)`. |
+| #162 | §12.3.2.4 | confirms | A named destination's value restated as an array or a `/D` dictionary. |
+| #181 | §10.3.1 | confirms | ICC specification by version (Table 66). A comment about the source standard. |
+| #190 | §9.8.1 | confirms | `/Descent` ≤ 0. Zero is already accepted. |
+| #200 | §14.8.4.8.3 | confirms | "/" → *or*. |
+| #214 | §7.7.4, §7.9.6 | confirms | A doubled *name*, and *lexically*, struck. `TreeKey::compare` is byte order. |
+| #216 | §7.4.1 | confirms | *PDF processors shall support* the filters, which the row says this tree meets. |
+| #272 | §7.5.2 | confirms | The binary-marker line contains only the comment. `serialize::header` writes exactly that. |
+| #280 | §7.8.3 | confirms | The named colour spaces that need no resource. The cache key covers the whole subdictionary. |
+| #282 | §12.6.4.16 | confirms | *or RichMedia*. Clause 13, and the action is refused by name. |
+| #295 | Annex Q.5 | confirms | *as if it was a form XObject*. |
+| #297 | §12.5.6.2 | confirms | PDF 1.5 and `/RT` (PDF 1.6). Nothing gates on a version. |
+| #308, #343 | §14.7.5.4 | confirms | *(MCID)*, null for unused MCIDs, and *a* structure element. `put` already fills gaps with null. |
+| #318 | §12.7.4.3 | confirms | *byte string* for `/DA`. |
+| #320 | §12.4.3 | confirms | *reading* for *drawing* order. |
+| #321 | §12.10.3 | confirms | Plurals and *any*. |
+| #328 | §14.4 | confirms | Both identifiers are *based on the PDF file*. |
+| #367 | §14.2 | confirms | *considered unnecessary … deprecated in PDF 2.0*. |
+| #372 | §9.3.6 | confirms | T_m in italics. |
+| #392 | §12.7.5.3 | confirms | *If the field has a value other than null*. A null `/V` already yields no text. |
+| #396 | §14.7.2 | confirms | Namespaces *as referenced from structure elements*. The union already holds them. |
+| #448 | §12.8.4.1, §12.8.5.1 | confirms | *was added in PDF 2.0 and*. |
+| #468 | §12.7.5.4 | confirms | `/I` loses its MultiSelect restriction. `selected` reads it for every choice field. |
+| #469 | §7.6.3.3 | confirms | *shall be* → *is*. |
+| #536 | §12.3.2.2 | confirms | The `/FitR` rule becomes a recommendation, which this tree follows. |
+| #549 | §8.5.3.1 | confirms | An undefined painting operator is *ignored*. The test already expects that. |
+| #640 | §10.4.2.3 | confirms | Spelling. |
+| #719 | §14.8.6.3 | confirms | *MathML specification*, unversioned. |
+| #741 | §12.3.3 | confirms | The NOTE on `/SE` is replaced. `/SE` stays unread. |
+| #766 | §12.8.5.3 | confirms | DSS and timestamp updates are ignored when evaluating MDP. `signature::permissions` consults neither. |
+| #783 | §7.6.2 | confirms | The exceptions list is no longer exhaustive. The four listed are enforced. |
+| #33, #159, #163, #218, #358, #376, #431, #446, #474, #759 | various | confirms | Landings in records only. No code moves. Their struck words are still quoted outside the 182, in `check`'s other-clause and under-the-floor populations: `pdf-signature`'s `signature.rs` (#33), `examples/absence_audit.rs` (#218), `measurement.rs` (#358), `destination.rs`, `archive/fonts/untagged.rs` and `structure/hierarchy.rs` (#431), and `pdf-colour`'s `function.rs` (#759). These are owed to the next reading. |

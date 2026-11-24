@@ -551,16 +551,14 @@ impl Interpreter<'_> {
     ///
     /// The clause makes the route back from a mark to its element **per stream** by construction:
     ///
-    /// > The tree shall contain an entry for each object that is a content item of at least one
-    /// > structure element and for each content stream containing at least one marked-content
-    /// > sequence that is a content item.
+    /// > The tree shall contain an entry for each object that is a content item of
     ///
-    /// Errata Collection 3's Issue #343, `/State` `Review` `Completed`, strikes the first *at
-    /// least one* and writes *a*, leaving the second one standing — so the amended sentence asks
-    /// for an entry per object that is a content item of a structure element. Three words, under
-    /// the four-word floor `spec-errata check` filters on, and the population is unchanged either
-    /// way: what makes the route per stream is the clause's second half and Table 359, not the
-    /// quantifier on its first.
+    /// and Errata Collection 3's Issue #343, `/State` `Review` `Completed`, writes the rest as *a
+    /// structure element and for each content stream containing at least one marked-content
+    /// sequence that is a content item*: an entry per object that is a content item of a
+    /// structure element, and one per content stream with such a sequence. The population is the
+    /// same under the printed quantifier and the amended one: what makes the route per stream is
+    /// the clause's second half and Table 359, not the quantifier on its first.
     ///
     /// and Table 359 puts the key on the stream itself:
     ///

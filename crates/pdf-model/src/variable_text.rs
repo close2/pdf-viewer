@@ -399,8 +399,9 @@ impl<'d> LayoutFonts<'d> {
 /// What §12.7.4.3 asks for that this module cannot supply.
 #[derive(Clone)]
 pub(crate) enum Owed {
-    /// The `/DA` string carries no `Tf`, which the clause requires: "At a minimum, the string
-    /// shall include a Tf (text font) operator along with its two operands, font and size."
+    /// The `/DA` string carries no `Tf`, which the clause requires: Issue #318 (published on
+    /// pdf-issues.pdfa.org) makes the requirement *at a minimum, the byte string shall include a
+    /// Tf (text font) operator along with its two operands, font and size*.
     NoFont,
     /// The `/DA`'s font name matches no entry in `/DR`'s `/Font`, which the clause requires it
     /// to. The name is carried so the report can say which.
@@ -2563,12 +2564,10 @@ impl Metrics {
     ///
     /// and `/Descent`:
     ///
-    /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be
-    /// > a negative number.
+    /// > The maximum depth below the baseline reached by glyphs in this font.
     ///
-    /// Errata Collection 3 (Issue #190) amends that second sentence to *\[t]he value shall be a
-    /// number less than or equal to zero*; the blockquote keeps the published wording the
-    /// quotation gate verifies.
+    /// Issue #190 (published on pdf-issues.pdfa.org, ISO approved) amends the sentence that
+    /// follows to *The value shall be a number less than or equal to zero.*
     ///
     /// Both are in glyph space, whose unit §9.2.4 makes one thousandth of a text space unit.
     /// Both are required of every font descriptor and a descriptor is required of every font but
@@ -3710,9 +3709,10 @@ fn code_bytes(code: pdf_font::Code) -> impl Iterator<Item = u8> {
 
 /// A parsed `/DA` string (§12.7.4.3, Table 228).
 ///
-/// > The default appearance string ( DA ) contains any graphics state or text state operators
-/// > needed to establish the graphics state parameters, such as text size and colour, for
-/// > displaying the field's variable text.
+/// Issue #318 (published on pdf-issues.pdfa.org, ISO approved) names the string a *byte* string,
+/// so the clause's first sentence reads *The default appearance byte string (DA) contains any
+/// graphics state or text state operators needed to establish the graphics state parameters, such
+/// as text size and colour, for displaying the field's variable text.*
 pub(crate) struct DefaultAppearance {
     /// The operators to replay verbatim, in order, minus the `Tm` and anything the clause
     /// does not permit here.
@@ -3928,9 +3928,12 @@ pub(crate) fn bytes(document: &Document, sources: &[&Dictionary], key: &str) -> 
 /// **A stream is the second spelling of the same value**, and §12.7.5.3 states it in prose
 /// rather than in a table's type cell:
 ///
-/// > The field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in
-/// > the V (value) entry of the field dictionary. The contents of this text string or stream
-/// > shall be used to construct an appearance stream for displaying the field
+/// Issue #392 (published on pdf-issues.pdfa.org, ISO approved) opens the sentence with a
+/// condition, *If the field has a value other than null, the field's text shall be held* —
+///
+/// > field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in the
+/// > V (value) entry of the field dictionary. The contents of this text string or stream shall
+/// > be used to construct an appearance stream for displaying the field
 ///
 /// §7.9.3 says what the second form is — a stream "whose unencoded bytes shall meet the same
 /// requirements as a text string … with respect to encoding, byte order, and lead bytes" — so

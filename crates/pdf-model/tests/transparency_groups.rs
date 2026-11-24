@@ -4576,12 +4576,12 @@ fn an_isolated_calibrated_group_composites_in_its_component_and_leaves_by_the_cu
 /// ISO 32000-2 §11.6.6, Table 145:
 ///
 /// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
-/// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
-/// > resource dictionary (see 8.6.5.6, "Default colour spaces").
+/// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the
 ///
-/// So a `/DeviceGray` beside a `/DefaultGray` of `CalGray` is that `CalGray`, drawn by its
-/// route and not by device grey's: the half of black over white is the curve's 188 and not
-/// the channel's 128.
+/// where Issue #134 (published on pdf-issues.pdfa.org) writes *current resource dictionary of the
+/// transparency group `XObject`* to finish it. So a `/DeviceGray` beside a `/DefaultGray` of
+/// `CalGray` is that `CalGray`, drawn by its route and not by device grey's: the half of black over
+/// white is the curve's 188 and not the channel's 128.
 #[test]
 fn a_default_gray_takes_the_page_group_into_the_calibrated_space_it_names() {
     let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 1 >>]";

@@ -628,9 +628,10 @@ fn assemble_with_cross_reference_stream(objects: &[Vec<u8>], trailer_entries: &s
 }
 
 /// 2131-B05. §7.6.2 exempts "\[t]he values for the ID entry in the trailer", and §7.5.8.2, where a
-/// cross-reference stream's dictionary is the trailer: "The cross-reference stream shall not be
-/// encrypted and strings appearing in the cross-reference stream dictionary shall not be
-/// encrypted." The stream object read as an object keeps its `/ID` as written.
+/// cross-reference stream's dictionary is the trailer, as pdf-issues #784 corrects it (published
+/// on pdf-issues.pdfa.org, ADR 3581): *all strings appearing in the cross-reference stream
+/// dictionary defined in* Tables 5, 15 and 17 *shall not be encrypted*. The stream object read as
+/// an object keeps its `/ID` as written.
 #[test]
 fn a_cross_reference_stream_dictionarys_strings_are_not_decrypted_spec_audit() {
     let older = Older {
@@ -673,6 +674,61 @@ fn a_cross_reference_stream_dictionarys_strings_are_not_decrypted_spec_audit() {
         Some(&ID0[..]),
         "§7.5.8.2: strings in the cross-reference stream dictionary are not encrypted, and §7.6.2 \
          exempts the trailer's /ID"
+    );
+}
+
+/// A private entry's plaintext, which the producer encrypted.
+const PRIVATE_NOTE: &[u8] = b"a private entry the three tables do not define";
+
+/// §7.5.8.2 as pdf-issues #784 corrects it (published on pdf-issues.pdfa.org after the C&P TWG
+/// decided it, so the corrected text is the standard, ADR 3581 and ADR 3602): the exemption is
+/// *all strings appearing in the cross-reference stream dictionary defined in* Tables 5, 15 and
+/// 17, so a string under a key none of the three defines is encrypted like every other string in
+/// the body (§7.6.2), and a reader decrypts it, while `/ID` beside it stays as written.
+#[test]
+fn a_cross_reference_stream_dictionarys_private_string_is_decrypted() {
+    let older = Older {
+        revision: 3,
+        length: 16,
+        flags: -3904,
+        encrypt_metadata: true,
+    };
+    let keyed = keyed(older);
+    let dictionary = format!(
+        "<< /Filter /Standard /V 2 /R 3 /Length 128 /O {} /U {} /P {} >>",
+        hex_string(&keyed.owner_entry),
+        hex_string(&keyed.user_entry),
+        older.flags,
+    );
+    // Object 8 is the cross-reference stream `assemble_with_cross_reference_stream` appends.
+    let private = hex_string(&encrypt(Method::Rc4, &keyed.key, 8, PRIVATE_NOTE));
+    let bytes = assemble_with_cross_reference_stream(
+        &seven_objects(&dictionary, &keyed.key, Method::Rc4, "", ""),
+        &format!("{} /PrivateNote {private}", trailer_entries()),
+    );
+
+    let document = open(&bytes, USER).expect("the fixture opens with its user password");
+    assert!(!document.was_recovered(), "exact cross-reference stream");
+    let object = document.get(ObjectId::new(8, 0));
+    let stream = object
+        .as_stream()
+        .expect("object 8 is the cross-reference stream");
+    assert_eq!(
+        stream.dict.get("PrivateNote").and_then(Object::as_string),
+        Some(PRIVATE_NOTE),
+        "§7.5.8.2 (#784): a key Tables 5, 15 and 17 do not define is not exempt"
+    );
+    let first = stream
+        .dict
+        .get("ID")
+        .and_then(Object::as_array)
+        .and_then(<[Object]>::first)
+        .and_then(Object::as_string)
+        .map(<[u8]>::to_vec);
+    assert_eq!(
+        first.as_deref(),
+        Some(&ID0[..]),
+        "Table 15's /ID stays exempt"
     );
 }
 

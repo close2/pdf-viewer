@@ -1225,7 +1225,9 @@ mod tests {
         for step in 0..=20u8 {
             let level = f32::from(step) / 20.0;
             let ours = ColourSpace::Gray.to_cmyk(&[level], Rendering::compensating(), &press);
-            // §10.4.2.3: "cyan = 0.0 magenta = 0.0 yellow = 0.0 black = 1.0 - grey".
+            // §10.4.2.3: "cyan = 0.0 magenta = 0.0 yellow = 0.0", and black is one minus the
+            // gray value (Issue #640, published on pdf-issues.pdfa.org, respells *grey* as
+            // *gray*).
             let clause = [0.0, 0.0, 0.0, 1.0 - level];
             for (ink, stated) in ours.iter().zip(clause) {
                 worst_component = worst_component.max((ink - stated).abs());

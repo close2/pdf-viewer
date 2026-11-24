@@ -531,8 +531,8 @@ script half follows the script exclusion.
 
 ### 10.2 The two clause 12 rows
 
-- **§12.6.4.16, Go-To-3D-View.** "A go-to-3D-view action ( PDF 1.6 ) identifies a 3D annotation and
-  specifies a view for the annotation to use", widened by Errata Collection 3's Issue #282 to a
+- **§12.6.4.16, Go-To-3D-View.** *A go-to-3D-view action (PDF 1.6) identifies a 3D or RichMedia annotation and
+  specifies a view for the annotation to use* (Issue #282 inserts *or RichMedia*), widened to a
   rich media annotation's `Views`. Once Part 3's views exist it is **one round**: resolve `/V` by
   index, name, `F`/`L`/`D`/`P`/`N`, or dictionary, and set the camera; activating an inactive
   annotation first under the 3D level.

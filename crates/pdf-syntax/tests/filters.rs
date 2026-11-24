@@ -390,9 +390,10 @@ fn a_trailing_type_byte_with_no_row_keeps_what_decoded() {
 /// ISO 32000-2 §7.4.1: every filter Table 6 names is supported, under both of its spellings.
 ///
 /// **Errata Collection 3's Issue #216 is what makes this an obligation rather than an
-/// observation.** The clause described a *file* — "PDF files support a standard set of filters
-/// that fall into two main categories" — and the erratum strikes *files*, writing *processors
-/// shall* in its place, so the sentence becomes a requirement on whatever reads the document.
+/// observation.** The clause described a *file*, and Issue #216 (published on
+/// pdf-issues.pdfa.org) strikes *files* from the sentence that opens §7.4.1's list of two
+/// categories of filter, writing *processors shall* in its place, so the sentence becomes a
+/// requirement on whatever reads the document.
 /// The erratum's replacement is in italics rather than in a blockquote because an inserted word
 /// is in no clause of `doc/md/`, which is what the conformance gate verifies a quotation
 /// against.

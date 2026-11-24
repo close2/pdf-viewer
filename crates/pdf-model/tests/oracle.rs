@@ -11132,8 +11132,11 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 ///
 /// §9.6.2.2 names them and then puts the artwork beyond itself in one sentence:
 ///
-/// > PDF processors supporting PDF 1.0 to PDF 1.7 files shall have these fonts, or their font
-/// > metrics and suitable substitution fonts, available.
+/// > PDF processors supporting PDF 1.0 to PDF 1.7 files
+///
+/// and Issues #47 and #48 (published on pdf-issues.pdfa.org, as a NOTE) write the rest as *are
+/// required to have these fonts, or their font metrics and suitable substitution fonts
+/// available*.
 ///
 /// Two routes, either acceptable, and neither of them a set of outlines the standard states.
 /// This tree takes the first: `data/standard-fonts/` holds §9.6.2.2's fourteen programs compiled

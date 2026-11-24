@@ -328,11 +328,11 @@ pub struct ChoiceControl {
     pub options: Vec<Choice>,
     /// Which entries of `options` §12.7.5.4 says are selected, as indices into it.
     ///
-    /// Derived from the value, because the clause makes the value decide: "\[i]f the items
-    /// identified by this entry differ from those in the V entry of the field dictionary ... the V
-    /// entry shall be used", of Table 234's `/I`. `/I` is read only where it breaks a tie the
-    /// value cannot — two options with the same label — which is the case the clause states it
-    /// for.
+    /// Derived from the value, because the clause makes the value decide: of Table 234's `/I`, *if
+    /// the item(s) identified by this entry differ from those in the V entry of the field
+    /// dictionary … the V entry shall be used* (Issue #468, published on pdf-issues.pdfa.org). `/I`
+    /// is read only where it breaks a tie the value cannot — two options with the same label —
+    /// which is the case the clause states it for.
     pub selected: Vec<usize>,
     /// Table 234's `/TI`: "the index in the Opt array of the first option visible in the list".
     ///
@@ -721,9 +721,11 @@ pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
 ///
 /// Table 234's `/I` is consulted for the one case the clause states it for — "when two or more
 /// elements in the Opt array have different names but the same export value" — because a label
-/// that occurs twice cannot say which occurrence the value means. Where they disagree the clause is
-/// explicit and the value wins: "\[i]f the items identified by this entry differ from those in the V
-/// entry of the field dictionary ... the V entry shall be used."
+/// that occurs twice cannot say which occurrence the value means. Issue #468 (published on
+/// pdf-issues.pdfa.org) lets `/I` state any choice field's selection, not only a multiple-select
+/// field's or one whose value is an array, and this reads it for every choice field. Where they
+/// disagree the clause is explicit and the value wins: *if the item(s) identified by this entry
+/// differ from those in the V entry of the field dictionary … the V entry shall be used.*
 pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -> Vec<usize> {
     let mut wanted: Vec<String> = Vec::new();
     match field.value.as_ref() {

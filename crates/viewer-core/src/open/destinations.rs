@@ -139,10 +139,12 @@ impl Open {
             View::FitV { left } | View::FitBV { left } => {
                 self.user_corner((left, None), current, size.height)
             }
-            // Table 149's `/FitR`: "If the required horizontal and vertical magnification
-            // factors are different, use the smaller of the two, centring the rectangle within
-            // the window in the other dimension." The rectangle is carried into the display list's
-            // space first, because the window's horizontal is the *shown* page's (ADR 2964).
+            // Table 149's `/FitR`: if the required horizontal and vertical magnification factors
+            // are different, Issue #536 (published on pdf-issues.pdfa.org) has interactive
+            // processors *use the smaller of the two, centring the rectangle within the window in
+            // the other dimension* — a recommendation, which this follows. The rectangle is carried
+            // into the display list's space first, because the window's horizontal is the *shown*
+            // page's (ADR 2964).
             View::FitR { rect } => Some((
                 centred_corner(self.fit_r_box(rect), viewport, magnification),
                 (true, true),

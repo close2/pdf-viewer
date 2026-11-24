@@ -203,10 +203,11 @@ fn document_counts(document: &Document) -> Counts {
 
 /// §12.3.2.4's two tables: the catalog's `/Dests` dictionary and the name dictionary's tree.
 ///
-/// A named destination's *value* is what carries the entry — "either an array defining the
-/// destination … or a dictionary with a D entry … and may optionally contain an SD entry" — so
-/// only the dictionary form can state one, and the array form is counted as a named destination
-/// that cannot.
+/// A named destination's *value* is what carries the entry. Issues #162 and #288 (published on
+/// pdf-issues.pdfa.org, ISO approved) restate the value as a list of two forms, an array
+/// defining the destination or a dictionary with a `/D` entry that, in PDF 2.0, may also carry
+/// an `/SD` entry — so only the dictionary form can state one, and the array form is counted as
+/// a named destination that cannot.
 fn named_destinations(document: &Document, pages: &Pages<'_>, counts: &mut Counts) {
     let Ok(catalog) = document.catalog() else {
         return;

@@ -406,13 +406,16 @@ pub fn associated_in_property_list(document: &Document, dict: &Dictionary) -> Ve
 
 /// §14.13.5's named resource when it *is* the array, rather than a dictionary holding one.
 ///
-/// > The named resource in the Property List (see 14.6.2, "Property lists") shall specify an
-/// > array of file specification dictionaries to which the content is associated.
+/// > The named resource in the
 ///
-/// read in its plainest sense, and it is the form §14.13.10's EXAMPLE 2 writes:
-/// `/Properties <</NamedAF [12 0 R]>>` with `/AF /NamedAF BDC` in the stream. The dictionary form
-/// is [`associated_in_property_list`]'s; a section whose resource is this array is the same
-/// association written the way the clause's own example writes it (ADR 1461).
+/// Issues #14 and #374 (published on pdf-issues.pdfa.org) write the rest as *property list (see
+/// 14.6.2, "Property lists") shall specify this dictionary to which the content is associated*,
+/// the dictionary being the one with an `MCAF` entry defining the array of file specification
+/// dictionaries. The array read here is the printed text's plainest sense, and it is the form
+/// §14.13.10's EXAMPLE 2 writes: `/Properties <</NamedAF [12 0 R]>>` with `/AF /NamedAF BDC`
+/// in the stream. The dictionary form is [`associated_in_property_list`]'s; a section whose
+/// resource is this array is the same association written the way the clause's own example
+/// writes it (ADR 1461).
 #[must_use]
 pub fn associated_in_array(document: &Document, items: &[Object]) -> Vec<Attachment> {
     let mut out = Vec::new();

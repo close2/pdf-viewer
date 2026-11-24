@@ -2,8 +2,10 @@
 //!
 //! Table 32 gives the name dictionary an `/AP` entry:
 //!
-//! > ( Optional; PDF 1.3 ) A name tree mapping name strings to annotation appearance streams
-//! > (see 12.5.5, "Appearance streams").
+//! > ( Optional; PDF 1.3 ) A name tree mapping
+//!
+//! with Issue #214 (published on pdf-issues.pdfa.org) striking the second *name* there, so the
+//! row reads *strings to annotation appearance streams (see 12.5.5, "Appearance streams")*.
 //!
 //! It is the last of Table 32's ten trees this tree had not read, and what it owes turned out to
 //! be a *reader* and never a resolution, because §12.5.5 — the clause Table 32 sends the reader

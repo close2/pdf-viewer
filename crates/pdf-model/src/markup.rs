@@ -4,20 +4,20 @@
 //! entries in Table 172 — `/IRT`, which names another annotation, and `/RT`, which says what the
 //! relationship is:
 //!
-//! > In PDF 1.6, a set of annotations may be grouped so that they function as a single unit when
-//! > a user interacts with them. The group consists of a primary annotation, which shall not have
-//! > an IRT entry, and one or more subordinate annotations, which shall have an IRT entry that
-//! > refers to the primary annotation and an RT entry whose value is Group .
+//! > a set of annotations may be grouped so that they function as a single unit when a user
+//! > interacts with them. The group consists of a primary annotation, which shall not have an IRT
+//! > entry, and one or more subordinate annotations, which shall have an IRT entry that refers to
+//! > the primary annotation and an
 //!
-//! **Errata Collection 3 re-dates that sentence and splits the date in two**, Issue #297,
-//! `/State` `Review` `Completed`: the *PDF 1.6* it opens with is struck and replaced by *PDF 1.5*,
-//! and *(PDF 1.6)* is inserted after the `RT` three lines down — so grouping by `/IRT` is PDF
-//! 1.5's and the `/RT` entry that says the relationship is *Group* is the PDF 1.6 part, which is
-//! also what Table 172's own `/RT` row has always said. The blockquote keeps the published
-//! wording, because `doc/md/` is what `cargo test -p conformance` verifies it against. Nothing
-//! below gates on a version: a file states `/IRT` and `/RT` or it does not, and reading them from
-//! a file whose header claims an earlier one is the same reader's tolerance every other version
-//! marker gets here.
+//! **Errata Collection 3 re-dates that sentence and splits the date in two**, Issue #297
+//! (published on pdf-issues.pdfa.org, ISO approved): the *PDF 1.6* the sentence opens with is
+//! struck and replaced by *PDF 1.5*, and *(PDF 1.6)* is inserted after the `RT`, so the sentence
+//! ends *an RT (PDF 1.6) entry whose value is Group.* Grouping by `/IRT` is PDF 1.5's and the
+//! `/RT` entry that says the relationship is *Group* is the PDF 1.6 part, which is also what
+//! Table 172's own `/RT` row has always said. The blockquote above is verbatim with `doc/md/`
+//! and stops where the amended words begin. Nothing below gates on a version: a file states
+//! `/IRT` and `/RT` or it does not, and reading them from a file whose header claims an earlier
+//! one is the same reader's tolerance every other version marker gets here.
 //!
 //! and ISO 32000-2 §12.5.6.2 then says what a subordinate's own copies of nine entries are worth:
 //!

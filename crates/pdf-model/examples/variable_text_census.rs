@@ -573,7 +573,9 @@ impl LinearPart {
 
 /// The one `Tm` §12.7.4.3 admits in a `/DA`, or `None` where the string states none.
 ///
-/// > The default appearance string shall contain at most one Tm (text matrix) operator.
+/// Issue #318 (published on pdf-issues.pdfa.org, ISO approved) names the string a *byte* string,
+/// so the clause reads *The default appearance byte string shall contain at most one Tm (text
+/// matrix) operator.*
 ///
 /// The last one wins where a string breaks that `shall`, which is what a stream interpreter would
 /// do with two of them and is the only reading that needs no second rule.

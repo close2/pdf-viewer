@@ -3272,12 +3272,13 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
 /// ISO 32000-2 §7.4.3 lists three conditions that "shall never occur in a correctly encoded
 /// byte sequence", and this is the first of them. The published sentence reads
 ///
-/// > The value represented by a group of 5 characters is greater than 232 - 1.
+/// > The value represented by a group of 5 characters is greater than
 ///
-/// **and the exponent is not a rendering accident of this tree's conversion** — `doc/md/` and
-/// the ISO PDF's own text layer both lose it, so the bound a reader could take off the page was
-/// 231. Errata Collection 3's Issue #98 strikes those characters and writes *2^32 - 1*, with the
-/// 32 superscripted, which is the bound this function applies.
+/// **and the exponent that follows is not a rendering accident of this tree's conversion** —
+/// `doc/md/` and the ISO PDF's own text layer both lose it, so the bound a reader could take
+/// off the page was 231. Issue #98 (published on pdf-issues.pdfa.org) strikes the printed
+/// bound, `232 - 1.`, and writes *2^32 - 1*, with the 32 superscripted, which is the bound
+/// this function applies.
 ///
 /// It is a real range rather than a rounding corner: five digits reach 85⁵ − 1 = 4 437 053 124,
 /// so about 3% of the five-character groups the alphabet admits name no four bytes at all. The
@@ -3640,11 +3641,11 @@ mod tests {
         assert_eq!(&*out, &[0, 0, 0, 0], "'z' stands for four zero bytes");
     }
 
-    /// ISO 32000-2 §7.4.3's first "shall never occur" condition, which the published bullet
-    /// states as "greater than 232 - 1" and Errata Collection 3's Issue #98 corrects to
-    /// 2^32 − 1. The two operands are derived rather than chosen: `s8W-!` is the base-85
-    /// spelling of 4 294 967 295, the largest number four bytes hold, and `uuuuu` is the five
-    /// maximum digits, 84 × (85⁴ + 85³ + 85² + 85 + 1) = 4 437 053 124, which they do not.
+    /// ISO 32000-2 §7.4.3's first "shall never occur" condition, whose bound Issue #98 (published
+    /// on pdf-issues.pdfa.org) writes as 2^32 − 1. The two operands are derived rather than chosen:
+    /// `s8W-!` is the base-85 spelling of 4 294 967 295, the largest number four bytes hold, and
+    /// `uuuuu` is the five maximum digits, 84 × (85⁴ + 85³ + 85² + 85 + 1) = 4 437 053 124, which
+    /// they do not.
     #[test]
     fn a_base85_group_above_four_bytes_is_an_impossible_combination() {
         let out = decode(b"ASCII85Decode", b"s8W-!~>", None, Limits::DEFAULT)

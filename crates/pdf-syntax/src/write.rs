@@ -630,15 +630,14 @@ fn too_large(offset: usize) -> UpdateError {
 
 /// §14.4's file identifier, updated as the clause requires.
 ///
-/// > The first byte string shall be a permanent identifier based on the contents of the PDF file
-/// > at the time it was originally created and shall not change when the PDF file is updated.
+/// > The first byte string shall be a permanent identifier
 ///
-/// That is the published sentence; Errata Collection 3's Issue #328 strikes *contents of the*
-/// out of it and *'s contents* out of its neighbour, so both identifiers become ones *based on
-/// the PDF file at the time* — loosened, because §14.4's own suggested computation was never a
-/// function of the contents (it names the time, the location and the size). Both strikes are
-/// under the four-word floor `spec-errata check` compares at, which is how a gated blockquote
-/// sat on retired words; found by the errata selection rule's ninth use.
+/// Errata Collection 3's Issue #328 (published on pdf-issues.pdfa.org) writes the rest as
+/// *based on the PDF file at the time it was originally created and shall not change when the
+/// PDF file is updated*, and the second identifier as *based on the PDF file at the time it was
+/// last updated*: both are loosened from the printed *contents of the PDF file*, because §14.4's
+/// own suggested computation was never a function of the contents (it names the time, the
+/// location and the size).
 ///
 /// So the first element is carried through unchanged and the second is derived from the bytes
 /// this update is appending to — a choice the amended sentence still contains, since the bytes

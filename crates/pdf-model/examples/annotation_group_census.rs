@@ -3,14 +3,15 @@
 //!
 //! The clause makes a set of annotations behave as one unit:
 //!
-//! > In PDF 1.6, a set of annotations may be grouped so that they function as a single unit when
-//! > a user interacts with them. The group consists of a primary annotation, which shall not have
-//! > an IRT entry, and one or more subordinate annotations, which shall have an IRT entry that
-//! > refers to the primary annotation and an RT entry whose value is Group .
+//! > a set of annotations may be grouped so that they function as a single unit when a user
+//! > interacts with them. The group consists of a primary annotation, which shall not have an IRT
+//! > entry, and one or more subordinate annotations, which shall have an IRT entry that refers to
+//! > the primary annotation and an
 //!
-//! (Errata Collection 3's Issue #297 strikes that sentence's *PDF 1.6* and writes *PDF 1.5*,
-//! inserting *(PDF 1.6)* after the `RT` instead: the grouping is PDF 1.5's, the `/RT` entry is
-//! the later half. The blockquote keeps the published wording the quotation gate reads, and this
+//! (Errata Collection 3's Issue #297, published on pdf-issues.pdfa.org, strikes the sentence's
+//! opening *PDF 1.6* and writes *PDF 1.5*, inserting *(PDF 1.6)* after the `RT` instead, so the
+//! sentence ends *an RT (PDF 1.6) entry whose value is Group.* The grouping is PDF 1.5's, the
+//! `/RT` entry is the later half. The blockquote stops where the amended words begin, and this
 //! census counts what documents state rather than what their headers claim.)
 //!
 //! and then says what a subordinate's own entries are worth:

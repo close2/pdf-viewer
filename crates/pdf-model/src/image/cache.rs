@@ -237,20 +237,21 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///   `/DefaultCMYK` reach even the device names. One stream under two resource dictionaries is two
 ///   pictures. **Both lookups are inside one of §7.8.3 Table 34's eight entries**, `ColorSpace`:
 ///
-///   > A dictionary that maps each resource name to either the name of a device-dependent colour
-///   > space or an array describing a colour space
+///   > A dictionary that maps each resource name to either the name of a
 ///
-///   — and §8.6.5.6 puts the defaults in the `ColorSpace` subdictionary of the current resource
-///   dictionary, so that entry is the whole of what a decode can read, and it is what an entry
-///   holds and compares, by value: two equal entries name the same objects of the same document,
-///   so equality is the claim that the lookups agree. [`RasterCache::parts`] makes the claim
-///   structural rather than a reading of `colour.rs`: the decode is *handed* a resource
-///   dictionary holding that one entry, so a lookup of anything else finds nothing on a miss and
-///   nothing on a hit alike. **An entry holding the whole dictionary would escape
-///   `RASTER_BUDGET`**: a fuzzed page naming 10 260 one-row image `XObject`s through one
-///   dictionary would clone that dictionary — about a mebibyte, since it names all 10 260 — into
-///   every entry while charging the eight bytes of samples, 10.60 GiB to interpret (ADR 0798
-///   measured it, ADR 0791 took this).
+///   where Issue #280 (published on pdf-issues.pdfa.org) strikes `device-dependent colour space`
+///   and writes *colour space with no additional parameters (`DeviceGray`, `DeviceRGB`,
+///   `DeviceCMYK`, or Pattern), or an array describing a colour space* — and §8.6.5.6 puts the defaults in the
+///   `ColorSpace` subdictionary of the current resource dictionary, so that entry is the whole of
+///   what a decode can read, and it is what an entry holds and compares, by value: two equal
+///   entries name the same objects of the same document, so equality is the claim that the lookups
+///   agree. [`RasterCache::parts`] makes the claim structural rather than a reading of `colour.rs`:
+///   the decode is *handed* a resource dictionary holding that one entry, so a lookup of anything
+///   else finds nothing on a miss and nothing on a hit alike. **An entry holding the whole
+///   dictionary would escape `RASTER_BUDGET`**: a fuzzed page naming 10 260 one-row image
+///   `XObject`s through one dictionary would clone that dictionary — about a mebibyte, since it
+///   names all 10 260 — into every entry while charging the eight bytes of samples, 10.60 GiB to
+///   interpret (ADR 0798 measured it, ADR 0791 took this).
 /// - **The fill colour**, because §8.9.6.2's stencil "does not specify colours; instead, it
 ///   designates places on the page that should either be marked with the current colour or masked
 ///   out", so the same stencil under two fill colours is two rasters. Compared as bit patterns,

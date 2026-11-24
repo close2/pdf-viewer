@@ -25,13 +25,15 @@
 //! opacities below are read for a *constructed* appearance and left at their defaults for a
 //! stored one.
 //!
-//! §12.5.5 states the opposite in one sentence — the appearance's group "shall be composited
-//! ... using the values of the BM, ca and CA entries in the annotation dictionary" (ADR 0030).
-//! Two statements against one for
-//! the opacities, and the two explain themselves: the entries are what an appearance is
-//! *regenerated* from, and a stream that carries its own `/ExtGState` would otherwise have the
-//! same opacity applied twice. `highlight.pdf` is exactly that file: `/CA 0.8` on the
-//! annotation, `ca 0.8` inside the stream.
+//! §12.5.5 agrees, as pdf-issues #850 corrects it (published on pdf-issues.pdfa.org, agreed by
+//! the PDF TWG on 2026-11-05, so the corrected text is the standard under ADR 3581): the
+//! appearance's group "shall be composited with a backdrop consisting of the page content along
+//! with any previously painted annotations", *using the value of the BM entry in the annotation
+//! dictionary* and a soft mask of None. The printed sentence also named `ca` and `CA`, and the
+//! correction strikes them for the reason the other two sentences give: the entries are what an
+//! appearance is *regenerated* from, and a stream that carries its own `/ExtGState` would
+//! otherwise have the same opacity applied twice (ADR 0030). `highlight.pdf` is exactly that
+//! file: `/CA 0.8` on the annotation, `ca 0.8` inside the stream.
 //!
 //! **`/BM` is no longer one of the three, and that is an erratum rather than a re-reading.** EC3
 //! struck it out of §12.5.2's list, leaving §12.5.5 and Table 166's own `/BM` row agreeing that
@@ -1166,10 +1168,11 @@ fn decided(
     let stated_rect = rectangle(document, annotation, "Rect");
 
     // §12.5.6.6, and it is the one place a *reader's* statement outranks a stored appearance
-    // stream. Table 177 makes the file's own `/AP` decisive over its `/DA` — "[t]he annotation
-    // dictionary's AP entry, if present, shall take precedence over the DA entry" — which is a
-    // precedence between two things the **file** says about the same text. A person who retyped
-    // the note has changed that text, so the stored stream no longer describes this annotation at
+    // stream. Table 177 makes the file's own `/AP` decisive over its `/DA` — Issue #42 (published
+    // on pdf-issues.pdfa.org) strikes `, if present,`, so the row reads *The annotation
+    // dictionary's AP entry shall take precedence over the DA entry* — which is a precedence
+    // between two things the **file** says about the same text. A person who retyped the note
+    // has changed that text, so the stored stream no longer describes this annotation at
     // all, and §12.5.6.6 states where its appearance comes from instead: "12.7.4.3, 'Variable
     // text', describes the process of using these entries to generate the appearance of the text
     // in these annotations". The construction is that process, so the stream is set aside and the
@@ -1569,9 +1572,9 @@ fn appearance_damage(
 /// > Mode"). If this key is not present, blending shall take place using the Normal blend mode.
 ///
 /// Painting the annotation onto the page is what happens to a stored stream too. §12.5.5 says
-/// the same from its own side — the appearance's group "shall be composited ... using the values
-/// of the BM, ca and CA entries in the annotation dictionary" — and the only sentence against
-/// either was §12.5.2's list of entries a reader ignores.
+/// the same from its own side — the appearance's group is composited *using the value of the BM
+/// entry in the annotation dictionary*, in pdf-issues #850's corrected words (ADR 3581) — and
+/// the only sentence against either was §12.5.2's list of entries a reader ignores.
 ///
 /// **Errata Collection 3 struck `BM` out of that list** (Issue #23 and #34, `/State` `Review`
 /// `Completed`), so the sentence now reads "When rendering the appearance dictionary, a PDF

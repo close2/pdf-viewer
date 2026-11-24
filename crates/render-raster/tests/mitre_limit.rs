@@ -3,9 +3,11 @@
 //!
 //! §8.4.3.5 bounds one ratio and states it as a formula:
 //!
-//! > The miter limit shall impose a maximum on the ratio of the miter length to the line width
-//! > (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted from a
-//! > miter to a bevel.
+//! > shall impose a maximum on the ratio of the miter length to the line width (see "Figure 15
+//! > -Miter length"). When the limit is exceeded, the join is converted from a miter to a bevel.
+//!
+//! where Issue #154 (published on pdf-issues.pdfa.org) writes *The miter limit shall be a number
+//! greater than or equal to 1.0 and* before it.
 //!
 //! `miterLength / lineWidth = 1 / sin(φ / 2)` for the angle φ between the segments, so a join at or
 //! under the limit is drawn to the length its own angle implies and one over it is a bevel. The

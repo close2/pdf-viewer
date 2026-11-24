@@ -1613,7 +1613,9 @@ impl TableStack {
     /// > a data cell is found after a header cell
     ///
     /// > a header cell has the Headers attribute set -the headers that are specified are appended
-    /// > to the row/ column list that is being built
+    ///
+    /// Issue #200 (published on pdf-issues.pdfa.org) writes the rest as *to the row or column list
+    /// that is current being built*.
     ///
     /// > When a header cell is found in the search and the (implicit or explicit) Scope attribute
     /// > of the header cell is either Both or Row/Column , the header cell is appended to the end
@@ -2934,8 +2936,10 @@ pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
 
 /// §14.8.6.3's `math` structure element type, spelled the way the subclause spells it.
 ///
-/// > NOTE 2 The math structure element type is all lowercase to match the MathML 3.0
-/// > specification.
+/// > NOTE 2 The math structure element type is all lowercase to match the MathML
+///
+/// and Issue #719 (published on pdf-issues.pdfa.org) takes the version out, so the note ends
+/// *specification*.
 ///
 /// A note rather than a `shall`, and it is still load-bearing: §7.3.5 makes a name's identity its
 /// bytes, so `Math` and `math` are two different types and only one of them is this one.

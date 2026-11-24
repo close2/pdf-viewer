@@ -12,29 +12,19 @@
 //!
 //! # The same keys, two roles
 //!
-//! §12.5.2 closes with the rule that decides this module's whole shape. `doc/md/` still carries
-//! the 2020 sentence, which read
-//!
-//! > A PDF reader shall render the appearance dictionary without regard to any other keys and
-//! > values in the annotation dictionary and shall ignore the values of the C, IC, Border, BS,
-//! > BE, BM, CA, ca, H, DA, Q, DS, LE, LL, LLE, and Sy keys.
-//!
-//! # Errata Collection 3 has rewritten that sentence, and the blockquote above is the old one
-//!
-//! It stays because it is what the conformance gate's copy of the standard contains: the
-//! sponsored copy records EC3 as review markup and the Markdown conversion dropped every
-//! annotation in all fourteen documents (ADR 0252, ADR 0253). Three marks on page 485 change it,
-//! all `/State` `Review` `Completed` — two strikeouts under Issue #23 and #34 and a caret under
-//! Issue #56 — and with them applied the clause reads "When rendering the appearance dictionary,
-//! a PDF reader shall ignore the values of the C, IC, Border, BS, BE, CA, ca, H, DA, Q, DS, LE,
-//! LL, MK, LLE, and Sy keys."
+//! §12.5.2 closes with the rule that decides this module's whole shape. Issues #23 and #34 strike
+//! the printed sentence's first half, `A PDF reader shall render the appearance dictionary without
+//! regard to any other keys and values in the annotation dictionary and`, and the list's `BM,`;
+//! Issue #56 inserts `MK,`; all three are published on pdf-issues.pdfa.org and ISO approved the
+//! first two. The sentence they leave reads *When rendering the appearance dictionary, a PDF
+//! reader shall ignore the values of the C, IC, Border, BS, BE, CA, ca, H, DA, Q, DS, LE, LL,
+//! MK, LLE, and Sy keys.*
 //!
 //! Three things moved, and each matters here:
 //!
-//! - **The blanket clause is gone.** "\[W]ithout regard to any other keys and values in the
-//!   annotation dictionary" was the sentence's principle; what is left is a list, so an entry's
-//!   absence from it no longer means a reader may consult it *by default* — but neither does the
-//!   sentence forbid every entry it does not name.
+//! - **The blanket clause is gone.** The words struck above were the sentence's principle; what
+//!   is left is a list, so an entry's absence from it no longer means a reader may consult it
+//!   *by default* — but neither does the sentence forbid every entry it does not name.
 //! - **`BM` left the list**, which `crate::annotation::blend_mode` is the consequence of.
 //! - **`MK` joined it**, so a widget's appearance characteristics are for *constructing* a stream
 //!   and never for painting over a stored one — which is what `widget` already does, since

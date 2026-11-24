@@ -35,15 +35,10 @@
 //! stream's length taught here: *what does this file say about itself twice, and does it
 //! agree?*
 //!
-//! **As published the two clauses disagree about the order**, which is the standard
-//! contradicting itself rather than a file doing it. Table 31: "\[t]he beads shall be listed in
-//! the array in natural reading order." §12.4.3: "the page object … shall contain a B entry
-//! whose value is an array of indirect references to the beads on the page, in drawing order."
-//! Errata Collection 3's Issue #320 strikes *natural* from the first and replaces *drawing*
-//! with *reading* in the second, so both amended sentences ask for the same thing: reading
-//! order. An erratum is evidence about the standard rather than the standard (ADR 0601), and
-//! this is the case where that evidence is decisive — the published clauses cannot both be
-//! obeyed, and the collection says which way the contradiction resolves.
+//! **Two clauses state the order of `/B`**, Table 31 and §12.4.3. Issue #320 (published on
+//! pdf-issues.pdfa.org, ISO approved) strikes *natural* from the first and replaces *drawing*
+//! with *reading* in the second, so both sentences ask for the same thing: *the beads on the
+//! page* in reading order, which a thread's chain states.
 //!
 //! So [`Articles::page_array_agrees`] compares the **sequence** where the beads on the page
 //! all hang on one thread, since a thread's chain from `/F` along `/N` *is* the article's
@@ -264,14 +259,11 @@ impl Articles {
     /// from the `Threads` key", which makes it a second statement of a fact the threads
     /// already carry — and a document stating a fact twice can be checked against itself.
     ///
-    /// **The comparison is on the sequence where one thread supplies the page's beads**, and on
-    /// the set otherwise. As published Table 31 asks for "natural reading order" and §12.4.3
-    /// for "drawing order", and neither could be checked while the other stood; Issue #320
-    /// retires *natural* from the first and *drawing* from the second, leaving both asking for
-    /// reading order, which a single thread's `/F`-to-`/N` chain states. Two threads on one
-    /// page are ordered against each other by neither sentence, so there the set is still all
-    /// that is licensed — and a `/B` array out of order on such a page goes unreported, which
-    /// is the cost of the fallback.
+    /// **The comparison is on the sequence where one thread supplies the page's beads**, and on the
+    /// set otherwise. Issue #320 has Table 31 and §12.4.3 both ask for reading order, which a
+    /// single thread's `/F`-to-`/N` chain states. Two threads on one page are ordered against each
+    /// other by neither sentence, so there the set is still all that is licensed — and a `/B` array
+    /// out of order on such a page goes unreported, which is the cost of the fallback.
     ///
     /// `None` where the page states no `/B`, which is not a disagreement: the entry is
     /// "recommended if the page contains article beads", never required.
@@ -550,13 +542,11 @@ mod tests {
 
     /// A `/B` array in the wrong order disagrees — where one thread put the beads there.
     ///
-    /// This is Issue #320's whole consequence. As published, Table 31's "natural reading
-    /// order" and §12.4.3's "drawing order" could not both be checked, so only the set was
-    /// comparable; with *natural* and *drawing* retired both sentences ask for reading order,
-    /// which one thread's chain states. The third element is the discrimination: two threads
-    /// on one page are ordered against each other by nothing either clause says, so the same
-    /// reversed array has to be accepted there — a comparison that had gone ordered
-    /// unconditionally would call that page a disagreement.
+    /// This is Issue #320's whole consequence. Table 31 and §12.4.3 both ask for reading order,
+    /// which one thread's chain states, so the sequence is comparable. The third element is the
+    /// discrimination: two threads on one page are ordered against each other by nothing either
+    /// clause says, so the same reversed array has to be accepted there — a comparison that had
+    /// gone ordered unconditionally would call that page a disagreement.
     #[test]
     fn a_bead_array_out_of_order_disagrees_where_one_thread_supplies_the_page() {
         let one = document(&[

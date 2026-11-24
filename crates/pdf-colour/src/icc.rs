@@ -86,7 +86,10 @@ const MAX_CLUT: usize = 1 << 22;
 /// and §10.3.1 says whose arithmetic performs the conversion:
 ///
 /// > Conversion from a CIE-based source colour to a CIE-based destination colour shall be
-/// > performed based on ISO 15076-1:2010 (ICC.1:2010).
+///
+/// where Issue #181 (published on pdf-issues.pdfa.org) strikes `performed based on ISO
+/// 15076-1:2010 (ICC.1:2010)` and writes *performed based on the appropriate ICC specification*
+/// naming Table 66's profile versions, so both header versions 2.x and 4.x are in it.
 ///
 /// That standard numbers the rendering intents (its clause 6.2) and gives `A2B0`, `A2B1` and
 /// `A2B2` the device-to-connection transform of one intent each (its tag listing, clause 9.2).

@@ -325,9 +325,12 @@ fn a_zero_size_is_auto_sized_until_the_value_fits() {
 
 /// §12.7.5.3: a field's value may be held in a stream, and both spellings draw one picture.
 ///
-/// > The field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in
-/// > the V (value) entry of the field dictionary. The contents of this text string or stream
-/// > shall be used to construct an appearance stream for displaying the field
+/// Issue #392 (published on pdf-issues.pdfa.org, ISO approved) opens the sentence with a
+/// condition, *If the field has a value other than null, the field's text shall be held* —
+///
+/// > field's text shall be held in a text string (or, beginning with PDF 1.5, a stre am) in the
+/// > V (value) entry of the field dictionary. The contents of this text string or stream shall
+/// > be used to construct an appearance stream for displaying the field
 ///
 /// The second form is §7.9.3's text stream — "whose unencoded bytes shall meet the same
 /// requirements as a text string ... with respect to encoding, byte order, and lead bytes" — so
@@ -519,8 +522,10 @@ fn a_password_fields_typed_value_is_not_written_into_the_file() {
 
 /// The `/DA` string's colour operators reach the text (§12.7.4.3, Table 228).
 ///
-/// > The default appearance string ( DA ) contains any graphics state or text state operators
-/// > needed to establish the graphics state parameters, such as text size and colour
+/// Issue #318 (published on pdf-issues.pdfa.org, ISO approved) names the string a *byte* string,
+/// so the clause reads *The default appearance byte string (DA) contains any graphics state or
+/// text state operators needed to establish the graphics state parameters, such as text size and
+/// colour*.
 #[test]
 fn the_default_appearance_strings_colour_is_the_texts_colour() {
     // **Asserted as a difference between two colours rather than as a pixel count.** The count
@@ -2941,8 +2946,10 @@ fn a_fields_baseline_follows_a_descriptor_the_band_believes() {
 ///
 /// ISO 32000-2 §9.8.1's Table 120, on `/Descent`:
 ///
-/// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
-/// > negative number.
+/// > The maximum depth below the baseline reached by glyphs in this font.
+///
+/// Issue #190 (published on pdf-issues.pdfa.org, ISO approved) adds the sentence that follows:
+/// *The value shall be a number less than or equal to zero.*
 ///
 /// Two sentences: the first defines a depth, which is a magnitude, and the second is how to write
 /// it down. `/Ascent 905 /Descent 211` is Arial's real metrics with the second broken, so it is

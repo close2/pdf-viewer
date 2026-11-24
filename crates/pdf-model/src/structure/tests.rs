@@ -624,8 +624,10 @@ fn a_structure_tree_that_points_at_itself_terminates() {
 ///
 /// The fixture attaches three attribute objects to one element: a class from the
 /// `/ClassMap` and two in the element's own `/A`, all three naming `/BackgroundColor`. The
-/// clause decides the winner twice over — "[i]f a given attribute is specified more than
-/// once, the later (in array order) entry shall take precedence" within `/A`, and "[i]f
+/// clause decides the winner twice over — within `/A`, Issue #226 (published on
+/// pdf-issues.pdfa.org) has it that if a given attribute *for a specific owner (as defined by
+/// the O and NS entries)* is specified more than once, the later (in array order) entry shall
+/// take precedence, and "[i]f
 /// both the A and C entries are present and a given attribute is specified by both, the
 /// one specified by the A entry shall take precedence" between the two. So the answer is
 /// the *last* object of `/A`, and an attribute only the class states is still found.

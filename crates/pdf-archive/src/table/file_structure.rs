@@ -745,11 +745,13 @@ fn nothing_after_the_end(exam: &Examination<'_>, findings: &mut Findings) {
 /// §14.4 states two `shall`s, and the second is the one an empty string breaks:
 ///
 /// > The value of this entry shall be an array of two byte strings. The first byte string shall
-/// > be a permanent identifier based on the contents of the PDF file at the time it was
-/// > originally created and shall not change when the PDF file is updated.
+/// > be a permanent identifier
+///
+/// Issue #328 (published on pdf-issues.pdfa.org) writes the rest as *based on the PDF file at
+/// the time it was originally created and shall not change when the PDF file is updated*.
 ///
 /// A zero-length string is a byte string, so the first sentence alone would admit `[<> <>]`. It
-/// cannot be "based on the contents of the PDF file", though — every file would produce it — so
+/// cannot be based on the PDF file, though — every file would produce it — so
 /// the second sentence rules it out. The reading is stated here because it is a *derivation*
 /// rather than a quotation: the clause never uses the word "empty".
 ///

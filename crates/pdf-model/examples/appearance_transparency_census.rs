@@ -9,9 +9,13 @@
 //! > specified in the group dictionary (see 11.6.6, "Transparency group XObjects") shall be used.
 //!
 //! > The transparency group shall be composited with a backdrop consisting of the page content
-//! > along with any previously painted annotations, using the values of the BM , ca and CA
-//! > entries in the annotation dictionary (see "Table 166 -Entries common to all annotation
-//! > dictionaries") and a soft mask of None .
+//! > along with any previously painted annotations,
+//!
+//! and the rest of that sentence is pdf-issues #850's corrected text, published on
+//! pdf-issues.pdfa.org and agreed by the PDF TWG (ADR 3581): *using the value of the BM entry in
+//! the annotation dictionary (see "Table 166 - Entries common to all annotation dictionaries")
+//! and a soft mask of None*. The printed sentence named `ca` and `CA` as well; the correction
+//! strikes them, and this tree never applied them to a stored appearance (ADR 0030).
 //!
 //! §11.4.4's NOTE 5 is what makes the first sentence's *default* case free: compositing objects as
 //! a group is the same as compositing them separately when the group is non-isolated with its

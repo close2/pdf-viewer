@@ -5,9 +5,11 @@
 //!
 //! §7.6.2 states the rule and its exceptions:
 //!
-//! > Encryption applies to all strings and streams in the document's PDF file, with the
-//! > following exceptions:
-//! >
+//! > Encryption applies to all strings and streams in the document's PDF file, with
+//!
+//! where Issue #783 (published on pdf-issues.pdfa.org) strikes `the following` and writes
+//! *exceptions including the following ones:*, so the list is not exhaustive:
+//!
 //! > - The values for the ID entry in the trailer
 //! > - Any strings in an Encrypt dictionary
 //! > - Any strings that are inside streams such as content streams and compressed object
@@ -1243,12 +1245,13 @@ struct CryptFilters {
 /// everything, which is what Table 20's description of `/V` 1 and 2 states.
 ///
 /// **At `/V` 5 they are read too, and the clause as printed says they shall not be.** §7.6.6's
-/// first bullet ends "the value of the V entry shall be 4 to use crypt filters", and every
+/// first bullet, as printed, makes `/V` 4 the value that enables crypt filters, and every
 /// AES-256 file in the corpus is `/V` 5 with a crypt filter naming `AESV3` — because Table 25
-/// gives `AESV3` no other home. Errata Collection 3 Issue #74, `/State` `Review` `Completed`,
-/// inserts "or 5" after that 4, so the amended sentence is what this reader has been doing. It
-/// is a bare `Caret` with no `StrikeOut` beside it and therefore invisible to a check that
-/// compares quotations against struck text; found by reading `spec-errata emit` under §7.6.6.
+/// gives `AESV3` no other home. Issue #74 (published on pdf-issues.pdfa.org) inserts *or 5*
+/// after the 4, so the sentence reads *the value of the V entry shall be 4 or 5 to use crypt
+/// filters*, which is what this reader does. The insertion strikes nothing, so a check that
+/// compares quotations against struck text cannot see it; `spec-errata emit` under §7.6.6
+/// lists it.
 fn crypt_filters(
     get: &dyn Fn(&str) -> Object,
     version: i64,

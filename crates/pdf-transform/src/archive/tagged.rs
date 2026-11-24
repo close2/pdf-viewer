@@ -423,8 +423,11 @@ impl Planned {
 
 /// Puts one sequence's parent at its own index in §14.7.5.4's array, filling the gaps with null.
 ///
-/// > The array element corresponding to each sequence shall be found by using the sequence's
-/// > marked -content identifier as a zero-based index into the array.
+/// > The array element corresponding to each sequence shall be found by using the
+///
+/// and Issue #308 (published on pdf-issues.pdfa.org) writes the rest as *sequence's marked-content
+/// identifier (MCID) as a zero-based index into the array*, with *null for unused marked content
+/// identifiers (MCIDs) or those that do not have a structural parent* as the array's members there.
 ///
 /// The identifiers this module hands out run from zero without a gap, so the fill never happens on
 /// a page this program composed; it is here because the clause makes the index, not the order, the

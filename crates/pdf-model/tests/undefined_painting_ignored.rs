@@ -1,6 +1,7 @@
 //! Undefined path painting recovery, ISO 32000-2 §8.5.3.1, EC3 Issue #549.
 //!
-//! The EC3 erratum replaces “shall generate an error” with “shall be ignored”. The fixture
+//! Issue #549 (published on pdf-issues.pdfa.org) replaces the requirement that attempting a
+//! painting operator with no current path generate an error with *shall be ignored*. The fixture
 //! exercises an undefined path at page start and again after a valid painting operator, then
 //! confirms a later path still paints normally.
 

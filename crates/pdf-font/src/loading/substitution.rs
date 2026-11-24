@@ -130,8 +130,9 @@ impl LoadedFont {
             return None;
         };
         let character = self.substituted_character(cmap, code)?;
-        // §9.8.3.3: "[t]he entry's value shall be a font descriptor whose contents shall override
-        // the font-wide attributes for that class only", and the attribute this tree acts on is
+        // §9.8.3.3, as Issue #5 corrects it (published on pdf-issues.pdfa.org): the entry's value
+        // is a font descriptor whose contents are a subset of Table 120's keys that override the
+        // font-wide attributes for that class only, and the attribute this tree acts on is
         // which face stands in. So where Table 123 shows this character to be in one of the
         // classes `/FD` names, that class's face draws it; every other character keeps the
         // font's own. [`crate::glyph_class`] holds what "shows" means and what it refuses.

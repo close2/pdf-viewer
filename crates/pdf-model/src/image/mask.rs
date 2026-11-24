@@ -712,11 +712,12 @@ pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> 
 ///
 /// ISO 32000-2 §8.9.5.1, Table 87, `/ImageMask`:
 ///
-/// > If this flag is true , the value of BitsPerComponent , if present, shall be 1 and Mask and
-/// > ColorSpace shall not be specified
+/// > If this flag is true , the value of BitsPerComponent , if present, shall be 1 and
 ///
-/// and Errata Collection 3's Issue #215 has a reader ignore the two where a producer specified
-/// them all the same — so a `/Mask` beside `/ImageMask true` masks nothing and overrides nothing.
+/// Issue #14 (published on pdf-issues.pdfa.org) sets *Mask* in bold, and Issue #215 writes the
+/// rest as *`Mask` and `ColorSpace` shall not be present (if present, they shall be ignored)*: a
+/// reader ignores the two where a producer specified them all the same — so a `/Mask` beside
+/// `/ImageMask true` masks nothing and overrides nothing.
 fn stencil(document: &Document, dict: &Dictionary) -> bool {
     matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true))
 }

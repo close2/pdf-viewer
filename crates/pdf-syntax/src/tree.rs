@@ -26,10 +26,11 @@
 //! neither, because the sponsored copy records EC3 as review markup and the conversion dropped
 //! every annotation (ADR 0252).
 //!
-//! **Issue #214** (`/State` `Review` `Completed`) strikes the word *lexically* out of "shall be
-//! sorted lexically in ascending order by key" and the phrase *in lexical order* out of Table
-//! 36's `/Names` row. What is left is the ordering §7.9.6 already defined in the two sentences
-//! after it, and nothing else:
+//! **Issue #214** (`/State` `Review` `Completed`, published on pdf-issues.pdfa.org) strikes the
+//! word *lexically* out of the sentence that says the leaf keys are sorted by key, which now
+//! reads *shall be sorted in ascending order by key*, and the phrase *in lexical order* out of
+//! Table 36's `/Names` row. What is left is the ordering §7.9.6 already defined in the two
+//! sentences after it, and nothing else:
 //!
 //! > Shorter keys shall appear before longer ones beginning with the same byte sequence. Any
 //! > encoding of the keys may be used as long as it is self-consistent; keys shall be compared

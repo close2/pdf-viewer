@@ -1207,12 +1207,13 @@ fn security_store(
 /// wants to know is whether the stack actually holds: does the newest one cover the older ones,
 /// and does it cover the material §12.8.4's store carries for them.
 ///
-/// **What it may not say is a time.** §12.8.5.1 makes a timestamp's whole point the instant — "\[a]
-/// document timestamp dictionary establishes the exact contents of the complete PDF file at the
-/// time indicated in the timestamp token" — and *establishing* one needs an authority somebody
-/// trusts, which is §12.8.1's third question and nobody's answer here (ADR 1039, ADR 1071). So the
-/// token's `genTime` is reported as the token's own characters, the way `/M` is, and the sentence
-/// after it says what is missing.
+/// **What it may not say is a time.** §12.8.5.1 makes a timestamp's whole point the instant — with
+/// Issue #448 (published on pdf-issues.pdfa.org, ISO approved) the sentence reads *A document
+/// timestamp dictionary was added in PDF 2.0 and establishes the exact contents of the complete PDF
+/// file at the time indicated in the timestamp token* — and *establishing* one needs an authority
+/// somebody trusts, which is §12.8.1's third question and nobody's answer here (ADR 1039, ADR
+/// 1071). So the token's `genTime` is reported as the token's own characters, the way `/M` is, and
+/// the sentence after it says what is missing.
 fn document_timestamps(chain: &pdf_signature::timestamp::Chain, notes: &mut Vec<String>) {
     if chain.is_empty() {
         return;

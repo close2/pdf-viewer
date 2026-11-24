@@ -178,10 +178,10 @@ pub fn thread(window: &Window<'_>) -> String {
 /// text it starts at — the one split every window makes, so that a break is one break in all
 /// three of them.
 ///
-/// ISO 32000-2 §12.5.6.2 names the separator, in a sentence addressed to the writer:
-///
-/// > When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for
-/// > example, a LINE FEED character (0Ah).
+/// ISO 32000-2 §12.5.6.2 names the separator, in a sentence addressed to the writer. Issue #90
+/// (published on pdf-issues.pdfa.org, ISO approved) inserts `providing the Contents key, if`, so
+/// the sentence reads *When providing the Contents key, if separating text into paragraphs, a
+/// CARRIAGE RETURN (0Dh) shall be used and not, for example, a LINE FEED character (0Ah).*
 ///
 /// So a carriage return ends a paragraph, and a line feed ends one too, because a reader that
 /// enforced the writer's rule would show a producer's break as no break at all. **A carriage

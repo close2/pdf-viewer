@@ -10752,9 +10752,10 @@ fn an_ecmascript_action_part_four_permits_is_left_where_part_two_removes_it() {
 
 #[test]
 fn the_document_level_script_tree_goes_whole_under_part_two() {
-    // §7.7.4's Table 32 makes the name dictionary's `/JavaScript` "[a] name tree mapping name
-    // strings to document-level ECMAScript actions", so a part 2 target admits no entry of it at
-    // all and the key goes rather than its leaves being edited one at a time.
+    // §7.7.4's Table 32 makes the name dictionary's `/JavaScript` a name tree mapping strings
+    // to document-level ECMAScript actions (Issue #214 strikes the second *name*), so a part 2
+    // target admits no entry of it at all and the key goes rather than its leaves being edited
+    // one at a time.
     let source = Conforming {
         catalog: "/Names << /JavaScript << /Names [(one) 6 0 R] >> >>".to_owned(),
         objects: vec!["<< /Type /Action /S /JavaScript /JS (app.alert\\(1\\)) >>".to_owned()],

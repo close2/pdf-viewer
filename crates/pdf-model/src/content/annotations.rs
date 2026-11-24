@@ -584,18 +584,20 @@ impl Interpreter<'_> {
             // page it is drawn over:
             //
             // > The transparency group shall be composited with a backdrop consisting of the
-            // > page content along with any previously painted annotations, using the values
-            // > of the BM , ca and CA entries in the annotation dictionary (see "Table 166
-            // > -Entries common to all annotation dictionaries") and a soft mask of None .
+            // > page content along with any previously painted annotations,
+            //
+            // *using the value of the BM entry in the annotation dictionary* and a soft mask of
+            // None, in the words of pdf-issues #850's correction, which the PDF TWG agreed and
+            // pdf-issues.pdfa.org publishes and which is therefore the standard (ADR 3581).
             //
             // `state` is that composite as well as the content's own start, which is why one
             // value is passed twice: §11.6.6 has [`Interpreter::run_transparency_group`] reset
             // the blend mode, both alpha constants and the soft mask on the *inner* copy — the
             // parameters "apply to the group as a whole" — and read the outer one for what the
             // group is painted with. Its `/BM` is there (`crate::annotation::blend_mode`), its
-            // opacity is 1.0 because Table 166 and §12.5.2 keep `/ca` and `/CA` off a stored
-            // stream, and its soft mask is `None` because `GraphicsState::initial` starts with
-            // none and this clause asks for none.
+            // opacity is 1.0 because Table 166, §12.5.2 and the corrected sentence all keep
+            // `/ca` and `/CA` off a stored stream, and its soft mask is `None` because
+            // `GraphicsState::initial` starts with none and this clause asks for none.
             crate::annotation::Content::Stored(stream) => {
                 let group = self.appearance_group(&stream.dict);
                 self.run_transparency_group(&group, &data, &resources, &state, &state);

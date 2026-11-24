@@ -702,12 +702,11 @@ impl ViewState {
     /// Two entries of one object, and the second is what keeps the file consistent with itself.
     /// Table 166's `/Contents` is what the person typed; Table 166's `/AP` is **replaced** with the
     /// appearance this program draws for that text, because §12.5.6.6's Table 177 makes the file's
-    /// own `/AP` decisive in its `/DA` row —
-    ///
-    /// > The annotation dictionary's AP entry, if present, shall take precedence over the DA entry
-    ///
-    /// — so a stream left as it was would be the file's own instruction to go on showing the
-    /// producer's text under the person's `/Contents`. §12.5.6.6 sends this subtype's appearance to
+    /// own `/AP` decisive in its `/DA` row — Issue #42 (published on pdf-issues.pdfa.org, ISO
+    /// approved) strikes `, if present,` and the row reads *The annotation dictionary's AP entry
+    /// shall take precedence over the DA entry* — so a stream left as it was would be the file's
+    /// own instruction to go on showing the producer's text under the person's `/Contents`.
+    /// §12.5.6.6 sends this subtype's appearance to
     /// §12.7.4.3 to be *generated* from these entries, and this writes the generation.
     ///
     /// **Replaced rather than spliced, and that is measured rather than assumed.** §12.7.4.3's
@@ -1657,10 +1656,10 @@ fn promote_streams(update: &mut Update, value: Object) -> Object {
 
 /// Table 166's `/Contents` as a writer states it, with each paragraph break a carriage return.
 ///
-/// ISO 32000-2 §12.5.6.2, of the text a markup annotation carries:
-///
-/// > When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for
-/// > example, a LINE FEED character (0Ah).
+/// ISO 32000-2 §12.5.6.2, of the text a markup annotation carries. Issue #90 (published on
+/// pdf-issues.pdfa.org, ISO approved) inserts `providing the Contents key, if`, so the sentence
+/// reads *When providing the Contents key, if separating text into paragraphs, a CARRIAGE RETURN
+/// (0Dh) shall be used and not, for example, a LINE FEED character (0Ah).*
 ///
 /// A person's editor ends a line with whatever its platform does, so a line feed, and a carriage
 /// return followed by a line feed, each become the one carriage return the clause asks for.

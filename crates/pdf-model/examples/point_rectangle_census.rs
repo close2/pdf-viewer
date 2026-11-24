@@ -3,8 +3,10 @@
 //! ISO 32000-2 §12.5.2's Table 166 makes `/Rect` required and, in the same table, frees a writer
 //! from supplying an appearance dictionary for one shape of it:
 //!
-//! > Annotations where the value of the Rect key consists of an array where the value at index 1
-//! > is equal to the value at index 3 and the value at index 2 is equal to the value at index 4.
+//! Issue #124 (published on pdf-issues.pdfa.org, ISO approved) makes the indices zero-based, as
+//! §3.2's array object counts them, so the bullet reads *Annotations where the value of the Rect
+//! key consists of an array where the value at index 0 is equal to the value at index 2 and the
+//! value at index 1 is equal to the value at index 3.*
 //!
 //! A point, in other words — and the standard says so about a *writer*, not about what a reader
 //! then draws. For a subtype whose marks §12.5.5 places by scaling an appearance stream's `/BBox`

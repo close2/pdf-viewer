@@ -184,12 +184,13 @@ impl Departure {
 /// §11.6.6's Table 145 subjects a group's device colour space to remapping first —
 ///
 /// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
-/// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
-/// > resource dictionary (see 8.6.5.6, "Default colour spaces").
+/// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the
 ///
-/// — so a `/DeviceGray` beside a `/DefaultGray` is that default, and takes the default's
-/// route. The parse is against `resources` for that reason, where [`space_departure`]'s is
-/// not: that one names what the file *wrote*, and this one asks what it means here.
+/// with Issue #134 (published on pdf-issues.pdfa.org) writing *current resource dictionary of the
+/// transparency group `XObject`* to finish it, so a `/DeviceGray` beside a `/DefaultGray` is that
+/// default, and takes the default's route. The parse is against `resources` for that reason, where
+/// [`space_departure`]'s is not: that one names what the file *wrote*, and this one asks what it
+/// means here.
 fn own_space_compositing(
     document: &Document,
     entry: &Object,

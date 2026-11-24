@@ -113,16 +113,16 @@ pub fn stroked_bounds(path: &Path, stroke: &Stroke, to_device: Transform) -> Opt
 /// segments shall be extended until they meet at an angle, as in a picture frame", and §8.4.3.5
 /// bounds how far that can be:
 ///
-/// > The miter limit shall impose a maximum on the ratio of the miter length to the line
-/// > width (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted
-/// > from a miter to a bevel.
+/// > shall impose a maximum on the ratio of the miter length to the line width (see "Figure 15
+/// > -Miter length"). When the limit is exceeded, the join is converted from a miter to a bevel.
 ///
-/// A *maximum*, not a length. **The old bound was the maximum alone** — a square of side
-/// `2 × half × miter_limit` around every vertex, which for the default limit of 10 puts a
-/// rectangle's corner five widths outside the rectangle. Sound as a bound, and useless as a
-/// containment test: `pdf_model`'s rule for taking a redundant `/BBox` clip back off (ADR 0155)
-/// could never fire for a stroked border, and `bug1863910.pdf` lost **22% of its ink** to a clip
-/// that cut nothing.
+/// where Issue #154 (published on pdf-issues.pdfa.org) writes *The miter limit shall be a number
+/// greater than or equal to 1.0 and* before it. A *maximum*, not a length. **The old bound was the
+/// maximum alone** — a square of side `2 × half × miter_limit` around every vertex, which for the
+/// default limit of 10 puts a rectangle's corner five widths outside the rectangle. Sound as a
+/// bound, and useless as a containment test: `pdf_model`'s rule for taking a redundant `/BBox` clip
+/// back off (ADR 0155) could never fire for a stroked border, and `bug1863910.pdf` lost **22% of
+/// its ink** to a clip that cut nothing.
 ///
 /// The tip of a miter sits where the two outer offset lines cross, and *which* side is outer
 /// depends on the turn — so both candidates are returned rather than the turn being worked out.
@@ -384,14 +384,15 @@ mod tests {
     ///
     /// ISO 32000-2 §8.4.3.5:
     ///
-    /// > The miter limit shall impose a maximum on the ratio of the miter length to the line
-    /// > width (see "Figure 15 -Miter length"). When the limit is exceeded, the join is converted
-    /// > from a miter to a bevel.
+    /// > shall impose a maximum on the ratio of the miter length to the line width (see "Figure
+    /// > 15 -Miter length"). When the limit is exceeded, the join is converted from a miter to a
+    /// > bevel.
     ///
-    /// A *maximum*, not a length. A miter's tip sits where the two outer offset lines cross, which
-    /// for a right angle is the stroke's own outer corner; only a join that nearly doubles back
-    /// reaches the cap. The cap alone would be useless as a containment test and costs
-    /// `bug1863910.pdf` 22% of its ink (ADR 0165).
+    /// where Issue #154 (published on pdf-issues.pdfa.org) writes *The miter limit shall be a
+    /// number greater than or equal to 1.0 and* before it. A *maximum*, not a length. A miter's tip
+    /// sits where the two outer offset lines cross, which for a right angle is the stroke's own
+    /// outer corner; only a join that nearly doubles back reaches the cap. The cap alone would be
+    /// useless as a containment test and costs `bug1863910.pdf` 22% of its ink (ADR 0165).
     #[test]
     fn a_mitre_reaches_as_far_as_its_angle_and_no_further_than_the_limit() {
         let corner = path(&[
