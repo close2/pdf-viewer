@@ -40,14 +40,14 @@ pub const HANDED_ON: &str = "no sound helper here, so a sound is handed to this 
 /// player a clip reaches; ADRs 3350, 3417).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hearing {
-    /// The window plays nothing itself and hands every clip on: the C ABI's window, whose host is
-    /// the platform's own player (ADR 3217).
+    /// The window plays nothing itself and hands every clip on: the C ABI's window whose host has
+    /// not said it draws pictures, which hands each clip to the platform's own player (ADR 3217).
     HandsOn,
     /// The window plays a sound itself, through the helper found beside it.
     Here,
     /// The same, and the window shows a clip's pictures itself as well
-    /// (`viewer_core::Command::ShowsVideoHere`): GTK's, whose frame sink is built (RFC 0015
-    /// section 6, ADR 3545). Qt's and the C ABI's hand every clip with pictures on until theirs are.
+    /// (`viewer_core::Command::ShowsVideoHere`): GTK's, Qt's, and the C ABI's where its host draws
+    /// pictures (RFC 0015 section 6; ADRs 3545, 3562, 3578).
     HereWithPictures,
     /// The window would play a sound itself and its helper is missing, so every clip is handed to
     /// this machine's player as a window that does not play is, and the sentence saying why is

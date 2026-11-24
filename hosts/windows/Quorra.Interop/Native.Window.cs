@@ -74,6 +74,12 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_settings_show_pictures(
+        nint settings,
+        [MarshalAs(UnmanagedType.U1)] bool shows);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial void quorra_window_free(nint window);
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
@@ -229,6 +235,27 @@ internal static unsafe partial class Native
     internal static partial int quorra_window_frame_copy(
         nint window,
         nuint frame,
+        byte* into,
+        nuint cap,
+        nuint* written);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_picture(
+        nint window,
+        uint* width,
+        uint* height,
+        uint* format,
+        nuint* bytes,
+        float* origin_x,
+        float* origin_y,
+        uint* shown_width,
+        uint* shown_height);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_picture_copy(
+        nint window,
         byte* into,
         nuint cap,
         nuint* written);

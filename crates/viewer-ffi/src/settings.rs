@@ -22,6 +22,8 @@ pub struct Stated {
     words: viewer_host::policy::Words,
     /// Why the last word or value was refused; `None` once one is taken.
     refused: Option<String>,
+    /// Whether the host draws a clip's pictures itself, [`Self::show_pictures`] (ADR 3578).
+    shows_pictures: bool,
 }
 
 impl Stated {
@@ -35,6 +37,27 @@ impl Stated {
     #[must_use]
     pub fn words(&self) -> viewer_host::policy::Words {
         self.words.clone()
+    }
+
+    /// The host draws a clip's pictures itself, from `quorra_window_picture` (RFC 0015 section 6,
+    /// ADR 3578): a window opened now plays a clip's sound through the sound helper found beside
+    /// the host's program and shows its pictures, where the helper is there. Off unless a host
+    /// turns it on, because a host that draws no picture would show a clip that is never seen —
+    /// such a window hands every clip to the host's opener, as before (ADR 3217).
+    pub const fn show_pictures(&mut self, shows: bool) {
+        self.shows_pictures = shows;
+    }
+
+    /// Who plays a window's clips, as a window opened now settles it: the host's opener, or
+    /// this program where the host draws the pictures and the sound helper is there
+    /// ([`viewer_host::sound::Hearing::of_a_showing_window`]).
+    #[must_use]
+    pub fn hearing(&self) -> viewer_host::sound::Hearing {
+        if self.shows_pictures {
+            viewer_host::sound::Hearing::of_a_showing_window()
+        } else {
+            viewer_host::sound::Hearing::HandsOn
+        }
     }
 
     /// One policy at one level: `QUORRA_POLICY_*` and `QUORRA_LEVEL_*`.

@@ -318,6 +318,41 @@ impl Placed {
             data,
         }
     }
+
+    /// Whether the part shown is the whole of `raster`: meet, fill and the default show all of
+    /// it, and a window then hands the picture on without [`Self::part_of`]'s copy.
+    #[must_use]
+    pub const fn is_whole(&self, raster: &pdf_render::Raster) -> bool {
+        self.left == 0
+            && self.top == 0
+            && self.right >= raster.width
+            && self.bottom >= raster.height
+    }
+
+    /// The bounding box of [`Self::quad`] in window pixels: its top-left corner and its extent
+    /// rounded to whole pixels. A page turned by a quarter keeps its rectangle's box, and a window
+    /// that draws the part upright fills it — GTK's construction, which Qt's window and the C
+    /// ABI's take (ADRs 3562, 3578).
+    #[must_use]
+    pub fn bounding_box(&self) -> ((f32, f32), (u32, u32)) {
+        let quad = self.quad;
+        let xs = [quad[0], quad[2], quad[4], quad[6]];
+        let ys = [quad[1], quad[3], quad[5], quad[7]];
+        let left = xs.iter().copied().fold(f32::INFINITY, f32::min);
+        let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
+        let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a viewport extent, non-negative after max(0) and far inside u32's range"
+        )]
+        let extent = (
+            (right - left).round().max(0.0) as u32,
+            (bottom - top).round().max(0.0) as u32,
+        );
+        ((left, top), extent)
+    }
 }
 
 /// A picture of `size` samples fitted to the rectangle `quad` (corners clockwise from its

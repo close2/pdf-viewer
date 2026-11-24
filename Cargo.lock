@@ -6361,6 +6361,7 @@ name = "viewer-ffi"
 version = "0.1.0"
 dependencies = [
  "pdf-archive",
+ "pdf-media-worker",
  "pdf-model",
  "pdf-render",
  "pdf-sandbox",

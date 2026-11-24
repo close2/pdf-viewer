@@ -152,7 +152,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        387,
+        390,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -845,6 +845,8 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("FRAMES", viewer_ffi::Repainted::FRAMES),
         ("PLACES", viewer_ffi::Repainted::PLACES),
         ("MARKS", viewer_ffi::Repainted::MARKS),
+        // A clip's picture (ADR 3578).
+        ("PICTURE", viewer_ffi::Repainted::PICTURE),
     ] {
         expected.insert(format!("QUORRA_REPAINT_{name}"), i64::from(bit));
     }

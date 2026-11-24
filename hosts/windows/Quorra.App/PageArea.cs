@@ -40,6 +40,7 @@ public sealed partial class PageArea : ContentControl
 
     private readonly Canvas canvas = new();
     private readonly Canvas pictures = new();
+    private readonly Image clipImage = new() { Stretch = Stretch.Fill, Visibility = Visibility.Collapsed };
     private readonly Canvas marks = new() { IsHitTestVisible = false };
     private readonly Canvas controls = new();
     private readonly Canvas notes = new();
@@ -60,6 +61,8 @@ public sealed partial class PageArea : ContentControl
         // edge would draw over the status line without the clip.
         canvas.Clip = clip;
         canvas.Children.Add(pictures);
+        // A clip's picture goes over the pages and under the marks and the controls (ADR 3578).
+        canvas.Children.Add(clipImage);
         canvas.Children.Add(marks);
         canvas.Children.Add(controls);
         canvas.Children.Add(notes);
@@ -113,6 +116,26 @@ public sealed partial class PageArea : ContentControl
             pictures.Children.Remove(images[^1]);
             images.RemoveAt(images.Count - 1);
         }
+    }
+
+    /// <summary>
+    /// Shows a clip's picture over its screen annotation, or takes it down where
+    /// <paramref name="shown"/> is null (ADR 3578); the bitmap is kept while the picture's size is.
+    /// </summary>
+    internal void ShowClip(Picture? shown, double scale)
+    {
+        if (shown is null || shown.Pixels is not byte[] pixels)
+        {
+            clipImage.Visibility = Visibility.Collapsed;
+            clipImage.Source = null;
+            return;
+        }
+        clipImage.Source = Bitmap(clipImage.Source as WriteableBitmap, shown, pixels);
+        Canvas.SetLeft(clipImage, shown.OriginX / scale);
+        Canvas.SetTop(clipImage, shown.OriginY / scale);
+        clipImage.Width = shown.ShownWidth / scale;
+        clipImage.Height = shown.ShownHeight / scale;
+        clipImage.Visibility = Visibility.Visible;
     }
 
     /// <summary>The layer the controls over the page are placed in, above the pictures and the marks.</summary>

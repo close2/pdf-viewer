@@ -45,6 +45,9 @@ mod opening;
 #[cfg(test)]
 mod opening_tests;
 mod owed;
+#[cfg(test)]
+mod picture_tests;
+mod pictures;
 mod placement;
 mod repainted;
 mod restrictions;
@@ -68,6 +71,7 @@ use viewer_host::trace::{Topic, Trace};
 
 pub use chrome::WindowChrome;
 pub use owed::{OwedKind, Owing};
+pub use pictures::PictureInfo;
 pub use placement::{WindowExtents, WindowPlacement};
 pub use repainted::Repainted;
 pub use wheel::WheelKind;
@@ -112,6 +116,9 @@ pub struct Window {
     presentation_at: Option<std::time::Instant>,
     /// The frame of a transition in flight, which the page area shows in place of the pages.
     playing: Option<pdf_render::Raster>,
+    /// How many of a clip's pictures this window has taken, so that a new one is told apart from
+    /// the last where it shows at the same place (ADR 3578).
+    picture_count: u64,
     /// Whether the bar of a document still opening past `WARN` has been said, which it is once.
     bar_said: bool,
     /// The launch document's outline and placed page tree, read beside page one (ADR 1553).
@@ -160,6 +167,23 @@ impl Window {
         fragment: Option<String>,
         words: viewer_host::policy::Words,
     ) -> Result<Self, Status> {
+        // The host plays: every clip is judged for the hand-off and given to it (ADR 3408).
+        Self::open_hearing(path, fragment, words, viewer_host::sound::Hearing::HandsOn)
+    }
+
+    /// [`Self::open`], its clips played by `hearing`'s player: the host's opener
+    /// ([`viewer_host::sound::Hearing::HandsOn`]), or this program's, which shows a clip's
+    /// pictures through [`Self::picture`] where `hearing` says so (ADR 3578).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::Unreadable`] where the file cannot be opened.
+    pub fn open_hearing(
+        path: &Path,
+        fragment: Option<String>,
+        words: viewer_host::policy::Words,
+        hearing: viewer_host::sound::Hearing,
+    ) -> Result<Self, Status> {
         let (settings, reader) = words.into_parts();
         let bytes = pdf_syntax::FileBytes::on_disk(path).map_err(|_| Status::Unreadable)?;
         let (refusing, refused) = std::sync::mpsc::channel();
@@ -170,8 +194,7 @@ impl Window {
             settings,
             reader,
             Refusals::Sent(refusing),
-            // The host plays: every clip is judged for the hand-off and given to it (ADR 3408).
-            viewer_host::sound::Hearing::HandsOn,
+            hearing,
         );
         Ok(Self {
             state: launch.state(path, Trace::off(std::time::Instant::now())),
@@ -184,6 +207,7 @@ impl Window {
             arrival_due: false,
             presentation_at: None,
             playing: None,
+            picture_count: 0,
             bar_said: false,
             preparing: None,
             shown: shown::Shown::default(),
@@ -286,6 +310,8 @@ impl Window {
             self.playing = frame;
             self.repaint();
         }
+        // A clip's next picture, which nothing but this tick looks for (ADR 3578).
+        self.show_the_pictures();
         self.settle();
     }
 
@@ -333,6 +359,10 @@ impl Window {
             let left = at.saturating_duration_since(std::time::Instant::now());
             interval = Some(interval.map_or(left, |interval| interval.min(left)));
         }
+        // A clip's next picture, or the decoding thread's queue while it has queued nothing.
+        if let Some(left) = self.picture_wait() {
+            interval = Some(interval.map_or(left, |interval| interval.min(left)));
+        }
         // A search with pages left takes its next page as soon as the caller's loop is idle.
         if self.state.pages_left > 0 {
             interval = Some(std::time::Duration::ZERO);
@@ -352,6 +382,22 @@ impl Window {
             modifier: held.ctrl,
             arrows: false,
         });
+        // A clip's pictures stop and resume with its sound, and a silent clip's pictures take the
+        // key alone (ADR 3578, Qt's and GTK's rule).
+        if matches!(key, viewer_host::Key::Escape) {
+            let pictures = self.stop_the_pictures();
+            if self.state.sounds.stop() || pictures {
+                self.settle();
+                return (ActKind::Nothing, 0.0);
+            }
+        }
+        if matches!(key, viewer_host::Key::Space) {
+            let pictures = self.resume_the_pictures();
+            if self.state.sounds.resume() || pictures {
+                self.settle();
+                return (ActKind::Nothing, 0.0);
+            }
+        }
         let mode = if self.state.presenting.full_screen() {
             viewer_host::Mode::Presenting
         } else {
@@ -519,9 +565,18 @@ impl Window {
         self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         let last = match self.state.documents.close(closing, &mut self.state.showing) {
-            viewer_host::Close::Last => true,
+            viewer_host::Close::Last => {
+                // The window goes with its last document, and its clip with it (ADR 3329).
+                self.state.sounds.end();
+                self.state.pictures.end();
+                true
+            }
             viewer_host::Close::Unknown => false,
             viewer_host::Close::Done { state, focused } => {
+                // Its clip ends with it; another document's sounds on (ADR 3329).
+                self.state.sounds.closed(closing);
+                self.state.pictures.closed(closing);
+                self.show_the_pictures();
                 self.restore_document_presentation(false);
                 self.state
                     .restrictions
@@ -1009,6 +1064,17 @@ impl NativeWindow for Window {
         note: Option<&str>,
     ) {
         self.media_for_the_host(document, handed, note);
+    }
+
+    /// This window plays a clip itself where its host draws the pictures and the sound helper is
+    /// there (ADR 3578); otherwise every clip went to the host's opener.
+    fn plays_sounds(&self) -> bool {
+        self.state.sounds.hearing().plays_here()
+    }
+
+    /// No wake: the host's timer, armed at `quorra_window_interval`, looks (ADR 3578).
+    fn look_at_the_pictures(&mut self) {
+        self.show_the_pictures();
     }
 
     /// Owed to the host, which opens it with the platform's opener (ADR 3217).

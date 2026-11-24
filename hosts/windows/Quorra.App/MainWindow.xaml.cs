@@ -149,6 +149,8 @@ public sealed partial class MainWindow : Window
             Log(differences);
         }
         using QuorraSettings settings = QuorraSettings.Create();
+        // This window draws a clip's pictures over its screen annotation (ADR 3578).
+        settings.ShowPictures();
         var paths = new List<string>();
         foreach (string argument in arguments)
         {
@@ -463,6 +465,10 @@ public sealed partial class MainWindow : Window
         if ((owed.Changed & Native.QUORRA_REPAINT_MARKS) != 0)
         {
             Area.ShowMarks(open.Marks(), scale);
+        }
+        if ((owed.Changed & Native.QUORRA_REPAINT_PICTURE) != 0)
+        {
+            Area.ShowClip(open.ClipPicture(), scale);
         }
         if (!presentOwed)
         {

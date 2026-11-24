@@ -170,5 +170,6 @@ pub use settings::Stated;
 pub use shapes::Quads;
 pub use status::Status;
 pub use window::{
-    OwedKind, Owing, Repainted, WheelKind, Window, WindowChrome, WindowExtents, WindowPlacement,
+    OwedKind, Owing, PictureInfo, Repainted, WheelKind, Window, WindowChrome, WindowExtents,
+    WindowPlacement,
 };

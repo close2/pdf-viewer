@@ -43,6 +43,9 @@ pdf-transform.workspace = true
 # Native harnesses parse Cargo artifact attestations and isolate writable fixtures, and find the
 # profile directory by `pdf_sandbox::beside`'s rule (ADR 2914).
 pdf-sandbox.workspace = true
+# `src/window/picture_tests.rs` plays `pdf-media-worker`'s hand-built `I_PCM` clip, whose builder
+# is that crate's test support, and decodes it with that crate's worker program (ADR 3578).
+pdf-media-worker.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 

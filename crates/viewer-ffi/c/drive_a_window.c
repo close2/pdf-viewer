@@ -966,7 +966,9 @@ static int the_settings(const char *path)
         || !check("quorra_settings_restrict",
                   quorra_settings_restrict(settings, QUORRA_RESTRICTED_PRINT, QUORRA_RESTRICT_ON))
         || !check("quorra_settings_set",
-                  quorra_settings_set(settings, QUORRA_POLICY_LINKS, QUORRA_LEVEL_REFUSE))) {
+                  quorra_settings_set(settings, QUORRA_POLICY_LINKS, QUORRA_LEVEL_REFUSE))
+        || !check("quorra_settings_show_pictures",
+                  quorra_settings_show_pictures(settings, true))) {
         quorra_settings_free(settings);
         return 0;
     }
@@ -1003,8 +1005,23 @@ static int the_settings(const char *path)
         }
     }
     printf("window under the stated levels: %d question(s); %s\n", seen.questions, refused);
+    /* A host that draws a clip's pictures (ADR 3578), over a document that plays none: no
+     * picture is up, and the copy says so rather than writing anything. */
+    uint32_t width = 0, height = 0, format = 0, shown_width = 0, shown_height = 0;
+    size_t bytes = 0, written = 0;
+    float origin_x = 0.0f, origin_y = 0.0f;
+    uint8_t pixels[4] = {0};
+    int32_t picture = quorra_window_picture(window, &width, &height, &format, &bytes, &origin_x,
+                                            &origin_y, &shown_width, &shown_height);
+    int32_t copied = quorra_window_picture_copy(window, pixels, sizeof pixels, &written);
+    int32_t unaddressed = quorra_window_picture(window, NULL, &height, &format, &bytes, &origin_x,
+                                                &origin_y, &shown_width, &shown_height);
+    printf("a clip's picture with none playing: %s, its copy %s, with nowhere to write %s\n",
+           quorra_status_message(picture), quorra_status_message(copied),
+           quorra_status_message(unaddressed));
     quorra_window_free(window);
-    return seen.questions == 0 && refused[0] != 0;
+    return seen.questions == 0 && refused[0] != 0 && picture == QUORRA_NO_ANSWER
+           && copied == QUORRA_NO_ANSWER && unaddressed == QUORRA_NULL_ARGUMENT && written == 0;
 }
 
 /* The reader's other words, stated by word and by number (ADR 2156): a value taken with the word

@@ -1,6 +1,7 @@
 //! What a `QUORRA_OWED_REPAINT` record changed: the pictures' pixels, where they are shown, the
-//! marks over them — compared with what the caller was last told, so a caller copies only what is
-//! new and a call that changed nothing owes no repaint at all (ADR 2168).
+//! marks over them and a clip's picture — compared with what the caller was last told, so a caller
+//! copies only what is new and a call that changed nothing owes no repaint at all (ADRs 2168,
+//! 3578).
 //!
 //! **Compared rather than inferred**, for `shown`'s reason (ADR 0244 finding 5): a picture's pixels
 //! come from five places — the viewer's frames, a page still being drawn, the retained page, the
@@ -42,6 +43,9 @@ impl Repainted {
     /// `QUORRA_REPAINT_MARKS`: the selection, the find bar's occurrences, Annex O's highlight,
     /// §12.5.1's focus or §12.9's traced path moved.
     pub const MARKS: u32 = 4;
+    /// `QUORRA_REPAINT_PICTURE`: a clip's picture came up, a new one is due, it moved, or it came
+    /// down (ADR 3578).
+    pub const PICTURE: u32 = 8;
 
     /// The `QUORRA_REPAINT_*` bits.
     #[must_use]
@@ -83,6 +87,18 @@ pub(super) struct Painted {
     places: Vec<Place>,
     /// The marks over the pictures.
     marks: Option<Marks>,
+    /// A clip's picture (ADR 3578).
+    picture: super::pictures::Told,
+}
+
+impl Painted {
+    /// Records `now` as the clip's picture the caller is told of, answering whether it differs
+    /// from the one it was last told of.
+    pub(super) fn picture_told(&mut self, now: super::pictures::Told) -> bool {
+        let changed = self.picture != now;
+        self.picture = now;
+        changed
+    }
 }
 
 /// One picture's pixels, by what they are: its page, its raster's facts and a digest of its bytes.
@@ -156,6 +172,7 @@ impl Window {
             })
             .collect();
         drop(frames);
+        let picture = self.picture_now();
         let reads = self.reads();
         let marks = Marks {
             selection: reads.selection_quads(),
@@ -180,12 +197,24 @@ impl Window {
         if painted.marks.as_ref() != Some(&marks) {
             changed |= Repainted::MARKS;
         }
+        if painted.picture_told(picture) {
+            changed |= Repainted::PICTURE;
+        }
         painted.pixels = pixels;
         painted.places = places;
         painted.marks = Some(marks);
         if changed != 0 {
             self.owing.owe(Owed::Repaint(Repainted { changed, fresh }));
         }
+    }
+
+    /// Owes a repaint of the clip's picture alone: no page's pixels are new in it.
+    pub(super) fn owe_picture_repaint(&mut self) {
+        let fresh = vec![false; self.shown.painted.pixels.len()];
+        self.owing.owe(Owed::Repaint(Repainted {
+            changed: Repainted::PICTURE,
+            fresh,
+        }));
     }
 
     /// §12.9's traced path in device pixels of the viewport, as flat `x, y` pairs: the points a

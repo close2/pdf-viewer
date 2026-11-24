@@ -450,8 +450,8 @@ pub enum Command {
     /// beside [`Self::PlaysHere`]'s `true`, a media rendition whose clip is an embedded MP4 file of
     /// `video/` type is judged for this program's player too, and the clip it chooses carries the
     /// file in [`crate::Event::Media`]'s `sound` as [`crate::Recording::Mp4Video`] and is never
-    /// handed on by the core. A host that never sends this — the C ABI's, Qt's, until their sinks
-    /// are built — hands every video clip on, as before.
+    /// handed on by the core. A host that never sends this — the C ABI's window whose host draws no
+    /// pictures (ADR 3578) — hands every video clip on, as before.
     ///
     /// Applies to every open document and to every one opened afterwards, on
     /// [`Self::PlaysHere`]'s rule.

@@ -125,6 +125,15 @@ internal sealed unsafe class QuorraSettings : IDisposable
     }
 
     /// <summary>
+    /// This window draws a clip's pictures itself (ADR 3578): a window opened under these settings
+    /// plays a clip through the sound helper beside this program, where it is there, and hands
+    /// each picture over through quorra_window_picture rather than handing the clip to
+    /// Windows.System.Launcher.
+    /// </summary>
+    internal void ShowPictures() =>
+        Library.Check("quorra_settings_show_pictures", Native.quorra_settings_show_pictures(handle, true));
+
+    /// <summary>
     /// One command-line word, read as quorra, quorra-gtk and quorra-qt read theirs: null where it
     /// is now in force, and otherwise the sentence saying why it is not.
     /// </summary>
@@ -434,6 +443,44 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
                 pixels));
         }
         return pictures;
+    }
+
+    /// <summary>A clip's picture over its screen annotation, or null where none is up (ADR 3578).</summary>
+    /// <remarks>Read on QUORRA_REPAINT_PICTURE, and copied whole: each one is a new picture.</remarks>
+    internal Picture? ClipPicture()
+    {
+        uint width = 0;
+        uint height = 0;
+        uint format = 0;
+        nuint bytes = 0;
+        float originX = 0;
+        float originY = 0;
+        uint shownWidth = 0;
+        uint shownHeight = 0;
+        int status = Native.quorra_window_picture(
+            handle, &width, &height, &format, &bytes, &originX, &originY, &shownWidth, &shownHeight);
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return null;
+        }
+        Library.Check("quorra_window_picture", status);
+        if (format != Native.QUORRA_FORMAT_RGBA8)
+        {
+            throw new QuorraException($"quorra_window_picture: a clip's picture is in layout {format}, which this window does not draw");
+        }
+        if (bytes > int.MaxValue)
+        {
+            throw new QuorraException($"quorra_window_picture: a clip's picture is {bytes} bytes, past what a .NET array holds");
+        }
+        byte[] pixels = new byte[(int)bytes];
+        nuint written = 0;
+        fixed (byte* into = pixels)
+        {
+            Library.Check(
+                "quorra_window_picture_copy",
+                Native.quorra_window_picture_copy(handle, into, bytes, &written));
+        }
+        return new Picture(width, height, originX, originY, shownWidth, shownHeight, pixels);
     }
 
     /// <summary>The marks over the page shown, read through the handles the window hands over.</summary>

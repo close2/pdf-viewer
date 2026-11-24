@@ -87,7 +87,12 @@ pub unsafe extern "C" fn quorra_window_open_under(
     let Some(path) = path else {
         return Status::NullArgument.code();
     };
-    match Window::open(std::path::Path::new(&path), fragment, settings.words()) {
+    match Window::open_hearing(
+        std::path::Path::new(&path),
+        fragment,
+        settings.words(),
+        settings.hearing(),
+    ) {
         Ok(opened) => {
             *window = Box::into_raw(Box::new(opened));
             Status::Ok.code()
@@ -287,6 +292,26 @@ pub unsafe extern "C" fn quorra_settings_accept_unknown_revocation(
         return Status::NullArgument.code();
     };
     settings.accept_unknown_revocation(accept);
+    Status::Ok.code()
+}
+
+/// Whether the host draws a clip's pictures itself, from [`quorra_window_picture`] (RFC 0015
+/// section 6, ADR 3578): a window opened under `settings` then plays a clip's sound through the
+/// sound helper found beside the host's program and shows its pictures, where the helper is there,
+/// rather than handing the clip to the host's opener. Off in a new handle.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_show_pictures(
+    settings: *mut Stated,
+    shows: bool,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    settings.show_pictures(shows);
     Status::Ok.code()
 }
 
@@ -1041,6 +1066,99 @@ pub unsafe extern "C" fn quorra_window_frame_copy(
         Ok(bytes) => {
             if let Some(written) = written.as_mut() {
                 *written = bytes;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// A clip's picture over its screen annotation, Table 294's "\[t]he rectangle occupied by the
+/// screen annotation" (ADR 3578): the part Table 291's `/F` shows, `*width` by `*height` samples in
+/// `*format` (`QUORRA_FORMAT_RGBA8`), `*bytes` of them, drawn over the pages with its top-left
+/// corner at `*origin_x`, `*origin_y` and scaled to `*shown_width` by `*shown_height`, all in
+/// device pixels of the viewport. `QUORRA_NO_ANSWER` where no picture is shown. Read again after
+/// a `REPAINT` record with `QUORRA_REPAINT_PICTURE`.
+///
+/// # Safety
+///
+/// See the module documentation. Every pointer is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_picture(
+    window: *const Window,
+    width: *mut u32,
+    height: *mut u32,
+    format: *mut u32,
+    bytes: *mut usize,
+    origin_x: *mut f32,
+    origin_y: *mut f32,
+    shown_width: *mut u32,
+    shown_height: *mut u32,
+) -> c_int {
+    let (
+        Some(window),
+        Some(width),
+        Some(height),
+        Some(format),
+        Some(bytes),
+        Some(origin_x),
+        Some(origin_y),
+        Some(shown_width),
+        Some(shown_height),
+    ) = (
+        window.as_ref(),
+        width.as_mut(),
+        height.as_mut(),
+        format.as_mut(),
+        bytes.as_mut(),
+        origin_x.as_mut(),
+        origin_y.as_mut(),
+        shown_width.as_mut(),
+        shown_height.as_mut(),
+    )
+    else {
+        return Status::NullArgument.code();
+    };
+    match window.picture() {
+        Ok(info) => {
+            *width = info.width;
+            *height = info.height;
+            *format = PixelFormat::of(info.format).code();
+            *bytes = info.bytes;
+            (*origin_x, *origin_y) = info.origin();
+            (*shown_width, *shown_height) = info.extent;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Copies the clip's picture into a buffer the caller owns, sized from [`quorra_window_picture`]'s
+/// `bytes`; a shorter one answers `QUORRA_BUFFER_TOO_SMALL` and nothing is written,
+/// `QUORRA_NO_ANSWER` where no picture is shown.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for `cap` bytes; `written` is writable, or
+/// null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_picture_copy(
+    window: *const Window,
+    into: *mut u8,
+    cap: usize,
+    written: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    let room = core::slice::from_raw_parts_mut(into, cap);
+    match window.picture_copy(room) {
+        Ok(copied) => {
+            if let Some(written) = written.as_mut() {
+                *written = copied;
             }
             Status::Ok.code()
         }

@@ -2088,6 +2088,9 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *                      quorra_window_highlight_quads, quorra_window_focused_annotation and
  *                      quorra_window_traced_path — and quorra_window_presented once the pixels
  *                      are on the screen. A call that changed none of them owes no repaint;
+ *                      on QUORRA_REPAINT_PICTURE a clip's picture, quorra_window_picture and
+ *                      quorra_window_picture_copy, drawn over the pages, or taken down where
+ *                      quorra_window_picture answers QUORRA_NO_ANSWER;
  *   on PANELS:         the rows again, quorra_window_outline_read and the four _read beside it;
  *   on CONTROLS:       the controls over the page rebuilt from quorra_window_fields_read, each
  *                      committed with quorra_window_set_field_text, _set_field_options,
@@ -2150,6 +2153,8 @@ typedef struct quorra_owed quorra_owed;
 #define QUORRA_REPAINT_PLACES  2u  /* where a picture is shown, or at what extent */
 #define QUORRA_REPAINT_MARKS   4u  /* the selection, the occurrences, Annex O's highlight, §12.5.1's
                                     * focus or §12.9's traced path */
+#define QUORRA_REPAINT_PICTURE 8u  /* a clip's picture came up, a new one is due, it moved, or it
+                                    * came down (ADR 3578) */
 
 /*
  * The reader's levels a window opens under (RFC 0010 section 5, ADR 2120), stated before it opens
@@ -2226,6 +2231,11 @@ int32_t quorra_settings_accept_unknown_revocation(quorra_settings *settings, boo
  * and quorra_archive_profile's lists; either negative for none, which puts up the chooser.
  * QUORRA_OUT_OF_RANGE past either list; nothing changes. */
 int32_t quorra_settings_archive(quorra_settings *settings, int32_t target, int32_t profile);
+/* Whether the host draws a clip's pictures itself, from quorra_window_picture (RFC 0015 section 6,
+ * ADR 3578): a window opened under these settings plays a clip's sound through the sound helper
+ * found beside the host's program and shows its pictures, where the helper is there, rather than
+ * handing the clip to the host's opener (QUORRA_OWED_OPEN_FILE). Off in a new handle. */
+int32_t quorra_settings_show_pictures(quorra_settings *settings, bool shows);
 
 /* Opens a window on the file at `path`; nothing is drawn until the first quorra_window_resize,
  * which joins the open. `fragment` (Annex O) may be null. QUORRA_UNREADABLE where the file cannot
@@ -2377,6 +2387,17 @@ int32_t quorra_window_frame(const quorra_window *window, size_t frame, quorra_fr
                             uint32_t *shown_width, uint32_t *shown_height);
 int32_t quorra_window_frame_copy(const quorra_window *window, size_t frame, uint8_t *into,
                                  size_t cap, size_t *written);
+/* A clip's picture over its screen annotation (Table 294's /W 3; ADR 3578): the part Table 291's
+ * /F shows, *width by *height samples in *format (QUORRA_FORMAT_RGBA8), *bytes of them, drawn over
+ * the pages with its top-left corner at *origin_x, *origin_y and scaled to *shown_width by
+ * *shown_height, in device pixels of the viewport. QUORRA_NO_ANSWER where no picture is shown.
+ * An RGBA buffer and never a texture: this window draws on the processor. The host's timer at
+ * quorra_window_interval is what takes each picture in time, through quorra_window_tick. */
+int32_t quorra_window_picture(const quorra_window *window, uint32_t *width, uint32_t *height,
+                              uint32_t *format, size_t *bytes, float *origin_x, float *origin_y,
+                              uint32_t *shown_width, uint32_t *shown_height);
+int32_t quorra_window_picture_copy(const quorra_window *window, uint8_t *into, size_t cap,
+                                   size_t *written);
 /* Everything owed since the last call, as a batch freed with quorra_owed_free. */
 int32_t quorra_window_take_owed(quorra_window *window, quorra_owed **owed);
 void quorra_owed_free(quorra_owed *owed);

@@ -488,6 +488,7 @@ internal static partial class Native
     internal const uint QUORRA_REPAINT_FRAMES = 1;
     internal const uint QUORRA_REPAINT_PLACES = 2;
     internal const uint QUORRA_REPAINT_MARKS = 4;
+    internal const uint QUORRA_REPAINT_PICTURE = 8;
     internal const uint QUORRA_POLICY_LINKS = 0;
     internal const uint QUORRA_POLICY_REMOTE_DOCUMENTS = 1;
     internal const uint QUORRA_POLICY_EMBEDDED_DOCUMENTS = 2;

@@ -693,8 +693,8 @@ pub trait NativeWindow {
 
     /// Whether this window plays §13.3's sound itself, through [`WindowState::sounds`], rather
     /// than handing the sound's file to this machine's player as any other clip. `false` unless a
-    /// toolkit says otherwise: the C ABI's window hands a sound to the program hosting it, whose
-    /// sink is RFC 0015 section 5's step 5 (ADR 3329).
+    /// toolkit says otherwise: the C ABI's window plays one only where its host draws pictures, and
+    /// hands it to the program hosting it otherwise (ADRs 3329, 3578).
     fn plays_sounds(&self) -> bool {
         false
     }

@@ -89,16 +89,13 @@ impl Host {
             return None;
         };
         let placed = self.state.pictures.placed(quad)?;
-        let whole = placed.left == 0
-            && placed.top == 0
-            && placed.right >= raster.width
-            && placed.bottom >= raster.height;
+        let whole = placed.is_whole(raster);
         let raster = if whole {
             std::borrow::Cow::Borrowed(raster)
         } else {
             std::borrow::Cow::Owned(placed.part_of(raster))
         };
-        let (origin, extent) = bounding_box(placed.quad);
+        let (origin, extent) = placed.bounding_box();
         Some(Shown {
             raster,
             origin,
@@ -107,24 +104,16 @@ impl Host {
     }
 }
 
-/// The bounding box of `quad`, in device pixels of the viewport: its top-left corner and its
-/// extent rounded to whole pixels. A page turned by a quarter keeps its rectangle's box, and the
-/// picture fills it upright — GTK's `placement`'s construction.
+/// The bounding box of `quad`, in device pixels of the viewport
+/// ([`viewer_host::video::Placed::bounding_box`]).
+#[cfg(test)]
 pub(super) fn bounding_box(quad: [f32; 8]) -> ((f32, f32), (u32, u32)) {
-    let xs = [quad[0], quad[2], quad[4], quad[6]];
-    let ys = [quad[1], quad[3], quad[5], quad[7]];
-    let left = xs.iter().copied().fold(f32::INFINITY, f32::min);
-    let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
-    let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a viewport extent, non-negative after max(0) and far inside u32's range"
-    )]
-    let extent = (
-        (right - left).round().max(0.0) as u32,
-        (bottom - top).round().max(0.0) as u32,
-    );
-    ((left, top), extent)
+    viewer_host::video::Placed {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        quad,
+    }
+    .bounding_box()
 }

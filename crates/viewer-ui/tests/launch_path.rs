@@ -297,6 +297,19 @@ const TURNS: usize = 5;
 /// (ADR 0884).
 const SAMPLES: usize = 9;
 
+/// How many bring-up children with their huge pages off the device's own allocation is the median
+/// of, with or without clocks: the share every row's [`Row::peak_anon_mib`] is judged beyond.
+///
+/// **A median of nine, and not the one child the clocks happen to pick** (ADR 3577). One bring-up
+/// child's allocation spread from 11.8 to 13.7 MiB over forty-five gate runs while the first
+/// page's own spread from 15.0 to 15.6, so the difference — a band two
+/// mebibytes wide on `xfa_filled_imm1344e.pdf` — moved by the driver's draw and not by this
+/// program: ten pairs read on the server VM put the bring-up child at 12.61 to 13.48 MiB and the
+/// first page at 15.62 to 15.91. The median of nine draws moves by about a third of one draw's
+/// spread. The children are taken with small pages for [`SMALL_PAGES`]' reason, the first page's
+/// own condition, so the two figures subtracted are counted the same way.
+const DEVICE_SAMPLES: usize = 9;
+
 /// How much of a figure may be time its thread spent waiting for a processor before the figure
 /// is declined rather than corrected.
 ///
@@ -1712,9 +1725,9 @@ struct Row {
     /// first-page children's own allocation**, which carries the machine's huge pages: see
     /// [`SMALL_PAGES`]. Both are printed.
     ///
-    /// **And less the device's own allocation** — [`Check::bring_up_anon_mib`]'s figure, read in
-    /// the same run from a process that brought the device up and did nothing else — because that
-    /// share is the driver's (ADR 2667). On the server VM it read 8.9 MiB where the notebook's read
+    /// **And less the device's own allocation** — the median of [`DEVICE_SAMPLES`] processes that
+    /// brought the device up with their huge pages off and did nothing else, read in the same run
+    /// — because that share is the driver's (ADRs 2667, 3577). On the server VM it read 8.9 MiB where the notebook's read
     /// 5.3, 5.4 of the 8.9 being the pages the dynamic loader wrote relocating Debian's
     /// `libLLVM.so.19.1` for RADV; every row's first page read past its band by about that
     /// difference, and every row less its machine's bring-up read where the notebook's had.
@@ -2291,6 +2304,28 @@ fn field(fields: &Fields, key: &str) -> Option<f64> {
         .iter()
         .find(|(name, _)| name == key)
         .and_then(|(_, value)| value.parse().ok())
+}
+
+/// The device's own allocation: the median, the least and the most of [`DEVICE_SAMPLES`] bring-up
+/// children with their huge pages off, in mebibytes ([`DEVICE_SAMPLES`] says why a median).
+fn device_allocation() -> Result<(f64, f64, f64), String> {
+    let mut allocated = Vec::with_capacity(DEVICE_SAMPLES);
+    for _ in 0..DEVICE_SAMPLES {
+        let fields = run_phase(&format!("bring-up{SMALL_PAGES}"), None)?;
+        if field(&fields, "small_pages") != Some(1.0) {
+            return Err("a bring-up child's huge pages were not off".to_owned());
+        }
+        allocated.push(anonymous_high_water_mib(&fields));
+    }
+    allocated.sort_by(f64::total_cmp);
+    match (
+        allocated.get(DEVICE_SAMPLES / 2),
+        allocated.first(),
+        allocated.last(),
+    ) {
+        (Some(&median), Some(&least), Some(&most)) => Ok((median, least, most)),
+        _ => Err("no bring-up child was sampled".to_owned()),
+    }
 }
 
 /// How much of a child's high-water mark was memory *this program* asked for, in mebibytes.
@@ -3510,7 +3545,6 @@ fn the_launch_path_stays_inside_its_bands() {
                 .map_or("unnamed", |(_, name)| name.as_str());
             let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
             let allocated = anonymous_high_water_mib(&fields);
-            device_allocates = Some(allocated);
             println!(
                 "launch-path: cold graphics bring-up {value:.1} ms on {adapter}, \
                  {peak:.0} MiB resident of which {allocated:.1} MiB is allocated \
@@ -3545,6 +3579,17 @@ fn the_launch_path_stays_inside_its_bands() {
             );
         }
         Err(complaint) => complaints.push(format!("cold bring-up: {complaint}")),
+    }
+    match device_allocation() {
+        Ok((median, least, most)) => {
+            println!(
+                "launch-path: the device's own allocation {median:.2} MiB, the median of \
+                 {DEVICE_SAMPLES} bring-up children with transparent huge pages off ({least:.2} to \
+                 {most:.2}), what each row's memory is judged beyond (ADRs 2667, 3577)"
+            );
+            device_allocates = Some(median);
+        }
+        Err(complaint) => complaints.push(format!("the device's own allocation: {complaint}")),
     }
 
     let cache = cache_directory();
