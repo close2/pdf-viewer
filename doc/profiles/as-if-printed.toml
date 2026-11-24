@@ -218,6 +218,15 @@ remedy = "discard"
 [site."file-structure/ascii-data-ends-at-its-end-of-data-marker"]
 remedy = "discard"
 
+# A font map this reader read past (ISO 32000-2 9.10.3, 9.6.5.1): a ToUnicode that is not a stream,
+# an Encoding or BaseEncoding naming no predefined encoding, a Differences element out of its
+# grammar, which section 5.1 of both parts forbids through the base standard. The font is written as
+# it was read, the entry removed or the array written as the codes and names read, every code
+# proved to draw what it drew; the loss `font-maps-as-read`, each font and entry named in the
+# report (ADR 3570).
+[site."fonts/font-maps-read-as-written"]
+remedy = "discard"
+
 # Stream data a filter decodes only in part — it runs out before the filter's end-of-data, breaks
 # the filter's grammar part way, or decodes to bytes its check value disagrees with (ISO 32000-2
 # 7.4) — which section 5.1 of both parts forbids through the base standard: the data states nothing

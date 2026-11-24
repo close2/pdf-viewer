@@ -674,6 +674,16 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2, through ISO 32000-2
     /// §9.7.4.2; every CID draws the outline and the width it drew (ADR 3446).
     CidKeyedProgramWritten,
+    /// Every font whose `/ToUnicode`, `/Encoding`, `/BaseEncoding` or `/Differences` this reader
+    /// read past is written as it was read (`super::font_maps`): ISO 19005-2 and ISO 19005-4
+    /// section 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1. It is the loss
+    /// [`super::Loss::FontMapsAsRead`] (ADR 3570).
+    FontMapsAsRead,
+    /// Every rendered font's program that this reader repaired to draw is written at its own
+    /// object as the program it read, proved to draw every glyph as it drew: ISO 19005-2 section
+    /// 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1, through ISO 32000-2 §9.9 (ADR 3569). Carried
+    /// by the embedding's preparation, whose decision names this rewrite where it embedded no face.
+    FontProgramAsRead,
     /// Every named resource entry ISO 19005 section 6.2.2's exemption takes out of the
     /// requirements, and whose name no content stream in the file states, is removed where the
     /// exemption withdrew a finding at what it reaches (ADR 3410).
@@ -1615,6 +1625,16 @@ impl Rewrite {
                  \u{a7}9.7.5.4 c) reserves for a ToUnicode CMap, states each mapping with \
                  begincidchar as the CID this reader read, so every code selects what it selected"
             }
+            Self::FontProgramAsRead => {
+                "a rendered font's embedded program that this reader repaired to draw is written as \
+                 the program it read, filed under the key and Subtype its format takes, and every \
+                 glyph draws the outline and the advance it drew"
+            }
+            Self::FontMapsAsRead => {
+                "a font's ToUnicode that is not a stream, Encoding or BaseEncoding naming no \
+                 predefined encoding, or Differences element out of its grammar is written as \
+                 this reader read it, so every code draws the outline and the advance it drew"
+            }
             Self::CidKeyedProgramWritten => {
                 "a CIDFontType0 whose name-keyed CFF program was reached through a CIDToGIDMap, \
                  which ISO 32000-2 \u{a7}9.7.4.2 does not use for such a program, holds the \
@@ -2021,6 +2041,8 @@ impl Rewrite {
             Self::CompactFontRealsRestated => "compact-font-reals-restated",
             Self::EncodingCmapRestated => "encoding-cmap-restated",
             Self::CidKeyedProgramWritten => "cid-keyed-program-written",
+            Self::FontMapsAsRead => "font-maps-as-read",
+            Self::FontProgramAsRead => "font-program-as-read",
             Self::UnreferencedResourceRemoved => "unreferenced-resource-removed",
             Self::BaseFontNamed => "base-font-named",
             Self::PacketHeaderAttributes => "packet-header-attributes",
@@ -2257,6 +2279,7 @@ impl<'a> Rewriter<'a> {
             font_types: prepared.owed.font_types.as_ref().ok(),
             base_font_names: prepared.owed.base_font_names.as_ref().ok(),
             font_subtypes: prepared.owed.font_subtypes.as_ref().ok(),
+            font_maps: prepared.owed.font_maps.as_ref().ok(),
             compact_reals: prepared.owed.compact_reals.as_ref().ok(),
             encoding_cmaps: prepared.owed.encoding_cmaps.as_ref().ok(),
             cid_keyed_programs: prepared.owed.cid_keyed_programs.as_ref().ok(),
@@ -3297,6 +3320,8 @@ struct Rewriter<'a> {
     base_font_names: Option<&'a super::base_font_names::Restated>,
     /// The kinds `font_subtypes::stated` read from each font's program (ADR 3409).
     font_subtypes: Option<&'a super::font_subtypes::Stated>,
+    /// The fonts and encoding dictionaries written as this reader read their maps (ADR 3570).
+    font_maps: Option<&'a super::font_maps::Restated>,
     /// The CFF programs whose digitless DICT reals are restated (ADR 3426).
     compact_reals: Option<&'a super::compact_reals::Restated>,
     /// The `Encoding` `CMap`s whose `bfchar` sections are restated as `cidchar` (ADR 3428).
@@ -3914,6 +3939,7 @@ impl Rewriter<'_> {
         changed |= self.state_font_type(id, out, applied);
         changed |= self.name_base_font(id, out, applied);
         changed |= self.state_font_subtype(id, out, applied);
+        changed |= self.restate_font_maps(id, out, applied);
         changed |= self.remove_rekeyed_map(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);

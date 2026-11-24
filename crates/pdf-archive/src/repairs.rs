@@ -166,18 +166,18 @@ pub static MAPPING: &[Mapped] = &[
     // reader painted three operands in under `DeviceGray` is this reader's reading of the
     // producer's intent rather than a space the file uses.
     base("model/colour-operands-do-not-fit-the-space"),
-    // The embedded program (ADR 3565, ADR 3566). Section 5.1 alone, and section 6.2.11.4.1's
-    // row by name not yet: the converter reads that row's failure as a font with no program to
-    // embed and has no route that writes a program as this reader read it, so mapping these to
-    // the row refused ten corpus documents with a sentence that is false of them, where the
-    // output's own check refuses them by the class's name. Section 6.2.11.2's own row stays
-    // unchecked: the log is what the reader repaired, not a validator of sfnt, CFF and Type 1.
-    base("font/sfnt-loca-extent"),
-    base("font/sfnt-loca-format"),
-    base("font/sfnt-loca-order"),
-    base("font/sfnt-table-past-the-program"),
-    base("font/collection-cut-to-one-face"),
-    base("font/cff-font-dicts-rewritten"),
+    // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
+    // font a content stream renders: the program the file embeds is not the one the window drew,
+    // and the converter answers the row by writing the program as this reader read it
+    // (`pdf_font::as_read`), so the row's failure no longer reads as a font with no program.
+    // Section 6.2.11.2's own row stays unchecked: the log is what the reader repaired, not a
+    // validator of sfnt, CFF and Type 1.
+    rows("font/sfnt-loca-extent", &[EMBEDDED]),
+    rows("font/sfnt-loca-format", &[EMBEDDED]),
+    rows("font/sfnt-loca-order", &[EMBEDDED]),
+    rows("font/sfnt-table-past-the-program", &[EMBEDDED]),
+    rows("font/collection-cut-to-one-face", &[EMBEDDED]),
+    rows("font/cff-font-dicts-rewritten", &[EMBEDDED]),
     // A program the loader refused is one `fonts/font-programs-embedded` refuses on its own
     // reading of the same stream, so the log adds only section 5.1 for it.
     base("font/program-unreadable"),
@@ -185,21 +185,30 @@ pub static MAPPING: &[Mapped] = &[
     // program's bytes on its own, so the log adds only section 5.1.
     base("font/font-file-subtype-disagrees"),
     // The maps. Section 6.2.11.7.2's rows judge a `/ToUnicode` as read and exempt whole classes
-    // of font from it, which a repair's place cannot tell, so a damaged map is section 5.1's;
-    // likewise a damaged encoding `CMap`, `/Differences` and `/Encoding` name, which no row of
-    // this part states a grammar for.
-    base("font/to-unicode-not-a-stream"),
+    // of font from it, which a repair's place cannot tell, so a map this reader read past is
+    // section 5.1's. Those the converter restates as read (ADR 3570) are also the row of section
+    // 5.1 that names them, `fonts/font-maps-read-as-written`; a damaged `/ToUnicode` or encoding
+    // `CMap` is section 5.1's alone until a route writes the mappings that read.
+    rows("font/to-unicode-not-a-stream", &[MAPS_READ]),
     base("font/to-unicode-damaged"),
     base("font/cmap-damaged"),
+    rows("font/differences-malformed", &[MAPS_READ]),
+    rows("font/encoding-name-unknown", &[MAPS_READ]),
     // The widths. Section 6.2.11.5's row compares the widths the dictionary states with the
     // program's, and a malformed entry the reader read as the missing width is one the row
     // compared without the file stating it; it reads these at the fonts a content stream renders.
     rows("font/widths-malformed", &[WIDTHS_AGREE]),
     rows("font/cid-widths-malformed", &[WIDTHS_AGREE]),
-    base("font/differences-malformed"),
-    base("font/encoding-name-unknown"),
     no_row("font/to-unicode-past-a-bound", A_BOUND_OF_THIS_READER),
 ];
+
+/// Section 6.2.11.4.1's row: every font a content stream renders embeds its program.
+pub(crate) const EMBEDDED: &str = "fonts/font-programs-embedded";
+
+/// Section 5.1's row for the font maps this reader read past: a `/ToUnicode` that is no stream,
+/// an `/Encoding` or `/BaseEncoding` name the base standard does not predefine, a malformed
+/// `/Differences` (ADR 3570).
+pub(crate) const MAPS_READ: &str = "fonts/font-maps-read-as-written";
 
 /// Section 6.2.11.5's row: the widths the dictionary states agree with the program's.
 pub(crate) const WIDTHS_AGREE: &str = "fonts/widths-agree-with-the-program";

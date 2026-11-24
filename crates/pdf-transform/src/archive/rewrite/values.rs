@@ -982,6 +982,37 @@ impl Rewriter<'_> {
         out.remove("CIDToGIDMap").is_some()
     }
 
+    /// A font or encoding dictionary whose maps this reader read past, written as it read them
+    /// (`super::super::font_maps`, ADR 3570): the entries it removes go, and a restated
+    /// `/Differences` or `/Encoding` replaces the producer's; every other entry `out` holds by
+    /// now is kept.
+    pub(super) fn restate_font_maps(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(read) = self
+            .font_maps
+            .filter(|_| self.wants(Rewrite::FontMapsAsRead))
+            .and_then(|restated| restated.dictionaries.get(&id))
+        else {
+            return false;
+        };
+        for key in ["ToUnicode", "Encoding", "BaseEncoding", "Differences"] {
+            match read.get(key) {
+                Some(value) => {
+                    out.insert(Name::new(key.as_bytes()), value.clone());
+                }
+                None => {
+                    out.remove(key);
+                }
+            }
+        }
+        count(applied, Rewrite::FontMapsAsRead);
+        true
+    }
+
     /// §9.6.2.1's Table 109 `/Subtype`, written as the kind `font_subtypes::stated` read from the
     /// font's embedded program's filing under §9.9's Table 124 (ADR 3409).
     pub(super) fn state_font_subtype(

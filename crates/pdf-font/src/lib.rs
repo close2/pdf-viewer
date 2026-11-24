@@ -24,6 +24,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod as_read;
 pub mod cff;
 pub mod cmap;
 pub mod collection;
@@ -63,6 +64,7 @@ mod vertical;
 
 pub use crate::cmap::Code;
 pub use crate::composite::composite_cmap;
+pub use crate::glyph_names::PERMITTED_ENCODING_NAMES;
 pub use crate::loading::{
     CharacterGlyph, FontError, LoadedFont, NOTDEF_GLYPH, NamingGap, OutlineRefused, UnreachedCode,
     without_program,

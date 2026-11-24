@@ -865,6 +865,36 @@ pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>
     laid_out(data, &kept)
 }
 
+/// An sfnt laid out again without every table record whose bytes run past the program's last
+/// byte, which is what this reader reads such a program as: `read-fonts` hands over no data for a
+/// table whose range the bytes do not hold, so a record past the end names a table nothing drew
+/// from (ADR 3569). Every other table's bytes are copied unchanged, a record of no bytes included.
+///
+/// `None` where the directory names a tag twice or does not read, which leaves which bytes were
+/// read without one answer; the program unchanged where every record is within it.
+pub(crate) fn without_records_past_the_end(data: &[u8]) -> Option<Vec<u8>> {
+    let records = sfnt_records(data)?;
+    let mut kept: Vec<(&[u8], &[u8])> = Vec::with_capacity(records.len());
+    let mut tags = std::collections::BTreeSet::new();
+    for (tag, offset, length) in &records {
+        if !tags.insert(*tag) {
+            return None;
+        }
+        let end = offset.checked_add(*length)?;
+        if end > data.len() as u64 {
+            continue;
+        }
+        let at = usize::try_from(*offset).ok()?;
+        let bytes = data.get(at..usize::try_from(end).ok()?)?;
+        kept.push((tag.as_slice(), bytes));
+    }
+    if kept.len() == records.len() {
+        return Some(data.to_vec());
+    }
+    kept.sort_by_key(|(tag, _)| *tag);
+    laid_out(data, &kept)
+}
+
 /// A copy of an sfnt with the named tables' bytes replaced, its directory and layout written
 /// afresh.
 ///

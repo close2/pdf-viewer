@@ -160,6 +160,7 @@ mod external;
 mod fallback;
 mod fenced;
 mod font_files;
+mod font_maps;
 mod font_subtypes;
 mod font_widths;
 mod fonts;

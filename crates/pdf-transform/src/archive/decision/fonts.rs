@@ -232,6 +232,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
     },
     // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through §9.7.4.2: a name-keyed
     // CFF reached through a CIDToGIDMap written CID-keyed, its charset stating the map (ADR 3446).
+    // ISO 19005-2 and ISO 19005-4 section 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1: a font's
+    // maps this reader read past, written as it read them (ADR 3570).
+    Remedy {
+        requirement: super::super::font_maps::ROW,
+        answer: Answer::Loses(Loss::FontMapsAsRead, Rewrite::FontMapsAsRead),
+    },
     Remedy {
         requirement: "fonts/cidfonttype0-glyphs-selected-by-cid",
         answer: Answer::Mechanical(Rewrite::CidKeyedProgramWritten),
@@ -454,6 +460,15 @@ pub(super) fn embedded_faces(
 ) -> Decision {
     if let Some(because) = prepared.obstacle(Rewrite::SubstituteFontProgram) {
         return Decision::Refused(because);
+    }
+    // Where the embedding wrote only programs as read and embedded no face, the sentence a
+    // substitution states would be false of the file (ADR 3569).
+    if prepared
+        .substitutes
+        .as_ref()
+        .is_ok_and(super::super::fonts::Substitutes::wrote_only_as_read)
+    {
+        return Decision::Mechanical(Rewrite::FontProgramAsRead);
     }
     let losses = prepared.substitutes.as_ref().map_or_else(
         |_| Losses::default(),

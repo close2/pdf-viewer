@@ -2068,7 +2068,9 @@ impl Prepared {
                 self.respelled.as_ref().err().copied()
             }
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
-            Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
+            Rewrite::SubstituteFontProgram | Rewrite::FontProgramAsRead => {
+                self.substitutes.as_ref().err().copied()
+            }
             Rewrite::RestateFontMetrics | Rewrite::RestateVerticalFontMetrics => {
                 self.metrics.as_ref().err().copied()
             }
@@ -2092,6 +2094,7 @@ impl Prepared {
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::BaseFontNamed => self.owed.base_font_names.as_ref().err().copied(),
             Rewrite::FontSubtypeStated => self.owed.font_subtypes.as_ref().err().copied(),
+            Rewrite::FontMapsAsRead => self.owed.font_maps.as_ref().err().copied(),
             Rewrite::CompactFontRealsRestated => self.owed.compact_reals.as_ref().err().copied(),
             Rewrite::EncodingCmapRestated => self.owed.encoding_cmaps.as_ref().err().copied(),
             Rewrite::CidKeyedProgramWritten => self.owed.cid_keyed_programs.as_ref().err().copied(),
@@ -2271,6 +2274,16 @@ impl Prepared {
     }
 
     /// The objects the conversion adds, in the source's numbering, for `super::rewrite::enter` to find.
+    /// Whether the program written as read at `id` is the metrics route's to write, its advances
+    /// restated in the same bytes as read (ADR 3569).
+    fn restated_from_the_program_as_read(&self, substitutes: &Substitutes, id: ObjectId) -> bool {
+        substitutes.written_as_read.contains(&id)
+            && self
+                .metrics
+                .as_ref()
+                .is_ok_and(|metrics| metrics.at.contains_key(&id))
+    }
+
     pub(super) fn added(&self) -> BTreeMap<ObjectId, Object> {
         let mut out: BTreeMap<ObjectId, Object> = self.type3_procedures().collect();
         if let Ok(intent) = &self.intent
@@ -2336,7 +2349,9 @@ impl Prepared {
         }
         if let Ok(substitutes) = &self.substitutes {
             for (id, object) in &substitutes.written {
-                out.insert(*id, object.clone());
+                if !self.restated_from_the_program_as_read(substitutes, *id) {
+                    out.insert(*id, object.clone());
+                }
             }
         }
         if let Ok(metrics) = &self.metrics {
@@ -2413,6 +2428,9 @@ pub(super) struct Owed {
     pub(super) base_font_names: Result<super::base_font_names::Restated, Because>,
     /// The kind each font stating none is given from its program (ADR 3409).
     pub(super) font_subtypes: Result<super::font_subtypes::Stated, Because>,
+    /// The fonts whose maps this reader read past, written as read, or why they are not (ISO
+    /// 19005-2 and ISO 19005-4 section 5.1, ADR 3570).
+    pub(super) font_maps: Result<super::font_maps::Restated, Because>,
     /// The CFF programs whose digitless DICT reals are restated, or why none are (ADR 3426).
     pub(super) compact_reals: Result<super::compact_reals::Restated, Because>,
     /// The `Encoding` `CMap`s restated with `begincidchar`, or why none are (ADR 3428).
@@ -2579,6 +2597,9 @@ impl Owed {
             }),
             font_subtypes: asked(wanted(Rewrite::FontSubtypeStated), || {
                 super::font_subtypes::stated(document, input, substitutes)
+            }),
+            font_maps: asked(wanted(Rewrite::FontMapsAsRead), || {
+                super::font_maps::restated(document)
             }),
             compact_reals: asked(wanted(Rewrite::CompactFontRealsRestated), || {
                 super::compact_reals::restated(document, input)

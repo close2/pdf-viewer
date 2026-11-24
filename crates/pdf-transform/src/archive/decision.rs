@@ -631,11 +631,23 @@ pub enum Loss {
     /// is lost is the encoded bytes past the damage, and the report and the file's history name
     /// each stream (ADR 3522).
     DamagedDataAsDecoded,
+    /// ISO 19005-2 and ISO 19005-4 section 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1: a font
+    /// whose `/ToUnicode` is not a stream, whose `/Encoding` or `/BaseEncoding` names no
+    /// predefined encoding, or whose `/Differences` holds an element out of its grammar is written
+    /// as this reader read it — the entry removed, or the array written as the codes and names it
+    /// assigned.
+    ///
+    /// The standard gives none of those values a meaning and this reader read past each, so the
+    /// window drew what the restated font draws; what is lost is the producer's own words at those
+    /// places, which a reader with a convention of its own may have read — a `/ToUnicode` naming
+    /// `Identity-H` read as the identity map is the common one. The report names each font and
+    /// entry (ADR 3570).
+    FontMapsAsRead,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -678,6 +690,7 @@ impl Loss {
         Self::AsciiDataAsDecoded,
         Self::TaggingOfPreservedMarks,
         Self::DamagedDataAsDecoded,
+        Self::FontMapsAsRead,
     ];
 
     /// The word a caller authorises it by.
@@ -726,6 +739,7 @@ impl Loss {
             Self::AsciiDataAsDecoded => "ascii-data-as-decoded",
             Self::TaggingOfPreservedMarks => "tagging-of-preserved-marks",
             Self::DamagedDataAsDecoded => "damaged-data-as-decoded",
+            Self::FontMapsAsRead => "font-maps-as-read",
         }
     }
 
@@ -1048,6 +1062,14 @@ impl Loss {
                  may have recovered differently, and the report and the file's history name each \
                  stream"
             }
+            Self::FontMapsAsRead => {
+                "a font whose ToUnicode is not a stream, whose Encoding or BaseEncoding names no \
+                 encoding the standard predefines, or whose Differences holds an element out of \
+                 its grammar is written as this viewer read it, the entry removed or the array \
+                 written as the codes and names it assigned, so every glyph draws as it drew; the \
+                 producer's words at those places are gone, which another reader may have read by \
+                 a convention of its own, and the report names each font and entry"
+            }
         }
     }
 
@@ -1233,6 +1255,8 @@ pub struct Authorisations {
     pub tagging_of_preserved_marks_stated: bool,
     /// Whether [`Loss::DamagedDataAsDecoded`] was authorised.
     pub damaged_data_as_decoded: bool,
+    /// Whether [`Loss::FontMapsAsRead`] was authorised.
+    pub font_maps_as_read: bool,
 }
 
 impl Authorisations {
@@ -1282,6 +1306,7 @@ impl Authorisations {
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded,
             Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks,
             Loss::DamagedDataAsDecoded => self.damaged_data_as_decoded,
+            Loss::FontMapsAsRead => self.font_maps_as_read,
         }
     }
 
@@ -1338,6 +1363,7 @@ impl Authorisations {
             Loss::AsciiDataAsDecoded => self.ascii_data_as_decoded = true,
             Loss::TaggingOfPreservedMarks => self.tagging_of_preserved_marks = true,
             Loss::DamagedDataAsDecoded => self.damaged_data_as_decoded = true,
+            Loss::FontMapsAsRead => self.font_maps_as_read = true,
         }
     }
 }

@@ -65,6 +65,7 @@
 //! guess", which is also section 2.1's line about a substitution that answers *what does this
 //! glyph look like* being unable to answer *which character is this code*.
 
+mod as_read;
 mod bystanders;
 mod cff_notdef_glyph;
 mod cid_cff_notdef_glyph;
@@ -600,6 +601,9 @@ pub(super) struct Substitutes {
     /// The program streams whose decode stopped short after every byte of the program, each
     /// written again whole at its own object (`doc/adr/3256`).
     pub(super) written_whole: BTreeSet<ObjectId>,
+    /// The program streams this reader repaired to draw, each written again at its own object as
+    /// the program it read (`as_read`, ADR 3569).
+    pub(super) written_as_read: BTreeSet<ObjectId>,
     /// Every subset name this conversion writes, so that ISO 32000-2 §9.9.2's "different subsets
     /// of the same font in the same PDF file shall have different tags" holds across the whole
     /// converted file: the embedding's subsets here, and the appearances constructed after it
@@ -612,6 +616,18 @@ pub(super) struct Substitutes {
 }
 
 impl Substitutes {
+    /// Whether every program this preparation writes is one written as read (ADR 3569): no face
+    /// embedded, described or photographed, so nothing was substituted.
+    pub(super) fn wrote_only_as_read(&self) -> bool {
+        !self.written_as_read.is_empty()
+            && self.at.is_empty()
+            && self.added_fonts.is_empty()
+            && self.described.is_empty()
+            && self.direct.is_empty()
+            && self.photographs.is_empty()
+            && self.done.is_empty()
+    }
+
     /// Every loss the embedding incurs, over every font it embedded a face into: what the one
     /// decision at `fonts/font-programs-embedded` carries (`doc/adr/2262`).
     pub(super) fn losses(&self) -> Losses {
@@ -823,6 +839,7 @@ pub(super) fn restate_metrics(
             .as_stream()
             .and_then(|stream| document.decoded_stream_data(stream))
             .ok_or(Because::NotBuiltYet(PROGRAM_NOT_DECODED))?;
+        let bytes = as_read::to_restate(document, used, embedded.format, bytes)?;
         let Object::Stream(stream) = document.get(embedded.at) else {
             return Err(Because::NotBuiltYet(PROGRAM_NOT_DECODED));
         };
@@ -1444,6 +1461,19 @@ fn embed_pass(
                     substitutes.written.insert(at, stream);
                     continue;
                 }
+                Shortfall::WrittenAsRead(at, stream) => {
+                    substitutes.written_as_read.insert(at);
+                    substitutes.written.insert(at, stream);
+                    continue;
+                }
+                Shortfall::NotAsRead => {
+                    if let Some(refusal) = around.get(&selected(used)) {
+                        photographed::defer(document, used, *refusal, true, &mut substitutes);
+                        continue;
+                    }
+                    *failing = Some(index);
+                    return Err(Because::NotBuiltYet(as_read::NOT_WRITTEN_AS_READ));
+                }
                 Shortfall::None => continue,
             }
         };
@@ -2037,6 +2067,7 @@ fn embed_pass(
         && substitutes.direct.is_empty()
         && substitutes.photographs.is_empty()
         && substitutes.written_whole.is_empty()
+        && substitutes.written_as_read.is_empty()
     {
         return Err(Because::NotBuiltYet(if drawn_whole {
             CUT_PROGRAM_DRAWN_WHOLE
@@ -2641,8 +2672,8 @@ fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
     let Some((key, damage)) = pdf_archive::program_stopping_short(document, &descriptor) else {
         // Bytes that decode whole and are not a program in the format they are filed under are
         // no program either, and this reader draws none of them by the reading that finds them.
-        return pdf_archive::program_unparsed(document, &used.dict, &used.name).map_or(
-            Shortfall::None,
+        return pdf_archive::program_unparsed(document, &used.dict, &used.name).map_or_else(
+            || as_read::shortfall(document, used, &descriptor),
             |(key, _)| {
                 Shortfall::Cut(CutProgram {
                     key,
@@ -2702,6 +2733,12 @@ enum Shortfall {
     /// The decode stopped short after every byte of the program, and the stream at this object is
     /// [`written_whole`]'s.
     WrittenWhole(ObjectId, Object),
+    /// The program decodes whole and this reader repaired it to draw it, and the stream at this
+    /// object is the program as it was read ([`as_read`], ADR 3569).
+    WrittenAsRead(ObjectId, Object),
+    /// The program decodes whole and this reader repaired it to draw it, and it cannot be
+    /// written as read: [`as_read::NOT_WRITTEN_AS_READ`]'s refusal.
+    NotAsRead,
 }
 
 /// A program stream whose decode stopped short after every byte of the program, written again

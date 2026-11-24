@@ -321,6 +321,22 @@ session 2193**, `discard` at `ascii-data-as-decoded`
   with `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers
   `try = ["append-statement", "discard"]`, whose first step composes no page at this site.
 
+### `fonts/font-maps-read-as-written`
+ISO 19005-2 5.1, ISO 19005-4 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1, over the reader's log
+of repairs · all six · **built in session 2217**, `discard` at `font-maps-as-read` (ADR 3570)
+
+- **Mitigation** — `discard`: a font whose `/ToUnicode` is not a stream loses the entry, one whose
+  `/Encoding` or `/BaseEncoding` names no predefined encoding loses the name, and a malformed
+  `/Differences` is written as the codes and names this reader assigned — each what the reader
+  read, proved before writing by every single-byte code of a simple font drawing its outline at its
+  advance as it drew. The producer's words at those places are the loss. A font the proof does not
+  hold for — a nonsymbolic TrueType font's unknown `/Encoding` name — keeps the refusal, by name; a
+  damaged `/ToUnicode` or encoding `CMap` is section 5.1's own and refused by the output's check.
+- **By target** — none; both parts bind the base standard alike.
+- **From a configuration** — `[site."fonts/font-maps-read-as-written"]` with `remedy = "discard"`,
+  which `as-shown` and `as-if-printed` carry; `state-every-loss` answers `try = ["append-statement",
+  "discard"]`.
+
 ### `conformance/adheres-to-the-base-standard`
 ISO 19005-2 5.1, ISO 19005-4 5.1, over the reader's log of repairs (ADR 3506) · all six · **built in
 session 2205** (ADR 3521, ADR 3522), content and page-box classes in session 2214 (ADRs 3557–3560),
@@ -1449,6 +1465,11 @@ face is drawn narrowed to the file's widths, and the loss `layout-from-this-view
 widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 1209,
 2146, 2147, 2162, 2262, 2278, 2279, 2504)
 
+- **A program this reader repaired to draw** — a `loca` rewritten, a table past the program's end,
+  a collection cut to one face, a CID-keyed CFF's Font DICTs replaced — is written at its own
+  object as the program it read, proved to draw every glyph's outline at its advance as it drew,
+  under the key and `/Subtype` Table 124 gives its format; `Mechanical`, losing nothing (ADR 3569).
+  A program the proof does not hold for is refused by name.
 - **A font the file names and does not carry** gets one of the faces this program ships, embedded
   and reported, with the face's own advances or the program restated to the file's widths
   (`doc/pdf-a-conversion-limits.md` section 4.9).

@@ -82,7 +82,7 @@ pub(crate) fn encoding_names(
 /// answers today and `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts
 /// it. They stay separate because a later edition can add a name to one and not the other, and
 /// because the answer to the second question is what decides whether a font draws.
-pub(crate) const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
+pub const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
     b"StandardEncoding",
     b"MacRomanEncoding",
     b"MacExpertEncoding",

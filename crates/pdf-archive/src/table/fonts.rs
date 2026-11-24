@@ -283,6 +283,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_programs_embedded),
     },
     Requirement {
+        id: "fonts/font-maps-read-as-written",
+        asks: "A font dictionary's ToUnicode entry shall be a CMap stream, its Encoding a name \
+               the base standard predefines or an encoding dictionary whose BaseEncoding is \
+               one, and its Differences an array of codes each followed by glyph names.",
+        // Section 5.1 in both parts, through ISO 32000-2 §9.10.3 (Table 109 and Table 121 give
+        // `/ToUnicode` as a stream), §9.6.5.1 (Table 112's `/BaseEncoding` and `/Differences`)
+        // and Table 109's `/Encoding`: a departure this reader read past is a file that does not
+        // adhere to the base standard, read from the reader's log (ADR 3570).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(font_maps_read_as_written),
+    },
+    Requirement {
         id: "fonts/font-programs-filed-by-their-format",
         asks: "A font program shall be embedded as the base standard's section 9.9 defines it: \
                under the descriptor key, and for a FontFile3 the Subtype, that the section's \
@@ -1752,6 +1765,23 @@ fn encoding_cmap_maps_codes_to_cids(exam: &Examination<'_>, findings: &mut Findi
 /// construction.
 fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    // A program this reader repaired to draw is not the program the window drew (ADR 3569); the
+    // row's population is the fonts a content stream renders, so the log is read at their
+    // programs alone, and a repair in a font no page renders is section 5.1's.
+    crate::repairs::record_logged_at(
+        exam,
+        crate::repairs::EMBEDDED,
+        &rendered_font_objects(exam, |holder| {
+            let Some(descriptor) = descriptor(document, holder) else {
+                return Vec::new();
+            };
+            PROGRAM_KEYS
+                .into_iter()
+                .filter_map(|key| descriptor.get(key).and_then(Object::as_reference))
+                .collect()
+        }),
+        findings,
+    );
     for used in exam.survey().fonts() {
         if !used.rendered {
             continue;
@@ -1818,6 +1848,43 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
             }
         }
     }
+}
+
+/// ISO 19005-2 section 5.1, ISO 19005-4 section 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1:
+/// every font map this reader read past, from its log (ADR 3570). The population is the file's,
+/// as section 5.1's is, so a font no page renders is named too.
+fn font_maps_read_as_written(exam: &Examination<'_>, findings: &mut Findings) {
+    crate::repairs::record_logged(exam, crate::repairs::MAPS_READ, findings);
+}
+
+/// §9.9's Table 120 keys a descriptor names its embedded program under.
+const PROGRAM_KEYS: [&str; 3] = ["FontFile", "FontFile2", "FontFile3"];
+
+/// The descriptor key of an embedded program this reader repaired to draw, and the class of each
+/// repair the reader's log holds at its stream — the classes [`crate::repairs`] maps to
+/// `fonts/font-programs-embedded`, read from the same log the row reads (ADR 3569).
+///
+/// The converter asks this of the same descriptor, so that the program it writes as read is the
+/// one the row fails. The log holds what loading the font recorded, so a caller that has not
+/// loaded the font is told nothing; the converter asks after the examination loaded every font.
+#[must_use]
+pub fn program_read_repaired(
+    document: &Document,
+    descriptor: &Dictionary,
+) -> Option<(&'static str, Vec<&'static str>)> {
+    let (key, at) = PROGRAM_KEYS
+        .into_iter()
+        .find_map(|key| Some((key, descriptor.get(key).and_then(Object::as_reference)?)))?;
+    let classes: Vec<&'static str> = document
+        .repairs()
+        .into_iter()
+        .filter(|repair| {
+            matches!(repair.at, pdf_syntax::Site::Object(id) | pdf_syntax::Site::Within(id, _) if id == at)
+                && crate::repairs::breaches_row(repair.class.name, crate::repairs::EMBEDDED)
+        })
+        .map(|repair| repair.class.name)
+        .collect();
+    (!classes.is_empty()).then_some((key, classes))
 }
 
 /// The descriptor key and the damage of an embedded program whose decode stops short of the data
