@@ -184,6 +184,17 @@ pub struct Salvage<'a> {
     pub dropped: &'a [u8],
 }
 
+/// Where a [`Lexer`] stood, taken by [`Lexer::mark`] and given back by [`Lexer::restore`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Mark<'a> {
+    position: usize,
+    examined: usize,
+    hexadecimal: HexadecimalStrings,
+    salvage: Option<Salvage<'a>>,
+    wide_integer: Option<&'a [u8]>,
+    repairs: usize,
+}
+
 /// A cursor over PDF bytes yielding tokens.
 #[derive(Debug, Clone)]
 pub struct Lexer<'a> {
@@ -315,6 +326,37 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub const fn hexadecimal_strings(&self) -> HexadecimalStrings {
         self.hexadecimal
+    }
+
+    /// Where this lexer stands, for a look-ahead that may be taken back with [`Self::restore`].
+    ///
+    /// **A mark rather than a clone of the lexer**, and it is the launch path's: a parser asks
+    /// whether `1` is the start of `1 0 R` at every integer it reads, and a clone copies and later
+    /// drops the repair log with it, which cost every open on the launch path between 1 and 2 per
+    /// cent of its instructions (ADR 3561). A mark is a few words copied; the log is cut back to
+    /// its length instead.
+    #[must_use]
+    pub(crate) const fn mark(&self) -> Mark<'a> {
+        Mark {
+            position: self.position,
+            examined: self.examined,
+            hexadecimal: self.hexadecimal,
+            salvage: self.salvage,
+            wide_integer: self.wide_integer,
+            repairs: self.repairs.len(),
+        }
+    }
+
+    /// Takes back everything lexed since `mark`: the cursor, what was examined, the hexadecimal
+    /// strings counted, the last token's salvage and wide integer, and the repairs noted — the
+    /// state a clone made at the mark would have had.
+    pub(crate) fn restore(&mut self, mark: Mark<'a>) {
+        self.position = mark.position;
+        self.examined = mark.examined;
+        self.hexadecimal = mark.hexadecimal;
+        self.salvage = mark.salvage;
+        self.wide_integer = mark.wide_integer;
+        self.repairs.truncate(mark.repairs);
     }
 
     /// Moves the cursor, clamped to the end of the input.

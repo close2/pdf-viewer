@@ -62,6 +62,11 @@ const CLOCK_RATE: u32 = 1_000_000;
 /// How soon a clip waiting for its sound to begin is looked at again.
 const WAITING_LOOK: Duration = Duration::from_millis(5);
 
+/// How soon a window with no wake looks again for a picture the decoding thread may have queued:
+/// a quarter of the shortest interval a clip of 60 pictures a second has, so a picture is put up
+/// at most this late (ADR 3562).
+pub const DECODING_LOOK: Duration = Duration::from_millis(4);
+
 impl InHand {
     /// The clip's time at `now`, read and kept: its sound's heard time while the sound is in hand,
     /// `None` while the sound has not begun, and the clip's own clock otherwise — taken up from
@@ -717,6 +722,20 @@ impl VideoPlayer {
     #[must_use]
     pub fn in_hand(&self) -> bool {
         self.in_hand.is_some()
+    }
+
+    /// [`Self::next_due`] for a window the decoding thread cannot wake — Qt's, whose loop a wake
+    /// would reach only through a second hand-written `unsafe` token (ADR 3562): while a pass is
+    /// running and the decoding thread has queued nothing yet, a look at [`DECODING_LOOK`] after
+    /// `now`, the queue being what the wake would have announced.
+    #[must_use]
+    pub fn next_due_unwoken(&self, now: Instant) -> Option<Instant> {
+        self.next_due(now).or_else(|| {
+            self.in_hand
+                .as_ref()
+                .filter(|hand| hand.running)
+                .and_then(|_| now.checked_add(DECODING_LOOK))
+        })
     }
 
     /// When the window should next ask [`Self::due`], for a window that sleeps until then: the

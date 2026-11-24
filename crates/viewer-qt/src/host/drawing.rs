@@ -114,6 +114,11 @@ impl Host {
         // A conversion running, and the trusted lists' refresh, are looked for on the same timer
         // as a server's answer, at the same interval (ADRs 1954, 2886).
         let looking = self.state.answers_interval();
+        // And a clip's next picture, which nothing else wakes this window for (ADR 3562).
+        let looking = match (looking, self.picture_wait()) {
+            (Some(looking), Some(picture)) => Some(looking.min(picture)),
+            (looking, picture) => looking.or(picture),
+        };
         let interval = match (self.state.drawing_interval(), looking) {
             (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
             (drawing, submitting) => drawing.or(submitting),
@@ -147,6 +152,7 @@ impl Host {
             self.mind_the_opening();
         }
         self.take_the_answers();
+        self.show_the_pictures();
         self.take_the_preparation();
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);

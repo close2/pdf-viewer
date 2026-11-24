@@ -162,6 +162,13 @@ impl Pictures {
         self.player.as_ref()?.next_due(now)
     }
 
+    /// [`Self::next_look`] for a window the decoding thread cannot wake
+    /// ([`VideoPlayer::next_due_unwoken`]): Qt's, which looks on its timer (ADR 3562).
+    #[must_use]
+    pub fn next_look_unwoken(&self, now: Instant) -> Option<Instant> {
+        self.player.as_ref()?.next_due_unwoken(now)
+    }
+
     /// Where the picture goes inside `quad`, the screen annotation in window pixels, by the clip's
     /// Table 291 `/F` ([`super::placed`]).
     #[must_use]

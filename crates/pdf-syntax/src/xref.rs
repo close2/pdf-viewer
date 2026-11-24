@@ -1685,9 +1685,58 @@ fn read_xref_stream(
         }
         in_use
     };
-    let mut entries = Statements::with_capacity(capacity);
-    let mut cursor = 0usize;
+    // A type 1 or 2 record whose fields no location here can hold is read as free, and that is a
+    // repair. It is looked for in a pass of its own, and only where `/W` makes one possible, so
+    // that the loop over every record — a large file's stream, on the launch path — carries no
+    // test for it (ADR 3561).
+    if layout.can_overflow_a_location() && unrepresentable_records(&data, row, &layout, &index) {
+        repaired.push(&repair::XREF_STREAM_RECORD);
+    }
+    let (entries, stopped) = read_records(
+        &data,
+        row,
+        &layout,
+        &index,
+        base,
+        read_position,
+        Statements::with_capacity(capacity),
+    )?;
+    Some(StreamRead::Read(Section {
+        entries,
+        trailer: stream.dict.clone(),
+        lost,
+        unread: stopped.map_or_else(Vec::new, |(pair_index, first, offset)| {
+            subsections_from(&index, pair_index, first, offset)
+        }),
+        classic: false,
+        repaired,
+    }))
+}
 
+/// Where a cross-reference stream's data stopped carrying whole records: the subsection's place
+/// in `/Index`, its first object number, and the record reached in it.
+type Stopped = (usize, u32, i64);
+
+/// Reads a cross-reference stream's records into `entries`, in `/Index`'s order, and answers where
+/// the data stopped carrying whole records — the subsection's place in `/Index`, its first number
+/// and the record reached — if it stopped before `/Index` did; `None` where a record cannot be read
+/// at all ([`entry_location`]).
+///
+/// **A function of its own, and that is the launch path's.** This loop turns once per object a
+/// large file states — 112 thousand times opening `ISO_32000-2_sponsored_EC3.pdf` — and nothing
+/// the section carries besides its entries is live in it (ADR 3561). It is left to the compiler to
+/// inline: kept out of line, its entries crossed the call in memory and every record cost
+/// eighteen instructions more.
+fn read_records(
+    data: &[u8],
+    row: usize,
+    layout: &RecordLayout,
+    index: &[i64],
+    base: usize,
+    read_position: u32,
+    mut entries: Statements,
+) -> Option<(Statements, Option<Stopped>)> {
+    let mut cursor = 0usize;
     for (pair_index, pair) in index.chunks(2).enumerate() {
         let (Some(&first), Some(&count)) = (pair.first(), pair.get(1)) else {
             break;
@@ -1702,14 +1751,7 @@ fn read_xref_stream(
             // record is the producer's own statement about one object, and a partial one is
             // fields read from bytes that are not there.
             let Some(record) = data.get(cursor..cursor.saturating_add(row)) else {
-                return Some(StreamRead::Read(Section {
-                    entries,
-                    trailer: stream.dict.clone(),
-                    lost,
-                    unread: subsections_from(&index, pair_index, first, offset),
-                    classic: false,
-                    repaired,
-                }));
+                return Some((entries, Some((pair_index, first, offset))));
             };
             cursor = cursor.saturating_add(row);
 
@@ -1718,22 +1760,11 @@ fn read_xref_stream(
             else {
                 continue;
             };
-            let entry = entry_location(record, &layout, base)?;
-            if matches!(entry, Entry::Unrepresentable) {
-                repaired.push(&repair::XREF_STREAM_RECORD);
-            }
+            let entry = entry_location(record, layout, base)?;
             entries.push(number, entry.location(), read_position);
         }
     }
-
-    Some(StreamRead::Read(Section {
-        entries,
-        trailer: stream.dict.clone(),
-        lost,
-        unread: Vec::new(),
-        classic: false,
-        repaired,
-    }))
+    Some((entries, None))
 }
 
 /// A cross-reference stream's `/W` and `/Index` (with `/Size` behind the latter's default), read
@@ -1887,6 +1918,61 @@ impl RecordLayout {
         }
         Self { fields }
     }
+
+    /// Whether a record could state a type 1 offset or a type 2 stream number or index past what
+    /// [`Location`] holds: only where the second or third field is wider than four bytes, which no
+    /// usual `/W` is.
+    fn can_overflow_a_location(&self) -> bool {
+        self.fields[1..]
+            .iter()
+            .flatten()
+            .any(|(at, end)| end.saturating_sub(*at) > size_of::<u32>())
+    }
+}
+
+/// Whether a record [`read_xref_stream`] reads is a type 1 or 2 record whose fields no
+/// [`Location`] can hold, which [`entry_location`] reads as free: the same records in the same
+/// order as that loop, each tested.
+///
+/// Out of line and cold: it runs only for a `/W` no usual producer writes, and inlined it would
+/// share the record loop's registers in the section reader (ADR 3561).
+#[cold]
+#[inline(never)]
+fn unrepresentable_records(data: &[u8], row: usize, layout: &RecordLayout, index: &[i64]) -> bool {
+    let mut cursor = 0usize;
+    for pair in index.chunks(2) {
+        let (Some(&first), Some(&count)) = (pair.first(), pair.get(1)) else {
+            break;
+        };
+        let Ok(first) = u32::try_from(first) else {
+            continue;
+        };
+        for offset in 0..count.max(0) {
+            let Some(record) = data.get(cursor..cursor.saturating_add(row)) else {
+                return false;
+            };
+            cursor = cursor.saturating_add(row);
+            if u32::try_from(u64::from(first).saturating_add(u64::try_from(offset).unwrap_or(0)))
+                .is_err()
+            {
+                continue;
+            }
+            let field = |slot: usize, default: u64| {
+                layout.fields[slot]
+                    .and_then(|(at, end)| record.get(at..end))
+                    .map_or(default, big_endian)
+            };
+            let unrepresentable = match field(0, 1) {
+                1 => usize::try_from(field(1, 0)).is_err(),
+                2 => u32::try_from(field(1, 0)).is_err() || u32::try_from(field(2, 0)).is_err(),
+                _ => false,
+            };
+            if unrepresentable {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// How many bytes of a Table 18 field fit a `u64`.
@@ -1945,6 +2031,9 @@ fn big_endian(bytes: &[u8]) -> u64 {
 /// reading of the clause but a document lost to a silence, so the index reads as zero and this
 /// sentence is where the choice is written down. The type 2 entry's *stream number* has the
 /// same silence and no witness, and is refused like the offset.
+///
+/// A type 1 or 2 record whose fields no location here can hold is read as free: a repair, which
+/// [`unrepresentable_records`] finds for the caller to log.
 fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<Entry> {
     let mut fields = [1u64, 0, 0];
     for (slot, field) in fields.iter_mut().zip(&layout.fields) {
@@ -1961,13 +2050,13 @@ fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<E
         // field read as zero on witnesses rather than on a sentence.
         1 | 2 if !stated(1) => return None,
         // Type 1: an object at a byte offset.
-        1 => usize::try_from(fields[1]).map_or(Entry::Unrepresentable, |position| {
+        1 => usize::try_from(fields[1]).map_or(Entry::Deleted, |position| {
             Entry::At(Location::Offset(position.saturating_add(base)))
         }),
         // Type 2: an object inside an object stream.
         2 => match (u32::try_from(fields[1]), u32::try_from(fields[2])) {
             (Ok(stream), Ok(index)) => Entry::At(Location::InStream { stream, index }),
-            _ => Entry::Unrepresentable,
+            _ => Entry::Deleted,
         },
         // Type 0 is Table 18's free object, and of every other value §7.5.8.3 says "[a]ny other
         // value shall be interpreted as a reference to the null object, thus permitting new entry
@@ -1989,8 +2078,6 @@ enum Entry {
     /// The number names nothing: §7.5.4's `f`, Table 18's type 0, or a type this version of PDF
     /// has no meaning for.
     Deleted,
-    /// A type 1 or 2 record whose fields no location here can hold, read as free: a repair.
-    Unrepresentable,
 }
 
 impl Entry {
@@ -1998,7 +2085,7 @@ impl Entry {
     fn location(self) -> Option<Location> {
         match self {
             Self::At(location) => Some(location),
-            Self::Deleted | Self::Unrepresentable => None,
+            Self::Deleted => None,
         }
     }
 }

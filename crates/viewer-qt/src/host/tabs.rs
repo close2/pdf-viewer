@@ -213,6 +213,7 @@ impl Host {
             viewer_host::Close::Last => {
                 // The window goes with its last document, and its sounds with it (ADR 3329).
                 self.state.sounds.end();
+                self.state.pictures.end();
                 self.closing = true;
             }
             viewer_host::Close::Unknown => {}
@@ -222,6 +223,8 @@ impl Host {
                     .depart(self.state.showing.departures);
                 // Its sound ends with it; a sound of another document sounds on (ADR 3329).
                 self.state.sounds.closed(closing);
+                self.state.pictures.closed(closing);
+                self.show_the_pictures();
                 self.playing = None;
                 self.bring_the_presentation_forward(false);
                 let label = viewer_host::documents::label(&state.path);

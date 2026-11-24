@@ -31,6 +31,13 @@ impl Host {
         for view in views {
             ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
         }
+        // A clip's picture last, so that it is painted over the pages (ADR 3562).
+        if self.playing.is_none()
+            && let Some(shown) = self.shown_picture()
+        {
+            let view = describe(&shown.raster, shown.origin, shown.extent);
+            ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
+        }
     }
 
     /// The pages this window paints and the rectangle each fills: the viewer's frames, with a page

@@ -47,6 +47,7 @@ mod input;
 mod notes;
 mod opening;
 mod panels;
+mod pictures;
 mod presentation;
 mod printing;
 mod questions;
@@ -401,8 +402,9 @@ impl Host {
             settings,
             reader,
             Refusals::Terminal,
-            // This window plays a sound itself where its helper is there (ADR 3417).
-            viewer_host::sound::Hearing::of_a_playing_window(),
+            // This window plays a sound itself where its helper is there (ADR 3417), and shows
+            // a clip's pictures itself too (ADR 3562).
+            viewer_host::sound::Hearing::of_a_showing_window(),
         );
         Ok(Self {
             state: launch.state(path, trace),
@@ -592,6 +594,12 @@ impl NativeWindow for Host {
     /// the trait's own wake, which wakes nothing, stands.
     fn plays_sounds(&self) -> bool {
         true
+    }
+
+    /// No wake here either, for the same reason: the timer `Host::drawing_wait` arms looks at the
+    /// clip's next time, and at the decoding thread's queue while it has queued nothing (ADR 3562).
+    fn look_at_the_pictures(&mut self) {
+        self.show_the_pictures();
     }
 
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {

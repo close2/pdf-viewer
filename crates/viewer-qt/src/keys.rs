@@ -44,7 +44,7 @@ const TAB: u32 = 0x0100_0001;
 /// `Qt::Key_Backtab`, which is what Qt reports for Shift and Tab together.
 const BACKTAB: u32 = 0x0100_0002;
 /// `Qt::Key_Space`.
-const SPACE: u32 = 0x20;
+pub(crate) const SPACE: u32 = 0x20;
 /// `Qt::Key_Return`, the main keyboard's.
 const RETURN: u32 = 0x0100_0004;
 /// `Qt::Key_Enter`, which Qt reports for the keypad's.

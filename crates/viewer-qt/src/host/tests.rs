@@ -6,6 +6,7 @@ mod ef_host_route;
 mod file_select_reads;
 mod played_here;
 mod print_defaults_spec_audit;
+mod shown_here;
 mod trusted_lists_shift_t;
 
 use super::forms::describe_kind;

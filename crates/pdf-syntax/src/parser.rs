@@ -278,17 +278,23 @@ impl<'a> Parser<'a> {
     /// not to form a reference — `[1 2 3]` would otherwise lose elements.
     fn integer_or_reference(&mut self, first: i64) -> Object {
         let rewind = self.lexer.position();
-        let mut probe = self.lexer.clone();
+        // Looked ahead on the lexer itself and taken back unless it is a reference
+        // ([`crate::lexer::Lexer::mark`], ADR 3561).
+        let mark = self.lexer.mark();
+        let mut out_of_range = false;
 
-        if let (Some(Token::Integer(generation)), Some(Token::Keyword(word))) =
-            (probe.next_token(), probe.next_token())
+        if let Some(Token::Integer(generation)) = self.lexer.next_token()
+            && let Some(Token::Keyword(word)) = self.lexer.next_token()
             && word == b"R"
         {
             if let (Ok(number), Ok(generation)) = (u32::try_from(first), u16::try_from(generation))
             {
-                self.lexer = probe;
                 return Object::Reference(ObjectId::new(number, generation));
             }
+            out_of_range = true;
+        }
+        self.lexer.restore(mark);
+        if out_of_range {
             self.lexer.note(&repair::REFERENCE_OUT_OF_RANGE, rewind);
         }
         // Falling through covers both "not a reference" and a reference whose number or
@@ -471,11 +477,11 @@ impl<'a> Parser<'a> {
 
         // `stream` may follow a dictionary, making it a stream object.
         let rewind = self.lexer.position();
-        let mut probe = self.lexer.clone();
-        if probe.next_token() == Some(Token::Keyword(b"stream")) {
-            self.lexer = probe;
+        let mark = self.lexer.mark();
+        if self.lexer.next_token() == Some(Token::Keyword(b"stream")) {
             return self.parse_stream_data(dict);
         }
+        self.lexer.restore(mark);
         self.lexer.seek(rewind);
 
         Ok(Object::Dictionary(dict))

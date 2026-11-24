@@ -6426,6 +6426,7 @@ dependencies = [
  "cxx",
  "cxx-qt-build",
  "gate-ratchet",
+ "pdf-media-worker",
  "pdf-model",
  "pdf-render",
  "pdf-signature",
