@@ -2,9 +2,10 @@
 //! H.264 Annex E's equations, written out in their own form rather than through
 //! `pdf_render::video::Conversion::affine` (ADR 3529).
 //!
-//! ITU-T H.264 is not held in `doc/`; the equations are cited from Annex E (the range equations
-//! under `video_full_range_flag`, Table E-5's `K_R`/`K_B` matrix and Figure E-1's chroma places),
-//! not quoted.
+//! The equations are cited from Annex E of Rec. ITU-T H.264 (V16) (06/2026), held as
+//! `doc/ITU-T-H.264-202606.pdf` (E.2.1's Equations E-17 to E-19 and E-23 to E-25 for the range,
+//! Table E-5's `K_R`/`K_B` with E-35 to E-37 for the matrix, Figure E-1 for the chroma places), not
+//! quoted.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -187,13 +188,16 @@ fn the_choice_and_the_refusals_are_said() {
         (2, 576, 0.299),
         (2, 720, 0.2126),
         (3, 480, 0.299),
+        (18, 1080, 0.2126),
         (200, 1080, 0.2126),
     ] {
         let conversion = Conversion::for_signal(signal(code, false, 0), height).unwrap();
         assert!(!conversion.matrix_stated);
         assert!((conversion.kr - kr).abs() < 1e-12, "{code} at {height}");
     }
-    for code in [0, 8, 10, 11, 12, 13, 14] {
+    // Table E-5 of the held V16 edition defines 15 (IPT-C2), 16 (YCgCo-Re) and 17 (YCgCo-Ro); the
+    // first reserved code is 18.
+    for code in [0, 8, 10, 11, 12, 13, 14, 15, 16, 17] {
         assert!(matches!(
             Conversion::for_signal(signal(code, false, 0), 1080),
             Err(ConversionRefused::Matrix { code: refused, .. }) if refused == code

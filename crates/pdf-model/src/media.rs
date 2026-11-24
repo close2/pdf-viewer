@@ -87,6 +87,10 @@ pub enum Players {
     /// sound alone — the confined media worker decoding it and the host's window sounding it, told
     /// every play parameter.
     AlsoHere,
+    /// [`Self::AlsoHere`], and this program's own player for an embedded MP4 clip whose type is
+    /// `video/` as well — its H.264 pictures decoded in the same worker and shown in the window,
+    /// its sound through the same sink (RFC 0015 section 6; ADR 3538).
+    AlsoVideoHere,
 }
 
 /// Table 286's `/TF`: when a temporary file may be written to play the clip.
@@ -595,13 +599,21 @@ impl Walk<'_> {
     /// Whether this program's own player takes `clip`: the host plays here, and the clip is
     /// §13.2.4.2's media clip data, or a chain of §13.2.4.3's sections ending in it (ADR 3398),
     /// holding an embedded file whose Table 285 `/CT` names a RIFF WAVE file or an MP4 file of
-    /// sound alone (ADR 3384) — "If D references a file specification that has an embedded file
+    /// sound alone (ADR 3384), or, for a host that also shows video, an MP4 file of `video/` type
+    /// (ADR 3538) — "If D references a file specification that has an embedded file
     /// stream … the media clip data dictionary's CT entry shall identify the type of data".
     fn played_here(&self, clip: &Dictionary) -> bool {
         let document = self.document;
-        self.processor.players == Players::AlsoHere
+        let plays = |kind: &str| match self.processor.players {
+            Players::HandOff => false,
+            Players::AlsoHere => container::is_played_here(kind),
+            Players::AlsoVideoHere => {
+                container::is_played_here(kind) || container::is_mp4_video(kind)
+            }
+        };
+        self.processor.players != Players::HandOff
             && self.terminal(clip, 0).is_some_and(|data| {
-                content_type(document, &data).is_some_and(|kind| container::is_played_here(&kind))
+                content_type(document, &data).is_some_and(|kind| plays(&kind))
                     && matches!(self.data(&data, &mut Vec::new()), Some(Data::Embedded(_)))
             })
     }

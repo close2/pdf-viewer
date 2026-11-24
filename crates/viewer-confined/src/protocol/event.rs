@@ -892,6 +892,14 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
             write_rendition(writer, sound.rendition);
             return;
         }
+        // A clip with pictures, judged for a host that shows video (ADR 3538).
+        viewer_core::Recording::Mp4Video(file) => {
+            writer.u8(4).bytes(file);
+            write_playing(writer, &sound.playing);
+            write_screen(writer, sound.screen.as_ref());
+            write_rendition(writer, sound.rendition);
+            return;
+        }
     };
     // [`ENCODINGS`]' order, matched exhaustively so that an encoding added to Table 305's reader
     // cannot cross this wire unnumbered.
@@ -1110,6 +1118,16 @@ fn read_sound(
         3 => {
             return Ok(Some(Box::new(viewer_core::SoundData {
                 recording: viewer_core::Recording::Mp4(reader.owned_bytes("a sound's MP4 file")?),
+                playing: read_playing(reader)?,
+                screen: read_screen(reader)?,
+                rendition: read_rendition(reader)?,
+            })));
+        }
+        4 => {
+            return Ok(Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Mp4Video(
+                    reader.owned_bytes("a video clip's MP4 file")?,
+                ),
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
                 rendition: read_rendition(reader)?,

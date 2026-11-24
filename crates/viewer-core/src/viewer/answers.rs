@@ -194,6 +194,9 @@ impl Viewer {
                     object,
                     quad,
                 }),
+            Query::Screen(object) => self
+                .screen_quad(open, object)
+                .map_or(Answer::None, Answer::Screen),
             Query::Highlight => Answer::Highlighted(self.highlight_quads(open)),
             Query::Popups => Answer::Popups(self.popup_windows(open)),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),

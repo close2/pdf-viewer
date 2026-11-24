@@ -43,6 +43,87 @@ pub use scene::FunctionPaints;
 pub use uncaptured::{Uncaptured, UncapturedErrors};
 pub use video::VideoCost;
 
+/// A clip's pictures converted on the graphics device into one texture kept there, which a window
+/// draws as a layer of its own and never reads back (RFC 0015 section 6, rounds 5 and 6; ADR 3538).
+///
+/// The formula is [`QuorraRasterizer::convert_picture`]'s, the same pass, so the oracle
+/// comparison of ADR 3529 holds of what the window shows. The pass is compiled at the first
+/// picture and never at bring-up. The sink holds handles to the device it was taken from, so it is
+/// dropped no later than the window or rasterizer that made it, which holds the device's lock.
+#[derive(Debug)]
+pub struct VideoSink {
+    gpu: raster_gpu::wgpu::Device,
+    queue: raster_gpu::wgpu::Queue,
+    pass: Option<video::VideoPass>,
+}
+
+impl VideoSink {
+    fn new(gpu: raster_gpu::wgpu::Device, queue: raster_gpu::wgpu::Queue) -> Self {
+        Self {
+            gpu,
+            queue,
+            pass: None,
+        }
+    }
+
+    /// Converts `planes` by `conversion` into the kept texture and answers it with what recording
+    /// and submitting the work cost. Nothing waits for the device.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::Video`] for planes that are not the size's, and
+    /// [`QuorraRasterError::VideoDevice`] for what the device refused.
+    pub fn convert(
+        &mut self,
+        planes: &pdf_render::video::Planes<'_>,
+        conversion: &pdf_render::video::Conversion,
+    ) -> Result<(&raster_gpu::wgpu::Texture, std::time::Duration), QuorraRasterError> {
+        if !planes.are_consistent() {
+            return Err(pdf_render::video::ConversionRefused::Planes {
+                width: planes.width,
+                height: planes.height,
+            }
+            .into());
+        }
+        let pass = match &mut self.pass {
+            Some(pass) => pass,
+            empty => empty.insert(
+                video::VideoPass::compile(&self.gpu).map_err(QuorraRasterError::VideoDevice)?,
+            ),
+        };
+        pass.convert_on_device(&self.gpu, &self.queue, planes, conversion)
+            .map_err(QuorraRasterError::VideoDevice)
+    }
+
+    /// The kept texture read back as an RGBA8 raster: what the oracle comparison reads of the
+    /// picture a window draws (ADR 3538). A window never calls it; reading back is the 31.6 ms the
+    /// sink exists to avoid.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::VideoDevice`] where nothing was converted, or the device refused.
+    pub fn read_back(&self) -> Result<Raster, QuorraRasterError> {
+        let pass = self.pass.as_ref().ok_or_else(|| {
+            QuorraRasterError::VideoDevice("no picture has been converted".to_owned())
+        })?;
+        let (data, width, height) = pass
+            .read_kept(&self.gpu, &self.queue)
+            .map_err(QuorraRasterError::VideoDevice)?;
+        Ok(Raster {
+            width,
+            height,
+            format: RasterFormat::Rgba8,
+            data,
+        })
+    }
+
+    /// The texture the last picture was converted into, where one was.
+    #[must_use]
+    pub fn texture(&self) -> Option<&raster_gpu::wgpu::Texture> {
+        self.pass.as_ref().and_then(video::VideoPass::kept)
+    }
+}
+
 /// Why a frame could not be produced. Every variant names what refused (the same
 /// contract as the other backends: unsupported input is an error, never a skipped
 /// command — a silently omitted draw hands the comparison harness a
@@ -282,6 +363,15 @@ impl QuorraRasterizer {
             format: RasterFormat::Rgba8,
             data,
         })
+    }
+
+    /// A sink that converts pictures into a texture kept on this rasterizer's device, for a test
+    /// that compares it with [`Self::convert_picture`] (ADR 3538). It holds the device's handles:
+    /// drop it before the rasterizer.
+    #[must_use]
+    pub fn video_sink(&self) -> VideoSink {
+        let (gpu, queue) = self.device.wgpu();
+        VideoSink::new(gpu.clone(), queue.clone())
     }
 
     /// What the last [`QuorraRasterizer::convert_picture`] cost, on the device and in reading back.

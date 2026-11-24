@@ -42,6 +42,10 @@ pub struct Window {
     /// One opaque texel of the window's background: the first of [`crate::renderer`]'s four
     /// kinds of layer.
     medium: wgpu::Texture,
+    /// A playing clip's pictures, converted on this device and drawn as a layer over the page
+    /// (RFC 0015 section 6; ADR 3538). The sink is taken at the split, with the medium, and
+    /// compiles nothing until the first picture.
+    video: VideoLayer,
     /// The renderer, until the first job moves it to a thread of its own.
     ///
     /// **`CLAUDE.md`'s startup rule as a field.** A thread spawned in `resumed` would put a
@@ -226,6 +230,33 @@ impl std::fmt::Debug for Window {
     }
 }
 
+/// A clip's picture on the device and where it is drawn.
+struct VideoLayer {
+    sink: render_raster::VideoSink,
+    /// Whether the sink's texture holds a picture of the clip now showing.
+    shown: bool,
+    /// The screen annotation's quadrilateral in window pixels, `[x0, y0, … x3, y3]` from its
+    /// top-left corner clockwise, `None` where it is not on the window.
+    quad: Option<[f32; 8]>,
+}
+
+impl VideoLayer {
+    /// The texture's unit square onto the quadrilateral: its top-left texel at the first corner,
+    /// its rows along the first edge and its columns down the last, so a rotated or mirrored view
+    /// of the page carries the picture with it.
+    fn placement(quad: [f32; 8]) -> Transform {
+        let [x0, y0, x1, y1, _, _, x3, y3] = quad;
+        Transform {
+            a: x1 - x0,
+            b: y1 - y0,
+            c: x3 - x0,
+            d: y3 - y0,
+            e: x0,
+            f: y0,
+        }
+    }
+}
+
 /// raster's affine from this tree's transform — §8.3.3's six coefficients, in the same order.
 fn affine(transform: Transform) -> raster_scene::Affine {
     raster_scene::Affine {
@@ -268,6 +299,11 @@ impl Window {
         let description = renderer.adapter_description().to_owned();
         let startup = renderer.startup();
         let medium = renderer.medium_texture();
+        let video = VideoLayer {
+            sink: renderer.video_sink(),
+            shown: false,
+            quad: None,
+        };
         let uncaptured = renderer.uncaptured();
         let Some(mut presenter) = renderer.detach_presenter() else {
             return Err(Box::new(renderer));
@@ -279,6 +315,7 @@ impl Window {
         Ok(Ungrounded(Self {
             presenter,
             medium,
+            video,
             idle: Some(renderer),
             thread: None,
             shown: None,
@@ -814,6 +851,43 @@ impl Window {
         self.proxies.len()
     }
 
+    /// Converts a clip's picture on this device into the texture the next present draws over
+    /// `quad` — the screen annotation in window pixels, `None` where it is off the window — and
+    /// answers what recording and submitting the conversion cost. Nothing is read back: the
+    /// texture is a layer of the presenter's (ADR 3538).
+    ///
+    /// # Errors
+    ///
+    /// What the conversion refused, which ends the clip's pictures.
+    pub fn show_video(
+        &mut self,
+        planes: &pdf_render::video::Planes<'_>,
+        conversion: &pdf_render::video::Conversion,
+        quad: Option<[f32; 8]>,
+    ) -> Result<Duration, render_raster::QuorraRasterError> {
+        let (_, cost) = self.video.sink.convert(planes, conversion)?;
+        self.video.shown = true;
+        self.video.quad = quad;
+        Ok(cost)
+    }
+
+    /// Moves the picture with its screen annotation, as the view moves.
+    pub fn place_video(&mut self, quad: Option<[f32; 8]>) {
+        self.video.quad = quad;
+    }
+
+    /// Takes the clip's picture off the window: it ended, was stopped or refused.
+    pub fn clear_video(&mut self) {
+        self.video.shown = false;
+        self.video.quad = None;
+    }
+
+    /// Whether a clip's picture is drawn over the page.
+    #[must_use]
+    pub fn shows_video(&self) -> bool {
+        self.video.shown
+    }
+
     /// Puts the frame on hand on the window, its pages under the placements `base` names.
     ///
     /// Each [`crate::stale::Part`] maps the page texture's own texels to the window's pixels — one
@@ -908,6 +982,17 @@ impl Window {
                     within: texels(1),
                 }),
             }
+        }
+        // A playing clip's picture over its screen annotation, under the chrome (ADR 3538).
+        if let (true, Some(quad), Some(texture)) =
+            (self.video.shown, self.video.quad, self.video.sink.texture())
+        {
+            layers.push(raster_gpu::Layer {
+                texture,
+                placement: affine(VideoLayer::placement(quad)),
+                filter: raster_scene::ImageFilter::Linear,
+                within: None,
+            });
         }
         layers.push(raster_gpu::Layer {
             texture: &shown.textures.chrome,

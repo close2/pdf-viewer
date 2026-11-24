@@ -64,11 +64,28 @@ impl Viewer {
         // Which page of the arrangement the focused annotation is on: the current one under
         // `SinglePage`, and under a column whichever placed page carries it — a ring drawn
         // against the wrong page's origin would be a ring in the wrong place.
-        let on = open
-            .on_screen
+        let on = Self::placed_page_of(open, object).unwrap_or(open.page_index);
+        Some((object, self.rect_quad(open, on, object)?))
+    }
+
+    /// The placed page that carries `object` among its `/Annots`, where one does.
+    fn placed_page_of(open: &Open, object: ObjectId) -> Option<usize> {
+        open.on_screen
             .iter()
             .find(|on_screen| annotations_of(open, &on_screen.object).contains(&object))
-            .map_or(open.page_index, |on_screen| on_screen.page);
+            .map(|on_screen| on_screen.page)
+    }
+
+    /// Where the screen annotation `object` is on the window — Table 294's rectangle a rendition
+    /// plays in (§12.5.6.18, §13.2.6.1) — or `None` where no placed page carries it, so that a
+    /// clip's pictures are drawn only over the page they play on (ADR 3538).
+    pub(super) fn screen_quad(&self, open: &Open, object: ObjectId) -> Option<[f32; 8]> {
+        let on = Self::placed_page_of(open, object)?;
+        self.rect_quad(open, on, object)
+    }
+
+    /// `object`'s `/Rect`, normalised, on page `on` of the arrangement, in device pixels.
+    fn rect_quad(&self, open: &Open, on: usize, object: ObjectId) -> Option<[f32; 8]> {
         let resolved = open.document.get(object);
         let dict = resolved.as_dict()?;
         let rect = open.document.get_key(dict, "Rect");
@@ -87,7 +104,7 @@ impl Viewer {
         }
         let (x0, x1) = (values[0].min(values[2]), values[0].max(values[2]));
         let (y0, y1) = (values[1].min(values[3]), values[1].max(values[3]));
-        Some((object, self.device_quad(open, on, [x0, y0, x1, y1])?))
+        self.device_quad(open, on, [x0, y0, x1, y1])
     }
 
     /// ISO 32000-2 Annex O's highlighted rectangles that are on the page being shown.

@@ -164,6 +164,8 @@ pub(super) mod command_kind {
     // A sound the host plays has started in a screen annotation's rectangle or ended, which only
     // the host's player knows and the confined worker paints (ADR 3407).
     pub(in crate::protocol) const PLAYING_IN: u8 = 55;
+    // The host shows video itself too (ADR 3538).
+    pub(in crate::protocol) const SHOWS_VIDEO_HERE: u8 = 56;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -480,6 +482,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::PlaysHere(plays) => {
             writer.u8(k::PLAYS_HERE).bool(*plays);
+        }
+        Command::ShowsVideoHere(shows) => {
+            writer.u8(k::SHOWS_VIDEO_HERE).bool(*shows);
         }
         Command::PlayingIn { document, screen } => {
             writer.u8(k::PLAYING_IN).document(*document);
@@ -946,6 +951,9 @@ pub(crate) fn decode_command_holding(
         ),
         k::PLAYS_HERE => {
             Command::PlaysHere(reader.bool("whether the host plays a WAVE clip itself")?)
+        }
+        k::SHOWS_VIDEO_HERE => {
+            Command::ShowsVideoHere(reader.bool("whether the host shows a video clip itself")?)
         }
         k::PLAYING_IN => Command::PlayingIn {
             document: reader.document("the document a sound plays in")?,

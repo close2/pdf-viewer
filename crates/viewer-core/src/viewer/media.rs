@@ -145,8 +145,15 @@ fn media_of(
                     .content_type
                     .as_deref()
                     .is_some_and(pdf_model::media::container::is_wave);
+                let video = clip
+                    .content_type
+                    .as_deref()
+                    .is_some_and(pdf_model::media::container::is_mp4_video);
                 let recording = if wave {
                     crate::Recording::Wave(bytes.to_vec())
+                } else if video {
+                    // Judged here only for a host that shows video (ADR 3538).
+                    crate::Recording::Mp4Video(bytes.to_vec())
                 } else {
                     crate::Recording::Mp4(bytes.to_vec())
                 };

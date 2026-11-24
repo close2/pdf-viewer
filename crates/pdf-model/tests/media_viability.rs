@@ -1114,6 +1114,41 @@ fn table_291_must_honour_is_judged_for_the_player_the_clip_reaches() {
     assert!(!report.chosen().expect("viable").1.played_here);
 }
 
+/// A clip whose `/CT` is MP4's `video/` type is this program's player's only where the host shows
+/// video too (`Players::AlsoVideoHere`, ADR 3538): a host that plays sound alone judges it for the
+/// hand-off, as before, and an `audio/` MP4 clip is played here by both.
+#[test]
+fn an_mp4_video_clip_is_played_here_only_by_a_host_that_shows_video() {
+    let video = format!("<< /S /MCD /CT (video/mp4) /D {EMBEDDED} >>");
+    let body = format!("<< /S /MR /P << /MH << /V 50 >> >> /C {video} >>");
+    let sound_only = Processor {
+        language: None,
+        players: Players::AlsoHere,
+    };
+    let shows_video = Processor {
+        language: None,
+        players: Players::AlsoVideoHere,
+    };
+    assert!(
+        judged(&body, sound_only).chosen().is_none(),
+        "Table 291 is the hand-off's to ignore, so MH makes it non-viable there"
+    );
+    let report = judged(&body, shows_video);
+    let (_, chosen) = report.chosen().expect("viable for this program's player");
+    assert!(chosen.played_here);
+    assert!((chosen.playing.level - 0.5).abs() < f64::EPSILON);
+    let sound = format!("<< /S /MR /C << /S /MCD /CT (audio/mp4) /D {EMBEDDED} >> >>");
+    for players in [sound_only, shows_video] {
+        assert!(
+            judged(&sound, players)
+                .chosen()
+                .expect("viable")
+                .1
+                .played_here
+        );
+    }
+}
+
 /// §13.2.3.3's search falls to the next rendition when the first is non-viable for the player
 /// that would play it: a selector of a WAVE clip whose `MH` asks for a controller, then one whose
 /// `MH` asks only for a volume, chooses the second here and neither for the hand-off.

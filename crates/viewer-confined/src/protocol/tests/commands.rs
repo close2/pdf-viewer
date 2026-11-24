@@ -463,6 +463,8 @@ fn every_carried_command_round_trips() {
         Command::NullFontSubstitute(false),
         Command::PlaysHere(true),
         Command::PlaysHere(false),
+        Command::ShowsVideoHere(true),
+        Command::ShowsVideoHere(false),
         // Table 294's `/W` 3 background, and its end (ADR 3407).
         Command::PlayingIn {
             document: DocumentId(4),

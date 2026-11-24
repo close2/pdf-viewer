@@ -211,6 +211,19 @@ pub fn is_mp4_sound(content_type: &str) -> bool {
             .is_some_and(|kind| kind.eq_ignore_ascii_case("audio/"))
 }
 
+/// Whether `content_type` names an ISO base media file whose type is `video/` — the MP4 and 3GPP
+/// families' picture types — which a host that shows video plays itself, its H.264 track decoded
+/// in the confined media worker (ADR 3538). A file so named whose video is not H.264, or is
+/// interlaced, is refused or handed on by the player, by name.
+#[must_use]
+pub fn is_mp4_video(content_type: &str) -> bool {
+    family(content_type) == Some(Family::BaseMedia)
+        && content_type
+            .trim_start()
+            .get(..6)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("video/"))
+}
+
 /// Whether this program plays a clip of `content_type` itself: a RIFF WAVE file or an MP4 file of
 /// sound alone (ADRs 3350, 3384).
 #[must_use]

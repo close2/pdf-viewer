@@ -446,6 +446,16 @@ pub enum Command {
     /// Applies to every open document and to every one opened afterwards, until it is sent
     /// again, which is [`Self::Separations`]' rule for its reason.
     PlaysHere(bool),
+    /// Whether this host also shows video itself (RFC 0015 section 6; ADR 3538): with `true`
+    /// beside [`Self::PlaysHere`]'s `true`, a media rendition whose clip is an embedded MP4 file of
+    /// `video/` type is judged for this program's player too, and the clip it chooses carries the
+    /// file in [`crate::Event::Media`]'s `sound` as [`crate::Recording::Mp4Video`] and is never
+    /// handed on by the core. A host that never sends this — the C ABI's, Qt's, until their sinks
+    /// are built — hands every video clip on, as before.
+    ///
+    /// Applies to every open document and to every one opened afterwards, on
+    /// [`Self::PlaysHere`]'s rule.
+    ShowsVideoHere(bool),
     /// A sound this host plays has started in a screen annotation's rectangle, or the one that
     /// played there has ended: the window's player knows both, and nothing else does.
     ///

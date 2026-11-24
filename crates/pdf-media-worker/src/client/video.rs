@@ -59,6 +59,26 @@ impl MediaWorker {
         file: &[u8],
         deliver: &mut dyn FnMut(Picture) -> ControlFlow<()>,
     ) -> Result<VideoStreamed, MediaError> {
+        self.decode_mp4_video_timed(file, &mut |picture, _| deliver(picture))
+    }
+
+    /// [`Self::decode_mp4_video`], each picture handed on with its presentation time on the
+    /// track's own clock: the `k`-th picture in output order at the `k`-th sample's decoding time,
+    /// the sum of the durations of the samples before it (ISO/IEC 14496-12, 8.6.1.2).
+    ///
+    /// That is the presentation time exactly where a track states no composition offsets
+    /// (`ctts`, 8.6.1.3), whose pictures are presented at their decoding times, and where the
+    /// offsets only reorder pictures of one duration; this reader reads no `ctts` and no video
+    /// edit list (8.6.6), and a window timing frames by it says so (ADR 3538).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::decode_mp4_video`].
+    pub fn decode_mp4_video_timed(
+        &mut self,
+        file: &[u8],
+        deliver: &mut dyn FnMut(Picture, Duration) -> ControlFlow<()>,
+    ) -> Result<VideoStreamed, MediaError> {
         let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
         let movie = self.movie(file, total)?;
         self.ring()?;
@@ -83,6 +103,19 @@ impl MediaWorker {
             pictures: 0,
             stopped: false,
         };
+        let starts = decoding_times(&track);
+        let mut output = 0usize;
+        let mut timed = |picture: Picture| {
+            // A picture past the last sample's start is one a reordering decoder let out at the
+            // end; it is held at the last start rather than invented a time.
+            let at = starts
+                .get(output)
+                .or_else(|| starts.last())
+                .copied()
+                .unwrap_or_default();
+            output = output.saturating_add(1);
+            deliver(picture, at)
+        };
         let runs = runs(&track);
         let count = runs.len();
         for (index, run) in runs.into_iter().enumerate() {
@@ -100,7 +133,7 @@ impl MediaWorker {
                 .map(|&(_, _, duration)| u64::from(duration))
                 .sum();
             let last = index.saturating_add(1) == count;
-            if self.run(&track, &units, last, media, deliver, &mut streamed)?
+            if self.run(&track, &units, last, media, &mut timed, &mut streamed)?
                 == ControlFlow::Break(())
             {
                 streamed.stopped = true;
@@ -229,6 +262,25 @@ enum Failed {
     Distrusted(String),
     /// The worker said why it stopped, and stays.
     Said(MediaError),
+}
+
+/// Each sample's decoding time in decoding order, on the track's clock: the sum of the durations
+/// before it (ISO/IEC 14496-12, 8.6.1.2's `stts`, which the worker's checked answer carries).
+fn decoding_times(track: &VideoTrack) -> Vec<Duration> {
+    let scale = u128::from(track.time_scale.max(1));
+    let mut ticks = 0u128;
+    track
+        .units
+        .iter()
+        .map(|&(_, _, duration)| {
+            let nanos = ticks
+                .saturating_mul(1_000_000_000)
+                .checked_div(scale)
+                .unwrap_or(0);
+            ticks = ticks.saturating_add(u128::from(duration));
+            Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+        })
+        .collect()
 }
 
 /// The track's access units in runs: at most [`MAX_UNITS_PER_RUN`] units and

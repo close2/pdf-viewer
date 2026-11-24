@@ -598,7 +598,9 @@ impl Thread {
             }
             // An MP4 clip's AAC: the worker walks the file's boxes and decodes its stream, and this
             // side cuts the file where it is told (ADR 3381).
-            Recording::Mp4(file) => {
+            // A clip with pictures sounds its AAC here too; the pictures are `crate::video`'s
+            // (ADR 3538).
+            Recording::Mp4(file) | Recording::Mp4Video(file) => {
                 media.decode_mp4_streamed(file, MAX_PLAYED_SAMPLES, &mut deliver)
             }
         };
@@ -749,6 +751,7 @@ impl Thread {
             Recording::Samples { .. } => "§13.3",
             Recording::Wave(_) => "§13.2.4.2, a RIFF WAVE clip",
             Recording::Mp4(_) => "§13.2.4.2, an MP4 clip's AAC",
+            Recording::Mp4Video(_) => "§13.2.4.2, the AAC beside an MP4 clip's pictures",
         };
         let mut said = format!(
             "{} is playing: {} Hz, {} channel(s), converted for the device's {} Hz, {} channel(s) \

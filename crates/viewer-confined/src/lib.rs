@@ -614,6 +614,8 @@ pub enum Reply {
     Dirty(bool),
     /// [`viewer_core::Answer::TimerDue`]'s milliseconds, or `None` where no timer is held.
     TimerDue(Option<u32>),
+    /// The quadrilateral of the screen annotation a clip plays in (ADR 3538).
+    Screen([f32; 8]),
     /// The focused annotation and the quadrilateral covering it.
     Focus {
         /// The annotation itself.

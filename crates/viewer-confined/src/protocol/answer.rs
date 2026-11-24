@@ -77,6 +77,7 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const PRINT_SIZE: u8 = 40;
     // `query_kind::TRUSTED_LIST_REFERENCES`'s answer: the locations, as strings (ADR 2936).
     pub(in crate::protocol) const TRUSTED_LIST_REFERENCES: u8 = 41;
+    pub(in crate::protocol) const SCREEN: u8 = 42;
 }
 
 /// Encodes one answer.
@@ -194,6 +195,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                 .u8(k::TIMER_DUE)
                 .bool(due.is_some())
                 .u32(due.unwrap_or(0));
+        }
+        Answer::Screen(quad) => {
+            writer.u8(k::SCREEN).quad(*quad);
         }
         Answer::Focus { object, quad } => {
             writer.u8(k::FOCUS).object(*object).quad(*quad);
@@ -547,6 +551,7 @@ pub(crate) fn decode_answer_reusing(
             let due = reader.u32("a timer's milliseconds")?;
             Reply::TimerDue(held.then_some(due))
         }
+        k::SCREEN => Reply::Screen(reader.quad("a screen annotation's rectangle")?),
         k::FOCUS => Reply::Focus {
             object: reader.object("an annotation")?,
             quad: reader.quad("a focus ring")?,

@@ -683,6 +683,10 @@ pub enum Recording {
     /// §13.2.4.2's embedded MP4 file of sound alone, a media rendition's clip: the whole file, whose
     /// boxes and AAC stream only the confined media worker reads (ADRs 3381, 3384).
     Mp4(Vec<u8>),
+    /// §13.2.4.2's embedded MP4 file of `video/` type, a media rendition's clip judged for a host
+    /// that shows video itself (`Command::ShowsVideoHere`): the whole file, whose boxes, H.264
+    /// pictures and AAC sound only the confined media worker reads (ADR 3538).
+    Mp4Video(Vec<u8>),
 }
 
 impl Recording {
@@ -691,7 +695,7 @@ impl Recording {
     pub fn len(&self) -> usize {
         match self {
             Self::Samples { data, .. } => data.len(),
-            Self::Wave(file) | Self::Mp4(file) => file.len(),
+            Self::Wave(file) | Self::Mp4(file) | Self::Mp4Video(file) => file.len(),
         }
     }
 

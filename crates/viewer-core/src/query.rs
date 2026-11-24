@@ -425,6 +425,12 @@ pub enum Query<'a> {
     /// [`Answer::None`] where nothing is focused, or where the focused annotation states no
     /// usable `/Rect`.
     Focus,
+    /// Where the screen annotation a clip plays in is on the window — ISO 32000-2 §13.2.6.1's
+    /// Table 294, "\[t]he rectangle occupied by the screen annotation" — so that a window draws the
+    /// clip's pictures over it (ADR 3538). [`Answer::Screen`] in device pixels of the viewport, or
+    /// [`Answer::None`] where no page now placed carries the annotation in the active document, or
+    /// it states no usable `/Rect`.
+    Screen(ObjectId),
     /// Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted.
     ///
     /// Table Annex O.4: "Open the document with the specified rectangle highlighted. … The nature
@@ -776,6 +782,8 @@ pub enum Answer<'a> {
     Dirty(bool),
     /// [`Query::TimerDue`]'s milliseconds, or `None` where no open document holds a timer.
     TimerDue(Option<u32>),
+    /// [`Query::Screen`]'s quadrilateral, `[x0, y0, … x3, y3]`, y downwards, in device pixels.
+    Screen([f32; 8]),
     /// The focused annotation and the quadrilateral covering it, in device pixels.
     Focus {
         /// The annotation itself, which is what §12.6.3's `/Fo` was raised against.

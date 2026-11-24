@@ -8,8 +8,8 @@
 //! only to be passed), 7.3.2.2's first two fields and 7.3.3's first three. Where the VUI or one of
 //! its parts is absent, Annex E's inferences stand: `video_full_range_flag` 0,
 //! `colour_primaries`, `transfer_characteristics` and `matrix_coefficients` 2 (unspecified),
-//! `chroma_sample_loc_type_top_field` 0 (E.2.1). ITU-T H.264 is not held in `doc/`; it is cited,
-//! not quoted.
+//! `chroma_sample_loc_type_top_field` 0 (E.2.1). The clauses are those of Rec. ITU-T H.264 (V16)
+//! (06/2026), held as `doc/ITU-T-H.264-202606.pdf` (ADR 3537); they are cited, not quoted.
 //!
 //! A set this reader cannot walk to its VUI is refused out loud rather than read as having none,
 //! because a picture drawn by the wrong matrix is plausible and wrong (trap 5).
@@ -167,7 +167,16 @@ fn sequence(rbsp: &[u8]) -> Result<(usize, Signal), VideoError> {
             bits.u(1).ok_or_else(cut)?;
             bits.se().ok_or_else(cut)?;
             bits.se().ok_or_else(cut)?;
-            for _ in 0..bits.ue().ok_or_else(cut)?.min(255) {
+            // 7.4.2.1.1 bounds the cycle at 255; a larger count is not a set whose later fields
+            // can be found, so it is refused rather than read short.
+            let cycle = bits.ue().ok_or_else(cut)?;
+            if cycle > 255 {
+                return Err(VideoError::Refused(format!(
+                    "a sequence parameter set whose num_ref_frames_in_pic_order_cnt_cycle is {cycle}, \
+                     past 7.4.2.1.1's 255"
+                )));
+            }
+            for _ in 0..cycle {
                 bits.se().ok_or_else(cut)?;
             }
         }
@@ -317,5 +326,42 @@ mod tests {
             [Some(0), Some(1), Some(2), Some(3), Some(4)]
         );
         assert_eq!(bits.se(), Some(3));
+    }
+
+    /// Packs a string of `0` and `1` into bytes, the last one padded with zeros.
+    fn packed(bits: &str) -> Vec<u8> {
+        bits.as_bytes()
+            .chunks(8)
+            .map(|chunk| {
+                chunk.iter().enumerate().fold(0u8, |byte, (at, bit)| {
+                    byte | u8::from(*bit == b'1')
+                        .checked_shl(u32::try_from(7usize.saturating_sub(at)).unwrap_or(0))
+                        .unwrap_or(0)
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_order_cycle_past_255_is_refused_not_read_short() {
+        // Baseline (66), no constraint flags, level 30, then 7.3.2.1.1's fields up to the cycle:
+        // seq_parameter_set_id ue 0, log2_max_frame_num_minus4 ue 0, pic_order_cnt_type ue 1,
+        // delta_pic_order_always_zero_flag 0, two se 0 offsets, and a cycle of ue 256.
+        let fields = "01000010".to_owned()
+            + "00000000"
+            + "00011110"
+            + "1"
+            + "1"
+            + "010"
+            + "0"
+            + "1"
+            + "1"
+            + "00000000"
+            + "100000001";
+        let refusal = sequence(&packed(&fields)).expect_err("7.4.2.1.1 bounds the cycle at 255");
+        assert!(
+            matches!(&refusal, VideoError::Refused(reason) if reason.contains("256")),
+            "{refusal:?}"
+        );
     }
 }

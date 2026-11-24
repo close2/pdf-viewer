@@ -52,4 +52,12 @@ internal static unsafe partial class Native
         uint* number,
         ushort* generation,
         float* quad);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_screen_quad(
+        nint viewer,
+        uint number,
+        ushort generation,
+        float* quad);
 }

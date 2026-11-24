@@ -94,6 +94,20 @@ impl<'a> Reads<'a> {
         }
     }
 
+    /// Where the screen annotation `object` is on the window, for a clip played in its rectangle
+    /// (ISO 32000-2 §13.2.6.1's Table 294; ADR 3538).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no page now placed carries it, or it states no usable `/Rect`.
+    pub fn screen_quad(&self, object: (u32, u16)) -> Result<[f32; 8], Status> {
+        let object = pdf_syntax::ObjectId::new(object.0, object.1);
+        match self.viewer.query(Query::Screen(object)) {
+            Answer::Screen(quad) => Ok(quad),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// §12.7's fields with a widget on the page being shown.
     ///
     /// # Errors

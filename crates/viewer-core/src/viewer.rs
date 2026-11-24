@@ -273,6 +273,8 @@ pub struct Viewer {
     /// Whether the host plays a RIFF WAVE clip itself, held for `separations`' reason and pushed
     /// into each document's [`pdf_model::view::ViewState`] by [`Command::PlaysHere`] (ADR 3350).
     plays_here: bool,
+    /// Whether the host shows video itself too, [`Command::ShowsVideoHere`] (ADR 3538).
+    shows_video_here: bool,
     /// The name the next document opened **beside** the one showing would be called by.
     ///
     /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
@@ -348,6 +350,7 @@ impl Viewer {
             guidelines: false,
             null_font_substitute: false,
             plays_here: false,
+            shows_video_here: false,
             beside: None,
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -604,8 +607,16 @@ impl Viewer {
             // drawn depends on it (ADR 3350).
             Command::PlaysHere(plays) => {
                 self.plays_here = plays;
+                let players = players_of(plays, self.shows_video_here);
                 for open in self.documents.values_mut() {
-                    open.view.set_players(players_of(plays));
+                    open.view.set_players(players);
+                }
+            }
+            Command::ShowsVideoHere(shows) => {
+                self.shows_video_here = shows;
+                let players = players_of(self.plays_here, shows);
+                for open in self.documents.values_mut() {
+                    open.view.set_players(players);
                 }
             }
             // Table 294's `/W` 3: the rectangle a sound plays in is painted while it plays, and the
@@ -770,12 +781,14 @@ enum Standing {
     Ask(Vec<String>),
 }
 
-/// [`Command::PlaysHere`]'s answer as the players §13.2.2's viability is judged for (ADR 3350).
-fn players_of(plays_here: bool) -> pdf_model::media::Players {
-    if plays_here {
-        pdf_model::media::Players::AlsoHere
-    } else {
-        pdf_model::media::Players::HandOff
+/// [`Command::PlaysHere`]'s and [`Command::ShowsVideoHere`]'s answers as the players §13.2.2's
+/// viability is judged for (ADRs 3350, 3538). Video is shown here only by a host that plays sound
+/// here too, because a clip's sound goes through the same player.
+fn players_of(plays_here: bool, shows_video_here: bool) -> pdf_model::media::Players {
+    match (plays_here, shows_video_here) {
+        (true, true) => pdf_model::media::Players::AlsoVideoHere,
+        (true, false) => pdf_model::media::Players::AlsoHere,
+        (false, _) => pdf_model::media::Players::HandOff,
     }
 }
 

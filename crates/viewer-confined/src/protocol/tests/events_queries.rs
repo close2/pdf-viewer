@@ -461,6 +461,7 @@ fn every_query_is_carried() {
         Query::Selection,
         Query::LogicalSelection,
         Query::Focus,
+        Query::Screen(ObjectId::new(7, 0)),
         Query::Highlight,
         Query::Frame,
         Query::Reports,
@@ -486,7 +487,7 @@ fn every_query_is_carried() {
         Query::View,
         Query::Text,
     ];
-    assert_eq!(carried.len(), 41, "every question `viewer-core` states");
+    assert_eq!(carried.len(), 42, "every question `viewer-core` states");
     for query in carried {
         let encoded = encode_query(query).unwrap();
         let read = decode_query(&encoded).unwrap();

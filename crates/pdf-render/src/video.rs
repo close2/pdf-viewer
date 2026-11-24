@@ -11,14 +11,15 @@
 //!
 //! The stream states its signal in the sequence parameter set's VUI, ITU-T H.264 Annex E (E.1.1,
 //! E.2.1): `video_full_range_flag`, `colour_primaries`, `transfer_characteristics`,
-//! `matrix_coefficients` and `chroma_sample_loc_type_top_field`. ITU-T H.264 is not held in `doc/`;
-//! everything below is cited from it and paraphrased, never quoted.
+//! `matrix_coefficients` and `chroma_sample_loc_type_top_field`. The clauses are those of Rec.
+//! ITU-T H.264 (V16) (06/2026), held as `doc/ITU-T-H.264-202606.pdf` (ADR 3537); everything below
+//! is cited from it and paraphrased, never quoted.
 //!
-//! - **Range** (Annex E, the equations under `video_full_range_flag`): with the flag 0, an 8-bit
+//! - **Range** (E.2.1, Equations E-17 to E-19 and E-23 to E-25): with the flag 0, an 8-bit
 //!   luma sample `Y` stands for `E'Y = (Y − 16) / 219` and a chroma sample `C` for
 //!   `E'P = (C − 128) / 224`; with the flag 1, `E'Y = Y / 255` and `E'P = (C − 128) / 255`. The
 //!   flag's absence means 0.
-//! - **Matrix** (Table E-5): for every code that names a pair `K_R`, `K_B`,
+//! - **Matrix** (Table E-5, Equations E-35 to E-37 solved for `R'G'B'`): for every code that names a pair `K_R`, `K_B`,
 //!   `E'R = E'Y + 2 (1 − K_R) E'PR`, `E'B = E'Y + 2 (1 − K_B) E'PB` and
 //!   `E'G = (E'Y − K_R E'R − K_B E'B) / (1 − K_R − K_B)`. Codes 1 (`K_R` 0.2126, `K_B` 0.0722),
 //!   4 (0.30, 0.11), 5 and 6 (0.299, 0.114), 7 (0.212, 0.087) and 9 (0.2627, 0.0593) are drawn.
@@ -28,7 +29,7 @@
 //!
 //! # What is a choice, and said to be one
 //!
-//! - **An unspecified matrix** — code 2, or a reserved code (3, 15 and above) — is a stream that
+//! - **An unspecified matrix** — code 2, or a reserved code (3, 18 and above) — is a stream that
 //!   states no matrix, and the standard then derives none. The choice made here is Rec. ITU-R BT.601's
 //!   pair (0.299, 0.114) for a picture at most 576 lines tall and Rec. ITU-R BT.709's (0.2126,
 //!   0.0722) for a taller one: the television standards those two picture sizes were produced under.
@@ -44,8 +45,9 @@
 //! # What is refused, by name
 //!
 //! Code 0 (identity), which Annex E allows only for 4:4:4 and the decoder never yields; and codes 8
-//! (`YCgCo`), 10 (BT.2020 constant luminance), 11 (`Y'D'zD'x`), 12 and 13 (chromaticity-derived)
-//! and 14 (`ICtCp`), whose formulas are not the `K_R`/`K_B` pair. A siting code above 5 names no position.
+//! (`YCgCo`), 10 (BT.2020 constant luminance), 11 (`Y'D'zD'x`), 12 and 13 (chromaticity-derived),
+//! 14 (`ICtCp`), 15 (`IPT-C2`), 16 (`YCgCo-Re`) and 17 (`YCgCo-Ro`), whose formulas are not the
+//! `K_R`/`K_B` pair. A siting code above 5 names no position.
 
 /// What a stream says of its own signal: the VUI's codes, with Annex E's meaning of an absent one
 /// already applied by the reader of the stream (`video_full_range_flag` 0, `colour_primaries`,
@@ -181,6 +183,11 @@ impl Conversion {
             12 => return Err(refused("chromaticity-derived non-constant luminance")),
             13 => return Err(refused("chromaticity-derived constant luminance")),
             14 => return Err(refused("ICtCp")),
+            // Table E-5 of the V16 edition defines 15 to 17; none is a K_R/K_B pair, and
+            // drawing one by the unspecified matrix's choice would be plausible and wrong.
+            15 => return Err(refused("IPT-C2")),
+            16 => return Err(refused("YCgCo-Re")),
+            17 => return Err(refused("YCgCo-Ro")),
             _ if height <= 576 => (0.299, 0.114, false),
             _ => (0.2126, 0.0722, false),
         };

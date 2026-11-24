@@ -2,6 +2,7 @@
 //!
 //! The bytes are unchanged by the split that made this module (ADR 2256).
 
+use pdf_syntax::ObjectId;
 use viewer_core::Query;
 
 use super::error::{ProtocolError, Uncarried};
@@ -84,6 +85,7 @@ mod query_kind {
     // before a refresh. It crosses because the worker holds and binds the policy documents (ADR
     // 2936).
     pub(in crate::protocol) const TRUSTED_LIST_REFERENCES: u8 = 41;
+    pub(in crate::protocol) const SCREEN: u8 = 42;
 }
 
 /// Encodes one question.
@@ -165,6 +167,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Focus => {
             writer.u8(k::FOCUS);
+        }
+        Query::Screen(object) => {
+            writer.u8(k::SCREEN).object(object);
         }
         Query::Highlight => {
             writer.u8(k::HIGHLIGHT);
@@ -296,6 +301,7 @@ pub(crate) enum PlainQuery {
     Selection,
     LogicalSelection,
     Focus,
+    Screen(ObjectId),
     Highlight,
     Frame,
     Reports,
@@ -345,6 +351,7 @@ impl OwnedQuery {
                 PlainQuery::Selection => Query::Selection,
                 PlainQuery::LogicalSelection => Query::LogicalSelection,
                 PlainQuery::Focus => Query::Focus,
+                PlainQuery::Screen(object) => Query::Screen(object),
                 PlainQuery::Highlight => Query::Highlight,
                 PlainQuery::Frame => Query::Frame,
                 PlainQuery::Reports => Query::Reports,
@@ -419,6 +426,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::SELECTION => OwnedQuery::Plain(PlainQuery::Selection),
         k::LOGICAL_SELECTION => OwnedQuery::Plain(PlainQuery::LogicalSelection),
         k::FOCUS => OwnedQuery::Plain(PlainQuery::Focus),
+        k::SCREEN => OwnedQuery::Plain(PlainQuery::Screen(reader.object("a screen annotation")?)),
         k::HIGHLIGHT => OwnedQuery::Plain(PlainQuery::Highlight),
         k::FRAME => OwnedQuery::Plain(PlainQuery::Frame),
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),

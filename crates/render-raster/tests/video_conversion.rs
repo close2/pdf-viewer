@@ -171,6 +171,38 @@ fn hand_built_planes_match_the_oracle() {
     );
 }
 
+/// The window's sink keeps the converted picture on the device as a texture (ADR 3538); read back,
+/// it is the same pixels `convert_picture` reads back from the same pass, picture after picture of
+/// one size and then of another, so what a window draws is what the oracle comparison covered.
+#[test]
+fn the_kept_texture_is_the_read_back_picture() {
+    let mut device = device();
+    let mut sink = device.video_sink();
+    for (seed, (width, height)) in [(64, 36), (64, 36), (333, 187)].into_iter().enumerate() {
+        let [y, cb, cr] = planes_of(width, height, seed as u32);
+        let planes = Planes {
+            width,
+            height,
+            y: &y,
+            cb: &cb,
+            cr: &cr,
+        };
+        let conversion = Conversion::for_signal(Signal::default(), height).expect("drawn");
+        sink.convert(&planes, &conversion).expect("kept");
+        let kept = sink.read_back().expect("read back");
+        let read = device
+            .convert_picture(&planes, &conversion)
+            .expect("converted");
+        assert_eq!((kept.width, kept.height), (width, height));
+        assert!(
+            kept.data == read.data,
+            "picture {seed}: the kept texture differs"
+        );
+    }
+    // The sink holds the device's handles, so it goes before the rasterizer that made it.
+    drop(sink);
+}
+
 /// The device refuses planes that are not their size's before it uploads anything.
 #[test]
 fn planes_of_the_wrong_size_are_refused_on_the_device_too() {

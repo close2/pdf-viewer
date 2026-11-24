@@ -6,7 +6,8 @@
 //! 7-11), which carries its samples as raw bytes, with the deblocking filter disabled by the slice
 //! (`disable_deblocking_filter_idc` 1, 7.4.3). So the decoded picture is the samples written, byte
 //! for byte, by the standard's own construction — no other decoder is consulted for what the answer
-//! is. ITU-T H.264 is not held in `doc/`; the syntax is cited, not quoted.
+//! is. The syntax is cited from Rec. ITU-T H.264 (V16) (06/2026), held as
+//! `doc/ITU-T-H.264-202606.pdf`, not quoted.
 
 #![expect(
     clippy::unwrap_used,
@@ -536,6 +537,27 @@ fn the_confined_worker_writes_every_picture_into_the_ring() {
         .expect("decoded again");
     assert_eq!(again.pictures, 40);
     assert_eq!(worker.starts(), 1);
+}
+
+/// Each picture's time is its sample's decoding time on the track's clock: the fixture's `stts`
+/// states one duration of 1000 for every sample and `mdhd` a time scale of 25 000, so picture `k`
+/// is at `k × 40` ms (ISO/IEC 14496-12, 8.6.1.2; no `ctts`, so presentation is decoding order).
+#[test]
+fn each_picture_is_handed_on_at_its_sample_s_time() {
+    let (sets, units, _) = stream(10, 16, 16, Coding::Progressive);
+    let file = mp4(&sets, &units, 16, 16);
+    let mut worker = MediaWorker::with_program(WORKER.into());
+    let mut times = Vec::new();
+    worker
+        .decode_mp4_video_timed(&file, &mut |_, at| {
+            times.push(at);
+            ControlFlow::Continue(())
+        })
+        .expect("decoded");
+    let expected: Vec<_> = (0..10u64)
+        .map(|k| std::time::Duration::from_millis(k * 40))
+        .collect();
+    assert_eq!(times, expected);
 }
 
 #[test]

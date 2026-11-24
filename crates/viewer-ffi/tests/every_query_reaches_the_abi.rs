@@ -101,6 +101,7 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         // is *not*, and the entry point says which of the two orders it answered in (ADR 0519).
         Query::LogicalSelection => &["quorra_selection_copy_text"],
         Query::Focus => &["quorra_focused_annotation"],
+        Query::Screen(_) => &["quorra_screen_quad"],
         Query::Highlight => &["quorra_highlight_quads"],
         Query::Popups => &[
             "quorra_popups_read",
@@ -199,6 +200,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Find(""),
         Query::LogicalSelection,
         Query::Focus,
+        Query::Screen(pdf_syntax::ObjectId::new(1, 0)),
         Query::Highlight,
         Query::Popups,
         Query::Selection,

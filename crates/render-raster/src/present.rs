@@ -1363,6 +1363,15 @@ impl QuorraWindowRenderer {
         })
     }
 
+    /// A sink that converts a clip's pictures into a texture kept on this window's device, drawn
+    /// as a layer by the window's presenter (ADR 3538). Taken while the renderer is still the
+    /// window's, as [`Self::medium_texture`] is, and dropped with the window.
+    #[must_use]
+    pub fn video_sink(&self) -> crate::VideoSink {
+        let (gpu, queue) = self.device.wgpu();
+        crate::VideoSink::new(gpu.clone(), queue.clone())
+    }
+
     /// One opaque texel of the window's medium, for a host to put under everything else.
     ///
     /// **A window's background is not a page and is not drawn by one.** A host that moves a

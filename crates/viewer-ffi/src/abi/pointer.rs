@@ -323,6 +323,34 @@ pub unsafe extern "C" fn quorra_quads_get(
     }
 }
 
+/// Where the screen annotation `number`/`generation` is on the window: Table 294's rectangle a
+/// clip plays in (ISO 32000-2 §13.2.6.1), for a caller that shows the clip there (ADR 3538).
+///
+/// # Safety
+///
+/// See the module documentation. `quad` is writable for eight `float`s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_screen_quad(
+    viewer: *const Session,
+    number: u32,
+    generation: u16,
+    quad: *mut f32,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if quad.is_null() {
+        return Status::NullArgument.code();
+    }
+    match viewer.reads().screen_quad((number, generation)) {
+        Ok(shape) => {
+            core::slice::from_raw_parts_mut(quad, shape.len()).copy_from_slice(&shape);
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// Which annotation holds §12.5.1's focus, and the quadrilateral covering it.
 ///
 /// The *ring* is the caller's, drawn in its platform's focus colour; this is the geometry it needs.

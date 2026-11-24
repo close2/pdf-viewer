@@ -46,6 +46,17 @@ struct Sized {
     readback: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     row_words: u32,
+    /// The converted picture kept on the device for a window to draw, made at the first picture
+    /// converted for one ([`VideoPass::convert_on_device`]).
+    kept: Option<wgpu::Texture>,
+}
+
+/// Where a conversion's output is copied after the pass.
+enum Copy<'to> {
+    /// Into the mappable buffer, to be read back.
+    ReadBack,
+    /// Into the texture a window draws.
+    Texture(&'to wgpu::Texture),
 }
 
 /// Why the device did not convert a picture.
@@ -95,7 +106,15 @@ impl VideoPass {
         let pipeline = &self.pipeline;
         let sized = Self::sized_for(&mut self.sized, pipeline, gpu, planes.width, planes.height)?;
         let (submission, refused) = captured(gpu, || {
-            submit(gpu, queue, pipeline, sized, planes, conversion)
+            submit(
+                gpu,
+                queue,
+                pipeline,
+                sized,
+                planes,
+                conversion,
+                &Copy::ReadBack,
+            )
         });
         if let Some(detail) = refused {
             return Err(format!("the conversion's submission: {detail}"));
@@ -136,6 +155,122 @@ impl VideoPass {
         ))
     }
 
+    /// Converts `planes` by `conversion` into a texture kept on the device and answers it, with
+    /// what recording and submitting the work cost; nothing waits for the device, which finishes
+    /// the copy before any later submission on the queue samples the texture.
+    ///
+    /// This is the window's path (ADR 3538): ADR 3529 measured a 1080-line picture at 5.5 ms on
+    /// the RX 580 and its read-back at 31.6 ms more, so a window that draws on this device never
+    /// reads the pixels back. The texture is `Rgba8Unorm`, a sampleable layer of the presenter's
+    /// kind, and is kept for the next picture of the same size.
+    pub(crate) fn convert_on_device(
+        &mut self,
+        gpu: &wgpu::Device,
+        queue: &wgpu::Queue,
+        planes: &Planes<'_>,
+        conversion: &Conversion,
+    ) -> Result<(&wgpu::Texture, Duration), Refusal> {
+        let started = Instant::now();
+        let pipeline = &self.pipeline;
+        Self::sized_for(&mut self.sized, pipeline, gpu, planes.width, planes.height)?;
+        let sized = self
+            .sized
+            .as_mut()
+            .ok_or_else(|| "the resources were made and are gone".to_owned())?;
+        if sized.kept.is_none() {
+            let (texture, refused) =
+                captured(gpu, || kept_texture(gpu, planes.width, planes.height));
+            if let Some(detail) = refused {
+                return Err(format!("the texture a picture is kept in: {detail}"));
+            }
+            sized.kept = Some(texture);
+        }
+        let sized = &*sized;
+        let texture = sized
+            .kept
+            .as_ref()
+            .ok_or_else(|| "the kept texture was made and is gone".to_owned())?;
+        let ((), refused) = captured(gpu, || {
+            submit(
+                gpu,
+                queue,
+                pipeline,
+                sized,
+                planes,
+                conversion,
+                &Copy::Texture(texture),
+            );
+        });
+        if let Some(detail) = refused {
+            return Err(format!("the conversion's submission: {detail}"));
+        }
+        Ok((texture, started.elapsed()))
+    }
+
+    /// The kept texture's pixels read back as tight RGBA8 rows, through the read-back buffer of
+    /// its size: the oracle comparison's view of what a window draws, never a window's path.
+    pub(crate) fn read_kept(
+        &self,
+        gpu: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(Vec<u8>, u32, u32), Refusal> {
+        let sized = self
+            .sized
+            .as_ref()
+            .ok_or_else(|| "no picture has been converted".to_owned())?;
+        let texture = sized
+            .kept
+            .as_ref()
+            .ok_or_else(|| "no picture has been kept on the device".to_owned())?;
+        let mut encoder = gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render-raster video read-back"),
+        });
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &sized.readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(sized.row_words.saturating_mul(4)),
+                    rows_per_image: Some(sized.height),
+                },
+            },
+            extent(sized.width, sized.height),
+        );
+        let submission = queue.submit([encoder.finish()]);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sized
+            .readback
+            .map_async(wgpu::MapMode::Read, .., move |result| {
+                // The poll below runs this callback; the receiver outlives it.
+                let _ = sender.send(result);
+            });
+        gpu.poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: None,
+        })
+        .map_err(|error| format!("the device, waiting for the read-back: {error}"))?;
+        match receiver.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(format!("mapping the kept picture: {error}")),
+            Err(_) => return Err("the map callback was dropped without running".to_owned()),
+        }
+        let pixels = {
+            let view = sized
+                .readback
+                .get_mapped_range(..)
+                .map_err(|error| format!("reading the kept picture: {error}"))?;
+            unpad(&view, sized.width, sized.height, sized.row_words)
+        };
+        sized.readback.unmap();
+        Ok((pixels, sized.width, sized.height))
+    }
+
+    /// The texture [`Self::convert_on_device`] last wrote, where it has.
+    pub(crate) fn kept(&self) -> Option<&wgpu::Texture> {
+        self.sized.as_ref().and_then(|sized| sized.kept.as_ref())
+    }
+
     /// The resources for a `width` by `height` picture, made where the last picture's differ.
     fn sized_for<'kept>(
         kept: &'kept mut Option<Sized>,
@@ -170,6 +305,7 @@ fn submit(
     sized: &Sized,
     planes: &Planes<'_>,
     conversion: &Conversion,
+    copy: &Copy<'_>,
 ) -> wgpu::SubmissionIndex {
     let (chroma_width, chroma_height) = planes.chroma_size();
     for (texture, (bytes, (width, height))) in sized.planes.iter().zip([
@@ -210,8 +346,50 @@ fn submit(
         pass.set_bind_group(0, &sized.bind_group, &[]);
         pass.dispatch_workgroups(planes.width.div_ceil(SIDE), planes.height.div_ceil(SIDE), 1);
     }
-    encoder.copy_buffer_to_buffer(&sized.output, 0, &sized.readback, 0, sized.output.size());
+    match copy {
+        Copy::ReadBack => {
+            encoder.copy_buffer_to_buffer(
+                &sized.output,
+                0,
+                &sized.readback,
+                0,
+                sized.output.size(),
+            );
+        }
+        // The output's rows are whole 256-byte copy rows (`make_sized`), which is what a
+        // buffer-to-texture copy asks of `bytes_per_row`; each word is one RGBA8 texel, red in
+        // its low byte, which is `Rgba8Unorm`'s order in memory.
+        Copy::Texture(texture) => encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: &sized.output,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(sized.row_words.saturating_mul(4)),
+                    rows_per_image: Some(planes.height),
+                },
+            },
+            texture.as_image_copy(),
+            extent(planes.width, planes.height),
+        ),
+    }
     queue.submit([encoder.finish()])
+}
+
+/// The texture a converted picture is kept in on the device: sampled by the presenter, written by
+/// the copy, and readable by a copy out for the tests that compare it with the oracle.
+fn kept_texture(gpu: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    gpu.create_texture(&wgpu::TextureDescriptor {
+        label: Some("video picture"),
+        size: extent(width, height),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
 }
 
 fn make_sized(
@@ -307,6 +485,7 @@ fn make_sized(
         readback,
         bind_group,
         row_words,
+        kept: None,
     })
 }
 

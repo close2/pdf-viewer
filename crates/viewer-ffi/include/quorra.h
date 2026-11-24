@@ -1633,6 +1633,10 @@ int32_t quorra_quads_get(const quorra_quads *quads, size_t index, float *into);
 /* §12.5.1's focus ring: which annotation has it, and where. The ring itself is yours to draw. */
 int32_t quorra_focused_annotation(const quorra_viewer *viewer, uint32_t *number,
                                 uint16_t *generation, float *quad);
+/* Where a screen annotation is on the window: Table 294's rectangle a clip plays in. QUORRA_NO_ANSWER
+   where no page now placed carries it. `quad` takes eight floats, as quorra_quads_get's. */
+int32_t quorra_screen_quad(const quorra_viewer *viewer, uint32_t number, uint16_t generation,
+                         float *quad);
 
 /* ------------------------------------------------------------------------------------------- */
 /* §12.7's form, as controls a caller builds rather than as pixels off the raster.                */
