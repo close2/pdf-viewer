@@ -2451,6 +2451,8 @@ fn charstring_restated(
 /// when `nominal` is that same floor; an integer-only reading took a real as zero and wrote a
 /// width the read-back then found larger by the whole nominal.
 fn nominal_width(private: &[u8]) -> i64 {
+    // not a repair: Adobe Technical Note #5176, which ISO 32000-2 §9.9 names for a CFF program,
+    // gives a Private DICT's `nominalWidthX` the default 0, so an absent entry is read as stated.
     dict::entries(private, None)
         .filter_map(Result::ok)
         .find_map(|entry| match entry {
@@ -2474,6 +2476,9 @@ fn private_dict<'a>(data: &'a [u8], dict: &[u8]) -> Option<&'a [u8]> {
 /// The Global Subr INDEX, which sits directly after the String INDEX (Adobe Technical Note
 /// #5176, section 1: the header, then the Name, Top DICT, String and Global Subr INDEXes).
 fn global_subroutines(data: &[u8]) -> Vec<Vec<u8>> {
+    // not a repair: an empty Global Subr INDEX is Adobe Technical Note #5176's own way of stating
+    // none (ISO 32000-2 §9.9 names the note), and this is the writer's re-reading of a program the
+    // loader already parsed, off the reader's path.
     let read = || -> Option<Vec<Vec<u8>>> {
         let header = usize::from(*data.get(2)?);
         let name = index_extent(data, header)?;
@@ -2491,6 +2496,9 @@ fn global_subroutines(data: &[u8]) -> Vec<Vec<u8>> {
 
 /// The Local Subr INDEX a Private DICT names, whose offset the DICT states relative to itself.
 fn local_subroutines(data: &[u8], dict: &[u8]) -> Vec<Vec<u8>> {
+    // not a repair: Adobe Technical Note #5176 makes a Private DICT's `Subrs` optional, so a
+    // program that states none has none; this is the writer's re-reading of a program the loader
+    // already read, off the reader's path (ISO 32000-2 §9.9).
     let read = || -> Option<Vec<Vec<u8>>> {
         let (size, at) = dict_entries(dict)?
             .iter()

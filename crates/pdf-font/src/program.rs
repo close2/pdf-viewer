@@ -19,7 +19,8 @@ use skrifa::{FontRef, MetadataProvider};
 use crate::cff;
 use crate::collection;
 use crate::loading::FontError;
-use crate::sfnt::{repaired_font_program, truncation};
+use crate::repair::{self, noted};
+use crate::sfnt::{repaired_font_program_noting, table_past_the_end, truncation};
 use crate::substitute;
 use crate::type1;
 
@@ -97,32 +98,24 @@ pub(crate) fn embedded_program(
         // `/FontFile3` holds either a full OpenType file or a *bare* CFF font program.
         // Its `/Subtype` says which — `Type1C` and `CIDFontType0C` for a bare CFF — but
         // the leading bytes say the same thing and cannot be mislabelled by a producer,
-        // so the signature decides and the `/Subtype` is not consulted at all.
+        // so the signature decides, and a `/Subtype` naming the other format is logged as read
+        // past rather than consulted.
         let program = if is_bare_cff(&data) {
             Program::BareCff
         } else {
             Program::Sfnt
         };
+        let at = repair::site(descriptor, key);
+        if key == "FontFile3" && subtype_disagrees(document, &stream.dict, program) {
+            noted(document, &repair::FONT_FILE_SUBTYPE_DISAGREES, at);
+        }
 
         // A collection is not a font program (§9.9 Table 124) and four corpus documents
         // embed one anyway. The face is chosen by the descriptor's own `/FontName` and
         // copied out before anything else looks at the bytes, so nothing downstream has to
         // know the container existed.
         let data = if program == Program::Sfnt {
-            let wanted = document.get_key(descriptor, "FontName");
-            let wanted = wanted
-                .as_name()
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
-            collection::extract(&data, wanted.as_deref()).map_or(data, Arc::from)
-        } else {
-            data
-        };
-
-        let data = if program == Program::Sfnt {
-            match repaired_font_program(&data) {
-                Cow::Borrowed(_) => data,
-                Cow::Owned(repaired) => Arc::from(repaired),
-            }
+            one_repaired_face(document, descriptor, data, at)
         } else {
             data
         };
@@ -166,6 +159,9 @@ pub(crate) fn embedded_program(
                     data.len()
                 ),
             });
+        }
+        if program == Program::Sfnt && table_past_the_end(&data) {
+            noted(document, &repair::SFNT_TABLE_PAST_THE_PROGRAM, at);
         }
 
         return Ok(Embedded { data, program });
@@ -289,6 +285,8 @@ fn with_fixed_content(document: &Document, dict: &Dictionary, data: Arc<[u8]>) -
     if document.get_key(dict, "Length3").as_integer() != Some(0) {
         return data;
     }
+    // not a repair: ISO 32000-2 §9.9.1 Table 125 makes adding the portion the processor's job
+    // where `/Length3` is 0, so a program read with it restored is read as the clause says.
     let mut out = Vec::with_capacity(data.len().saturating_add(FIXED_CONTENT).saturating_add(1));
     out.extend_from_slice(&data);
     // The zeros have to begin a token of their own. The encrypted portion they follow ends on an
@@ -306,6 +304,54 @@ fn with_fixed_content(document: &Document, dict: &Dictionary, data: Arc<[u8]>) -
     }
     out.extend_from_slice(b"cleartomark\n");
     Arc::from(out)
+}
+
+/// An `sfnt` program as it is read: the one face of a collection its descriptor names, with the
+/// `loca` repairs of [`repaired_font_program_noting`] made, each repair recorded at `at`
+/// (ADR 3565).
+fn one_repaired_face(
+    document: &Document,
+    descriptor: &Dictionary,
+    data: Arc<[u8]>,
+    at: pdf_syntax::Site,
+) -> Arc<[u8]> {
+    let wanted = document.get_key(descriptor, "FontName");
+    let wanted = wanted
+        .as_name()
+        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
+    let data = match collection::extract(&data, wanted.as_deref()) {
+        Some(face) => {
+            noted(document, &repair::COLLECTION_CUT_TO_ONE_FACE, at);
+            Arc::from(face)
+        }
+        None => data,
+    };
+    let (repaired, made) = repaired_font_program_noting(&data);
+    for class in made {
+        noted(document, class, at);
+    }
+    match repaired {
+        Cow::Borrowed(_) => data,
+        Cow::Owned(repaired) => Arc::from(repaired),
+    }
+}
+
+/// Whether a `/FontFile3` stream's `/Subtype` names a format other than the one its bytes are.
+///
+/// ISO 32000-2 §9.9 Table 125: the `/Subtype` of a `/FontFile3` is required and names the
+/// format — `Type1C` and `CIDFontType0C` a bare CFF program, `OpenType` an OpenType file. The
+/// leading bytes decide what is read, so a disagreement is read as the bytes and is a repair. A
+/// `/Subtype` that is absent or names nothing this table lists states no format to disagree with.
+fn subtype_disagrees(document: &Document, stream: &Dictionary, program: Program) -> bool {
+    let subtype = document.get_key(stream, "Subtype");
+    let Some(stated) = subtype.as_name().map(pdf_syntax::Name::as_bytes) else {
+        return false;
+    };
+    match stated {
+        b"Type1C" | b"CIDFontType0C" => program != Program::BareCff,
+        b"OpenType" => program != Program::Sfnt,
+        _ => false,
+    }
 }
 
 /// Whether a font-program stream's decoded bytes are no program at all.

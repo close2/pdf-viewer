@@ -13,6 +13,10 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+use pdf_syntax::RepairClass;
+
+use crate::repair;
+
 /// The glyph at which a `glyf` composite reached from `glyph` includes itself, or `None` where
 /// every component chain from it ends.
 ///
@@ -177,9 +181,14 @@ pub(crate) fn truncation(data: &[u8]) -> Option<(String, u64)> {
 /// finding of ADR 0036: **a file that states one fact twice can check
 /// itself**, and no other implementation's behaviour is involved.
 ///
-/// Returns `None` when the field is already 0 or 1, when the tables it needs are absent or
-/// short, or when *neither* reading satisfies both tests — in which case the font is broken in
-/// a way this cannot name, and `skrifa`'s own answer stands.
+/// **A stated 0 or 1 is read the same way.** The two tests decide the format whatever the field
+/// says, so a `head` stating the width that neither test supports while the other width satisfies
+/// both is corrected to it: `issue2537r.pdf`'s wrong byte order and a field naming the wrong one
+/// of the two are one departure.
+///
+/// Returns `None` when the field already states the format both tests agree on, when the
+/// tables it needs are absent or short, or when *neither* reading satisfies both tests — in
+/// which case the font is broken in a way this cannot name, and `skrifa`'s own answer stands.
 pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     /// Offset of `indexToLocFormat` within the `head` table.
     const INDEX_TO_LOC: usize = 50;
@@ -229,9 +238,6 @@ pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let stated = be16(head.checked_add(INDEX_TO_LOC)?)?;
-    if stated <= 1 {
-        return None;
-    }
 
     let (loca, loca_length) = *tables.get(b"loca".as_slice())?;
     let (_, glyf_length) = *tables.get(b"glyf".as_slice())?;
@@ -255,6 +261,14 @@ pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     } else {
         return None;
     };
+    // A stated 0 or 1 that the two tests agree on stands, which is every well-formed font. One
+    // they contradict — `loca` four bytes an entry and its last long entry `glyf`'s length,
+    // under a `head` that says two — is the same fact stated twice against a third statement,
+    // and the two that agree are read: ISO/IEC 14496-22 makes `loca` exactly `numGlyphs + 1`
+    // entries of the stated width, so a table that only the other width fills is the other.
+    if corrected == stated {
+        return None;
+    }
 
     let mut repaired = data.to_vec();
     let slot = repaired.get_mut(
@@ -454,9 +468,10 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
 /// `repaired_loca_format` — a byte-swapped `indexToLocFormat` — and `repaired_loca_order`
 /// — a `loca` whose offsets do not ascend — and they compose in that order because each reads
 /// what the one before it corrects: the format repair measures the record's length, and the
-/// order repair refuses a record too short to hold its entries. The two `indexToLocFormat`
-/// repairs cannot both fire, the first requiring a value of 0 or 1 and the second a value
-/// above 1. Returns the input unchanged where none applies, which is every well-formed font.
+/// order repair refuses a record too short to hold its entries. The format is asked once before
+/// the extent as well, because the extent repair reads the stated width: a `head` naming the
+/// wrong one of 0 and 1 over a whole `loca` is a format to correct, not a record to lengthen. Returns the input unchanged where none applies,
+/// which is every well-formed font.
 ///
 /// # Why this is public when `LoadedFont::load` is the only caller in the tree
 ///
@@ -469,12 +484,74 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
 /// all its budget in the parser it already has a target for.
 #[must_use]
 pub fn repaired_font_program(data: &[u8]) -> Cow<'_, [u8]> {
-    let extended = repaired_loca_extent(data).map_or(Cow::Borrowed(data), Cow::Owned);
-    let formatted = repaired_loca_format(&extended).map_or(extended, Cow::Owned);
-    match repaired_loca_order(&formatted) {
-        Some(ordered) => Cow::Owned(ordered),
+    repaired_font_program_noting(data).0
+}
+
+/// [`repaired_font_program`], and the class of each repair it made, in the order made (ADR 3565).
+///
+/// The classes are returned rather than recorded because this is a function of the program's
+/// bytes alone; the loader that knows which stream they came from records them.
+pub(crate) fn repaired_font_program_noting(
+    data: &[u8],
+) -> (Cow<'_, [u8]>, Vec<&'static RepairClass>) {
+    let mut made = Vec::new();
+    // A format the two tests contradict is corrected before the extent is measured, because the
+    // extent repair reads the stated format: a short `loca` under a `head` that says long looks
+    // like a record half its length, and raising it would hand the glyph reader the next table.
+    let (extended, corrected) = match repaired_loca_format(data) {
+        Some(corrected) => (Cow::Borrowed(data), Some(corrected)),
+        None => match repaired_loca_extent(data) {
+            Some(extended) => {
+                made.push(&repair::SFNT_LOCA_EXTENT);
+                let corrected = repaired_loca_format(&extended);
+                (Cow::Owned(extended), corrected)
+            }
+            None => (Cow::Borrowed(data), None),
+        },
+    };
+    let formatted = match corrected {
+        Some(formatted) => {
+            made.push(&repair::SFNT_LOCA_FORMAT);
+            Cow::Owned(formatted)
+        }
+        None => extended,
+    };
+    let repaired = match repaired_loca_order(&formatted) {
+        Some(ordered) => {
+            made.push(&repair::SFNT_LOCA_ORDER);
+            Cow::Owned(ordered)
+        }
         None => formatted,
-    }
+    };
+    (repaired, made)
+}
+
+/// Whether the table directory of `data` names a table that runs past the program's last byte.
+///
+/// [`truncation`] refuses the one table without which nothing draws; any other one cut short is
+/// read as far as its bytes go, which is a repair of a program §9.9 requires to be whole.
+pub(crate) fn table_past_the_end(data: &[u8]) -> bool {
+    sfnt_records(data).is_some_and(|records| {
+        records
+            .iter()
+            .any(|&(_, offset, length)| offset.saturating_add(length) > data.len() as u64)
+    })
+}
+
+/// Every record of an `sfnt`'s table directory: its tag, offset and length.
+fn sfnt_records(data: &[u8]) -> Option<Vec<([u8; 4], u64, u64)>> {
+    let count = usize::from(be16(data, 4)?);
+    (0..count)
+        .map(|index| {
+            let at = 12usize.checked_add(index.checked_mul(16)?)?;
+            let tag = data.get(at..at.checked_add(4)?)?;
+            Some((
+                [*tag.first()?, *tag.get(1)?, *tag.get(2)?, *tag.get(3)?],
+                u64::from(be32(data, at.checked_add(8)?)?),
+                u64::from(be32(data, at.checked_add(12)?)?),
+            ))
+        })
+        .collect()
 }
 
 /// Rebuilds a `glyf` and `loca` pair whose offsets do not ascend, returning the corrected bytes.

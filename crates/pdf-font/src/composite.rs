@@ -128,7 +128,17 @@ pub fn composite_cmap(
                 return predefined::cmap(&named).ok_or_else(|| unsupported(&named));
             }
         },
-        Object::Stream(_) => read_cmap(document, &encoding, name, 0)?,
+        Object::Stream(_) => {
+            let cmap = read_cmap(document, &encoding, name, 0)?;
+            if cmap.damaged() {
+                crate::repair::noted(
+                    document,
+                    &crate::repair::CMAP_DAMAGED,
+                    crate::repair::site(dict, "Encoding"),
+                );
+            }
+            cmap
+        }
         _ => return Err(unsupported("no /Encoding naming a CMap")),
     };
 

@@ -346,6 +346,9 @@ impl LoadedFont {
             Err(other) => return Err(other),
         };
         let (data, font_dicts) = with_readable_font_dicts(data, program);
+        if font_dicts.is_some() && !substituted {
+            font_dicts_rewritten(document, descriptor);
+        }
         // Kept parsed for the same measured reason a simple font keeps it (`type1::Program`),
         // and read for its scale the same way: a Type 1 program states it in a `/FontMatrix`
         // rather than in an `sfnt` header, so `FontRef` cannot be asked.
@@ -526,4 +529,16 @@ fn drawing_face(
                 request.family
             ),
         })
+}
+
+/// Records that a CID-keyed CFF program's Font DICTs were rewritten to be read (ADR 3565), at the
+/// program stream of the descriptor that embeds it.
+fn font_dicts_rewritten(document: &Document, descriptor: Option<&Dictionary>) {
+    if let Some(descriptor) = descriptor {
+        crate::repair::noted(
+            document,
+            &crate::repair::CFF_FONT_DICTS_REWRITTEN,
+            crate::repair::site(descriptor, "FontFile3"),
+        );
+    }
 }

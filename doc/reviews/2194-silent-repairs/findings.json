@@ -65,7 +65,7 @@
   "code": "crates/pdf-font/src/sfnt.rs:471 repaired_font_program (with :183, :385, :519); crates/pdf-archive/src/table/fonts.rs:1840 program_unparsed",
   "change": "Log font/sfnt-loca-extent, font/sfnt-loca-format, font/sfnt-loca-order and font/program-truncated; map to font-programs-embedded and the conform row.",
   "execution": "FAIL (expected): crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_truetype_program_whose_loca_format_is_wrong_is_reported_silent_repair; crates/pdf-archive/tests/silent_repairs_spec_audit.rs::a_truetype_program_cut_in_half_is_reported_silent_repair",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-B06",
@@ -150,7 +150,7 @@
   "code": "crates/pdf-font/src/tounicode.rs:190; crates/pdf-font/src/loading.rs:1369; crates/pdf-font/src/cmap.rs:389, :577, :615; crates/pdf-font/src/metrics.rs:737, :1113; crates/pdf-font/src/glyph_names.rs:112, :160",
   "change": "A class on ADR 3477's channel for each site; Probed: a damaged ToUnicode on a non-symbolic TrueType font passes (6.2.11.7.2 exempts the font, so 5.1 only).",
   "execution": "Read; inventory in doc/reviews/2194-silent-repairs.md section 5.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2194-T04",

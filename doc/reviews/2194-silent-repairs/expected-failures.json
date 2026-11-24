@@ -40,18 +40,6 @@
   },
   {
    "binary": "pdf-archive::silent_repairs_spec_audit",
-   "test": "a_truetype_program_whose_loca_format_is_wrong_is_reported_silent_repair",
-   "finding": "2194-B05",
-   "log": "round-2194 nextest of pdf-archive"
-  },
-  {
-   "binary": "pdf-archive::silent_repairs_spec_audit",
-   "test": "a_truetype_program_cut_in_half_is_reported_silent_repair",
-   "finding": "2194-B05",
-   "log": "round-2194 nextest of pdf-archive"
-  },
-  {
-   "binary": "pdf-archive::silent_repairs_spec_audit",
    "test": "a_dictionary_with_a_repeated_key_is_reported_silent_repair",
    "finding": "2194-B06",
    "log": "round-2194 nextest of pdf-archive"

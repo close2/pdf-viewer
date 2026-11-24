@@ -168,6 +168,9 @@ pub struct ToUnicode {
     /// [`ToUnicode::truncated`]. The first bound to cut is kept, because a report names one
     /// limit.
     truncated: Option<&'static str>,
+    /// Whether the map departs from §9.10.3's grammar: a section left open at the end of the
+    /// stream, or an entry whose operands do not read (ADR 3565).
+    damaged: bool,
 }
 
 impl ToUnicode {
@@ -244,12 +247,16 @@ impl ToUnicode {
             Some(Section::Ranges) => map.take_ranges(&operands),
             None => {}
         }
+        // A section the stream ends inside was never closed, which §9.10.3's `CMap` syntax
+        // requires; the entries before the end are read all the same.
+        map.damaged |= section.is_some();
 
         // A `CMap` inherits what the one it builds on lost as well as what it holds: Table 118
         // makes the pair one statement in two files and [`Self::append`] reads it as one, so an
         // answer missing from either is missing. Absorbed after the parse rather than before it
         // so that a file which cut on its own bound reports its own — [`Self::cut_by`] keeps the
         // first — which is the one a reader of *this* stream can act on.
+        map.damaged |= map.base.as_ref().is_some_and(|base| base.damaged);
         if let Some(bound) = map.base.as_ref().and_then(|base| base.truncated) {
             map.cut_by(bound);
         }
@@ -280,6 +287,14 @@ impl ToUnicode {
         self.truncated
     }
 
+    /// Whether this map departs from §9.10.3's grammar — a section the stream ends inside, an
+    /// entry whose source or destination does not read, a range whose high code is below its
+    /// low — so that what it maps is what was readable around the damage (ADR 3565).
+    #[must_use]
+    pub fn damaged(&self) -> bool {
+        self.damaged
+    }
+
     /// Reads a `beginbfchar` section: pairs of source code and destination text.
     fn take_chars(&mut self, operands: &[Token<'_>]) {
         let mut index = 0usize;
@@ -287,11 +302,14 @@ impl ToUnicode {
             let (Some(Token::String(source)), Some(Token::String(target))) =
                 (operands.get(index), operands.get(index.saturating_add(1)))
             else {
+                self.damaged = true;
                 index = index.saturating_add(1);
                 continue;
             };
             if let (Some(code), Some(text)) = (code_of(source), text_of(target)) {
                 self.insert_single(code, text);
+            } else {
+                self.damaged = true;
             }
             index = index.saturating_add(2);
         }
@@ -319,10 +337,12 @@ impl ToUnicode {
             let (Some(Token::String(low)), Some(Token::String(high))) =
                 (operands.get(index), operands.get(index.saturating_add(1)))
             else {
+                self.damaged = true;
                 index = index.saturating_add(1);
                 continue;
             };
             let (Some((low, length)), Some((high, _))) = (code_of(low), code_of(high)) else {
+                self.damaged = true;
                 index = index.saturating_add(2);
                 continue;
             };
@@ -334,6 +354,7 @@ impl ToUnicode {
                         // A `<hi>` below its `<lo>` states no span at all, which is the file
                         // being malformed rather than a bound of ours discarding anything —
                         // so it is dropped without a report, and only the bound reports.
+                        self.damaged |= low > high;
                         if low <= high {
                             if self.ranges.len() < MAX_RANGES {
                                 self.lengths |= 1 << length;
@@ -380,7 +401,10 @@ impl ToUnicode {
                     }
                     index = at;
                 }
-                _ => index = index.saturating_add(3),
+                _ => {
+                    self.damaged = true;
+                    index = index.saturating_add(3);
+                }
             }
         }
     }

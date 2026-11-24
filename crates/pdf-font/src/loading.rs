@@ -1249,7 +1249,13 @@ impl LoadedFont {
             return None;
         }
         let dropped = without_program(document, dict)?;
-        Self::load(document, &dropped, name).ok()
+        let substitute = Self::load(document, &dropped, name).ok()?;
+        crate::repair::noted(
+            document,
+            &crate::repair::PROGRAM_UNREADABLE,
+            program_site(document, dict),
+        );
+        Some(substitute)
     }
 }
 
@@ -1257,6 +1263,30 @@ impl LoadedFont {
 /// by, kept in one place because [`LoadedFont::substitute_for_unreadable`] tells it apart from a
 /// program that did not read.
 pub(crate) const NO_CODE_REACHES_A_GLYPH: &str = "no character code maps to a glyph";
+
+/// Where a repair of the program `dict` embeds is placed: the stream of the descriptor that
+/// states one — the font's, or a Type 0 font's descendant's — under the first of Table 120's three
+/// keys it writes (see [`crate::repair::site`]).
+fn program_site(document: &Document, dict: &Dictionary) -> pdf_syntax::Site {
+    let holder = document
+        .get_key(dict, "DescendantFonts")
+        .as_array()
+        .and_then(<[Object]>::first)
+        .and_then(|item| document.resolve(item).as_dict().cloned())
+        .unwrap_or_else(|| dict.clone());
+    let descriptor_object = document.get_key(&holder, "FontDescriptor");
+    let Some(descriptor) = descriptor_object.as_dict() else {
+        return crate::repair::site(&holder, "FontDescriptor");
+    };
+    let key = ["FontFile", "FontFile2", "FontFile3"]
+        .into_iter()
+        .find(|key| descriptor.get(key).is_some())
+        .unwrap_or("FontFile");
+    match crate::repair::site(descriptor, key) {
+        pdf_syntax::Site::WholeFile => crate::repair::site(&holder, "FontDescriptor"),
+        placed => placed,
+    }
+}
 
 /// The font dictionary `dict` as it would read with no program embedded: the descriptor that
 /// states one — the font's, or a Type 0 font's descendant's — copied without Table 120's three
@@ -1328,7 +1358,24 @@ fn encoding_name(document: &Document, dict: &Dictionary) -> Option<String> {
 }
 
 fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
-    read_to_unicode(document, &document.get_key(dict, "ToUnicode"), 0)
+    let stated = document.get_key(dict, "ToUnicode");
+    // not a repair: an absent `/ToUnicode` is §9.10.2's first method not taken, and Table 109
+    // makes the entry optional.
+    if matches!(stated, Object::Null) {
+        return tounicode::ToUnicode::default();
+    }
+    let mut past_the_depth = false;
+    let map = read_to_unicode(document, &stated, 0, &mut past_the_depth);
+    let at = || crate::repair::site(dict, "ToUnicode");
+    if stated.as_stream().is_none() {
+        crate::repair::noted(document, &crate::repair::TO_UNICODE_NOT_A_STREAM, at());
+    } else if map.damaged() {
+        crate::repair::noted(document, &crate::repair::TO_UNICODE_DAMAGED, at());
+    }
+    if past_the_depth || map.truncated().is_some() {
+        crate::repair::noted(document, &crate::repair::TO_UNICODE_PAST_A_BOUND, at());
+    }
+    map
 }
 
 /// Bounds the chain of `CMap`s a `/ToUnicode` may build on, which a document could make cyclic.
@@ -1366,8 +1413,14 @@ const MAX_TO_UNICODE_DEPTH: u32 = 4;
 /// is in the *rest*, and §9.10.2's third method cannot help — the descendant's registry is
 /// `Unidocs`, so there is no `Unidocs-Korea1-UCS2` to construct — so the page read back as
 /// nothing at all.
-fn read_to_unicode(document: &Document, object: &Object, depth: u32) -> tounicode::ToUnicode {
+fn read_to_unicode(
+    document: &Document,
+    object: &Object,
+    depth: u32,
+    past_the_depth: &mut bool,
+) -> tounicode::ToUnicode {
     if depth > MAX_TO_UNICODE_DEPTH {
+        *past_the_depth = true;
         return tounicode::ToUnicode::default();
     }
     let Some(stream) = object.as_stream() else {
@@ -1386,6 +1439,7 @@ fn read_to_unicode(document: &Document, object: &Object, depth: u32) -> tounicod
             document,
             &referenced,
             depth.saturating_add(1),
+            past_the_depth,
         )),
     };
     tounicode::ToUnicode::parse_on(&bytes, base)

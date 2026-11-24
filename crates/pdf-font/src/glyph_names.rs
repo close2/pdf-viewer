@@ -127,7 +127,14 @@ pub(crate) fn base_encoding(
 
     match named {
         None => Ok(None),
-        Some(named) if !PERMITTED_ENCODING_NAMES.contains(&named.as_slice()) => Ok(None),
+        Some(named) if !PERMITTED_ENCODING_NAMES.contains(&named.as_slice()) => {
+            crate::repair::noted(
+                document,
+                &crate::repair::ENCODING_NAME_UNKNOWN,
+                crate::repair::site(dict, "Encoding"),
+            );
+            Ok(None)
+        }
         Some(named) => {
             BaseEncoding::by_name(&named)
                 .map(Some)
@@ -163,22 +170,41 @@ fn apply_differences(document: &Document, dict: &Dictionary, names: &mut GlyphNa
         return;
     };
     let differences = document.get_key(encoding, "Differences");
+    let malformed = || {
+        crate::repair::noted(
+            document,
+            &crate::repair::DIFFERENCES_MALFORMED,
+            crate::repair::site(dict, "Encoding"),
+        );
+    };
     let Some(items) = differences.as_array() else {
+        // not a repair where the entry is absent: Table 112 makes `/Differences` optional.
+        if !matches!(differences, Object::Null) {
+            malformed();
+        }
         return;
     };
 
     let mut code: Option<usize> = None;
     for item in items {
         match document.resolve(item) {
-            Object::Integer(value) => code = usize::try_from(value).ok(),
+            Object::Integer(value) => {
+                code = usize::try_from(value).ok();
+                if code.is_none() {
+                    malformed();
+                }
+            }
             Object::Name(glyph_name) => {
-                let Some(at) = code else { continue };
+                let Some(at) = code else {
+                    malformed();
+                    continue;
+                };
                 if let Some(slot) = names.get_mut(at) {
                     *slot = glyph_name_of(glyph_name.as_bytes());
                 }
                 code = at.checked_add(1);
             }
-            _ => {}
+            _ => malformed(),
         }
     }
 }

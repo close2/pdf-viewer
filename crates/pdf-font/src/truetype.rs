@@ -782,13 +782,16 @@ pub(crate) mod truetype_encoding_tests {
         assert_eq!(glyph_length(&glyf, 0), Some(26));
     }
 
-    /// A font that states a legal format is left alone, whichever of the two it states.
-
+    /// A font whose stated format is the one its `loca` and `glyf` agree on is left alone; one
+    /// stating the other of the two legal values is corrected as a byte-swapped one is, because
+    /// the two lengths decide the format whatever the field says (ADR 3565).
     #[test]
     fn a_font_stating_a_legal_loca_format_is_not_touched() {
-        for stated in [0, 1] {
-            assert_eq!(repaired_loca_format(&sfnt(&loca_fixture(stated, 8))), None);
-        }
+        assert_eq!(repaired_loca_format(&sfnt(&loca_fixture(1, 8))), None);
+        let contradicted = sfnt(&loca_fixture(0, 8));
+        let repaired = repaired_loca_format(&contradicted).expect("the lengths say long");
+        let head = 12 + 16 * 4;
+        assert_eq!(&repaired[head + 50..head + 52], &1_u16.to_be_bytes());
         // And a font whose offsets ascend leaves `repaired_loca_order` on its first pass, which
         // is every well-formed font and is what makes the repair cost nothing on the common path.
         assert_eq!(repaired_loca_order(&sfnt(&loca_fixture(1, 8))), None);

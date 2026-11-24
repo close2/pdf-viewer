@@ -136,14 +136,15 @@ impl<'a> Examination<'a> {
         self.exempt.get_or_init(|| Exempt::of(self, self.reaches()))
     }
 
-    /// Reads every object, every content stream and every stream's data once, so that the
-    /// reader's log of repairs is the whole file's rather than whatever earlier rows looked at
-    /// (ADR 3477). Asked by every row that reads the log, and done once.
+    /// Reads every object, every content stream, every stream's data and every font once, so that
+    /// the reader's log of repairs is the whole file's rather than whatever earlier rows looked
+    /// at (ADR 3477, ADR 3565). Asked by every row that reads the log, and done once.
     pub fn read_whole(&self) {
         self.read_whole.get_or_init(|| {
             let _ = self.objects();
             let _ = self.survey();
             crate::repairs::decode_every_stream(self);
+            crate::table::fonts::load_every_font(self);
         });
     }
 

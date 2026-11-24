@@ -107,6 +107,11 @@ pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<
     let mut widths = BTreeMap::new();
     let array = document.get_key(dict, "Widths");
     let Some(items) = array.as_array() else {
+        // not a repair where the entry is absent: Table 109 makes `/Widths` optional for one of
+        // the standard 14 fonts, and the widths come from the font's own metrics.
+        if !matches!(array, Object::Null) {
+            widths_malformed(document, dict);
+        }
         return widths;
     };
     for (offset, item) in items.iter().enumerate() {
@@ -121,6 +126,7 @@ pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<
             break;
         }
         let Some(width) = document.resolve(item).as_number() else {
+            widths_malformed(document, dict);
             continue;
         };
         let Ok(code) = u32::try_from(code) else {
@@ -129,6 +135,16 @@ pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<
         widths.insert(code, narrow(width));
     }
     widths
+}
+
+/// Records that the `/Widths` array of `dict` is not an array of numbers (ISO 32000-2 §9.6.2.1
+/// Table 109), so that a code was given the missing width instead (ADR 3565).
+fn widths_malformed(document: &Document, dict: &Dictionary) {
+    crate::repair::noted(
+        document,
+        &crate::repair::WIDTHS_MALFORMED,
+        crate::repair::site(dict, "Widths"),
+    );
 }
 
 #[cfg(test)]
@@ -743,19 +759,24 @@ pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> 
     let at = |index: usize| items.get(index).map(|item| resolved(document, item));
 
     let mut index = 0usize;
+    let mut malformed = false;
     while let Some(first) = at(index) {
         let Some(first) = first
             .as_integer()
             .and_then(|value| u32::try_from(value).ok())
         else {
+            malformed = true;
             break;
         };
         match at(index.saturating_add(1)).as_deref() {
             Some(Object::Array(list)) => {
                 widths.list(
                     first,
-                    list.iter()
-                        .map(|item| resolved(document, item).as_number().map(narrow)),
+                    list.iter().map(|item| {
+                        let width = resolved(document, item).as_number().map(narrow);
+                        malformed |= width.is_none();
+                        width
+                    }),
                 );
                 index = index.saturating_add(2);
             }
@@ -764,19 +785,31 @@ pub(crate) fn composite_widths(document: &Document, descendant: &Dictionary) -> 
                     .as_integer()
                     .and_then(|value| u32::try_from(value).ok())
                 else {
+                    malformed = true;
                     break;
                 };
                 let Some(width) = at(index.saturating_add(2)).and_then(|item| item.as_number())
                 else {
+                    malformed = true;
                     break;
                 };
                 widths.range(first, last, narrow(width));
                 index = index.saturating_add(3);
             }
-            None => break,
+            None => {
+                malformed = true;
+                break;
+            }
         }
     }
 
+    if malformed {
+        crate::repair::noted(
+            document,
+            &crate::repair::CID_WIDTHS_MALFORMED,
+            crate::repair::site(descendant, "W"),
+        );
+    }
     widths.finish()
 }
 
@@ -1120,11 +1153,13 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
     let number = |index: usize| at(index).and_then(|item| item.as_number()).map(narrow);
 
     let mut index = 0usize;
+    let mut malformed = false;
     while let Some(first) = at(index) {
         let Some(first) = first
             .as_integer()
             .and_then(|value| u32::try_from(value).ok())
         else {
+            malformed = true;
             break;
         };
         match at(index.saturating_add(1)).as_deref() {
@@ -1133,6 +1168,7 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
                     .iter()
                     .map_while(|item| resolved(document, item).as_number().map(narrow))
                     .collect();
+                malformed |= values.len() != list.len() || !values.len().is_multiple_of(3);
                 // "Specifying a given CID value more than once should not be done. In the
                 // case where it is done, the first specification is the one that shall be
                 // used" — §9.7.4.3, of `/W`, and `/W2` is the same array one field wider.
@@ -1147,6 +1183,7 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
                     .as_integer()
                     .and_then(|value| u32::try_from(value).ok())
                 else {
+                    malformed = true;
                     break;
                 };
                 let group = [
@@ -1155,15 +1192,26 @@ fn composite_vertical_metrics(document: &Document, descendant: &Dictionary) -> R
                     number(index.saturating_add(4)),
                 ];
                 let [Some(w1y), Some(vx), Some(vy)] = group else {
+                    malformed = true;
                     break;
                 };
                 metrics.range(first, last, [w1y, vx, vy]);
                 index = index.saturating_add(5);
             }
-            None => break,
+            None => {
+                malformed = true;
+                break;
+            }
         }
     }
 
+    if malformed {
+        crate::repair::noted(
+            document,
+            &crate::repair::CID_WIDTHS_MALFORMED,
+            crate::repair::site(descendant, "W2"),
+        );
+    }
     metrics.finish()
 }
 

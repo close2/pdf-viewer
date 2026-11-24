@@ -503,6 +503,53 @@ fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(FontSite, &Dictio
 }
 
 /// Where the font population's walk found one font dictionary.
+/// The objects `of` names for each font a content stream renders — for a Type 0 font, of its
+/// descendant, which holds the descriptor and the widths — where the reader's log places a repair
+/// of that font (ADR 3565).
+fn rendered_font_objects(
+    exam: &Examination<'_>,
+    of: impl Fn(&Dictionary) -> Vec<ObjectId>,
+) -> BTreeSet<ObjectId> {
+    let document = exam.document;
+    let mut objects = BTreeSet::new();
+    for used in exam.survey().fonts() {
+        if !used.rendered {
+            continue;
+        }
+        let holder = if subtype(document, &used.dict).as_deref() == Some("Type0") {
+            descendant(document, &used.dict).map(|(_, dict)| dict)
+        } else {
+            Some(used.dict.clone())
+        };
+        if let Some(holder) = holder {
+            objects.extend(of(&holder));
+        }
+    }
+    objects
+}
+
+/// Loads every font the population holds, so that what reading each one needed is in the
+/// reader's log ([`crate::repairs`], ADR 3565): `pdf_font` records a repair when it loads the font
+/// that needs it, and a row that never loaded a font would leave the log without it.
+///
+/// A `CIDFont` is loaded through the Type 0 font above it, which is how a reader reaches one, and
+/// a Type 3 font has no program to read. A program the loader refuses is read again as the viewer
+/// reads it, through the substitute, because that substitution is itself a repair.
+pub(crate) fn load_every_font(exam: &Examination<'_>) {
+    let document = exam.document;
+    for_each_font(exam, |_, dict| {
+        if matches!(
+            subtype(document, dict).as_deref(),
+            Some("CIDFontType0" | "CIDFontType2" | "Type3")
+        ) {
+            return;
+        }
+        if let Err(refusal) = LoadedFont::load(document, dict, "") {
+            let _ = LoadedFont::substitute_for_unreadable(document, dict, "", &refusal);
+        }
+    });
+}
+
 #[derive(Debug, Clone, Copy)]
 struct FontSite {
     /// The object the cross-reference table names that holds the dictionary.
@@ -3079,6 +3126,17 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 /// and pass it, which is why the scale is the program's own (ADRs 2163, 2180).
 fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    crate::repairs::record_logged_at(
+        exam,
+        crate::repairs::WIDTHS_AGREE,
+        &rendered_font_objects(exam, |holder| {
+            ["Widths", "W", "W2", "FontDescriptor"]
+                .into_iter()
+                .filter_map(|key| holder.get(key).and_then(Object::as_reference))
+                .collect()
+        }),
+        findings,
+    );
     for used in exam.survey().fonts() {
         if !used.rendered {
             continue;

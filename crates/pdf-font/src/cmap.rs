@@ -331,6 +331,9 @@ pub struct CMap {
     /// of the way through, which this project reports rather than absorbs; see
     /// [`CMap::truncated`]. The first bound to cut is kept, because a report names one limit.
     truncated: Option<&'static str>,
+    /// Whether the file departs from §9.7.5.3's syntax: a section the stream ends inside, or an
+    /// entry whose operands do not read (ADR 3565).
+    damaged: bool,
 }
 
 impl CMap {
@@ -356,6 +359,7 @@ impl CMap {
             wmode: 0,
             references_another: false,
             truncated: None,
+            damaged: false,
         }
     }
 
@@ -453,6 +457,7 @@ impl CMap {
             }
         }
         // A file that ends mid-section still described every mapping before the damage.
+        own.damaged |= section.is_some();
         own.take(section, &operands);
 
         map.absorb(own);
@@ -468,6 +473,7 @@ impl CMap {
             wmode: 0,
             references_another: false,
             truncated: None,
+            damaged: false,
         }
     }
 
@@ -489,6 +495,7 @@ impl CMap {
         if let Some(bound) = own.truncated {
             self.cut_by(bound);
         }
+        self.damaged |= own.damaged;
         // Codespace ranges are scanned by length rather than in order, so appending is
         // enough; a shorter code is always tried first (§9.7.6.2).
         for range in own.codespace {
@@ -578,15 +585,18 @@ impl CMap {
         let mut index = 0usize;
         while index.saturating_add(1) < operands.len() {
             let Some(Token::String(source)) = operands.get(index) else {
+                self.damaged = true;
                 index = index.saturating_add(1);
                 continue;
             };
             let target = operands.get(index.saturating_add(1));
             index = index.saturating_add(2);
             let (Some(code), Some(length)) = (code_of(source), code_length(source)) else {
+                self.damaged = true;
                 continue;
             };
             let Some(cid) = target.and_then(|token| selector_of(token, bf)) else {
+                self.damaged = true;
                 continue;
             };
             self.insert_single(notdef, length, code, cid);
@@ -618,6 +628,7 @@ impl CMap {
             let (Some(Token::String(low)), Some(Token::String(high))) =
                 (operands.get(index), operands.get(index.saturating_add(1)))
             else {
+                self.damaged = true;
                 index = index.saturating_add(1);
                 continue;
             };
@@ -629,6 +640,7 @@ impl CMap {
                         (low_code, high_code, length)
                     }
                     _ => {
+                        self.damaged = true;
                         index = index.saturating_add(2);
                         continue;
                     }
@@ -842,6 +854,14 @@ impl CMap {
     #[must_use]
     pub fn truncated(&self) -> Option<&'static str> {
         self.truncated
+    }
+
+    /// Whether the file departs from §9.7.5.3's syntax — a section the stream ends inside, or an
+    /// entry whose code, bounds or selector does not read — so that what it maps is what was
+    /// readable around the damage (ADR 3565). A map it builds on carries its damage up.
+    #[must_use]
+    pub fn damaged(&self) -> bool {
+        self.damaged
     }
 
     /// Whether any codespace range was stated, without which no code can be extracted.

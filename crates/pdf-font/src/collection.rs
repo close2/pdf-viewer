@@ -53,6 +53,8 @@ pub fn extract(data: &[u8], wanted: Option<&str>) -> Option<Vec<u8>> {
     let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
         return None;
     };
+    // Either face is a repair of one class, `font/collection-cut-to-one-face`, which the loader
+    // records where it calls this (ADR 3565): Table 124 files one font program, not a collection.
     let chosen = wanted
         .and_then(|wanted| face_named(&collection, wanted))
         .or_else(|| collection.get(0).ok())?;

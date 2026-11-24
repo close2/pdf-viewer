@@ -45,6 +45,7 @@ mod post;
 pub mod predefined;
 mod program;
 pub mod provider;
+pub mod repair;
 pub mod restate;
 mod runs;
 mod sfnt;
