@@ -650,8 +650,9 @@ fn a_source_the_reader_draws_no_page_of_is_refused_by_name() {
 fn a_parent_cycle_ends_and_an_ancestor_past_the_bound_is_not_reached() {
     // The walk up a page's `/Parent` chain is bounded, and a cycle ends it at once: the page's
     // own box is the one carried, and the value 500 x 700 stated past the bound is not. The second
-    // page is then written with no `/MediaBox`, which Table 31 requires, so the output's reader
-    // draws it on its own box and section 5.1 refuses the output by that repair's name (ADR 3543).
+    // page's ancestry states no box this reader reaches, so it is drawn on this reader's own
+    // (`Page::DEFAULT_MEDIA_BOX`, ADR 0389), and the output states that box, the one the window
+    // showed (ADR 3559), rather than leaving Table 31's required entry out.
     let mut objects = vec![
         "<< /Type /Catalog /Pages 9 0 R >>".to_owned(),
         "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 200 300] >>".to_owned(),
@@ -682,18 +683,17 @@ fn a_parent_cycle_ends_and_an_ancestor_past_the_bound_is_not_reached() {
         .as_ref()
         .expect("rebuilt");
     assert_eq!(note.pages, 2);
-    assert!(
-        output.is_none(),
-        "a page written with no /MediaBox is not written as conforming"
-    );
-    let achieved = conversion(&report)
-        .achieved
-        .as_ref()
-        .expect("the output was held");
+    let output = output.expect("the page is written with the box it was drawn on");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&document);
+    let first = pages.get(0).expect("the first page");
+    let second = pages.get(1).expect("the second page");
+    assert_eq!(first.media_box, [0.0, 0.0, 200.0, 300.0]);
     assert_eq!(
-        achieved.still_failing,
-        ["conformance/adheres-to-the-base-standard"],
-        "the box past the bound is not reached, and the output's missing box is section 5.1's"
+        second.media_box,
+        pdf_model::Page::DEFAULT_MEDIA_BOX,
+        "the box past the bound is not reached, and the box drawn is the one written"
     );
 }
 

@@ -246,10 +246,13 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         Conditional::PerDocument(Losses::one(Loss::UndecodableStream)),
     ),
     // A file whose every repair the whole-file rewrite leaves behind loses nothing; a damaged
-    // stream restated is the loss `damaged-data-as-decoded` (ADR 3522).
+    // stream restated is the loss `damaged-data-as-decoded` (ADR 3522), and an operator this
+    // reader repaired, written out where the page draws the same, `content-as-drawn` (ADR 3558).
     (
         "conformance/adheres-to-the-base-standard",
-        Conditional::PerDocument(Losses::one(Loss::DamagedDataAsDecoded)),
+        Conditional::PerDocument(
+            Losses::one(Loss::DamagedDataAsDecoded).with(Loss::ContentAsDrawn),
+        ),
     ),
 ];
 

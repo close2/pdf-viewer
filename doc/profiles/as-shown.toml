@@ -216,8 +216,11 @@ remedy = "discard"
 # 7.4) — which section 5.1 of both parts forbids through the base standard: the data states nothing
 # past the damage, and the window drew the bytes decoded before it. The stream is written as those
 # bytes, re-encoded as FlateDecode; the loss `damaged-data-as-decoded`, each stream named by the
-# stage that reported the damage and its length in the report (ADR 3522). A repair inside a
-# content stream, and data no filter decodes, stay refused by name (ADR 3521).
+# stage that reported the damage and its length in the report (ADR 3522). An operator this
+# reader repaired is written out with its operands where the page draws the same without it, the
+# loss `content-as-drawn` (ADR 3558); any other repair inside a content stream, and data no filter
+# decodes, stay refused by name (ADR 3521, ADR 3560). A page box this reader could not read is
+# written as the box it drew the page with (ADR 3559).
 [site."conformance/adheres-to-the-base-standard"]
 remedy = "discard"
 

@@ -647,6 +647,9 @@ fn states_naming_no_stream(document: &Document, normal: &Object) -> Option<Vec<V
 pub(super) struct PageResources {
     /// The value to write, per page object, in the source's numbering.
     pub(super) at: BTreeMap<ObjectId, Object>,
+    /// The boxes to write on each page whose boundary this reader could not read, each the
+    /// rectangle the page was drawn with (`boxes_as_drawn`, `doc/adr/3559`).
+    pub(super) boxes: BTreeMap<ObjectId, Vec<(&'static str, Object)>>,
 }
 
 /// The requirement [`page_resources`] answers at a page's own content stream.
@@ -709,6 +712,7 @@ pub(super) fn page_resources(
     // reader logged (`model/resources-absent`): section 5.1's half of the same rewrite, given the
     // empty dictionary Table 31 names for a page needing none (ADR 3543).
     let absent = resources_absent(document);
+    found.boxes = boxes_as_drawn(document);
     if !explicit && absent.is_empty() {
         return Ok(found);
     }
@@ -750,6 +754,136 @@ pub(super) fn page_resources(
         found.at.insert(id, value);
     }
     Ok(found)
+}
+
+/// The page objects the reader logged a box it could not read at: `model/media-box-substituted`,
+/// where no ancestor states a media box that is a rectangle with an area, and
+/// `model/page-boundary-unusable`, where a crop, bleed, trim or art box is no such rectangle.
+pub(super) fn boxes_substituted(document: &Document) -> BTreeSet<ObjectId> {
+    document
+        .repairs()
+        .iter()
+        .filter(|repair| {
+            repair.class.name == pdf_model::repair::MEDIA_BOX_SUBSTITUTED.name
+                || repair.class.name == pdf_model::repair::PAGE_BOUNDARY_UNUSABLE.name
+        })
+        .filter_map(|repair| match repair.at {
+            pdf_syntax::Site::Object(id) => Some(id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// **Each box this reader could not read, written as the box it drew the page with**
+/// (`doc/adr/3559`, extending `doc/adr/3142` from a media box with a side of no length to every
+/// box `pdf_model` logs it substituted).
+///
+/// A page whose ancestry states no media box that is a rectangle with an area was drawn on
+/// `pdf_model::Page`'s media box — an ancestor's where one is usable, otherwise
+/// `Page::DEFAULT_MEDIA_BOX`, this reader's choice where ISO 32000-2 §7.7.3.3's Table 31 gives the
+/// required entry no default (ADR 0389). A crop, bleed, trim or art box that is no such rectangle
+/// was read as absent, so §14.11.2.1's default stood for it. Each is written on the page as that
+/// rectangle: what the window showed is what the output states, no mark moves, and the report's
+/// sentence for `page-boundary-removed` names the case, as ADR 3142's does.
+///
+/// Only a box the page states or inherits unusable is written; one it states usably is left, and
+/// only on an object stating `/Type /Page`.
+fn boxes_as_drawn(document: &Document) -> BTreeMap<ObjectId, Vec<(&'static str, Object)>> {
+    let logged = boxes_substituted(document);
+    if logged.is_empty() {
+        return BTreeMap::new();
+    }
+    let media_substituted: BTreeSet<ObjectId> = document
+        .repairs()
+        .iter()
+        .filter(|repair| repair.class.name == pdf_model::repair::MEDIA_BOX_SUBSTITUTED.name)
+        .filter_map(|repair| match repair.at {
+            pdf_syntax::Site::Object(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    let mut out = BTreeMap::new();
+    for page in Pages::new(document).every().into_iter().flatten() {
+        let Some(id) = page.id.filter(|id| logged.contains(id)) else {
+            continue;
+        };
+        // Only a page object (Table 31's `/Type /Page`) is given a box: an object the reader
+        // walked as a page that states no such type — the `/Pages` entry naming an action, say —
+        // is no page a producer wrote, and the output's check refuses it by the class's name.
+        if !matches!(document.get_key(&page.dict, "Type"), Object::Name(name) if name.as_bytes() == b"Page")
+        {
+            continue;
+        }
+        let mut written = Vec::new();
+        let rectangle = |boundary| {
+            Object::Array(
+                page.boundary(boundary)
+                    .iter()
+                    .map(|side| Object::Real(f64::from(*side)))
+                    .collect(),
+            )
+        };
+        if media_substituted.contains(&id) {
+            written.push(("MediaBox", rectangle(pdf_model::page::Boundary::Media)));
+        }
+        for (key, boundary) in [
+            ("CropBox", pdf_model::page::Boundary::Crop),
+            ("BleedBox", pdf_model::page::Boundary::Bleed),
+            ("TrimBox", pdf_model::page::Boundary::Trim),
+            ("ArtBox", pdf_model::page::Boundary::Art),
+        ] {
+            // `/CropBox` alone is inheritable (Table 31), so it is read up the tree.
+            let stated = if key == "CropBox" {
+                inherited_entry(document, &page.dict, key)
+            } else {
+                document.get_key(&page.dict, key)
+            };
+            if !stated.is_null() && !has_area(document, &stated) {
+                written.push((key, rectangle(boundary)));
+            }
+        }
+        if !written.is_empty() {
+            out.insert(id, written);
+        }
+    }
+    out
+}
+
+/// How far up `/Parent` [`inherited_entry`] reads: the depth `pdf_model`'s page tree walk stops
+/// at, so a cycle of parents costs a bound.
+const MOST_ANCESTORS: usize = 1024;
+
+/// The value of `key` the page states, or the nearest ancestor's, as §7.7.3.4 inherits it;
+/// `Null` where none states it. The walk up `/Parent` stops at [`MOST_ANCESTORS`].
+fn inherited_entry(document: &Document, page: &Dictionary, key: &str) -> Object {
+    let mut node = page.clone();
+    for _ in 0..MOST_ANCESTORS {
+        let value = document.get_key(&node, key);
+        if !value.is_null() {
+            return value;
+        }
+        match document.get_key(&node, "Parent") {
+            Object::Dictionary(parent) => node = parent,
+            _ => break,
+        }
+    }
+    Object::Null
+}
+
+/// Whether `value` is a rectangle of four numbers with a side of some length on each axis, which
+/// is what `pdf_model` reads a boundary as.
+fn has_area(document: &Document, value: &Object) -> bool {
+    let Some(items) = document.resolve(value).as_array().map(<[Object]>::to_vec) else {
+        return false;
+    };
+    let numbers: Vec<f64> = items
+        .iter()
+        .filter_map(|item| document.resolve(item).as_number())
+        .collect();
+    numbers.len() == 4
+        && items.len() == 4
+        && (numbers[2] - numbers[0]).abs() > 0.0
+        && (numbers[3] - numbers[1]).abs() > 0.0
 }
 
 /// The page objects the reader logged `model/resources-absent` at.

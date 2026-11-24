@@ -37,12 +37,27 @@
 //! the same loss, the producer's byte gone (`doc/adr/2859`). One that stands after an operand, or
 //! inside an array or a dictionary, does change what the reader draws by being there, and is left
 //! where it is: its stream keeps the operator and the row its answer.
+//!
+//! # An operator the reader repaired, where it drew the page the same without it
+//!
+//! ISO 19005-2 and ISO 19005-4 section 5.1 refuse a content stream this reader had to repair to
+//! read, and five of `pdf_model`'s classes are an operator's: one short of its operands or given
+//! one of the wrong type (§7.8.2), a `Q` with nothing saved (§8.4.2), a text operator outside a
+//! text object (§9.4.1), and colour operands that do not fit the space (§8.6.8). Where the
+//! profile granted `content-as-drawn`, each such operator is written as one white-space
+//! character, its operands with it — §7.8.2 makes them the operator's own, and the reader clears
+//! them when it runs it — **and only where drawing the page both ways gives the same display list
+//! and the same text** (`doc/adr/3558`). That proof is the certainty: no clause is read for what
+//! the producer meant, the write states only what the window already drew, and a page it would
+//! change keeps the operator and the refusal by the class's name (or, under `as-if-printed`, its
+//! photograph). The producer's bytes are gone, which is the loss's own word.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use pdf_archive::survey::{Survey, UnlistedOperator};
 use pdf_model::Pages;
+use pdf_model::content::grammar::{Grammar, Operand, components, signature};
 use pdf_model::content::reader::draws_the_salvage;
 use pdf_syntax::object::{Object, ObjectId};
 use pdf_syntax::{Document, Lexer, Token};
@@ -55,6 +70,24 @@ const STREAM_WILL_NOT_RE_ENCODE: &str = "a content stream holding a run this rea
      number cannot be written back: it will not re-encode, or its /DecodeParms names another \
      object that discarding the parameters would orphan. So the number cannot be written in the \
      run's place";
+
+/// Why the operators a repair was logged at are left where they are.
+const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired would change \
+     what a page draws, or the page could not be drawn both ways to show it would not, so they \
+     are left where the producer wrote them (doc/adr/3558)";
+
+/// The repair classes an operator is written out for where the page draws the same without it
+/// (`doc/adr/3558`).
+pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 5] = [
+    "model/operator-short-of-operands",
+    "model/operand-of-the-wrong-type",
+    "model/restore-with-nothing-saved",
+    "model/text-operator-outside-a-text-object",
+    "model/colour-operands-do-not-fit-the-space",
+];
+
+/// The most pages the proof draws twice; past it the operators are left.
+const MOST_PAGES_PROVED: usize = 256;
 
 /// Why a document naming such a run nowhere this walk reaches keeps the refusal.
 const NO_STREAM_HOLDS_ONE: &str = "no content stream this conversion reads holds a run this \
@@ -119,9 +152,28 @@ pub(super) struct Drawn {
     /// Whether a lone delimiter stood where removing it would change what this reader draws —
     /// after an operand, or inside an array or a dictionary — and so was left (`doc/adr/2859`).
     pub(super) delimiter_left: bool,
+    /// How many lone delimiters were written as white space.
+    delimiters_written: usize,
+    /// The streams an operator this reader repaired was written out of (`doc/adr/3558`).
+    pub(super) written_out: BTreeSet<ObjectId>,
 }
 
 impl Drawn {
+    /// Whether every content stream of the page or form `holder` is one this write rewrote and an
+    /// operator was written out of one of them (`doc/adr/3558`).
+    pub(super) fn wrote_out_of(&self, document: &Document, holder: ObjectId) -> bool {
+        let streams = match document.get(holder) {
+            Object::Stream(_) => vec![holder],
+            Object::Dictionary(page) => hexadecimal::contents_of(document, &page),
+            _ => Vec::new(),
+        };
+        !streams.is_empty()
+            && streams.iter().all(|stream| self.at.contains_key(stream))
+            && streams
+                .iter()
+                .any(|stream| self.written_out.contains(stream))
+    }
+
     /// Whether every operator the survey reports under `spelling` is one this write answers: a run
     /// this reader draws as a number, or a lone delimiter where none was left.
     pub(super) fn answers(&self, spelling: &[u8]) -> bool {
@@ -151,32 +203,48 @@ impl Drawn {
 ///
 /// `hexadecimal` is the other content-stream repair, where it was asked for: a stream both would
 /// rewrite is refused rather than written twice.
+///
+/// Where `operators` is set, an operator this reader logged one of
+/// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at is written out too, where the pages draw the
+/// same without it; where they would not, the write is made again without them.
 pub(super) fn write(
     document: &Document,
     survey: Option<&Survey>,
     hexadecimal: Option<&hexadecimal::Completed>,
+    operators: bool,
+) -> Result<Drawn, Because> {
+    if operators {
+        match write_with(document, survey, hexadecimal, true) {
+            Err(because) if because == Because::NotBuiltYet(NOT_DRAWN_THE_SAME) => {}
+            written => return written,
+        }
+    }
+    write_with(document, survey, hexadecimal, false)
+}
+
+/// [`write()`], with the repaired operators written out where `operators` is set.
+fn write_with(
+    document: &Document,
+    survey: Option<&Survey>,
+    hexadecimal: Option<&hexadecimal::Completed>,
+    operators: bool,
 ) -> Result<Drawn, Because> {
     // A lone delimiter is written only where the write then answers every operator: where some
     // other operator stays, the page keeps the answer it had without this write, the photograph's
     // included, and the delimiter stays with it (`doc/adr/2859`).
-    match write_places(document, survey, hexadecimal, true) {
-        Ok(drawn)
-            if drawn.answers_every_operator
-                || drawn.runs.iter().all(|run| !run.number.is_empty()) =>
-        {
-            Ok(drawn)
-        }
-        _ => write_places(document, survey, hexadecimal, false),
+    match write_places(document, survey, hexadecimal, (true, operators)) {
+        Ok(drawn) if drawn.answers_every_operator || drawn.delimiters_written == 0 => Ok(drawn),
+        _ => write_places(document, survey, hexadecimal, (false, operators)),
     }
 }
 
 /// [`write()`], with lone delimiters written where `delimiters` is set and every one of them left
-/// where it is not.
+/// where it is not, and the repaired operators written out where `operators` is.
 fn write_places(
     document: &Document,
     survey: Option<&Survey>,
     hexadecimal: Option<&hexadecimal::Completed>,
-    delimiters: bool,
+    (delimiters, operators): (bool, bool),
 ) -> Result<Drawn, Because> {
     let pages = Pages::new(document);
     let mut read_on: BTreeMap<&[u8], BTreeSet<usize>> = BTreeMap::new();
@@ -194,7 +262,25 @@ fn write_places(
         }),
         ..Drawn::default()
     };
+    // Each stream of a page's `/Contents` array after the first carries the walk of the one
+    // before it (`Walk`); every other stream starts its own.
+    let mut follows: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
+    for page in pages.every().into_iter().flatten() {
+        let contents = hexadecimal::contents_of(document, &page.dict);
+        for pair in contents.windows(2) {
+            if let [before, after] = pair {
+                follows.entry(*after).or_insert(*before);
+            }
+        }
+    }
+    let mut walk = Walk::default();
+    let mut walked: Option<ObjectId> = None;
     for (id, resources) in hexadecimal::streams(document, &pages, survey) {
+        walk = match (walked, follows.get(&id)) {
+            (Some(previous), Some(before)) if previous == *before => walk.into_the_next_stream(),
+            _ => Walk::default(),
+        };
+        walked = Some(id);
         let object = document.get(id);
         let Some(stream) = object.as_stream() else {
             continue;
@@ -208,8 +294,15 @@ fn write_places(
             continue;
         };
         let room = MOST_RUNS.saturating_sub(out.runs.len());
-        let (places, delimiter_left) = salvaged_runs(document, &data, &resources, room, delimiters)
-            .ok_or(Because::NotBuiltYet(TOO_MANY_RUNS))?;
+        let (places, delimiter_left) = salvaged_runs(
+            document,
+            &data,
+            &resources,
+            room,
+            (delimiters, operators),
+            &mut walk,
+        )
+        .ok_or(Because::NotBuiltYet(TOO_MANY_RUNS))?;
         out.delimiter_left |= delimiter_left;
         if places.is_empty() {
             continue;
@@ -225,6 +318,11 @@ fn write_places(
             // so the tokens either side of it stay apart.
             if place.number.is_empty() {
                 written.push(b' ');
+                if place.operator {
+                    out.written_out.insert(id);
+                } else {
+                    out.delimiters_written = out.delimiters_written.saturating_add(1);
+                }
             } else {
                 written.extend_from_slice(&place.number);
             }
@@ -250,10 +348,45 @@ fn write_places(
     if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NO_STREAM_HOLDS_ONE));
     }
+    if !out.written_out.is_empty() && !drawn_the_same(document, &out.at, &out.written_out) {
+        return Err(Because::NotBuiltYet(NOT_DRAWN_THE_SAME));
+    }
     // A run left in a stream this write could not read is an operator the numbers do not answer,
     // and so is a delimiter left where it changes the drawing.
     out.answers_every_operator &= out.unread.is_empty() && !out.delimiter_left;
     Ok(out)
+}
+
+/// **The proof that writing the operators out changes nothing drawn** (`doc/adr/3558`): the
+/// streams written are appended to the source as ISO 32000-2 §7.5.6's incremental update, and
+/// every page that draws one of `written_out` is drawn from both files; the write stands where
+/// each page's display list and text are the same. The pages' annotations are drawn too, since an
+/// appearance stream is one of the streams this write reaches.
+fn drawn_the_same(
+    document: &Document,
+    at: &BTreeMap<ObjectId, Object>,
+    written_out: &BTreeSet<ObjectId>,
+) -> bool {
+    let pages = super::fenced::pages_drawing(document, written_out);
+    if pages.is_empty() || pages.len() > MOST_PAGES_PROVED {
+        return false;
+    }
+    let Ok(bytes) = pdf_syntax::write::incremental_update(document, at) else {
+        return false;
+    };
+    let Ok(after) = Document::open_with_limits(bytes, document.limits()) else {
+        return false;
+    };
+    let (before_pages, after_pages) = (Pages::new(document), Pages::new(&after));
+    pages.into_iter().all(|index| {
+        let (Some(before), Some(written)) = (before_pages.get(index), after_pages.get(index))
+        else {
+            return false;
+        };
+        let was = pdf_model::content::interpret(document, &before);
+        let is = pdf_model::content::interpret(&after, &written);
+        was.display_list == is.display_list && was.text == is.text
+    })
 }
 
 /// What `xmpMM:History` says of the runs written: the requirement, the count and the loss, then
@@ -263,9 +396,10 @@ fn write_places(
 /// written as `\xHH`.
 pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
     let mut out = format!(
-        "{citation}: {} run(s) the base standard spells as no number, or lone delimiters it reads \
-         as no operator, were written as this reader draws them, a run as its number and a \
-         delimiter as white space; loss {}",
+        "{citation}: {} run(s) the base standard spells as no number, lone delimiters it reads \
+         as no operator, or operators this reader repaired and drew the page the same without, \
+         were written as this reader draws them, a run as its number and a delimiter or an \
+         operator with its operands as white space; loss {}",
         drawn.runs.len(),
         super::Loss::ContentAsDrawn.word()
     );
@@ -364,8 +498,116 @@ struct Place {
     start: usize,
     /// One past its last byte.
     end: usize,
-    /// The number the reader draws, in §7.3.3's spelling; empty for a lone delimiter.
+    /// The number the reader draws, in §7.3.3's spelling; empty for a lone delimiter and an
+    /// operator written out.
     number: Vec<u8>,
+    /// Whether the place is an operator a repair was logged at, with its operands
+    /// (`doc/adr/3558`).
+    operator: bool,
+}
+
+impl Place {
+    /// A place written as one white-space character: a lone delimiter, or an operator with its
+    /// operands where `operator` is set.
+    const fn white_space(start: usize, end: usize, operator: bool) -> Self {
+        Self {
+            start,
+            end,
+            number: Vec::new(),
+            operator,
+        }
+    }
+}
+
+/// The grammar's walk through a page's content, carried from one stream of its `/Contents` array
+/// to the next: ISO 32000-2 §7.8.2 makes the array's streams one stream for the reader, divided
+/// only at token boundaries, so an operator's operands and the text object and saved states around
+/// it may stand in an earlier stream than the operator does.
+#[derive(Default)]
+struct Walk {
+    /// The grammar the validator judges the content by (ADR 3542).
+    grammar: Grammar,
+    /// Where the operands since the last operator began in this stream, if they did.
+    operands_from: Option<usize>,
+    /// Whether some of those operands stand in an earlier stream, so that the operator they
+    /// belong to is not written out: its place would span two streams.
+    operands_elsewhere: bool,
+    /// The last name operand, which a `CS` or `cs` selects its space by.
+    last_name: Option<Vec<u8>>,
+}
+
+impl Walk {
+    /// The walk at the start of the next stream of the same page's content.
+    fn into_the_next_stream(mut self) -> Self {
+        self.operands_elsewhere |= self.operands_from.take().is_some();
+        self
+    }
+
+    /// The operands since the last operator are spent: an operator ran or a keyword cleared them.
+    fn operands_spent(&mut self) {
+        self.operands_from = None;
+        self.operands_elsewhere = false;
+    }
+
+    /// A keyword that is no operator ended the operands before it, as the reader's clearing does.
+    fn cleared(&mut self) {
+        self.grammar.boundary();
+        self.operands_spent();
+    }
+
+    /// One token at the top level of the content that is an operand, or a keyword standing where
+    /// one would: a run the reader draws as a number (`drawn`) is the operand it draws, and any
+    /// other keyword ends the operands before it, as the survey's walk reads them
+    /// (`drawn_as_a_number`).
+    fn operand(&mut self, token: &Token<'_>, start: usize, drawn: bool) {
+        let operand = match token {
+            Token::Name(name) => {
+                self.last_name = Some(name.clone());
+                Operand::Name
+            }
+            Token::String(_) => Operand::Text,
+            Token::Integer(_) | Token::Real(_) => Operand::Number,
+            Token::DictClose => Operand::Dictionary,
+            Token::ArrayClose | Token::Keyword(b"true" | b"false" | b"null") => Operand::Other,
+            Token::Keyword(_) if drawn => Operand::Number,
+            Token::Keyword(_) => {
+                self.cleared();
+                return;
+            }
+            Token::ArrayOpen | Token::DictOpen => return,
+        };
+        if matches!(token, Token::Keyword(_)) {
+            self.operands_from.get_or_insert(start);
+        }
+        self.grammar.operand(operand);
+    }
+
+    /// An operator keyword at the top level of the content: where the grammar finds one of
+    /// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at it and its operands all stand in this
+    /// stream, the place its first operand starts at.
+    fn operator(
+        &mut self,
+        document: &Document,
+        resources: &pdf_syntax::object::Dictionary,
+        word: &[u8],
+        start: usize,
+    ) -> Option<usize> {
+        let from = self.operands_from.unwrap_or(start);
+        let whole_here = !self.operands_elsewhere;
+        self.operands_spent();
+        let Some(signature) = signature(word) else {
+            self.grammar.boundary();
+            return None;
+        };
+        let class = self.grammar.operator(signature);
+        if let (b"CS" | b"cs", Some(name)) = (word, self.last_name.take()) {
+            self.grammar
+                .select_space(word == b"CS", space_components(document, resources, &name));
+        }
+        (whole_here
+            && class.is_some_and(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name)))
+        .then_some(from)
+    }
 }
 
 /// Every run in one decoded content stream that this reader draws as a number.
@@ -380,12 +622,17 @@ struct Place {
 /// before it since the last operator and it is in no array or dictionary — the one place the
 /// reader's clearing of the operands clears nothing. The flag beside the list says whether one was
 /// left.
+///
+/// Where `operators` is set, an operator `pdf_model`'s grammar (ADR 3542) finds one of
+/// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at is a place too, from its first operand to its
+/// own last byte; whether the page draws the same without it is [`drawn_the_same`]'s question.
 fn salvaged_runs(
     document: &Document,
     data: &[u8],
     resources: &pdf_syntax::object::Dictionary,
     most: usize,
-    delimiters: bool,
+    (delimiters, operators): (bool, bool),
+    walk: &mut Walk,
 ) -> Option<(Vec<Place>, bool)> {
     let mut lexer = Lexer::new(data);
     let mut out = Vec::new();
@@ -404,61 +651,129 @@ fn salvaged_runs(
                 pdf_model::inline_image::scan(document, data, lexer.position(), resources, true);
             lexer.seek(scan.resume);
             pending = 0;
+            walk.grammar.boundary();
+            walk.operands_spent();
             continue;
         }
-        match token {
+        if depth == 0
+            && !matches!(
+                token,
+                Token::Keyword(_) | Token::ArrayClose | Token::DictClose
+            )
+        {
+            walk.operands_from.get_or_insert(start);
+        }
+        match &token {
             Token::ArrayOpen | Token::DictOpen => depth = depth.saturating_add(1),
             Token::ArrayClose | Token::DictClose => {
                 depth = depth.saturating_sub(1);
                 pending = pending.saturating_add(1);
+                if depth == 0 {
+                    walk.operand(&token, start, false);
+                }
             }
             Token::Keyword(word) if is_a_lone_delimiter(word) => {
                 if delimiters && depth == 0 && pending == 0 {
-                    if out.len() == most {
-                        return None;
-                    }
-                    out.push(Place {
-                        start,
-                        end: lexer.position(),
-                        number: Vec::new(),
-                    });
+                    placed(
+                        &mut out,
+                        most,
+                        Place::white_space(start, lexer.position(), false),
+                    )?;
                 } else {
                     left = true;
                     pending = 0;
                 }
+                walk.cleared();
                 continue;
             }
-            Token::Keyword(b"true" | b"false" | b"null") => pending = pending.saturating_add(1),
-            Token::Keyword(_) if depth == 0 && lexer.salvaged().is_none() => pending = 0,
-            _ => pending = pending.saturating_add(1),
+            Token::Keyword(word)
+                if depth == 0
+                    && lexer.salvaged().is_none()
+                    && !matches!(*word, b"true" | b"false" | b"null") =>
+            {
+                pending = 0;
+                if let Some(from) = walk.operator(document, resources, word, start)
+                    && operators
+                {
+                    placed(
+                        &mut out,
+                        most,
+                        Place::white_space(from, lexer.position(), true),
+                    )?;
+                }
+                continue;
+            }
+            _ => {
+                pending = pending.saturating_add(1);
+                if depth == 0 {
+                    walk.operand(
+                        &token,
+                        start,
+                        lexer.salvaged().is_some_and(draws_the_salvage),
+                    );
+                }
+            }
         }
-        let Some(salvage) = lexer.salvaged() else {
-            continue;
-        };
-        if !draws_the_salvage(salvage) {
-            continue;
+        if lexer.salvaged().is_some_and(draws_the_salvage)
+            && let Some(number) = number_drawn(&token)
+        {
+            let end = lexer.position();
+            placed(
+                &mut out,
+                most,
+                Place {
+                    start,
+                    end,
+                    number,
+                    operator: false,
+                },
+            )?;
         }
-        let value = match token {
-            Token::Integer(value) => Object::Integer(value),
-            Token::Real(value) => Object::Real(value),
-            _ => continue,
-        };
-        let mut number = Vec::new();
-        // §7.3.3: "A PDF writer shall not use the PostScript language syntax for numbers with
-        // non-decimal radices (such as 16#FFFE) or in exponential format (such as 6.02E23)."
-        // `write::object` writes the shortest decimal that reads back as the same value, which
-        // never uses an exponent.
-        if out.len() == most {
-            return None;
-        }
-        pdf_syntax::write::object(&value, &mut number);
-        out.push(Place {
-            start,
-            end: lexer.position(),
-            number,
-        });
     }
     Some((out, left))
+}
+
+/// The number this reader draws for a salvaged run, in ISO 32000-2 §7.3.3's spelling.
+fn number_drawn(token: &Token<'_>) -> Option<Vec<u8>> {
+    let value = match token {
+        Token::Integer(value) => Object::Integer(*value),
+        Token::Real(value) => Object::Real(*value),
+        _ => return None,
+    };
+    let mut number = Vec::new();
+    // §7.3.3: "A PDF writer shall not use the PostScript language syntax for numbers with
+    // non-decimal radices (such as 16#FFFE) or in exponential format (such as 6.02E23)."
+    // `write::object` writes the shortest decimal that reads back as the same value, which
+    // never uses an exponent.
+    pdf_syntax::write::object(&value, &mut number);
+    Some(number)
+}
+
+/// Adds `place` to `out`, or `None` where `out` already holds `most`.
+fn placed(out: &mut Vec<Place>, most: usize, place: Place) -> Option<()> {
+    if out.len() == most {
+        return None;
+    }
+    out.push(place);
+    Some(())
+}
+
+/// How many components the space a `CS` or `cs` names has: a family's own count, or the
+/// resources' `/ColorSpace` entry's, as the survey's walk counts them; `None` where neither says.
+fn space_components(
+    document: &Document,
+    resources: &pdf_syntax::object::Dictionary,
+    name: &[u8],
+) -> Option<usize> {
+    let named = Object::Name(pdf_syntax::Name::new(name.to_vec()));
+    components(document, &named).or_else(|| {
+        let spaces = document.get_key(resources, "ColorSpace");
+        let entry = spaces
+            .as_dict()?
+            .get(std::str::from_utf8(name).ok()?)?
+            .clone();
+        components(document, &entry)
+    })
 }
 
 #[cfg(test)]

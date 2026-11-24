@@ -45,7 +45,7 @@ use pdf_archive::repairs::BASE_STANDARD;
 use pdf_syntax::object::{Object, ObjectId, Stream};
 use pdf_syntax::{Damage, Document, RepairClass, Site, repair};
 
-use super::decision::Because;
+use super::decision::{Because, Loss, Losses};
 use super::rewrite::{Cut, reencoded_through_flate};
 
 /// One stream written as the bytes this reader decoded, as the report names it.
@@ -90,12 +90,34 @@ pub(super) struct Answered {
     /// rewrite here answers, each with the sentence that refuses it; [`settled`] refuses the
     /// first one no photograph takes off its page (ADR 3551).
     refused: Vec<(ObjectId, Because)>,
+    /// Whether an operator this reader repaired was written out of its stream where the page
+    /// draws the same without it, so that the row costs `content-as-drawn` (`doc/adr/3558`).
+    pub(super) operators_written_out: bool,
 }
 
 impl Answered {
     /// Whether the rewrite alone answers the row, so that nothing is lost.
     pub(super) fn costs_nothing(&self) -> bool {
         self.at.is_empty()
+    }
+
+    /// Whether the rewrites answer the row without the damaged-stream restatement's own decision:
+    /// nothing restated, or an operator written out (`doc/adr/3558`).
+    pub(super) fn answers_alone(&self) -> bool {
+        self.costs_nothing() || self.operators_written_out
+    }
+
+    /// What the answer loses besides a photograph: the damaged streams restated, and the
+    /// operators written out where the page draws the same (`doc/adr/3558`).
+    pub(super) fn losses(&self) -> Losses {
+        let mut losses = Losses::default();
+        if !self.costs_nothing() {
+            losses = losses.with(Loss::DamagedDataAsDecoded);
+        }
+        if self.operators_written_out {
+            losses = losses.with(Loss::ContentAsDrawn);
+        }
+        losses
     }
 
     /// The `xmpMM:History` parameters naming every stream restated, the report's sentences
@@ -188,15 +210,31 @@ pub(super) fn settled(
     answered
         .streams
         .retain(|stream| !taken_off.contains(&ObjectId::new(stream.object, stream.generation)));
+    let mut operators_written_out = false;
     for (class, holder) in &answered.content {
         let rewritten = holder.is_some_and(|id| {
+            let streams = content_streams_of(document, id);
             let written_by = |at: &BTreeMap<ObjectId, Object>| {
-                let streams = content_streams_of(document, id);
                 !streams.is_empty() && streams.iter().all(|stream| at.contains_key(stream))
             };
-            photographed.contains(&id)
-                || (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
-                    && drawn.is_some_and(|drawn| written_by(&drawn.at)))
+            if super::fenced::taken_with_the_photographs(document, id, photographed) {
+                return true;
+            }
+            // An operator written out where the page draws the same (`doc/adr/3558`); the
+            // output's own check holds the write to having taken every one.
+            if super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name)
+                && drawn.is_some_and(|drawn| {
+                    written_by(&drawn.at)
+                        && streams
+                            .iter()
+                            .any(|stream| drawn.written_out.contains(stream))
+                })
+            {
+                operators_written_out = true;
+                return true;
+            }
+            (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
+                && drawn.is_some_and(|drawn| written_by(&drawn.at)))
                 || (class.name == WRITTEN_OUT_AS_REALS
                     && reals.is_some_and(|reals| written_by(&reals.at)))
         });
@@ -204,7 +242,31 @@ pub(super) fn settled(
             return Err(Because::TheFence(in_content(class)));
         }
     }
+    answered.operators_written_out = operators_written_out;
     Ok(answered)
+}
+
+/// Whether a rewrite other than a photograph writes `class` out of the streams it rewrites, so that
+/// a page holding only such repairs is not photographed for section 5.1 (`doc/adr/3557`).
+///
+/// An operator [`super::as_drawn`] may write out is not among them: that write stands only where
+/// the page draws the same, which is not known until it is tried, and a page it leaves is
+/// photographed where the profile allows.
+pub(super) fn written_out_by_a_rewrite(class: &str) -> bool {
+    WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class) || class == WRITTEN_OUT_AS_REALS
+}
+
+/// Whether the input failed section 5.1 on an operator this reader repaired inside a content
+/// stream, of a class `super::as_drawn` writes out where the page draws the same
+/// (`doc/adr/3558`), so that a profile granting `content-as-drawn` asks for that write.
+pub(super) fn operators_repaired(document: &Document, input: &pdf_archive::Report) -> bool {
+    input
+        .failures()
+        .any(|judgement| judgement.id == BASE_STANDARD)
+        && document.repairs().iter().any(|logged| {
+            matches!(logged.at, Site::Content(Some(_)))
+                && super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&logged.class.name)
+        })
 }
 
 /// The classes `super::as_drawn` writes out of a stream it rewrites: a run it reads a number off
@@ -455,6 +517,29 @@ macro_rules! in_content {
     };
 }
 
+/// Builds one [`IN_CONTENT_BY_CLASS`] entry for an operator class `super::as_drawn` writes out
+/// where the page draws the same (`doc/adr/3558`), whose sentence says why it was not.
+macro_rules! in_content_operator {
+    ($name:literal, $clause:literal) => {
+        (
+            $name,
+            $clause,
+            concat!(
+                "a content stream of this file needed the repair ",
+                $name,
+                " (",
+                $clause,
+                "), so it does not adhere to the base standard, which ISO 19005 section 5.1 \
+                 requires; the operator is written out of the stream only where the profile \
+                 grants content-as-drawn and this reader draws the page the same without it \
+                 (ADR 3558), and here one of those does not hold, so the stream crosses this \
+                 verb byte for byte; a profile granting page-as-image photographs the page \
+                 instead — doc/pdf-a-conversion-limits.md section 5.2"
+            ),
+        )
+    };
+}
+
 /// The sentence for each class the content reader's lexer records, with the class's clause.
 const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content!("syntax/delimiter-unmatched", "ISO 32000-2 §7.2.3"),
@@ -480,14 +565,14 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
         "ISO 32000-2 §8.9.7"
     ),
     in_content!("model/inline-image-data-extent", "ISO 32000-2 §8.9.7"),
-    in_content!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
-    in_content!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
-    in_content!("model/restore-with-nothing-saved", "ISO 32000-2 §8.4.2"),
-    in_content!(
+    in_content_operator!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
+    in_content_operator!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
+    in_content_operator!("model/restore-with-nothing-saved", "ISO 32000-2 §8.4.2"),
+    in_content_operator!(
         "model/text-operator-outside-a-text-object",
         "ISO 32000-2 §9.4.1"
     ),
-    in_content!(
+    in_content_operator!(
         "model/colour-operands-do-not-fit-the-space",
         "ISO 32000-2 §8.6.8"
     ),

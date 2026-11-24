@@ -323,7 +323,8 @@ session 2193**, `discard` at `ascii-data-as-decoded`
 
 ### `conformance/adheres-to-the-base-standard`
 ISO 19005-2 5.1, ISO 19005-4 5.1, over the reader's log of repairs (ADR 3506) · all six · **built in
-session 2205** (ADR 3521, ADR 3522), per document
+session 2205** (ADR 3521, ADR 3522), content and page-box classes in session 2214 (ADRs 3557–3560),
+per document
 
 - **Mitigation** — by what the reader repaired. A repair outside content and outside stream data is
   answered by the whole-file rewrite, losing nothing. Stream data a filter decoded only in part
@@ -332,9 +333,18 @@ session 2205** (ADR 3521, ADR 3522), per document
   `FlateDecode` — the ASCII row's construction for any stage's damage — and the encoded bytes past
   the damage are the loss; the report and `xmpMM:History` name each stream, the stage and the
   damage. A stream whose one fault is cut ASCII data is left to the row above. A repair inside a
-  content stream (`pdf_syntax::Site::Content`) is refused by name under the fence, the class and its
-  clause in the sentence; data no filter decodes is refused by name; a `/DecodeParms` that does not
-  pair with its `/Filter` is answered only where a restatement re-encodes the stream anyway.
+  content stream (`pdf_syntax::Site::Content`) is answered, in this order: an operator `pdf_model`
+  repaired (short of operands, wrong operand type, `Q` with nothing saved, text operator outside a
+  text object, colour operands that do not fit) is written out with its operands where the page
+  draws the same without it, proved by drawing both, at `content-as-drawn` (ADR 3558); under
+  `as-if-printed` the page holding any other is photographed at `page-as-image` (ADR 3557); a repair
+  in an annotation's appearance, and every repair under `as-shown` the first answer leaves, is
+  refused by name under the fence, the class and its clause in the sentence (ADR 3560 lists what
+  stays). A page box this reader could not read (`model/media-box-substituted`,
+  `model/page-boundary-unusable`) is written on a `/Type /Page` object as the box it drew the page
+  with, losing nothing (ADR 3559, extending ADR 3142). Data no filter decodes is refused by name; a
+  `/DecodeParms` that does not pair with its `/Filter` is answered only where a restatement
+  re-encodes the stream anyway.
 - **By target** — none; both parts bind the base standard alike.
 - **From a configuration** — `[site."conformance/adheres-to-the-base-standard"]` with `remedy =
   "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers `try =

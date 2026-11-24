@@ -2259,7 +2259,16 @@ pub(super) fn decide(
                 .as_drawn
                 .as_ref()
                 .is_ok_and(|drawn| !drawn.runs.is_empty());
-        let losses = substitutes.photograph_losses();
+        let mut losses = substitutes.photograph_losses();
+        // Section 5.1's row is answered by the photographs only for the repairs inside the
+        // content they took; a damaged stream elsewhere is still restated at its own loss, or
+        // refused by the sentence that says why it cannot be (`doc/adr/3557`).
+        if judgement.id == pdf_archive::repairs::BASE_STANDARD {
+            match &prepared.base_standard {
+                Ok(answered) => losses = answered.losses().iter().fold(losses, Losses::with),
+                Err(because) => return Decision::Refused(*because),
+            }
+        }
         return losing(
             if runs_written && judgement.id == super::fenced::OPERATORS {
                 losses.with(Loss::ContentAsDrawn)
@@ -2713,9 +2722,9 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             if prepared
                 .base_standard
                 .as_ref()
-                .is_ok_and(super::base_standard::Answered::costs_nothing) =>
+                .is_ok_and(super::base_standard::Answered::answers_alone) =>
         {
-            Decision::Mechanical(Rewrite::WholeFileRewritten)
+            base_standard_answered(prepared, authorised)
         }
         // A loss the document cannot take is refused rather than offered: telling a user that
         // `--authorise` would allow something this file cannot have is worse than saying why.
@@ -2729,6 +2738,20 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         Answer::OrStated(inner, rewrite, reinterprets) => {
             narrower_or_stated(*inner, (rewrite, reinterprets), authorised, prepared)
         }
+    }
+}
+
+/// Section 5.1's answer where its rewrites alone answer it: nothing lost where every repair is one
+/// the whole-file rewrite leaves behind, and otherwise what the answer cost — `content-as-drawn`
+/// for an operator written out where the page draws the same (`doc/adr/3558`), beside
+/// `damaged-data-as-decoded` for a damaged stream restated.
+fn base_standard_answered(prepared: &Prepared, authorised: Authorisations) -> Decision {
+    match &prepared.base_standard {
+        Ok(answered) if answered.losses().is_empty() => {
+            Decision::Mechanical(Rewrite::WholeFileRewritten)
+        }
+        Ok(answered) => losing(answered.losses(), Rewrite::RunWrittenAsDrawn, authorised),
+        Err(because) => Decision::Refused(*because),
     }
 }
 

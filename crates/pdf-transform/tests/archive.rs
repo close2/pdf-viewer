@@ -16878,6 +16878,8 @@ mod press_assumed;
 mod press_statements;
 #[path = "archive/removed_annotation_actions.rs"]
 mod removed_annotation_actions;
+#[path = "archive/repaired_operators.rs"]
+mod repaired_operators;
 #[path = "archive/truetype_cmap.rs"]
 mod truetype_cmap;
 

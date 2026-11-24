@@ -1802,7 +1802,9 @@ impl Rewrite {
                  own default states that boundary instead; a page whose media box it does not \
                  admit is restated in larger units under \u{a7}7.7.3.3's /UserUnit, its content \
                  bracketed by the matching cm, and one with a side of no length is written as the \
-                 box this viewer draws the page on"
+                 box this viewer draws the page on; a page whose media box, or crop, bleed, trim \
+                 or art box, this reader could not read is written with the box it drew the page \
+                 with, its media box this viewer's choice where the file states none (ADR 3559)"
             }
             Self::ActualTextRemoved => {
                 "an object's ActualText entry holding a character of the Unicode Private Use Area \
@@ -3905,6 +3907,7 @@ impl Rewriter<'_> {
         changed |= self.restate_page_count(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
+        changed |= self.write_boxes_as_drawn(id, out, applied);
         changed |= self.remove_actual_text(id, out, applied);
         changed |= self.give_type3_procedures(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);

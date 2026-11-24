@@ -81,6 +81,11 @@ programs share.
 | `issue14462_reduced` | 4 | 6.2.11.4.1-1 | the program is measured whole; veraPDF fails inside its Private dictionary (ADR 3375) | the document's: the program's own content |
 | `PDFBOX-3148-2-fuzzed` | 4 | 6.2.4.3-4 (DeviceGray) | the widget appearance is `ASCII85Decode` data with no `~>`: this reader decodes `/Tx `, veraPDF `/Tx B` | ours: new row at section 5.1, §7.4.3's end-of-data marker; the stream is written as the bytes decoded, loss `ascii-data-as-decoded`, and veraPDF passes all four (ADRs 3462, 3473) |
 
+Session 2214's census of its own kept outputs, with the CJK pack: 5497 written as conforming,
+veraPDF 1.30.3 failed 46 outputs of 14 documents over 14 rules, 12 unfinished, the list round 2210's;
+the 97 new outputs — section 5.1's content repairs photographed or written out, and the page boxes
+written as drawn (ADRs 3557–3559) — pass. Of the 27 documents round 2210 stopped, `Pages-tree-refs`,
+`T02-05-01_013` and `issue15590` stay refused under both profiles (ADR 3560).
 Session 2202's census of its own kept outputs: 5533 written as conforming, veraPDF 1.30.3 failed
 47 outputs of 15 documents over 14 rules, 20 unfinished, the list 2198's; the eight new outputs — the
 five tagged documents ADR 3463 named, under `as-shown` at the parts each now reaches — pass (ADR 3509).

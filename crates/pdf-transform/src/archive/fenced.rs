@@ -20,11 +20,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::Report;
+use pdf_archive::repairs::BASE_STANDARD;
 use pdf_archive::report::Outcome;
 use pdf_archive::survey::Survey;
 use pdf_model::Pages;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Object, ObjectId};
+use pdf_syntax::repair::Site;
 
 /// The operator row, whose pages the survey names exactly.
 pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
@@ -172,7 +174,128 @@ pub(super) fn pages(
             found.pages.entry(page).or_default().insert(row);
         }
     }
+    if let Some(pages) = content_repair_pages(document, input, drawn) {
+        for page in pages {
+            found.pages.entry(page).or_default().insert(BASE_STANDARD);
+        }
+    }
     found
+}
+
+/// The holders of every repair this reader made inside a content stream that breaches ISO 19005-2
+/// and ISO 19005-4 section 5.1 and that no rewrite of this converter writes out
+/// (`super::base_standard::written_out_by_a_rewrite`), where the input failed that row: each a
+/// page's own content or a form, pattern or glyph procedure some page's resources reach. `None`
+/// where a repair names no holder.
+fn content_repair_holders(
+    document: &Document,
+    input: &Report,
+    drawn: Option<&super::as_drawn::Drawn>,
+) -> Option<BTreeSet<ObjectId>> {
+    if !input
+        .failures()
+        .any(|judgement| judgement.id == BASE_STANDARD)
+    {
+        return Some(BTreeSet::new());
+    }
+    document
+        .repairs()
+        .iter()
+        .filter(|logged| {
+            pdf_archive::repairs::breaches_row(logged.class.name, BASE_STANDARD)
+                && !super::base_standard::written_out_by_a_rewrite(logged.class.name)
+        })
+        .filter_map(|logged| match logged.at {
+            Site::Content(Some(holder))
+                if super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME
+                    .contains(&logged.class.name)
+                    && drawn.is_some_and(|drawn| drawn.wrote_out_of(document, holder)) =>
+            {
+                None
+            }
+            Site::Content(holder) => Some(holder),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the input failed section 5.1 on a repair inside a content stream that a photograph is
+/// the one answer to, so that a profile granting `page-as-image` asks for the survey the
+/// photographs are found in (`doc/adr/3557`).
+pub(super) fn content_repaired(document: &Document, input: &Report) -> bool {
+    content_repair_holders(document, input, None).is_none_or(|holders| !holders.is_empty())
+}
+
+/// **The pages section 5.1's content repairs sit on** (`doc/adr/3557`): a repair this reader made
+/// inside a page's content stream, or inside a form, pattern or glyph procedure the page's
+/// resources reach, is in the output only while that stream is, and a photograph takes the page's
+/// `/Contents` and `/Resources` away with it. What the window drew is the page with the repair
+/// made, which is what a company printing the letter would have kept (A694 item 3).
+///
+/// `None`, so the row keeps its refusal by the repair's name, where a repair names no holder, or
+/// where its stream is one an annotation's appearance reaches (a photograph leaves `/Annots`), or
+/// reached from no page at all.
+///
+/// An operator [`super::as_drawn`] wrote out of every stream of its holder, where the page draws
+/// the same, is answered there and photographs nothing (`doc/adr/3558`).
+fn content_repair_pages(
+    document: &Document,
+    input: &Report,
+    drawn: Option<&super::as_drawn::Drawn>,
+) -> Option<BTreeSet<usize>> {
+    let holders = content_repair_holders(document, input, drawn)?;
+    if holders.is_empty() {
+        return Some(BTreeSet::new());
+    }
+    let every = Pages::new(document).every();
+    let index_of: BTreeMap<ObjectId, usize> = every
+        .iter()
+        .enumerate()
+        .filter_map(|(index, page)| Some((page.as_ref()?.id?, index)))
+        .collect();
+    let mut annotations_reach = None;
+    let mut pages = BTreeSet::new();
+    for holder in holders {
+        if let Some(&index) = index_of.get(&holder) {
+            pages.insert(index);
+            continue;
+        }
+        let reached = annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
+        if reached.contains(&holder) {
+            return None;
+        }
+        let reaching = pages_reaching(document, holder);
+        if reaching.is_empty() {
+            return None;
+        }
+        pages.extend(reaching);
+    }
+    Some(pages)
+}
+
+/// Whether the stream a content repair was made in leaves the output with the pages photographed:
+/// a photographed page's own, or a form, pattern or glyph procedure that only photographed pages'
+/// resources reach and no annotation's appearance does (`doc/adr/3557`).
+pub(super) fn taken_with_the_photographs(
+    document: &Document,
+    holder: ObjectId,
+    photographed: &BTreeSet<ObjectId>,
+) -> bool {
+    if photographed.contains(&holder) {
+        return true;
+    }
+    if photographed.is_empty() || reached_from_annotations(document).contains(&holder) {
+        return false;
+    }
+    let reaching = pages_reaching(document, holder);
+    let every = Pages::new(document).every();
+    !reaching.is_empty()
+        && reaching.iter().all(|&index| {
+            every
+                .get(index)
+                .and_then(|page| page.as_ref()?.id)
+                .is_some_and(|id| photographed.contains(&id))
+        })
 }
 
 /// The row whose places name a font, a `CIDFont` or a font descriptor where the name a font is
@@ -492,6 +615,32 @@ fn pages_reaching(document: &Document, object: ObjectId) -> BTreeSet<usize> {
             resource_entries(document, &page.resources, &mut queue);
             reached_from(document, queue)
                 .contains(&object)
+                .then_some(index)
+        })
+        .collect()
+}
+
+/// The pages (zero-based) on which this reader draws any of `streams`: as the page's own
+/// `/Contents`, or through its resources or an annotation's appearance and every form, pattern,
+/// glyph procedure and soft mask group below them (`super::as_drawn`'s proof, `doc/adr/3558`).
+pub(super) fn pages_drawing(document: &Document, streams: &BTreeSet<ObjectId>) -> BTreeSet<usize> {
+    Pages::new(document)
+        .every()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, page)| {
+            let page = page?;
+            if super::hexadecimal::contents_of(document, &page.dict)
+                .iter()
+                .any(|id| streams.contains(id))
+            {
+                return Some(index);
+            }
+            let mut queue = super::rewrite::appearance_streams(document, &page.dict);
+            resource_entries(document, &page.resources, &mut queue);
+            reached_from(document, queue)
+                .iter()
+                .any(|id| streams.contains(id))
                 .then_some(index)
         })
         .collect()

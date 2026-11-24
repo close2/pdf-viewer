@@ -807,6 +807,10 @@ impl Prepared {
             && input
                 .failures()
                 .any(|judgement| super::fenced::ROWS.contains(&judgement.id));
+        // So are the pages holding a repair this reader made inside their content, which section
+        // 5.1 refuses and a photograph takes out of the file (`doc/adr/3557`).
+        let photographs_repaired =
+            photographs_anywhere && super::fenced::content_repaired(document, input);
         // At part 4 a page whose `DeviceCMYK` mark is blended in four components under a
         // non-zero overprint mode is photographed where the default is written for the rest
         // (`super::overprint::blended_pages`, `doc/adr/3358`). Not beside a fenced row's
@@ -820,12 +824,18 @@ impl Prepared {
             && input
                 .failures()
                 .any(|judgement| judgement.id == super::fenced::OPERATORS);
+        // So is an operator this reader repaired, written out where the page draws the same
+        // without it (`doc/adr/3558`).
+        let operators_drawn = plan.authorised.grants(Loss::ContentAsDrawn)
+            && super::base_standard::operators_repaired(document, input);
         let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite))
             || odd_digits
             || runs_drawn
+            || operators_drawn
             || rgb_by_default
             || cmyk_by_supply
             || photographs_fenced
+            || photographs_repaired
             || photographs_blended)
             .then(|| Survey::of(document));
         // **The definitions are worked out before the fonts**, because a name this reader draws
@@ -926,9 +936,13 @@ impl Prepared {
         );
         // After both other stream repairs, because a stream either writes is refused rather than
         // written twice (`super::as_drawn`).
-        let as_drawn = asked(runs_drawn, || {
-            let drawn =
-                super::as_drawn::write(document, survey.as_ref(), hexadecimal.as_ref().ok())?;
+        let as_drawn = asked(runs_drawn || operators_drawn, || {
+            let drawn = super::as_drawn::write(
+                document,
+                survey.as_ref(),
+                hexadecimal.as_ref().ok(),
+                operators_drawn,
+            )?;
             super::as_drawn::apart_from(drawn, languages.as_ref().ok())
         });
         // After every other stream repair, for the same reason: a glyph procedure one of them
@@ -2541,7 +2555,9 @@ impl Owed {
                 sites::completed_orders(document)
             }),
             page_resources: asked(
-                wanted(Rewrite::PageResources) || !sites::resources_absent(document).is_empty(),
+                wanted(Rewrite::PageResources)
+                    || !sites::resources_absent(document).is_empty()
+                    || !sites::boxes_substituted(document).is_empty(),
                 || sites::page_resources(document, input, survey),
             ),
             defined_resources,

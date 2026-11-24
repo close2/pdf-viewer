@@ -38,6 +38,25 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Each box this reader could not read, written on the page as the box it drew the page with
+    /// (`super::super::sites::page_resources`'s `boxes`, `doc/adr/3559`): the report counts it
+    /// under `page-boundary-removed`, whose sentence names the case as it does ADR 3142's.
+    pub(super) fn write_boxes_as_drawn(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(boxes) = self.page_resources.and_then(|pages| pages.boxes.get(&id)) else {
+            return false;
+        };
+        for (key, rectangle) in boxes {
+            out.insert(Name::new(key.as_bytes()), rectangle.clone());
+        }
+        count(applied, Rewrite::PageBoundaryRemoved);
+        true
+    }
+
     /// §14.7.5.4's keys on the producer's holders, and the root edits where no appended page
     /// carries them (`super::super::parent_tree`, `doc/adr/2674`).
     ///
