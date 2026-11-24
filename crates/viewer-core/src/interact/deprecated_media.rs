@@ -52,6 +52,83 @@ pub(crate) fn exhibited(open: &Open, annotation: ObjectId) -> Option<Outcome> {
     Some(outcome)
 }
 
+/// §13.4's Table 306 `/Poster` `true` of each movie annotation among `annotations`, on pages that
+/// came onto the screen: [`crate::Event::Poster`] for a movie this program's window plays, once
+/// for each annotation while the document is open (ADR 3609).
+///
+/// Only a host whose player shows video is raised one. For it, a poster that cannot be shown —
+/// the movie is not an embedded MP4 file of `video/` type, or its file will not decode — is said
+/// once, because the page's own report says only that the page renderer drew none (trap 5).
+pub(crate) fn posters(
+    open: &mut Open,
+    id: crate::DocumentId,
+    annotations: &[ObjectId],
+    events: &mut Vec<crate::Event>,
+) {
+    if open.view.players() != pdf_model::media::Players::AlsoVideoHere {
+        return;
+    }
+    for &annotation in annotations {
+        if open.posters_raised.contains(&annotation) {
+            continue;
+        }
+        let object = open.document.get(annotation);
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if open
+            .document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .map(pdf_syntax::Name::as_bytes)
+            != Some(&b"Movie"[..])
+        {
+            continue;
+        }
+        let Some(clip) = pdf_model::media::poster_movie(&open.document, dict, processor(open))
+        else {
+            continue;
+        };
+        open.posters_raised.insert(annotation);
+        let subject = format!("the poster of this {}", movie_name(&open.document, dict));
+        let movie = match clip {
+            Ok(clip) if clip.played_here => match &clip.data {
+                pdf_model::media::Data::Embedded(file) => open
+                    .document
+                    .decoded_stream_data(&file.stream)
+                    .map(|bytes| (bytes.to_vec(), clip.playing.fit))
+                    .ok_or_else(|| {
+                        "its movie file states a filter or an encryption this program cannot \
+                         undo"
+                            .to_owned()
+                    }),
+                // `played_here` admits an embedded file alone (ADR 3594).
+                _ => Err("its movie file is not embedded".to_owned()),
+            },
+            Ok(clip) => Err(format!(
+                "Table 306's /Poster true retrieves it from the movie file, and this program's \
+                 window decodes pictures only of an embedded MP4 movie of video/ type, and the \
+                 file is {}",
+                clip.describe()
+            )),
+            Err(why) => Err(why),
+        };
+        match movie {
+            Ok((movie, fit)) => events.push(crate::Event::Poster {
+                document: id,
+                annotation,
+                movie,
+                fit,
+            }),
+            Err(why) => events.push(crate::Event::Reported {
+                document: id,
+                page: None,
+                notes: vec![format!("{subject} is not shown — {why}")],
+            }),
+        }
+    }
+}
+
 /// §12.6.4.10's action: the movie annotation found, and its movie handed over where the action
 /// asks for it to be played.
 ///

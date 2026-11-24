@@ -296,6 +296,8 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ),
         // §12.6.4.14's stop, pause or resume of an associated rendition (ADR 3433).
         ("QUORRA_EVENT_OPERATE_MEDIA", EventKind::OperateMedia),
+        // §13.4's poster retrieved from the movie file (ADR 3609).
+        ("QUORRA_EVENT_POSTER", EventKind::Poster),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

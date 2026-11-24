@@ -63,7 +63,8 @@
 //!   arm carries the reading: §12.5.6.22's Table 194 states a transformation of the annotation
 //!   rectangle, which is where an appearance goes rather than what it contains. `Movie` is drawn
 //!   from §13.4's Table 306 `/Poster` where that is an image stream, and refused only where the
-//!   poster would be a frame of the movie itself (`movie_poster`, ADR 1561).
+//!   poster is a picture of the movie itself, which a window that shows video draws (`movie_poster`,
+//!   ADRs 1561, 3609).
 //! - `Caret` is refused for a **third** reason, not the second one's sentence (ADR 0457).
 //!   §12.5.6.11's Table 183 states geometry and a symbol; what it does not state is the caret,
 //!   and its `/RD` row says the pilcrow is "displayed along with the caret" rather than instead
@@ -1960,9 +1961,10 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 ///
 /// - **A stream** is an image `XObject`, painted by `Do` like any other, in `/Rect`.
 /// - **`false`, or no entry**, displays nothing, so nothing is drawn and nothing is owed.
-/// - **`true`** needs a frame decoded out of the movie file, which is playing the movie, and
-///   playing it is the media engine `CLAUDE.md` principle 5's clause 13 exclusion names
-///   (`doc/questions/A33`). It is refused and reported.
+/// - **`true`** needs a picture decoded out of the movie file, and the page renderer decodes no
+///   video: the decoder is the media worker's, beside the window. So the page is drawn without it
+///   and says so, and a window that shows video draws the movie's first picture over `/Rect`
+///   itself, as it draws the playing movie (`viewer_host::video`'s posters, ADR 3609).
 ///
 /// **Where in `/Rect` the image goes is this program's choice** (ADR 1561): neither table states a
 /// placement, so the image is fitted by Table 250's defaults — scaled proportionally until it
@@ -1989,7 +1991,8 @@ fn movie_poster(document: &Document, annotation: &Dictionary, stream: &mut Strea
         Object::Boolean(true) => {
             return Err(Refusal::NotDerivable(
                 "Table 306's /Poster true retrieves the poster image from the movie file, which \
-                 is playing the movie, and principle 5's clause 13 exclusion keeps that out",
+                 the page renderer does not decode; a window that shows video draws the movie's \
+                 first picture over /Rect where the movie is an embedded MP4 file it plays",
             ));
         }
         Object::Stream(image) => &image.dict,

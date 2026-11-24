@@ -102,14 +102,16 @@ impl Host {
                 self.locked_an_offer();
                 self.password_required();
             }
-            // Five arms with nothing to do, and each for its own reason, kept in one place so
+            // Six arms with nothing to do, and each for its own reason, kept in one place so
             // that a message added to the boundary still breaks this build: a `Closed` follows
             // this window's own `Close` and nothing else; a `Transition` never fires because this
             // window sends no `Command::Tick` and starts no presentation; a `Searched` answers a
             // `Find` this window never sends; a `Dirty` marks a title this window does not mark,
             // because its title is the confinement's sentence; and an `AttachmentsChanged` names a
-            // list this window shows no panel for (ADR 0713).
+            // list this window shows no panel for (ADR 0713); a `Poster` is raised only for a
+            // window that says it shows video, which this one does not (ADR 3609).
             Event::Closed(_)
+            | Event::Poster { .. }
             | Event::Transition { .. }
             | Event::Dirty { .. }
             | Event::Searched { .. }

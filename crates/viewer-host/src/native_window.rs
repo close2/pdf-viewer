@@ -972,6 +972,25 @@ pub trait NativeWindow {
                 annotation,
                 operation,
             } => self.operate_media(document, annotation, operation),
+            // §13.4's poster retrieved from the movie file, decoded beside the window (ADR 3609).
+            Event::Poster {
+                document,
+                annotation,
+                movie,
+                fit,
+            } => {
+                let wake = self.picture_wake();
+                self.state_mut().pictures.poster(
+                    crate::video::poster::Asked {
+                        document,
+                        annotation,
+                        movie,
+                        fit,
+                    },
+                    || wake,
+                );
+                self.look_at_the_pictures();
+            }
             Event::AttachmentsChanged { .. } => self.attachments_changed(),
         }
     }

@@ -1154,6 +1154,58 @@ fn an_mp4_video_clip_is_played_here_only_by_a_host_that_shows_video() {
     }
 }
 
+/// Table 291's `/C`, "A flag specifying whether to display a player-specific controller user
+/// interface when playing", is honoured over a clip with pictures by the controller bar the window
+/// draws (ADR 3610) — in `MH` and `BE` alike — and a sound, which has no pictures to draw it over,
+/// is judged as before: `MH` non-viable, `BE` set aside and said.
+#[test]
+fn table_291_controls_are_the_bar_over_a_clip_with_pictures() {
+    let video = format!("<< /S /MCD /CT (video/mp4) /D {EMBEDDED} >>");
+    let shows_video = Processor {
+        language: None,
+        players: Players::AlsoVideoHere,
+        screens: Screens::default(),
+    };
+    for options in ["/MH << /C true >>", "/BE << /C true >>"] {
+        let body = format!("<< /S /MR /P << {options} >> /C {video} >>");
+        let report = judged(&body, shows_video);
+        let (_, chosen) = report.chosen().expect("viable with its bar");
+        assert!(chosen.playing.controls, "{options}");
+        assert!(
+            !chosen.unhonoured.iter().any(|entry| entry.contains("/C")),
+            "{options}: nothing set aside: {:?}",
+            chosen.unhonoured
+        );
+    }
+    let body = format!("<< /S /MR /P << /BE << /C false >> >> /C {video} >>");
+    assert!(
+        !judged(&body, shows_video)
+            .chosen()
+            .expect("viable")
+            .1
+            .playing
+            .controls
+    );
+    let sound = format!("<< /S /MCD /CT (audio/mp4) /D {EMBEDDED} >>");
+    let body = format!("<< /S /MR /P << /BE << /C true >> >> /C {sound} >>");
+    let report = judged(&body, shows_video);
+    let (_, chosen) = report
+        .chosen()
+        .expect("a best-effort controller is set aside");
+    assert!(!chosen.playing.controls);
+    assert!(
+        chosen
+            .unhonoured
+            .iter()
+            .any(|entry| entry.contains("best-effort /C"))
+    );
+    let body = format!("<< /S /MR /P << /MH << /C true >> >> /C {sound} >>");
+    assert!(
+        judged(&body, shows_video).chosen().is_none(),
+        "a must-honour one is non-viable"
+    );
+}
+
 /// §13.2.3.3's search falls to the next rendition when the first is non-viable for the player
 /// that would play it: a selector of a WAVE clip whose `MH` asks for a controller, then one whose
 /// `MH` asks only for a volume, chooses the second here and neither for the hand-off.

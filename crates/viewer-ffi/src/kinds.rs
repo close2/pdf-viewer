@@ -132,6 +132,12 @@ pub enum EventKind {
     /// operation and the annotation; a caller that handed the clip to a player it can command may
     /// do it there, and one that cannot says so (ADR 3433).
     OperateMedia = 32,
+    /// [`viewer_core::Event::Poster`] — §13.4's Table 306 `/Poster` true on a movie annotation of
+    /// a page that came onto the screen. `quorra_events_bytes` hands the movie file; a window this
+    /// library drives decodes its first picture itself and hands it through the picture calls
+    /// (`quorra_window_pictures`), and a caller of the bare viewer may do the same with a decoder
+    /// of its own (ADR 3609).
+    Poster = 33,
 }
 
 impl EventKind {
@@ -140,7 +146,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 33;
+    pub const COUNT: u32 = 34;
 
     /// Which kind an event is.
     ///
@@ -180,6 +186,7 @@ impl EventKind {
             Event::Console { .. } => Self::Console,
             Event::Media { .. } => Self::Media,
             Event::OperateMedia { .. } => Self::OperateMedia,
+            Event::Poster { .. } => Self::Poster,
             Event::Archiving { .. } => Self::Archiving,
             Event::ListOpens { .. } => Self::ListOpens,
             Event::RecipientRequired { .. } => Self::RecipientRequired,
@@ -227,6 +234,7 @@ impl EventKind {
             Self::ListOpens => "ListOpens\0",
             Self::RecipientRequired => "RecipientRequired\0",
             Self::OperateMedia => "OperateMedia\0",
+            Self::Poster => "Poster\0",
         }
     }
 
@@ -271,6 +279,7 @@ impl EventKind {
             30 => Self::ListOpens,
             31 => Self::RecipientRequired,
             32 => Self::OperateMedia,
+            33 => Self::Poster,
             _ => return None,
         })
     }

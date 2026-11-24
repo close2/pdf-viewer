@@ -498,3 +498,219 @@ fn a_clip_that_asks_for_a_floating_window_is_shown_in_one_of_its_own() {
     assert!(app.stop_the_pictures());
     let _ = std::fs::remove_file(&document);
 }
+
+/// The floating window of Table 294's `/W` 0 under winit's own running loop, on X11 (`xvfb-run`
+/// gives one): the window this program opens for a clip that asks for one (ADR 3587) is a real
+/// window of the clip's Table 295 `/D` size — 48 by 32 pixels — titled with the clip's label, the
+/// clip's own pictures are drawn into it through its software surface, and it closes when the clip
+/// ends, with nothing asked of it (ADR 3612).
+///
+/// The loop is pumped rather than run, so the test reads the window between turns; everything a
+/// turn does is the launch's own — `resumed` makes the document window, `about_to_wait` takes the
+/// picture that is due and keeps the clip's window.
+///
+/// **Run in a child process of its own, tried up to three times where the display refused the
+/// connection.** winit admits one event loop per process and keeps the claim when the display
+/// refuses it, and an `Xvfb` serving a whole suite's GTK and Qt windows has refused one under load;
+/// any other failure of the child fails at once.
+#[test]
+fn a_floating_window_opens_shows_its_clip_and_closes_with_it_under_a_running_loop() {
+    const CHILD: &str = "QUORRA_RUNNING_LOOP_TEST";
+    if std::env::var_os(CHILD).is_some() {
+        the_floating_window_under_a_running_loop();
+        return;
+    }
+    let program = std::env::current_exe().expect("this test binary");
+    let mut said = String::new();
+    for _ in 0..3 {
+        let output = std::process::Command::new(&program)
+            .args([
+                "window::headless::a_floating_window_opens_shows_its_clip_and_closes_with_it_under_a_running_loop",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the test binary runs");
+        if output.status.success() {
+            return;
+        }
+        said = String::from_utf8_lossy(&output.stderr).into_owned();
+        if !said.contains("XOpenDisplayFailed") {
+            break;
+        }
+    }
+    panic!("the running loop's test failed: {said}");
+}
+
+/// [`a_floating_window_opens_shows_its_clip_and_closes_with_it_under_a_running_loop`]'s body.
+fn the_floating_window_under_a_running_loop() {
+    use winit::event_loop::EventLoop;
+    use winit::platform::pump_events::EventLoopExtPumpEvents as _;
+    use winit::platform::x11::EventLoopBuilderExtX11 as _;
+
+    let (sets, units, pictures) = pcm_stream::stream(8, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("floating-loop.pdf");
+    std::fs::write(
+        &document,
+        showing::a_video_document_in(
+            &clip,
+            "/MH << /W 0 /F << /D [48 32] /P 0 /RT 2 >> >> /BE << /B [0 0 1] >>",
+        ),
+    )
+    .expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+    // The test's own thread, which winit admits on X11 when asked; a display is required, and its
+    // absence is a failure rather than a skip.
+    let mut event_loop = EventLoop::builder()
+        .with_x11()
+        .with_any_thread(true)
+        .build()
+        .expect("an X11 display: run this test under `xvfb-run -a`");
+    app.waker = Some(event_loop.create_proxy());
+    let began = std::time::Instant::now();
+    let mut turn_until = |app: &mut App, what: &str, done: &dyn Fn(&App) -> bool| {
+        while !done(app) {
+            assert!(
+                began.elapsed() < std::time::Duration::from_mins(2),
+                "the loop never {what} (the worker must be built: `cargo build -p \
+                 pdf-media-worker --bins`)"
+            );
+            let _ = event_loop.pump_app_events(Some(std::time::Duration::from_millis(5)), app);
+        }
+    };
+    turn_until(&mut app, "made the document window", &|app| {
+        app.state.is_some()
+    });
+    assert!(
+        app.media_screens.windows,
+        "a window of its own can be opened on this display"
+    );
+    // What the display allows, which the launch tells the core when it takes the document in;
+    // here that was before the loop ran.
+    drop(
+        app.viewer
+            .handle(Command::OpensMediaWindows(app.media_screens)),
+    );
+    app.dispatch(Command::Activate(showing::SCREEN));
+    turn_until(&mut app, "opened the clip's window", &|app| {
+        app.media_window.is_some()
+    });
+    let window = app.media_window.as_ref().expect("the clip's window");
+    let size = window.window().inner_size();
+    assert_eq!((size.width, size.height), (48, 32), "Table 295's /D");
+    // winit reads no title back from an X11 window, so the one it was made with is asserted.
+    let title = window.title();
+    assert!(title.contains("clip"), "titled with the clip: {title:?}");
+    turn_until(&mut app, "drew a picture", &|app| app.picture.is_some());
+    let raster = app.picture.clone().expect("a picture");
+    assert!(
+        which(&raster, &pictures).is_some(),
+        "the clip's own picture"
+    );
+    let video = app.video.as_ref().expect("a player");
+    let shown = video
+        .window_picture(Some(&raster), (48, 32))
+        .expect("a clip in a window")
+        .expect("drawn");
+    let at = |x: usize, y: usize| {
+        &shown.data[y.saturating_mul(48).saturating_add(x).saturating_mul(4)..][..4]
+    };
+    assert_ne!(
+        at(8, 16),
+        &[0, 0, 255, 255],
+        "the picture, not Table 294's /B alone"
+    );
+    turn_until(
+        &mut app,
+        "closed the clip's window when the clip ended",
+        &|app| app.media_window.is_none(),
+    );
+    assert!(
+        !app.video
+            .as_ref()
+            .is_some_and(viewer_host::video::VideoPlayer::in_hand),
+        "the clip is over"
+    );
+    let _ = std::fs::remove_file(&document);
+}
+
+/// ISO 32000-2 §13.4's Table 306 `/Poster` `true` — "the poster image shall be retrieved from the
+/// movie file" — in this window: the page placed raises the poster, the posters' own worker decodes
+/// the movie's first picture, and it is drawn over the movie annotation's rectangle as the clip's
+/// own samples converted (ADR 3609). Activated, the movie plays in its place and the poster is not
+/// drawn; Table 307's `/ShowControls` bar takes a press on its button, which pauses the movie and
+/// a second resumes it, and the page never sees either (ADR 3610); stopped, the poster is drawn
+/// again.
+#[test]
+fn a_movie_s_poster_stands_until_it_plays_and_its_bar_takes_a_press() {
+    let (sets, units, pictures) = pcm_stream::stream(8, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("poster.pdf");
+    std::fs::write(
+        &document,
+        showing::a_movie_document(
+            &clip,
+            "/Poster true",
+            "<< /ShowControls true /Mode /Open >>",
+        ),
+    )
+    .expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+    show_until(&mut app, "put a poster up", |app| {
+        app.posters.shown().next().is_some()
+    });
+    let poster = app.posters.shown().next().expect("a poster");
+    assert_eq!(poster.annotation, showing::MOVIE);
+    assert_eq!(
+        which(poster.raster, &pictures),
+        Some(0),
+        "the movie's first picture"
+    );
+    assert!(app.poster_list(800, 1000).is_some(), "drawn over the page");
+    app.dispatch(Command::Activate(showing::MOVIE));
+    show_until(&mut app, "played the movie", |app| app.picture.is_some());
+    assert!(
+        app.poster_list(800, 1000).is_none(),
+        "a playing movie's pictures stand in its poster's place"
+    );
+    let quad = app.picture_quad().expect("the movie's rectangle");
+    let left = quad
+        .iter()
+        .step_by(2)
+        .copied()
+        .fold(f32::INFINITY, f32::min);
+    let bottom = quad
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let button = (left + 5.0, bottom - 5.0);
+    let playing = |app: &App| {
+        app.video
+            .as_ref()
+            .and_then(|video| video.controller(std::time::Instant::now()))
+            .expect("Table 307's bar")
+            .playing
+    };
+    assert!(playing(&app));
+    assert!(app.press_the_bar(button), "the press is the bar's");
+    assert!(!playing(&app), "its button paused the movie");
+    assert!(app.press_the_bar(button));
+    assert!(playing(&app), "and resumed it");
+    assert!(
+        !app.press_the_bar((left + 5.0, bottom - 40.0)),
+        "a press above the bar is the page's"
+    );
+    assert!(app.stop_the_pictures());
+    assert!(app.poster_list(800, 1000).is_some(), "the poster again");
+    let _ = std::fs::remove_file(&document);
+}

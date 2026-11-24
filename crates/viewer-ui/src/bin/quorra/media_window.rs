@@ -68,6 +68,25 @@ pub(crate) struct MediaWindow {
     window: Arc<Window>,
     /// Its software surface.
     surface: viewer_ui::software::SoftwareSurface,
+    /// Where the pointer is in it, in its pixels, for a press on the controller bar (ADR 3610).
+    cursor: (f32, f32),
+    /// The title it was made with, which winit reads back on no X11 or Wayland window.
+    #[cfg(test)]
+    title: String,
+}
+
+impl MediaWindow {
+    /// The window, for a test that reads its size.
+    #[cfg(test)]
+    pub(crate) fn window(&self) -> &Window {
+        &self.window
+    }
+
+    /// The title the window was made with, for a test.
+    #[cfg(test)]
+    pub(crate) fn title(&self) -> &str {
+        &self.title
+    }
 }
 
 impl std::fmt::Debug for MediaWindow {
@@ -253,6 +272,8 @@ impl App {
                     attributes.with_inner_size(winit::dpi::PhysicalSize::new(inner.0, inner.1));
             }
         }
+        #[cfg(test)]
+        let title = attributes.title.clone();
         let opened = Arc::new(
             event_loop
                 .create_window(attributes)
@@ -263,6 +284,9 @@ impl App {
         Ok(MediaWindow {
             window: opened,
             surface,
+            cursor: (0.0, 0.0),
+            #[cfg(test)]
+            title,
         })
     }
 
@@ -327,6 +351,37 @@ impl App {
                 }
                 _ => {}
             },
+            WindowEvent::CursorMoved { position, .. } => {
+                if let Some(open) = self.media_window.as_mut() {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a pointer position in this window, which is thousands of pixels"
+                    )]
+                    let at = (position.x as f32, position.y as f32);
+                    open.cursor = at;
+                }
+            }
+            // A press on the controller bar over the window's bottom is the bar's (ADR 3610).
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
+                let Some(open) = self.media_window.as_ref() else {
+                    return;
+                };
+                let size = open.window.inner_size();
+                let quad = screens::whole((size.width, size.height));
+                let at = open.cursor;
+                let pressed = self
+                    .video
+                    .as_mut()
+                    .is_some_and(|video| video.press_over(quad, at));
+                if pressed {
+                    self.show_the_pictures();
+                    self.present_the_media_window();
+                }
+            }
             WindowEvent::Resized(_) | WindowEvent::RedrawRequested => {
                 self.present_the_media_window();
             }

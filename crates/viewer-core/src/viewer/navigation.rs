@@ -594,13 +594,31 @@ impl Viewer {
                 raised.push((annotation, Trigger::PageInvisible));
             }
         }
+        let mut posters = Vec::new();
         for page in &arriving {
             for annotation in annotations_on(open, &pages, *page) {
                 raised.push((annotation, Trigger::PageVisible));
+                posters.push(annotation);
             }
         }
         drop(pages);
+        interact::posters(open, id, &posters, events);
         self.raise(id, raised, None, None, events);
+    }
+
+    /// §13.4's posters of the movie annotations on every page already on the screen, for a window
+    /// that has just said it shows video ([`interact::posters`], ADR 3609).
+    pub(super) fn posters_on_screen(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &mut self.documents {
+            let pages = pdf_model::Pages::new(&open.document);
+            let annotations: Vec<ObjectId> = open
+                .visible
+                .iter()
+                .flat_map(|page| annotations_on(open, &pages, *page))
+                .collect();
+            drop(pages);
+            interact::posters(open, *id, &annotations, events);
+        }
     }
 
     /// Runs Table 198's `/O` or `/C` scripts of page `page` of the document in front, and its

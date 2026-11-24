@@ -366,3 +366,76 @@ fn a_host_that_draws_no_pictures_is_handed_the_clip() {
     assert_eq!(window.picture_wait(), None, "nor looked for");
     let _ = std::fs::remove_file(&document);
 }
+
+/// ISO 32000-2 §13.4's Table 306 `/Poster` `true` in a window driven from C: the page placed, the
+/// movie's first picture is decoded beside the window and read through `quorra_window_picture` as
+/// its samples converted, with a `QUORRA_REPAINT_PICTURE` when it comes up (ADR 3609). Activated,
+/// the movie plays with Table 307's bar, and a press through `quorra_window_pointer` on the bar's
+/// button pauses it and never reaches the page (ADR 3610); `quorra_window_controller` says so.
+#[test]
+fn a_movie_s_poster_and_its_bar_reach_a_window_driven_from_c() {
+    let document = temporary("poster.pdf");
+    let (sets, units, pictures) = pcm_stream::stream(8, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    std::fs::write(
+        &document,
+        showing::a_movie_document(
+            &clip,
+            "/Poster true",
+            "<< /ShowControls true /Mode /Open >>",
+        ),
+    )
+    .expect("write the document");
+    let mut window = Window::open_hearing(
+        &document,
+        None,
+        viewer_host::policy::Words::default(),
+        viewer_host::sound::Hearing::HereWithPictures,
+    )
+    .expect("the movie document opens");
+    window.state.restrictions = window
+        .state
+        .restrictions
+        .with(ActLevel::MediaFiles(MediaFiles::Open));
+    let missing = temporary("no-such-helper-poster");
+    window.state.sounds = Sounds::opening_with(Box::new(move || {
+        viewer_host::sound::helper::open_at(&missing)
+    }))
+    .heard_by(viewer_host::sound::Hearing::HereWithPictures);
+    window.resize(400, 400, 1.0).expect("resize");
+    let mut host = Host::default();
+    timer_until(&mut window, &mut host, "put the poster up", |window, _| {
+        held_up(window).is_some()
+    });
+    let rgba = held_up(&window).expect("the poster");
+    assert_eq!(
+        which(&rgba, &pictures),
+        Some(0),
+        "the movie's first picture"
+    );
+    assert!(host.picture_repaints > 0, "a repaint said it came up");
+    assert_eq!(
+        window.controller().err(),
+        Some(Status::NoAnswer),
+        "a poster has no bar"
+    );
+    window.dispatch(Command::Activate(showing::MOVIE));
+    timer_until(&mut window, &mut host, "played the movie", |window, _| {
+        window.controller().is_ok_and(|bar| bar.playing)
+    });
+    let Answer::Screen(quad) = window.state.viewer.query(Query::Screen(showing::MOVIE)) else {
+        panic!("the movie annotation is on the page placed");
+    };
+    let left = quad[0].min(quad[2]).min(quad[4]).min(quad[6]);
+    let bottom = quad[1].max(quad[3]).max(quad[5]).max(quad[7]);
+    let over = window.pointer(
+        (left + 5.0, bottom - 5.0),
+        viewer_core::PointerAction::Pressed,
+    );
+    assert!(!over, "the bar is not a link");
+    assert!(
+        window.controller().is_ok_and(|bar| !bar.playing),
+        "the button paused the movie"
+    );
+    let _ = std::fs::remove_file(&document);
+}

@@ -177,6 +177,22 @@ pub fn over(quad: [f32; 8]) -> Option<([f32; 8], u32)> {
     ))
 }
 
+/// Where a press at `point`, in window pixels, lands on the bar [`over`] lays over `quad`: its
+/// distance from the bar's left edge in whole pixels, or `None` where it is not on the bar.
+#[must_use]
+pub fn at(quad: [f32; 8], point: (f32, f32)) -> Option<u32> {
+    let (bar, width) = over(quad)?;
+    let (x, y) = point;
+    let inside = x >= bar[0] && x < bar[2] && y >= bar[1] && y < bar[5];
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a non-negative distance inside a bar `width` pixels wide"
+    )]
+    let from_left = (x - bar[0]).floor() as u32;
+    inside.then_some(from_left.min(width.saturating_sub(1)))
+}
+
 /// A place in time as the bar shows it, "m:ss": minutes without a bound, seconds rounded down.
 fn minutes_and_seconds(at: Duration) -> String {
     let seconds = at.as_secs();
@@ -405,5 +421,26 @@ mod tests {
             "middle"
         );
         assert_eq!(pixel(&eight.raster, 3, DIGIT_HEIGHT - 1), MARK, "bottom");
+    }
+
+    /// A press lands on the bar [`over`] lays over a rectangle only inside its bottom
+    /// [`BAR_HEIGHT`] pixels, counted from the bar's left edge; above the bar, beside the
+    /// rectangle or on a rectangle too small for a bar it is not the bar's (ADR 3610).
+    #[test]
+    fn a_press_lands_on_the_bar_only_inside_it() {
+        let quad = [10.0, 100.0, 110.0, 100.0, 110.0, 160.0, 10.0, 160.0];
+        assert_eq!(at(quad, (15.0, 155.0)), Some(5), "on the button");
+        assert_eq!(Controller::pressed(5), Pressed::PlayPause);
+        assert_eq!(at(quad, (90.0, 141.0)), Some(80), "on the track");
+        assert_eq!(Controller::pressed(80), Pressed::Bar);
+        assert_eq!(at(quad, (15.0, 139.0)), None, "above the bar");
+        assert_eq!(at(quad, (5.0, 155.0)), None, "beside the rectangle");
+        assert_eq!(at(quad, (15.0, 160.0)), None, "below it");
+        let small = [0.0, 0.0, 30.0, 0.0, 30.0, 10.0, 0.0, 10.0];
+        assert_eq!(
+            at(small, (5.0, 5.0)),
+            None,
+            "no bar on a rectangle too small for one"
+        );
     }
 }

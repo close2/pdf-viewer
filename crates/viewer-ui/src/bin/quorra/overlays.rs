@@ -559,6 +559,8 @@ pub(crate) struct Overlays {
     matches: Option<pdf_render::DisplayList>,
     /// What is selected on the page, which belongs to the page and so is under everything else.
     selection: Option<pdf_render::DisplayList>,
+    /// Table 306's posters over their movie annotations, on either kind of window (ADR 3609).
+    posters: Option<pdf_render::DisplayList>,
     /// A clip's picture over its screen annotation, on a window the processor draws (ADR 3545).
     picture: Option<pdf_render::DisplayList>,
     /// The controller bar over the clip's rectangle, on either kind of window (ADR 3595).
@@ -616,6 +618,7 @@ impl Overlays {
             annex_o_highlight: app.annex_o_highlight_list(edge, width, height),
             matches: app.matches_list(edge, width, height),
             selection: app.selection_list(edge, width, height),
+            posters: app.poster_list(width, height),
             picture: app.picture_list(width, height),
             controller: app.controller_list(width, height),
             field_selection: app.field_selection_list(edge, width, height),
@@ -642,7 +645,8 @@ impl Overlays {
     pub(crate) fn lists(&self) -> Vec<&pdf_render::DisplayList> {
         [
             // A clip's picture over its screen annotation is the page's, and every piece of
-            // chrome is over it (ADR 3545).
+            // chrome is over it (ADR 3545); a movie's poster is under a playing clip's picture.
+            self.posters.as_ref(),
             self.picture.as_ref(),
             self.controller.as_ref(),
             self.annex_o_highlight.as_ref(),

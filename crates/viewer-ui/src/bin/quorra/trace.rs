@@ -570,6 +570,14 @@ pub(crate) fn describe_event(event: &Event) -> String {
             annotation.number,
             annotation.generation
         ),
+        Event::Poster {
+            annotation, movie, ..
+        } => format!(
+            "poster {} {} {} bytes",
+            annotation.number,
+            annotation.generation,
+            movie.len()
+        ),
         Event::Copied {
             logical,
             page_order,

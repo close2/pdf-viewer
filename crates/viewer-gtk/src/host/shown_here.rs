@@ -89,14 +89,22 @@ fn a_window_in(
     count: u32,
     screen: Option<&str>,
 ) -> (Rc<RefCell<Host>>, Vec<pdf_media_worker::video::Picture>) {
+    a_window_of(document, count, |clip| match screen {
+        Some(screen) => showing::a_video_document_in(clip, screen),
+        None => showing::a_video_document(clip),
+    })
+}
+
+/// [`a_window`] over the document `of` makes of the clip.
+fn a_window_of(
+    document: &Path,
+    count: u32,
+    of: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> (Rc<RefCell<Host>>, Vec<pdf_media_worker::video::Picture>) {
     let (sets, units, pictures) =
         pcm_stream::stream(count, 16, 16, pcm_stream::Coding::Progressive);
     let clip = pcm_stream::mp4(&sets, &units, 16, 16);
-    let bytes = match screen {
-        Some(screen) => showing::a_video_document_in(&clip, screen),
-        None => showing::a_video_document(&clip),
-    };
-    std::fs::write(document, bytes).expect("write the document");
+    std::fs::write(document, of(&clip)).expect("write the document");
     let opening = Opening::start(
         document,
         None,
@@ -418,5 +426,49 @@ fn a_full_screen_window_goes_on_the_monitor_its_specifier_names_in_the_gtk_windo
         said.borrow()
     );
     assert!(host.borrow_mut().stop_the_pictures());
+    let _ = std::fs::remove_file(&document);
+}
+
+/// ISO 32000-2 §13.4's Table 306 `/Poster` `true` in the GTK window: once the window says it shows
+/// video, the movie's first picture is decoded beside it and held up over the movie annotation in
+/// a widget of its own (ADR 3609); activated, the movie plays in its place and the poster is taken
+/// down, and a press on Table 307's bar pauses it (ADR 3610).
+#[test]
+fn a_movie_s_poster_is_held_up_until_it_plays_in_the_gtk_window() {
+    let document = temporary("poster.pdf");
+    let (host, _) = a_window_of(&document, 8, |clip| {
+        showing::a_movie_document(clip, "/Poster true", "<< /ShowControls true /Mode /Open >>")
+    });
+    let said = RefCell::new(Vec::new());
+    turn_until(&host, &said, "held up the poster", |host| {
+        host.shown.posters_shown() == 1
+    });
+    host.borrow_mut()
+        .dispatch(Command::Activate(showing::MOVIE));
+    turn_until(&host, &said, "played the movie in its place", |host| {
+        held_up(host).is_some() && host.shown.posters_shown() == 0
+    });
+    let quad = {
+        let host = host.borrow();
+        let viewer_core::Answer::Screen(quad) = host
+            .state
+            .viewer
+            .query(viewer_core::Query::Screen(showing::MOVIE))
+        else {
+            panic!("the movie annotation is on the page placed");
+        };
+        quad
+    };
+    let left = quad[0].min(quad[2]).min(quad[4]).min(quad[6]);
+    let bottom = quad[1].max(quad[3]).max(quad[5]).max(quad[7]);
+    assert!(host.borrow_mut().press_the_bar((left + 5.0, bottom - 5.0)));
+    assert!(
+        host.borrow()
+            .state
+            .pictures
+            .controller(Instant::now())
+            .is_some_and(|bar| !bar.playing),
+        "the bar's button paused the movie"
+    );
     let _ = std::fs::remove_file(&document);
 }

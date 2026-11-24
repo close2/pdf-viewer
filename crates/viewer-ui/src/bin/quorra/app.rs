@@ -265,6 +265,9 @@ pub(crate) struct App {
     /// A clip's pictures this window shows itself (ADR 3545): `None` until the first, so that the
     /// decoding thread and its worker are made by a clip and never by the launch.
     pub(crate) video: Option<viewer_host::video::VideoPlayer>,
+    /// Table 306's posters retrieved from their movie files (ADR 3609): no thread or worker until
+    /// the first.
+    pub(crate) posters: viewer_host::video::Posters,
     /// The picture up, converted on the processor, where no graphics device draws this window; a
     /// device's picture is a texture the device keeps (`crate::pictures`).
     pub(crate) picture: Option<pdf_render::Raster>,
@@ -911,6 +914,7 @@ impl App {
             player: None,
             sounding: None,
             video: None,
+            posters: viewer_host::video::Posters::default(),
             picture: None,
             media_window: None,
             media_screens: pdf_model::media::Screens::default(),
@@ -1361,6 +1365,7 @@ impl App {
                 if let Some(video) = self.video.as_mut() {
                     video.closed(closing);
                 }
+                self.posters.closed(closing);
                 self.show_the_pictures();
                 self.dispatch(Command::Close(closing));
                 self.dispatch(Command::Focus(focused));

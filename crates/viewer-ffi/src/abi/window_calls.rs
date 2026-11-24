@@ -577,7 +577,9 @@ pub unsafe extern "C" fn quorra_window_keys(
 
 /// The pointer at (`x`, `y`) in device pixels of the viewport, as a `QUORRA_POINTER_*`: moved,
 /// pressed, dragged or released. `*over_link`, where not null, is whether it is now over §12.5.6.5's
-/// activation region, which is the cursor every window changes. `QUORRA_WRONG_KIND` for an action
+/// activation region, which is the cursor every window changes. A press on the controller bar of
+/// the clip whose picture is shown is the bar's, and pauses or resumes the clip (ADR 3610).
+/// `QUORRA_WRONG_KIND` for an action
 /// this build does not define, and `QUORRA_NUMBER_OUT_OF_RANGE` for a point that is not finite.
 ///
 /// # Safety

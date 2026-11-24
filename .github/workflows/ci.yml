@@ -187,11 +187,16 @@ jobs:
       # caller takes, which is where a fact about *this machine* belongs.
       # `viewer-gtk` runs on its own, under the virtual display installed above: its control
       # tests (`#[gtk4::test]`) build real GTK widgets, and GTK will not initialise without a
-      # display. The rest of the workspace keeps running without one, for the `wgpu` reason above.
-      - run: cargo test --workspace --exclude viewer-gtk
+      # display. `viewer-ui` runs under it too: `quorra`'s floating window for a clip is driven
+      # through winit's own running loop on X11 (ADR 3612). The rest of the workspace keeps running
+      # without one, for the `wgpu` reason above.
+      - run: cargo test --workspace --exclude viewer-gtk --exclude viewer-ui
         env:
           WGPU_BACKEND: vulkan
       - run: xvfb-run -a cargo test -p viewer-gtk
+        env:
+          WGPU_BACKEND: vulkan
+      - run: xvfb-run -a cargo test -p viewer-ui
         env:
           WGPU_BACKEND: vulkan
 

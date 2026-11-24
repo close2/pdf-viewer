@@ -184,16 +184,6 @@ published pairs (`doc/questions/A308`, ADR 1916).
 - §13.2.5 — Table 291's /F 3, "A scrolling user interface shall be provided": no window provides
   one over a screen annotation, so it is non-viable in MH and set aside in BE; the other values fit
   the picture (ADR 3553).
-- §13.4 — a movie annotation's poster retrieved from its movie file (Table 306's /Poster `true`),
-  owed since video was opened (`doc/questions/A1006`). The movie plays in place, told Table 307
-  (ADRs 3594, 3595); the poster is the decoder's, which runs beside the window and not in the
-  confined renderer that draws the page, so what is owed is host-side: the viewer names, for a
-  page placed, each movie annotation whose `/Poster` is `true` and whose movie this program
-  shows; the window's video player decodes its first displayable picture once (a decode of one
-  picture from the section's start, `MediaWorker::decode_mp4_video_from`) and the window draws it
-  in `/Rect` until that movie plays, in `quorra`, GTK, Qt and through the C ABI as a picture is.
-  Two sentences of Table 307 stay set aside, each said: `Palindrome`'s backward half and a `/Rate`
-  other than 1 (ADR 3594).
 
 §13.2.6.2 and §13.2.6.3 are `implemented`: `pdf_model::media::judge` reads an offset and
 its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
@@ -285,8 +275,10 @@ departed from is Table 269's eastings and northings, read as the base system's d
 `doc/questions/A271` (ADR 1918). §12.10 above it is `implemented` with it.
 
 §13.4 was here as `implemented` while the playing rested on the clause 13 entry; with video opened
-it is in bucket 4 (ADR 3545), and its one residue is the boolean poster (ADR 3594). Table 306's stream `/Poster` is drawn in `/Rect` at a placement this
-program chose (ADR 1561).
+it is in bucket 4 (ADR 3545), and it is `implemented`: the movie plays in place, told Table 307 (ADRs 3594, 3595),
+Table 306's boolean poster is the movie's first picture decoded beside the window and drawn in `/Rect` until it plays
+(ADR 3609), and its stream `/Poster` is drawn in `/Rect` at a placement this program chose (ADR 1561). Two sentences of
+Table 307 stay set aside, each said: `Palindrome`'s backward half and a `/Rate` other than 1 (ADR 3594).
 
 §12.6.4.6 was here, and is `departed`: a launch whose Table 207 `/F` is a
 PDF opens under the reader's remote-documents level, and one that names an application is the one

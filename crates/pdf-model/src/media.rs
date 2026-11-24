@@ -48,7 +48,7 @@ mod playing;
 mod screen;
 mod wave;
 
-pub use deprecated::{movie, sound};
+pub use deprecated::{movie, poster_movie, sound};
 pub use playing::{Fit, Honoured, Playing, Section, SimpleDuration};
 pub use screen::{
     Floating, MonitorSpecifier, Offscreen, Position, Relative, Resize, Screens, Window, WindowKind,
@@ -552,6 +552,9 @@ impl Walk<'_> {
                 let mut read = Playing::of_play_parameters(document, parameters);
                 if pictures && read.playing.fit == Fit::Scroll {
                     unscrolled(&mut read);
+                }
+                if !pictures && read.playing.controls {
+                    uncontrolled(&mut read);
                 }
                 reasons.extend(read.must.iter().cloned());
                 honoured = Some(read);
@@ -1491,6 +1494,24 @@ fn unscrolled(read: &mut Honoured) {
     } else {
         read.set_aside
             .push(format!("Table 291's best-effort /F, because {why}"));
+    }
+}
+
+/// Table 291's `/C` true over a clip with no pictures: the controller user interface this player
+/// shows is the bar a window draws over a clip's pictures (ADR 3610), and a sound has none to draw
+/// it over, so an `MH` `/C` makes the rendition non-viable and a `BE` one is set aside and said.
+fn uncontrolled(read: &mut Honoured) {
+    read.playing.controls = false;
+    let why = "it shows its controller user interface over a clip's pictures, and this clip has \
+               none (/C true)";
+    if read.controls_must {
+        read.must.push(format!(
+            "it must be played with Table 291's /C honoured, and this program's player cannot: \
+             {why}"
+        ));
+    } else {
+        read.set_aside
+            .push(format!("Table 291's best-effort /C, because {why}"));
     }
 }
 

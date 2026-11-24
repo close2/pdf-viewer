@@ -614,6 +614,7 @@ impl Viewer {
                 for open in self.documents.values_mut() {
                     open.view.set_players(players);
                 }
+                self.posters_on_screen(events);
             }
             Command::OpensMediaWindows(screens) => {
                 self.media_windows = screens;
@@ -627,6 +628,8 @@ impl Viewer {
                 for open in self.documents.values_mut() {
                     open.view.set_players(players);
                 }
+                // A window that says so once its pages are on the screen is owed their posters.
+                self.posters_on_screen(events);
             }
             // Table 294's `/W` 3: the rectangle a sound plays in is painted while it plays, and the
             // page drawn again either way (ADR 3407).

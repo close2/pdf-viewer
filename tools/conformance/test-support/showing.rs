@@ -65,6 +65,44 @@ pub(super) fn a_video_document_in(clip: &[u8], screen: &str) -> Vec<u8> {
          >> >>"
             .to_owned(),
     ];
+    file_of(&objects)
+}
+
+/// The movie annotation [`a_movie_document`] places.
+pub(super) const MOVIE: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(4, 0);
+
+/// A page with a movie annotation (object 4, ISO 32000-2 §12.5.6.17) over the same rectangle as
+/// [`a_video_document`]'s screen annotation, whose Table 306 movie is `clip` — embedded, Table 44's
+/// `/Subtype` naming it `video/mp4` — with the movie dictionary's further entries `movie` (Table
+/// 306's `/Poster true`, say) and the activation dictionary `activation` (Table 307's entries, the
+/// annotation's `/A`) (ADRs 3594, 3609).
+#[must_use]
+pub(super) fn a_movie_document(clip: &[u8], movie: &str, activation: &str) -> Vec<u8> {
+    let mut hex = String::with_capacity(clip.len().saturating_mul(2).saturating_add(1));
+    for byte in clip {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex.push('>');
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>".to_owned(),
+        format!(
+            "<< /Type /Annot /Subtype /Movie /P 3 0 R /Rect [20 100 84 164] /Movie << /F 5 0 R \
+             {movie} >> /A {activation} >>"
+        ),
+        "<< /Type /Filespec /F (movie.mp4) /UF (movie.mp4) /EF << /F 6 0 R >> >>".to_owned(),
+        format!(
+            "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Filter /ASCIIHexDecode /Length {} \
+             >>\nstream\n{hex}\nendstream",
+            hex.len()
+        ),
+    ];
+    file_of(&objects)
+}
+
+/// A one-revision file of `objects`, numbered from 1, with its exact cross-reference table.
+fn file_of(objects: &[String]) -> Vec<u8> {
     let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {

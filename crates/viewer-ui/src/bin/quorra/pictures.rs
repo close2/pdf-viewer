@@ -46,6 +46,14 @@ impl App {
     /// the loop should look again. Never waits.
     pub(crate) fn show_the_pictures(&mut self) -> Option<Instant> {
         let now = Instant::now();
+        // Table 306's posters, each decoded and converted on the posters' own thread (ADR 3609).
+        let posted = self.posters.look();
+        for seen in self.posters.seen() {
+            println!("note: {}", seen.sentence());
+        }
+        if posted {
+            self.redraw();
+        }
         let video = self.video.as_mut()?;
         let frame = video.due(now);
         let mut said = video.seen();
@@ -132,11 +140,82 @@ impl App {
         resumed
     }
 
+    /// `viewer_core::Event::Poster`: the movie's first picture asked of the posters' thread, made
+    /// at the first poster with the loop's waker, and drawn over its annotation while the movie is
+    /// not playing (ADR 3609).
+    pub(crate) fn ask_for_the_poster(&mut self, asked: viewer_host::video::poster::Asked) {
+        let waker = self.waker.clone();
+        self.posters.ask(asked, || {
+            Box::new(move || {
+                if let Some(waker) = &waker {
+                    let _ = waker.send_event(());
+                }
+            })
+        });
+        self.show_the_pictures();
+    }
+
+    /// A press at `at`, in window pixels, on the controller bar of the clip in hand: the bar's
+    /// button pauses or resumes it, and the press is the bar's (Table 307's `/ShowControls`, Table
+    /// 291's `/C`; ADR 3610). Answers whether it was.
+    pub(crate) fn press_the_bar(&mut self, at: (f32, f32)) -> bool {
+        let Some(quad) = self.picture_quad() else {
+            return false;
+        };
+        let pressed = self
+            .video
+            .as_mut()
+            .is_some_and(|video| video.press_over(quad, at));
+        if pressed {
+            self.show_the_pictures();
+            // A paused clip has no next picture to draw its bar again with.
+            self.redraw();
+        }
+        pressed
+    }
+
+    /// Table 306's posters as the lowest overlay, each over its movie annotation, but a playing
+    /// movie's, whose pictures stand in its place — the overlays' pixels are the window's, `width`
+    /// by `height`.
+    pub(crate) fn poster_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let playing = self.video.as_ref().and_then(VideoPlayer::screen);
+        let mut posters = self
+            .posters
+            .shown()
+            .filter(|poster| playing != Some((poster.document, poster.annotation)))
+            .filter_map(|poster| {
+                let quad = self.annotation_quad(poster.document, poster.annotation)?;
+                let placed = poster.placed(quad)?;
+                Some((placed.part_of(poster.raster), placed.quad))
+            })
+            .peekable();
+        posters.peek()?;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+        for (part, quad) in posters {
+            list.push(picture_command(&part, quad));
+        }
+        Some(list)
+    }
+
     /// Where the picture goes: the screen annotation's quadrilateral in window pixels — the core's
     /// answer in the viewport's, moved past the panel — where the clip's document is the one in
     /// front and the annotation is on a page now placed; `None` otherwise.
     pub(crate) fn picture_quad(&self) -> Option<[f32; 8]> {
         let (document, screen) = self.video.as_ref()?.screen()?;
+        self.annotation_quad(document, screen)
+    }
+
+    /// `annotation`'s rectangle in window pixels, where `document` is the one in front and the
+    /// annotation is on a page now placed.
+    fn annotation_quad(
+        &self,
+        document: viewer_core::DocumentId,
+        screen: pdf_syntax::ObjectId,
+    ) -> Option<[f32; 8]> {
         if document != self.documents.focused() {
             return None;
         }
@@ -183,23 +262,28 @@ impl App {
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
-        list.push(DrawCommand::Image {
-            image: ImageSource::Decoded(pdf_render::Image {
-                width: part.width,
-                height: part.height,
-                data: Arc::from(part.data.as_slice()),
-                // A picture is drawn at the rectangle's size, larger or smaller than its own;
-                // smoothing it is this window's choice, as the device's sampler makes it.
-                interpolate: true,
-                sample_alpha: SampleAlpha::Shape,
-            }),
-            transform: unit_square_onto(placed.quad),
-            alpha: 1.0,
-            clip: None,
-            mask: None,
-            blend: BlendMode::Normal,
-        });
+        list.push(picture_command(&part, placed.quad));
         Some(list)
+    }
+}
+
+/// A picture drawn over `quad`, in window pixels.
+fn picture_command(part: &pdf_render::Raster, quad: [f32; 8]) -> DrawCommand {
+    DrawCommand::Image {
+        image: ImageSource::Decoded(pdf_render::Image {
+            width: part.width,
+            height: part.height,
+            data: Arc::from(part.data.as_slice()),
+            // A picture is drawn at the rectangle's size, larger or smaller than its own;
+            // smoothing it is this window's choice, as the device's sampler makes it.
+            interpolate: true,
+            sample_alpha: SampleAlpha::Shape,
+        }),
+        transform: unit_square_onto(quad),
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
     }
 }
 

@@ -460,6 +460,10 @@ impl Window {
     /// §12.9's measuring takes a press before the text selection does, which is the one gesture it
     /// takes away (ADR 1191).
     pub fn pointer(&mut self, at: (f32, f32), action: viewer_core::PointerAction) -> bool {
+        // A press on a clip's controller bar is the bar's (ADR 3610): the page never sees it.
+        if matches!(action, viewer_core::PointerAction::Pressed) && self.press_the_bar(at) {
+            return false;
+        }
         if self.state.showing.measuring.is_on() {
             if matches!(action, viewer_core::PointerAction::Pressed) {
                 self.measure(at);

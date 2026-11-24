@@ -75,6 +75,9 @@ pub(super) struct HeldUp {
     /// The controller bar over the rectangle's bottom, made at the first clip that asks for one
     /// (Table 307's `/ShowControls`, ADR 3595).
     bar: Option<gtk4::Picture>,
+    /// Table 306's posters retrieved from their movie files, one widget each, with the movie
+    /// annotation it shows and the part of the picture its texture was made of (ADR 3609).
+    posters: Vec<HeldPoster>,
     /// Counts the timeouts armed; one whose number is not this one's is stale.
     armed: u64,
     /// The window of its own a clip that Table 294's `/W` 0 or 1 asks for is shown in, while one
@@ -82,7 +85,26 @@ pub(super) struct HeldUp {
     pub(super) media_window: Option<super::media_window::MediaWindow>,
 }
 
+/// One poster's widget, and what its texture was made from, so that a placement that moves it
+/// makes no new texture.
+#[derive(Debug)]
+struct HeldPoster {
+    document: viewer_core::DocumentId,
+    annotation: pdf_syntax::ObjectId,
+    part: [u32; 4],
+    widget: gtk4::Picture,
+}
+
 impl HeldUp {
+    /// The posters held up and shown, for a test.
+    #[cfg(test)]
+    pub(super) fn posters_shown(&self) -> usize {
+        self.posters
+            .iter()
+            .filter(|poster| poster.widget.is_visible())
+            .count()
+    }
+
     /// The widget, for a test that reads the picture it holds.
     #[cfg(test)]
     pub(super) fn widget(&self) -> Option<&gtk4::Picture> {
@@ -133,6 +155,8 @@ impl Host {
         if self.shown.media_window.is_some() {
             self.hold_up_in_the_media_window();
         }
+        // Under the playing picture and its bar, which are held up after them.
+        self.hold_up_the_posters();
         let screen = self
             .state
             .pictures
@@ -224,6 +248,119 @@ impl Host {
         widget.set_size_request(width, height);
         widget.set_visible(true);
         fixed.set_child_transform(widget, Some(&placement(quad, (width, height), self.scale)));
+    }
+
+    /// A press at `at`, device pixels of the viewport, on the controller bar of the clip whose
+    /// picture is held up: the bar's button pauses or resumes it, and the press is the bar's
+    /// (Table 307's `/ShowControls`, Table 291's `/C`; ADR 3610). Answers whether it was.
+    pub(super) fn press_the_bar(&mut self, at: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let pressed = self.state.pictures.press_over(quad, at);
+        if pressed {
+            self.show_the_pictures();
+            // A paused clip has no next picture to draw its bar again with.
+            self.hold_up_the_picture();
+        }
+        pressed
+    }
+
+    /// Puts each poster over its movie annotation, where its document is the one in front and the
+    /// annotation is on a page now placed, and takes the rest down (ADR 3609). A poster's texture
+    /// is made when it first goes up and again only where the part of it shown changes.
+    fn hold_up_the_posters(&mut self) {
+        let focused = self.state.documents.focused();
+        let mut wanted = Vec::new();
+        let mut refusals = Vec::new();
+        for poster in self.state.pictures.posters() {
+            if poster.document != focused {
+                continue;
+            }
+            let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(poster.annotation))
+            else {
+                continue;
+            };
+            let Some(placed) = poster.placed(quad) else {
+                continue;
+            };
+            let part = [placed.left, placed.top, placed.right, placed.bottom];
+            let made = self.shown.posters.iter().any(|held| {
+                held.document == poster.document
+                    && held.annotation == poster.annotation
+                    && held.part == part
+            });
+            let texture = if made {
+                None
+            } else {
+                match crate::page::texture(&placed.part_of(poster.raster)) {
+                    Ok(texture) => Some(texture),
+                    Err(refused) => {
+                        refusals.push(format!("a movie's poster was not shown: {refused}"));
+                        continue;
+                    }
+                }
+            };
+            wanted.push((
+                poster.document,
+                poster.annotation,
+                part,
+                placed.quad,
+                texture,
+            ));
+        }
+        for refused in &refusals {
+            self.say(refused);
+        }
+        let fixed = self.ui.fixed.clone();
+        let mut kept = Vec::new();
+        for (document, annotation, part, quad, texture) in wanted {
+            let at = self
+                .shown
+                .posters
+                .iter()
+                .position(|held| held.document == document && held.annotation == annotation);
+            let mut held = if let Some(at) = at {
+                self.shown.posters.swap_remove(at)
+            } else {
+                let widget = gtk4::Picture::new();
+                widget.set_content_fit(gtk4::ContentFit::Fill);
+                widget.set_can_shrink(false);
+                widget.set_can_target(false);
+                fixed.put(&widget, 0.0, 0.0);
+                HeldPoster {
+                    document,
+                    annotation,
+                    part,
+                    widget,
+                }
+            };
+            if let Some(texture) = texture {
+                held.widget.set_paintable(Some(&texture));
+                held.widget
+                    .set_size_request(texture.width(), texture.height());
+                held.part = part;
+            }
+            if fixed.last_child().as_ref() != Some(held.widget.upcast_ref()) {
+                held.widget
+                    .insert_after(&fixed, fixed.last_child().as_ref());
+            }
+            let size = (held.widget.width_request(), held.widget.height_request());
+            held.widget.set_visible(true);
+            fixed.set_child_transform(&held.widget, Some(&placement(quad, size, self.scale)));
+            kept.push(held);
+        }
+        // A poster whose movie plays, whose page left the screen or whose document closed.
+        for gone in self.shown.posters.drain(..) {
+            fixed.remove(&gone.widget);
+        }
+        self.shown.posters = kept;
     }
 
     /// Arms a one-shot look at the player's next time, where it has one; the one armed before is

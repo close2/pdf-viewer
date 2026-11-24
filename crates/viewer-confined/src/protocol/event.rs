@@ -72,6 +72,9 @@ mod event_kind {
     // §12.6.4.14's stop, pause or resume, which crosses for `MEDIA`'s reason: the window holds the
     // player the rendition is associated in (ADR 3433).
     pub(in crate::protocol) const OPERATE_MEDIA: u8 = 31;
+    // §13.4's poster retrieved from the movie file, which crosses for `MEDIA`'s reason: the window
+    // holds the media worker that decodes its picture (ADR 3609).
+    pub(in crate::protocol) const POSTER: u8 = 32;
 }
 
 /// Encodes one event.
@@ -369,6 +372,19 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .object(*annotation)
                 .u8(operation.op());
         }
+        Event::Poster {
+            document,
+            annotation,
+            movie,
+            fit,
+        } => {
+            writer
+                .u8(k::POSTER)
+                .document(*document)
+                .object(*annotation)
+                .bytes(movie)
+                .u8(fit.value());
+        }
         Event::Console { document, request } => {
             let command = match request.command {
                 pdf_model::view::ConsoleCommand::Show => 0,
@@ -659,6 +675,23 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             Event::Console {
                 document,
                 request: pdf_model::view::ConsoleRequest { command, at },
+            }
+        }
+        k::POSTER => {
+            let document = reader.document(what)?;
+            let annotation = reader.object("the movie annotation a poster is drawn in")?;
+            let movie = reader.owned_bytes("a poster's movie file")?;
+            let fit = reader.u8("a poster's fit")?;
+            Event::Poster {
+                document,
+                annotation,
+                movie,
+                fit: pdf_model::media::Fit::of_value(i64::from(fit)).ok_or(
+                    ProtocolError::Unrecognised {
+                        what: "a poster's fit",
+                        value: u32::from(fit),
+                    },
+                )?,
             }
         }
         k::OPERATE_MEDIA => {

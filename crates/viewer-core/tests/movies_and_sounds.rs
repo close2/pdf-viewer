@@ -440,3 +440,103 @@ fn a_sound_action_s_parameters_cross_with_its_samples() {
         "{notes:?}"
     );
 }
+
+/// §13.4's Table 306 `/Poster` `true`, "the poster image shall be retrieved from the movie file":
+/// for a window that shows video, the page coming onto the screen raises `Event::Poster` with the
+/// embedded MP4 movie, once while the document is open; a movie that window would not play — a
+/// `video/mpeg` file here — is said instead, and a window that shows no video is raised nothing
+/// (ADR 3609).
+#[test]
+fn a_poster_retrieved_from_the_movie_crosses_once_when_its_page_is_shown() {
+    let posters = |shows_video: bool, kind: &str| {
+        let bytes = String::from_utf8(document("/A true", "<< /S /Movie /T (intro) >>"))
+            .expect("a text file")
+            .replace(
+                "/Movie << /F 6 0 R >>",
+                "/Movie << /F 6 0 R /Poster true >>",
+            )
+            .replace("video#2Fquicktime", kind)
+            .into_bytes();
+        // The cross-reference offsets move with the edit, so the file is assembled again.
+        let bytes = reassembled(&bytes);
+        let mut viewer = Viewer::new(400, 400, 1.0);
+        let mut events: Vec<Event> = Vec::new();
+        events.extend(viewer.handle(Command::PlaysHere(true)));
+        events.extend(viewer.handle(Command::ShowsVideoHere(shows_video)));
+        events.extend(viewer.handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        }));
+        events.extend(viewer.handle(Command::Resize {
+            width: 400,
+            height: 400,
+            scale: 1.0,
+        }));
+        let first = events;
+        let again: Vec<Event> = viewer
+            .handle(Command::Resize {
+                width: 420,
+                height: 400,
+                scale: 1.0,
+            })
+            .collect();
+        (first, again)
+    };
+    let (first, again) = posters(true, "video#2Fmp4");
+    let raised: Vec<_> = first
+        .iter()
+        .filter_map(|event| match event {
+            Event::Poster {
+                annotation, movie, ..
+            } => Some((*annotation, movie.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        raised,
+        [(pdf_syntax::ObjectId::new(4, 0), b"moov".to_vec())]
+    );
+    assert!(
+        !again
+            .iter()
+            .any(|event| matches!(event, Event::Poster { .. })),
+        "once while the document is open"
+    );
+    let (first, _) = posters(true, "video#2Fmpeg");
+    assert!(
+        !first
+            .iter()
+            .any(|event| matches!(event, Event::Poster { .. }))
+    );
+    assert!(
+        notes(&first)
+            .iter()
+            .any(|note| note.contains("poster") && note.contains("is not shown")),
+        "said: {:?}",
+        notes(&first)
+    );
+    let (first, _) = posters(false, "video#2Fmp4");
+    assert!(
+        !first
+            .iter()
+            .any(|event| matches!(event, Event::Poster { .. }))
+    );
+}
+
+/// `bytes`' objects assembled again, for a file whose text was edited after it was assembled.
+fn reassembled(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut objects = Vec::new();
+    let mut rest = text.as_ref();
+    while let Some(start) = rest.find(" 0 obj\n") {
+        let body = &rest[start.saturating_add(" 0 obj\n".len())..];
+        let Some(end) = body.find("\nendobj\n") else {
+            break;
+        };
+        objects.push(body[..end].to_owned());
+        rest = &body[end..];
+    }
+    assembled(&objects)
+}

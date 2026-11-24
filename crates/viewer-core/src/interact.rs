@@ -25,7 +25,7 @@ use crate::open::Open;
 
 mod deprecated_media;
 
-pub(crate) use deprecated_media::exhibited;
+pub(crate) use deprecated_media::{exhibited, posters};
 
 /// One media request a chain of actions made, in the chain's order.
 #[derive(Debug)]

@@ -79,6 +79,37 @@ pub fn movie(
                 .to_owned(),
         );
     }
+    movie_clip(document, annotation, action, processor)
+}
+
+/// The movie a movie annotation's Table 306 `/Poster` `true` retrieves its poster from — "the
+/// poster image shall be retrieved from the movie file" — as [`movie`] would hand it over: `None`
+/// where `/Poster` is not `true`, the clip otherwise, whose [`Clip::played_here`] says whether a
+/// window that shows video decodes its first picture (ADR 3609). Table 189's `/A` is about the
+/// annotation's activation and not about what its page shows, so it is not read.
+///
+/// # Errors
+///
+/// [`movie`]'s sentences for a movie dictionary or a file specification that is not there.
+pub fn poster_movie(
+    document: &Document,
+    annotation: &Dictionary,
+    processor: Processor<'_>,
+) -> Option<Result<Clip, String>> {
+    let movie = document.get_key(annotation, "Movie");
+    let poster = document.get_key(movie.as_dict()?, "Poster");
+    matches!(poster, Object::Boolean(true))
+        .then(|| movie_clip(document, annotation, None, processor))
+}
+
+/// [`movie`] after its activation's `/A`.
+fn movie_clip(
+    document: &Document,
+    annotation: &Dictionary,
+    action: Option<&Dictionary>,
+    processor: Processor<'_>,
+) -> Result<Clip, String> {
+    let activation = document.get_key(annotation, "A");
     let movie = document.get_key(annotation, "Movie");
     let Some(movie) = movie.as_dict() else {
         return Err(
@@ -620,7 +651,7 @@ fn content_type(data: &Data) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{movie, sound};
+    use super::{movie, poster_movie, sound};
     use crate::media::Data;
     use pdf_syntax::{Document, Object, ObjectId};
 
@@ -757,6 +788,43 @@ mod tests {
         )
         .expect("handed on");
         assert!(!handed.played_here);
+    }
+
+    /// Table 306's `/Poster` `true`, "the poster image shall be retrieved from the movie file",
+    /// names the movie a window that shows video takes its first picture from, whatever the
+    /// annotation's `/A` says of a click (ADR 3609); `false`, a stream and an absent entry name none.
+    #[test]
+    fn a_poster_retrieved_from_the_movie_names_the_movie() {
+        let with = |poster: &str| {
+            document(&[
+                "<< /Type /Catalog >>",
+                &format!(
+                    "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /A false \
+                     /Movie << /F 3 0 R {poster} >> >>"
+                ),
+                "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+                "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+            ])
+        };
+        let doc = with("/Poster true");
+        let clip = poster_movie(&doc, &dict(&doc, 2), shows_video(false))
+            .expect("a poster from the movie")
+            .expect("the movie is read");
+        assert!(clip.played_here, "an embedded MP4 movie this host shows");
+        let handed = poster_movie(&doc, &dict(&doc, 2), crate::media::Processor::default())
+            .expect("a poster from the movie")
+            .expect("the movie is read");
+        assert!(
+            !handed.played_here,
+            "a host that shows no video decodes none"
+        );
+        for poster in ["/Poster false", "", "/Poster 4 0 R"] {
+            let doc = with(poster);
+            assert!(
+                poster_movie(&doc, &dict(&doc, 2), shows_video(false)).is_none(),
+                "{poster:?}"
+            );
+        }
     }
 
     /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` plays forward

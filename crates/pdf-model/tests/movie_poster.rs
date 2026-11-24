@@ -129,7 +129,8 @@ fn a_stream_poster_is_drawn_fitted_and_centred_in_the_rectangle() {
     );
 }
 
-/// `/Poster true` retrieves the poster from the movie file, which is playing it: refused, loudly.
+/// `/Poster true` retrieves the poster from the movie file, which the page renderer does not decode:
+/// nothing drawn, and the report says a window that shows video draws it (ADR 3609).
 #[test]
 fn a_poster_retrieved_from_the_movie_file_is_refused_and_reported() {
     let (reports, raster) = draw(movie_with(Some("true")));

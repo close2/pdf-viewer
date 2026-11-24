@@ -319,7 +319,10 @@ impl ApplicationHandler for App {
                 if self.archive_card.shown() {
                     return self.pressed_the_archive_card(at, element);
                 }
-                if element == ElementState::Pressed && self.pressed_the_strip(at) {
+                // A press on a clip's controller bar is the bar's, and so is its release (ADR 3610).
+                if element == ElementState::Pressed
+                    && (self.pressed_the_strip(at) || self.press_the_bar(at))
+                {
                     return;
                 }
                 if self.over_panel() {

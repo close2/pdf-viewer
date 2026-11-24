@@ -940,6 +940,18 @@ answers in two places"
                 annotation,
                 operation,
             } => self.operate_media(document, annotation, operation),
+            // §13.4's poster retrieved from the movie file, decoded beside the window (ADR 3609).
+            Event::Poster {
+                document,
+                annotation,
+                movie,
+                fit,
+            } => self.ask_for_the_poster(viewer_host::video::poster::Asked {
+                document,
+                annotation,
+                movie,
+                fit,
+            }),
             // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
             // (ADR 2329).
             Event::ScriptQuestionWithdrawn { document } => {

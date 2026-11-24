@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 33u
+#define QUORRA_EVENT_KIND_COUNT 34u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -159,6 +159,11 @@ extern "C" {
  * screen annotation (Table 218's /OP 1, 2, 3). quorra_events_describe names the operation and the
  * annotation; a caller that handed the clip to a player it can command may do it there (ADR 3433). */
 #define QUORRA_EVENT_OPERATE_MEDIA 32u
+
+/* §13.4: Table 306's /Poster true on a movie annotation of a page that came onto the screen.
+ * quorra_events_bytes is the movie file. A window this library drives decodes its first picture
+ * itself and hands it through quorra_window_picture where no clip plays (ADR 3609). */
+#define QUORRA_EVENT_POSTER 33u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
@@ -2287,7 +2292,9 @@ int32_t quorra_window_zoom_wheel(quorra_window *window, float travel, uint32_t u
 int32_t quorra_window_keys(quorra_window *window, bool shift, bool modifier, bool arrows);
 /* The pointer at (x, y) in device pixels of the viewport, as a QUORRA_POINTER_*. `*over_link`,
  * where not null, is whether it is now over §12.5.6.5's activation region — the cursor to show.
- * §12.9's measuring takes a press, where it is on. */
+ * §12.9's measuring takes a press, where it is on. A press on the controller bar of the clip whose
+ * picture is shown — the bottom 20 pixels of its annotation's rectangle, its button the first 20
+ * from the left — is the bar's, and pauses or resumes the clip (ADR 3610). */
 int32_t quorra_window_pointer(quorra_window *window, float x, float y, uint32_t action,
                               bool *over_link);
 /* Annex O's search for `needle` through the document, from the page in front; the pages after the

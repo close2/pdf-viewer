@@ -155,6 +155,7 @@ impl Host {
             WindowKind::FullScreen => self.full_screen(&toplevel, label, window),
         }
         self.closes_with_the_clip(&toplevel);
+        self.presses_reach_the_bar(&picture);
         toplevel.present();
         self.shown.media_window = Some(MediaWindow {
             window: toplevel,
@@ -243,6 +244,39 @@ impl Host {
             glib::Propagation::Stop
         });
         toplevel.add_controller(keys);
+    }
+
+    /// A press on the controller bar over the window's bottom pauses or resumes the clip, as one
+    /// on the bar over a rectangle of the page does (ADR 3610).
+    fn presses_reach_the_bar(&self, picture: &gtk4::Picture) {
+        let click = gtk4::GestureClick::new();
+        let me = self.me();
+        let widget = picture.clone();
+        click.connect_pressed(move |_, _, x, y| {
+            let Some(host) = me.upgrade() else {
+                return;
+            };
+            let Ok(mut host) = host.try_borrow_mut() else {
+                return;
+            };
+            let scale = widget.scale_factor().max(1);
+            let pixels = |side: i32| u32::try_from(side.saturating_mul(scale)).unwrap_or(0);
+            let inner = (pixels(widget.width()), pixels(widget.height()));
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a pointer position inside a window is far inside f32's exact integer range"
+            )]
+            let at = (
+                (x * f64::from(scale)) as f32,
+                (y * f64::from(scale)) as f32,
+            );
+            let quad = screens::whole(inner);
+            if host.state.pictures.press_over(quad, at) {
+                host.show_the_pictures();
+                host.hold_up_in_the_media_window();
+            }
+        });
+        picture.add_controller(click);
     }
 
     /// Holds up the picture in the window of its own, drawn at the widget's size in pixels.

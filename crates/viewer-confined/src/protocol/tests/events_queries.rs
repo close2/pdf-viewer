@@ -297,6 +297,13 @@ fn every_carried_event_round_trips() {
                 }),
             })),
         },
+        // §13.4's poster retrieved from the movie file (ADR 3609).
+        Event::Poster {
+            document,
+            annotation: ObjectId::new(6, 0),
+            movie: b"ftypmoov".to_vec(),
+            fit: pdf_model::media::Fit::Meet,
+        },
         // §12.6.4.14's three operations on an associated rendition (ADR 3433).
         Event::OperateMedia {
             document,

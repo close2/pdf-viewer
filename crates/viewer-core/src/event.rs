@@ -264,6 +264,29 @@ pub enum Event {
         /// What to do with the rendition associated with it.
         operation: MediaOperation,
     },
+    /// §13.4's Table 306 `/Poster` `true` on a movie annotation of a page that came onto the
+    /// screen: "the poster image shall be retrieved from the movie file".
+    ///
+    /// **The picture is the window's to decode**, as a movie this program plays is: the page
+    /// renderer decodes no video, so the movie's file crosses here once for each annotation while
+    /// its document is open, and a window that shows video
+    /// ([`crate::Command::ShowsVideoHere`]) decodes its first picture in the media worker and draws
+    /// it over the annotation's rectangle ([`crate::Query::Screen`]) until the movie plays, and
+    /// again after it stops. Raised only for a movie that window would play — an embedded MP4
+    /// file of `video/` type — and every other `/Poster` `true` is said in the page's report.
+    /// Not a hand-over, so no reader's level stands in front of it: a poster is what the page
+    /// shows, and the movie's file never leaves this program (ADR 3609).
+    Poster {
+        /// Which document.
+        document: DocumentId,
+        /// The movie annotation, whose `/Rect` the poster is drawn in.
+        annotation: pdf_syntax::ObjectId,
+        /// The movie file, an MP4 file read only by the media worker.
+        movie: Vec<u8>,
+        /// How the picture is fitted to the rectangle: the fit the movie plays with, so the poster
+        /// stands where the movie's first picture will.
+        fit: pdf_model::media::Fit,
+    },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).
     ///

@@ -31,6 +31,13 @@ impl Host {
         for view in views {
             ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
         }
+        // Table 306's posters over the pages and under a playing clip (ADR 3609).
+        if self.playing.is_none() {
+            for shown in self.shown_posters() {
+                let view = describe(&shown.raster, shown.origin, shown.extent);
+                ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
+            }
+        }
         // A clip's picture last, so that it is painted over the pages (ADR 3562).
         if self.playing.is_none()
             && let Some(shown) = self.shown_picture()

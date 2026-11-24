@@ -14,7 +14,7 @@ use std::time::Instant;
 use pdf_syntax::ObjectId;
 use viewer_core::{DocumentId, MediaOperation};
 
-use super::{Seen, Shown, VideoPlayer};
+use super::{Posters, Seen, Shown, VideoPlayer};
 use crate::sound::Wake;
 
 /// What one look at the player found.
@@ -37,14 +37,33 @@ pub struct Pictures {
     player: Option<VideoPlayer>,
     /// The picture held up, converted, while a clip is in hand.
     raster: Option<pdf_render::Raster>,
+    /// Table 306's posters retrieved from their movie files (ADR 3609).
+    posters: Posters,
 }
 
 impl Pictures {
     /// The same, decoding with the worker `program` rather than the one beside this executable.
     #[must_use]
     pub fn with_worker(mut self, program: PathBuf) -> Self {
+        self.posters = std::mem::take(&mut self.posters).with_worker(program.clone());
         self.worker = Some(program);
         self
+    }
+
+    /// `viewer_core::Event::Poster`: the movie's first picture decoded beside the window and drawn
+    /// over its annotation while the movie is not playing. The first poster starts the posters'
+    /// thread, with `wake` as what wakes the window's loop; later ones do not call it.
+    pub fn poster(&mut self, asked: super::poster::Asked, wake: impl FnOnce() -> Wake) {
+        self.posters.ask(asked, wake);
+    }
+
+    /// The posters shown now: every one decoded, but the one of a movie that is playing, whose
+    /// pictures stand in its place.
+    pub fn posters(&self) -> impl Iterator<Item = super::poster::Poster<'_>> {
+        let playing = self.player.as_ref().and_then(VideoPlayer::screen);
+        self.posters
+            .shown()
+            .filter(move |poster| playing != Some((poster.document, poster.annotation)))
     }
 
     /// Shows `shown` in place of the clip in hand, its pictures following `sound` — the clip's
@@ -104,12 +123,14 @@ impl Pictures {
         if let Some(player) = self.player.as_mut() {
             player.closed(document);
         }
+        self.posters.closed(document);
     }
 
     /// The window is closing: the decoding thread ends and the worker with it.
     pub fn end(&mut self) {
         self.player = None;
         self.raster = None;
+        self.posters = Posters::default();
     }
 
     /// Whether a clip is in hand, showing or paused: what Escape stops.
@@ -121,6 +142,15 @@ impl Pictures {
     /// Takes the newest picture whose time has come and converts it, and what the player said.
     /// Never waits.
     pub fn look(&mut self, now: Instant) -> Looked {
+        let posted = self.posters.look();
+        let mut looked = self.look_at_the_player(now);
+        looked.said.extend(self.posters.seen());
+        looked.changed |= posted;
+        looked
+    }
+
+    /// [`Self::look`]'s half for the clip in hand.
+    fn look_at_the_player(&mut self, now: Instant) -> Looked {
         let Some(player) = self.player.as_mut() else {
             return Looked::default();
         };
@@ -159,14 +189,36 @@ impl Pictures {
     /// When to look again: [`VideoPlayer::next_due`], `None` while nothing waits for a time.
     #[must_use]
     pub fn next_look(&self, now: Instant) -> Option<Instant> {
-        self.player.as_ref()?.next_due(now)
+        let player = self.player.as_ref().and_then(|player| player.next_due(now));
+        // A poster asked for is looked for on a timer as well as at the posters' thread's wake,
+        // so one finished while the window's loop was inside a turn of its own is not left
+        // waiting for the next event.
+        match (player, self.poster_look(now)) {
+            (Some(player), Some(poster)) => Some(player.min(poster)),
+            (player, poster) => player.or(poster),
+        }
+    }
+
+    /// When a window the posters' thread cannot wake looks again for a poster it asked for.
+    fn poster_look(&self, now: Instant) -> Option<Instant> {
+        self.posters
+            .awaited()
+            .then(|| now.checked_add(super::DECODING_LOOK))
+            .flatten()
     }
 
     /// [`Self::next_look`] for a window the decoding thread cannot wake
     /// ([`VideoPlayer::next_due_unwoken`]): Qt's, which looks on its timer (ADR 3562).
     #[must_use]
     pub fn next_look_unwoken(&self, now: Instant) -> Option<Instant> {
-        self.player.as_ref()?.next_due_unwoken(now)
+        let player = self
+            .player
+            .as_ref()
+            .and_then(|player| player.next_due_unwoken(now));
+        match (player, self.poster_look(now)) {
+            (Some(player), Some(poster)) => Some(player.min(poster)),
+            (player, poster) => player.or(poster),
+        }
     }
 
     /// Where the picture goes inside `quad`, the screen annotation in window pixels, by the clip's
@@ -219,6 +271,14 @@ impl Pictures {
     /// the clip. Answers whether it acted ([`VideoPlayer::press`]).
     pub fn press_bar(&mut self, x: u32) -> bool {
         self.player.as_mut().is_some_and(|player| player.press(x))
+    }
+
+    /// A pointer press at `point`, in the pixels `quad` — the clip's rectangle — is in: answers
+    /// whether it fell on the controller bar, and acts on it there ([`VideoPlayer::press_over`]).
+    pub fn press_over(&mut self, quad: [f32; 8], point: (f32, f32)) -> bool {
+        self.player
+            .as_mut()
+            .is_some_and(|player| player.press_over(quad, point))
     }
 
     /// The picture held up and the document and screen annotation it is drawn over.

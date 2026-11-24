@@ -30,6 +30,10 @@
 //! and a longer one holds the last picture up until it has elapsed; `/RC` counts the passes, a
 //! fraction of one cutting the last (`timeline`, ADR 3593) — the sound's own cuts, on its clock.
 //!
+//! **A movie's poster** — Table 306's `/Poster` `true` — is its first picture, decoded once by
+//! [`Posters`] and drawn over the movie annotation's rectangle while the movie is not playing
+//! (ADR 3609).
+//!
 //! **Stop, pause and resume** reach the pictures as they reach a sound (ADR 3433): a pause stops
 //! the decoding and keeps the clock's place; a resume decodes from the last sync sample at or
 //! before that place — not from the track's start — and shows nothing before it (ADR 3555).
@@ -50,11 +54,13 @@ use crate::sound::clock::MediaClock;
 use crate::sound::{Listening, SoundTime, Wake};
 
 pub mod controller;
+pub mod poster;
 pub mod screens;
 mod timeline;
 mod window;
 
 pub use controller::{BAR_HEIGHT, Controller, Pressed};
+pub use poster::Posters;
 pub use window::{Looked, Pictures};
 
 /// How many decoded pictures may wait for their time: enough that a picture is always in hand
@@ -807,8 +813,9 @@ impl VideoPlayer {
     /// What a window of its own shows for the clip in hand, `inner` pixels of it: Table 294's
     /// `/B` over the whole — "used if the media object does not entirely cover the rectangle" —
     /// and `raster`, the picture held up, over it, fitted by Table 291's `/F` and smoothed as the page's
-    /// layers are; the colour alone before the first picture. `None` where no clip shown in a
-    /// window is in hand (ADR 3587).
+    /// layers are, with the controller bar over its bottom where the clip asks for one; the colour
+    /// alone before the first picture. `None` where no clip shown in a window is in hand (ADRs
+    /// 3587, 3610).
     ///
     /// Drawn by the processor, the oracle's rasteriser, for any toolkit window: GTK holds it as a
     /// texture and `quorra` presents it through its software surface. A window's few pictures a
@@ -847,6 +854,33 @@ impl VideoPlayer {
                 }),
                 // §8.9.5's image space puts an image's first row at the unit square's `y = 1`, so
                 // that edge goes to the quadrilateral's first side.
+                transform: Transform {
+                    a: x1 - x0,
+                    b: y1 - y0,
+                    c: x0 - x3,
+                    d: y0 - y3,
+                    e: x3,
+                    f: y3,
+                },
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        // The controller bar over the window's bottom, as over a rectangle of the page, where the
+        // clip asks for one (ADR 3610); a press on it is the window's to route
+        // ([`Self::press_over`] with [`screens::whole`]).
+        if let Some((bar, covered)) = self.controller_bar(screens::whole(inner), Instant::now()) {
+            let [x0, y0, x1, y1, _, _, x3, y3] = covered;
+            list.push(Command::Image {
+                image: ImageSource::Decoded(Image {
+                    width: bar.width,
+                    height: bar.height,
+                    data: Arc::from(bar.data.as_slice()),
+                    interpolate: false,
+                    sample_alpha: SampleAlpha::Shape,
+                }),
                 transform: Transform {
                     a: x1 - x0,
                     b: y1 - y0,
@@ -1068,6 +1102,21 @@ impl VideoPlayer {
             Pressed::PlayPause => self.pause() || self.resume(),
             Pressed::Bar => false,
         }
+    }
+
+    /// A pointer press at `point`, in window pixels, where the clip in hand's bar is laid over
+    /// `quad`, its rectangle in the same pixels ([`controller::over`]): answers whether the press
+    /// fell on the bar — which makes it the bar's and not the page's — and a press on the button
+    /// pauses a running clip and resumes a paused or held one ([`Self::press`], ADR 3610).
+    pub fn press_over(&mut self, quad: [f32; 8], point: (f32, f32)) -> bool {
+        if self.controller(Instant::now()).is_none() {
+            return false;
+        }
+        let Some(x) = controller::at(quad, point) else {
+            return false;
+        };
+        self.press(x);
+        true
     }
 
     /// Whether the window should draw the picture it holds: a clip is in hand. A clip that ended,

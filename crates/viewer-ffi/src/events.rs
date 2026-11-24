@@ -254,6 +254,11 @@ impl Events {
                 operation.op(),
                 operation.verb()
             ),
+            Event::Poster { annotation, .. } => format!(
+                "the movie annotation {} {} R shows a poster retrieved from its movie file (ISO \
+                 32000-2 §13.4, Table 306's /Poster true); the movie file is the event's bytes",
+                annotation.number, annotation.generation
+            ),
             Event::Console { request, .. } => {
                 viewer_host::script_timers::console("the document", *request)
             }
@@ -406,6 +411,7 @@ impl Events {
             | Event::Console { document, .. }
             | Event::Media { document, .. }
             | Event::OperateMedia { document, .. }
+            | Event::Poster { document, .. }
             | Event::Archiving { document, .. }
             | Event::ListOpens { document, .. }
             | Event::SignaturePoliciesPublished { document, .. } => document.0,
@@ -415,7 +421,7 @@ impl Events {
     }
 
     /// The bytes of an [`Event::Saved`], an [`Event::Extracted`], an embedded [`Event::Media`]
-    /// clip, or the body of an [`Event::Submit`] (ADR 2060).
+    /// clip, an [`Event::Poster`]'s movie file, or the body of an [`Event::Submit`] (ADR 2060).
     ///
     /// **One accessor for every kind that carries bytes, and that is the point rather than a
     /// shortcut.** `doc/todo/30`
@@ -435,6 +441,7 @@ impl Events {
                 media: viewer_core::Media::Embedded { bytes, .. },
                 ..
             } => Ok(bytes),
+            Event::Poster { movie, .. } => Ok(movie),
             Event::Submit { submission, .. } => Ok(&submission.body),
             _ => Err(Status::WrongKind),
         }

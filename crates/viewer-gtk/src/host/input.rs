@@ -441,6 +441,11 @@ impl Host {
             reason = "a pointer position inside a window is far inside f32's exact integer range"
         )]
         let at = ((x * scale) as f32, (y * scale) as f32);
+        // A press on a clip's controller bar is the bar's (ADR 3610); the page never sees it, so
+        // the release that follows activates nothing.
+        if matches!(action, PointerAction::Pressed) && self.press_the_bar(at) {
+            return;
+        }
         // §12.9's mode takes the press before the text selection does, which is the one thing it
         // takes away: the two gestures are the same gesture and a window cannot tell them apart
         // from the pointer alone (ADR 1191).

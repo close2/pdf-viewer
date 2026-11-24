@@ -150,6 +150,10 @@ pub(crate) struct Open {
     /// The pages Table 197's `/PV` has been raised for and `/PI` not since, in page order: the
     /// pages the window's arrangement shows, as of the last time it was settled.
     pub(crate) visible: Vec<usize>,
+    /// The movie annotations whose Table 306 `/Poster` `true` has been raised as
+    /// [`crate::Event::Poster`] or said, so that each crosses once while the document is open
+    /// (ADR 3609).
+    pub(crate) posters_raised: std::collections::BTreeSet<ObjectId>,
     /// The views the reader's jumps left behind and their steps back left ahead (ADR 2805).
     pub(crate) history: crate::history::History,
     /// How far the page is scrolled under the viewport, in device pixels.
@@ -1149,6 +1153,7 @@ impl Open {
             pending_views: open_view.into_iter().collect(),
             retained_corner: None,
             visible: Vec::new(),
+            posters_raised: std::collections::BTreeSet::new(),
             history: crate::history::History::default(),
             scroll: (0.0, 0.0),
             pointed: None,

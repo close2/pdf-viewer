@@ -144,7 +144,9 @@ pub struct Playing {
     /// Table 291's `/F`, which only a clip with pictures is fitted by.
     pub fit: Fit,
     /// Table 307's `/ShowControls`, "whether to display a movie controller bar while playing the
-    /// movie": a bar this program draws over the clip's pictures (ADR 3594).
+    /// movie", and Table 291's `/C`, "whether to display a player-specific controller user
+    /// interface when playing": a bar this program draws over the clip's pictures (ADRs 3594,
+    /// 3610).
     pub controls: bool,
 }
 
@@ -262,6 +264,9 @@ pub struct Honoured {
     /// Whether `/F` was read from `MH`, which decides whether a fit the windows cannot honour
     /// makes a clip with pictures non-viable or is set aside (ADR 3553).
     pub fit_must: bool,
+    /// Whether `/C` was read from `MH`, which decides whether a controller asked of a clip with no
+    /// pictures to draw it over makes the clip non-viable or is set aside (ADR 3610).
+    pub controls_must: bool,
 }
 
 impl Playing {
@@ -279,8 +284,9 @@ impl Playing {
     /// control); `/F`, read into [`Playing::fit`] — every value for an aural clip, because the
     /// entry is about "a visual media type that does not exactly fit the rectangle in which it
     /// plays" and a sound is fitted to nothing, and every value but 3 for a clip with pictures
-    /// (ADR 3553); and `/C` false. `/C` true asks for "a player-specific controller user interface", which this player
-    /// does not show — a window's keys are not one.
+    /// (ADR 3553); and `/C`, "whether to display a player-specific controller user interface when
+    /// playing", read into [`Playing::controls`] — the controller bar a window draws over a clip's
+    /// pictures, which a clip without pictures has nowhere to show (ADR 3610).
     #[must_use]
     pub fn of_play_parameters(document: &Document, parameters: &Dictionary) -> Honoured {
         let mut honoured = Honoured {
@@ -288,6 +294,7 @@ impl Playing {
             must: Vec::new(),
             set_aside: Vec::new(),
             fit_must: false,
+            controls_must: false,
         };
         let must = document.get_key(parameters, "MH");
         let must = must.as_dict();
@@ -314,6 +321,9 @@ impl Playing {
                 };
                 if is_must && key == "F" && answer.is_ok() {
                     honoured.fit_must = true;
+                }
+                if is_must && key == "C" && answer.is_ok() {
+                    honoured.controls_must = true;
                 }
                 if let Err(why) = answer {
                     if is_must {
@@ -352,13 +362,10 @@ impl Playing {
                 _ => return Err("its value is not a repeat count of zero or more".to_owned()),
             },
             "A" => self.auto_play = flag()?,
-            "C" => {
-                if flag()? {
-                    return Err(
-                        "it shows no controller user interface of its own (/C true)".to_owned()
-                    );
-                }
-            }
+            // Table 291's `/C`, "whether to display a player-specific controller user interface
+            // when playing": the controller bar over a clip's pictures (ADR 3610), which a clip
+            // without pictures is judged against where that is known (`uncontrolled`).
+            "C" => self.controls = flag()?,
             "F" => match value {
                 // Table 291's six fits, each of "a visual media type": a sound has no rectangle to
                 // fit and honours every one by playing; a clip's pictures are fitted by the window,

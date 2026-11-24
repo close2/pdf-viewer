@@ -102,6 +102,30 @@ impl Window {
     /// annotation is on a page now placed, and where `/F` places it — asked at each call, so it
     /// follows a scroll or a zoom.
     fn placed_picture(&self) -> Option<(&pdf_render::Raster, viewer_host::video::Placed)> {
+        self.placed_clip().or_else(|| self.placed_poster())
+    }
+
+    /// The first of Table 306's posters placed now, where no clip's picture is shown: what the
+    /// picture calls hand a C host of a movie that is not playing (ADR 3609). One at a time, as
+    /// the calls have one picture to hand; a second poster on the screen at once is not handed.
+    fn placed_poster(&self) -> Option<(&pdf_render::Raster, viewer_host::video::Placed)> {
+        let focused = self.state.documents.focused();
+        self.state
+            .pictures
+            .posters()
+            .filter(|poster| poster.document == focused)
+            .find_map(|poster| {
+                let Answer::Screen(quad) =
+                    self.state.viewer.query(Query::Screen(poster.annotation))
+                else {
+                    return None;
+                };
+                Some((poster.raster, poster.placed(quad)?))
+            })
+    }
+
+    /// The clip's picture held up, placed as [`Self::placed_picture`] says.
+    fn placed_clip(&self) -> Option<(&pdf_render::Raster, viewer_host::video::Placed)> {
         let (raster, document, screen) = self.state.pictures.picture()?;
         if document != self.state.documents.focused() {
             return None;
@@ -113,6 +137,31 @@ impl Window {
         Some((raster, placed))
     }
 
+    /// A press at `at`, device pixels of the viewport, on the controller bar of the clip whose
+    /// picture is shown — the bar `quorra_window_controller`'s facts describe, laid over the bottom
+    /// [`viewer_host::video::BAR_HEIGHT`] pixels of the picture's rectangle: its button, the first
+    /// [`viewer_host::video::BAR_HEIGHT`] pixels from the left, pauses or resumes the clip, and the
+    /// press is the bar's (Table 307's `/ShowControls`, Table 291's `/C`; ADR 3610). Answers
+    /// whether it was. A host reaches it through `quorra_window_pointer`, as every press.
+    pub(super) fn press_the_bar(&mut self, at: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let pressed = self.state.pictures.press_over(quad, at);
+        if pressed {
+            self.show_the_pictures();
+            // The bar's button changed, which a paused clip's next picture will not say.
+            self.owe_picture_repaint();
+        }
+        pressed
+    }
+
     /// The controller bar's three facts for the clip whose picture is shown, where it asks for one:
     /// `quorra_window_controller` (Table 307's `/ShowControls`, ADR 3595).
     ///
@@ -120,7 +169,7 @@ impl Window {
     ///
     /// [`Status::NoAnswer`] where no picture is shown or the clip asks for no bar.
     pub fn controller(&self) -> Result<viewer_host::video::Controller, Status> {
-        self.placed_picture().ok_or(Status::NoAnswer)?;
+        self.placed_clip().ok_or(Status::NoAnswer)?;
         self.state
             .pictures
             .controller(Instant::now())

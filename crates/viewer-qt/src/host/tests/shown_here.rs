@@ -37,10 +37,19 @@ fn temporary(name: &str) -> PathBuf {
 /// The Qt window over the video document of `count` pictures at the level `open`, page one
 /// drawn; and the pictures the clip carries.
 fn a_window(document: &Path, count: u32) -> (Host, Vec<pdf_media_worker::video::Picture>) {
+    a_window_of(document, count, showing::a_video_document)
+}
+
+/// [`a_window`] over the document `of` makes of the clip.
+fn a_window_of(
+    document: &Path,
+    count: u32,
+    of: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> (Host, Vec<pdf_media_worker::video::Picture>) {
     let (sets, units, pictures) =
         pcm_stream::stream(count, 16, 16, pcm_stream::Coding::Progressive);
     let clip = pcm_stream::mp4(&sets, &units, 16, 16);
-    std::fs::write(document, showing::a_video_document(&clip)).expect("write the document");
+    std::fs::write(document, of(&clip)).expect("write the document");
     let mut host = Host::open(
         document,
         None,
@@ -258,5 +267,48 @@ fn a_pause_space_escape_and_close_reach_the_clip_in_the_qt_window() {
         "the document's close ends its clip"
     );
     assert!(held_up(&host).is_none(), "and takes its picture down");
+    let _ = std::fs::remove_file(&document);
+}
+
+/// ISO 32000-2 §13.4's Table 306 `/Poster` `true` in the Qt window: once the window says it shows
+/// video, the movie's first picture is decoded beside it and handed to the frame sink over the
+/// movie annotation as its samples converted (ADR 3609); activated, the movie plays in its place
+/// and no poster is handed, and a press on Table 307's bar pauses it (ADR 3610).
+#[test]
+fn a_movie_s_poster_is_handed_until_it_plays_in_the_qt_window() {
+    let document = temporary("poster.pdf");
+    let (mut host, pictures) = a_window_of(&document, 8, |clip| {
+        showing::a_movie_document(clip, "/Poster true", "<< /ShowControls true /Mode /Open >>")
+    });
+    let mut said = Vec::new();
+    timer_until(&mut host, &mut said, "handed the poster", |host| {
+        !host.shown_posters().is_empty()
+    });
+    let poster = host.shown_posters().remove(0).raster.into_owned().data;
+    assert_eq!(
+        which(&poster, &pictures),
+        Some(0),
+        "the movie's first picture"
+    );
+    host.dispatch(Command::Activate(showing::MOVIE));
+    timer_until(
+        &mut host,
+        &mut said,
+        "played the movie in its place",
+        |host| held_up(host).is_some() && host.shown_posters().is_empty(),
+    );
+    let Answer::Screen(quad) = host.state.viewer.query(Query::Screen(showing::MOVIE)) else {
+        panic!("the movie annotation is on the page placed");
+    };
+    let left = quad[0].min(quad[2]).min(quad[4]).min(quad[6]);
+    let bottom = quad[1].max(quad[3]).max(quad[5]).max(quad[7]);
+    assert!(host.press_the_bar((left + 5.0, bottom - 5.0)));
+    assert!(
+        host.state
+            .pictures
+            .controller(Instant::now())
+            .is_some_and(|bar| !bar.playing),
+        "the bar's button paused the movie"
+    );
     let _ = std::fs::remove_file(&document);
 }

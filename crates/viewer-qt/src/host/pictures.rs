@@ -101,6 +101,59 @@ impl Host {
         })
     }
 
+    /// A press at `at`, device pixels of the viewport, on the controller bar of the clip whose
+    /// picture is shown: the bar's button pauses or resumes it, and the press is the bar's (Table
+    /// 307's `/ShowControls`, Table 291's `/C`; ADR 3610). Answers whether it was.
+    pub(super) fn press_the_bar(&mut self, at: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let pressed = self.state.pictures.press_over(quad, at);
+        if pressed {
+            self.show_the_pictures();
+            // A paused clip has no next picture to paint its bar again with.
+            self.update.frame = true;
+        }
+        pressed
+    }
+
+    /// Table 306's posters retrieved from their movie files, each placed over its movie annotation
+    /// — where its document is the one in front and the annotation is on a page now placed — as the
+    /// picture is, and asked at each paint for its reason (ADR 3609).
+    pub(super) fn shown_posters(&self) -> Vec<Shown<'_>> {
+        let focused = self.state.documents.focused();
+        self.state
+            .pictures
+            .posters()
+            .filter(|poster| poster.document == focused)
+            .filter_map(|poster| {
+                let Answer::Screen(quad) =
+                    self.state.viewer.query(Query::Screen(poster.annotation))
+                else {
+                    return None;
+                };
+                let placed = poster.placed(quad)?;
+                let raster = if placed.is_whole(poster.raster) {
+                    std::borrow::Cow::Borrowed(poster.raster)
+                } else {
+                    std::borrow::Cow::Owned(placed.part_of(poster.raster))
+                };
+                let (origin, extent) = placed.bounding_box();
+                Some(Shown {
+                    raster,
+                    origin,
+                    extent,
+                })
+            })
+            .collect()
+    }
+
     /// The picture held up, placed over its screen annotation — where the clip's document is the
     /// one in front and the annotation is on a page now placed — or `None`.
     ///
