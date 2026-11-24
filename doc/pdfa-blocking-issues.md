@@ -67,10 +67,10 @@ programs share.
 |---|---|---|---|---|
 | `issue7901` | 4 | 6.2.11.5, 6.2.10.5 (Glyph) | the window drew through a `/CIDToGIDMap` §9.7.4.2 does not use for a name-keyed CFF | ours: new row, program written CID-keyed (ADR 3446) |
 | `T02-05-01_004`, `_008` | 4 each | 6.2.4.3-4 (DeviceGray) | text shown before any `Tf` was not counted as a use of the fill colour space | ours: counted (ADR 3445) |
-| `noembed-eucjp`, `noembed-jis7`, `issue11555` | 2 each | 6.2.11.3.1-1 (Type0) | the CIDFont's Supplement is at least the CMap's, as the clause asks | veraPDF's: the profile compares `<=`; drafted (1) |
-| `calgray`, `calrgb` | 4 each | 6.2.2-1 (`re%`) | §7.2.3 makes `%` a delimiter | veraPDF's; drafted (2) |
-| `issue7872` | 2 | 6.1.13-11 (box) | §7.3.10 admits indirect numbers as a rectangle's elements | veraPDF's; drafted (3) |
-| `issue3566` | 4 | 6.2.11.5, 6.2.10.5, 6.2.10.7 | TN 5176's supplement gives code 174 SID 266 `ff`, 599.53 against 599 | veraPDF's; drafted (4) |
+| `noembed-eucjp`, `noembed-jis7`, `issue11555` | 2 each | 6.2.11.3.1-1 (Type0) | the CIDFont's Supplement is at least the CMap's, as the clause asks | veraPDF's: the profile compares `<=`; filed upstream as veraPDF-library #1668 |
+| `calgray`, `calrgb` | 4 each | 6.2.2-1 (`re%`) | §7.2.3 makes `%` a delimiter | veraPDF's; filed upstream as veraPDF-library #1669 |
+| `issue7872` | 2 | 6.1.13-11 (box) | §7.3.10 admits indirect numbers as a rectangle's elements | veraPDF's; filed upstream as veraPDF-library #1670 |
+| `issue3566` | 4 | 6.2.11.5, 6.2.10.5, 6.2.10.7 | TN 5176's supplement gives code 174 SID 266 `ff`, 599.53 against 599 | veraPDF's; filed upstream as veraPDF-library #1671 |
 | `issue7769` | 4 | 6.2.11.5, 6.2.11.4.1-2 | `lenIV -1`: the charstrings are not encrypted, and veraPDF's −20 and 0 are what decrypting them gives | veraPDF's; the Type 1 specification is not held here |
 | `issue14881` | 4 | 6.2.11.5, 6.2.11.4.1-2 | its only `cmap` subtables are format 12, (3,1) and (1,0); widths 722, 556, 611, 889 agree | veraPDF's (every code its 750-unit `.notdef`); the `cmap` specification is not held here |
 | `facct2025-final168` | 2 | 6.2.11.4.2-1 (CharSet) | the `/CharSet` names exactly the 41 glyphs the program's `CharStrings` hold | veraPDF's; its cause inside veraPDF not found |

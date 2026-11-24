@@ -1,6 +1,6 @@
 # rusty_aac: al03_48 differs from its reference where the window sequence changes out of order
 
-Status: **drafted, not filed** (ADR 3400). The text below the line is the issue as it would go to
+Status: **filed upstream** (2026-11-24, https://github.com/Remade-With-Rust/remade_ffmpeg_rs/issues/208 ; drafted ADR 3400). The text below the line is the issue as it would go to
 `rusty_aac`'s tracker; a person files it.
 
 **What is relied on.** ISO/IEC 14496-3 is not held, so this text quotes no clause of it and claims

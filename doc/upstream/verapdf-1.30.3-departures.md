@@ -1,6 +1,6 @@
 # veraPDF 1.30.3: four readings the archive census found plainly veraPDF's
 
-Status: **drafted, not filed** (ADR 3447). Each section below the line is one issue as it would go
+Status: **filed upstream** (2026-11-24 on `veraPDF/veraPDF-library`: #1668, #1669, #1670, #1671; drafted ADR 3447). Each section below the line is one issue as it would go
 to `veraPDF/veraPDF-library` (the first to `veraPDF/veraPDF-validation-profiles`); a person files
 them. ISO 19005 is cited by clause and paraphrased, never quoted (`doc/third-party-data.md`);
 ISO 32000-2 is quoted from `doc/md/`. Each was found by `tools/verapdf-census.py` on round 2181's
@@ -12,6 +12,8 @@ with their reason.
 ---
 
 ## 1. Profiles: ISO 19005-2 6.2.11.3.1 test 1 compares the Supplement entries the other way round
+
+**Filed**: https://github.com/veraPDF/veraPDF-library/issues/1668
 
 **Profile**: `PDFA-2B.xml` (and the other part 2 and part 3 profiles), rule `6.2.11.3.1` test 1;
 `PDFA-4.xml`, rule `6.2.10.3.1` test 1. Both end in `CIDFontSupplement <= CMapSupplement`.
@@ -34,6 +36,8 @@ the clause fails.
 
 ## 2. A `%` directly after an operator is read as part of the operator
 
+**Filed**: https://github.com/veraPDF/veraPDF-library/issues/1669
+
 **Rule**: ISO 19005-2 6.2.2 test 1 (and part 4's) fails "operator re% not defined".
 
 ISO 32000-2 §7.2.3: "The delimiter characters (, ), <, >, [, ], /, and % are special (LEFT
@@ -49,6 +53,8 @@ an operator followed directly by `%`).
 
 ## 3. A rectangle whose numbers are indirect objects is read as zero-sized
 
+**Filed**: https://github.com/veraPDF/veraPDF-library/issues/1670
+
 **Rule**: ISO 19005-2 6.1.13 test 11 fails "One of the page boundaries is out of range (… height =
 0, width = 0)" on `/MediaBox [7 0 R 8 0 R 9 0 R 10 0 R]`, where objects 7 to 10 are the numbers
 0, 0, 250 and 50.
@@ -63,6 +69,8 @@ as an array of four numbers", and four references to numbers are that array's el
 ---
 
 ## 4. A CFF encoding's supplement is read as a glyph index rather than a string identifier
+
+**Filed**: https://github.com/veraPDF/veraPDF-library/issues/1671
 
 **Rule**: ISO 19005-2 6.2.11.5 test 1 (part 4 6.2.10.5, and part 4 6.2.10.7) on a `Type1C` font with
 no `/Encoding`, so the program's built-in encoding selects the glyph (§9.6.5.2).
