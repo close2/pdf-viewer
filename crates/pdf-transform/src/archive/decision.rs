@@ -21,6 +21,7 @@ mod annotations_and_attachments;
 mod colour_and_graphics;
 mod content_stream_fences;
 mod files_and_structure;
+pub(super) use files_and_structure::IMPLEMENTATION_LIMITS;
 mod fonts;
 mod metadata;
 
@@ -2312,6 +2313,9 @@ pub(super) fn decide(
     if let Some(answered) = drew_nothing_answer(judgement, configured, prepared) {
         return answered;
     }
+    if let Some(answered) = integer_reals_answer(judgement, authorised, prepared) {
+        return answered;
+    }
     let Some(remedy) = REMEDIES
         .iter()
         .find(|remedy| remedy.requirement == judgement.id)
@@ -2327,6 +2331,42 @@ pub(super) fn decide(
         return decide_as_underlying(input, rules, (authorised, configured), prepared);
     }
     answer_of(remedy.answer, authorised, prepared)
+}
+
+/// ISO 19005-2 section 6.1.13's two rows where `super::integer_reals` answers them other than
+/// through [`REMEDIES`]: by the photographs, or, for the objects' row, through the reader's log.
+fn integer_reals_answer(
+    judgement: &Judgement,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    // Where every stream stating a value past one of the row's bounds was taken off its page by a
+    // photograph, the photograph answers both rows, at the losses it already takes (ADR 3535).
+    let restated = prepared.integer_reals.as_ref().ok()?;
+    let either_row =
+        judgement.id == super::integer_reals::ROW || restated.answers_the_log(judgement);
+    if either_row
+        && restated.only_on_photographed_pages()
+        && let Ok(substitutes) = prepared.substitutes.as_ref()
+    {
+        return Some(losing(
+            substitutes.photograph_losses(),
+            Rewrite::SubstituteFontProgram,
+            authorised,
+        ));
+    }
+    // **The objects' row, where the reader's log is all that fails it.** A content stream's
+    // integer too wide for 64 bits is logged at the page whose content held it, so the row for the
+    // file's objects fails beside the content-stream row. Where every place is that log at a page
+    // whose content this rewrite answers, the same rewrite answers both, and the output holds no
+    // such integer for either (ADR 3533). The content-stream row itself is [`REMEDIES`]'.
+    restated.answers_the_log(judgement).then(|| {
+        answer_of(
+            Answer::Mechanical(Rewrite::IntegerWrittenAsReal),
+            authorised,
+            prepared,
+        )
+    })
 }
 
 /// A compound requirement's decision, taken from the rules it names.

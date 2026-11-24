@@ -198,6 +198,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "file-structure/page-tree-node-count-counts-its-leaves",
         answer: Answer::Mechanical(Rewrite::PageCountRestated),
     },
+    // ISO 19005-2 section 6.1.13, for the values written inside a content stream: an integer past
+    // the part's bound written as the real of the same value, a period after its last digit,
+    // where every value the row failed at is such an integer and a direct operand of an operator
+    // whose operands are numbers (ISO 32000-2 §7.3.3; `super::super::integer_reals`, `doc/adr/3533`).
+    // Anywhere else the preparation keeps `IMPLEMENTATION_LIMITS`, the refusal the row had.
+    Remedy {
+        requirement: crate::archive::integer_reals::ROW,
+        answer: Answer::Mechanical(Rewrite::IntegerWrittenAsReal),
+    },
     // ISO 19005-2 section 6.1.13's last limit: every page boundary between 3 and 14 400 units.
     // Nine of that subclause's ten limits are `IMPLEMENTATION_LIMITS` refusals and this one is
     // not, because §7.7.3.3's Table 31 makes four of §14.11.2's five boxes **optional** and
@@ -356,10 +365,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "implementation-limits/string-lengths",
         Because::NotThisTarget(IMPLEMENTATION_LIMITS),
     ),
-    (
-        "implementation-limits/values-written-in-content-streams",
-        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
-    ),
     // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the one of section 3.8's three rules
     // still refused. The `/Order` rule and the `/AS` rule are both rows of `REMEDIES`.
     (
@@ -412,7 +417,7 @@ const ROLE_MAP_NEEDS_A_JUDGEMENT: &str = "mapping a non-standard structure type 
 /// is a limit on what the file may contain rather than on what it may say, so every fix is an
 /// edit to the document's own values — and part 4 states no implementation-limits subclause at
 /// all, which turns the whole family into a question about the target.
-const IMPLEMENTATION_LIMITS: &str = "ISO 19005-2 section 6.1.13 sets a hard limit this document \
+pub(in crate::archive) const IMPLEMENTATION_LIMITS: &str = "ISO 19005-2 section 6.1.13 sets a hard limit this document \
      exceeds, and every way of meeting one is an edit to what the document says: re-nesting q \
      and Q, rescaling a page, re-encoding a colour space, renaming an object, or dropping \
      objects until the count falls. ISO 19005-4 states no implementation-limits subclause at all \

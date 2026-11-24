@@ -189,6 +189,14 @@ impl Rewriter<'_> {
         {
             return Rewritten::Changed(self.with_its_dictionary_rewritten(id, unsmoothed, applied));
         }
+        // And once more for an integer past ISO 19005-2 section 6.1.13's bound written as a real,
+        // which `super::super::integer_reals` refuses where any repair above also writes the
+        // stream (`doc/adr/3533`). Counted by integer in `count_inline_entries`.
+        if self.wants(Rewrite::IntegerWrittenAsReal)
+            && let Some(restated) = self.integer_reals.and_then(|restated| restated.at.get(&id))
+        {
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
+        }
         // **Five writers over one packet, and the last of them is what carries the others'
         // work.** `super::super::prepare` folds the replacement into the bytes the header cut starts
         // from, those into the property removal's, those into the container respelling's, those

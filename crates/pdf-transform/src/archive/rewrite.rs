@@ -110,6 +110,14 @@ pub enum Rewrite {
     /// `BI` dictionary, the content stream's one other byte left as it was (`doc/questions/A978`,
     /// `super::inline_smoothing`).
     InlineInterpolationOff,
+    /// A content stream's integer past ISO 19005-2 section 6.1.13's bound is written as the real
+    /// of the same value, a period after its last digit and every other byte as it was.
+    ///
+    /// ISO 32000-2 §7.3.3 makes an integer and a real two spellings of a mathematical number and
+    /// lets an integer stand wherever a real is expected; the part bounds the integer form more
+    /// tightly than the real one. Written only as an operand of an operator whose operands are
+    /// numbers, so nothing a reader computes changes (`super::integer_reals`, `doc/adr/3533`).
+    IntegerWrittenAsReal,
     /// `/Alternates` and `/OPI` are removed from every image `XObject`.
     ImageAlternatesAndOpi,
     /// `/OPI` is removed from every form `XObject`.
@@ -1369,6 +1377,10 @@ impl Rewrite {
             Self::InlineInterpolationOff => {
                 "an inline image's /I is set false inside its content stream, every other byte kept"
             }
+            Self::IntegerWrittenAsReal => {
+                "a content stream's integer past ISO 19005-2 section 6.1.13's bound is written as \
+                 the real of the same value, a period after its last digit, every other byte kept"
+            }
             Self::ImageAlternatesAndOpi => "an image's /Alternates and /OPI are removed",
             Self::FormOpi => "a form XObject's /OPI is removed",
             Self::FormPostScript => "a form XObject's /PS and PostScript /Subtype2 are removed",
@@ -1953,6 +1965,7 @@ impl Rewrite {
             Self::DamagedDataAsDecoded => "damaged-data-as-decoded",
             Self::InterpolationOff => "interpolation-off",
             Self::InlineInterpolationOff => "inline-interpolation-off",
+            Self::IntegerWrittenAsReal => "integer-written-as-real",
             Self::ImageAlternatesAndOpi => "image-alternates-and-opi",
             Self::FormOpi => "form-opi",
             Self::FormPostScript => "form-postscript",
@@ -2273,6 +2286,7 @@ impl<'a> Rewriter<'a> {
             unreferenced: prepared.unreferenced.as_ref(),
             type3_widths: prepared.type3_widths.as_ref().ok(),
             inline_smoothing: prepared.inline_smoothing.as_ref().ok(),
+            integer_reals: prepared.integer_reals.as_ref().ok(),
         }
     }
 }
@@ -2333,6 +2347,12 @@ fn count_inline_entries(
         && let Ok(unsmoothed) = &prepared.inline_smoothing
     {
         applied.insert(Rewrite::InlineInterpolationOff, unsmoothed.entries());
+    }
+    // The integers rather than the streams, for the same reason (`doc/adr/3533`).
+    if wanted.contains(&Rewrite::IntegerWrittenAsReal)
+        && let Ok(restated) = &prepared.integer_reals
+    {
+        applied.insert(Rewrite::IntegerWrittenAsReal, restated.integers());
     }
 }
 
@@ -3345,6 +3365,9 @@ struct Rewriter<'a> {
     /// The content streams written with each inline image's `/I` false
     /// (`super::inline_smoothing`).
     inline_smoothing: Option<&'a super::inline_smoothing::Unsmoothed>,
+    /// The content streams written with each integer past section 6.1.13's bound as a real
+    /// (`super::integer_reals`).
+    integer_reals: Option<&'a super::integer_reals::Restated>,
 }
 
 impl Rewriter<'_> {

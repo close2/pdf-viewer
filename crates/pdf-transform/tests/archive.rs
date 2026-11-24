@@ -16800,6 +16800,8 @@ mod annotation_flags;
 
 #[path = "archive/as_drawn.rs"]
 mod as_drawn;
+#[path = "archive/integer_reals.rs"]
+mod integer_reals;
 #[path = "archive/stand_in_face.rs"]
 mod stand_in_face;
 

@@ -429,6 +429,9 @@ pub(super) struct Prepared {
     /// The content streams written with each inline image's `/I` stated false, or why none are
     /// (`doc/questions/A978`, `doc/adr/3373`).
     pub(super) inline_smoothing: Result<super::inline_smoothing::Unsmoothed, Because>,
+    /// The content streams written with each integer past ISO 19005-2 section 6.1.13's bound as
+    /// the real of its value, or why none are (`doc/adr/3533`).
+    pub(super) integer_reals: Result<super::integer_reals::Restated, Because>,
     /// The Type 3 fonts given a glyph procedure for each code they show and describe no glyph
     /// for, or why they are not (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1,
     /// `doc/adr/2918`).
@@ -1459,14 +1462,51 @@ impl Prepared {
         let photographed: BTreeSet<ObjectId> = substitutes
             .as_ref()
             .map_or_default(|substitutes| substitutes.photographs.keys().copied().collect());
+        let taken_off_by_photographs =
+            super::hexadecimal::taken_off_by(document, survey.as_ref(), &photographed);
+        // The values section 6.1.13 bounds inside a content stream, written as reals once the
+        // photographs are known: a stream a photograph takes off its page is not this repair's to
+        // write, and its values are not the output's. After every other stream repair for the
+        // reason `super::type3_widths` gives: a stream one of them writes keeps the row's refusal
+        // rather than being written twice (`doc/adr/3533`).
+        let integer_reals_refused = Because::NotThisTarget(super::decision::IMPLEMENTATION_LIMITS);
+        let integer_reals = asked(wanted(Rewrite::IntegerWrittenAsReal), || {
+            let walked =
+                super::integer_reals::walk(document, survey.as_ref(), integer_reals_refused)?;
+            let mut others = Vec::new();
+            if let Ok(completed) = &hexadecimal {
+                others.push(&completed.at);
+            }
+            if let Ok(restated) = &languages {
+                others.push(&restated.streams);
+            }
+            if let Ok(drawn) = &as_drawn {
+                others.push(&drawn.at);
+            }
+            if let Ok(restated) = &type3_widths {
+                others.push(&restated.at);
+            }
+            if let Ok(unsmoothed) = &inline_smoothing {
+                others.push(&unsmoothed.at);
+            }
+            if let Ok(restated) = &ascii_data {
+                others.push(&restated.at);
+            }
+            if let Ok(answered) = &base_standard {
+                others.push(&answered.at);
+            }
+            walked.settle(
+                document,
+                (&taken_off_by_photographs, &photographed),
+                &others,
+                integer_reals_refused,
+            )
+        });
         let base_standard = super::base_standard::settled(
             base_standard,
             document,
-            as_drawn.as_ref().ok(),
-            (
-                &photographed,
-                &super::hexadecimal::taken_off_by(document, survey.as_ref(), &photographed),
-            ),
+            (as_drawn.as_ref().ok(), integer_reals.as_ref().ok()),
+            (&photographed, &taken_off_by_photographs),
         );
         let damaged_data_history = base_standard
             .as_ref()
@@ -1944,6 +1984,7 @@ impl Prepared {
             unreferenced: super::unreferenced::removal(document, input, plan.target),
             type3_widths,
             inline_smoothing,
+            integer_reals,
             type3_glyphs,
             actions,
             forbidden_annotations,
@@ -2159,6 +2200,7 @@ impl Prepared {
             Rewrite::XfaRemoved => self.xfa.as_ref().err().copied(),
             Rewrite::EmbeddedFileRemoved => self.embedded_files.as_ref().err().copied(),
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
+            Rewrite::IntegerWrittenAsReal => self.integer_reals.as_ref().err().copied(),
             Rewrite::RunWrittenAsDrawn => self
                 .as_drawn
                 .as_ref()
@@ -2671,7 +2713,8 @@ struct TrueTypeRoutes {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 15] = [
+const SURVEYED: [Rewrite; 16] = [
+    Rewrite::IntegerWrittenAsReal,
     Rewrite::InlineInterpolationOff,
     Rewrite::Type3WidthRestated,
     Rewrite::Type3GlyphDescribed,

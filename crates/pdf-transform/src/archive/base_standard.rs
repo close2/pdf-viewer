@@ -145,7 +145,8 @@ pub(super) fn answer(
 /// The answer once the conversion's content rewrites are known: a repair inside a content stream
 /// is answered where the bytes it was made in do not cross — the page is photographed, or every
 /// content stream of the page or form is written again by the run rewrite and the class is one
-/// that rewrite writes out (`super::as_drawn`) — and refused by name, under the fence, everywhere
+/// that rewrite writes out (`super::as_drawn`), or by the integer rewrite and the class is an
+/// integer too wide for 64 bits (`super::integer_reals`, ADR 3533) — and refused by name, under the fence, everywhere
 /// else (ADR 3521). The output's own check is what holds a rewrite to having written every one.
 ///
 /// A damaged stream only photographed pages named (`taken_off`) is not written, so it is not
@@ -153,7 +154,10 @@ pub(super) fn answer(
 pub(super) fn settled(
     answered: Result<Answered, Because>,
     document: &Document,
-    drawn: Option<&super::as_drawn::Drawn>,
+    (drawn, reals): (
+        Option<&super::as_drawn::Drawn>,
+        Option<&super::integer_reals::Restated>,
+    ),
     (photographed, taken_off): (&BTreeSet<ObjectId>, &BTreeSet<ObjectId>),
 ) -> Result<Answered, Because> {
     let mut answered = answered?;
@@ -163,12 +167,15 @@ pub(super) fn settled(
         .retain(|stream| !taken_off.contains(&ObjectId::new(stream.object, stream.generation)));
     for (class, holder) in &answered.content {
         let rewritten = holder.is_some_and(|id| {
+            let written_by = |at: &BTreeMap<ObjectId, Object>| {
+                let streams = content_streams_of(document, id);
+                !streams.is_empty() && streams.iter().all(|stream| at.contains_key(stream))
+            };
             photographed.contains(&id)
                 || (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
-                    && drawn.is_some_and(|drawn| {
-                        let streams = content_streams_of(document, id);
-                        !streams.is_empty() && streams.iter().all(|at| drawn.at.contains_key(at))
-                    }))
+                    && drawn.is_some_and(|drawn| written_by(&drawn.at)))
+                || (class.name == WRITTEN_OUT_AS_REALS
+                    && reals.is_some_and(|reals| written_by(&reals.at)))
         });
         if !rewritten {
             return Err(Because::TheFence(in_content(class)));
@@ -181,6 +188,10 @@ pub(super) fn settled(
 /// (ADR 2638) and a lone delimiter it writes as the white space it draws as (ADR 2859).
 const WRITTEN_OUT_BY_THE_RUN_REWRITE: [&str; 2] =
     ["syntax/number-salvaged", "syntax/delimiter-unmatched"];
+
+/// The class `super::integer_reals` writes out of a stream it rewrites: an integer too wide for 64
+/// bits, written as the real of the same value (ADR 3533).
+const WRITTEN_OUT_AS_REALS: &str = "syntax/integer-past-i64";
 
 /// The content streams of the page or form `id`: a page's `/Contents`, or the form itself.
 fn content_streams_of(document: &Document, id: ObjectId) -> Vec<ObjectId> {

@@ -30,9 +30,12 @@ impl Walk<'_> {
 
     /// Widens [`super::ContentLiterals`]' two real extremes by one operand, as magnitudes.
     ///
-    /// A magnitude that is not finite is left out: no PDF real *literal* spells one, so an
-    /// infinity here is what the lexer did with a run of digits too long for a `f64` rather
-    /// than what the file said, and reading a bound off it would report the reader's arithmetic.
+    /// A run too large for a `f64` — hundreds of digits, or the exponential form `62e545` that
+    /// ISO 32000-2 §7.3.3 forbids a writer and `pdf_syntax`'s lexer reads anyway (ADR 0733) —
+    /// arrives as `±f64::MAX`, the bound the lexer holds it at, and is kept: the run states a
+    /// magnitude past that, and so past ISO 19005-2 section 6.1.13's, and the report prints the
+    /// bound it was held at rather than the run (ADR 3534). No token the lexer returns is
+    /// infinite, so the guard below only keeps one that is from widening the extreme.
     pub(super) fn note_real(&mut self, value: f64, page: usize) {
         let value = value.abs();
         if !value.is_finite() {

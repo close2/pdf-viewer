@@ -1131,6 +1131,15 @@ contradicted:
 So the heading still holds. The converter does not edit content streams to reach conformance; it
 respells one operator, from a list, where a rule names it.
 
+**The same test admits a few more bytes, each a value the standard already states**, and each is
+named here so that the list stays closed: the final hexadecimal digit §7.3.4.3 assumes (ADR 1176);
+an inline image's `/I` written false, `A978`'s, under the loss `image-smoothing`; and an integer
+past ISO 19005-2 section 6.1.13's bound written as the real of the same value, a period after its
+last digit, only as an operand of an operator whose operands are numbers (ADR 3533). §7.3.3 makes
+the integer and the real two spellings of one number, so no mark moves. ADR 2638's
+`content-as-drawn` writes the number this reader draws in place of a run that is no number, and is
+argued there.
+
 ---
 
 ## 6. Limitations that come from PDF/A-4 being PDF 2.0
