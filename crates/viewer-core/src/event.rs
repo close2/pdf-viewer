@@ -607,6 +607,10 @@ pub struct SoundData {
     /// whatever its window type, so that a later action naming the annotation reaches it
     /// ([`Event::OperateMedia`]); `None` for a sound no rendition action plays (ADR 3433).
     pub rendition: Option<Associated>,
+    /// The floating or full-screen window of the host's own a clip's pictures are shown in —
+    /// Table 294's `/W` 0 or 1 — for a host that said it opens one
+    /// ([`crate::Command::OpensMediaWindows`]); `None` for every other sound (ADR 3585).
+    pub window: Option<pdf_model::media::Window>,
 }
 
 /// A sound's association with the screen annotation a rendition action named (ISO 32000-2

@@ -60,6 +60,7 @@ pub use drawing::device_lane;
 mod find;
 mod forms;
 mod input;
+mod media_window;
 mod notes;
 mod opening;
 mod panels;
@@ -157,9 +158,10 @@ impl Opening {
                 settings,
                 reader,
                 Refusals::Terminal,
-                // This window plays a sound itself where its helper is there (ADR 3417), and shows
-                // a clip's pictures itself too (ADR 3545).
-                viewer_host::sound::Hearing::of_a_showing_window(),
+                // This window plays a sound itself where its helper is there (ADR 3417), shows a
+                // clip's pictures itself too (ADR 3545), and in a window of their own where the
+                // rendition asks for one (ADR 3587).
+                viewer_host::sound::Hearing::of_a_window_opening_windows(media_window::SCREENS),
             ),
         })
     }

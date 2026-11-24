@@ -48,6 +48,7 @@ use viewer_core::{DocumentId, MediaOperation};
 use crate::sound::clock::MediaClock;
 use crate::sound::{Listening, SoundTime, Wake};
 
+pub mod screens;
 mod window;
 
 pub use window::{Looked, Pictures};
@@ -127,6 +128,9 @@ pub struct Shown {
     pub cut: bool,
     /// Table 291's `/F`: how a picture is fitted to the rectangle ([`placed`]).
     pub fit: pdf_model::media::Fit,
+    /// Table 294's floating or full-screen window the pictures are shown in instead of a
+    /// rectangle of the page — `/W` 0 or 1 — for a window that opens one (ADR 3587).
+    pub window: Option<pdf_model::media::Window>,
 }
 
 impl Shown {
@@ -157,6 +161,7 @@ impl Shown {
                 pdf_model::media::SimpleDuration::Intrinsic
             ) || playing.section != pdf_model::media::Section::WHOLE,
             fit: playing.fit,
+            window: sound.window.clone(),
         })
     }
 }
@@ -562,10 +567,10 @@ impl VideoPlayer {
     /// clock from where it was once it is over or where it never sounds (ADR 3555).
     pub fn play_beside(&mut self, shown: Shown, sound: Option<Listening>) {
         self.stop();
-        if shown.screen.is_none() {
+        if shown.screen.is_none() && shown.window.is_none() {
             self.seen.push(Seen::Refused(format!(
-                "{}: its pictures are not shown, because the rendition plays in no screen \
-                 annotation's rectangle and a floating window is not built yet; its sound plays",
+                "{}: its pictures are not shown, because the rendition plays them in a hidden \
+                 window (Table 294's /W 2) or names no screen annotation; its sound plays",
                 shown.label
             )));
             return;
@@ -751,6 +756,88 @@ impl VideoPlayer {
     pub fn screen(&self) -> Option<(DocumentId, ObjectId)> {
         let hand = self.in_hand.as_ref()?;
         Some((hand.shown.document, hand.shown.screen?))
+    }
+
+    /// The document, the label and the window of its own the pictures are shown in, while a clip
+    /// that Table 294's `/W` 0 or 1 shows in one is in hand (ADR 3587).
+    #[must_use]
+    pub fn window(&self) -> Option<(DocumentId, &str, &pdf_model::media::Window)> {
+        let hand = self.in_hand.as_ref()?;
+        Some((
+            hand.shown.document,
+            hand.shown.label.as_str(),
+            hand.shown.window.as_ref()?,
+        ))
+    }
+
+    /// What a window of its own shows for the clip in hand, `inner` pixels of it: Table 294's
+    /// `/B` over the whole — "used if the media object does not entirely cover the rectangle" —
+    /// and `raster`, the picture held up, over it, fitted by Table 291's `/F` and smoothed as the page's
+    /// layers are; the colour alone before the first picture. `None` where no clip shown in a
+    /// window is in hand (ADR 3587).
+    ///
+    /// Drawn by the processor, the oracle's rasteriser, for any toolkit window: GTK holds it as a
+    /// texture and `quorra` presents it through its software surface. A window's few pictures a
+    /// second at its own size are the processor's to draw; the page's layer stays the device's.
+    ///
+    /// # Errors
+    ///
+    /// The rasteriser's refusal, as a sentence.
+    #[must_use]
+    pub fn window_picture(
+        &self,
+        raster: Option<&pdf_render::Raster>,
+        inner: (u32, u32),
+    ) -> Option<Result<pdf_render::Raster, String>> {
+        use pdf_render::{
+            BlendMode, Color, Command, DisplayList, Image, ImageSource, Medium, Rasterizer as _,
+            SampleAlpha, Size, TargetSpec, Transform,
+        };
+        let (_, _, window) = self.window()?;
+        let [r, g, b] = window.colour;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's pixels are far below f32's exact integer range"
+        )]
+        let mut list = DisplayList::new(Size::new(inner.0 as f32, inner.1 as f32));
+        if let Some((raster, placed)) = raster.zip(self.placed(screens::whole(inner))) {
+            let part = placed.part_of(raster);
+            let [x0, y0, x1, y1, _, _, x3, y3] = placed.quad;
+            list.push(Command::Image {
+                image: ImageSource::Decoded(Image {
+                    width: part.width,
+                    height: part.height,
+                    data: Arc::from(part.data.as_slice()),
+                    interpolate: true,
+                    sample_alpha: SampleAlpha::Shape,
+                }),
+                // §8.9.5's image space puts an image's first row at the unit square's `y = 1`, so
+                // that edge goes to the quadrilateral's first side.
+                transform: Transform {
+                    a: x1 - x0,
+                    b: y1 - y0,
+                    c: x0 - x3,
+                    d: y0 - y3,
+                    e: x3,
+                    f: y3,
+                },
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        let target = TargetSpec {
+            width: inner.0,
+            height: inner.1,
+            transform: Transform::IDENTITY,
+        };
+        Some(
+            render_cpu::CpuRasterizer::new()
+                .with_medium(Medium::uniform(Color { r, g, b, a: 1.0 }))
+                .rasterize(&list, target)
+                .map_err(|refused| refused.to_string()),
+        )
     }
 
     /// Whether a clip is in hand, showing or paused: what Escape stops.

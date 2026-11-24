@@ -430,3 +430,71 @@ fn a_clip_plays_in_its_screen_annotation_and_stops_and_pauses() {
     );
     let _ = std::fs::remove_file(&document);
 }
+
+/// ISO 32000-2 Table 294's `/W` 0 on this window, as far as a window with no event loop reaches
+/// (ADR 3587): told what a window of its own can be here (`OpensMediaWindows`), the core chooses
+/// the rendition asking for a floating window of `/D` 48 by 32 pixels; the clip in hand names it;
+/// its pictures are the processor's — the clip's own samples converted — and nothing is drawn over
+/// the page's rectangle; and what the window of its own shows is Table 294's `/B` beside the
+/// picture met into it (Table 291's default fit).
+///
+/// **Not exercised here**: the winit window itself, its place and its monitor, which need a
+/// running event loop (`viewer_host::video::screens`' tests hold the placement and the monitor
+/// choice over two stand-in monitors), and a person watching it.
+#[test]
+fn a_clip_that_asks_for_a_floating_window_is_shown_in_one_of_its_own() {
+    let (sets, units, pictures) = pcm_stream::stream(8, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("floating.pdf");
+    std::fs::write(
+        &document,
+        showing::a_video_document_in(
+            &clip,
+            "/MH << /W 0 /F << /D [48 32] /P 0 /RT 2 >> >> /BE << /B [0 0 1] >>",
+        ),
+    )
+    .expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+    app.media_screens = pdf_model::media::Screens {
+        windows: true,
+        placed: true,
+        monitors: [true; 7],
+    };
+    drop(
+        app.viewer
+            .handle(Command::OpensMediaWindows(app.media_screens)),
+    );
+    app.dispatch(Command::Activate(showing::SCREEN));
+    show_until(&mut app, "put a picture up", |app| app.picture.is_some());
+    let raster = app.picture.clone().expect("a picture");
+    assert!(
+        which(&raster, &pictures).is_some(),
+        "the clip's own picture"
+    );
+    let video = app.video.as_ref().expect("a player");
+    let (_, _, window) = video.window().expect("a window of its own");
+    let pdf_model::media::WindowKind::Floating(floating) = &window.kind else {
+        panic!("a floating window: {window:?}");
+    };
+    assert_eq!(floating.size, (48, 32));
+    assert_eq!(floating.relative, pdf_model::media::Relative::Desktop);
+    assert!(app.picture_quad().is_none(), "nothing over the page");
+    let shown = video
+        .window_picture(Some(&raster), (48, 32))
+        .expect("a window clip")
+        .expect("drawn");
+    let at = |x: usize, y: usize| {
+        &shown.data[y.saturating_mul(48).saturating_add(x).saturating_mul(4)..][..4]
+    };
+    assert_eq!(
+        at(46, 16),
+        &[0, 0, 255, 255],
+        "Table 294's /B beside the picture"
+    );
+    assert_ne!(at(8, 16), &[0, 0, 255, 255], "the picture at the left");
+    assert!(app.stop_the_pictures());
+    let _ = std::fs::remove_file(&document);
+}

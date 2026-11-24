@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_model::media::{Players, Processor, Report, judge};
+use pdf_model::media::{Players, Processor, Report, Screens, judge};
 use pdf_syntax::{Document, Object, ObjectId};
 
 /// Assembles a document from object bodies numbered from 1, with object 1 the catalog.
@@ -106,10 +106,12 @@ fn a_media_criterion_binds_from_either_dictionary_and_an_unknown_one_only_from_m
     let english = Processor {
         language: Some("en"),
         players: Players::HandOff,
+        screens: Screens::default(),
     };
     let french = Processor {
         language: Some("fr"),
         players: Players::HandOff,
+        screens: Screens::default(),
     };
     assert!(judged(&both, english).chosen().is_none());
     assert!(judged(&both, french).chosen().is_some());
@@ -1075,6 +1077,7 @@ fn table_291_must_honour_is_judged_for_the_player_the_clip_reaches() {
     let here = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let parameters = "/P << /MH << /V 50 /RC 2 /A false /F 3 /D << /S /T /T << /S /S /V 1.5 >> >> >> \
                       /BE << /V 80 /C true >> >>";
@@ -1124,10 +1127,12 @@ fn an_mp4_video_clip_is_played_here_only_by_a_host_that_shows_video() {
     let sound_only = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let shows_video = Processor {
         language: None,
         players: Players::AlsoVideoHere,
+        screens: Screens::default(),
     };
     assert!(
         judged(&body, sound_only).chosen().is_none(),
@@ -1161,6 +1166,7 @@ fn a_rendition_non_viable_for_this_player_falls_to_the_next() {
     let here = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let report = judged(&body, here);
     let (considered, chosen) = report.chosen().expect("the second is viable here");
@@ -1180,6 +1186,7 @@ fn a_media_clip_section_is_played_here_as_its_offsets_place_it() {
     let here = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let wave = format!("<< /S /MCD /CT (audio/wav) /D {EMBEDDED} >>");
     let time = |seconds: f64| format!("<< /S /T /T << /S /S /V {seconds} >> >>");
@@ -1252,6 +1259,7 @@ fn a_base_url_and_a_hidden_window_are_honoured_by_this_player() {
     let here = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let wave = |options: &str| format!("<< /S /MCD /CT (audio/wav) {options} /D {EMBEDDED} >>");
     let chosen = |screen: &str, clip: &str| {
@@ -1302,6 +1310,7 @@ fn a_sound_played_in_its_screen_annotations_rectangle_paints_the_background() {
     let here = Processor {
         language: None,
         players: Players::AlsoHere,
+        screens: Screens::default(),
     };
     let plain = format!("<< /S /MCD /CT (audio/wav) /D {EMBEDDED} >>");
     let chosen = |screen: &str| {
@@ -1355,6 +1364,7 @@ fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() 
     let shows_video = Processor {
         language: None,
         players: Players::AlsoVideoHere,
+        screens: Screens::default(),
     };
     let video = format!("<< /S /MCD /CT (video/mp4) /D {EMBEDDED} >>");
     let with = |options: &str, clip: &str| {
@@ -1401,5 +1411,238 @@ fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() 
             .expect("a sound honours every fit")
             .1
             .played_here
+    );
+}
+
+/// A host whose windows open, place and find every monitor (ADR 3585).
+fn every_window() -> Processor<'static> {
+    Processor {
+        language: Some("en"),
+        players: Players::AlsoVideoHere,
+        screens: Screens {
+            windows: true,
+            placed: true,
+            monitors: [true; 7],
+        },
+    }
+}
+
+/// The rendition of an embedded `video/mp4` clip with screen parameters `screen`.
+fn video_in(screen: &str) -> String {
+    format!("<< /S /MR /SP << {screen} >> /C << /S /MCD /CT (video/mp4) /D {EMBEDDED} >> >>")
+}
+
+/// ISO 32000-2 Table 294's `/W` 0 and 1 for a clip with pictures and a host whose windows open
+/// (ADR 3585): the floating window's Table 295 entries are read, `MH`'s `/F` before `BE`'s, each
+/// with its default where absent; the full-screen window ignores `/F`; and a host that opens no
+/// window still finds `/W` 0 in `MH` non-viable.
+#[test]
+fn a_floating_window_is_read_from_table_295_and_a_full_screen_window_ignores_it() {
+    use pdf_model::media::{
+        Floating, MonitorSpecifier, Offscreen, Position, Relative, Resize, WindowKind,
+    };
+    let report = judged(
+        &video_in(
+            "/MH << /W 0 /F << /D [320 240] /P 2 >> >> \
+             /BE << /F << /D [10 10] /RT 2 /O 0 /R 2 /T false /TT [(en) (A clip) () (Ein Clip)] >> \
+             /B [0 0 1] >>",
+        ),
+        every_window(),
+    );
+    let (_, clip) = report.chosen().expect("viable");
+    let window = clip.window.as_ref().expect("a floating window");
+    assert_eq!(
+        window.kind,
+        WindowKind::Floating(Floating {
+            size: (320, 240),
+            relative: Relative::Desktop,
+            position: Position::of_value(2).expect("2"),
+            offscreen: Offscreen::Ignore,
+            title_bar: false,
+            user_close: true,
+            resize: Resize::Free,
+            title: Some("A clip".to_owned()),
+        }),
+        "MH's /D wins over BE's; the rest come from BE or their defaults"
+    );
+    assert_eq!(window.monitor, MonitorSpecifier::Largest, "/M's default, 0");
+    assert_eq!(window.colour, [0.0, 0.0, 1.0]);
+    assert_eq!(clip.background, None, "no rectangle on the page is painted");
+
+    let defaults = judged(
+        &video_in("/BE << /W 0 /F << /D [8 6] >> >>"),
+        every_window(),
+    );
+    let (_, clip) = defaults.chosen().expect("viable");
+    let Some(WindowKind::Floating(floating)) = clip.window.as_ref().map(|window| &window.kind)
+    else {
+        panic!("a floating window");
+    };
+    assert_eq!(floating.relative, Relative::Document, "/RT's default, 0");
+    assert_eq!(floating.position, Position::CENTRE, "/P's default, 4");
+    assert_eq!(floating.offscreen, Offscreen::OnScreen, "/O's default, 1");
+    assert_eq!(
+        floating.resize,
+        Resize::Fixed,
+        "/R 0, ISO 32000-1's default"
+    );
+    assert!(
+        floating.title_bar && floating.user_close,
+        "/T and /UC: true"
+    );
+    assert_eq!(floating.title, None);
+
+    let full = judged(
+        &video_in("/MH << /W 1 /M 5 /F << /D [-1 0] >> >>"),
+        every_window(),
+    );
+    let (_, clip) = full
+        .chosen()
+        .expect("viable: /F is ignored for a full-screen window");
+    let window = clip.window.as_ref().expect("a full-screen window");
+    assert_eq!(window.kind, WindowKind::FullScreen);
+    assert_eq!(window.monitor, MonitorSpecifier::Height);
+
+    let no_windows = Processor {
+        language: None,
+        players: Players::AlsoVideoHere,
+        screens: Screens::default(),
+    };
+    assert!(
+        judged(&video_in("/MH << /W 0 /F << /D [8 6] >> >>"), no_windows)
+            .chosen()
+            .is_none(),
+        "a host that opens no window cannot honour /W 0 in MH"
+    );
+}
+
+/// Table 295's rule for its entries — "if they are nested within an MH dictionary, the floating
+/// window parameters object (and hence the media screen parameters object) shall be considered
+/// non-viable; if they are nested within a BE dictionary, they shall be considered to have their
+/// default values" — and `/D`, "(Required)": with no usable size the window `MH` asks for is
+/// non-viable and the one `BE` asks for leaves the clip in its annotation's rectangle.
+#[test]
+fn an_unrecognised_floating_window_entry_is_non_viable_in_mh_and_default_in_be() {
+    use pdf_model::media::{Relative, WindowKind};
+    for (entry, value) in [("RT", "4"), ("P", "9"), ("O", "3"), ("R", "3"), ("T", "1")] {
+        let must = video_in(&format!(
+            "/MH << /W 0 /F << /D [8 6] /{entry} {value} >> >>"
+        ));
+        assert!(
+            judged(&must, every_window()).chosen().is_none(),
+            "MH /{entry} {value}"
+        );
+        let best = video_in(&format!(
+            "/MH << /W 0 /F << /D [8 6] >> >> /BE << /F << /{entry} {value} >> >>"
+        ));
+        assert!(
+            judged(&best, every_window()).chosen().is_some(),
+            "BE /{entry} {value}"
+        );
+    }
+    let report = judged(
+        &video_in("/MH << /W 0 /F << /D [8 6] >> >> /BE << /F << /RT 7 >> >>"),
+        every_window(),
+    );
+    let Some(WindowKind::Floating(floating)) = report
+        .chosen()
+        .and_then(|(_, clip)| clip.window.clone())
+        .map(|window| window.kind)
+    else {
+        panic!("a floating window");
+    };
+    assert_eq!(floating.relative, Relative::Document);
+    for screen in ["/MH << /W 0 >>", "/MH << /W 0 /F << /D [0 6] >> >>"] {
+        assert!(
+            judged(&video_in(screen), every_window()).chosen().is_none(),
+            "{screen}"
+        );
+    }
+    let report = judged(&video_in("/BE << /W 0 >>"), every_window());
+    let (_, clip) = report.chosen().expect("viable in the rectangle");
+    assert_eq!(clip.window, None);
+    assert!(clip.background.is_some(), "it plays in the rectangle");
+    assert!(
+        clip.unhonoured.iter().any(|note| note.contains("/D")),
+        "{:?}",
+        clip.unhonoured
+    );
+}
+
+/// ISO 32000-2 §13.2.7.5's monitor specifier, read from Table 294's `/M` for a window (ADR 3586):
+/// each of Table 304's seven values is read; an unrecognised one — "Unrecognised value in MH :
+/// object is non-viable; in BE : treat as default value"; a value the host's toolkit cannot find
+/// (a colour depth GDK does not report) and a floating window's monitor for a host that places no
+/// window are non-viable in `MH` and set aside, with the default 0, in `BE`.
+#[test]
+fn a_monitor_specifier_is_read_for_a_window_and_judged_against_what_the_host_finds() {
+    use pdf_model::media::MonitorSpecifier;
+    for value in 0..=6 {
+        let report = judged(
+            &video_in(&format!("/MH << /W 1 /M {value} >>")),
+            every_window(),
+        );
+        let (_, clip) = report.chosen().expect("viable");
+        let monitor = clip.window.as_ref().expect("a window").monitor;
+        assert_eq!(i64::from(monitor.value()), value);
+        assert_eq!(MonitorSpecifier::of_value(value), Some(monitor));
+    }
+    assert!(
+        judged(&video_in("/MH << /W 1 /M 7 >>"), every_window())
+            .chosen()
+            .is_none()
+    );
+    let report = judged(&video_in("/MH << /W 1 >> /BE << /M 7 >>"), every_window());
+    assert_eq!(
+        report
+            .chosen()
+            .expect("viable")
+            .1
+            .window
+            .as_ref()
+            .map(|window| window.monitor),
+        Some(MonitorSpecifier::Largest)
+    );
+    let no_depth = Processor {
+        screens: Screens {
+            windows: true,
+            placed: false,
+            monitors: [true, false, true, false, true, true, true],
+        },
+        ..every_window()
+    };
+    assert!(
+        judged(&video_in("/MH << /W 1 /M 3 >>"), no_depth)
+            .chosen()
+            .is_none(),
+        "a colour depth nobody reports"
+    );
+    let report = judged(&video_in("/MH << /W 1 >> /BE << /M 3 >>"), no_depth);
+    let (_, clip) = report.chosen().expect("viable");
+    assert_eq!(
+        clip.window.as_ref().map(|window| window.monitor),
+        Some(MonitorSpecifier::Largest)
+    );
+    assert!(clip.unhonoured.iter().any(|note| note.contains("/M 3")));
+    assert!(
+        judged(&video_in("/MH << /W 0 /M 4 /F << /D [8 6] >> >>"), no_depth)
+            .chosen()
+            .is_none(),
+        "a floating window's monitor, for a host that places none"
+    );
+    assert!(
+        judged(&video_in("/MH << /W 0 /F << /D [8 6] /P 0 >> >>"), no_depth)
+            .chosen()
+            .is_none(),
+        "a floating window's position, for a host that places none"
+    );
+    assert!(
+        judged(
+            &video_in("/MH << /W 0 /F << /D [8 6] >> /O 0.5 >>"),
+            every_window()
+        )
+        .chosen()
+        .is_none(),
+        "a transparent floating window"
     );
 }

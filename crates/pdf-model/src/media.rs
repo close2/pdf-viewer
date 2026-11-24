@@ -45,10 +45,14 @@ use crate::file_spec::FileSpec;
 pub mod container;
 mod deprecated;
 mod playing;
+mod screen;
 mod wave;
 
 pub use deprecated::{movie, sound};
 pub use playing::{Fit, Honoured, Playing, Section, SimpleDuration};
+pub use screen::{
+    Floating, MonitorSpecifier, Offscreen, Position, Relative, Resize, Screens, Window, WindowKind,
+};
 pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
@@ -74,6 +78,9 @@ pub struct Processor<'a> {
     pub language: Option<&'a str>,
     /// The players the host has, which §13.2.2's viability is judged for (ADR 3350).
     pub players: Players,
+    /// What the host's windows can do for Table 294's floating and full-screen windows, judged
+    /// for a clip whose pictures its own player shows (ADR 3585).
+    pub screens: Screens,
 }
 
 /// The players a host has for a media clip (ADR 3350).
@@ -178,6 +185,10 @@ pub struct Clip {
     /// annotation's rectangle — `/W` 3, the table's default — and `None` for a hidden window and
     /// for every clip handed on (ADRs 3399, 3407).
     pub background: Option<Background>,
+    /// Table 294's floating or full-screen window, where this program's player shows the clip's
+    /// pictures in a window of its own — `/W` 0 or 1, for a host whose [`Screens`] open one — and
+    /// `None` otherwise (ADR 3585).
+    pub window: Option<Window>,
 }
 
 /// Table 294's `/B` and `/O` for a media object played in the rectangle of its screen annotation
@@ -554,9 +565,20 @@ impl Walk<'_> {
         // Table 294's `/W` defaults to 3, so a rendition that states no screen parameters plays in
         // its annotation's rectangle too.
         let mut background = Some(Background::default());
+        let mut window = None;
         if let Some(screen) = screen.as_dict() {
             if here {
-                background = screen_here(document, screen, &mut reasons, &mut screen_set_aside);
+                // A window of the host's own is judged only for a clip with pictures, by a host
+                // that opens one (ADR 3585).
+                let windows = (pictures && self.processor.screens.windows)
+                    .then_some((self.processor.screens, self.processor.language));
+                (background, window) = screen_here(
+                    document,
+                    screen,
+                    windows,
+                    &mut reasons,
+                    &mut screen_set_aside,
+                );
             } else {
                 unhonourable(document, screen, "Table 294", &mut reasons);
             }
@@ -598,6 +620,7 @@ impl Walk<'_> {
                     }
                     clip.unhonoured.extend(screen_set_aside);
                     clip.background = background;
+                    clip.window = window;
                 }
                 Ok(clip)
             }
@@ -1238,6 +1261,7 @@ impl Walk<'_> {
             playing: Playing::default(),
             played_here: false,
             background: None,
+            window: None,
         })
     }
 
@@ -1519,14 +1543,21 @@ fn undefined_in_section(must_honour: &Object, reasons: &mut Vec<String>) {
 ///   `0.0..=1.0`, or an `/O` that is not one, cannot be honoured: in `MH` the parameters are
 ///   non-viable, and in `BE` the entry is set aside, said, and its default painted. The answer is
 ///   the background a window paints while the sound plays.
-/// - **0 and 1** ask for a window a player that shows nothing cannot open: in `MH` the parameters
-///   are non-viable, and in `BE` the entry is set aside and said.
+/// - **0 and 1**, "\[a] floating window" and "\[a] full-screen window that obscures all other
+///   windows": for a clip with pictures, where `windows` carries what the host's windows can do
+///   and the reader's language, the window is read and each of its entries judged
+///   ([`screen::window`], ADR 3585), and the answer is that window. Otherwise — a sound, which
+///   shows nothing, or a host that opens no window — in `MH` the parameters are non-viable, and in
+///   `BE` the entry is set aside and said. A floating window `BE` asks for whose Table 295 `/D`
+///   is unusable cannot be made, so the clip plays in the rectangle, said.
 fn screen_here(
     document: &Document,
     screen: &Dictionary,
+    windows: Option<(Screens, Option<&str>)>,
     reasons: &mut Vec<String>,
     set_aside: &mut Vec<String>,
-) -> Option<Background> {
+) -> (Option<Background>, Option<Window>) {
+    const FLOATING: i64 = 0;
     const HIDDEN: i64 = 2;
     const RECTANGLE: i64 = 3;
     let window_type = |key: &str| -> Option<Option<i64>> {
@@ -1547,7 +1578,7 @@ fn screen_here(
              recognise"
                 .to_owned(),
         );
-        return None;
+        return (None, None);
     }
     // A `BE` value the table does not recognise is the default, 3.
     // not a repair: ISO 32000-2 §13.2.6 (Table 294) defaults an absent /W to 3, and BE treats an
@@ -1555,10 +1586,30 @@ fn screen_here(
     let best = window_type("BE").map(|value| value.unwrap_or(RECTANGLE));
     let settled = must.flatten().or(best).unwrap_or(RECTANGLE);
     if settled == HIDDEN {
-        return None;
+        return (None, None);
     }
     if settled == RECTANGLE {
-        return Some(background(document, screen, reasons, set_aside));
+        return (Some(background(document, screen, reasons, set_aside)), None);
+    }
+    if let Some((screens, language)) = windows {
+        let floating = settled == FLOATING;
+        let before = reasons.len();
+        let window = screen::window(
+            document, screen, floating, screens, language, reasons, set_aside,
+        );
+        if window.is_some() || reasons.len() > before {
+            return (None, window);
+        }
+        // Only a floating window with no usable `/D` reaches here, said by `screen::window`.
+        if must.flatten().is_some() {
+            reasons.push(
+                "its media screen parameters' MH asks for a floating window (Table 294's /W 0), \
+                 and Table 295's required /D states no size for it"
+                    .to_owned(),
+            );
+            return (None, None);
+        }
+        return (Some(background(document, screen, reasons, set_aside)), None);
     }
     for (key, is_must) in [("MH", true), ("BE", false)] {
         let options = document.get_key(screen, key);
@@ -1580,7 +1631,7 @@ fn screen_here(
             }
         }
     }
-    None
+    (None, None)
 }
 
 /// Table 294's `/B` and `/O` for a sound played in its annotation's rectangle, `MH`'s entry before
@@ -2221,6 +2272,7 @@ mod tests {
                 Processor {
                     language,
                     players: super::Players::HandOff,
+                    screens: super::Screens::default(),
                 },
             )
             .chosen()

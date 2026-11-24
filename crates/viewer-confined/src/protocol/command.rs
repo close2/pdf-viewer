@@ -166,6 +166,8 @@ pub(super) mod command_kind {
     pub(in crate::protocol) const PLAYING_IN: u8 = 55;
     // The host shows video itself too (ADR 3538).
     pub(in crate::protocol) const SHOWS_VIDEO_HERE: u8 = 56;
+    // What the host's windows can do for a clip's floating or full-screen window (ADR 3585).
+    pub(in crate::protocol) const OPENS_MEDIA_WINDOWS: u8 = 57;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -485,6 +487,15 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::ShowsVideoHere(shows) => {
             writer.u8(k::SHOWS_VIDEO_HERE).bool(*shows);
+        }
+        Command::OpensMediaWindows(screens) => {
+            writer
+                .u8(k::OPENS_MEDIA_WINDOWS)
+                .bool(screens.windows)
+                .bool(screens.placed);
+            for finds in screens.monitors {
+                writer.bool(finds);
+            }
         }
         Command::PlayingIn { document, screen } => {
             writer.u8(k::PLAYING_IN).document(*document);
@@ -954,6 +965,19 @@ pub(crate) fn decode_command_holding(
         }
         k::SHOWS_VIDEO_HERE => {
             Command::ShowsVideoHere(reader.bool("whether the host shows a video clip itself")?)
+        }
+        k::OPENS_MEDIA_WINDOWS => {
+            let windows = reader.bool("whether the host opens a window for a clip")?;
+            let placed = reader.bool("whether the host places a floating window")?;
+            let mut monitors = [false; 7];
+            for finds in &mut monitors {
+                *finds = reader.bool("whether the host finds a Table 304 monitor")?;
+            }
+            Command::OpensMediaWindows(pdf_model::media::Screens {
+                windows,
+                placed,
+                monitors,
+            })
         }
         k::PLAYING_IN => Command::PlayingIn {
             document: reader.document("the document a sound plays in")?,

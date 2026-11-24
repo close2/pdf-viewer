@@ -258,6 +258,20 @@ impl ViewState {
         self.players
     }
 
+    /// Says what the host's windows can do for ISO 32000-2 Table 294's floating and full-screen
+    /// windows, which §13.2.2's viability of a clip shown here is judged for
+    /// ([`crate::media::Processor::screens`], ADR 3585). None until a host says otherwise. Nothing
+    /// drawn depends on it.
+    pub fn set_screens(&mut self, screens: crate::media::Screens) {
+        self.screens = screens;
+    }
+
+    /// What the host's windows can do; see [`Self::set_screens`].
+    #[must_use]
+    pub fn screens(&self) -> crate::media::Screens {
+        self.screens
+    }
+
     /// Defers the reading of §14.9's statements a structure element makes over the content it
     /// encloses, for an interpretation wanted for its marks before its text.
     ///

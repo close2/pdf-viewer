@@ -176,6 +176,26 @@ impl Pictures {
         self.player.as_ref()?.placed(quad)
     }
 
+    /// The window of its own the clip in hand is shown in, with its document and label
+    /// ([`VideoPlayer::window`], ADR 3587).
+    #[must_use]
+    pub fn window(&self) -> Option<(DocumentId, &str, &pdf_model::media::Window)> {
+        self.player.as_ref()?.window()
+    }
+
+    /// What a window of its own shows for the clip in hand, `inner` pixels of it, with the
+    /// picture held up ([`VideoPlayer::window_picture`]).
+    ///
+    /// # Errors
+    ///
+    /// The rasteriser's refusal, as a sentence.
+    #[must_use]
+    pub fn window_picture(&self, inner: (u32, u32)) -> Option<Result<pdf_render::Raster, String>> {
+        self.player
+            .as_ref()?
+            .window_picture(self.raster.as_ref(), inner)
+    }
+
     /// The picture held up and the document and screen annotation it is drawn over.
     #[must_use]
     pub fn picture(&self) -> Option<(&pdf_render::Raster, DocumentId, ObjectId)> {

@@ -148,6 +148,7 @@ impl ApplicationHandler for App {
     /// so a window showing a clip wakes at its pictures' rate and no faster (ADR 3545).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let next_picture = self.show_the_pictures();
+        self.keep_the_media_window(event_loop);
         self.come_to_rest(event_loop);
         if let Some(due) = next_picture {
             let flow = match event_loop.control_flow() {
@@ -163,6 +164,8 @@ impl ApplicationHandler for App {
         if self.state.is_some() {
             return;
         }
+        // What a clip's window of its own can be on this display, for the core (ADR 3587).
+        self.media_screens = crate::media_window::screens(event_loop);
 
         // A4 and US Letter whole at the opening `FitPage`, inside a 1080-line display's work area
         // with the title bar; the counted first frame is taken at it (ADR 3105).
@@ -244,8 +247,8 @@ impl ApplicationHandler for App {
         self.take_the_opening();
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        if self.state.is_none() {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if self.state.is_none() || self.media_window_took(id, &event) {
             return;
         }
         // Every window event but the pointer's, which arrives faster than a person can read and
@@ -1063,6 +1066,12 @@ impl App {
         if let Some(opening) = self.opening.take() {
             let (viewer, events) = opening.join().expect("the thread opening the document");
             self.viewer = viewer;
+            // What a clip's window of its own can be here (ISO 32000-2 Table 294's `/W` 0 and 1,
+            // §13.2.7.5), before any rendition is judged (ADR 3587).
+            drop(
+                self.viewer
+                    .handle(Command::OpensMediaWindows(self.media_screens)),
+            );
             self.launch.mark("document joined");
             // Page one as it was drawn while it was read goes to the renderer whose first frame of
             // it is finished from that drawing (ADR 1855).

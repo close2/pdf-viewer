@@ -162,6 +162,7 @@ fn played(or_resume: bool) -> Played {
                 annotation: SCREEN,
                 or_resume,
             }),
+            window: None,
         },
     }
 }

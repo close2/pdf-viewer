@@ -456,6 +456,15 @@ pub enum Command {
     /// Applies to every open document and to every one opened afterwards, on
     /// [`Self::PlaysHere`]'s rule.
     ShowsVideoHere(bool),
+    /// What this host's windows can do for ISO 32000-2 Table 294's floating and full-screen
+    /// windows (`/W` 0 and 1) and §13.2.7.5's monitor specifier, for a clip whose pictures it
+    /// shows itself (ADR 3585): a rendition asking for one is judged against it, and the clip it
+    /// chooses carries the window in [`crate::SoundData::window`]. A host that never sends this
+    /// opens no window, and such a rendition is judged as before.
+    ///
+    /// Applies to every open document and to every one opened afterwards, on
+    /// [`Self::PlaysHere`]'s rule.
+    OpensMediaWindows(pdf_model::media::Screens),
     /// A sound this host plays has started in a screen annotation's rectangle, or the one that
     /// played there has ended: the window's player knows both, and nothing else does.
     ///

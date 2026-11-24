@@ -355,6 +355,7 @@ fn a_sound_holding_its_own_samples_carries_them_beside_the_file() {
             playing: pdf_model::media::Playing::default(),
             screen: None,
             rendition: None,
+            window: None,
         })],
         "{signed:?}"
     );

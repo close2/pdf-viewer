@@ -630,6 +630,7 @@ fn played(recording: Recording, playing: Playing, rendition: bool) -> Played {
                 annotation: SCREEN,
                 or_resume: false,
             }),
+            window: None,
         },
     }
 }
@@ -1345,6 +1346,7 @@ fn a_clip_s_pictures_measured_against_its_sound() {
             repeat: 1.0,
             cut: false,
             fit: pdf_model::media::Fit::PlayersDefault,
+            window: None,
         },
         // The instrument's control: `AUDIO_IN_USE_AV_UNSLAVED` runs the pictures on the monotonic
         // clock instead, as they ran before ADR 3555, which the reading must tell apart.

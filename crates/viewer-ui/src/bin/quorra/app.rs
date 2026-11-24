@@ -268,6 +268,12 @@ pub(crate) struct App {
     /// The picture up, converted on the processor, where no graphics device draws this window; a
     /// device's picture is a texture the device keeps (`crate::pictures`).
     pub(crate) picture: Option<pdf_render::Raster>,
+    /// The window of its own a clip that Table 294's `/W` 0 or 1 asks for is shown in, while one
+    /// is in hand (ADR 3587).
+    pub(crate) media_window: Option<crate::media_window::MediaWindow>,
+    /// What this window's toolkit can do for such a window on the display the loop reached, told
+    /// to the core when the document is taken in (ADR 3587).
+    pub(crate) media_screens: pdf_model::media::Screens,
     /// Who plays this window's sounds, as the core was told at the launch (ADRs 3350, 3417).
     pub(crate) hearing: viewer_host::sound::Hearing,
     /// Whether the last sound was handed to this machine's player for want of the helper, which
@@ -906,6 +912,8 @@ impl App {
             sounding: None,
             video: None,
             picture: None,
+            media_window: None,
+            media_screens: pdf_model::media::Screens::default(),
             handed_on: false,
             hearing,
             drawn_so_far: None,

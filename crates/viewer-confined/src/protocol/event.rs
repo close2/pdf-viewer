@@ -883,6 +883,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
             write_playing(writer, &sound.playing);
             write_screen(writer, sound.screen.as_ref());
             write_rendition(writer, sound.rendition);
+            write_window(writer, sound.window.as_ref());
             return;
         }
         viewer_core::Recording::Mp4(file) => {
@@ -890,6 +891,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
             write_playing(writer, &sound.playing);
             write_screen(writer, sound.screen.as_ref());
             write_rendition(writer, sound.rendition);
+            write_window(writer, sound.window.as_ref());
             return;
         }
         // A clip with pictures, judged for a host that shows video (ADR 3538).
@@ -898,6 +900,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
             write_playing(writer, &sound.playing);
             write_screen(writer, sound.screen.as_ref());
             write_rendition(writer, sound.rendition);
+            write_window(writer, sound.window.as_ref());
             return;
         }
     };
@@ -919,6 +922,7 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
     write_playing(writer, &sound.playing);
     write_screen(writer, sound.screen.as_ref());
     write_rendition(writer, sound.rendition);
+    write_window(writer, sound.window.as_ref());
 }
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
@@ -1062,6 +1066,128 @@ pub(super) fn read_screen(
     }))
 }
 
+/// Table 294's floating or full-screen window for a clip's pictures (ADR 3585): a byte saying
+/// none, a floating window or a full screen; for a floating window Table 295's size, its four
+/// numbered entries, its two flags and its title; then §13.2.7.5's monitor specifier and the
+/// background colour.
+fn write_window(writer: &mut Writer, window: Option<&pdf_model::media::Window>) {
+    use pdf_model::media::{Offscreen, Relative, Resize, WindowKind};
+    let Some(window) = window else {
+        writer.u8(0);
+        return;
+    };
+    match &window.kind {
+        WindowKind::Floating(floating) => {
+            let relative = match floating.relative {
+                Relative::Document => 0,
+                Relative::ApplicationWindow => 1,
+                Relative::Desktop => 2,
+                Relative::Monitor => 3,
+            };
+            let offscreen = match floating.offscreen {
+                Offscreen::Ignore => 0,
+                Offscreen::OnScreen => 1,
+                Offscreen::NonViable => 2,
+            };
+            let resize = match floating.resize {
+                Resize::Fixed => 0,
+                Resize::KeepingAspect => 1,
+                Resize::Free => 2,
+            };
+            writer
+                .u8(1)
+                .u32(floating.size.0)
+                .u32(floating.size.1)
+                .u8(relative)
+                .u8(floating.position.value())
+                .u8(offscreen)
+                .u8(resize)
+                .bool(floating.title_bar)
+                .bool(floating.user_close)
+                .option_str(floating.title.as_deref());
+        }
+        WindowKind::FullScreen => {
+            writer.u8(2);
+        }
+    }
+    let [r, g, b] = window.colour;
+    writer.u8(window.monitor.value()).f32(r).f32(g).f32(b);
+}
+
+/// [`write_window`]'s other half; a value Table 294, 295 or 304 does not list, which the core
+/// never sends, is refused.
+fn read_window(reader: &mut Reader<'_>) -> Result<Option<pdf_model::media::Window>, ProtocolError> {
+    use pdf_model::media::{
+        Floating, MonitorSpecifier, Offscreen, Position, Relative, Resize, Window, WindowKind,
+    };
+    let unrecognised = |what: &'static str, value: u8| ProtocolError::Unrecognised {
+        what,
+        value: u32::from(value),
+    };
+    let kind = match reader.u8("a clip's window")? {
+        0 => return Ok(None),
+        1 => {
+            let size = (
+                reader.u32("a floating window's width")?,
+                reader.u32("a floating window's height")?,
+            );
+            let relative = match reader.u8("a floating window's /RT")? {
+                0 => Relative::Document,
+                1 => Relative::ApplicationWindow,
+                2 => Relative::Desktop,
+                3 => Relative::Monitor,
+                other => return Err(unrecognised("a floating window's /RT", other)),
+            };
+            let position = reader.u8("a floating window's /P")?;
+            let position = Position::of_value(i64::from(position))
+                .ok_or_else(|| unrecognised("a floating window's /P", position))?;
+            let offscreen = match reader.u8("a floating window's /O")? {
+                0 => Offscreen::Ignore,
+                1 => Offscreen::OnScreen,
+                2 => Offscreen::NonViable,
+                other => return Err(unrecognised("a floating window's /O", other)),
+            };
+            let resize = match reader.u8("a floating window's /R")? {
+                0 => Resize::Fixed,
+                1 => Resize::KeepingAspect,
+                2 => Resize::Free,
+                other => return Err(unrecognised("a floating window's /R", other)),
+            };
+            WindowKind::Floating(Floating {
+                size,
+                relative,
+                position,
+                offscreen,
+                title_bar: reader.bool("a floating window's /T")?,
+                user_close: reader.bool("a floating window's /UC")?,
+                resize,
+                title: reader.option_string("a floating window's /TT")?,
+            })
+        }
+        2 => WindowKind::FullScreen,
+        other => return Err(unrecognised("a clip's window", other)),
+    };
+    let monitor = reader.u8("a window's monitor specifier")?;
+    let monitor = MonitorSpecifier::of_value(i64::from(monitor))
+        .ok_or_else(|| unrecognised("a window's monitor specifier", monitor))?;
+    let colour = [
+        reader.f32("a window's background red")?,
+        reader.f32("a window's background green")?,
+        reader.f32("a window's background blue")?,
+    ];
+    if colour.iter().any(|value| !(0.0..=1.0).contains(value)) {
+        return Err(ProtocolError::Unrecognised {
+            what: "a window's background colour",
+            value: 0,
+        });
+    }
+    Ok(Some(Window {
+        kind,
+        monitor,
+        colour,
+    }))
+}
+
 /// The screen annotation a rendition action associated a sound with (ADR 3433): a byte saying
 /// whether, then the annotation and whether the action was Table 218's `/OP` 4.
 fn write_rendition(writer: &mut Writer, rendition: Option<viewer_core::Associated>) {
@@ -1122,6 +1248,7 @@ fn read_sound(
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
                 rendition: read_rendition(reader)?,
+                window: read_window(reader)?,
             })));
         }
         3 => {
@@ -1130,6 +1257,7 @@ fn read_sound(
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
                 rendition: read_rendition(reader)?,
+                window: read_window(reader)?,
             })));
         }
         4 => {
@@ -1140,6 +1268,7 @@ fn read_sound(
                 playing: read_playing(reader)?,
                 screen: read_screen(reader)?,
                 rendition: read_rendition(reader)?,
+                window: read_window(reader)?,
             })));
         }
         other => {
@@ -1176,5 +1305,6 @@ fn read_sound(
         playing: read_playing(reader)?,
         screen: read_screen(reader)?,
         rendition: read_rendition(reader)?,
+        window: read_window(reader)?,
     })))
 }

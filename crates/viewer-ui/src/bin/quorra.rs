@@ -100,6 +100,8 @@ mod dispatch;
 mod files;
 #[path = "quorra/find.rs"]
 mod find;
+#[path = "quorra/media_window.rs"]
+mod media_window;
 #[path = "quorra/overlays.rs"]
 mod overlays;
 #[path = "quorra/pictures.rs"]

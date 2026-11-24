@@ -49,6 +49,10 @@ pub enum Hearing {
     /// (`viewer_core::Command::ShowsVideoHere`): GTK's, Qt's, and the C ABI's where its host draws
     /// pictures (RFC 0015 section 6; ADRs 3545, 3562, 3578).
     HereWithPictures,
+    /// The same, and the window opens a floating or full-screen window of its own for a clip
+    /// whose rendition asks for one, as far as its toolkit can
+    /// (`viewer_core::Command::OpensMediaWindows`): GTK's (ADR 3587).
+    HereWithPicturesInWindows(pdf_model::media::Screens),
     /// The window would play a sound itself and its helper is missing, so every clip is handed to
     /// this machine's player as a window that does not play is, and the sentence saying why is
     /// said beside each sound handed on.
@@ -72,16 +76,42 @@ impl Hearing {
         }
     }
 
+    /// [`Self::of_a_showing_window`] for a window that also opens a window of its own for a clip,
+    /// with what `screens` says its toolkit can do there.
+    #[must_use]
+    pub fn of_a_window_opening_windows(screens: pdf_model::media::Screens) -> Self {
+        match Self::of_a_showing_window() {
+            Self::HereWithPictures => Self::HereWithPicturesInWindows(screens),
+            other => other,
+        }
+    }
+
     /// What the window tells the core with `viewer_core::Command::PlaysHere`.
     #[must_use]
     pub const fn plays_here(&self) -> bool {
-        matches!(self, Self::Here | Self::HereWithPictures)
+        matches!(
+            self,
+            Self::Here | Self::HereWithPictures | Self::HereWithPicturesInWindows(_)
+        )
     }
 
     /// What the window tells the core with `viewer_core::Command::ShowsVideoHere`.
     #[must_use]
     pub const fn shows_video(&self) -> bool {
-        matches!(self, Self::HereWithPictures)
+        matches!(
+            self,
+            Self::HereWithPictures | Self::HereWithPicturesInWindows(_)
+        )
+    }
+
+    /// What the window tells the core with `viewer_core::Command::OpensMediaWindows`: nothing
+    /// opens, but for a window that opens one.
+    #[must_use]
+    pub fn media_windows(&self) -> pdf_model::media::Screens {
+        match self {
+            Self::HereWithPicturesInWindows(screens) => *screens,
+            _ => pdf_model::media::Screens::default(),
+        }
     }
 
     /// The sentence saying why a sound is handed on, where the window has no helper.
@@ -89,7 +119,10 @@ impl Hearing {
     pub fn missing(&self) -> Option<&str> {
         match self {
             Self::WithoutHelper(why) => Some(why),
-            Self::HandsOn | Self::Here | Self::HereWithPictures => None,
+            Self::HandsOn
+            | Self::Here
+            | Self::HereWithPictures
+            | Self::HereWithPicturesInWindows(_) => None,
         }
     }
 }

@@ -74,6 +74,9 @@ pub(super) struct HeldUp {
     widget: Option<gtk4::Picture>,
     /// Counts the timeouts armed; one whose number is not this one's is stale.
     armed: u64,
+    /// The window of its own a clip that Table 294's `/W` 0 or 1 asks for is shown in, while one
+    /// is in hand (ADR 3587).
+    pub(super) media_window: Option<super::media_window::MediaWindow>,
 }
 
 impl HeldUp {
@@ -93,6 +96,7 @@ impl Host {
         for said in &looked.said {
             self.say(said.sentence());
         }
+        self.keep_the_media_window();
         if looked.changed {
             self.hold_up_the_picture();
         }
@@ -121,6 +125,9 @@ impl Host {
     /// in front and the annotation is on a page now placed — and takes it down otherwise. Called at
     /// each new picture and each time the pages are placed again, so the picture moves with them.
     pub(super) fn hold_up_the_picture(&mut self) {
+        if self.shown.media_window.is_some() {
+            self.hold_up_in_the_media_window();
+        }
         let placed = self
             .state
             .pictures

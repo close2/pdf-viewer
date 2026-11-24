@@ -220,6 +220,7 @@ fn every_carried_event_round_trips() {
                 },
                 screen: None,
                 rendition: None,
+                window: None,
             })),
         },
         // A rendition's WAVE clip playing in its screen annotation's rectangle (ADR 3407).
@@ -243,6 +244,55 @@ fn every_carried_event_round_trips() {
                 rendition: Some(viewer_core::Associated {
                     annotation: ObjectId::new(4, 0),
                     or_resume: true,
+                }),
+                window: None,
+            })),
+        },
+        // A clip's pictures in a floating window and in a full-screen one (ADR 3587).
+        Event::Media {
+            document,
+            content_type: Some("video/mp4".to_owned()),
+            media: viewer_core::Media::Embedded {
+                name: "clip.mp4".to_owned(),
+                bytes: b"ftyp".to_vec(),
+            },
+            sound: Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Mp4Video(b"ftyp".to_vec()),
+                playing: pdf_model::media::Playing::default(),
+                screen: None,
+                rendition: None,
+                window: Some(pdf_model::media::Window {
+                    kind: pdf_model::media::WindowKind::Floating(pdf_model::media::Floating {
+                        size: (320, 240),
+                        relative: pdf_model::media::Relative::Monitor,
+                        position: pdf_model::media::Position::of_value(7).expect("listed"),
+                        offscreen: pdf_model::media::Offscreen::NonViable,
+                        title_bar: false,
+                        user_close: true,
+                        resize: pdf_model::media::Resize::KeepingAspect,
+                        title: Some("A clip".to_owned()),
+                    }),
+                    monitor: pdf_model::media::MonitorSpecifier::ColourDepth,
+                    colour: [0.0, 0.5, 1.0],
+                }),
+            })),
+        },
+        Event::Media {
+            document,
+            content_type: Some("video/mp4".to_owned()),
+            media: viewer_core::Media::Embedded {
+                name: "clip.mp4".to_owned(),
+                bytes: b"ftyp".to_vec(),
+            },
+            sound: Some(Box::new(viewer_core::SoundData {
+                recording: viewer_core::Recording::Mp4Video(b"ftyp".to_vec()),
+                playing: pdf_model::media::Playing::default(),
+                screen: None,
+                rendition: None,
+                window: Some(pdf_model::media::Window {
+                    kind: pdf_model::media::WindowKind::FullScreen,
+                    monitor: pdf_model::media::MonitorSpecifier::Width,
+                    colour: [0.0, 0.0, 0.0],
                 }),
             })),
         },

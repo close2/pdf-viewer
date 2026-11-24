@@ -465,6 +465,13 @@ fn every_carried_command_round_trips() {
         Command::PlaysHere(false),
         Command::ShowsVideoHere(true),
         Command::ShowsVideoHere(false),
+        // What a clip's window of its own can be (ADR 3587).
+        Command::OpensMediaWindows(pdf_model::media::Screens {
+            windows: true,
+            placed: false,
+            monitors: [true, false, true, false, true, true, true],
+        }),
+        Command::OpensMediaWindows(pdf_model::media::Screens::default()),
         // Table 294's `/W` 3 background, and its end (ADR 3407).
         Command::PlayingIn {
             document: DocumentId(4),

@@ -287,6 +287,8 @@ pub struct ViewState {
     null_font_substitute: bool,
     /// The players the host has, which §13.2.2's viability is judged for (ADR 3350).
     players: crate::media::Players,
+    /// What the host's windows can do for a clip shown here (ADR 3585).
+    screens: crate::media::Screens,
     /// Whether an interpretation under this state leaves §14.9's structure-element statements
     /// unread, for a reading wanted only for its marks; see
     /// [`Self::set_structure_deferred`].
@@ -1118,6 +1120,11 @@ impl ViewState {
             guidelines: false,
             null_font_substitute: false,
             players: crate::media::Players::HandOff,
+            screens: crate::media::Screens {
+                windows: false,
+                placed: false,
+                monitors: [false; 7],
+            },
             structure: StructureReading::Asked,
             added: Vec::new(),
             retyped: BTreeMap::new(),

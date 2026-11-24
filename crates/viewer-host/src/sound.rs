@@ -231,7 +231,7 @@ impl Heard {
 /// What the window asks of the player's thread.
 enum Order {
     /// Play this, stopping whatever sounds, under its ticket.
-    Play(Played, u64),
+    Play(Box<Played>, u64),
     /// Stop whatever sounds.
     Stop,
     /// This document closed; stop its sound if it is the one sounding.
@@ -339,7 +339,7 @@ impl Player {
             self.start();
         }
         self.tickets = self.tickets.wrapping_add(1);
-        self.send(Order::Play(played, self.tickets));
+        self.send(Order::Play(Box::new(played), self.tickets));
     }
 
     /// The sound last given to [`Self::play`], to be listened to: what a clip's pictures are

@@ -79,10 +79,24 @@ fn a_window(
     document: &Path,
     count: u32,
 ) -> (Rc<RefCell<Host>>, Vec<pdf_media_worker::video::Picture>) {
+    a_window_in(document, count, None)
+}
+
+/// [`a_window`] with the rendition's media screen parameters' entries `screen` where given
+/// (ADR 3587).
+fn a_window_in(
+    document: &Path,
+    count: u32,
+    screen: Option<&str>,
+) -> (Rc<RefCell<Host>>, Vec<pdf_media_worker::video::Picture>) {
     let (sets, units, pictures) =
         pcm_stream::stream(count, 16, 16, pcm_stream::Coding::Progressive);
     let clip = pcm_stream::mp4(&sets, &units, 16, 16);
-    std::fs::write(document, showing::a_video_document(&clip)).expect("write the document");
+    let bytes = match screen {
+        Some(screen) => showing::a_video_document_in(&clip, screen),
+        None => showing::a_video_document(&clip),
+    };
+    std::fs::write(document, bytes).expect("write the document");
     let opening = Opening::start(
         document,
         None,
@@ -285,5 +299,124 @@ fn a_pause_and_escape_reach_the_clip_in_the_gtk_window() {
         "stopped before its end: {:?}",
         said.borrow()
     );
+    let _ = std::fs::remove_file(&document);
+}
+
+/// The texture the clip's window of its own holds, as its width, height and RGBA bytes.
+fn in_the_media_window(host: &Host) -> Option<(usize, usize, Vec<u8>)> {
+    let open = host.shown.media_window.as_ref()?;
+    let texture = open
+        .picture()
+        .paintable()?
+        .downcast::<gtk4::gdk::Texture>()
+        .ok()?;
+    let mut downloader = gtk4::gdk::TextureDownloader::new(&texture);
+    downloader.set_format(gtk4::gdk::MemoryFormat::R8g8b8a8);
+    let (bytes, stride) = downloader.download_bytes();
+    let width = usize::try_from(texture.width()).ok()?;
+    let height = usize::try_from(texture.height()).ok()?;
+    let row_bytes = width.saturating_mul(4);
+    let mut rgba = Vec::with_capacity(row_bytes.saturating_mul(height));
+    for row in bytes.chunks(stride).take(height) {
+        rgba.extend_from_slice(&row[..row_bytes]);
+    }
+    Some((width, height, rgba))
+}
+
+/// **A floating window of its own** (ISO 32000-2 Table 294's `/W` 0, Table 295; ADR 3587): the
+/// window opens titled by the document's `/TT` and the clip, `/D`'s 48 by 32 pixels, not
+/// resizable (`/R`'s default 0); it shows Table 294's `/B` blue where the picture, met into it
+/// (Table 291's default fit), does not reach — the 16-pixel-square picture scaled to 32 at the
+/// left, the background at the right — and nothing over the page's rectangle; GTK 4 places no
+/// window, which it says; Escape in the window stops the clip and the window closes.
+///
+/// Under a virtual display with one monitor and no window manager: where a window manager puts it
+/// is not exercised.
+#[gtk4::test]
+fn a_floating_window_of_its_own_shows_the_clip_in_the_gtk_window() {
+    let document = temporary("floating.pdf");
+    let (host, _) = a_window_in(
+        &document,
+        40,
+        Some("/MH << /W 0 /F << /D [48 32] /TT [() (A clip window)] >> >> /BE << /B [0 0 1] >>"),
+    );
+    let said = RefCell::new(Vec::new());
+    host.borrow_mut()
+        .dispatch(Command::Activate(showing::SCREEN));
+    let drawn = RefCell::new(None);
+    turn_until(&host, &said, "showed a picture in its own window", |host| {
+        let picture = in_the_media_window(host).filter(|(width, _, rgba)| {
+            let left = width.saturating_mul(16).saturating_add(8).saturating_mul(4);
+            rgba[left..][..3] != [0, 0, 255]
+        });
+        let found = picture.is_some();
+        *drawn.borrow_mut() = picture;
+        found
+    });
+    let (width, height, rgba) = drawn.into_inner().expect("drawn");
+    let at = |x: usize, y: usize| {
+        &rgba[y.saturating_mul(width).saturating_add(x).saturating_mul(4)..][..4]
+    };
+    assert_eq!(
+        at(width.saturating_sub(2), height.div_ceil(2)),
+        &[0, 0, 255, 255],
+        "/B where the picture is not"
+    );
+    {
+        let host = host.borrow();
+        let open = host.shown.media_window.as_ref().expect("open");
+        let title = open.window().title().expect("a title").to_string();
+        assert!(title.starts_with("A clip window — "), "{title}");
+        assert!(
+            title.contains("the clip"),
+            "it says it holds a media clip: {title}"
+        );
+        assert_eq!(open.window().default_size(), (48, 32));
+        assert!(!open.window().is_resizable());
+        assert!(
+            held_up(&host).is_none(),
+            "nothing over the page's rectangle"
+        );
+    }
+    assert!(
+        said.borrow()
+            .iter()
+            .any(|line| line.contains("which the window manager places")),
+        "{:?}",
+        said.borrow()
+    );
+    assert!(host.borrow_mut().stop_the_pictures());
+    assert!(
+        host.borrow().shown.media_window.is_none(),
+        "the window closes with the clip"
+    );
+    let _ = std::fs::remove_file(&document);
+}
+
+/// **A full-screen window** (Table 294's `/W` 1) on the monitor §13.2.7.5's specifier names —
+/// Table 304's 4, the greatest area, here the virtual display's one monitor — said by name. A
+/// specifier GDK cannot find (3, colour depth) is judged before any window, by `pdf-model`'s
+/// `media_viability` tests against [`super::media_window::SCREENS`]' kind of host.
+///
+/// A second physical monitor is not exercised here: the choice between two is
+/// `viewer_host::video::screens`' own tests'.
+#[gtk4::test]
+fn a_full_screen_window_goes_on_the_monitor_its_specifier_names_in_the_gtk_window() {
+    let document = temporary("full.pdf");
+    let (host, _) = a_window_in(&document, 40, Some("/MH << /W 1 /M 4 >>"));
+    let said = RefCell::new(Vec::new());
+    host.borrow_mut()
+        .dispatch(Command::Activate(showing::SCREEN));
+    turn_until(&host, &said, "opened its full-screen window", |host| {
+        host.shown.media_window.is_some()
+    });
+    assert!(
+        said.borrow()
+            .iter()
+            .any(|line| line.contains("shown full screen on") && line.contains("greatest area")),
+        "{:?}",
+        said.borrow()
+    );
+    assert!(host.borrow_mut().stop_the_pictures());
     let _ = std::fs::remove_file(&document);
 }

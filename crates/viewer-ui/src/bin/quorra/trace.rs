@@ -380,6 +380,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         }
         Command::PlaysHere(plays) => format!("plays a WAVE clip here {plays}"),
         Command::ShowsVideoHere(shows) => format!("shows a video clip here {shows}"),
+        Command::OpensMediaWindows(screens) => format!("opens a clip's window here {screens:?}"),
         Command::PlayingIn { document, screen } => format!(
             "a sound of document {} plays in {:?}",
             document.0,

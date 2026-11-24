@@ -207,6 +207,8 @@ impl Viewer {
         // Which player a rendition is judged for, on the same rule (ADR 3350).
         open.view
             .set_players(super::players_of(self.plays_here, self.shows_video_here));
+        // What its windows can do for a clip, on the same rule (ADR 3585).
+        open.view.set_screens(self.media_windows);
         // RFC 0008 section 6.3's level, on the same rule: a reader who let scripts run, or asked
         // to be asked, said it about every document this window will show (ADR 1616).
         let runner = crate::scripting::runner_for(&self.scripting, &mut open.consent);

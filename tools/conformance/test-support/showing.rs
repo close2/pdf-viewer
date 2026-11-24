@@ -26,6 +26,14 @@ pub(super) const RESUME: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(12, 0)
 /// with `/OP` 1, 2 and 3 (ISO 32000-2 §12.6.4.14).
 #[must_use]
 pub(super) fn a_video_document(clip: &[u8]) -> Vec<u8> {
+    a_video_document_in(clip, "/BE << /W 3 >>")
+}
+
+/// [`a_video_document`] with the rendition's Table 293 media screen parameters' entries `screen`
+/// in place of `/BE << /W 3 >>` — a floating or full-screen window (Table 294's `/W` 0 or 1) for
+/// the windows that open one (ADR 3587).
+#[must_use]
+pub(super) fn a_video_document_in(clip: &[u8], screen: &str) -> Vec<u8> {
     let mut hex = String::with_capacity(clip.len().saturating_mul(2).saturating_add(1));
     for byte in clip {
         let _ = write!(hex, "{byte:02x}");
@@ -39,7 +47,7 @@ pub(super) fn a_video_document(clip: &[u8]) -> Vec<u8> {
             .to_owned(),
         "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [20 100 84 164] /A 5 0 R >>".to_owned(),
         "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>".to_owned(),
-        "<< /Type /Rendition /S /MR /N (clip) /C 7 0 R /SP << /BE << /W 3 >> >> >>".to_owned(),
+        format!("<< /Type /Rendition /S /MR /N (clip) /C 7 0 R /SP << {screen} >> >>"),
         "<< /Type /MediaClip /S /MCD /CT (video/mp4) /D 8 0 R /P << /TF (TEMPACCESS) >> >>"
             .to_owned(),
         "<< /Type /Filespec /F (clip.mp4) /UF (clip.mp4) /EF << /F 9 0 R >> >>".to_owned(),

@@ -108,6 +108,7 @@ pub fn movie(
         playing: Playing::default(),
         played_here: false,
         background: None,
+        window: None,
     })
 }
 
@@ -160,6 +161,7 @@ pub fn sound(
             playing: Playing::default(),
             played_here: false,
             background: None,
+            window: None,
         });
     }
     let Some(data) = file(document, &specification, "sound") else {
@@ -177,6 +179,7 @@ pub fn sound(
         playing: Playing::default(),
         played_here: false,
         background: None,
+        window: None,
     })
 }
 

@@ -32,7 +32,7 @@ pub(crate) use deprecated_media::exhibited;
 pub(crate) enum MediaRequest {
     /// A clip to hand over or play, with the screen annotation a rendition action associates it
     /// with (Table 218's `/AN`, and whether `/OP` was 4).
-    Play(pdf_model::media::Clip, Option<crate::Associated>),
+    Play(Box<pdf_model::media::Clip>, Option<crate::Associated>),
     /// Table 218's `/OP` 1, 2 or 3 on the rendition associated with the annotation (ADR 3433).
     Operate(ObjectId, crate::MediaOperation),
 }
@@ -603,6 +603,7 @@ fn rendered(
         pdf_model::media::Processor {
             language: open.view.audience().language.as_deref(),
             players: open.view.players(),
+            screens: open.view.screens(),
         },
     );
     for line in report.notes() {
@@ -620,7 +621,7 @@ fn rendered(
         } else {
             outcome
                 .media
-                .push(MediaRequest::Play(clip.clone(), associated));
+                .push(MediaRequest::Play(Box::new(clip.clone()), associated));
         }
     }
 }

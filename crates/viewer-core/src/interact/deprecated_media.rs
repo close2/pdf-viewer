@@ -150,7 +150,9 @@ fn handed(clip: Result<pdf_model::media::Clip, String>, subject: &str, outcome: 
                     format!("{subject} — a player handed the file is not told {entry}")
                 }),
             );
-            outcome.media.push(super::MediaRequest::Play(clip, None));
+            outcome
+                .media
+                .push(super::MediaRequest::Play(Box::new(clip), None));
         }
         Err(why) => outcome.notes.push(format!("{subject} — {why}")),
     }

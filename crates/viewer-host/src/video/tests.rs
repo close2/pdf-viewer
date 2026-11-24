@@ -27,6 +27,7 @@ fn shown(repeat: f64) -> Shown {
         repeat,
         cut: false,
         fit: pdf_model::media::Fit::PlayersDefault,
+        window: None,
     }
 }
 
@@ -267,4 +268,53 @@ fn the_part_shown_is_cut_from_the_picture_s_top_left() {
     .part_of(&raster);
     assert_eq!((part.width, part.height), (2, 1));
     assert_eq!(part.data, (0..8).collect::<Vec<u8>>());
+}
+
+/// A clip shown in a window of its own (Table 294's `/W` 0 or 1, ADR 3587): the window shows
+/// Table 294's `/B` alone before the first picture, and the picture fitted over it after — here a
+/// two-by-two grey picture met (Table 291's `/F` 0) in a four-by-two window, so it stands in the
+/// left half and the background shows in the right half.
+#[test]
+fn a_window_of_its_own_shows_its_background_and_then_its_picture() {
+    let window = pdf_model::media::Window {
+        kind: pdf_model::media::WindowKind::FullScreen,
+        monitor: pdf_model::media::MonitorSpecifier::Largest,
+        colour: [0.0, 0.0, 1.0],
+    };
+    let (mut player, _outbox, _) = holding(Shown {
+        screen: None,
+        window: Some(window),
+        fit: pdf_model::media::Fit::Meet,
+        ..shown(1.0)
+    });
+    assert!(player.window().is_some());
+    let empty = player
+        .window_picture(None, (4, 2))
+        .expect("a window clip")
+        .expect("drawn");
+    assert!(
+        empty
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [0, 0, 255, 255]),
+        "Table 294's /B alone"
+    );
+    if let Some(hand) = player.in_hand.as_mut() {
+        hand.size = Some((2, 2));
+    }
+    let grey = pdf_render::Raster {
+        width: 2,
+        height: 2,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: [128, 128, 128, 255].repeat(4),
+    };
+    let drawn = player
+        .window_picture(Some(&grey), (4, 2))
+        .expect("a window clip")
+        .expect("drawn");
+    let at = |x: usize, y: usize| &drawn.data[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+    assert_eq!(at(0, 0), &[128, 128, 128, 255], "the picture at the left");
+    assert_eq!(at(3, 1), &[0, 0, 255, 255], "the background at the right");
 }

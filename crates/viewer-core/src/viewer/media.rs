@@ -18,7 +18,7 @@ impl Viewer {
         for request in requests {
             match request {
                 crate::interact::MediaRequest::Play(clip, rendition) => {
-                    self.media(id, clip, rendition, events);
+                    self.media(id, *clip, rendition, events);
                 }
                 crate::interact::MediaRequest::Operate(annotation, operation) => {
                     events.push(Event::OperateMedia {
@@ -171,6 +171,8 @@ fn media_of(
                     playing: clip.playing,
                     screen,
                     rendition,
+                    // Table 294's `/W` 0 or 1, for a host whose windows open (ADR 3585).
+                    window: clip.window.clone(),
                 };
                 let media = crate::Media::Embedded {
                     name,
@@ -193,6 +195,7 @@ fn media_of(
                 playing: clip.playing,
                 screen: None,
                 rendition,
+                window: None,
             };
             let media = crate::Media::Embedded {
                 name: samples.name.clone(),

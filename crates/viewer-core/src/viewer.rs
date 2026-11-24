@@ -275,6 +275,8 @@ pub struct Viewer {
     plays_here: bool,
     /// Whether the host shows video itself too, [`Command::ShowsVideoHere`] (ADR 3538).
     shows_video_here: bool,
+    /// What the host's windows can do for a clip, [`Command::OpensMediaWindows`] (ADR 3585).
+    media_windows: pdf_model::media::Screens,
     /// The name the next document opened **beside** the one showing would be called by.
     ///
     /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
@@ -351,6 +353,7 @@ impl Viewer {
             null_font_substitute: false,
             plays_here: false,
             shows_video_here: false,
+            media_windows: pdf_model::media::Screens::default(),
             beside: None,
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -610,6 +613,12 @@ impl Viewer {
                 let players = players_of(plays, self.shows_video_here);
                 for open in self.documents.values_mut() {
                     open.view.set_players(players);
+                }
+            }
+            Command::OpensMediaWindows(screens) => {
+                self.media_windows = screens;
+                for open in self.documents.values_mut() {
+                    open.view.set_screens(screens);
                 }
             }
             Command::ShowsVideoHere(shows) => {

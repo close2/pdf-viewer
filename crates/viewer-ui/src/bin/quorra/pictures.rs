@@ -50,10 +50,13 @@ impl App {
         let frame = video.due(now);
         let mut said = video.seen();
         let holds = video.holds_a_picture();
+        // A clip in a window of its own is drawn there by the processor (ADR 3587).
+        let windowed = video.window().is_some();
         let mut changed = false;
         if let Some(frame) = frame {
             let placed = self.picture_placed();
-            let shown = match self.device_window() {
+            let device = if windowed { None } else { self.device_window() };
+            let shown = match device {
                 Some(window) => frame
                     .planes()
                     .map_err(|refused| refused.to_string())
@@ -89,7 +92,9 @@ impl App {
         for seen in &said {
             println!("note: {}", seen.sentence());
         }
-        if changed {
+        if changed && windowed {
+            self.present_the_media_window();
+        } else if changed {
             self.redraw();
         }
         self.video.as_ref()?.next_due(now)
