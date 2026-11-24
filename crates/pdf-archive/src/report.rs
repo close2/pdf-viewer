@@ -80,6 +80,10 @@ pub struct Judgement {
     /// only through a named resource entry no associated content stream references. Zero where
     /// the exemption does not narrow the requirement or reached nothing it found (ADR 3410).
     pub withdrawn: usize,
+    /// Every note the document owed this row's verdict, met or failed: a reading the verdict
+    /// applied that is still unsettled where it is decided, said only where the document reached
+    /// it ([`crate::errata::Note`], ADR 3605).
+    pub noted: Vec<crate::errata::Note>,
 }
 
 /// The answer to "does this document conform".
@@ -153,6 +157,13 @@ impl Report {
             .filter(|judgement| matches!(judgement.outcome, Outcome::OutsideValidation(_)))
     }
 
+    /// The requirements whose verdict carries a note, met or failed (ADR 3605).
+    pub fn noted(&self) -> impl Iterator<Item = &Judgement> {
+        self.judgements
+            .iter()
+            .filter(|judgement| !judgement.noted.is_empty())
+    }
+
     /// How many of the binding requirements were actually checked.
     #[must_use]
     pub fn checked(&self) -> usize {
@@ -224,6 +235,9 @@ impl Report {
                         clarification.change
                     );
                 }
+                for note in &judgement.noted {
+                    let _ = writeln!(out, "      note on erratum #{}: {}", note.issue, note.says);
+                }
                 for place in places {
                     let _ = writeln!(out, "      {}: {}", render_place(place), place.what);
                 }
@@ -236,6 +250,7 @@ impl Report {
                 }
             }
         }
+        self.render_met_with_notes(&mut out);
         let obligations = self.processor_obligations().count();
         if obligations > 0 {
             let _ = writeln!(
@@ -273,6 +288,29 @@ impl Report {
             let _ = writeln!(out, "  {} ({}) — {why}", judgement.id, judgement.citation);
         }
         out
+    }
+}
+
+impl Report {
+    /// The met rows whose verdict carries a note, in a section of their own.
+    ///
+    /// A met row carries its notes too, because the pass is the applied reading's as much as a
+    /// failure would be (ADR 3605); listed apart, since a met row is otherwise not printed.
+    fn render_met_with_notes(&self, out: &mut String) {
+        let met_with_notes: Vec<&Judgement> = self
+            .noted()
+            .filter(|judgement| matches!(judgement.outcome, Outcome::Met))
+            .collect();
+        if met_with_notes.is_empty() {
+            return;
+        }
+        let _ = writeln!(out, "\nmet, under a reading that is noted:");
+        for judgement in met_with_notes {
+            let _ = writeln!(out, "  {} ({})", judgement.id, judgement.citation);
+            for note in &judgement.noted {
+                let _ = writeln!(out, "      note on erratum #{}: {}", note.issue, note.says);
+            }
+        }
     }
 }
 

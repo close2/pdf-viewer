@@ -3299,10 +3299,11 @@ pub enum FieldSelection {
 impl FieldSelection {
     /// Whether this selection names the field with this fully qualified name (§12.7.4.2).
     ///
-    /// Both tables printed only "\[a]n array of text strings containing field names", and
-    /// §12.7.4.2's fully qualified name is the only name in the clause that identifies a field
-    /// uniquely — a partial name repeats across the tree, and covering every `Total` in a document
-    /// because one was named would refuse edits the file never asked to refuse.
+    /// Table 236's `/Fields` asks only for an array of text strings containing field names, as
+    /// Table 259's printed cell did, and §12.7.4.2's fully qualified name is the only name in the
+    /// clause that identifies a field uniquely — a partial name repeats across the tree, and
+    /// covering every `Total` in a document because one was named would refuse edits the file
+    /// never asked to refuse.
     ///
     /// **For Table 259 that is no longer an argument but the entry's own words, and this tree had
     /// never read the erratum that says so.** Errata Collection 3's Issue #33 inserts "fully

@@ -357,6 +357,25 @@ fn archive_row(judgement: &pdf_archive::Judgement) -> Value {
             ]),
         ));
     }
+    // A reading the verdict applied that is unsettled where it is decided, said beside the row
+    // whichever way it went (`pdf_archive::Note`, ADR 3605).
+    if !judgement.noted.is_empty() {
+        fields.push((
+            "notes".to_owned(),
+            Value::Array(
+                judgement
+                    .noted
+                    .iter()
+                    .map(|note| {
+                        Value::Object(vec![
+                            ("issue".to_owned(), Value::count(note.issue as usize)),
+                            ("says".to_owned(), Value::text(note.says)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ));
+    }
     match judgement.outcome {
         pdf_archive::Outcome::Unchecked(why) => {
             fields.push(("not_checked_because".to_owned(), Value::text(why)));
@@ -404,6 +423,18 @@ fn archive(retrieval: &Retrieval, target: &str) -> Result<Value, Refused> {
         (
             "failed".to_owned(),
             Value::Array(report.failures().map(archive_row).collect()),
+        ),
+        // A met row is otherwise absent, and its notes are the verdict's as much as a failed
+        // row's are (ADR 3605).
+        (
+            "met_with_notes".to_owned(),
+            Value::Array(
+                report
+                    .noted()
+                    .filter(|judgement| matches!(judgement.outcome, pdf_archive::Outcome::Met))
+                    .map(archive_row)
+                    .collect(),
+            ),
         ),
         (
             "not_checked".to_owned(),
@@ -553,4 +584,34 @@ fn notes(notes: &[Note]) -> Value {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::archive_row;
+
+    /// The validator's JSON carries a row's notes, met or failed (`doc/questions/A1043`, ADR
+    /// 3605): a met row with erratum #77's note says it under `notes`, and a row without one has
+    /// no such key.
+    #[test]
+    fn a_rows_notes_are_in_its_json() {
+        let row = |noted: Vec<pdf_archive::Note>| pdf_archive::Judgement {
+            id: "fonts/cid-system-info-agrees-with-the-cmap",
+            citation: "6.2.10.3.1".to_owned(),
+            asks: "",
+            amended_by: None,
+            clarified_by: None,
+            outcome: pdf_archive::Outcome::Met,
+            named: pdf_archive::Named::default(),
+            withdrawn: 0,
+            noted,
+        };
+        let noted = archive_row(&row(vec![pdf_archive::errata::SUPPLEMENT_DIRECTION])).render();
+        assert!(
+            noted.contains("\"notes\"") && noted.contains("\"issue\": 77"),
+            "{noted}"
+        );
+        let plain = archive_row(&row(Vec::new())).render();
+        assert!(!plain.contains("\"notes\""), "{plain}");
+    }
 }

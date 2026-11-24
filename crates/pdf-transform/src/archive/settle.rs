@@ -153,6 +153,11 @@ fn fold_decided(
         {
             held.places = held.places.saturating_add(row.places);
             held.changed = held.changed.saturating_add(row.changed);
+            for note in row.noted {
+                if !held.noted.contains(&note) {
+                    held.noted.push(note);
+                }
+            }
             continue;
         }
         decided.push(row);
@@ -173,6 +178,7 @@ mod tests {
             places,
             decision: super::super::Decision::Refused(super::super::Because::NotBuiltYet("")),
             changed,
+            noted: Vec::new(),
         }
     }
 

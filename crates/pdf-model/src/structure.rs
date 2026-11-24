@@ -3324,6 +3324,19 @@ pub enum Priority {
 /// under `name` does not claim its band, because the clause ranks the *value* of an attribute
 /// and an object that states none has stated no value.
 ///
+/// **Two different owners in one `/A` band are a choice, not §14.7.6's rule** (ADR 3606).
+/// pdf-association/pdf-issues #226, published on pdf-issues.pdfa.org, confines the array-order
+/// rule to an attribute *for a specific owner (as defined by the O and NS entries)*, and
+/// §14.8.5.3 ranks bands, not owners within one, so the standard names no winner between, say, a
+/// `/NS` object of the PDF 2.0 namespace and one of the PDF 1.7 namespace both stating
+/// `/TextAlign`, or a `Layout` and an `Artifact` object both stating `/BBox` under
+/// [`Tree::attribute`]'s admit-everything filter. The walk gives it to the later object, as it
+/// does within one owner, for the reason the standard itself supplies one route over: #289's
+/// sentences give the later of a class's attribute objects precedence across owners, which is
+/// the only cross-owner precedence the standard states, and one rule for both routes keeps a
+/// producer's last statement the one read. The two alternatives weighed — the earlier object, and
+/// no value at all — follow no clause either, and the second drops a value the producer stated.
+///
 /// `admits` is §14.8.5.8's narrowing and nothing else: [`Tree::attribute`] admits every owner the
 /// clause ranks, and [`Tree::artifact_attribute`] takes four of the five PDF-native ones out.
 fn ranked(

@@ -1150,7 +1150,7 @@ pub struct Geospatial {
     /// transformation matrix in row order. The `XObject` position coordinates are represented as
     /// a 1x4 matrix, [ x y z 1 ], where the z value is non-zero only in the context of a
     /// `Geospatial3D`-enabled annotation.  `PCSM` only applies when `GCS` is a projected
-    /// coordinate system.* Issue #358 strikes `real` from `of real numbers` in the same sentence.
+    /// coordinate system.* Issue #358 strikes `real` before `numbers` in the same sentence.
     pub projected_matrix: Option<[f64; 12]>,
 }
 

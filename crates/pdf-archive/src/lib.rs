@@ -60,7 +60,7 @@ pub use crate::coverage::{
     Binding, Carried, Ground, Reading, Sentence, Subclause, frontier, readings, subclauses,
 };
 pub use crate::editions::{Earlier, SHIFTS, Shift, shift_of};
-pub use crate::errata::Erratum;
+pub use crate::errata::{Erratum, Note};
 pub use crate::examination::Examination;
 pub use crate::finding::{Finding, Findings, MAX_NAMED, MAX_PLACE_NAME_BYTES, Named, Where};
 pub use crate::pages_held::NoPageHeld;
@@ -118,10 +118,15 @@ pub fn check(document: &Document, target: Target) -> Report {
 /// One requirement, applied.
 fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement {
     let target = examination.target;
-    let (outcome, named, withdrawn) = match requirement.check {
-        Check::Unchecked(why) => (Outcome::Unchecked(why), Named::default(), 0),
-        Check::Processor(why) => (Outcome::Processor(why), Named::default(), 0),
-        Check::OutsideValidation(why) => (Outcome::OutsideValidation(why), Named::default(), 0),
+    let (outcome, named, withdrawn, noted) = match requirement.check {
+        Check::Unchecked(why) => (Outcome::Unchecked(why), Named::default(), 0, Vec::new()),
+        Check::Processor(why) => (Outcome::Processor(why), Named::default(), 0, Vec::new()),
+        Check::OutsideValidation(why) => (
+            Outcome::OutsideValidation(why),
+            Named::default(),
+            0,
+            Vec::new(),
+        ),
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);
@@ -147,8 +152,9 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
                 withdrawn = findings.seen().saturating_sub(narrowed.seen());
                 findings = narrowed;
             }
+            let noted = findings.notes().to_vec();
             if findings.met() {
-                (Outcome::Met, Named::default(), withdrawn)
+                (Outcome::Met, Named::default(), withdrawn, noted)
             } else {
                 (
                     Outcome::Failed {
@@ -157,6 +163,7 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
                     },
                     findings.named().clone(),
                     withdrawn,
+                    noted,
                 )
             }
         }
@@ -175,5 +182,6 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
         outcome,
         named,
         withdrawn,
+        noted,
     }
 }

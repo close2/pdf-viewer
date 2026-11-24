@@ -91,6 +91,8 @@ pub struct Findings {
     named: Named,
     /// Objects ISO 19005 section 6.2.2's exemption puts outside this requirement's population.
     exempt: Option<Arc<BTreeSet<ObjectId>>>,
+    /// Every distinct note the predicate owed the verdict, in the order first stated.
+    notes: Vec<crate::errata::Note>,
 }
 
 /// How many places one requirement reports before it starts counting instead.
@@ -217,7 +219,24 @@ impl Findings {
             objects: 0,
             named: Named::default(),
             exempt: Some(exempt),
+            notes: Vec::new(),
         }
+    }
+
+    /// States a note the verdict carries whatever it is, met or failed (ADR 3605).
+    ///
+    /// Said once however many places owe it, because the note is about the rule's reading and
+    /// not about a place: a document with forty such fonts is told the same sentence once.
+    pub fn note(&mut self, note: crate::errata::Note) {
+        if !self.notes.contains(&note) {
+            self.notes.push(note);
+        }
+    }
+
+    /// The notes stated, in the order first stated.
+    #[must_use]
+    pub fn notes(&self) -> &[crate::errata::Note] {
+        &self.notes
     }
 
     /// Records a place the requirement was not met.

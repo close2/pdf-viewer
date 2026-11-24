@@ -1697,7 +1697,10 @@ fn device_step(instruction: &Instruction) -> Option<ProgramStep> {
 /// ISO 32000-2 §7.2.4 defines what a comment is, and its extent is the whole point:
 ///
 /// > The comment consists of all characters after the PERCENT SIGN and up to but not including
-/// > the end-of-the-line marker.
+/// > the end-of-
+///
+/// *line marker*, as Issue #759 (published on pdf-issues.pdfa.org) writes the defined term
+/// in place of the printed one.
 ///
 /// > PDF processors shall treat comments as single white-space characters for the purposes of
 /// > lexical conversion … That is, a comment separates the token preceding it from the one

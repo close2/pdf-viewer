@@ -936,6 +936,11 @@ pub struct Decided {
     /// Zero for a decision that performed none, and for a requirement the writer met by
     /// construction — there is no place to count when the whole file is the rewrite.
     pub changed: usize,
+    /// The notes the validator's verdict on the input carried for this requirement, said again
+    /// beside the decision because the decision answers that verdict: a `CIDFont` whose
+    /// supplement this conversion restated was judged under erratum #77's direction
+    /// ([`pdf_archive::errata::SUPPLEMENT_DIRECTION`], ADR 3605).
+    pub noted: Vec<pdf_archive::Note>,
 }
 
 /// One requirement the validator did not check, carried into the conversion's report.
@@ -1815,6 +1820,9 @@ impl Conversion {
                 decided.places,
                 describe_decision(decided, repeated)
             );
+            for note in &decided.noted {
+                let _ = writeln!(out, "      note on erratum #{}: {}", note.issue, note.says);
+            }
         }
         if let Some(signed) = &self.signatures {
             let _ = writeln!(
@@ -3263,6 +3271,21 @@ fn signature_to_json(signature: &SourceSignature) -> Value {
     ])
 }
 
+/// A verdict's notes as JSON: each erratum's issue number and the sentence (ADR 3605).
+fn notes_json(noted: &[pdf_archive::Note]) -> Value {
+    Value::Array(
+        noted
+            .iter()
+            .map(|note| {
+                Value::Object(vec![
+                    ("issue".to_owned(), Value::count(note.issue as usize)),
+                    ("says".to_owned(), Value::text(note.says)),
+                ])
+            })
+            .collect(),
+    )
+}
+
 impl Decided {
     /// One decision as JSON.
     fn to_json(&self) -> Value {
@@ -3274,6 +3297,9 @@ impl Decided {
             ("decision".to_owned(), Value::text(self.decision.word())),
             ("changed".to_owned(), Value::count(self.changed)),
         ];
+        if !self.noted.is_empty() {
+            fields.push(("notes".to_owned(), notes_json(&self.noted)));
+        }
         match self.decision {
             Decision::Mechanical(rewrite) => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));

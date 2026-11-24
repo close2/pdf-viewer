@@ -222,7 +222,8 @@ impl Carry {
                     .map(|name| name.as_bytes().to_vec());
                 // Table 357's marked-content reference and Table 358's object reference are the
                 // two content items that are dictionaries. Each may state a `/Pg` of its own,
-                // which "overrides any Pg entry in the structure element containing" it. Anything
+                // which *takes precedence over any Pg entry in the structure element containing*
+                // it, as Issue #431 (published on pdf-issues.pdfa.org) words the cell. Anything
                 // else is Table 355's own default: "[i]f the value of K is a dictionary
                 // containing no Type entry, it shall be assumed to be a structure element
                 // dictionary."

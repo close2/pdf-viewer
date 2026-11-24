@@ -1430,6 +1430,12 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
         else {
             return;
         };
+        // Where the two differ the direction decides the row, and the direction is erratum #77's,
+        // which the PDF/A TWG has parked since; the verdict says so whichever way it went
+        // (`doc/questions/A1043`, ADR 3605).
+        if used != stated {
+            findings.note(crate::errata::SUPPLEMENT_DIRECTION);
+        }
         if used > stated {
             findings.record(
                 site.place_named("Supplement"),
@@ -5211,6 +5217,73 @@ mod tests {
             findings(&listed, cmap_embedded_or_predefined),
             [] as [String; 0]
         );
+    }
+
+    /// The owner's answer to Q1043 (`doc/questions/A1043`, ADR 3605): where the two supplements
+    /// differ, the verdict on the row carries erratum #77's note whichever way it went, in both
+    /// parts and in the text report; where they agree the direction decides nothing and no note
+    /// is printed. The failing font's `CIDFont` is a supplement above its `CMap`'s, the passing
+    /// one below, so a plant that noted only failures, only passes, or every composite font fails
+    /// one of the three.
+    #[test]
+    fn the_supplement_direction_is_noted_wherever_it_decides_the_row() {
+        const ROW: &str = "fonts/cid-system-info-agrees-with-the-cmap";
+        let with = |font: u8, cmap: u8| {
+            document(&format!(
+                "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+                 2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding 3 0 R \
+                 /DescendantFonts [4 0 R] >>\nendobj\n\
+                 3 0 obj\n<< /Type /CMap /Length 0 \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement {cmap} >> >>\n\
+                 stream\n\nendstream\nendobj\n\
+                 4 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement {font} >> >>\n\
+                 endobj\n"
+            ))
+        };
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let judged = |document: &Document| {
+                let report = crate::check(document, target);
+                let row = report
+                    .judgements
+                    .iter()
+                    .find(|judgement| judgement.id == ROW)
+                    .cloned()
+                    .expect("the row binds both parts");
+                (row, report.render())
+            };
+
+            let (above, text) = judged(&with(4, 2));
+            assert!(matches!(above.outcome, crate::Outcome::Failed { .. }));
+            assert_eq!(
+                above.noted,
+                [crate::errata::SUPPLEMENT_DIRECTION],
+                "{target}"
+            );
+            let failed = text.split("\nnot checked").next().unwrap_or_default();
+            assert!(
+                failed.contains(&format!("{ROW} (")) && failed.contains("note on erratum #77"),
+                "the rejection says it: {text}"
+            );
+
+            let (below, text) = judged(&with(2, 4));
+            assert_eq!(below.outcome, crate::Outcome::Met);
+            assert_eq!(
+                below.noted,
+                [crate::errata::SUPPLEMENT_DIRECTION],
+                "{target}"
+            );
+            assert!(
+                text.contains("met, under a reading that is noted:")
+                    && text.contains("note on erratum #77"),
+                "the acceptance says it too: {text}"
+            );
+
+            let (equal, text) = judged(&with(3, 3));
+            assert_eq!(equal.outcome, crate::Outcome::Met);
+            assert!(equal.noted.is_empty(), "{target}");
+            assert!(!text.contains("#77"), "{text}");
+        }
     }
 
     #[test]

@@ -193,7 +193,30 @@ pub struct Note {
     pub states: BTreeSet<String>,
     /// Which of the two inputs the note was read from, which says what [`Self::page`] counts.
     pub origin: Origin,
+    /// The page's own text on either side of [`Self::covered`], up to [`BESIDE_BYTES`] each way
+    /// and never past the page.
+    ///
+    /// **What tells a struck phrase from the same phrase in another sentence** (ADR 3607): a
+    /// quotation that contains a short struck passage lands on the strike only if the words it
+    /// puts around that passage are the words the page puts around it. `None` for a site note,
+    /// whose change is read out of the published Markdown rather than off a page.
+    pub beside: Option<(String, String)>,
 }
+
+/// How much of a page's text either side of a strike [`Note::beside`] keeps, in bytes.
+///
+/// A sentence's worth: [`Landing::beside_the_strike`] compares [`CONTEXT_CHARS`] of a quotation
+/// either side of the passage, and a page's readback spells a line break and a hyphenation the
+/// quotation does not, so the page side keeps several times that.
+pub const BESIDE_BYTES: usize = 400;
+
+/// How many folded characters of a quotation either side of a struck passage have to be the
+/// page's for the quotation to land on that strike ([`Landing::beside_the_strike`]).
+///
+/// Six or seven words once folded: enough that a phrase the standard repeats in a hundred table
+/// cells — #106's *shall be an indirect reference* — is told apart by the entry it ends, and short
+/// enough that a quotation which ends one word past the passage is still compared at all.
+pub const CONTEXT_CHARS: usize = 32;
 
 /// Where a note was read from (ADR 3589).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -340,16 +363,19 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
             if matches!(subtype.as_str(), "Link" | "Popup" | "Widget") {
                 continue;
             }
-            let covered = if document
+            let (covered, beside) = if document
                 .get_key(annotation, "QuadPoints")
                 .as_array()
                 .is_some()
             {
                 let read = interpretation
                     .get_or_insert_with(|| pdf_model::content::interpret(&document, &page));
-                pdf_model::retrieval::text_under(&document, annotation, &page, read)
+                (
+                    pdf_model::retrieval::text_under(&document, annotation, &page, read),
+                    page_text_beside(&document, annotation, &page, read),
+                )
             } else {
-                None
+                (None, None)
             };
             notes.push(Note {
                 document: name.clone(),
@@ -373,10 +399,39 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
                     .and_then(|id| states.get(&id).cloned())
                     .unwrap_or_default(),
                 origin: Origin::Annotation,
+                beside,
             });
         }
     }
     Ok(notes)
+}
+
+/// The page's text either side of what an annotation covers, [`BESIDE_BYTES`] each way.
+///
+/// `None` where it covers no glyph. Cut on character boundaries, because the readback is UTF-8
+/// and a byte bound can fall inside a character.
+fn page_text_beside(
+    document: &Document,
+    annotation: &Dictionary,
+    page: &pdf_model::Page,
+    interpretation: &pdf_model::Interpretation,
+) -> Option<(String, String)> {
+    let spans = pdf_model::retrieval::spans_under(document, annotation, page, interpretation);
+    let start = spans.first()?.start;
+    let end = spans.last()?.end;
+    let text = interpretation.text.as_str();
+    let mut from = start.saturating_sub(BESIDE_BYTES);
+    while !text.is_char_boundary(from) {
+        from = from.saturating_add(1);
+    }
+    let mut to = end.saturating_add(BESIDE_BYTES).min(text.len());
+    while !text.is_char_boundary(to) {
+        to = to.saturating_sub(1);
+    }
+    Some((
+        text.get(from..start)?.to_owned(),
+        text.get(end..to)?.to_owned(),
+    ))
 }
 
 /// Which of this project's four populations of quotation a landing is in.
@@ -469,6 +524,52 @@ impl Landing {
         cited == section
             || cited.starts_with(&format!("{section}."))
             || section.starts_with(&format!("{cited}."))
+    }
+
+    /// Whether the quotation puts around the struck passage the words its page puts around it.
+    ///
+    /// **The test [`Self::in_clause`] cannot make**, because a page's section is the outline's and
+    /// a quotation's clause is this tree's: #106 strikes *shall be an indirect reference* out of
+    /// table cells across the standard, and a quotation of a cell that keeps it — the page tree's
+    /// `/Parent`, which is a back pointer — contains the phrase and lands on every strike of it.
+    /// What the two disagree on is the entry the phrase ends, so the quotation's
+    /// [`CONTEXT_CHARS`] either side of the passage are looked for in the page's text beside the
+    /// strike, folded alike (ADR 3607). The window is cut where the page's text runs out, so a
+    /// strike at a page's edge is compared on the side it has.
+    ///
+    /// `true` wherever the comparison cannot be made, so that it only ever withdraws a landing
+    /// it has shown to be another sentence: a site note with no page, a quotation the passage
+    /// contains (it is inside the struck words, whatever surrounds them), and an elided one,
+    /// whose pieces are compared by `overlaps` and are not one run of the page.
+    #[must_use]
+    pub fn beside_the_strike(&self) -> bool {
+        let (Some((before, after)), Some(covered)) = (&self.note.beside, &self.note.covered) else {
+            return true;
+        };
+        if !elided(&self.quotation).is_empty() {
+            return true;
+        }
+        let quotation = squeezed(&self.quotation);
+        let passage = squeezed(covered);
+        let Some(at) = quotation.find(&passage) else {
+            return true;
+        };
+        let (before, after) = (squeezed(before), squeezed(after));
+        let page = format!("{before}{passage}{after}");
+        let lead = quotation.get(..at).unwrap_or_default();
+        let tail = quotation
+            .get(at.saturating_add(passage.len())..)
+            .unwrap_or_default();
+        let lead: String = {
+            let keep = CONTEXT_CHARS.min(before.chars().count());
+            let skip = lead.chars().count().saturating_sub(keep);
+            lead.chars().skip(skip).collect()
+        };
+        let tail: String = tail
+            .chars()
+            .take(CONTEXT_CHARS.min(after.chars().count()))
+            .collect();
+        page.contains(&format!("{lead}{passage}{tail}"))
     }
 
     /// The clause number the outline's section title opens with, if it opens with one.
@@ -641,7 +742,7 @@ fn overlaps(quotation: &str, passage: &str) -> bool {
         return if squeezed.len() >= passage.len() {
             squeezed.contains(passage)
         } else {
-            quotation.split_whitespace().count() >= MIN_WORDS && passage.contains(&squeezed)
+            words(quotation) >= MIN_WORDS && passage.contains(&squeezed)
         };
     }
     // Two ways for an elided quotation to be about one passage, and the second is why it is
@@ -658,6 +759,20 @@ fn overlaps(quotation: &str, passage: &str) -> bool {
         || segments
             .iter()
             .all(|segment| passage.contains(&squeezed(segment)))
+}
+
+/// How many words a quotation has, for [`MIN_WORDS`]: whitespace-separated runs of two characters
+/// or more (ADR 3607).
+///
+/// The conversion spells some captions letter by letter — `Ta b l e 341` — and a quotation of
+/// one is four runs that fold to the single word *Table*, which every struck passage naming a
+/// table contains. A one-letter run is a word only as `a` and `I` are, and neither tells one
+/// sentence from another any better than a spaced-out letter does; a digit does, as the `6` of
+/// *revision 6 and later* does, and is counted.
+fn words(text: &str) -> usize {
+    text.split_whitespace()
+        .filter(|word| word.chars().nth(1).is_some() || word.chars().all(|c| c.is_ascii_digit()))
+        .count()
 }
 
 /// A quotation's segments, split at the ellipses that stand for what it left out, or nothing
@@ -1336,6 +1451,7 @@ mod tests {
             created: None,
             states: BTreeSet::new(),
             origin: Origin::Annotation,
+            beside: None,
         };
         let notes = vec![
             note("all of subclause 12.3.6 Navigators was moved and demoted one level"),
@@ -1346,6 +1462,82 @@ mod tests {
         assert_eq!(structural.len(), 1, "only the first is both");
         assert_eq!(structural[0].verbs, vec!["move"]);
         assert_eq!(structural[0].clauses[0].to_string(), "12.3.6");
+    }
+
+    /// ADR 3607's two comparisons. A quotation of the page tree's `/Parent` cell holds #106's
+    /// phrase, which #106 strikes from another cell whose page puts other words around it, so it
+    /// does not land; a quotation of the struck cell itself does; a quotation inside the struck
+    /// words, and one of a site note with no page, are compared as before. And a caption the
+    /// conversion spelled letter by letter is one word, not four.
+    #[test]
+    fn a_struck_phrase_in_another_sentence_is_told_apart_by_its_neighbours() {
+        let note = Note {
+            document: "x.pdf".to_owned(),
+            page: 1,
+            section: Some("7.7.3.3 Page objects".to_owned()),
+            subject: None,
+            title: None,
+            subtype: "StrikeOut".to_owned(),
+            role: Role::Primary,
+            change: None,
+            contents: None,
+            covered: Some("; shall be an indirect reference".to_owned()),
+            created: None,
+            states: BTreeSet::new(),
+            origin: Origin::Annotation,
+            beside: Some((
+                "Metadata stream (Optional".to_owned(),
+                ") A metadata stream that shall contain".to_owned(),
+            )),
+        };
+        let landing = |quotation: &str, beside: bool| Landing {
+            file: PathBuf::from("x.rs"),
+            line: 1,
+            kind: Quoted::Blockquote,
+            clause: Some("7.7.3.2".to_owned()),
+            quotation: quotation.to_owned(),
+            note: if beside {
+                note.clone()
+            } else {
+                Note {
+                    beside: None,
+                    ..note.clone()
+                }
+            },
+        };
+        assert!(
+            !landing(
+                "(Required except in root node; not permitted in the root node; shall be an \
+                 indirect reference) The page tree node that is the immediate parent",
+                true
+            )
+            .beside_the_strike()
+        );
+        assert!(
+            landing(
+                "Metadata stream (Optional; shall be an indirect reference) A metadata stream",
+                true
+            )
+            .beside_the_strike()
+        );
+        assert!(landing("shall be an indirect reference", true).beside_the_strike());
+        assert!(
+            landing(
+                "(Required; shall be an indirect reference) The page tree node",
+                false
+            )
+            .beside_the_strike()
+        );
+        assert_eq!(words("Ta b l e"), 1);
+        assert_eq!(words("revision 6 and later"), 4);
+        assert!(!overlaps(
+            "Ta b l e",
+            &squeezed("Table 30 entries in a page object")
+        ));
+        assert!(overlaps(
+            "shall be an indirect reference",
+            &squeezed("; shall be an indirect reference")
+        ));
     }
 
     #[test]
@@ -1367,6 +1559,7 @@ mod tests {
             created: None,
             states: BTreeSet::new(),
             origin: Origin::Annotation,
+            beside: None,
         };
         assert!(!note.retires_text());
         assert!(

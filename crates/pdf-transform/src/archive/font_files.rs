@@ -1297,6 +1297,7 @@ mod tests {
                 },
                 named: findings.named().clone(),
                 withdrawn: 0,
+                noted: Vec::new(),
             }],
         }
     }

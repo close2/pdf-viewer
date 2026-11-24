@@ -1458,11 +1458,12 @@ fn measure(path: &Path) -> Answers {
     // counted as a restriction that is not there.
     //
     // **The third figure is the one a name census cannot produce**: a `/Perms /DocMDP` this tree
-    // reads no level out of. Table 263 says the entry's dictionary "shall contain a Reference entry
-    // that shall be a signature reference dictionary", singular, while Table 255 makes `/Reference`
-    // an array — so a producer following the wrong one of the standard's two sentences writes a
-    // bare dictionary, and a reader that only accepts the array finds no level and permits
-    // everything without saying so.
+    // reads no level out of. Table 255 makes `/Reference` an array, and Table 263, as Issue #218
+    // (published on pdf-issues.pdfa.org) corrects it, agrees: the entry's dictionary shall contain
+    // a `Reference` entry that shall be *an array with at least one entry, exactly one of which is*
+    // a signature reference dictionary. The printed cell named a single dictionary, so a producer
+    // that followed it writes a bare one, and a reader that only accepts the array finds no level
+    // and permits everything without saying so.
     let states_perms_doc_mdp = document.catalog().is_ok_and(|catalog| {
         document
             .get_key(&catalog, "Perms")

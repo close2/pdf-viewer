@@ -639,6 +639,7 @@ fn change_note(walk: &Walk, document: &str, line: usize, inner: &Change, retired
         created: None,
         states,
         origin: Origin::Site,
+        beside: None,
     }
 }
 

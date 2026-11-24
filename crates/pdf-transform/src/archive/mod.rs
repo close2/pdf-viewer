@@ -941,6 +941,7 @@ fn decide_every_failure(
             places,
             decision,
             changed: 0,
+            noted: judgement.noted.clone(),
         });
     }
     met_by_the_replacement(&mut conversion.decided, &prepared);

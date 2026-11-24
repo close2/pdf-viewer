@@ -12427,6 +12427,30 @@ fn a_font_of_a_later_supplement_than_its_predefined_cmap_is_given_the_cmaps() {
         panic!("the row is answered: {:?}", decision(&report, row));
     };
     assert_eq!(rewrite, Rewrite::CollectionRestated);
+    // The owner's answer to Q1043 (`doc/questions/A1043`, ADR 3605): the restatement answers a
+    // verdict erratum #77's direction decided, so the conversion's report says so beside it, in
+    // the text and in the JSON.
+    let restated = conversion(&report)
+        .decided
+        .iter()
+        .find(|decided| decided.requirement == row)
+        .expect("the row is decided");
+    assert_eq!(restated.noted, [pdf_archive::errata::SUPPLEMENT_DIRECTION]);
+    assert!(
+        conversion(&report)
+            .render()
+            .contains("note on erratum #77: this font's CIDFont and CMap state different"),
+        "{}",
+        conversion(&report).render()
+    );
+    assert!(
+        conversion(&report)
+            .to_json()
+            .render()
+            .contains("\"issue\": 77"),
+        "{}",
+        conversion(&report).to_json().render()
+    );
     let output = output.expect("the file is written");
     assert_eq!(
         holds(&output, target).verdict(),

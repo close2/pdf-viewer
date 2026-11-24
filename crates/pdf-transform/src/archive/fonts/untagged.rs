@@ -7,12 +7,11 @@
 //! an integer marked-content identifier, for a marked-content sequence on the page the element's
 //! `/Pg` names (§14.7.5.2); a marked-content reference dictionary, `/Type /MCR`, which may name a
 //! page of its own; and an object reference dictionary, `/Type /OBJR`, for an entire object such
-//! as an `XObject` (§14.7.5.3). Of the object reference's `/Pg`, Table 358:
-//!
-//! > This entry overrides any Pg entry in the structure element containing the object reference;
-//! > it shall be used if the structure element has no such entry.
-//!
-//! and Table 357 states the same of the marked-content reference. A photographed page's content
+//! as an `XObject` (§14.7.5.3). Of the object reference's `/Pg`, Table 358 as Issue #431
+//! (published on pdf-issues.pdfa.org) corrects it: *This entry takes precedence over any Pg entry
+//! in the structure element containing the object reference. This entry is required if the
+//! structure element containing the object reference has no Pg entry.* Table 357 states the same
+//! of the marked-content reference. A photographed page's content
 //! stream is replaced by one image (`super::photographed`), so a marked-content sequence a leaf
 //! names on that page is no longer anywhere, and an `XObject` only that content drew is drawn by
 //! nothing. Those leaves are the ones taken out; every other leaf, every element (an element that

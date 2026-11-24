@@ -495,17 +495,10 @@ pub fn structure_element_page(
 /// The page a reference "belongs to" is Table 357's and Table 358's `/Pg`, and where the
 /// reference states none it is the containing element's — §14.7.5.3 says of an object
 /// reference's `/Pg` that it takes precedence over any `/Pg` in the structure element containing
-/// the object reference, and is required where that element has none. (This sentence read "\[t]his
-/// entry overrides any Pg entry in the structure element containing the object reference; it
-/// shall be used if the structure element has no such entry" until Errata Collection 3 — Issue
-/// #431, `/State` `Review` `Accepted` — which also reclassifies the entry from "Optional" to
-/// "Sometimes required". **Two accepted errata amend that one sentence and this comment credited
-/// one of them with both**: #431 replaces everything after *overrides* — which it makes *takes
-/// precedence over* — with a second sentence, *This entry is required if the structure element
-/// containing the object reference has no Pg entry.*, while Issue #339, `/State` `Review`
-/// `Completed`, strikes the *used* inside the run #431 replaces and writes *required* there. They
-/// overlap in text and agree in meaning, which is the opposite of Table 161's pair. Neither
-/// changes what this function does; ADR 0253 and ADR 0728.) §14.7.5.2's integer
+/// the object reference, and is required where that element has none: Table 358's cell as
+/// Issue #431 (published on pdf-issues.pdfa.org) words it, *takes precedence over* in place of
+/// the printed verb and the required case a sentence of its own, with Issue #339 agreeing on
+/// *required*. Neither changes what this function does (ADR 0253, ADR 0728). §14.7.5.2's integer
 /// form of a kid means a marked-content sequence "contained in
 /// the content stream of the page that is specified in the Pg entry of the structure element".
 fn structure_page(document: &Document, element: &Dictionary, depth: usize) -> Option<ObjectId> {

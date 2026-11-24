@@ -2831,7 +2831,7 @@ of the 182 are in records.**
 | #850 | §12.5.5 | **changes the row** | *values of the BM, ca and CA entries* → *value of the BM entry*. The code already did this (ADR 0030), so the departure is dissolved and the row is `implemented` (ADR 3601). |
 | #784 | §7.5.8.2 | **changes the code** | The exemption is limited to strings under keys Tables 5, 15 and 17 define. `encryption::is_defined_cross_reference_key`, on both paths. New test `a_cross_reference_stream_dictionarys_private_string_is_decrypted`, which fails without the change (ADR 3602). The new `/F` prohibition binds a writer, and ours writes none. |
 | #839 | §8.6.5.5 | confirms; ground restated | The last bullet under Table 66 is deleted. `pdf-archive`'s `IccEdition` and part 4's `colr` check rested their argument on it, and now rest on Table 66 as #181 replaces it, plus the ICC texts' own version fields. No predicate moves. |
-| #226 | §14.7.6 | **owed** | Array-order precedence now applies only *for a specific owner*. `structure::attributes::ranked` still lets array order decide between two *different* owners in one §14.8.5.3 band (Layout, PrintField, Table, List, Artifact). §14.8.5.3 orders bands, not owners within a band, so the corrected text removes the tie-break without naming another. The comment is restated. The behaviour is left for a round that reads §14.8.5 whole. |
+| #226 | §14.7.6 | **a stated choice** | Array-order precedence now applies only *for a specific owner*. §14.8.5.3 orders bands, not owners within a band, so the corrected text leaves the tie between two owners in one `/A` band open. `structure::ranked` gives it to the later object. That is the one cross-owner precedence the standard states, #289's for class objects, so one rule covers both routes (ADR 3606). `two_owners_in_one_band_give_the_attribute_to_the_later_object` pins it. The narrowed accessors admit one PDF-native owner each, so only band-1 namespace ties reach it. |
 | #5 | §9.8.3.3 | confirms | The override keys are *a subset of the keys defined in Table 120*. `substitute::overridden` already drops the seven forbidden ones. |
 | #10 | §7.3.8.2 | confirms | *should* → *shall* on `/Length`, a writer's obligation. |
 | #14, #374, #215 | §14.13.5, Table 87 | confirms | Typography (#14). `MCAF` in a property list (#374), which `associated_in_property_list` reads. `/Mask` ignored (#215), which `stencil` does. |
@@ -2878,4 +2878,37 @@ of the 182 are in records.**
 | #741 | §12.3.3 | confirms | The NOTE on `/SE` is replaced. `/SE` stays unread. |
 | #766 | §12.8.5.3 | confirms | DSS and timestamp updates are ignored when evaluating MDP. `signature::permissions` consults neither. |
 | #783 | §7.6.2 | confirms | The exceptions list is no longer exhaustive. The four listed are enforced. |
-| #33, #159, #163, #218, #358, #376, #431, #446, #474, #759 | various | confirms | Landings in records only. No code moves. Their struck words are still quoted outside the 182, in `check`'s other-clause and under-the-floor populations: `pdf-signature`'s `signature.rs` (#33), `examples/absence_audit.rs` (#218), `measurement.rs` (#358), `destination.rs`, `archive/fonts/untagged.rs` and `structure/hierarchy.rs` (#431), and `pdf-colour`'s `function.rs` (#759). These are owed to the next reading. |
+| #33, #159, #163, #218, #358, #376, #431, #446, #474, #759 | various | confirms | Landings in records only. No code moves. Their struck words are still quoted outside the 182, in `check`'s other-clause and under-the-floor populations: `pdf-signature`'s `signature.rs` (#33), `examples/absence_audit.rs` (#218), `measurement.rs` (#358), `destination.rs`, `archive/fonts/untagged.rs` and `structure/hierarchy.rs` (#431), and `pdf-colour`'s `function.rs` (#759). Round 2226 restated all seven per ADR 3603: Table 236's cell paraphrased, Table 263's and Table 358's corrected cells in italics, §7.2.4's *line marker*, and #358's struck word named without quoting its phrase. |
+
+## `check`'s other-clause landings, triaged
+
+After ADR 3607, `spec-errata check` lists 705 landings on a passage struck out of another clause. A Sonnet triage grouped them by file, line and issue. It called a group real where the quotation and the struck passage share a run of ten words or more that occurs at most twice in `doc/md/`, and it demoted three groups by hand. That is a text-overlap heuristic, and each group below still needs reading against its erratum. The count is 70 groups (76 lines) outside the records, 218 groups of noise, and 191 groups in records, which keep their words. The 70 are owed to a later reading, by erratum:
+
+| erratum | landings |
+|---|---|
+| Issue #453 | `crates/pdf-font/src/metrics.rs:317`, `doc/conformance/ledger.toml:2642` |
+| Issue #384 | `crates/pdf-font/src/standard.rs:370`, `crates/pdf-font/src/substitute.rs:544`, `crates/pdf-font/src/substituted.rs:331` |
+| Issue #47 and #48 | `crates/pdf-font/src/standard.rs:1`, `crates/pdf-model/tests/oracle.rs:2408`, `crates/pdf-transform/src/archive/fonts/described.rs:730`, `tools/spec-errata/src/lib.rs:266`, `doc/conformance/ledger.toml:2426`, `doc/history.md:458`, `doc/todo/21-font-substitution.md:229` |
+| Issue #287 | `crates/pdf-model/examples/border_precedence_census.rs:1`, `crates/pdf-model/examples/free_text_census.rs:176`, `crates/pdf-model/src/appearance.rs:6079`, `crates/pdf-model/src/appearance.rs:6141`, `crates/pdf-model/src/view/script_model.rs:1842`, `crates/pdf-model/tests/annotations.rs:3676`, `crates/pdf-model/tests/variable_text.rs:3289`, `doc/conformance/ledger.toml:3698` |
+| Issue #162 and #288 | `crates/pdf-model/examples/structure_destination_census.rs:10`, `crates/pdf-model/src/destination.rs:887`, `doc/conformance/ledger.toml:3546` |
+| Issue #42 | `crates/pdf-model/src/annotation.rs:1463`, `crates/pdf-model/src/appearance.rs:746` |
+| Issue #386 | `crates/pdf-model/src/appearance.rs:1074`, `crates/pdf-model/src/form.rs:161`, `crates/pdf-model/src/view/fields.rs:693`, `crates/pdf-model/tests/forms_values_spec_audit.rs:249` |
+| Issue #481 | `crates/pdf-model/src/attachment.rs:1`, `crates/pdf-model/src/attachment.rs:556` |
+| Issue #155 | `crates/pdf-model/src/attachment.rs:115`, `crates/pdf-model/src/submission.rs:2193`, `crates/pdf-model/tests/submission.rs:390` |
+| Issue #128 | `crates/pdf-model/src/content/annotations.rs:507`, `crates/pdf-model/src/content.rs:2905`, `crates/pdf-model/src/type3.rs:444`, `crates/pdf-model/tests/missing_resources.rs:354`, `crates/pdf-model/tests/missing_resources.rs:387`, `crates/pdf-transform/src/archive/default_rgb/page_contexts.rs:215` |
+| Issue #292 | `crates/pdf-model/src/content/xobject.rs:181`, `crates/pdf-model/tests/missing_resources.rs:354` |
+| Issue #468 | `crates/pdf-model/src/form.rs:721`, `crates/pdf-model/src/submission.rs:1030`, `doc/conformance/ledger.toml:4232` |
+| Issue #463 | `crates/pdf-model/src/structure/owners.rs:531` |
+| Issue #151 | `crates/pdf-model/src/structure/roles.rs:262`, `crates/pdf-model/src/structure/tests.rs:1001`, `crates/pdf-model/tests/tagged_pdf_fixtures.rs:294`, `doc/conformance/ledger.toml:6113` |
+| Issue #200 | `crates/pdf-model/src/structure.rs:1522`, `crates/pdf-model/src/structure.rs:1620`, `doc/conformance/ledger.toml:5941` |
+| Issue #251 | `crates/pdf-model/src/submission.rs:453`, `doc/history.md:442` |
+| Issue #444 | `crates/pdf-model/tests/annotations.rs:1980`, `doc/conformance/ledger.toml:3818` |
+| Issue #79 | `crates/pdf-model/tests/optional_content.rs:1594` |
+| Issue #404 | `crates/pdf-signature/src/cms.rs:329`, `crates/pdf-signature/src/cms.rs:421` |
+| Issue #542 | `crates/pdf-syntax/src/crypt.rs:106` |
+| Issue #325 | `crates/pdf-syntax/src/crypt.rs:1117` |
+| Issue #149 | `crates/pdf-syntax/src/xref.rs:249`, `crates/pdf-syntax/tests/file_structure_spec_audit.rs:206` |
+| Issue #11 | `crates/pdf-transform/src/archive/fonts/described.rs:718`, `crates/pdf-transform/tests/archive/layout_from_this_viewer.rs:118`, `crates/pdf-transform/tests/archive/rekeyed.rs:264` |
+| Issue #437 | `crates/pdf-transform/src/archive/tagged.rs:129` |
+| Issue #113 | `tools/spec-errata/src/lib.rs:1034` |
+| Issue #23 and #34 | `doc/conformance/ledger.toml:3682` |

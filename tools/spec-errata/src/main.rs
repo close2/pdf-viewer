@@ -228,6 +228,17 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
     for landing in &cited {
         print_landing(landing);
     }
+    // A quotation that puts other words around the struck passage than its page does is the
+    // same phrase in another sentence, and is counted rather than listed (ADR 3607).
+    let (elsewhere, repeated): (Vec<_>, Vec<_>) = elsewhere
+        .into_iter()
+        .partition(|landing| spec_errata::Landing::beside_the_strike(landing));
+    println!(
+        "\n{} quotation(s) contain a phrase struck out of another sentence, and put other words \
+         around it than the strike's page does{}",
+        repeated.len(),
+        by_kind(&repeated)
+    );
     println!(
         "\n{} more match a passage struck out of another clause{} — a repeated phrase rather than \
          a finding, until somebody reads one",

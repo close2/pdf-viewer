@@ -129,6 +129,39 @@ static ERRATA: &[(&str, Erratum)] = &[
     ),
 ];
 
+/// A sentence a verdict carries because the erratum it applied is still unsettled where it is
+/// decided, printed beside the row a document *exercised* it on.
+///
+/// Not an [`Erratum`], and not carried in the erratum table [`amending`] reads: that table names
+/// a row once and the report prints it under every failure of the row, whereas a note is owed by
+/// a *document* — only where the file reached the part of the rule the unsettled erratum decides,
+/// and then whether the row was met or failed, since a pass under the applied reading is as much
+/// the erratum's verdict as a failure is. A predicate states it through [`crate::Findings::note`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note {
+    /// The issue number in `pdf-association/pdf-issues` the note is about.
+    pub issue: u32,
+    /// The note, in one sentence a person reads beside the verdict.
+    pub says: &'static str,
+}
+
+/// Erratum #77's direction, said wherever a font's `CIDFont` and `CMap` supplements differ.
+///
+/// The owner's answer to `doc/questions/Q1043` (`A1043`): the errata page publishes the correction
+/// and this crate applies it (ADR 3582), and the PDF/A TWG has since declined to carry it into the
+/// dated revision and parked it for a white paper, so a verdict that turned on the direction says
+/// which direction it applied and that the question is open there (ADR 3605).
+pub const SUPPLEMENT_DIRECTION: Note = Note {
+    issue: 77,
+    says: "this font's CIDFont and CMap state different supplements, so the comparison's \
+           direction decides this row: it applies CIDFontSupplement <= CMapSupplement as the \
+           ISO 19005-4 errata page publishes erratum #77 for 6.2.10.3.1 (pdf-association/\
+           pdf-issues #77, read into ISO 19005-2 6.2.11.3.1; ADR 3582), while the PDF/A TWG \
+           decided on 2023-12-11 not to carry the change into the dated revision and on \
+           2024-02-16 parked it pending a white paper, so a validator reading the printed \
+           clause (>=) may judge this font the other way",
+};
+
 /// The approved correction bearing on one requirement, if there is one.
 #[must_use]
 pub fn amending(id: &str) -> Option<Erratum> {

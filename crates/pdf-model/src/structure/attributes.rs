@@ -16,12 +16,16 @@ impl Tree {
     /// Every attribute object attached to an element, in **increasing precedence order**.
     ///
     /// §14.7.6 attaches attributes by two routes and states which wins in each. Within an
-    /// element's `/A`, "\[i]f a given attribute is specified more than once, the later (in array
-    /// order) entry shall take precedence"; between the two routes, "\[i]f both the A and C
-    /// entries are present and a given attribute is specified by both, the one specified by
-    /// the A entry shall take precedence". So the list is the `/C` classes first and the `/A`
-    /// objects after them, each in array order, and the *last* object stating an attribute is
-    /// the one that holds.
+    /// element's `/A`, "\[i]f a given attribute" *for a specific owner (as defined by the O and
+    /// NS entries)*, as pdf-association/pdf-issues #226 inserts on pdf-issues.pdfa.org, "is
+    /// specified more than once, the later (in array order) entry shall take precedence"; through
+    /// `/C`, #289's inserted sentences give the later object precedence across the class objects
+    /// whatever their owners; between the two routes, "\[i]f both the A and C entries are present
+    /// and a given attribute is specified by both, the one specified by the A entry shall take
+    /// precedence". So the list is the `/C` classes first and the `/A` objects after them, each in
+    /// array order, and the *last* object stating an attribute is the one that holds — between
+    /// two different owners in one `/A` band as well, which the corrected §14.7.6 leaves to the
+    /// reader and the ranking states as a choice (ADR 3606).
     ///
     /// **That order decides within one of §14.8.5.3's priorities and not between them**, which
     /// is why each object carries the route it came by ([`AttributeObject::from_class`]): the

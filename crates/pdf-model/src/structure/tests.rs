@@ -1793,6 +1793,72 @@ fn a_namespace_owner_ranks_where_the_clause_puts_the_owner_it_names() {
     );
 }
 
+/// Two different owners in one `/A` band: the later object, as a stated choice (ADR 3606).
+///
+/// pdf-association/pdf-issues #226 confines §14.7.6's array-order rule to one owner *as defined
+/// by the O and NS entries*, so an object of the PDF 2.0 standard namespace and one of the PDF
+/// 1.7 standard namespace are two owners the corrected clause does not rank, both in §14.8.5.3's
+/// first band. The choice is the later object, as #289 has it for class objects across owners;
+/// the two elements write the same pair in opposite orders, so a plant that ranked by namespace
+/// (either one first) or that took the earlier object fails one of the two assertions, and the
+/// third element shows one owner's two objects still decided by the clause itself.
+#[test]
+fn two_owners_in_one_band_give_the_attribute_to_the_later_object() {
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        "<< /Type /StructTreeRoot /K 5 0 R >>",
+        "<< /Type /StructElem /S /Sect /K [6 0 R 7 0 R 8 0 R] >>",
+        "<< /Type /StructElem /S /P /P 5 0 R /A [9 0 R 10 0 R] >>",
+        "<< /Type /StructElem /S /P /P 5 0 R /A [10 0 R 9 0 R] >>",
+        "<< /Type /StructElem /S /P /P 5 0 R /A [9 0 R 11 0 R] >>",
+        "<< /O /NSO /NS 12 0 R /TextAlign /Center >>",
+        "<< /O /NSO /NS 13 0 R /TextAlign /End >>",
+        "<< /O /NSO /NS 12 0 R /TextAlign /Justify >>",
+        "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>",
+        "<< /Type /Namespace /NS (http://iso.org/pdf/ssn) >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree root");
+    let Some(Child::Element(section)) = tree.children(&doc, None).first().cloned() else {
+        panic!("one element under the root");
+    };
+    let kids = tree.children(&doc, Some(&section));
+    let [
+        Child::Element(two_then_one),
+        Child::Element(one_then_two),
+        Child::Element(one_owner),
+    ] = kids.as_slice()
+    else {
+        panic!("three paragraphs: {kids:?}");
+    };
+    let align = |element: &Dictionary| {
+        tree.attribute(&doc, element, "TextAlign")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()))
+    };
+    assert!(
+        tree.attributes(&doc, two_then_one)
+            .iter()
+            .all(|object| object.priority() == Some(Priority::Owner)),
+        "both standard namespaces rank in §14.8.5.3's first band"
+    );
+    assert_eq!(
+        align(two_then_one),
+        Some(b"End".to_vec()),
+        "the PDF 1.7 namespace's object is written last and is read"
+    );
+    assert_eq!(
+        align(one_then_two),
+        Some(b"Center".to_vec()),
+        "the PDF 2.0 namespace's object is written last and is read"
+    );
+    assert_eq!(
+        align(one_owner),
+        Some(b"Justify".to_vec()),
+        "one owner's later object, which §14.7.6 as #226 corrects it decides"
+    );
+}
+
 /// §14.8.5.3 band 3: the class map loses to the element's own `/A`, and keeps what `/A` omits.
 ///
 /// The class states `/Placement` and `/TextAlign`; the `/A` object states `/Placement` alone.
