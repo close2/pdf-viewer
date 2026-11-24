@@ -112,6 +112,8 @@ impl Interpreter<'_> {
                 fill_rule: FillRule::NonZero,
                 parent,
             })
+            // not a repair: a refused clip (the list's budget) leaves the parent clip, not a value
+            // the file states.
             .ok()
             .or(parent)
     }

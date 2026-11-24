@@ -1034,6 +1034,7 @@ impl WalkAhead<'_, '_> {
         let Some(into) = self.plan.conversion(document, &stream.dict, tone) else {
             return;
         };
+        // not a repair: an absent resource category stays absent (Null), no value is substituted.
         let colour_spaces = resources.get("ColorSpace").cloned().unwrap_or(Object::Null);
         if !self
             .plan
@@ -1071,6 +1072,8 @@ fn offerable(document: &Document, stream: &pdf_syntax::Stream) -> Option<usize> 
     {
         return None;
     }
+    // not a repair: a size estimate of this reader's that decides a look-ahead, not a value it
+    // draws with.
     let dimension = |key| {
         document
             .get_key(dict, key)
@@ -1082,6 +1085,8 @@ fn offerable(document: &Document, stream: &pdf_syntax::Stream) -> Option<usize> 
     if samples < crate::image::AHEAD_FLOOR {
         return None;
     }
+    // not a repair: an arithmetic guard on this reader's size estimate, not a value the file
+    // states.
     Some(usize::try_from(samples.saturating_mul(4)).unwrap_or(usize::MAX))
 }
 

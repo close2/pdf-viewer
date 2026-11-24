@@ -65,6 +65,7 @@ impl Style {
     /// Read loosely and then checked by [`Self::render`], so that only this style's own spelling
     /// of a value matches — `004`, `iiii` and `AB` are no page's label.
     fn parse(self, text: &str) -> Option<u32> {
+        // not a repair: a label the user typed is parsed here, not a value the file states.
         let value = match self {
             Self::Decimal => text.parse().ok()?,
             Self::Roman { .. } => {
@@ -96,6 +97,8 @@ impl Style {
                     Some(letter) if letter.is_ascii_alphabetic() => {
                         let index =
                             u32::from(letter.to_ascii_lowercase()).saturating_sub(u32::from('a'));
+                        // not a repair: a count of characters of a typed label, not a value the
+                        // file states.
                         let repeats = u32::try_from(text.chars().count()).ok()?;
                         repeats
                             .checked_sub(1)?
@@ -127,6 +130,8 @@ fn letters(value: u32, upper: bool) -> String {
     if value == 0 {
         return String::new();
     }
+    // not a repair: a letter and a repeat count computed from a page number, not values the file
+    // states.
     let index = value.saturating_sub(1) % 26;
     let repeats = value.saturating_sub(1).saturating_div(26).saturating_add(1);
     let base = if upper { b'A' } else { b'a' };
@@ -249,6 +254,7 @@ impl PageLabels {
     /// sentence supports.
     #[must_use]
     pub fn label(&self, index: usize) -> Option<String> {
+        // not a repair: a page index of this reader's, not a value the file states.
         let index = i64::try_from(index).ok()?;
         // The last range whose first page is at or before this one.
         let at = self.ranges.partition_point(|range| range.first <= index);
@@ -257,6 +263,8 @@ impl PageLabels {
         if let Some(style) = range.style {
             // "Pages within a range shall be numbered sequentially in ascending order",
             // starting at `/St`.
+            // not a repair: an offset this program computes from page indices, not a value the file
+            // states.
             let offset = u32::try_from(index.saturating_sub(range.first)).unwrap_or(0);
             label.push_str(&style.render(range.start.saturating_add(offset)));
         }
@@ -271,6 +279,7 @@ impl PageLabels {
     /// ranges are in page order, so the first range holding the label holds its first page.
     #[must_use]
     pub fn index_of(&self, label: &str, pages: usize) -> Option<usize> {
+        // not a repair: a page count of this reader's, not a value the file states.
         let pages = i64::try_from(pages).ok()?;
         self.ranges.iter().enumerate().find_map(|(at, range)| {
             let end = self
@@ -288,6 +297,8 @@ impl PageLabels {
                         .checked_add(i64::from(value.checked_sub(range.start)?))?
                 }
             };
+            // not a repair: a page index this program computed from a label being looked up, not a
+            // value the file states.
             (index >= range.first.max(0) && index < end)
                 .then(|| usize::try_from(index).ok())
                 .flatten()

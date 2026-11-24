@@ -123,6 +123,7 @@ impl DecodesAhead {
     /// The lock, whatever a panicking decode left it holding: every transition below leaves the
     /// state whole, and [`Progress::Abandoned`] is how a slot says it has no answer.
     fn slots(&self) -> std::sync::MutexGuard<'_, Slots> {
+        // not a repair: a poisoned lock of this reader's own threads, not a value the file states.
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -263,6 +264,8 @@ impl DecodesAhead {
                     | Progress::Abandoned => return None,
                 }
             }
+            // not a repair: a poisoned lock of this reader's own threads, not a value the file
+            // states.
             state = self
                 .arrived
                 .wait(state)

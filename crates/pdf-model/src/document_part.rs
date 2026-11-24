@@ -118,6 +118,8 @@ impl Hierarchy {
     #[must_use]
     pub fn levels(&self) -> usize {
         self.parts
+            // not a repair: the maximum over this reader's own parsed nodes; none means no nodes,
+            // not a value the file states.
             .iter()
             .map(|part| part.level.saturating_add(1))
             .max()

@@ -8,10 +8,16 @@ use crate::content::Interpreter;
 
 impl Interpreter<'_> {
     /// The compatibility operators of Table 50 (ISO 32000-2 §7.8.2): `BX` and `EX`.
-    pub(super) fn run_compatibility_op(operator: Operator, machine: &mut Machine) {
+    ///
+    /// "These operators shall occur in pairs": an `EX` with no `BX` open ends nothing, and the
+    /// page says so.
+    pub(super) fn run_compatibility_op(&self, operator: Operator, machine: &mut Machine) {
         let Machine { compatibility, .. } = machine;
         match operator {
             Operator::BeginCompatibility => *compatibility = compatibility.saturating_add(1),
+            Operator::EndCompatibility if *compatibility == 0 => {
+                self.record_repair(&crate::repair::COMPATIBILITY_SECTIONS_UNBALANCED);
+            }
             Operator::EndCompatibility => *compatibility = compatibility.saturating_sub(1),
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}

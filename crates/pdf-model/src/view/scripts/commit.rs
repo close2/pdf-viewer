@@ -102,6 +102,8 @@ impl ViewState {
                             before,
                             format!(
                                 "{name}: {}",
+                                // not a repair: a script's refusal that states no message gets
+                                //   this program's own sentence, not a value the file states.
                                 message.unwrap_or_else(|| {
                                     "the field's keystroke script refused the value".to_owned()
                                 })

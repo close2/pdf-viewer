@@ -391,6 +391,7 @@ impl CMap {
     /// codes and sending the rest to `.notdef`.
     #[must_use]
     pub fn parse(bytes: &[u8], used: Option<&Self>) -> Self {
+        // not a repair: a CMap with no `usecmap` starts from an empty map, a state of this reader.
         let mut map = used.cloned().unwrap_or_else(Self::empty);
         // A referenced map's own `usecmap` is already resolved; only this file's matters.
         map.references_another = false;
@@ -775,6 +776,8 @@ impl CMap {
             .min();
         // A `CMap` with no codespace ranges cannot decode at all, and the loader refuses one
         // before it reaches here; one byte keeps this function total either way.
+        // not a repair: one byte keeps this function total for a map this reader holds, not a value
+        // the file states.
         let mut chosen = shortest.unwrap_or(1);
         let mut best_partial = 0usize;
         for range in &self.codespace {
@@ -790,6 +793,8 @@ impl CMap {
         }
         // Never zero, so a caller advancing by the length always makes progress even on a
         // string that has run out mid-code.
+        // not a repair: a byte count bounded by this reader's maximum code length and the string's
+        // length.
         let taken = chosen.min(bytes.len()).clamp(1, MAX_CODE_BYTES);
         let head = bytes.get(..taken).unwrap_or(bytes);
         Code {
@@ -972,6 +977,8 @@ impl CMap {
     /// there is.
     fn stated_code_count(&self) -> u64 {
         self.mappings.iter().fold(0_u64, |total, mapping| {
+            // not a repair: a length widened for a total this reader saturates, not a value the
+            // file states.
             let singles = u64::try_from(mapping.singles.len()).unwrap_or(u64::MAX);
             let ranges = mapping.ranges.iter().fold(0_u64, |sum, &(low, high, _)| {
                 sum.saturating_add(u64::from(high.saturating_sub(low)).saturating_add(1))

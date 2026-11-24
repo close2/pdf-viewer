@@ -211,6 +211,7 @@ impl Interpreter<'_> {
         to_box: Transform,
         outer: Option<ClipId>,
     ) -> bool {
+        // not a repair: a slice of this reader's own command list, not a value the file states.
         let inside = self.list.commands().get(mark..).unwrap_or_default();
         if inside.is_empty() {
             return false;

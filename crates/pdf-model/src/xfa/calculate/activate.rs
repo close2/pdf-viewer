@@ -1415,6 +1415,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                         written if written.is_empty() => Change::Cleared,
                         written => Change::Text(written),
                     });
+                // not a repair: the value this reader holds when a calculation changed nothing, not
+                // a value the file states.
                 (name.clone(), now.unwrap_or_else(|| held.clone()))
             })
             .collect()
@@ -1640,6 +1642,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             return node;
         }
         button
+            // not a repair: a lookup in this reader's own node table, the node itself where it has
+            // no button, not a file value.
             .and_then(|on| self.button_of(node, on))
             .unwrap_or(node)
     }
@@ -1754,6 +1758,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     fn label(&self, node: usize) -> String {
         self.form
             .names
+            // not a repair: a label this reader gives a container with no name, shown to a person
+            // only.
             .get(node)
             .cloned()
             .flatten()
@@ -1929,6 +1935,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                         })
                     });
                     if searches {
+                        // not a repair: a count of this reader's own containers against its own
+                        // step budget, not a value the file states.
                         let cost = u64::try_from(containers).unwrap_or(u64::MAX);
                         if self.steps_left < cost {
                             self.ended.get_or_insert("steps");
@@ -1984,6 +1992,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                     let label = self
                         .form
                         .names
+                        // not a repair: a label this reader gives a container with no name, shown
+                        // to a person only.
                         .get(holder)
                         .cloned()
                         .flatten()
@@ -1999,6 +2009,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             self.hooks = Some(hooks);
             self.unbound = unbound;
         }
+        // not a repair: this reader's own table of hooks, empty before any is registered, not a
+        // value the file states.
         self.hooks.as_deref().unwrap_or_default()
     }
 
@@ -2161,6 +2173,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         match self.calculations.get(index) {
             Some(calculation) if calculation.sets_value => (
                 false,
+                // not a repair: a rank in this reader's own evaluation order, not a value the file
+                // states.
                 self.order.get(index).copied().unwrap_or(index),
                 index,
             ),
@@ -2608,6 +2622,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         let mut edits = Vec::new();
         if self.ended.is_none() {
             for node in 0..self.form.assigned.len() {
+                // not a repair: this reader's own record of which nodes a script assigned, not a
+                // value the file states.
                 if !self.form.assigned.get(node).copied().unwrap_or(false)
                     || self.form.values.get(node) == initial.get(node)
                 {

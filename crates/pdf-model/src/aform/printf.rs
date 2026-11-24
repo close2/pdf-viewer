@@ -163,6 +163,7 @@ impl Conversion {
         conversion.width = number(characters, MAX_WIDTH, "width")?;
         if characters.peek() == Some(&'.') {
             characters.next();
+            // not a repair: a bound and a count of this program's own, not values the file states.
             let places = number(
                 characters,
                 usize::try_from(MAX_PLACES).unwrap_or(usize::MAX),
@@ -189,8 +190,11 @@ impl Conversion {
     fn write(&self, argument: &Argument) -> String {
         let number = || match argument {
             Argument::Number(value) => *value,
+            // not a repair: the text is a script's argument; one that is no number prints as
+            //   not-a-number, no file entry is replaced.
             Argument::Text(text) => super::make_number(text).unwrap_or(f64::NAN),
         };
+        // not a repair: the separators are the conversion's own flag, not a value the file states.
         let style = self.separators.unwrap_or(Separators {
             group: None,
             point: '.',
@@ -211,6 +215,8 @@ impl Conversion {
                 (negative, digits)
             }
             Kind::Float => {
+                // not a repair: the conversion's own default precision when the script's format
+                //   names none, not an entry the file states.
                 let places = self.precision.unwrap_or(6);
                 let (negative, mut digits) = digits_with(number(), places, style);
                 if places == 0 && self.alternate {
@@ -247,6 +253,8 @@ fn number(
     let mut value = 0_usize;
     while let Some(digit) = characters.peek().and_then(|digit| digit.to_digit(10)) {
         characters.next();
+        // not a repair: a decimal digit of a script's format string widened to a count, not a
+        //   value the file states.
         value = value
             .saturating_mul(10)
             .saturating_add(usize::try_from(digit).unwrap_or(0));
@@ -272,6 +280,8 @@ fn string_of(value: f64) -> String {
     if !value.is_finite() || value == 0.0 {
         return number_text(value);
     }
+    // not a repair: a number this program formatted itself and reads back, not a value the file
+    //   states.
     let rounded = format!("{value:.*e}", STRING_DIGITS.saturating_sub(1))
         .parse::<f64>()
         .unwrap_or(value);
@@ -285,6 +295,8 @@ fn string_of(value: f64) -> String {
     reason = "the wrap to 32 bits is the conversion: C's unsigned int, a documented choice"
 )]
 fn hex(value: f64) -> String {
+    // not a repair: a script's argument narrowed to 32 bits as C's unsigned int does, not an entry
+    //   the file states.
     let whole = value.trunc().clamp(-2_147_483_648.0, 4_294_967_295.0);
     let bits = if whole < 0.0 {
         (whole as i64) as u32

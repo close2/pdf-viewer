@@ -172,6 +172,8 @@ impl Ledger {
         }
         let occurrence = Occurrence {
             operator: self.operator.clone(),
+            // not a repair: the top of this reader's own ordinal stack, not a value the file
+            // states.
             ordinal: self.ordinals.last().copied().unwrap_or(0),
         };
         self.selections.insert(selection, occurrence);

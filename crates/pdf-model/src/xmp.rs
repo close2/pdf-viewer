@@ -794,6 +794,8 @@ pub fn restate(
     let mut cut = 0usize;
     let mut written = false;
     let copy = |out: &mut String, from: usize, to: usize| {
+        // not a repair: a slice bound of a position this program found in the text, not a value the
+        // file states.
         out.push_str(text.get(from..to).unwrap_or_default());
     };
     for (from, to) in edit.deletions {
@@ -851,6 +853,8 @@ pub fn remove(bytes: &[u8], properties: &[Name]) -> Result<Vec<u8>, WriteError> 
         if from < cut {
             continue;
         }
+        // not a repair: a slice bound of a position this program found in the text, not a value the
+        // file states.
         out.push_str(text.get(cut..from).unwrap_or_default());
         cut = to;
     }
@@ -897,6 +901,8 @@ pub fn remove_items(
         if from < cut {
             continue;
         }
+        // not a repair: a slice bound of a position this program found in the text, not a value the
+        // file states.
         out.push_str(text.get(cut..from).unwrap_or_default());
         cut = to;
     }
@@ -947,6 +953,8 @@ pub fn respell(bytes: &[u8], required: &[RequiredPrefix<'_>]) -> Result<Vec<u8>,
         if from < cut {
             continue;
         }
+        // not a repair: a slice bound of a position this program found in the text, not a value the
+        // file states.
         out.push_str(text.get(cut..from).unwrap_or_default());
         out.push_str(prefix);
         cut = to;
@@ -1246,6 +1254,8 @@ pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
         (_, found) => return Err(WriteError::NoPlaceForAnEvent { found }),
     };
     let mut out = String::with_capacity(text.len().saturating_add(512));
+    // not a repair: a slice bound of a position this program found in the text, not a value the
+    // file states.
     out.push_str(text.get(..at).unwrap_or_default());
     if whole {
         history(event, &mut out);
@@ -1307,6 +1317,8 @@ pub fn describe(bytes: &[u8], schemas: &[SchemaDescription<'_>]) -> Result<Vec<u
         found: edit.rdf_elements,
     })?;
     let mut out = String::with_capacity(text.len().saturating_add(1024));
+    // not a repair: a slice bound of a position this program found in the text, not a value the
+    // file states.
     out.push_str(text.get(..at).unwrap_or_default());
     container(schemas, &mut out);
     out.push_str(text.get(at..).unwrap_or_default());
@@ -1346,6 +1358,8 @@ pub fn describe_into_container(
         }
     };
     let mut out = String::with_capacity(text.len().saturating_add(1024));
+    // not a repair: a slice bound of a position this program found in the text, not a value the
+    // file states.
     out.push_str(text.get(..at).unwrap_or_default());
     for schema in schemas {
         schema_item(schema, true, &mut out);
@@ -1536,6 +1550,8 @@ pub fn describe_fields(
     let mut out = String::with_capacity(text.len().saturating_add(extra));
     let mut from = 0usize;
     for (at, written) in &insertions {
+        // not a repair: a slice bound of a position this program found in the text, not a value the
+        // file states.
         out.push_str(text.get(from..*at).unwrap_or_default());
         out.push_str(written);
         from = *at;
@@ -1874,6 +1890,8 @@ pub fn supplement(bytes: &[u8], properties: &[Supplement<'_>]) -> Result<Vec<u8>
         found: edit.rdf_elements,
     })?;
     let mut out = String::with_capacity(text.len().saturating_add(512));
+    // not a repair: a slice bound of a position this program found in the text, not a value the
+    // file states.
     out.push_str(text.get(..at).unwrap_or_default());
     // One description per namespace, which is the shape §14.3.3's own EXAMPLE prints: its packet
     // states `xmp:`, `pdf:` and `dc:` in three `rdf:Description` elements about the same subject.
@@ -1889,6 +1907,8 @@ pub fn supplement(bytes: &[u8], properties: &[Supplement<'_>]) -> Result<Vec<u8>
             .collect();
         supplements(property.prefix, property.namespace, &group, &mut out);
     }
+    // not a repair: a slice bound of a position this program found in the text, not a value the
+    // file states.
     out.push_str(text.get(at..).unwrap_or_default());
     Ok(out.into_bytes())
 }
@@ -2080,6 +2100,8 @@ const DAYS_TO_2000_03_01: i64 = 11_017;
 /// caller that gets one writes no event rather than a date it made up.
 #[must_use]
 pub fn instant(at: std::time::SystemTime) -> Option<String> {
+    // not a repair: the system clock and a count of days this program derived, not values the file
+    // states.
     let seconds = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
     let (days, rest) = (seconds / SECONDS_A_DAY, seconds % SECONDS_A_DAY);
     let (hour, minute, second) = (rest / 3_600, (rest / 60) % 60, rest % 60);
@@ -3122,6 +3144,8 @@ impl Reader {
                 });
                 self.decide(value, detail);
             }
+            // not a repair: the packet's own markup read as a structure or as text when nothing
+            // nested settled it, which is the parse and no default.
             Kind::Property { name, structured } => {
                 let value = frame.value.unwrap_or_else(|| {
                     if structured {
@@ -3249,6 +3273,8 @@ fn settle(
     structured: bool,
     text: &str,
 ) -> Detail {
+    // not a repair: the packet's own markup read as a structure or as text when nothing nested
+    // settled it, which is the parse and no default.
     decided.unwrap_or_else(|| {
         if structured || opaque || !fields.is_empty() {
             Detail::Structure(fields)

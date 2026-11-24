@@ -348,6 +348,7 @@ struct Shared<'s, 'i> {
 impl Shared<'_, '_> {
     fn composer(&self) -> std::sync::MutexGuard<'_, Composer> {
         // A lex or a piece that panicked has already lost the read; its panic is the scope's.
+        // not a repair: a poisoned lock of this reader's own threads, not a value the file states.
         self.composer.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -404,6 +405,7 @@ impl Shared<'_, '_> {
         if self.abandoned.load(Ordering::Relaxed) {
             return;
         }
+        // not a repair: this reader's piece count, not a value the file states.
         let planned = self.planned.get().copied().unwrap_or(1);
         let of = piece.from.saturating_add(piece.bytes.len());
         let run = run_piece(
@@ -483,6 +485,8 @@ impl Producer<'_, '_> {
             Some((taken, held)) if more && taken > 0 => produced
                 .saturating_mul(held)
                 .checked_div(taken)
+                // not a repair: an arithmetic guard on this reader's size estimate, not a value the
+                // file states.
                 .unwrap_or(produced)
                 .max(produced),
             _ => produced,
@@ -497,6 +501,8 @@ impl Producer<'_, '_> {
         scope: &rayon::Scope<'scope>,
     ) -> Option<usize> {
         let mut segment = Vec::new();
+        // not a repair: a failed fill ends the division and the stream is read whole; no value is
+        // substituted.
         let mut more = self.fill(&mut segment, PIECE_FLOOR, 0).ok()?;
         let mut estimated = self.estimate(segment.len(), more);
         let (planned, floor) = match self.asked {
@@ -517,6 +523,8 @@ impl Producer<'_, '_> {
             let target = estimated
                 .saturating_sub(from)
                 .checked_div(left)
+                // not a repair: an arithmetic guard on this reader's cut targets, not a value the
+                // file states.
                 .unwrap_or(0)
                 .max(floor);
             // Room for the scan past the target as well, so finding the cut moves no bytes.
@@ -538,6 +546,8 @@ impl Producer<'_, '_> {
                 }
                 scanned = segment.len().saturating_sub(1);
                 let upto = segment.len().saturating_add(SCAN_STEP);
+                // not a repair: a failed fill ends the division and the stream is read whole; no
+                // value is substituted.
                 more = self.fill(&mut segment, upto, from).ok()?;
             };
             let Some(cut) = cut else {
@@ -559,6 +569,8 @@ impl Producer<'_, '_> {
         }
         while more {
             let upto = segment.len().saturating_mul(2).max(PIECE_FLOOR);
+            // not a repair: a failed fill ends the division and the stream is read whole; no value
+            // is substituted.
             more = self.fill(&mut segment, upto, from).ok()?;
         }
         hand_on(
@@ -701,6 +713,7 @@ impl Joining {
         if self.ended && self.count.is_none() {
             return Settled::PastBound;
         }
+        // not a repair: this reader's own refusal, not a value the file states.
         Settled::Gave(self.failed.take().unwrap_or(Refusal::Joining(reason)))
     }
 
@@ -852,6 +865,7 @@ impl Interpreter<'_> {
             // it is refused.
             if text_here
                 && last_here == Some(false)
+                // not a repair: the count of this reader's pieces, not a value the file states.
                 && joining.folds.len() == count.unwrap_or(usize::MAX)
             {
                 return match run_tail(shared, next, planned).and_then(|run| self.join(run)) {
@@ -932,6 +946,7 @@ fn run_tail(shared: &Shared<'_, '_>, text: usize, planned: usize) -> Result<Piec
             .get(text)
             .map(|segment| segment.from)
             .ok_or(Declined("a text object in a segment that never arrived"))?;
+        // not a repair: a slice of this reader's own segments, not a value the file states.
         let bytes = whole_from(composer.segments.get(text..).unwrap_or_default())
             .ok_or(Declined("a segment the tail reads was let go"))?;
         let spine = composer

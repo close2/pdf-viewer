@@ -399,6 +399,8 @@ fn split_opacity(raster: &pdf_sandbox::Raster, has_opacity: bool) -> (Vec<u8>, O
     let colour_bytes = usize::from(raster.components).saturating_mul(width);
     let pixel_bytes = colour_bytes.saturating_add(width);
     let mut colour = Vec::with_capacity(raster.data.len());
+    // not a repair: an arithmetic guard on this reader's own buffer size, not a value the file
+    // states.
     let mut opacity = Vec::with_capacity(raster.data.len().checked_div(pixel_bytes).unwrap_or(0));
     for pixel in raster.data.chunks_exact(pixel_bytes) {
         let (components, alpha) = pixel.split_at(colour_bytes);
@@ -598,6 +600,8 @@ fn jpx_stencil(
     let opacity_of = |pixel: usize| {
         raster
             .sample(pixel.saturating_mul(channels).saturating_add(components))
+            // not a repair: a sample index into a raster this reader decoded, not a value the file
+            // states.
             .unwrap_or(highest)
     };
     let samples: Vec<u8> = (0..pixels)
@@ -760,6 +764,8 @@ fn jpx_samples_to_rgba(
             // lightness runs to 100.
             JpxReading::Mapped(decode) => {
                 for (component, slot) in values.iter_mut().enumerate() {
+                    // not a repair: a sample index into a raster this reader decoded, not a value
+                    // the file states.
                     *slot = decode.value(component, sample(component).unwrap_or(0) as usize);
                 }
             }
@@ -797,6 +803,8 @@ fn jpx_samples_to_rgba(
             JpxReading::Mapped(_) => into.paint(space, &values),
             JpxReading::Extended(extended) => {
                 let three =
+                    // not a repair: a component of a colour this reader built, not a value the file
+                    // states.
                     [0, 1, 2].map(|component| values.get(component).copied().unwrap_or(0.0));
                 into.paint(space, &extended.lab_d50(three))
             }
@@ -905,6 +913,8 @@ fn every_pixel_within_srgb(raster: &pdf_sandbox::Raster, extended: ExtendedSrgb)
     (0..pixels).all(|pixel| {
         let base = pixel.saturating_mul(channels);
         let codes =
+            // not a repair: a sample index into a raster this reader decoded, not a value the file
+            // states.
             [0, 1, 2].map(|component| raster.sample(base.saturating_add(component)).unwrap_or(0));
         extended.within_srgb(codes)
     })

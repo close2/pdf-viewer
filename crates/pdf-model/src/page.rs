@@ -309,6 +309,7 @@ impl Inherited {
     /// Values found deeper in the tree win, which is what "inherited" means: the nearest
     /// ancestor's value applies, not the root's.
     fn overlay(&self, document: &Document, node: Node<'_>, walk: &mut Walk) -> Self {
+        // not a repair: an entry the node does not state is Null, its absence, not a default value.
         let entry = |key| node.key(document, key).unwrap_or(Object::Null);
         // A node that states the entry and states something unusable does not take the ancestor's
         // rectangle away — the file has still said how big the page is, one level up — so the

@@ -66,6 +66,7 @@ impl TintBinding {
             &self.source.space,
             self.source.device_cmyk.as_ref(),
         );
+        // not a repair: the space this reader read the colour in, not a value the file states.
         conversion.paint(
             read.as_ref().unwrap_or(&self.source.space),
             &self.source.values,
@@ -426,6 +427,8 @@ impl Interpreter<'_> {
             Some(2) => {}
             other => {
                 self.note(Unsupported::Shading {
+                    // not a repair: the number is only the text of a diagnostic, not a value drawn
+                    // with.
                     name: format!("/{label} is pattern type {}", other.unwrap_or(0)),
                 });
                 return None;
@@ -438,6 +441,7 @@ impl Interpreter<'_> {
         let matrix = crate::shading::matrix_of(self.document, &dict, "Matrix");
         // Unresolved on purpose: `shading::Cache` is keyed by the reference, and a pattern
         // painted a thousand times states the same one every time.
+        // not a repair: an absent entry stays absent (Null), no value is substituted.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
 
         // §11.6.7 and Table 75 both say which graphics state a shading pattern's definition is

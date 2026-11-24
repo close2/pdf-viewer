@@ -141,6 +141,7 @@ impl Division {
 
     /// The division in force on this thread.
     fn in_force() -> Self {
+        // not a repair: this thread's own division setting, not a value the file states.
         IN_FORCE
             .try_with(Cell::get)
             .ok()
@@ -160,6 +161,7 @@ thread_local! {
 /// — `None` where the pipeline read it, or was not asked. For a census, as [`last_reading`] is.
 #[must_use]
 pub fn last_pipeline_decline() -> Option<Declined> {
+    // not a repair: a thread-local census reading of this reader, not a value the file states.
     LAST_PIPELINE.try_with(Cell::get).ok().flatten()
 }
 
@@ -176,6 +178,7 @@ pub enum Reading {
 /// been read here — for a census or a test, which is the only reader of a decline.
 #[must_use]
 pub fn last_reading() -> Option<Reading> {
+    // not a repair: a thread-local census reading of this reader, not a value the file states.
     LAST.try_with(Cell::get).ok().flatten()
 }
 
@@ -297,6 +300,7 @@ fn after_the_inflate<'r>(
     bytes: &[u8],
     division: Division,
 ) -> Option<Declined> {
+    // not a repair: a division this reader's caller may leave unset, not an entry the file states.
     let pieces = division.pieces.unwrap_or_else(|| {
         rayon::current_num_threads()
             .saturating_mul(PIECES_PER_THREAD)
@@ -588,6 +592,8 @@ impl Plan {
                 length
                     .saturating_mul(piece)
                     .checked_div(pieces)
+                    // not a repair: an arithmetic guard on this reader's cut positions, not a value
+                    // the file states.
                     .unwrap_or(0)
             })
             .collect();
@@ -615,6 +621,8 @@ impl Plan {
                     let stop = starts
                         .get(index.saturating_add(1))
                         .copied()
+                        // not a repair: a cut position of this reader's, not a value the file
+                        // states.
                         .unwrap_or(length);
                     lex_chunk(bytes, start, stop, &targets)
                 })
@@ -654,6 +662,7 @@ impl Plan {
         let text_from = chunks
             .iter()
             .find_map(|chunk| chunk.first_text)
+            // not a repair: positions of this reader's own cuts, not values the file states.
             .unwrap_or(length);
         let mut cuts = vec![0];
         let mut spines = vec![Vec::new()];
@@ -684,6 +693,7 @@ impl Plan {
 /// The spine's statements as one stream: each level's kept statements, with a `q` between one
 /// level and the next — the producer's own bytes, in the producer's order.
 fn spine(bytes: &[u8], composed: &Stack) -> Vec<u8> {
+    // not a repair: a range of this reader's own cuts, not a value the file states.
     spine_of(composed, |range| bytes.get(range).unwrap_or_default())
 }
 
@@ -788,6 +798,7 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
             Some(Token::Keyword(word)) => Lexed::Keyword(Operator::of(word)),
             Some(_) => Lexed::Operand,
         });
+        // not a repair: the lexer's byte position, not a value the file states.
         let ends = reader.position().unwrap_or(begins);
         if ends.saturating_sub(begins) > CEILING {
             return Err(Refusal::Lexing(Declined(
@@ -842,6 +853,7 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
         closed_on_a_q = matches!(operator, Some(Operator::Restore))
             && path == PathState::Closed
             && !clip_pending;
+        // not a repair: the lexer's byte position, not a value the file states.
         let range = statement.take().unwrap_or(begins)..ends;
         operands = 0;
         let Some(operator) = operator else {
@@ -1063,6 +1075,7 @@ fn step_over_dictionary(reader: &mut ContentReader<'_>, depth: usize) -> Result<
             Some(Token::Name(_)) => Step::Name,
             Some(_) => Step::Other,
         });
+        // not a repair: the lexer's byte position, not a value the file states.
         let ends = reader.position().unwrap_or(begins);
         if ends.saturating_sub(begins) > CEILING {
             return Err(Refusal::Lexing(Declined(
@@ -1198,6 +1211,7 @@ impl Interpreter<'_> {
                 let (send, range, number) = (send.clone(), range.clone(), *number);
                 let last = number.saturating_add(1) == count;
                 scope.spawn(move |_| {
+                    // not a repair: a range of this reader's own cuts, not a value the file states.
                     let piece = bytes.get(range.clone()).unwrap_or_default();
                     let run =
                         run_piece(inputs, piece, range.start, bytes.len(), spine, count, last);
@@ -1340,6 +1354,8 @@ impl Interpreter<'_> {
         let mut returned = 0usize;
         for index in 0..run.list.clip_count() {
             let id = u32::try_from(index)
+                // not a repair: an index into this reader's clip table, not a value the file
+                // states.
                 .ok()
                 .map(ClipId::new)
                 .and_then(|id| run.list.clip(id))
@@ -1474,6 +1490,7 @@ fn run_piece(
     let seeded = scratch.list.clip_count();
     for index in 0..seeded {
         let clip = u32::try_from(index)
+            // not a repair: an index into this reader's clip table, not a value the file states.
             .ok()
             .map(ClipId::new)
             .and_then(|id| scratch.list.clip(id))

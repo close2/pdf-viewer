@@ -113,6 +113,7 @@ impl SoftMaskAtDeviceScale {
         for down in 0..u64::from(cells.height) {
             let y = centre(down, u64::from(cells.height), u64::from(self.height));
             let from = y.saturating_mul(row_bytes);
+            // not a repair: a row of a buffer this reader built, not a value the file states.
             let row = self
                 .data
                 .get(from..from.saturating_add(row_bytes))
@@ -172,6 +173,8 @@ fn centre(index: u64, cells: u64, samples: u64) -> usize {
         .saturating_mul(samples);
     let at = numerator
         .checked_div(cells.saturating_mul(2))
+        // not a repair: an arithmetic guard on this reader's sampling index, not a value the file
+        // states.
         .unwrap_or(0)
         .min(samples.saturating_sub(1));
     usize::try_from(at).unwrap_or(0)
@@ -202,6 +205,7 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
         combine_on_the_finer_grid(
             &self.base,
             MaskSamples::of_raster(&mask),
+            // not a repair: a sample of a buffer this reader built, not a value the file states.
             |colour, sample| (colour, sample.first().copied().unwrap_or(0)),
         )
     }

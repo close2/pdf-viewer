@@ -59,6 +59,8 @@ impl Document {
         // The chain in front of the codec, with each stage's own parameters, which is what
         // identifies this decode to the memo — the same construction `decoded_under` makes,
         // over a prefix rather than over the whole of `/Filter`.
+        // not a repair: a chain with no codec stage is wholly in front of one, a position this
+        // reader computed, not a value the file states.
         chain.truncate(codec_at.unwrap_or(filters.len()));
         let prefix: Vec<(Vec<u8>, Option<Dictionary>)> = chain;
         // An empty chain is not memoised, for the reason `decoded_under` returns early on one:

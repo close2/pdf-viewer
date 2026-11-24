@@ -133,6 +133,8 @@ impl PreviousPixel {
         let samples = word & SAMPLES;
         if samples != self.samples {
             let key = (1u64 << 32) | u64::from(samples);
+            // not a repair: a miss in this reader's own conversion cache, not a value the file
+            // states.
             self.converted = cache.get(key).unwrap_or_else(|| {
                 let converted = conversion(samples);
                 cache.put(key, converted);
@@ -233,6 +235,7 @@ pub(super) fn band_pixels(pixels: usize) -> Option<usize> {
     if pixels < PARALLEL_PIXELS {
         return None;
     }
+    // not a repair: the number of bands this reader splits into, not a value the file states.
     let bands = rayon::current_num_threads().clamp(1, MAX_BANDS);
     (bands >= 2).then(|| pixels.div_ceil(bands))
 }
@@ -299,6 +302,7 @@ impl<V: Copy> SampleMemo<V> {
     /// before a quarter of its pixels.
     pub(super) fn for_pixels(pixels: usize, empty: V) -> Self {
         let wanted = pixels.next_power_of_two() / 4;
+        // not a repair: the size of this reader's own cache, not a value the file states.
         let slots = wanted.clamp(Self::MIN_SLOTS, Self::MAX_SLOTS);
         Self {
             keys: vec![0; slots],
@@ -314,6 +318,7 @@ impl<V: Copy> SampleMemo<V> {
         let mixed = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
         // Shifted down to 24 bits before the mask, so a table smaller than 2^24 entries is
         // indexed by mixed bits rather than by the tuple's own low bytes.
+        // not a repair: an index into this reader's own cache, not a value the file states.
         usize::try_from(mixed >> 40).unwrap_or(0) & (self.keys.len().saturating_sub(1))
     }
 
@@ -347,6 +352,8 @@ pub(super) fn channel(value: f32) -> u8 {
         // and round-half-up agree — and does not call `roundf`. This runs once per component
         // per pixel and callgrind put the library call at 10.7% of interpreting one
         // 2500x1364 photograph, 60 instructions a pixel to round three numbers.
+        // not a repair: a colour this reader converted, quantised to a byte, not a value the file
+        // states.
         (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
     }
 }
@@ -579,6 +586,8 @@ pub(super) fn convert_channels(
                 })
                 .collect();
             for pixel in rgba.as_chunks_mut::<4>().0 {
+                // not a repair: a sample of a buffer this reader built, not a value the file
+                // states.
                 let grey = usize::from(pixel.first().copied().unwrap_or(0));
                 if let Some(rgb) = pixel.get_mut(..3)
                     && let Some(converted) = table.get(grey)

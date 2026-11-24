@@ -245,6 +245,8 @@ impl Report {
     pub fn chosen(&self) -> Option<(&Considered, &Clip)> {
         self.considered
             .iter()
+            // not a repair: the verdict is this reader's own Result about a clip, not a value the
+            // file states.
             .find_map(|considered| Some((considered, considered.verdict.as_ref().ok()?)))
     }
 
@@ -306,6 +308,8 @@ impl Clip {
             .map_or_else(String::new, |kind| format!("{kind}, "));
         match &self.data {
             Data::Embedded(file) => {
+                // not a repair: a display name chosen between two names the clip already carries,
+                // not a value the file states.
                 let name = file.file_name.as_deref().unwrap_or(&file.name);
                 match file.size {
                     Some(size) => format!("{kind}{name:?} embedded, {size} bytes"),
@@ -787,6 +791,7 @@ impl Walk<'_> {
         set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
         let document = self.document;
+        // not a repair: the recursion's own parameter, not a value the file states.
         let forced = here.unwrap_or_default();
         let must_honour = document.get_key(dict, "MH");
         let best_effort = document.get_key(dict, "BE");
@@ -1262,6 +1267,8 @@ impl Walk<'_> {
                 let specification = FileSpec::from_dictionary(document, &target_dict);
                 let name = specification
                     .display_name()
+                    // not a repair: the label this reader gives a file specification that names no
+                    // file, shown to a person only.
                     .unwrap_or_else(|| "media".to_owned());
                 if let Some(file) = crate::attachment::read(document, &target_dict, name.clone()) {
                     return Some(Data::Embedded(Box::new(file)));
@@ -1543,6 +1550,8 @@ fn screen_here(
         return None;
     }
     // A `BE` value the table does not recognise is the default, 3.
+    // not a repair: ISO 32000-2 §13.2.6 (Table 294) defaults an absent /W to 3, and BE treats an
+    // unrecognised value as the default.
     let best = window_type("BE").map(|value| value.unwrap_or(RECTANGLE));
     let settled = must.flatten().or(best).unwrap_or(RECTANGLE);
     if settled == HIDDEN {
@@ -1833,6 +1842,8 @@ fn timeless(content_type: &str) -> bool {
     let essence = content_type
         .split(';')
         .next()
+        // not a repair: splitting a content type at its first semicolon, not a value the file
+        // states.
         .unwrap_or(content_type)
         .trim();
     STILL

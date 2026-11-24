@@ -1563,6 +1563,8 @@ fn read_annotations(
         };
         slot[at] = Some(out.len());
         links.push((
+            // not a repair: an absent /Popup or /Parent is carried as null, no value is
+            //   substituted.
             stated.get("Popup").cloned().unwrap_or(Object::Null),
             stated.get("Parent").cloned().unwrap_or(Object::Null),
         ));

@@ -85,6 +85,8 @@ impl LoadedFont {
             // Resolved when the font was loaded. A code with no entry has no glyph, and
             // that is final: falling back to the code as a glyph index here is exactly
             // how a font draws plausible, wrong text.
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             CodeMapping::Named(table) => own((*table.get(usize::try_from(code.value()).ok()?)?)?),
             // No program was read, so there is no glyph of any kind: what this font states is
             // where the *next* one goes ([`Self::metrics_only`]).
@@ -152,6 +154,8 @@ impl LoadedFont {
     /// to ask the program what it is called.
     pub(super) fn glyph_for_selector(&self, selector: u32) -> Option<u16> {
         match &self.mapping {
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             CodeMapping::Named(table) => *table.get(usize::try_from(selector).ok()?)?,
             CodeMapping::Composite { glyphs, .. } => glyphs.glyph(selector),
             // A substitute is reached through what a code *means*, so a selector alone
@@ -197,6 +201,8 @@ impl LoadedFont {
             .advance_width(glyph)?
             / self.units_per_em;
         Some(CharacterGlyph {
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             outline: u16::try_from(glyph.to_u32()).ok().and_then(|glyph| {
                 self.cached_outline(Placed {
                     face: Face::Own,

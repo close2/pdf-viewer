@@ -85,6 +85,8 @@ impl<'a> PostNames<'a> {
                 .by_glyph()
                 .iter()
                 .position(|slot| *slot == Some(name))?;
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             return u16::try_from(position).ok();
         }
         self.by_name

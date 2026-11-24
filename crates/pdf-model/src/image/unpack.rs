@@ -137,6 +137,8 @@ impl<'a> Prematte<'a> {
             let opacity = f32::from(alpha) / 255.0;
             (value - matte).mul_add(1.0 / opacity, matte)
         }
+        // not a repair: an index, a count or a table of this reader's own, not a value the file
+        // states.
         .clamp(low.min(high), low.max(high))
     }
 }
@@ -269,6 +271,8 @@ pub(super) fn unpack(
         let carried = available
             .saturating_mul(8)
             .checked_div(sample_bits)
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             .unwrap_or(0);
 
         for x in 0..width_usize {
@@ -388,6 +392,8 @@ pub(super) fn eight_bit_device_tables<'a>(samples: &Samples<'a>) -> Option<Vec<&
             decode
                 .channels
                 .get(component)
+                // not a repair: an index, a count or a table of this reader's own, not a value the
+                // file states.
                 .and_then(|table| <&[u8; 256]>::try_from(table.as_slice()).ok())
         })
         .collect()
@@ -441,6 +447,8 @@ pub(super) fn matted_eight_bit_device_tables(
                     channel(matte.restore_component(value, alpha, component, permitted))
                 })
                 .collect();
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             MatteTable::try_from(table).ok()
         })
         .collect()
@@ -665,6 +673,7 @@ pub(super) fn packed_pixels(
     }
     // A row whose first sample is `value` is that value in the byte's high-order bits, which is
     // where §8.9.3 puts a row's first unit; `at` is read only by a matte, which is excluded above.
+    // not a repair: a shift of this reader's own sample packing, not a value the file states.
     let answers: Vec<[u8; 4]> = (0..=u8::MAX.checked_shr(shift).unwrap_or(0))
         .map(|value| {
             let row = [value.checked_shl(shift).unwrap_or(0)];
@@ -676,6 +685,8 @@ pub(super) fn packed_pixels(
         // Each sample in turn moved to the high-order end and read from there.
         let mut rest = byte;
         for _ in 0..per_byte {
+            // not a repair: a shift of this reader's own sample packing, not a value the file
+            // states.
             let value = rest.checked_shr(shift).unwrap_or(0);
             runs.extend_from_slice(answers.get(usize::from(value))?);
             rest = rest.checked_shl(samples.bits).unwrap_or(0);
@@ -908,6 +919,7 @@ pub(super) fn sample_rgba(
 
 /// Three component values as the channels a raster holds, in [`Decode::channel`]'s own terms.
 fn channels(values: &[f32]) -> [u8; 3] {
+    // not a repair: an index, a count or a table of this reader's own, not a value the file states.
     std::array::from_fn(|index| channel(values.get(index).copied().unwrap_or(0.0)))
 }
 
@@ -929,6 +941,7 @@ fn indexed_entry_sample(
     index: f32,
     at: usize,
 ) -> pdf_render::Color {
+    // not a repair: an index, a count or a table of this reader's own, not a value the file states.
     let base = space.indexed_base().unwrap_or(space);
     let mut values = space.entry_of(&[index]);
     if let Some(matte) = samples.matte {
@@ -1016,6 +1029,8 @@ pub(super) fn palette(
     (0..=max)
         .map(|raw| {
             let level = raw as usize;
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             if drawn.is_some_and(|drawn| !drawn.get(level).copied().unwrap_or(false)) {
                 pdf_render::Color::BLACK
             } else {
@@ -1045,6 +1060,7 @@ pub(super) fn levels_drawn(
     let mut levels = [false; 256];
     let mut bytes = [false; 256];
     let bits = bits.clamp(1, 8);
+    // not a repair: an index, a count or a table of this reader's own, not a value the file states.
     let width_bits = usize::try_from(bits).unwrap_or(8);
     let per_byte = 8_usize.checked_div(width_bits).unwrap_or(1).max(1);
     let mark = |levels: &mut [bool; 256], level: u32| {
@@ -1064,6 +1080,8 @@ pub(super) fn levels_drawn(
         let carried = available
             .saturating_mul(8)
             .checked_div(width_bits)
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             .unwrap_or(0)
             .min(width);
         let whole = carried.checked_div(per_byte).unwrap_or(0);
@@ -1085,6 +1103,8 @@ pub(super) fn levels_drawn(
     if let Some(&[(low, high)]) = colour_key {
         for level in low..=high.min(255) {
             if let Some(slot) = usize::try_from(level)
+                // not a repair: an index, a count or a table of this reader's own, not a value the
+                // file states.
                 .ok()
                 .and_then(|level| levels.get_mut(level))
             {
@@ -1127,6 +1147,8 @@ fn raw_sample(row: &[u8], index: usize, bits: u32) -> u32 {
         8 => byte(index),
         // 2 and 4: `per` samples to a byte, most significant first.
         _ => {
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             let per = usize::try_from(8u32.checked_div(bits).unwrap_or(8))
                 .unwrap_or(8)
                 .max(1);
@@ -1150,6 +1172,8 @@ pub(super) fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
     for y in 0..(height as usize) {
         for x in 0..(width as usize) {
             let index = y.saturating_mul(width as usize).saturating_add(x);
+            // not a repair: an index, a count or a table of this reader's own, not a value the file
+            // states.
             if samples.get(index).copied().unwrap_or(0) != 0 {
                 let at = y.saturating_mul(row_bytes).saturating_add(x / 8);
                 if let Some(byte) = packed.get_mut(at) {

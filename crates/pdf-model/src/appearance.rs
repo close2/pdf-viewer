@@ -281,6 +281,8 @@ pub fn for_annotation_in(
     Some(Written {
         // An annotation that draws nothing gets an empty stream rather than none: drawing
         // nothing is what its own entries state, and an empty form `XObject` says exactly that.
+        // not a repair: an annotation that draws nothing gets the empty content this program built,
+        // not a value the file states.
         stream: form_xobject(rect, resources, built.content.unwrap_or_default()),
         drawn,
         owed,
@@ -444,6 +446,7 @@ pub(crate) fn form_xobject(rect: [f32; 4], resources: Dictionary, content: Vec<u
         ),
     );
     dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
+    // not a repair: a length this program computed, not a value the file states.
     dict.insert(
         Name::new(&b"Length"[..]),
         Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
@@ -956,6 +959,8 @@ fn regenerated_whole(
     }
     let constructed = construct(document, &whole, b"Widget", view, bbox, fonts);
     Regenerated {
+        // not a repair: the content this program constructed, empty where it drew nothing, not a
+        // value the file states.
         content: constructed.content.unwrap_or_default(),
         resources: constructed.resources,
         report: constructed.report,
@@ -981,6 +986,8 @@ fn spliced(stream: &[u8], marks: &[u8]) -> Vec<u8> {
     };
 
     let mut depth = 0i32;
+    // not a repair: a slice bound of a position this program found in the stream, not a value the
+    // file states.
     let mut lexer = pdf_syntax::Lexer::new(stream.get(start..).unwrap_or_default());
     let mut end = stream.len();
     while let Some(token) = lexer.next_token() {
@@ -1000,6 +1007,8 @@ fn spliced(stream: &[u8], marks: &[u8]) -> Vec<u8> {
         }
     }
 
+    // not a repair: a slice bound of a position this program found in the stream, not a value the
+    // file states.
     out.extend_from_slice(stream.get(..start).unwrap_or_default());
     out.extend_from_slice(marks);
     out.extend_from_slice(stream.get(end..).unwrap_or_default());
@@ -1433,6 +1442,7 @@ pub(crate) fn on_state(document: &Document, annotation: &Dictionary) -> Option<N
         return on.next().is_none().then_some(first);
     }
     let field = Field::read(document, annotation, FieldValue::Stored);
+    // not a repair: a field with no value is Null, the entry's absence, not a default value.
     [
         document.get_key(annotation, "AS"),
         field.value.unwrap_or(Object::Null),
@@ -1835,6 +1845,8 @@ fn colour_array(colour: crate::view::Colour) -> Object {
         crate::view::Colour::Rgb(rgb) => rgb.to_vec(),
         crate::view::Colour::Cmyk(cmyk) => cmyk.to_vec(),
     };
+    // not a repair: a colour a script or the user supplied, clamped to the range an array of Table
+    // 192 states, not an entry the file states.
     Object::Array(
         components
             .into_iter()
@@ -1860,6 +1872,7 @@ fn format_number(value: f64) -> String {
 /// no colour.
 fn colour_operator(colour: crate::view::Colour) -> Option<String> {
     let number = |value: f64| {
+        // not a repair: a colour a script or the user supplied, not an entry the file states.
         let mut text = format!("{:.4}", value.clamp(0.0, 1.0));
         while text.ends_with('0') {
             text.pop();
@@ -2556,6 +2569,8 @@ impl Quad {
         let span = |from: [f32; 2], to: [f32; 2]| (to[0] - from[0]).hypot(to[1] - from[1]);
         let length = span(self.bottom[0], self.bottom[1]);
         let height = span(self.at(0.5, 0.0), self.at(0.5, 1.0)).max(f32::MIN_POSITIVE);
+        // not a repair: a count of ribbon periods this program computes from its own geometry, not
+        // a value the file states.
         let periods = (length / (height / 3.0)).clamp(1.0, 512.0);
         #[expect(
             clippy::cast_possible_truncation,
@@ -2566,6 +2581,7 @@ impl Quad {
 
         // Out along the top of the ribbon and back along the bottom, so one filled path
         // describes a stroke of constant thickness without needing one.
+        // not a repair: a step count of this program's own, not a value the file states.
         let fraction = |step: u32| f32::from(u16::try_from(step).unwrap_or(u16::MAX));
         let total = fraction(steps).max(1.0);
         let peak = |step: u32| if step % 2 == 1 { AMPLITUDE } else { 0.0 };
@@ -3028,6 +3044,8 @@ impl CaptionMark {
         stream.set_colour(self.colour, false);
         stream.text.push_str(&self.content);
         stream.text.push_str("Q\n");
+        // not a repair: the resources of a stream this program is building, not a value the file
+        // states.
         let resources = stream.resources.take().unwrap_or_default();
         stream.resources = Some(with_stand_in_font(resources, self.fonts));
     }
@@ -3412,6 +3430,7 @@ fn widget(
         document,
         annotation,
         source,
+        // not a repair: the box this program laid out, not a value the file states.
         button.caption_box.unwrap_or(inner),
         value,
         view.appearance,
@@ -4073,6 +4092,8 @@ fn list_box_options(
         .into_iter()
         .filter_map(|option| option.checked_sub(top))
         .collect();
+    // not a repair: a slice bound of the options held, kept inside them by the bound above, not a
+    // value the file states.
     let shown = options
         .get(top..)
         .unwrap_or_default()
@@ -5404,6 +5425,8 @@ fn free_text_layout(
             quadding,
             shape: Shape::Multiline,
             asked,
+            // not a repair: the text this program laid out where no other value was retyped, not a
+            // value the file states.
             value: retyped.or(contents.as_deref()).unwrap_or(&text),
             fonts,
         };
@@ -6403,6 +6426,8 @@ impl Stream {
 
     /// The resource dictionary this stream needs, with any icon added to its `/XObject`.
     fn finish(mut self) -> Dictionary {
+        // not a repair: the resources of a stream this program is building, not a value the file
+        // states.
         let mut resources = self.resources.take().unwrap_or_default();
         let Some((name, reference)) = self.icon else {
             return resources;
@@ -6500,6 +6525,8 @@ impl Stream {
         );
         let mut states = Dictionary::new();
         states.insert(Name::new(b"Mul".to_vec()), Object::Dictionary(blend));
+        // not a repair: the resources of a stream this program is building, not a value the file
+        // states.
         let mut resources = self.resources.take().unwrap_or_default();
         resources.insert(Name::new(b"ExtGState".to_vec()), Object::Dictionary(states));
         self.resources = Some(resources);

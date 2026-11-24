@@ -28,6 +28,8 @@ impl LoadedFont {
         let mut rest = bytes;
         while !rest.is_empty() {
             let code = cmap.next_code(rest);
+            // not a repair: a byte count clamped to the string's length, this reader's bound that
+            // keeps the walk finite.
             // `next_code` never reports fewer than one byte, so this terminates.
             let taken = usize::from(code.length()).clamp(1, rest.len());
             rest = rest.get(taken..).unwrap_or_default();
@@ -83,6 +85,8 @@ impl LoadedFont {
         let cells = self
             .agl_by_code
             .get_or_init(|| Box::new(std::array::from_fn(|_| OnceLock::new())));
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let Some((slot, name)) = usize::try_from(code.value())
             .ok()
             .and_then(|index| cells.get(index).zip(names.get(index)))
@@ -198,6 +202,8 @@ impl LoadedFont {
     /// for a code the encoding in force leaves unnamed.
     #[must_use]
     pub fn selected_glyph_name(&self, code: Code) -> Option<&str> {
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         self.glyph_names
             .as_ref()?
             .get(usize::try_from(code.value()).ok()?)

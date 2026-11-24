@@ -124,6 +124,8 @@ impl ViewState {
             .annotations
             .read
             .as_deref()
+            // not a repair: this viewer's own cache of annotations read, empty before the first
+            //   read, not a value the file states.
             .unwrap_or_default();
         let mut states: Vec<AnnotationState> = read
             .iter()
@@ -203,6 +205,8 @@ impl ViewState {
             .annotations
             .read
             .as_deref()
+            // not a repair: this viewer's own cache of annotations read, empty before the first
+            //   read, not a value the file states.
             .unwrap_or_default()
             .iter()
             .find(|read| {
@@ -269,6 +273,8 @@ impl ViewState {
             let Some(mut dict) = update.current(document, *annotation) else {
                 continue;
             };
+            // not a repair: a script's override of the hidden state when one has set it, else the
+            //   stored state stands; nothing is replaced.
             let hidden = self.annotation_hidden(*annotation).unwrap_or(*hidden);
             let flags = document
                 .get_key(&dict, "F")
@@ -349,6 +355,8 @@ fn read_annotations(document: &Document, pages: &BTreeMap<ObjectId, usize>) -> (
 /// One annotation as the file states it, or `None` where its subtype is not a script's.
 fn read_one(document: &Document, id: ObjectId, dict: &Dictionary, page: usize) -> Option<Read> {
     let kind = document.get_key(dict, "Subtype");
+    // not a repair: a subtype name that is not text is none of the scripted kinds, so the
+    //   annotation is left unread, no value is substituted.
     let kind = std::str::from_utf8(kind.as_name()?.as_bytes()).ok()?;
     if !SCRIPTED_KINDS.contains(&kind) {
         return None;
@@ -379,6 +387,7 @@ fn read_one(document: &Document, id: ObjectId, dict: &Dictionary, page: usize) -
         state: AnnotationState {
             number: id.number,
             generation: id.generation,
+            // not a repair: a page count narrowed to a number, not a value the file states.
             page: u32::try_from(page).unwrap_or(u32::MAX),
             kind: kind.to_owned(),
             rect: rectangle(document, dict),

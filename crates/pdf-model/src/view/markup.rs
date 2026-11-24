@@ -287,6 +287,8 @@ impl ViewState {
             Object::Array(
                 colour
                     .into_iter()
+                    // not a repair: a colour the user chose, bounded to the unit interval, not a
+                    //   value the file states.
                     .map(|value| Object::Real(f64::from(value.clamp(0.0, 1.0))))
                     .collect(),
             ),
@@ -359,6 +361,8 @@ impl ViewState {
         if left >= right || bottom >= top {
             return None;
         }
+        // not a repair: a colour the user chose, bounded to the unit interval, not a value the
+        //   file states.
         let [red, green, blue] = colour.map(|value| value.clamp(0.0, 1.0));
         let mut dict = Dictionary::default();
         dict.insert(

@@ -16,6 +16,8 @@ impl LoadedFont {
     /// drawn.
     #[must_use]
     pub fn advance(&self, code: Code) -> f32 {
+        // not a repair: ISO 32000-2 Table 120 (/MissingWidth) and Table 115 (/DW) give a code or
+        // CID outside the width array the default width.
         self.widths
             .get(self.selector(code))
             .unwrap_or(self.default_width)
@@ -170,6 +172,8 @@ impl LoadedFont {
             return ([0.0, 0.0], [0.0, 0.0]);
         };
         let cid = self.selector(code);
+        // not a repair: ISO 32000-2 Table 115 (/DW) defaults a CID without a /W entry to the
+        // default width.
         let width = self.widths.get(cid).unwrap_or(self.default_width);
         let (displacement, position) = vertical.metrics(cid, width);
         (
@@ -239,6 +243,8 @@ impl LoadedFont {
     /// they were.
     fn pair_glyph(&self, code: Code) -> Option<u16> {
         let glyph = match &self.mapping {
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
             CodeMapping::Composite { cmap, glyphs } => {
                 cmap.cid(code).and_then(|cid| glyphs.glyph(cid))

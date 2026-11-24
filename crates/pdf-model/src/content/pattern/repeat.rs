@@ -283,6 +283,8 @@ impl Interpreter<'_> {
             let affordable = Self::MAX_TILE_COPIES
                 .saturating_sub(spent)
                 .checked_div(cell.len())
+                // not a repair: an arithmetic guard on this reader's own copy budget, not a value
+                // the file states.
                 .unwrap_or(0);
             if count > affordable && rows_laid > 0 {
                 self.note(Unsupported::LimitReached {
@@ -398,6 +400,7 @@ impl Interpreter<'_> {
             luminance: None,
             black: None,
         };
+        // not a repair: a refused mask (the list's budget) is no mask, not a value the file states.
         let id = self.list.add_soft_mask(mask).ok()?;
         self.image_masks.shape_masks_mut().record(id);
         Some(id)

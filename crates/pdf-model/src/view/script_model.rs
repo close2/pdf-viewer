@@ -848,6 +848,8 @@ impl FieldState {
     #[must_use]
     pub fn widget(&self, widget: Option<u32>) -> Option<&WidgetState> {
         self.widgets
+            // not a repair: a script's widget index narrowed to an index; one out of range names
+            //   no widget, no value is substituted.
             .get(widget.map_or(Some(0), |index| usize::try_from(index).ok())?)
     }
 }
@@ -1531,12 +1533,16 @@ impl ViewState {
             name: name.to_owned(),
             kind,
             value: self.text_of(document, first).unwrap_or_default(),
+            // not a repair: a flag word masked to 32 bits by this program, not a value the file
+            //   states.
             flags: u32::try_from(field.flags & 0xFFFF_FFFF).unwrap_or(0),
             char_limit,
             page: widget
                 .get("P")
                 .and_then(Object::as_reference)
                 .and_then(|page| pages.get(&page))
+                // not a repair: a page index of this program's own table narrowed to a number, not
+                //   a value the file states.
                 .and_then(|index| u32::try_from(*index).ok()),
             widgets: widgets
                 .iter()
@@ -1552,6 +1558,8 @@ impl ViewState {
         if matches!(kind, FieldType::ComboBox | FieldType::ListBox) {
             state.selected = crate::form::selected(document, &field, &options)
                 .into_iter()
+                // not a repair: an option index of this program's own list narrowed to a number,
+                //   not a value the file states.
                 .filter_map(|index| u32::try_from(index).ok())
                 .collect();
         }
@@ -1657,6 +1665,7 @@ fn inherited(
             form.map(|form| document.get_key(form, key))
                 .filter(|value| !matches!(value, Object::Null))
         })
+        // not a repair: an absent entry is carried as null, no value is substituted.
         .unwrap_or(Object::Null)
 }
 

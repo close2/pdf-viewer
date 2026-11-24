@@ -141,6 +141,8 @@ impl Reading {
                 reason = "a share for a bar: a stream past 2^53 bytes loses digits nobody can see"
             )]
             let share = self.taken as f64 / self.held as f64;
+            // not a repair: a share this reader computed from its own byte counts, bounded for a
+            // bar, not a file value.
             share.clamp(0.0, 1.0)
         })
     }
@@ -159,6 +161,8 @@ thread_local! {
 pub(crate) fn claim() -> Option<Parts> {
     HANDING
         .try_with(|slot| slot.borrow_mut().take())
+        // not a repair: a thread-local slot's access error, this reader's own state, not a value
+        // the file states.
         .ok()
         .flatten()
 }
@@ -224,6 +228,8 @@ impl Progress {
 
     /// Writes the running page's figure, and relays it where this figure relays.
     fn publish(&self, operators: usize, (taken, held): (usize, usize)) {
+        // not a repair: a count of this reader's own operators widened for the reading, not a value
+        // the file states.
         let wide = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
         let reading = Reading {
             operators: wide(operators),
@@ -379,6 +385,8 @@ impl Parts {
                 .shared
                 .arrived
                 .wait_timeout(state, wait)
+                // not a repair: a poisoned lock of this reader's own hand-over is recovered, not a
+                // value the file states.
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
@@ -410,6 +418,8 @@ impl Parts {
         self.shared
             .state
             .lock()
+            // not a repair: a poisoned lock of this reader's own hand-over is recovered, not a
+            // value the file states.
             .unwrap_or_else(PoisonError::into_inner)
     }
 

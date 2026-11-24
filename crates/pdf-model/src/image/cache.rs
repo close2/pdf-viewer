@@ -462,6 +462,7 @@ impl RasterCache {
             fill.b.to_bits(),
             fill.a.to_bits(),
         ];
+        // not a repair: an absent resource category is matched as none, no value is substituted.
         let colour_spaces = resources.get(COLOUR_SPACES).unwrap_or(&NO_COLOUR_SPACES);
         if let Some(at) = self
             .entries
@@ -514,6 +515,7 @@ impl RasterCache {
                 in_flight,
             )?,
         };
+        // not a repair: an absent resource category stays absent (Null), no value is substituted.
         let colour_spaces = read.remove(COLOUR_SPACES).unwrap_or(Object::Null);
         let bytes = parts.bytes().saturating_add(footprint(&colour_spaces));
         self.entries.push(Cached {

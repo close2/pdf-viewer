@@ -674,6 +674,7 @@ fn contains_appearance_streams(document: &Document, annotation: &Dictionary) -> 
         return false;
     };
     ["N", "R", "D"].iter().any(|key| {
+        // not a repair: an absent appearance key is Null, the entry's absence, not a default value.
         let entry = appearances.get(key).cloned().unwrap_or(Object::Null);
         match document.resolve_as(&entry, StreamRole::Appearance) {
             resolved if resolved.as_stream().is_some() => true,
@@ -921,6 +922,8 @@ pub(crate) fn interacts_under(
     view: crate::view::AnnotationView<'_>,
     scripted: Option<bool>,
 ) -> bool {
+    // not a repair: whether a script has said the field read only is a viewer's state, not a value
+    // the file states.
     present(document, annotation, view)
         && !(is_widget(document, annotation)
             && scripted.unwrap_or_else(|| field_read_only(document, annotation, view)))
@@ -1336,6 +1339,8 @@ fn decided(
     // §12.5.6.22's transformed annotation rectangle, which is *only* the rectangle steps 2 and 3
     // of §12.5.5 are run against — see [`fixed_print`] for why the substitution stops there and
     // reaches neither the box above nor §12.5.3's fixed point below.
+    // not a repair: the rectangle this program transformed, or the stated one when no
+    // transformation applies, not a value the file states.
     let placed = fixed_print(document, annotation, &subtype, rect, media).unwrap_or(rect);
 
     Decision::Draw {
@@ -1666,6 +1671,7 @@ fn stored_appearance(
     // stream — "see 8.10, "Form XObjects" and 12.5.5, "Appearance streams"" — by which object
     // it is, and resolving first throws that identity away. The same reason, and the same
     // shape, as `Interpreter::draw_xobject`'s unresolved lookup.
+    // not a repair: an absent appearance key is Null, the entry's absence, not a default value.
     let asked = appearances.get(key).cloned().unwrap_or(Object::Null);
     let (entry, normal) = match document.resolve_as(&asked, StreamRole::Appearance) {
         Object::Null => {

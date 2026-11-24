@@ -276,6 +276,7 @@ fn colour_key_entry(
         )
         .unwrap_or(8)
     });
+    // not a repair: a shift overflow guard on a sample-range bound, not a value the file states.
     let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
     let mut ranges = Vec::with_capacity(components);
     for pair in values.as_chunks::<2>().0 {
@@ -566,6 +567,7 @@ pub fn short_of_its_grid(
     resources: &Dictionary,
 ) -> Option<String> {
     let dict = &stream.dict;
+    // not a repair: an unreadable entry yields no report, and no value is substituted.
     let width = positive_integer(document, dict, "Width").ok()? as usize;
     let height = positive_integer(document, dict, "Height").ok()? as usize;
     // The codec first, out of Table 5, because this arithmetic applies to no stream that has
@@ -651,6 +653,7 @@ pub const DRAWN_SHORT_OF_ITS_GRID: &str =
 /// end-of-block pattern.
 #[must_use]
 pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Option<String> {
+    // not a repair: an unreadable entry yields no report, and no value is substituted.
     let height = positive_integer(document, &stream.dict, "Height").ok()?;
     // Table 5 rather than the decode: this report is about `CCITTFaxDecode` alone, and asking
     // `image_stream` first would run every filter in front of the codec for the sole purpose of
@@ -669,6 +672,7 @@ pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Opt
     ) {
         return None;
     }
+    // not a repair: an unreadable entry yields no report, and no value is substituted.
     let rows = u32::try_from(document.get_key(parms, "Rows").as_integer()?).ok()?;
     (rows > 0 && rows < height).then(|| {
         format!(

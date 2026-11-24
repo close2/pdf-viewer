@@ -246,6 +246,7 @@ impl OutlinePen for Points {
 /// One glyph of an sfnt unhinted in its own units, `None` where the reader draws nothing.
 fn sfnt_points(font: &skrifa::FontRef<'_>, glyph: u16) -> Option<Points> {
     let mut points = Points::default();
+    // not a repair: the proof's own drawing; a glyph that does not draw ends the proof (`None`), it reads no file value leniently.
     font.outline_glyphs()
         .get(skrifa::GlyphId::from(glyph))?
         .draw(skrifa::instance::Size::unscaled(), &mut points)

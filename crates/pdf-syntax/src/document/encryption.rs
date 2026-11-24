@@ -405,6 +405,8 @@ impl Document {
                 // its own ciphertext.
                 dict.insert(
                     Name::new(&b"Length"[..]),
+                    // not a repair: the length of this reader's own decrypted bytes, not a value
+                    // the file states.
                     Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
                 );
                 Some(Object::Stream(Arc::new(Stream {

@@ -156,6 +156,8 @@ impl SampleFormat {
         }
         let channels = match document.get_key(sound, "C") {
             Object::Null => 1,
+            // not a repair: a /C that is not a channel count is refused with an error, nothing is
+            // put in its place.
             stated => stated
                 .as_integer()
                 .and_then(|channels| u16::try_from(channels).ok())
@@ -166,6 +168,8 @@ impl SampleFormat {
                         .to_owned()
                 })?,
         };
+        // not a repair: a /B that is not a sample size is refused with an error, nothing is put in
+        // its place.
         let bits = match document.get_key(sound, "B") {
             Object::Null => 8,
             stated => stated
@@ -303,10 +307,14 @@ pub fn wave(format: &SampleFormat, samples: &[u8], limit: usize) -> Result<Wave,
         .saturating_mul(8)
         .checked_div(usize::from(format.bits))
         .ok_or_else(no_frame)?;
+    // not a repair: the channel count was checked to be at least 1, so the division cannot fail;
+    // this reader's own guard.
     let frames = whole_samples.checked_div(channels).unwrap_or(0);
     if frames == 0 {
         return Err(no_frame());
     }
+    // not a repair: the channel count was checked to be at least 1, so the remainder cannot fail;
+    // this reader's own guard.
     let mut notes = Vec::new();
     let unframed = whole_samples.checked_rem(channels).unwrap_or(0);
     if unframed != 0 {
@@ -364,12 +372,16 @@ pub fn wave(format: &SampleFormat, samples: &[u8], limit: usize) -> Result<Wave,
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data_len_u32.to_le_bytes());
     if companded {
+        // not a repair: a slice of this reader's own sample bytes, bounded by what it holds, not a
+        // value the file states.
         // Eight-bit codes, which a WAVE file stores as they are.
         out.extend_from_slice(samples.get(..written).unwrap_or(samples));
     } else {
         let container_bits = u32::from(format.bits.div_ceil(8)).saturating_mul(8);
         let shift = container_bits.saturating_sub(u32::from(format.bits));
         let top = 1_u32
+            // not a repair: a shift width from this reader's own container size, not a value the
+            // file states.
             .checked_shl(container_bits.saturating_sub(1))
             .unwrap_or(0);
         for index in 0..written {
@@ -382,6 +394,8 @@ pub fn wave(format: &SampleFormat, samples: &[u8], limit: usize) -> Result<Wave,
                 (Encoding::Signed, 1) | (Encoding::Raw, 2..) => justified ^ top,
                 _ => justified,
             };
+            // not a repair: a slice of this reader's own four-byte word, not a value the file
+            // states.
             out.extend_from_slice(rebiased.to_le_bytes().get(..container).unwrap_or_default());
         }
     }
@@ -405,6 +419,8 @@ fn sample(samples: &[u8], index: usize, bits: u8) -> Option<u32> {
     let start = index.checked_mul(bits)?;
     (start..start.checked_add(bits)?).try_fold(0_u32, |value, bit| {
         let byte = samples.get(bit.checked_div(8)?)?;
+        // not a repair: bit arithmetic on this reader's own index, a miss ends the read; not a
+        // value the file states.
         let mask = 0x80_u8.checked_shr(u32::try_from(bit & 7).ok()?)?;
         Some(value.wrapping_shl(1) | u32::from(byte & mask != 0))
     })

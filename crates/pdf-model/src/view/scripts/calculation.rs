@@ -219,6 +219,8 @@ impl ViewState {
             };
             self.report_each(name, result.report);
             let displayed = Displayed {
+                // not a repair: a script that sets no value leaves the shown text as it was,
+                //   nothing is replaced.
                 shown: result.value.unwrap_or_else(|| shown.text.clone()),
                 value: shown.text,
             };

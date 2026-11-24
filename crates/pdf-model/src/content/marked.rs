@@ -241,6 +241,8 @@ impl Interpreter<'_> {
                 a: 1.0,
             });
             for (channel, out) in channels.iter_mut().zip([mapped.r, mapped.g, mapped.b]) {
+                // not a repair: a colour this reader computed, clamped to a byte, not a value the
+                // file states.
                 #[expect(
                     clippy::cast_possible_truncation,
                     clippy::cast_sign_loss,

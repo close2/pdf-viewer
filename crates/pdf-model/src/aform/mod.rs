@@ -323,6 +323,8 @@ pub fn merge_change(event: &Keystroke<'_>) -> String {
     let from = boundary(event.selection.0.min(event.selection.1));
     let to = boundary(event.selection.0.max(event.selection.1));
     let mut out = String::with_capacity(event.value.len().saturating_add(event.change.len()));
+    // not a repair: the user's own text cut at boundaries this program computed, not a value the
+    //   file states.
     out.push_str(event.value.get(..from).unwrap_or_default());
     out.push_str(event.change);
     out.push_str(event.value.get(to..).unwrap_or_default());
@@ -408,6 +410,8 @@ impl Arguments<'_> {
 
 /// The decimal places argument of a number or percent function.
 fn places(arguments: &Arguments<'_>, function: Function) -> Result<u32, Refusal> {
+    // not a repair: a script's argument; an absent one is read as zero and judged by the call, not
+    //   an entry the file states.
     let value = arguments.number(0).unwrap_or(0.0);
     number::whole(value)
         .filter(|places| *places <= MAX_PLACES)
@@ -423,6 +427,8 @@ fn places(arguments: &Arguments<'_>, function: Function) -> Result<u32, Refusal>
 
 /// The separator style argument of a number or percent function.
 fn separators(arguments: &Arguments<'_>, function: Function) -> Result<Separators, Refusal> {
+    // not a repair: a script's argument; an absent one is read as zero and judged by the call, not
+    //   an entry the file states.
     let value = arguments.number(1).unwrap_or(0.0);
     Separators::of(value).ok_or_else(|| {
         Refusal::new(format!(
@@ -442,6 +448,8 @@ fn picture(
     match arguments.0.first() {
         Some(Literal::String(text)) => Ok(text.clone()),
         Some(Literal::Number(index)) => number::whole(*index)
+            // not a repair: a script's argument narrowed to an index; one out of range names no
+            //   menu entry, no value is substituted.
             .and_then(|index| usize::try_from(index).ok())
             .and_then(|index| menu.get(index))
             .map(|picture| (*picture).to_owned())
@@ -477,6 +485,8 @@ impl Call {
                 &date::DATE_PICTURES,
                 self.function,
             )
+            // not a repair: a script's argument; a picture that cannot be read gives no example,
+            //   no value is substituted.
             .ok(),
             _ => None,
         }
@@ -523,6 +533,8 @@ impl Call {
             Function::NumberFormat => {
                 let places = places(&arguments, self.function)?;
                 let style = separators(&arguments, self.function)?;
+                // not a repair: a script's argument; an absent one is read as zero and judged by
+                //   the call, not an entry the file states.
                 let negative_value = arguments.number(2).unwrap_or(0.0);
                 let negative = Negative::of(negative_value).ok_or_else(|| {
                     Refusal::new(format!(
@@ -578,6 +590,8 @@ impl Call {
                 ))
             }
             Function::SpecialFormat => {
+                // not a repair: a script's argument; an absent one is read as -1 and judged by the
+                //   call, not an entry the file states.
                 let psf = arguments.number(0).unwrap_or(-1.0);
                 let special = mask::Special::of(psf).ok_or_else(|| {
                     Refusal::new(format!(
@@ -651,6 +665,8 @@ impl Call {
                 }
             }
             Function::SpecialKeystroke => {
+                // not a repair: a script's argument; an absent one is read as -1 and judged by the
+                //   call, not an entry the file states.
                 let psf = arguments.number(0).unwrap_or(-1.0);
                 let special = mask::Special::of(psf).ok_or_else(|| {
                     Refusal::new(format!(
@@ -698,6 +714,8 @@ impl Call {
     /// is given, so it cannot claim a value the script would refuse (ADR 1579).
     #[must_use]
     pub fn accepted_example(&self) -> Option<String> {
+        // not a repair: a script's call arguments; one that cannot be served gives no example, no
+        //   value is substituted.
         let arguments = self.serving(Trigger::Keystroke).ok()?;
         let example = match self.function {
             Function::NumberKeystroke | Function::PercentKeystroke => "1234.5".to_owned(),
@@ -710,6 +728,8 @@ impl Call {
                 print_date(&picture, &EXAMPLE_MOMENT).ok()?
             }
             Function::SpecialKeystroke => {
+                // not a repair: a script's argument; an absent one is read as -1 and judged by the
+                //   call, not an entry the file states.
                 let special = mask::Special::of(arguments.number(0).unwrap_or(-1.0))?;
                 special.example().to_owned()
             }

@@ -17,7 +17,7 @@
 //! is a repair of something that is not the file's departure: a bound of this reader's, which a
 //! conforming file can reach.
 //!
-//! The closing gate of ADR 3477 (`tools/conformance/tests/repair_classes.rs`, to come) holds this
+//! The closing gate of ADR 3477 (`tools/conformance/tests/repair_classes.rs`) holds this
 //! table to the reader crates' `CLASSES` slices: no class unmapped, no mapping naming no class,
 //! no row that [`crate::table::requirements`] does not hold.
 
@@ -166,6 +166,18 @@ pub static MAPPING: &[Mapped] = &[
     // reader painted three operands in under `DeviceGray` is this reader's reading of the
     // producer's intent rather than a space the file uses.
     base("model/colour-operands-do-not-fit-the-space"),
+    // The interpreter's own tolerances (ADR 3575). Each is a departure from ISO 32000-2 that no
+    // section of this part states a rule for, so section 5.1 alone. The interpreter records them
+    // where it makes them, for the viewer; the survey does not run the interpreter (ADR 3542), so
+    // a check finds them in the log only where the page was drawn from the same document first.
+    base("model/operands-left-over"),
+    base("model/compatibility-sections-unbalanced"),
+    base("model/marked-content-unbalanced"),
+    base("model/property-list-unresolved"),
+    base("model/graphics-state-entry-of-the-wrong-type"),
+    base("model/transfer-function-unreadable"),
+    base("model/form-matrix-malformed"),
+    base("model/form-bbox-unusable"),
     // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
     // font a content stream renders: the program the file embeds is not the one the window drew,
     // and the converter answers the row by writing the program as this reader read it

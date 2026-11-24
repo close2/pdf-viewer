@@ -374,6 +374,8 @@ impl<'a> Form<'a> {
         inferred: bool,
     ) -> Vec<usize> {
         let at = |index: i64| {
+            // not a repair: an index a script supplied, outside the matches it addresses, selects
+            // nothing; not a file value.
             usize::try_from(index)
                 .ok()
                 .and_then(|index| matches.get(index).copied())
@@ -384,6 +386,8 @@ impl<'a> Form<'a> {
             Occurrence::Every => matches.to_vec(),
             Occurrence::At(index) => at(index),
             Occurrence::Relative(by) => {
+                // not a repair: a count of this reader's own nodes widened for the script's
+                // arithmetic, not a file value.
                 let own = i64::try_from(self.template.own_index(here)).unwrap_or(i64::MAX);
                 at(own.saturating_add(by))
             }
@@ -400,6 +404,8 @@ impl<'a> Form<'a> {
     pub fn value(&self, node: usize) -> Scalar {
         let containers = self.template.container_count();
         if event::is_property(containers, node) {
+            // not a repair: the value this reader holds for a node, null where nothing has been
+            // assigned, not a file value.
             return event::value(self.event.as_ref(), containers, node).unwrap_or(Scalar::Null);
         }
         self.values.get(node).cloned().unwrap_or(Scalar::Null)
@@ -415,6 +421,8 @@ impl<'a> Form<'a> {
         let containers = self.template.container_count();
         if event::is_property(containers, node) {
             if let Scalar::Text(text) = &value
+                // not a repair: a length of this reader's own text against its own budget, not a
+                // value the file states.
                 && u64::try_from(text.len()).unwrap_or(u64::MAX) > self.text_room
             {
                 self.text_exhausted = true;
@@ -433,6 +441,8 @@ impl<'a> Form<'a> {
             return Err(format!("a {} holds no value (page 379)", class.name()));
         }
         if let Scalar::Text(text) = &value {
+            // not a repair: a length of this reader's own text against its own budget, not a value
+            // the file states.
             let cost = u64::try_from(text.len()).unwrap_or(u64::MAX);
             if cost > self.text_room {
                 self.text_exhausted = true;

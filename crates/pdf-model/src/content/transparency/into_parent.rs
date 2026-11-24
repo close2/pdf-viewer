@@ -250,6 +250,8 @@ fn sampled_grid<const AXES: usize>(
     #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
     let at = |index: usize| index as f32 / last as f32;
     let points = side
+        // not a repair: counts and indices of this reader's own sampling grid, not values the file
+        // states.
         .checked_pow(u32::try_from(AXES).unwrap_or(u32::MAX))
         .unwrap_or(0);
     (0..points)

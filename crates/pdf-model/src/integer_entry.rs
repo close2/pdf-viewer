@@ -92,6 +92,8 @@ pub(crate) fn dimension(document: &Document, dict: &Dictionary, key: &str) -> Op
 /// [`dimension`] for a value already in hand.
 fn nearest_u32(value: &Object) -> Option<u32> {
     match value {
+        // not a repair: a value outside u32 is refused (None), never clamped, as the comment below
+        // states.
         Object::Integer(value) => u32::try_from(*value).ok(),
         // `f64::round` is ties-away-from-zero and the guard above the cast is what keeps the
         // cast's own saturation from standing in for a dimension: a value outside `u32` is

@@ -249,6 +249,8 @@ fn layout(data: &[u8], scan: &super::FirstScan) -> Option<Layout> {
                 }
                 let intervals = restart_intervals(data, scan)?;
                 let total = u64::from(mcus_per_row).checked_mul(u64::from(mcu_rows))?;
+                // not a repair: a failed conversion or decode declines the banded decode and the
+                // stream is decoded whole; no value is substituted.
                 if u64::try_from(intervals.len()).ok()? != total.div_ceil(u64::from(restart)) {
                     return None;
                 }
@@ -317,6 +319,8 @@ fn restart_intervals(data: &[u8], scan: &super::FirstScan) -> Option<Vec<Range<u
     let mut starts = scan.data_starts;
     for marker in &scan.inside {
         if let 0xD0..=0xD7 = marker.code {
+            // not a repair: a failed conversion or decode declines the banded decode and the stream
+            // is decoded whole; no value is substituted.
             let expected = u8::try_from(intervals.len() % 8).ok()?;
             if marker.code != 0xD0_u8.checked_add(expected)? {
                 return None;
@@ -385,6 +389,8 @@ pub(super) fn plan_rows(
 /// Euclid's greatest common divisor, for the restart period.
 fn gcd(mut a: u32, mut b: u32) -> u32 {
     while b != 0 {
+        // not a repair: an arithmetic guard in a divisor computation of this reader's, not a value
+        // the file states.
         (a, b) = (b, a.checked_rem(b).unwrap_or(0));
     }
     a.max(1)
@@ -407,6 +413,8 @@ fn band_codestream(data: &[u8], layout: &Layout, band: Band) -> Option<Vec<u8>> 
             .checked_mul(per_row)?
             .checked_div(restart)?,
     )
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     .ok()?;
     let closing = usize::try_from(u64::from(last).checked_mul(per_row)?.div_ceil(restart)).ok()?;
     let finishes = last == layout.mcu_rows;
@@ -423,6 +431,8 @@ fn band_codestream(data: &[u8], layout: &Layout, band: Band) -> Option<Vec<u8>> 
     } else {
         last.checked_sub(first)?.checked_mul(layout.mcu_lines)?
     };
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     let lines = u16::try_from(lines).ok()?;
 
     let header = data.get(layout.header.clone())?;
@@ -464,6 +474,8 @@ pub(super) fn decode_bands(
     channels: usize,
     codestream: &(dyn Fn(Band) -> Option<Vec<u8>> + Sync),
 ) -> Option<Vec<u8>> {
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     let line = usize::try_from(frame.width).ok()?.checked_mul(channels)?;
     let mcu_lines = usize::try_from(frame.mcu_lines).ok()?;
     let lines = usize::try_from(frame.lines).ok()?;
@@ -476,6 +488,8 @@ pub(super) fn decode_bands(
             .ok()?
             .checked_mul(mcu_lines)?
             .min(lines)
+            // not a repair: a failed conversion declines the banded decode and the stream is
+            // decoded whole; no value is substituted.
             .checked_sub(usize::try_from(band.kept.0).ok()?.checked_mul(mcu_lines)?)?;
         let (own, after) =
             std::mem::take(&mut rest).split_at_mut_checked(kept_lines.checked_mul(line)?)?;
@@ -539,6 +553,8 @@ fn decode_band(
         zune_jpeg::zune_core::bytestream::ZCursor::new(codestream.as_slice()),
         options.set_strict_mode(true),
     );
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     decoder.decode_headers().ok()?;
     let size = decoder.output_buffer_size()?;
     if scratch.len() < size {
@@ -550,6 +566,8 @@ fn decode_band(
         .ok()?
         .checked_mul(mcu_lines)?
         .checked_mul(line)?;
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     let mut own = slot.lock().ok()?;
     let kept = pixels.get(skipped..skipped.checked_add(own.len())?)?;
     own.copy_from_slice(kept);

@@ -286,6 +286,8 @@ impl Projection {
         if !latitude.is_finite() || !longitude.is_finite() || latitude.abs() > FRAC_PI_2 + 1e-12 {
             return Err(self.outside());
         }
+        // not a repair: a rounding guard on a latitude already checked to lie within the sphere,
+        // not a file value.
         let latitude = latitude.clamp(-FRAC_PI_2, FRAC_PI_2);
         let p = &self.parameters;
         let delta = wrap(longitude - Self::get(p.origin_longitude));
@@ -351,6 +353,8 @@ impl Projection {
             && within_method
         {
             Ok(LatLon {
+                // not a repair: a rounding guard on a latitude already checked to lie within the
+                // sphere, not a file value.
                 latitude: answer.latitude.clamp(-FRAC_PI_2, FRAC_PI_2),
                 longitude: wrap(answer.longitude),
             })
@@ -363,6 +367,8 @@ impl Projection {
     fn get(value: Option<f64>) -> f64 {
         // `new` refused every projection whose method's formulas use a parameter it lacks, so
         // the zero is never read; it is not a default for any parameter.
+        // not a repair: the comment above states it: the parameter is required by construction and
+        // never read absent.
         value.unwrap_or(0.0)
     }
 
@@ -422,6 +428,8 @@ impl Projection {
         let eta_0 = atanh(beta.cos() * delta.sin());
         // `sin β cosh η0` is at most one within 90° of the central meridian; the clamp keeps a
         // rounding past it from becoming a NaN.
+        // not a repair: the clamp keeps a rounding past one from becoming NaN, an arithmetic guard
+        // not a file value.
         let xi_0 = (beta.sin() * eta_0.cosh()).clamp(-1.0, 1.0).asin();
         let (mut xi, mut eta) = (xi_0, eta_0);
         for (&multiple, coefficient) in MULTIPLES.iter().zip(h) {
@@ -715,6 +723,8 @@ impl Projection {
         } else {
             1.0 - (1.0 - e2) / (2.0 * e) * ((1.0 - e) / (1.0 + e)).ln()
         };
+        // not a repair: the clamp keeps a rounding past one from becoming NaN, an arithmetic guard
+        // not a file value.
         let beta = (alpha_prime / denominator).clamp(-1.0, 1.0).asin();
         let (e4, e6) = (e2 * e2, e2 * e2 * e2);
         let latitude = beta
@@ -764,6 +774,8 @@ impl Projection {
         let sa = (1.0 + s) / (1.0 - s);
         let sb = (1.0 - e * s) / (1.0 + e * s);
         let w = c * (sa * sb.powf(e)).powf(n);
+        // not a repair: the clamp keeps a rounding past one from becoming NaN, an arithmetic guard
+        // not a file value.
         let chi = (1.0 - 2.0 / (w + 1.0)).clamp(-1.0, 1.0).asin();
         // Λ − ΛO, since the section's Λ is n(λ − ΛO) + ΛO.
         let lambda = n * delta;

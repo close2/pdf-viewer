@@ -207,6 +207,8 @@ impl Articles {
     pub fn next(&self, bead: ObjectId) -> Option<&Bead> {
         let (thread, at) = self.locate(bead)?;
         let beads = &self.threads.get(thread)?.beads;
+        // not a repair: the wrap from the last bead to the first is the thread's own ring
+        // (§12.4.3), an index not a file value.
         let following = at
             .checked_add(1)
             .filter(|following| *following < beads.len())

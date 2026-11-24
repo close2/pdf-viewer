@@ -516,6 +516,7 @@ impl OptionalContent {
             return false;
         }
         let before = self.effective().clone();
+        // not a repair: a magnification the viewer supplies, not a value the file states.
         let magnification = magnification.unwrap_or(UNSTATED_MAGNIFICATION);
         self.unresolved = apply_event(
             &self.applications,
@@ -560,6 +561,7 @@ impl OptionalContent {
 
     /// The states a caller reads: the event's overlay where one stands, else [`Self::states`].
     fn effective(&self) -> &BTreeMap<ObjectId, bool> {
+        // not a repair: the viewer's own event overlay, not a value the file states.
         self.under_event.as_ref().unwrap_or(&self.states)
     }
 
@@ -670,6 +672,7 @@ impl OptionalContent {
         // turns the single-group form into a dictionary with no reference left on it, which
         // is how `issue12007_reduced.pdf` drew a whole hidden screenshot with this module
         // already in place: every one of its layers is `<< /Type /OCMD /OCGs 38 0 R >>`.
+        // not a repair: an absent /OCGs is Null, the entry's absence, not a default value.
         let written = dictionary.get("OCGs").cloned().unwrap_or(Object::Null);
         let listed: Vec<Object> = match document.resolve(&written) {
             Object::Array(array) => array,
@@ -728,6 +731,7 @@ impl OptionalContent {
                 .ok_or(Unanswerable::Malformed(
                     "a /VE visibility expression whose first element is not an operator name",
                 ))?;
+        // not a repair: a slice bound of the array's length, not a value the file states.
         let operands = expression.get(1..).unwrap_or_default();
         match operator.as_bytes() {
             // "If the first element is Not , it shall have only one subsequent element."
@@ -854,6 +858,7 @@ pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BT
         for annotation in annotations {
             let resolved = document.resolve(annotation);
             if let Some(dict) = resolved.as_dict() {
+                // not a repair: an absent /OC is Null, the entry's absence, not a default value.
                 let oc = dict.get("OC").cloned().unwrap_or(Object::Null);
                 gather_from_oc(document, &oc, &mut found);
             }
@@ -908,6 +913,7 @@ fn gather_from_resources(
         let Some(stream) = resolved.as_stream() else {
             continue;
         };
+        // not a repair: an absent /OC is Null, the entry's absence, not a default value.
         let oc = stream.dict.get("OC").cloned().unwrap_or(Object::Null);
         gather_from_oc(document, &oc, found);
         if depth >= MAX_FORM_DEPTH {
@@ -1692,6 +1698,7 @@ fn language_recommendations(
     if wanted.is_empty() {
         return None;
     }
+    // not a repair: splitting always yields a first piece, so nothing is defaulted.
     let primary = |tag: &str| tag.split('-').next().unwrap_or(tag).to_owned();
     let wanted_primary = primary(wanted);
 

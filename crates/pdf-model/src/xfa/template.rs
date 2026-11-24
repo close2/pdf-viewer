@@ -629,6 +629,8 @@ impl Template {
         let mut at: Option<usize> = None;
         for step in steps {
             let (name, index) = match step.split_once('[') {
+                // not a repair: a step whose index is not a number makes the expression
+                // unresolvable (None); nothing is substituted.
                 Some((name, rest)) => (name, rest.strip_suffix(']')?.trim().parse().ok()?),
                 None => (*step, 0_usize),
             };
@@ -714,6 +716,8 @@ impl Template {
         let Some(name) = container.name.as_deref() else {
             return 0;
         };
+        // not a repair: the position of a node among this reader's own sibling list, not a value
+        // the file states.
         self.named_within(container.parent, name)
             .iter()
             .position(|&sibling| sibling == at)
@@ -1039,6 +1043,8 @@ fn explicit(reference: &str, scope: &[(String, usize)]) -> Result<Binding, Unbin
     for step in rest.split('.') {
         let (name, index) = match step.split_once('[') {
             Some((name, index)) => (
+                // not a repair: a step whose index is not a number is refused as unresolvable;
+                // nothing is substituted.
                 name,
                 index
                     .strip_suffix(']')

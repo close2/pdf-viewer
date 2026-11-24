@@ -151,6 +151,8 @@ fn rebuild(font: &FontRef<'_>) -> Option<Vec<u8>> {
         return None;
     }
 
+    // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+    // declines on overflow.
     let count = u16::try_from(tables.len()).ok()?;
     // The three fields after the count are a binary-search hint the format states and no
     // reader in this tree consults; they are written correctly anyway, because a file this
@@ -164,6 +166,8 @@ fn rebuild(font: &FontRef<'_>) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     out.extend_from_slice(&font.table_directory().sfnt_version().to_be_bytes());
     out.extend_from_slice(&count.to_be_bytes());
+    // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+    // declines on overflow.
     out.extend_from_slice(&u16::try_from(search_range).ok()?.to_be_bytes());
     out.extend_from_slice(&u16::try_from(entry_selector).ok()?.to_be_bytes());
     out.extend_from_slice(&u16::try_from(range_shift).ok()?.to_be_bytes());
@@ -177,6 +181,8 @@ fn rebuild(font: &FontRef<'_>) -> Option<Vec<u8>> {
         // The checksum is zero rather than recomputed: nothing in this tree verifies one, and
         // a wrong value would be a claim, where a zero is visibly not one.
         out.extend_from_slice(&0_u32.to_be_bytes());
+        // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+        // declines on overflow.
         out.extend_from_slice(&u32::try_from(at).ok()?.to_be_bytes());
         out.extend_from_slice(&u32::try_from(data.len()).ok()?.to_be_bytes());
         at = at.checked_add(data.len())?.checked_next_multiple_of(4)?;

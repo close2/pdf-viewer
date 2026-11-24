@@ -229,11 +229,15 @@ impl std::fmt::Debug for Document {
 /// worst a poisoned cache can cost is a re-parse. Propagating a `PoisonError` instead would
 /// turn a panic anywhere in the process into a document that can no longer be read at all.
 fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    // not a repair: a lock another thread poisoned, a state of this reader's own caches, not a
+    // value the file states.
     lock.read().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Writes one of [`Document`]'s caches, past a lock another thread poisoned. See [`read`].
 fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    // not a repair: a lock another thread poisoned, a state of this reader's own caches, not a
+    // value the file states.
     lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -473,6 +477,8 @@ impl Document {
         // a fresh memo is a correct one that has merely forgotten what it had derived.
         Arc::clone(entry)
             .downcast::<T>()
+            // not a repair: the downcast cannot fail, as the comment above says; it is a bound of
+            // this reader's memo table, not a value the file states.
             .unwrap_or_else(|_| Arc::new(T::default()))
     }
 

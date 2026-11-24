@@ -163,6 +163,8 @@ pub fn embedded_file_stream_dated(
     let mut params = Dictionary::new();
     params.insert(
         Name::new(&b"Size"[..]),
+        // not a repair: a length of bytes this program holds, widened to the integer a dictionary
+        // holds.
         Object::Integer(i64::try_from(bytes.len()).unwrap_or(i64::MAX)),
     );
     params.insert(
@@ -194,6 +196,8 @@ pub fn embedded_file_stream_dated(
     }
     dict.insert(
         Name::new(&b"Length"[..]),
+        // not a repair: a length of bytes this program holds, widened to the integer a dictionary
+        // holds.
         Object::Integer(i64::try_from(bytes.len()).unwrap_or(i64::MAX)),
     );
     dict.insert(Name::new(&b"Params"[..]), Object::Dictionary(params));
@@ -530,10 +534,13 @@ pub fn point_holder_at_tree(
     } = holder;
     match (tree_entry, names_entry) {
         (Some(Object::Reference(old_root)), _) => {
+            // not a repair: a replacement this program built itself, not a value the file states.
             let root = replacements.remove(&tree_id).unwrap_or(Object::Null);
             replacements.insert(old_root, root);
         }
         (_, Some(Object::Reference(names_id))) => {
+            // not a repair: the dictionary this program is writing into, not a value the file
+            // states.
             let mut names = names_dict.unwrap_or_default();
             names.insert(Name::new(&b"EmbeddedFiles"[..]), Object::Reference(tree_id));
             replacements.insert(names_id, Object::Dictionary(names));

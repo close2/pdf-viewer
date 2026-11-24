@@ -143,6 +143,8 @@ impl ListBudget {
     /// once cannot together hold more than one page's bound; a piece that reaches its share
     /// ends the division and the page is read whole, where the bound is the page's again.
     pub(super) fn for_piece(pieces: usize, clips: usize) -> Self {
+        // not a repair: an arithmetic guard on this reader's own budget, not a value the file
+        // states.
         let share = MAX_LIST_BYTES.checked_div(pieces).unwrap_or(MAX_LIST_BYTES);
         Self {
             clips_charged: clips,
@@ -268,6 +270,7 @@ impl Interpreter<'_> {
     pub(super) fn charge_copied(&mut self, copied: usize) {
         let commands = self.list.commands();
         let from = commands.len().saturating_sub(copied);
+        // not a repair: a slice of this reader's own command list, not a value the file states.
         let bytes = commands
             .get(from..)
             .unwrap_or_default()
@@ -322,6 +325,7 @@ impl Interpreter<'_> {
             marked: self.marked.len(),
             associated: self.associated.len(),
         };
+        // not a repair: a slice of this reader's own list, not a value the file states.
         let strings = self
             .described
             .get(seen.described..)
@@ -381,6 +385,7 @@ impl Interpreter<'_> {
         // not stop a page on its account.
         // The meshes its shadings hold are charged beside them, for the same reason: each is
         // bounded alone and a page can paint many (ADR 2546).
+        // not a repair: this reader's own byte count, not a value the file states.
         let presses = self
             .presses
             .bytes_held()
@@ -407,6 +412,7 @@ impl Interpreter<'_> {
         let count = self.list.clip_count();
         while self.list_budget.clips_charged < count {
             let index = self.list_budget.clips_charged;
+            // not a repair: an index into this reader's clip table, not a value the file states.
             let bytes = u32::try_from(index)
                 .ok()
                 .and_then(|index| self.list.clip(ClipId::new(index)))

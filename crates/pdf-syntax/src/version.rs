@@ -73,6 +73,7 @@ fn digits(major: u8, minor: u8) -> Option<Version> {
     let major = char::from(major).to_digit(10)?;
     let minor = char::from(minor).to_digit(10)?;
     Some(Version {
+        // not a repair: a decimal digit is at most 9, so the conversions cannot fail.
         major: u8::try_from(major).ok()?,
         minor: u8::try_from(minor).ok()?,
     })
@@ -100,6 +101,8 @@ impl Document {
                 .windows(marker.len())
                 .position(|candidate| candidate == marker)
                 && let Some(after) = start.get(at.saturating_add(marker.len())..)
+                // not a repair: the range is bounded by this reader's own length test, not a value
+                // the file states.
                 && let Some(version) = Version::parse(after.get(..3).unwrap_or(after))
             {
                 return Some(version);

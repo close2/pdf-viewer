@@ -270,6 +270,8 @@ fn base64(bytes: &[u8]) -> String {
             // `chunks(3)` hands out one to three bytes.
             _ => continue,
         };
+        // not a repair: padding bytes of this program's own base64 encoder, not a value the file
+        // states.
         let joined = u32::from(first) << 16
             | u32::from(second.unwrap_or(0)) << 8
             | u32::from(third.unwrap_or(0));

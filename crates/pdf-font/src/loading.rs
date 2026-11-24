@@ -74,6 +74,8 @@ impl CodeSet {
     /// Whether the code is in the set.
     pub(crate) fn contains(&self, code: u32) -> bool {
         let (word, bit) = (code / 64, code % 64);
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         usize::try_from(word)
             .ok()
             .and_then(|word| self.0.get(word))
@@ -511,6 +513,7 @@ fn with_readable_font_dicts(
 }
 
 fn outlines(lock: &Mutex<OutlineCache>) -> std::sync::MutexGuard<'_, OutlineCache> {
+    // not a repair: a poisoned lock is recovered, not a value of the file.
     lock.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -641,6 +644,7 @@ impl Borrowing {
                 downward,
             })
         });
+        // not a repair: a poisoned lock is recovered, not a value of the file.
         let mut held = self
             .held
             .write()
@@ -661,6 +665,7 @@ impl Borrowing {
 
     /// The borrowed face at `index`, as [`Face::Borrowed`] names it.
     fn face(&self, index: usize) -> Option<Arc<ClassFace>> {
+        // not a repair: a poisoned lock yields no face, not a value of the file.
         let held = self.held.read().ok()?;
         held.faces.get(index).map(Arc::clone)
     }
@@ -1268,6 +1273,8 @@ pub(crate) const NO_CODE_REACHES_A_GLYPH: &str = "no character code maps to a gl
 /// states one — the font's, or a Type 0 font's descendant's — under the first of Table 120's three
 /// keys it writes (see [`crate::repair::site`]).
 fn program_site(document: &Document, dict: &Dictionary) -> pdf_syntax::Site {
+    // not a repair: a simple font's own dictionary is its program's holder when no descendant
+    // exists.
     let holder = document
         .get_key(dict, "DescendantFonts")
         .as_array()
@@ -1278,6 +1285,8 @@ fn program_site(document: &Document, dict: &Dictionary) -> pdf_syntax::Site {
     let Some(descriptor) = descriptor_object.as_dict() else {
         return crate::repair::site(&holder, "FontDescriptor");
     };
+    // not a repair: the key a repair report names when no program key is stated, a label of this
+    // reader's.
     let key = ["FontFile", "FontFile2", "FontFile3"]
         .into_iter()
         .find(|key| descriptor.get(key).is_some())
@@ -1483,6 +1492,7 @@ impl OutlinePen for PathPen {
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
         let control = self.at(cx, cy);
         let end = self.at(x, y);
+        // not a repair: the pen's first point starts its own segment, a state of this reader.
         let start = self.last.unwrap_or(control);
 
         let first = Point::new(

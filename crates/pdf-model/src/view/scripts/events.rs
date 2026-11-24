@@ -86,6 +86,8 @@ impl ViewState {
         let page = match event.site {
             ScriptSite::Field(_) => self
                 .field_page(document, table, event.field)
+                // not a repair: the page of the field where this viewer knows it, else the page
+                //   the event names, not a value the file states.
                 .unwrap_or(event.page),
             _ => event.page,
         };
@@ -97,6 +99,8 @@ impl ViewState {
             document: whole.as_ref(),
             view: self.window_view(document),
             keys: self.scripting.keys,
+            // not a repair: a script's rich value where it set one, else the event's own, not a
+            //   value the file states.
             rich_value: rich_value.as_deref().unwrap_or(event.rich_value),
             ..event
         });
@@ -300,6 +304,8 @@ impl ViewState {
                     return false;
                 };
                 let displayed = Displayed {
+                    // not a repair: a script that sets no value leaves the shown text as it was,
+                    //   nothing is replaced.
                     shown: result.value.clone().unwrap_or_else(|| shown.text.clone()),
                     value: shown.text,
                 };

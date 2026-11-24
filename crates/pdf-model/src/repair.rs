@@ -138,6 +138,43 @@ classes! {
         "ISO 32000-2 §8.6.8",
         "a colour operator given a number of operands other than the current colour space's \
          components was read in the device space with that many, or not at all";
+    /// Operands left in front of the ones an operator takes.
+    OPERANDS_LEFT_OVER = "model/operands-left-over", "ISO 32000-2 §7.8.2",
+        "operands left over in front of an operator's own were dropped, and the operator given \
+         the last of them";
+
+    // ---- the interpreter's sections and resources, §7.8.2, §8.4.5, §8.10.2, §10.5, §14.6 ------
+
+    /// An `EX` with no `BX` open, or a `BX` its stream leaves open.
+    COMPATIBILITY_SECTIONS_UNBALANCED = "model/compatibility-sections-unbalanced",
+        "ISO 32000-2 §7.8.2",
+        "a BX or EX without its pair was read as if the pair were there: an EX ending nothing \
+         was ignored, and a section left open ended with its stream";
+    /// An `EMC` with no marked-content sequence open, or a sequence its stream leaves open.
+    MARKED_CONTENT_UNBALANCED = "model/marked-content-unbalanced", "ISO 32000-2 §14.6.1",
+        "a BMC or BDC without its balancing EMC was read as if the EMC were there: an EMC \
+         ending nothing was ignored, and a sequence left open ended with its stream";
+    /// A `BDC` naming a property list its resources do not hold as a dictionary.
+    PROPERTY_LIST_UNRESOLVED = "model/property-list-unresolved", "ISO 32000-2 §14.6.2",
+        "a BDC naming a property list the Properties resources do not hold was read as stating \
+         no properties, and an optional-content sequence as shown";
+    /// A graphics state parameter dictionary's entry of a type Table 57 does not give it.
+    GRAPHICS_STATE_ENTRY_OF_THE_WRONG_TYPE = "model/graphics-state-entry-of-the-wrong-type",
+        "ISO 32000-2 §8.4.5",
+        "a graphics state parameter dictionary entry of a type Table 57 does not give it was \
+         ignored, and the parameter left as it was";
+    /// A `/TR` or `/TR2` that is no function, array of four functions or name Table 57 gives.
+    TRANSFER_FUNCTION_UNREADABLE = "model/transfer-function-unreadable", "ISO 32000-2 §10.5",
+        "a transfer function that could not be read was ignored, and the transfer in force left \
+         as it was";
+    /// A form's `/Matrix` that is not an array of six numbers.
+    FORM_MATRIX_MALFORMED = "model/form-matrix-malformed", "ISO 32000-2 §8.10.2",
+        "a form's /Matrix that is not six numbers was read as the identity, or from the first \
+         six numbers it holds";
+    /// A form's `/BBox` absent, or not an array of four numbers.
+    FORM_BBOX_UNUSABLE = "model/form-bbox-unusable", "ISO 32000-2 §8.10.2",
+        "a form with no /BBox of four numbers was drawn unclipped, or clipped to the first four \
+         numbers its /BBox holds";
 }
 
 #[cfg(test)]

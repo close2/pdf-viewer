@@ -262,6 +262,8 @@ fn jfif_inverse(y: u8, cb: u8, cr: u8) -> [u8; 3] {
     let (y, cb, cr) = (f32::from(y), f32::from(cb) - 128.0, f32::from(cr) - 128.0);
     #[expect(
         clippy::cast_possible_truncation,
+        // not a repair: a colour this reader converted, quantised to a byte, not a value the file
+        // states.
         clippy::cast_sign_loss,
         reason = "clamped to 0..=255 in the same expression, which is what makes it a byte"
     )]
@@ -593,6 +595,7 @@ pub(super) fn frame_as_defined<'a>(
         return std::borrow::Cow::Borrowed(data);
     };
     let mut defined = Vec::with_capacity(data.len());
+    // not a repair: a slice cut at marker offsets this reader found, not a value the file states.
     defined.extend_from_slice(data.get(..dnl.start).unwrap_or(data));
     defined.extend_from_slice(data.get(dnl.end..).unwrap_or_default());
     if let Some(field) = defined.get_mut(y_at..y_at.saturating_add(2)) {

@@ -291,6 +291,15 @@ impl Interpreter<'_> {
 
             // One method per family of Table 50: the loop knows which family an operator is in
             // and nothing of what the family does with it.
+            // And the sentence's last clause, "operands shall not be left over": what stood in
+            // front of the operator's own was dropped above, and the page says so.
+            if operator
+                .operand_count()
+                .is_some_and(|takes| pending.len() > takes)
+            {
+                self.record_repair(&crate::repair::OPERANDS_LEFT_OVER);
+            }
+
             self.run_operator(operator, operands, reader, resources, &mut machine);
 
             pending.clear();
@@ -450,7 +459,7 @@ impl Interpreter<'_> {
                 self.run_marked_content_op(operator, operands, resources, machine);
             }
             Operator::BeginCompatibility | Operator::EndCompatibility => {
-                Self::run_compatibility_op(operator, machine);
+                self.run_compatibility_op(operator, machine);
             }
         }
     }
@@ -476,6 +485,7 @@ impl Interpreter<'_> {
             mut text_object,
             pending_clip,
             marked,
+            compatibility,
             ..
         } = left;
         // An unclosed `BT` is malformed but harmless here; noted so it is not invisible.
@@ -512,6 +522,15 @@ impl Interpreter<'_> {
         // A marked-content section left open by a malformed stream must not leave this
         // stream's hidden layers hiding the next one. The annotation pass runs after the
         // page's content, and a leaked counter would silently blank every annotation.
+        // Table 352's `BMC` and `BDC` are each "terminated by a balancing EMC operator", and
+        // §7.8.2's `BX` and `EX` "shall occur in pairs": a stream that ends inside either was
+        // read as if it had closed them.
+        if !marked.is_empty() {
+            self.record_repair(&crate::repair::MARKED_CONTENT_UNBALANCED);
+        }
+        if compatibility > 0 {
+            self.record_repair(&crate::repair::COMPATIBILITY_SECTIONS_UNBALANCED);
+        }
         let unclosed = marked.iter().filter(|section| section.hides).count();
         if unclosed > 0 {
             self.hidden = self.hidden.saturating_sub(unclosed);

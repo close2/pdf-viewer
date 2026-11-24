@@ -110,6 +110,8 @@ fn tokens(picture: &str) -> Result<Vec<Token>, Refusal> {
         // No place-holder is longer than four letters, so the run is counted no further: a run
         // counted to its end at every token would make a picture of one repeated letter cost the
         // square of its length, and the picture is the producer's (ADR 1597).
+        // not a repair: a cursor into the picture's own characters; past the end is an empty run,
+        //   not a value the file states.
         let run = chars
             .get(at..)
             .unwrap_or_default()
@@ -180,6 +182,8 @@ fn tokens(picture: &str) -> Result<Vec<Token>, Refusal> {
 
 /// A run length as a token width.
 fn width(n: usize) -> u8 {
+    // not a repair: a run length of the picture, narrowed to a token width; a count, not a value
+    //   the file states.
     u8::try_from(n).unwrap_or(u8::MAX)
 }
 
@@ -198,12 +202,16 @@ pub fn print_date(picture: &str, moment: &DateTime) -> Result<String, Refusal> {
     for token in tokens(picture)? {
         match token {
             Token::Month(4) => out.push_str(month_name(moment.month)),
+            // not a repair: the first three letters of a month name from this program's table, not
+            //   a value the file states.
             Token::Month(3) => out.push_str(month_name(moment.month).get(..3).unwrap_or_default()),
             Token::Month(2) => {
                 let _ = write!(out, "{:02}", moment.month);
             }
             Token::Month(_) => out.push_str(&moment.month.to_string()),
             Token::Weekday(4) => out.push_str(day_name(*moment)),
+            // not a repair: the first three letters of a day name from this program's table, not a
+            //   value the file states.
             Token::Weekday(_) => out.push_str(day_name(*moment).get(..3).unwrap_or_default()),
             Token::Day(2) => {
                 let _ = write!(out, "{:02}", moment.day);
@@ -241,6 +249,8 @@ pub fn print_date(picture: &str, moment: &DateTime) -> Result<String, Refusal> {
 
 /// The long name of a month, or `""` for a number that names none.
 fn month_name(month: u8) -> &'static str {
+    // not a repair: a lookup in this program's month table by a computed index, not a value the
+    //   file states.
     usize::from(month)
         .checked_sub(1)
         .and_then(|index| MONTHS.get(index))
@@ -250,6 +260,8 @@ fn month_name(month: u8) -> &'static str {
 
 /// The long name of the day of the week a moment falls on.
 fn day_name(moment: DateTime) -> &'static str {
+    // not a repair: a lookup in this program's day table by a computed index, not a value the file
+    //   states.
     DAYS.get(weekday(moment.year, moment.month, moment.day))
         .copied()
         .unwrap_or_default()
@@ -263,6 +275,8 @@ fn weekday(year: i32, month: u8, day: u8) -> usize {
     } else {
         year
     };
+    // not a repair: a lookup in this program's offset table by a computed index, not a value the
+    //   file states.
     let offset = usize::from(month)
         .checked_sub(1)
         .and_then(|index| OFFSETS.get(index))
@@ -274,6 +288,7 @@ fn weekday(year: i32, month: u8, day: u8) -> usize {
         .saturating_add(year.div_euclid(400))
         .saturating_add(offset)
         .saturating_add(i32::from(day));
+    // not a repair: an index reduced modulo seven, always in range, not a value the file states.
     usize::try_from(sum.rem_euclid(7)).unwrap_or(0)
 }
 
@@ -316,6 +331,8 @@ fn days_in(year: i32, month: u8) -> u8 {
               splitting it would pass the eight partial fields between functions"
 )]
 pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
+    // not a repair: a picture a script passes as its argument; one that cannot be read yields no
+    //   date, no value is substituted.
     let tokens = tokens(picture).ok()?;
     let chars: Vec<char> = text.trim().chars().collect();
     let mut at = 0_usize;
@@ -379,6 +396,8 @@ pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
                 let (digits, used) = number(&chars, at, fixed, 4)?;
                 at = at.saturating_add(used);
                 year = Some(match used {
+                    // not a repair: digits read from the user's text, and a year that does not fit
+                    //   a count rejects the text, no value is substituted.
                     4 => i32::try_from(digits).ok()?,
                     // `scand`'s date horizon, which the reference states for "a two-digit year
                     // for input" whatever the picture said.
@@ -396,6 +415,8 @@ pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
                 let fixed = (next_is_field && *n == 2).then_some(2);
                 let (value, used) = number(&chars, at, fixed, 2)?;
                 at = at.saturating_add(used);
+                // not a repair: digits read from the user's text; a value that does not fit
+                //   rejects the text, no value is substituted.
                 let value = u8::try_from(value).ok()?;
                 match token {
                     Token::Month(_) => month = Some(value),
@@ -415,6 +436,8 @@ pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
         return None;
     }
 
+    // not a repair: a field the picture does not name takes this program's date origin for the
+    //   arithmetic, not a value the file states.
     let year = year.unwrap_or(YEAR_OF_NO_YEAR);
     let month = month.unwrap_or(1);
     let day = day.unwrap_or(1);
@@ -430,6 +453,8 @@ pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
         Some(_) if hour > 12 => return None,
         _ => {}
     }
+    // not a repair: a field the picture does not name takes this program's zero, not a value the
+    //   file states.
     let minute = minute.unwrap_or(0);
     let second = second.unwrap_or(0);
     let valid = (1..=12).contains(&month)
@@ -450,6 +475,8 @@ pub fn parse_date(text: &str, picture: &str) -> Option<DateTime> {
 
 /// How many characters from `at` are neither letters nor digits.
 fn separators(chars: &[char], at: usize) -> usize {
+    // not a repair: a cursor into the user's own characters; past the end is an empty run, not a
+    //   value the file states.
     chars
         .get(at..)
         .unwrap_or_default()
@@ -460,6 +487,8 @@ fn separators(chars: &[char], at: usize) -> usize {
 
 /// The run of letters from `at`, and its length.
 fn letters(chars: &[char], at: usize) -> (String, usize) {
+    // not a repair: a cursor into the user's own characters; past the end is an empty run, not a
+    //   value the file states.
     let word: String = chars
         .get(at..)
         .unwrap_or_default()
@@ -472,6 +501,8 @@ fn letters(chars: &[char], at: usize) -> (String, usize) {
 
 /// Digits from `at`: exactly `fixed` of them where it is given, otherwise one to `most`.
 fn number(chars: &[char], at: usize, fixed: Option<usize>, most: usize) -> Option<(u32, usize)> {
+    // not a repair: a cursor into the user's own characters; past the end is an empty run, not a
+    //   value the file states.
     let available = chars
         .get(at..)
         .unwrap_or_default()
@@ -485,6 +516,8 @@ fn number(chars: &[char], at: usize, fixed: Option<usize>, most: usize) -> Optio
         None => available,
     };
     let mut value = 0_u32;
+    // not a repair: a cursor into the user's own characters; past the end is an empty run, not a
+    //   value the file states.
     for c in chars.get(at..at.saturating_add(used)).unwrap_or_default() {
         value = value.checked_mul(10)?.checked_add(c.to_digit(10)?)?;
     }
@@ -493,6 +526,8 @@ fn number(chars: &[char], at: usize, fixed: Option<usize>, most: usize) -> Optio
 
 /// The month a word names: at least its first three letters, in either case.
 fn month_from_word(word: &str) -> Option<u8> {
+    // not a repair: an index into this program's month table narrowed to a month number, not a
+    //   value the file states.
     MONTHS
         .iter()
         .position(|name| matches_name(word, name))
@@ -566,6 +601,7 @@ pub(crate) const TIME_PICTURES: [&str; 4] = ["HH:MM", "h:MM tt", "HH:MM:ss", "h:
 /// `AFTime_Format`'s text for a moment, with the menu's capital marker.
 pub(crate) fn print_time_menu(index: usize, moment: DateTime) -> Option<String> {
     let picture = TIME_PICTURES.get(index)?;
+    // not a repair: a picture from this program's own time menu, not a value the file states.
     let written = print_date(picture, &moment).ok()?;
     Some(if index % 2 == 1 {
         written.replace("am", "AM").replace("pm", "PM")

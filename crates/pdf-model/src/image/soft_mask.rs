@@ -389,6 +389,8 @@ impl MaskPlane {
                 .as_chunks::<4>()
                 .0
                 .iter()
+                // not a repair: a sample of a buffer this reader built, not a value the file
+                // states.
                 .map(|sample| sample.first().copied().unwrap_or(0))
                 .collect(),
             shortfall,
@@ -467,6 +469,8 @@ fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStrea
     {
         return None;
     }
+    // not a repair: a failed read declines this fast path and the general path reads the entry; no
+    // value is substituted.
     let width = positive_integer(document, dict, "Width").ok()?;
     let height = positive_integer(document, dict, "Height").ok()?;
     if u64::from(width).saturating_mul(u64::from(height)) > MAX_SAMPLES {
@@ -482,6 +486,8 @@ fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStrea
     if bits != 8 {
         return None;
     }
+    // not a repair: a failed read declines this fast path and the general path reads the entry; no
+    // value is substituted.
     let space = mask_colour_space(document, dict).ok()?;
     if !matches!(space, ColourSpace::Gray) {
         return None;
@@ -528,6 +534,7 @@ fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane
     let carried = source
         .data
         .get(..source.data.len().min(count))
+        // not a repair: a slice of a buffer this reader built, not a value the file states.
         .unwrap_or_default();
     let lookup = |&sample: &u8| table[usize::from(sample)];
     // Where the data covers the grid, which is every mask that is not damaged, the plane is
@@ -583,6 +590,8 @@ fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> 
         zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
         options,
     );
+    // not a repair: a failed read declines this fast path and the general path reads the entry; no
+    // value is substituted.
     decoder.decode_headers().ok()?;
     let info = decoder.info()?;
     if info.components != 1 || decoder.input_colorspace() != Some(ColorSpace::Luma) {
@@ -596,6 +605,8 @@ fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> 
     let mut luma = scan
         .as_ref()
         .and_then(|scan| restart::decode(&data, scan, options, 1))
+        // not a repair: a failed read declines this fast path and the general path reads the entry;
+        // no value is substituted.
         .map_or_else(|| decoder.decode().ok(), Some)?;
     if luma.len() != count {
         return None;
@@ -893,6 +904,7 @@ pub(super) fn apply_soft_mask(
         // requirement, and the space it substitutes for a file that states another
         // one-component space and is reported for it — so the three colour channels of a mask
         // sample hold one value and the first of them is it.
+        // not a repair: a sample of a buffer this reader built, not a value the file states.
         let opacity = sample.first().copied().unwrap_or(0);
         // Nothing but the opacity is taken here: §11.6.5.2's `/Matte` was undone in the
         // parent's own components, before the colour conversion the clause puts it before,

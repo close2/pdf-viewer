@@ -340,6 +340,7 @@ pub(crate) fn prediction(
         2 | 10..=15 => {}
         _ => return Err(FilterRefusal::Parameter { key: "Predictor" }),
     }
+    // not a repair: a Table 8 parameter below one is refused by name, not replaced by a default.
     let at_least_one = |key: &'static str, default: i64| -> Result<usize, FilterRefusal> {
         let value = table_8_integer(parms, key, default)?;
         usize::try_from(value)
@@ -497,6 +498,7 @@ pub fn apply_predictor(
 /// starts at `bpp` rather than testing for it.
 fn unfilter_sub(row: &mut [u8], bpp: usize) {
     for index in bpp..row.len() {
+        // not a repair: an index into this reader's own row buffer, not a value the file states.
         let left = row.get(index.saturating_sub(bpp)).copied().unwrap_or(0);
         if let Some(value) = row.get_mut(index) {
             *value = value.wrapping_add(left);
@@ -521,6 +523,8 @@ fn unfilter_up(row: &mut [u8], above: &[u8]) {
 /// `u8::midpoint` computes without an intermediate that could overflow.
 fn unfilter_average(row: &mut [u8], above: &[u8], bpp: usize) {
     for index in 0..row.len() {
+        // not a repair: an index into this reader's row buffers; a neighbour that does not exist is
+        // zero as the PNG filters define.
         let left = if index >= bpp {
             row.get(index.saturating_sub(bpp)).copied().unwrap_or(0)
         } else {
@@ -535,6 +539,8 @@ fn unfilter_average(row: &mut [u8], above: &[u8], bpp: usize) {
 
 /// Reverses §7.4.4.4's PNG filter type 4, `Paeth`.
 fn unfilter_paeth(row: &mut [u8], above: &[u8], bpp: usize) {
+    // not a repair: an index into this reader's row buffers; a neighbour that does not exist is
+    // zero as the PNG filters define.
     for index in 0..row.len() {
         let (left, up_left) = if index >= bpp {
             let earlier = index.saturating_sub(bpp);
@@ -597,6 +603,8 @@ fn tiff_predictor(
         8 => {
             for row in out.chunks_mut(row_len) {
                 for index in colors..row.len() {
+                    // not a repair: an index into this reader's own row buffer, not a value the
+                    // file states.
                     let previous = row.get(index.saturating_sub(colors)).copied().unwrap_or(0);
                     if let Some(slot) = row.get_mut(index) {
                         *slot = slot.wrapping_add(previous);
@@ -645,6 +653,7 @@ fn tiff_predictor(
 /// The `index`th `bits`-wide component of a row, packed high-order bits first (§7.4.4.4).
 fn sub_byte_component(row: &[u8], index: usize, bits: usize) -> u8 {
     let per_byte = 8 / bits;
+    // not a repair: an index into this reader's own row buffer, not a value the file states.
     let byte = row.get(index / per_byte).copied().unwrap_or(0);
     let shift = 8 - bits * (index % per_byte + 1);
     (byte >> shift) & (1u8 << bits).wrapping_sub(1)
@@ -891,6 +900,7 @@ impl Lzw {
 
     /// The bytes the last [`Step::Again`] produced that nobody has taken yet.
     fn pending(&self) -> &[u8] {
+        // not a repair: a range of this reader's own spill buffer, not a value the file states.
         self.spill.get(self.spill_at..).unwrap_or_default()
     }
 
@@ -949,6 +959,7 @@ impl Lzw {
             } else if code == self.next && self.previous.is_some() {
                 // Reconstructed below from `previous`; start the walk there and append its
                 // own first byte afterwards.
+                // not a repair: guarded by the `is_some` test above, so the default is never taken.
                 self.previous.unwrap_or(0)
             } else {
                 // A code past the end of the table is corrupt data, not a sequence.
@@ -957,6 +968,8 @@ impl Lzw {
             let extends = code == self.next;
             for _ in 0..LZW_ENTRIES {
                 let index = usize::from(walk);
+                // not a repair: lookups in the decoder's own code table, which this reader fills,
+                // not values the file states.
                 if walk < 256 {
                     self.spill.push(u8::try_from(walk).unwrap_or(0));
                     break;
@@ -982,6 +995,8 @@ impl Lzw {
                     *slot = previous;
                 }
                 if let Some(slot) = self.suffix.get_mut(index) {
+                    // not a repair: a lookup in the decoder's own code table, not a value the file
+                    // states.
                     *slot = self.spill.first().copied().unwrap_or(0);
                 }
                 self.next += 1;
@@ -1103,6 +1118,8 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
             if !out.is_empty()
                 && only_the_check_value(
                     data,
+                    // not a repair: the length of this reader's own output, not a value the file
+                    // states.
                     zlib_header,
                     u64::try_from(out.len()).unwrap_or(u64::MAX),
                 ) =>
@@ -1187,6 +1204,8 @@ fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
     let mut decoder = flate2::Decompress::new(false);
     let mut consumed = 0usize;
     loop {
+        // not a repair: a range of the input buffer by this reader's own progress count, not a
+        // value the file states.
         let input = raw.get(consumed..).unwrap_or_default();
         let (before_in, before_out) = (decoder.total_in(), decoder.total_out());
         let status = decoder.decompress(input, &mut sink, flate2::FlushDecompress::None);
@@ -1261,6 +1280,8 @@ fn only_the_check_value(encoded: &[u8], zlib_header: bool, produced: u64) -> boo
     let mut decoder = flate2::Decompress::new(false);
     let mut consumed = 0usize;
     loop {
+        // not a repair: a range of the input buffer by this reader's own progress count, not a
+        // value the file states.
         let input = raw.get(consumed..).unwrap_or_default();
         let (before_in, before_out) = (decoder.total_in(), decoder.total_out());
         let status = decoder.decompress(input, &mut sink, flate2::FlushDecompress::None);
@@ -1896,6 +1917,8 @@ fn decoded_extent(stage: Stage, data: &[u8], ceiling: usize) -> EncodedExtent {
     loop {
         // The whole buffer is offered at once, so there is never more input to come and the
         // stage's own end-of-data is the only thing that can stop it short.
+        // not a repair: a range of the input buffer by this reader's own progress count, not a
+        // value the file states.
         let turned = engine.turn(data.get(consumed..).unwrap_or_default(), true, &mut sink);
         consumed = consumed.saturating_add(turned.took);
         produced = produced.saturating_add(turned.wrote);
@@ -2296,6 +2319,8 @@ impl Pump {
 
             let (input, last) = match upstream.as_deref() {
                 Some(up) => (
+                    // not a repair: ranges of this reader's own buffers by its own progress counts,
+                    // not values the file states.
                     up.link.get(up.at..up.filled).unwrap_or_default(),
                     up.done.is_some(),
                 ),
@@ -2313,6 +2338,8 @@ impl Pump {
                     filled,
                     ..
                 } = running;
+                // not a repair: a range of this reader's own link buffer by its own fill count, not
+                // a value the file states.
                 let room = link.get_mut(*filled..).unwrap_or_default();
                 if room.is_empty() {
                     // The stage after this one has to drain the link before there is anywhere
@@ -2361,6 +2388,8 @@ impl Pump {
             }
             Some(Ending::Damaged(last_damage)) => {
                 self.finished = true;
+                // not a repair: which of this reader's own two damage positions is reported, not a
+                // value the file states.
                 Pumped::Damaged(wrote, first_damage.unwrap_or(last_damage))
             }
             None if progressed => Pumped::Wrote(wrote),
@@ -2445,6 +2474,8 @@ impl Inflate {
             }
         }
 
+        // not a repair: a range of the input by this reader's own progress count; the decoder's
+        // counts saturate at the platform's width.
         let body = input.get(took..).unwrap_or_default();
         let (before_in, before_out) = (self.decoder.total_in(), self.decoder.total_out());
         let status = self
@@ -2984,6 +3015,8 @@ fn inflate_buffer(data: &[u8], zlib_header: bool, limits: Limits) -> (Vec<u8>, S
             out.reserve_exact(out.capacity().max(FLOOR).min(room));
         }
 
+        // not a repair: a range of the input buffer by this reader's own progress count, not a
+        // value the file states.
         let input = data.get(consumed..).unwrap_or_default();
         let (before_in, before_out) = (decoder.total_in(), out.len());
         let status = decoder.decompress_vec(input, &mut out, flate2::FlushDecompress::None);
@@ -3132,6 +3165,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
 
     // An optional `<~` introduces the data.
     let body = if data.starts_with(b"<~") {
+        // not a repair: the two bytes of the introducer were just tested, so the range exists.
         data.get(2..).unwrap_or_default()
     } else {
         data
@@ -3256,6 +3290,8 @@ fn ascii85_value(group: [u8; 5]) -> Option<u32> {
     for digit in group {
         value = value.saturating_mul(85).saturating_add(u64::from(digit));
     }
+    // not a repair: a group past 32 bits is returned as `None` for the caller to refuse by name,
+    // not defaulted.
     u32::try_from(value).ok()
 }
 
@@ -3270,6 +3306,8 @@ fn push_ascii85_group(out: &mut Vec<u8>, group: [u8; 5], count: usize) -> bool {
     };
     let bytes = value.to_be_bytes();
     let keep = count.saturating_sub(1).min(4);
+    // not a repair: a range of the four bytes this reader just computed, not a value the file
+    // states.
     out.extend_from_slice(bytes.get(..keep).unwrap_or_default());
     true
 }

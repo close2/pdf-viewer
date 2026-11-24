@@ -224,6 +224,7 @@ fn retain_refusal<T>(
     result: Result<Option<T>, NoPress>,
     refused: &mut Option<NoPress>,
 ) -> Option<T> {
+    // not a repair: this reader's refusal is kept and reported, not a value the file states.
     result.unwrap_or_else(|error| {
         *refused = Some(error);
         None
@@ -458,6 +459,8 @@ fn derivation(scale: InkScale, transfer: Option<&Transfer>) -> Option<Transfer> 
             reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
         )]
         let derived = (scale.mask_value(channel) * 255.0)
+            // not a repair: a mask value this reader computed, quantised to a byte, not a value the
+            // file states.
             .clamp(0.0, 255.0)
             .round() as u8;
         *entry = transfer.map_or(derived, |transfer| transfer.apply(derived));
@@ -786,6 +789,8 @@ fn transfer(document: &Document, mask: &Dictionary) -> Result<Option<Transfer>, 
             reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
         )]
         {
+            // not a repair: a mask value this reader computed, quantised to a byte, not a value the
+            // file states.
             *entry = (value * 255.0).clamp(0.0, 255.0).round() as u8;
         }
     }

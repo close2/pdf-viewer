@@ -151,6 +151,8 @@ impl Date {
         // of `D:199812231952-08'00` is absent, and reading two bytes at offset 12 would read the
         // sign.
         let numeric = bytes
+            // not a repair: the end of the string when no non-digit follows, a position in this
+            // reader's scan, not a value the file states.
             .iter()
             .position(|byte| !byte.is_ascii_digit())
             .unwrap_or(bytes.len());
@@ -159,17 +161,23 @@ impl Date {
         }
         let field = |at: usize, width: usize| -> Option<u32> {
             let end = at.checked_add(width)?;
+            // not a repair: the field is a run of ASCII digits by construction, so a failure here
+            // is a field the string does not carry and the caller refuses the date.
             let slice = bytes.get(at..end).filter(|_| end <= numeric)?;
             std::str::from_utf8(slice).ok()?.parse().ok()
         };
 
         let year = field(0, 4)?;
+        // not a repair: ISO 32000-2 §7.9.4 defaults an absent MM and DD to 01 and the other numeric
+        // fields to zero.
         let month = field(4, 2).unwrap_or(1);
         let day = field(6, 2).unwrap_or(1);
         let hour = field(8, 2).unwrap_or(0);
         let minute = field(10, 2).unwrap_or(0);
         let second = field(12, 2).unwrap_or(0);
 
+        // not a repair: a month, day, hour, minute or second out of its §7.9.4 range makes the
+        // string not a date and returns `None`; nothing is clamped.
         let month = u8::try_from(month)
             .ok()
             .filter(|value| (1..=12).contains(value))?;
@@ -181,6 +189,7 @@ impl Date {
         let minute = u8::try_from(minute).ok().filter(|value| *value <= 59)?;
         let second = u8::try_from(second).ok().filter(|value| *value <= 59)?;
 
+        // not a repair: `numeric` is at most the length of the string, so the range exists.
         let offset = match zone(bytes.get(numeric..).unwrap_or_default())? {
             Zone::Absent => None,
             Zone::At(minutes) => Some(minutes),
@@ -209,6 +218,8 @@ impl Date {
         let minutes = days
             .saturating_mul(24 * 60)
             .saturating_add(i64::from(self.hour).saturating_mul(60))
+            // not a repair: ISO 32000-2 §7.9.4 (as amended by Errata Collection 3) has a date that
+            // states no zone related to UT as GMT, offset zero.
             .saturating_add(i64::from(self.minute));
         minutes.saturating_sub(i64::from(self.offset.unwrap_or(0)))
     }
@@ -300,6 +311,8 @@ fn zone(bytes: &[u8]) -> Option<Zone> {
         let end = at.checked_add(2).ok_or(())?;
         match rest.get(at..end) {
             None => Ok(None),
+            // not a repair: two non-digit bytes are `Err`, and the callers below turn it into
+            // `None` so that the date is refused.
             Some(slice) => std::str::from_utf8(slice)
                 .ok()
                 .filter(|text| text.bytes().all(|byte| byte.is_ascii_digit()))
@@ -309,6 +322,8 @@ fn zone(bytes: &[u8]) -> Option<Zone> {
         }
     };
 
+    // not a repair: a malformed hour offset returns `None` and the date is refused; no value stands
+    // in.
     let Some(hours) = two(0).ok()? else {
         // NOTE 2's older convention, and the bare `Z`: nothing after the sign at all.
         return (rest.is_empty() || rest == b"'").then_some(Zone::At(0));
@@ -322,6 +337,8 @@ fn zone(bytes: &[u8]) -> Option<Zone> {
     let minutes = match rest.get(2) {
         None => 0,
         Some(b'\'') => {
+            // not a repair: a malformed minute offset returns `None` and the date is refused; no
+            // value stands in.
             let Some(minutes) = two(3).ok()? else {
                 // NOTE 2 again: PDF 1.7's terminating apostrophe, with no minutes after it.
                 return rest.get(3).is_none().then_some(Zone::At(sign * hours * 60));
@@ -353,6 +370,7 @@ fn days_in_month(year: i32, month: u8) -> u8 {
     if month == 2 && is_leap(year) {
         return 29;
     }
+    // not a repair: the month is within 1..=12 by the caller's check, so the index exists.
     MONTH_LENGTHS
         .get(usize::from(month).saturating_sub(1))
         .copied()

@@ -58,6 +58,8 @@ impl CidToGlyph {
     pub(crate) fn glyph(&self, cid: u32) -> Option<u16> {
         match self {
             // Glyph indices are 16 bits wide, so a larger CID cannot name one.
+            // not a repair: a CID wider than a glyph index names no glyph, and the caller is told
+            // so.
             Self::Identity => u16::try_from(cid).ok(),
             Self::Charset(by_cid) => by_cid.get(&u16::try_from(cid).ok()?).copied(),
             Self::Stream(bytes) => {
@@ -374,6 +376,8 @@ pub(crate) fn cid_to_glyph(
                     detail: "its /CIDToGIDMap stream could not be decoded (§9.7.4.2)".to_owned(),
                 }
             })?;
+            // not a repair: a bound of this reader's (`MAX_MAP`) applied to the stream's length,
+            // not a value the file states.
             let kept = bytes.get(..bytes.len().min(MAX_MAP)).unwrap_or(&bytes);
             CidToGlyph::Stream(Arc::from(kept))
         }

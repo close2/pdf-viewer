@@ -327,6 +327,8 @@ impl FileBytes {
             // prefix of. Slicing is what makes the answer this handle's.
             Held::OnDisk(disk, length) => disk
                 .whole()
+                // not a repair: the held length clipped to the bytes read, this reader's own bound,
+                // not a value the file states.
                 .map(|bytes| bytes.get(..(*length).min(bytes.len())).unwrap_or(bytes)),
         }
     }
@@ -340,6 +342,8 @@ impl FileBytes {
     #[must_use]
     pub fn read_failure(&self) -> Option<ReadFailure> {
         match &self.0 {
+            // not a repair: a poisoned lock of this reader's own cache, not a value the file
+            // states.
             Held::OnDisk(disk, _) => disk.failure.lock().ok().and_then(|held| held.clone()),
             Held::Owned(_) | Held::Shared(_) => None,
         }
@@ -367,6 +371,8 @@ impl FileBytes {
         mut read: impl FnMut(&[u8], bool) -> (T, usize),
     ) -> T {
         let (disk, held) = match &self.0 {
+            // not a repair: an offset past the end of the bytes reads as no bytes, the end of the
+            // file, not a value the file states.
             Held::Owned(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
             Held::Shared(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
             Held::OnDisk(disk, length) => (disk, *length),
@@ -374,6 +380,8 @@ impl FileBytes {
         let Some(remaining) = held.checked_sub(offset).filter(|rest| *rest > 0) else {
             return read(&[], false).0;
         };
+        // not a repair: a window size bounded by this reader's own read plan, not a value the file
+        // states.
         let mut want = first.clamp(1, remaining);
         loop {
             let window = disk.window(offset, want, held);
@@ -399,11 +407,14 @@ impl FileBytes {
 /// conversion; saturating is the answer a 128-bit `usize` would get, and a length that large is
 /// one nothing could hold anyway.
 fn as_u64(length: usize) -> u64 {
+    // not a repair: a length of this reader's own, converted to the width the notices state, not a
+    // value the file states.
     u64::try_from(length).unwrap_or(u64::MAX)
 }
 
 /// `bytes[range]`, with both ends clipped to the slice rather than panicking.
 fn clipped(bytes: &[u8], range: Range<usize>) -> &[u8] {
+    // not a repair: both ends are clipped to this slice's own bounds, not values the file states.
     let start = range.start.min(bytes.len());
     let end = range.end.clamp(start, bytes.len());
     bytes.get(start..end).unwrap_or_default()

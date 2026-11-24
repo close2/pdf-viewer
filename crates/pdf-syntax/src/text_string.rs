@@ -117,6 +117,8 @@ pub(crate) fn pdf_doc_encoded(text: &str) -> Option<Vec<u8>> {
         let code = PDF_DOC_ENCODING
             .iter()
             .position(|entry| *entry == Some(character))?;
+        // not a repair: an index into the 256-entry table, so it fits a byte; a character the table
+        // lacks returns `None` above and the caller refuses the text.
         out.push(u8::try_from(code).ok()?);
     }
     Some(out)

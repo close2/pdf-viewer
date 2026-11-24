@@ -257,6 +257,7 @@ impl Edge {
             return Some((self.from.x.min(self.to.x), self.from.x.max(self.to.x)));
         }
         let at = |y: f32| self.from.x + (y - self.from.y) / dy * (self.to.x - self.from.x);
+        // not a repair: a clamp to the scan band of this reader's, not a value the file states.
         let t_low = at(low.clamp(y0, y1));
         let t_high = at(high.clamp(y0, y1));
         Some((t_low.min(t_high), t_high.max(t_low)))

@@ -687,6 +687,8 @@ impl Walk {
             // *List in Combination of Other XHTML* (page 1217): an item outside any list is
             // read as if an unordered list held it, with minimal list indent.
             let tag = Tag {
+                // not a repair: the first marker of this program's own disc style, not a value the
+                //   file states.
                 text: ListStyle::Disc.tag(1).unwrap_or_default(),
                 style: character.clone(),
             };
@@ -757,6 +759,8 @@ fn version_at_least(stated: &str, floor: &[u64]) -> bool {
         .collect();
     let length = fields.len().max(floor.len());
     for index in 0..length {
+        // not a repair: a version with fewer fields than the floor compares as zero in the fields
+        //   it lacks, not a value the file states.
         let ours = fields.get(index).copied().unwrap_or(0);
         let theirs = floor.get(index).copied().unwrap_or(0);
         if ours != theirs {
@@ -1118,6 +1122,9 @@ impl ListStyle {
                     .chars()
                     .map(|digit| match digit.to_digit(10) {
                         Some(value) => {
+                            // not a repair: a digit written in a numeral system this program
+                            //   holds; a code point it cannot make stays the digit, not a value
+                            //   the file states.
                             char::from_u32(u32::from(zero).saturating_add(value)).unwrap_or(digit)
                         }
                         None => digit,
@@ -1193,6 +1200,8 @@ fn alphabetic(number: i64, first: char, span: u32, skip: &[char]) -> Option<Stri
 /// bijective base *n*, so that one letter's run is followed by every pair; `None` below one, where
 /// the system is not defined.
 fn alphabetic_in(number: i64, letters: &[char]) -> Option<String> {
+    // not a repair: a letter count of this program's own table and an index computed from it, not
+    //   values the file states.
     let base = i64::try_from(letters.len()).ok().filter(|base| *base > 0)?;
     if number < 1 {
         return None;
@@ -1229,6 +1238,8 @@ fn additive(number: i64, weights: &[(i64, &str)]) -> Option<String> {
     let mut out = String::new();
     let mut length = 0_usize;
     for (weight, symbol) in weights.iter().filter(|(weight, _)| *weight > 0) {
+        // not a repair: a count computed from this program's own weights, not a value the file
+        //   states.
         let times = usize::try_from(rest.checked_div(*weight)?).ok()?;
         length = length.saturating_add(times.saturating_mul(symbol.chars().count()));
         if length > ADDITIVE_LONGEST {
@@ -1248,6 +1259,8 @@ fn cjk_decimal(number: i64) -> String {
         .to_string()
         .chars()
         .filter_map(|digit| {
+            // not a repair: an index into this program's own digit table, not a value the file
+            //   states.
             let index = usize::try_from(digit.to_digit(10)?).ok()?;
             CJK_DECIMAL.get(index).copied()
         })
@@ -1273,6 +1286,8 @@ fn longhand(number: i64, set: &Longhand) -> Option<String> {
     let magnitude = number.unsigned_abs();
     let digit = |value: u64| {
         usize::try_from(value)
+            // not a repair: an index into this program's own digit table, not a value the file
+            //   states.
             .ok()
             .and_then(|index| set.digits.get(index))
             .copied()

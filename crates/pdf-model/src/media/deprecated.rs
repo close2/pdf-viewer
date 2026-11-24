@@ -188,6 +188,8 @@ pub fn sound(
 fn file(document: &Document, specification: &Object, fallback: &str) -> Option<Data> {
     let resolved = document.resolve(specification);
     let parsed = FileSpec::parse(document, &resolved)?;
+    // not a repair: the caller's own name for a file specification that names none, shown to a
+    // person only.
     let name = parsed.display_name().unwrap_or_else(|| fallback.to_owned());
     if let Some(dict) = resolved.as_dict()
         && let Some(file) = crate::attachment::read(document, dict, name.clone())

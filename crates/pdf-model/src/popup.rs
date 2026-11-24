@@ -379,6 +379,8 @@ fn popupless_reply(
         return None;
     }
     let mut comment = read(document, id, reply)?;
+    // not a repair: the viewer's own open state, where it holds one, stands before the file's
+    // /Open; not a value the file states.
     comment.open = document
         .get_key(reply, "Subtype")
         .as_name()
@@ -717,6 +719,8 @@ pub(crate) fn opens_with_the_page(
 /// annotation's window, whose text this program does not retype.
 #[must_use]
 pub fn retyped_by(document: &Document, window: &Popup) -> Option<ObjectId> {
+    // not a repair: a popup with no /Parent stands for itself (Table 186's NOTE 3), not a default
+    // value.
     let owner = window.parent.unwrap_or(window.annotation);
     let resolved = document.get(owner);
     let dict = resolved.as_dict()?;

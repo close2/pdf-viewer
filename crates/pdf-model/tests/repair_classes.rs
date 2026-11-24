@@ -142,3 +142,127 @@ fn the_page_reader_logs_its_lexical_repairs() {
         Site::Content(Some(PAGE)),
     );
 }
+
+/// §7.8.2: "operands shall not be left over when an operator finishes execution". The `5` in
+/// front of `m`'s two is dropped, and logged at the page's content.
+#[test]
+fn operands_left_over_are_logged_at_the_content() {
+    has(
+        &page("5 0 0 m 1 1 l S", ""),
+        &repair::OPERANDS_LEFT_OVER,
+        Site::Content(Some(PAGE)),
+    );
+}
+
+/// §7.8.2: `BX` and `EX` "shall occur in pairs" — an `EX` ending nothing, and a `BX` left open.
+#[test]
+fn unbalanced_compatibility_sections_are_logged_at_the_content() {
+    for operators in ["EX 0 0 m 1 1 l S", "BX 0 0 m 1 1 l S"] {
+        has(
+            &page(operators, ""),
+            &repair::COMPATIBILITY_SECTIONS_UNBALANCED,
+            Site::Content(Some(PAGE)),
+        );
+    }
+    assert_eq!(logged(&page("BX 0 0 m 1 1 l S EX", "")), []);
+}
+
+/// Table 352: `BMC` is "terminated by a balancing EMC operator" — an `EMC` balancing nothing,
+/// and a sequence left open.
+#[test]
+fn unbalanced_marked_content_is_logged_at_the_content() {
+    for operators in ["EMC 0 0 m 1 1 l S", "/Span BMC 0 0 m 1 1 l S"] {
+        has(
+            &page(operators, ""),
+            &repair::MARKED_CONTENT_UNBALANCED,
+            Site::Content(Some(PAGE)),
+        );
+    }
+    assert_eq!(logged(&page("/Span BMC 0 0 m 1 1 l S EMC", "")), []);
+}
+
+/// §14.6.2: a named property list is "a named resource in the Properties subdictionary"; this
+/// page's resources hold none.
+#[test]
+fn a_property_list_the_resources_do_not_hold_is_logged_at_the_content() {
+    has(
+        &page("/OC /Missing BDC 0 0 m 1 1 l S EMC", ""),
+        &repair::PROPERTY_LIST_UNRESOLVED,
+        Site::Content(Some(PAGE)),
+    );
+}
+
+/// One page whose resources hold `/GS0` as `state` and `/Fm0` as a form stating `form`.
+fn page_with_resources(operators: &str, state: &str, form: &str) -> Document {
+    file(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R \
+             /Resources << /ExtGState << /GS0 {state} >> /XObject << /Fm0 5 0 R >> >> >>"
+        ),
+        format!(
+            "<< /Length {} >>\nstream\n{operators}\nendstream",
+            operators.len()
+        ),
+        format!(
+            "<< /Type /XObject /Subtype /Form {form} /Length 13 >>\nstream\n0 0 m 1 1 l S\nendstream"
+        ),
+    ])
+}
+
+/// Table 57: `/LW` is a number and `/SA` a boolean; `/TR` is a function, an array of four or
+/// `/Identity`. Each of the wrong type is ignored, and logged at the content that set it.
+#[test]
+fn graphics_state_entries_of_the_wrong_type_are_logged_at_the_content() {
+    let box_ = "/BBox [0 0 1 1]";
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /LW /Thick >>", box_),
+        &repair::GRAPHICS_STATE_ENTRY_OF_THE_WRONG_TYPE,
+        Site::Content(Some(PAGE)),
+    );
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /SA 1 >>", box_),
+        &repair::GRAPHICS_STATE_ENTRY_OF_THE_WRONG_TYPE,
+        Site::Content(Some(PAGE)),
+    );
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /TR /Inverted >>", box_),
+        &repair::TRANSFER_FUNCTION_UNREADABLE,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            "<< /LW 2 /SA true /TR /Identity >>",
+            box_
+        )),
+        []
+    );
+}
+
+/// Table 93: `/BBox` is required and four numbers; `/Matrix` is six. A form missing the first
+/// and stating five numbers for the second is drawn, and both are logged at the content that
+/// invoked it.
+#[test]
+fn a_form_with_no_bbox_and_a_short_matrix_is_logged_at_the_content() {
+    let document = page_with_resources("/Fm0 Do", "<< >>", "/Matrix [1 0 0 1 0]");
+    has(
+        &document,
+        &repair::FORM_BBOX_UNUSABLE,
+        Site::Content(Some(PAGE)),
+    );
+    has(
+        &document,
+        &repair::FORM_MATRIX_MALFORMED,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page_with_resources(
+            "/Fm0 Do",
+            "<< >>",
+            "/BBox [0 0 1 1] /Matrix [1 0 0 1 0 0]"
+        )),
+        []
+    );
+}

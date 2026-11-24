@@ -366,6 +366,8 @@ impl Type3Font {
     /// `CharProcs`, no glyph shall be painted" — which is this returning `None`.
     #[must_use]
     pub fn glyph(&self, document: &Document, code: u32) -> Option<Arc<Stream>> {
+        // not a repair: a character code beyond one byte names no glyph, so the lookup answers
+        // None.
         let code = u8::try_from(code).ok()?;
         let name = self.encoding.get(&code)?;
         // §7.3.5: two names denote one object only when "the resulting sequences of bytes are
@@ -386,6 +388,8 @@ impl Type3Font {
     /// say *which* stream ran — the content ledger — needs the reference that resolving loses.
     #[must_use]
     pub fn glyph_reference(&self, document: &Document, code: u32) -> Option<ObjectId> {
+        // not a repair: a character code beyond one byte names no glyph, so the lookup answers
+        // None.
         let code = u8::try_from(code).ok()?;
         let name = self.encoding.get(&code)?;
         // The `/CharProcs` dictionary itself may be a reference this font holds resolved, so
@@ -401,6 +405,8 @@ impl Type3Font {
     /// codes may reach one description.
     #[must_use]
     pub fn glyph_name(&self, code: u32) -> Option<&Name> {
+        // not a repair: a character code beyond one byte names no glyph, so the lookup answers
+        // None.
         let code = u8::try_from(code).ok()?;
         self.encoding.get(&code)
     }
@@ -418,6 +424,8 @@ impl Type3Font {
         // "For character codes outside the range FirstChar to LastChar, the width shall be
         // 0" — Table 110, which is why nothing here consults `/MissingWidth`. The array was
         // cut at `/LastChar` when it was read, so both sides of the range end it here.
+        // not a repair: ISO 32000-2 Table 110 gives a code outside FirstChar to LastChar the width
+        // 0.
         let width = i64::from(code)
             .checked_sub(self.first_char)
             .and_then(|index| usize::try_from(index).ok())
@@ -457,6 +465,8 @@ impl Type3Font {
         glyph: Option<&'a Dictionary>,
         page: &'a Dictionary,
     ) -> &'a Dictionary {
+        // not a repair: the page's own resources stand where the glyph and the font state none, not
+        // a value the file states.
         glyph.or(self.resources.as_ref()).unwrap_or(page)
     }
 
@@ -511,6 +521,8 @@ impl Type3Font {
         if !self.to_unicode.is_empty() {
             return Some(pdf_font::NamingGap::IncompleteToUnicode);
         }
+        // not a repair: a character code beyond one byte names no glyph, so the lookup answers
+        // None.
         match u8::try_from(code)
             .ok()
             .and_then(|code| self.encoding.get(&code))

@@ -155,6 +155,8 @@ impl CodeToGlyph {
                         .and_then(|sid| by_sid.get(usize::from(sid.to_u16())).copied().flatten()),
                     None => encoding
                         .map(code)
+                        // not a repair: a width conversion that declines where the value does not
+                        // fit; nothing is substituted.
                         .and_then(|glyph| u16::try_from(glyph.to_u32()).ok()),
                 };
             }
@@ -320,6 +322,8 @@ fn evaluated_widths(
             let width = font
                 .evaluate_charstring(&subfont, id, &[], &mut NoCommands)
                 .ok()?
+                // not a repair: Adobe TN 5176 Table 23 defaults an absent defaultWidthX to 0, as
+                // the comment above says.
                 .unwrap_or(Fixed::ZERO);
             Some(metric(&font.transform(&subfont, None), width))
         })

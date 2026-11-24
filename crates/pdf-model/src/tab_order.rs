@@ -392,6 +392,7 @@ fn step(order: &[ObjectId], from: Option<ObjectId>, by: isize) -> Option<ObjectI
             order.last().copied()
         };
     };
+    // not a repair: indices into an order this program built, not values the file states.
     let len = isize::try_from(order.len()).unwrap_or(isize::MAX);
     let next = isize::try_from(at)
         .unwrap_or(0)

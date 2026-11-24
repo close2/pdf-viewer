@@ -223,6 +223,8 @@ impl Sort {
     /// S array the missing entries in the A array shall be assumed to be true".
     #[must_use]
     pub fn ascending(&self, index: usize) -> bool {
+        // not a repair: ISO 32000-2 §12.3.5.2 (Table 156) defaults an absent /A entry to true, as
+        // the doc comment quotes.
         self.ascending.get(index).copied().unwrap_or(true)
     }
 }
@@ -1082,6 +1084,8 @@ pub fn sorted_keys(
     let items = items_by_key(document);
     let mut members: Vec<(usize, &crate::attachment::Attachment, &Item)> = attachments
         .iter()
+        // not a repair: a lookup in this reader's own index; an attachment with no item has no
+        // fields, an empty set.
         .enumerate()
         .map(|(at, attachment)| {
             (
@@ -1230,6 +1234,8 @@ fn compare(
     let ordering = match (left, right) {
         (Sortable::Text(left), Sortable::Text(right)) => left.cmp(right),
         (Sortable::Number(left), Sortable::Number(right)) => {
+            // not a repair: the order of two numbers this reader compared, not a value the file
+            // states.
             left.partial_cmp(right).unwrap_or(Ordering::Equal)
         }
         (Sortable::Instant(left), Sortable::Instant(right)) => left.cmp(right),

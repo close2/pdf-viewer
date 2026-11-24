@@ -34,6 +34,8 @@ pub(super) fn operands_before(pending: &[Object], count: Option<usize>) -> &[Obj
         return pending;
     };
     let start = pending.len().saturating_sub(count);
+    // not a repair: a slice of the operands this reader already collected, not a value the file
+    // states.
     pending.get(start..).unwrap_or(pending)
 }
 
@@ -70,6 +72,8 @@ impl<'a> FlatArray<'a> {
         let (before, from_open) = up_to_close.split_at(open);
         Some(Self {
             before,
+            // not a repair: a slice of the operands this reader already collected, not a value the
+            // file states.
             elements: from_open.get(1..).unwrap_or_default(),
             after: from_close.get(1..).unwrap_or_default(),
         })

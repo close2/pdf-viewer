@@ -132,6 +132,8 @@ impl ParentTree {
     /// Resolved here rather than when the tree was read; see `Self::entries`.
     #[must_use]
     pub fn element(&self, document: &Document, mcid: i64) -> Option<Dictionary> {
+        // not a repair: a lookup of a marked-content id that names no entry answers None; no value
+        // is put in its place.
         let index = usize::try_from(mcid).ok()?;
         document
             .resolve(self.entries.get(index)?)
@@ -145,6 +147,8 @@ impl ParentTree {
     /// A direct dictionary has none.
     #[must_use]
     pub fn element_id(&self, mcid: i64) -> Option<ObjectId> {
+        // not a repair: a lookup of a marked-content id that names no entry answers None; no value
+        // is put in its place.
         let index = usize::try_from(mcid).ok()?;
         self.entries.get(index)?.as_reference()
     }
@@ -153,6 +157,8 @@ impl ParentTree {
     /// answer for it — read without resolving it.
     #[must_use]
     pub fn names(&self, mcid: i64) -> bool {
+        // not a repair: a lookup of a marked-content id that names no entry answers None; no value
+        // is put in its place.
         usize::try_from(mcid)
             .ok()
             .and_then(|index| self.entries.get(index))
@@ -326,6 +332,8 @@ impl Tree {
     /// makes that entry the page for the integer form of a content item.
     #[must_use]
     pub fn children(&self, document: &Document, element: Option<&Dictionary>) -> Vec<Child> {
+        // not a repair: the tree's root stands for the element the caller did not name, not a value
+        // the file states.
         let node = element.unwrap_or(&self.root);
         // The *reference*, not the page it resolves to: `Document::get_key` resolves,
         // and what identifies a page here is its identity.
@@ -646,6 +654,8 @@ impl Tree {
         document: &Document,
         element: Option<&Dictionary>,
     ) -> (Vec<(Child, Option<ObjectId>)>, bool) {
+        // not a repair: the tree's root stands for the element the caller did not name, not a value
+        // the file states.
         let node = element.unwrap_or(&self.root);
         let page = node.get("Pg").and_then(Object::as_reference);
         let kids = document.get_key(node, "K");
@@ -774,6 +784,7 @@ impl Accounted {
         if from >= to {
             return None;
         }
+        // not a repair: a slice bound of the bytes held, not a value the file states.
         for byte in self
             .bytes
             .get_mut(from.saturating_sub(self.range.start)..to.saturating_sub(self.range.start))
@@ -1485,6 +1496,7 @@ impl TableStack {
             header,
             // §14.8.5.7's assumption is what a cell stating nothing gets, and it is about the
             // cell's place in the grid rather than its ordinal among its row's children.
+            // not a repair: ISO 32000-2 §14.8.5.7 assumes the Scope of a cell that states none.
             scope: facts
                 .scope
                 .unwrap_or_else(|| HeaderScope::assumed(place.row, place.column)),
@@ -2064,6 +2076,8 @@ impl StandardType {
             && !level.is_empty()
             && level.bytes().all(|byte| byte.is_ascii_digit())
         {
+            // not a repair: a digit string too long for a heading level names no standard type,
+            // which is an answer and no default.
             return level
                 .parse()
                 .ok()
@@ -3612,6 +3626,7 @@ pub(crate) fn enclosing(
         }
         // The structure tree root is the one parent that is not an element, and it states no
         // language of its own — §14.9.2.3 puts the document's default in the catalog instead.
+        // not a repair: the walk's own position, not a value the file states.
         let Some(parent) = owned_dict(document.get_key(current.as_ref().unwrap_or(element), "P"))
         else {
             break Some((Enclosing::default(), 0));
@@ -3621,6 +3636,7 @@ pub(crate) fn enclosing(
         current = Some(parent);
     };
     let ended = above.is_some();
+    // not a repair: the walk's own memo of what lies above, not a value the file states.
     let (mut found, mut depth) = above.unwrap_or_default();
     for (element_id, (language, actual_text)) in chain.into_iter().rev() {
         // §14.9.2.3: the nearest `/Lang` wins, so an element's own stands over its parent's.

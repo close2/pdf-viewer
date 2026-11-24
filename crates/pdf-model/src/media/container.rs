@@ -167,6 +167,8 @@ fn family(content_type: &str) -> Option<Family> {
     const PROGRAM_STREAM: [&str; 3] = ["video/mpeg", "video/mpg", "video/x-mpeg"];
     let essence = content_type
         .split(';')
+        // not a repair: taking the text before the first semicolon of a content type, not a value
+        // the file states.
         .next()
         .unwrap_or(content_type)
         .trim();
@@ -266,6 +268,8 @@ pub fn timeline(content_type: &str, bytes: &[u8]) -> Result<Timeline, String> {
 pub fn unread(content_type: &str) -> String {
     let essence = content_type
         .split(';')
+        // not a repair: taking the text before the first semicolon of a content type, not a value
+        // the file states.
         .next()
         .unwrap_or(content_type)
         .trim();
@@ -300,6 +304,8 @@ impl<'a> Bytes<'a> {
     }
 
     fn array<const N: usize>(&mut self) -> Option<[u8; N]> {
+        // not a repair: a slice of exactly N bytes always converts to an array of N, so the
+        // conversion cannot fail.
         self.take(N).and_then(|bytes| bytes.try_into().ok())
     }
 
@@ -410,6 +416,8 @@ fn wave(bytes: &[u8]) -> Result<Timeline, String> {
                             .u32_le()
                             .ok_or_else(|| truncated("WAVE labl chunk"))?;
                         // The label is a null-terminated string.
+                        // not a repair: splitting never yields nothing, so the empty slice is
+                        // unreachable; not a value the file states.
                         let text = fields.rest.split(|byte| *byte == 0).next().unwrap_or(&[]);
                         labels.push((name, String::from_utf8_lossy(text).into_owned()));
                     }
@@ -426,6 +434,8 @@ fn wave(bytes: &[u8]) -> Result<Timeline, String> {
     let samples = if tag == 1 {
         data_bytes
             .zip((block != 0).then_some(block))
+            // not a repair: an arithmetic miss leaves the duration unknown, which is not a figure
+            // the file states.
             .and_then(|(bytes, block)| u64::try_from(bytes.checked_div(usize::from(block))?).ok())
     } else {
         fact.map(u64::from)
@@ -475,6 +485,8 @@ fn form<'a>(
             ));
         }
     }
+    // not a repair: a stated length past usize is cut to the bytes held on the next line, not a
+    // value the file states.
     let length = usize::try_from(stated)
         .unwrap_or(usize::MAX)
         .saturating_sub(4);
@@ -694,6 +706,8 @@ fn boxes<'a>(bytes: &'a [u8], at: usize, budget: &mut Budget) -> Result<Vec<Atom
         let (size, header_length): (usize, usize) = match size {
             0 => (bytes.len().saturating_sub(offset), 8),
             1 => {
+                // not a repair: a stated size past usize fails the bounds check below and is
+                // refused; nothing is substituted.
                 let large = header.u64_be().ok_or_else(|| truncated("box header"))?;
                 (usize::try_from(large).unwrap_or(usize::MAX), 16)
             }
@@ -860,6 +874,8 @@ fn base_media(bytes: &[u8]) -> Result<Timeline, String> {
         None => tracks
             .iter()
             .filter(|track| track.handler == Some(*b"vide"))
+            // not a repair: the table walk's own budget ran out; the clip's length is then unknown,
+            // not a figure invented.
             .find_map(|track| {
                 let table = track.table.as_ref()?;
                 let table = children(table, &mut budget).ok()?;
@@ -907,6 +923,7 @@ fn chapters(
 
     let count = sizes.len();
     let mut sample = 0usize;
+    // not a repair: a chunk number this reader counted, not a value the file states.
     for (chunk_index, chunk_offset) in offsets.iter().enumerate() {
         let number = u32::try_from(chunk_index.saturating_add(1)).unwrap_or(u32::MAX);
         let per_chunk = runs

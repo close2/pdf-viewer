@@ -990,6 +990,8 @@ fn beside<A, B: Send, There: FnOnce() -> B + Send>(
     let take = || {
         waiting
             .lock()
+            // not a repair: a poisoned lock of this reader's own threads, not a value the file
+            // states.
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
     };
@@ -1007,6 +1009,7 @@ fn beside<A, B: Send, There: FnOnce() -> B + Send>(
         answer(take());
         first
     });
+    // not a repair: a poisoned lock of this reader's own threads, not a value the file states.
     let second = answered
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

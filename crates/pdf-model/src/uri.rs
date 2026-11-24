@@ -188,11 +188,15 @@ fn split(reference: &str) -> Parts<'_> {
         && is_scheme(candidate)
     {
         scheme = Some(candidate);
+        // not a repair: slicing the text this reader is parsing at positions it found, not a value
+        // the file states.
         rest = rest.get(colon.saturating_add(1)..).unwrap_or_default();
     }
 
     let mut authority = None;
     if let Some(after) = rest.strip_prefix("//") {
+        // not a repair: slicing the text this reader is parsing at positions it found, not a value
+        // the file states.
         let end = after.find('/').unwrap_or(after.len());
         authority = after.get(..end);
         rest = after.get(end..).unwrap_or_default();
@@ -227,6 +231,8 @@ fn merge(base: &Parts<'_>, reference: &str) -> String {
     }
     match base.path.rfind('/') {
         Some(slash) => {
+            // not a repair: slicing the base path at a slash this reader found, not a value the
+            // file states.
             let keep = base.path.get(..=slash).unwrap_or_default();
             format!("{keep}{reference}")
         }

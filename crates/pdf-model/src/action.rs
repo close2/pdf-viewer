@@ -239,6 +239,7 @@ fn rendition(document: &Document, dict: &Dictionary) -> Action {
     Action::Rendition(Rendition {
         operation,
         annotation: dict.get("AN").and_then(Object::as_reference),
+        // not a repair: an absent /R is carried as null, no value is substituted.
         rendition: dict.get("R").cloned().unwrap_or(Object::Null),
         script: dict.get("JS").is_some(),
     })
@@ -343,6 +344,7 @@ fn sound(document: &Document, dict: &Dictionary) -> Action {
     Action::Sound(SoundAction {
         playing,
         misread,
+        // not a repair: an absent /Sound is carried as null, no value is substituted.
         sound: dict.get("Sound").cloned().unwrap_or(Object::Null),
         stated: ["Volume", "Synchronous", "Repeat", "Mix"]
             .into_iter()
@@ -1258,6 +1260,8 @@ fn remote_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
         }),
         structure_view: structure.and_then(|array| {
             let name = document.resolve(array.get(1)?);
+            // not a repair: the tail of the array after the view name; a short array has an empty
+            //   tail, not a value the file states.
             let rest = array.get(2..).unwrap_or_default();
             crate::destination::View::read(document, name.as_name()?.as_bytes(), rest)
         }),
@@ -1599,6 +1603,8 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary, event: Trigg
     };
     read(
         document,
+        // not a repair: an absent additional-actions key is carried as null, no value is
+        //   substituted.
         additional.get(event.key()).unwrap_or(&Object::Null),
     )
 }
@@ -1617,6 +1623,7 @@ pub fn for_page(document: &Document, page: &Dictionary, event: PageTrigger) -> V
         PageTrigger::Open => "O",
         PageTrigger::Close => "C",
     };
+    // not a repair: an absent additional-actions key is carried as null, no value is substituted.
     read(document, additional.get(key).unwrap_or(&Object::Null))
 }
 
@@ -1691,6 +1698,7 @@ impl Walk {
 
             // "The value is either a single action dictionary or an array of action
             // dictionaries that shall be performed in order."
+            // not a repair: an absent /Next is carried as null, no value is substituted.
             let next = dict.get("Next").cloned().unwrap_or(Object::Null);
             match document.resolve(&next) {
                 Object::Array(items) => {
@@ -2010,6 +2018,7 @@ fn set_ocg_state(document: &Document, dict: &Dictionary) -> SetOcgState {
 
 /// Table 214's `/T` and `/H`.
 fn hide(document: &Document, dict: &Dictionary) -> Hide {
+    // not a repair: an absent /T is carried as null, no value is substituted.
     let stated = dict.get("T").cloned().unwrap_or(Object::Null);
     let mut targets = Vec::new();
     // The entry is read *unresolved* first, because an annotation target is an indirect

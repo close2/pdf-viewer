@@ -526,6 +526,8 @@ impl Interpreter<'_> {
         if !departure.loses_chroma() && !any_command(self.list.commands(), &command_composites) {
             return;
         }
+        // not a repair: this reader's own account of why it cannot draw, not a value the file
+        // states.
         let because = self.blending_undrawable().unwrap_or_else(|| {
             if departure.loses_chroma() {
                 BeyondPress::stated(

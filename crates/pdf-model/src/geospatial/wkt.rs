@@ -343,6 +343,8 @@ impl Parser<'_> {
             }
         }
         let literal = &self.text[start..self.at];
+        // not a repair: a literal that is not a finite number is refused (None), nothing is put in
+        // its place.
         literal
             .parse::<f64>()
             .ok()

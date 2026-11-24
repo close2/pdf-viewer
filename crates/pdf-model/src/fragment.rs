@@ -142,6 +142,8 @@ impl Fragment {
             // §O.2's AMPERSAND, by the name the sentence gives it rather than by the code it
             // prints. Split one at a time rather than all at once so that the tail is still a
             // *substring of the URI* when Table Annex O.3's `ef` ends the reading below.
+            // not a repair: splitting this reader's own remaining text at its next separator, not a
+            // value the file states.
             let (part, tail) = rest.split_once('&').unwrap_or((rest, ""));
             rest = tail;
             // Two separators with nothing between them state no parameter, so there is nothing to
@@ -559,6 +561,7 @@ impl Reason {
 /// Deliberately stricter than [`pdf_syntax::Lexer`]'s reader, which salvages a malformed number
 /// because a content stream still has to draw. Nothing has to draw here.
 fn number(bytes: &[u8]) -> Option<f32> {
+    // not a repair: a malformed argument is refused (None) as a whole, nothing is put in its place.
     let text = std::str::from_utf8(bytes).ok()?;
     let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
     // "one or more decimal digits with an optional sign and a leading, trailing, or embedded
@@ -572,6 +575,7 @@ fn number(bytes: &[u8]) -> Option<f32> {
     {
         return None;
     }
+    // not a repair: a malformed argument is refused (None) as a whole, nothing is put in its place.
     // Rejected above: an exponent, `inf` and `NaN` — the three forms `f32::from_str` accepts and
     // §7.3.3 does not have. What is left can still overflow to infinity on a number with three
     // hundred digits, which is a value rather than a syntax and is refused here.
@@ -580,6 +584,7 @@ fn number(bytes: &[u8]) -> Option<f32> {
 
 /// Table Annex O.3's `pageNum`: "a positive integer number", counting from one.
 fn page_number(bytes: &[u8]) -> Option<u32> {
+    // not a repair: a malformed argument is refused (None) as a whole, nothing is put in its place.
     let text = std::str::from_utf8(bytes).ok()?;
     let digits = text.strip_prefix('+').unwrap_or(text);
     if digits.is_empty() || !digits.chars().all(|character| character.is_ascii_digit()) {
@@ -617,6 +622,8 @@ fn percent_decode(argument: &str) -> Vec<u8> {
             )
         {
             out.push(high.saturating_mul(16).saturating_add(low));
+            // not a repair: a slice cut at an index this reader computed, not a value the file
+            // states.
             rest = tail.get(2..).unwrap_or_default();
             continue;
         }

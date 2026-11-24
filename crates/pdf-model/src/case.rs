@@ -57,6 +57,8 @@ include!(concat!(env!("OUT_DIR"), "/case_folding.rs"));
 pub fn folded(character: char) -> Option<&'static str> {
     FOLDING
         .binary_search_by_key(&character, |(from, _)| *from)
+        // not a repair: a binary search miss means the character has no folding, an index result
+        // not a file value.
         .ok()
         .map(|at| FOLDING[at].1)
 }

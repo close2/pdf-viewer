@@ -154,6 +154,8 @@ fn cusps(outline: &[Edge], chord: f32) -> Vec<[f32; 2]> {
         if !total.is_finite() || total <= f32::EPSILON {
             continue;
         }
+        // not a repair: a scallop count this program computes from a length, not a value the file
+        // states.
         // Evenly: the count nearest to what the chosen chord would give, and never zero.
         #[expect(
             clippy::cast_possible_truncation,
@@ -190,6 +192,7 @@ fn along(edge: &[[f32; 2]], lengths: &[f32], distance: f32) -> [f32; 2] {
         }
         remaining -= length;
     }
+    // not a repair: the last point of an edge this program built, not a value the file states.
     edge.last().copied().unwrap_or([0.0, 0.0])
 }
 

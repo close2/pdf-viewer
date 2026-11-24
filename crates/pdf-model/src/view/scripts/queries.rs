@@ -116,6 +116,8 @@ impl ViewState {
                                 })
                                 .value
                         })
+                        // not a repair: a script's value where it set one, else the shown text,
+                        //   nothing is replaced.
                         .unwrap_or(shown.text)
                 }
                 Site::Absent => shown.text,
@@ -160,6 +162,8 @@ impl ViewState {
     /// window to open with — Table 29's `/PageLayout`, which "shall be used when the document is
     /// opened" — and no magnification, since nothing is drawing the page (ADR 1736).
     pub(in crate::view::scripts) fn window_view(&self, document: &Document) -> WindowView {
+        // not a repair: this viewer's own window state where a host set one, else the opening
+        //   arrangement the document asks for, no value is made up.
         self.scripting.window.unwrap_or_else(|| WindowView {
             layout: crate::viewer_preferences::Opening::read(document).layout,
             ..WindowView::default()
@@ -239,6 +243,8 @@ impl ViewState {
                         crate::rich_text::same_characters(&characters, &value)
                     })
                 })
+                // not a repair: the rich text this program writes from the user's own value, not a
+                //   value the file states.
                 .unwrap_or_else(|| crate::rich_text::written(&value)),
         )
     }

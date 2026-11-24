@@ -236,6 +236,29 @@ impl Interpreter<'_> {
 
 /// Applies an `/ExtGState` resource.
 impl Interpreter<'_> {
+    /// Table 57's entry `key` of `dict`, read by `read`.
+    ///
+    /// An absent entry leaves its parameter as it was, and is no repair: ISO 32000-2 §8.4.5,
+    ///
+    /// > All entries need not be present for every invocation of the gs operator
+    ///
+    /// and "parameter values established in previous invocations persist until explicitly
+    /// overridden". A present entry `read` cannot take is of a type Table 57 does not give it: it
+    /// is ignored the same way, and the page says so.
+    fn typed_entry<T>(
+        &self,
+        dict: &Dictionary,
+        key: &str,
+        read: impl FnOnce(&Object) -> Option<T>,
+    ) -> Option<T> {
+        let entry = self.document.get_key(dict, key);
+        let value = read(&entry);
+        if value.is_none() && !matches!(entry, Object::Null) {
+            self.record_repair(&crate::repair::GRAPHICS_STATE_ENTRY_OF_THE_WRONG_TYPE);
+        }
+        value
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Table 57 read once, entry by entry, in the table's own order — which is where a \
@@ -286,10 +309,10 @@ impl Interpreter<'_> {
         // transparency" (see [`Interpreter::shape_only_glyph`]): Table 57's `/CA`, `/ca`, `/BM`,
         // `/SMask`, `/AIS` and `/TK` are skipped there, and the rest of the dictionary applies.
         let transparency = !self.shape_only_glyph;
-        if transparency && let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
+        if transparency && let Some(alpha) = self.typed_entry(dict, "ca", Object::as_number) {
             state.fill_alpha = clamp_unit(alpha);
         }
-        if transparency && let Some(alpha) = self.document.get_key(dict, "CA").as_number() {
+        if transparency && let Some(alpha) = self.typed_entry(dict, "CA", Object::as_number) {
             state.stroke_alpha = clamp_unit(alpha);
         }
         // Table 57 `/D`: the line dash pattern, "expressed as an array of the form
@@ -318,20 +341,20 @@ impl Interpreter<'_> {
         // Table 57's `/LC`, `/LJ` and `/ML`: the same three parameters `J`, `j` and `M` set,
         // through the other of §8.4.1 NOTE 1's two routes. `issue16287.pdf`, `issue7878.pdf`
         // and `extgstate.pdf` set all three this way, and none of them reached the stroke.
-        if let Some(code) = self.document.get_key(dict, "LC").as_integer() {
+        if let Some(code) = self.typed_entry(dict, "LC", Object::as_integer) {
             state.stroke.cap = line_cap(code);
         }
-        if let Some(code) = self.document.get_key(dict, "LJ").as_integer() {
+        if let Some(code) = self.typed_entry(dict, "LJ", Object::as_integer) {
             state.stroke.join = line_join(code);
         }
-        if let Some(limit) = self.document.get_key(dict, "ML").as_number() {
+        if let Some(limit) = self.typed_entry(dict, "ML", Object::as_number) {
             state.stroke.miter_limit = miter_limit(narrow(limit));
         }
         self.apply_ext_gstate_font(dict, state);
         // Table 57's `/LW`, which §8.4.1's NOTE 1 makes the second route to the same
         // parameter the `w` operator sets — so it is clipped into range by §8.4.1's own
         // sentence, exactly as `run.rs`'s `w` is, and for the reason written there.
-        if let Some(width) = self.document.get_key(dict, "LW").as_number() {
+        if let Some(width) = self.typed_entry(dict, "LW", Object::as_number) {
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "a line width outside f32's range is not a line width"
@@ -350,7 +373,7 @@ impl Interpreter<'_> {
         // this device holds the clause's own thickness bound to 0.0039 of a device pixel and
         // the one reference that grid-fits holds it to 0.4000. The ledger's §10.7.5 row has
         // the ladder, the population and why the status stays `partial` all the same.
-        if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
+        if let Some(adjust) = self.typed_entry(dict, "SA", boolean) {
             state.stroke.adjust = adjust;
         }
         // Table 57's `/TR` and `/TR2`: §10.5's transfer function. `Transfer::read` answers `None`
@@ -374,7 +397,13 @@ impl Interpreter<'_> {
         if !self.uncoloured {
             let mut moved = false;
             match Transfer::read(self.document, dict) {
-                Stated::Unsaid => {}
+                // `Unsaid` is also the answer for an entry this reader cannot make sense of,
+                // which leaves the transfer in force as it was: the file stated one.
+                Stated::Unsaid => {
+                    if dict.get("TR").is_some() || dict.get("TR2").is_some() {
+                        self.record_repair(&crate::repair::TRANSFER_FUNCTION_UNREADABLE);
+                    }
+                }
                 Stated::None => {
                     state.transfer.stated = None;
                     moved = true;
@@ -417,7 +446,7 @@ impl Interpreter<'_> {
         // upwards — see `Ramp::resolution_for`, where the clause's own "each output device
         // may have internal limits" is what keeps this device's 1/256 for the coarser
         // requests. 23 corpus documents state one; most say 0.02 and five say 0.002.
-        if let Some(tolerance) = self.document.get_key(dict, "SM").as_number() {
+        if let Some(tolerance) = self.typed_entry(dict, "SM", Object::as_number) {
             state.smoothness = Some(narrow(tolerance));
         }
         // Table 57's `/OP`, `/op` and `/OPM`: §8.6.7's two overprint parameters and the
@@ -429,12 +458,8 @@ impl Interpreter<'_> {
         // three additive colourants; what they decide is §11.7.4.3's special blend mode
         // inside a transparency group compositing in four components, which is a group space
         // rather than a device one. See [`Interpreter::overprint_blend`] and ADR 1157.
-        let boolean = |entry: Object| match entry {
-            Object::Boolean(flag) => Some(flag),
-            _ => None,
-        };
-        let stroking = boolean(self.document.get_key(dict, "OP"));
-        let filling = boolean(self.document.get_key(dict, "op"));
+        let stroking = self.typed_entry(dict, "OP", boolean);
+        let filling = self.typed_entry(dict, "op", boolean);
         if let Some(overprint) = stroking {
             state.overprint_stroking = overprint;
         }
@@ -580,6 +605,8 @@ fn stated_blend_mode(document: &Document, entry: &Object) -> Option<BlendMode> {
                 .map(|item| document.resolve(item))
                 .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
                 .find_map(|name| known_blend_mode(&name))
+                // not a repair: §11.6.3's own reading of the array form, "or Normal if it
+                // recognizes none of them".
                 .unwrap_or(BlendMode::Normal),
         ),
         _ => None,
@@ -693,4 +720,12 @@ pub(super) fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
         b"Luminosity" => BlendMode::Luminosity,
         _ => return None,
     })
+}
+
+/// A boolean entry's value: Table 57's `/SA`, `/OP` and `/op`.
+fn boolean(entry: &Object) -> Option<bool> {
+    match entry {
+        Object::Boolean(flag) => Some(*flag),
+        _ => None,
+    }
 }

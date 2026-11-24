@@ -210,6 +210,8 @@ fn text(tokens: &[Token], value: &str) -> Option<String> {
 /// A number multiplied by a hundred, page 1181's output for a `%` picture: the radix moved two
 /// digits right.
 fn hundredfold(value: &Decimal) -> Decimal {
+    // not a repair: a number with no fraction digits has an empty fraction, not a value the file
+    // states.
     let fraction = value.fraction.as_deref().unwrap_or("");
     let moved: String = fraction.chars().chain("00".chars()).take(2).collect();
     let rest = fraction.get(2..).filter(|rest| !rest.is_empty());
@@ -243,6 +245,8 @@ fn number(tokens: &[Token], value: &Decimal) -> Option<String> {
     } else {
         value.clone()
     };
+    // not a repair: the position of a token in this reader's own list, none meaning no radix, not a
+    // file value.
     let radix_at = tokens
         .iter()
         .position(|t| matches!(t, Token::Radix(..)))
@@ -253,6 +257,8 @@ fn number(tokens: &[Token], value: &Decimal) -> Option<String> {
     let expands = fraction_tokens().any(|t| matches!(t, Token::NumDigit { expands: true, .. }));
     let fraction_places = fraction_tokens().filter(is_digit).count();
     let whole: Vec<char> = value.whole.chars().collect();
+    // not a repair: a number with no fraction digits has an empty fraction, not a value the file
+    // states.
     let fraction: Vec<char> = value.fraction.as_deref().unwrap_or("").chars().collect();
     if whole.len() > integer_places || (!expands && fraction.len() > fraction_places) {
         return None;
@@ -305,6 +311,8 @@ fn number(tokens: &[Token], value: &Decimal) -> Option<String> {
                 required, expands, ..
             } => {
                 if *expands {
+                    // not a repair: a slice cut at an index this reader computed, not a value the
+                    // file states.
                     out.extend(fraction.get(fraction_at..).unwrap_or(&[]));
                     fraction_at = fraction.len();
                 } else if let Some(&digit) = fraction.get(fraction_at) {

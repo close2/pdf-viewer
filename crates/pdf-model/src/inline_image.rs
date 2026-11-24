@@ -490,6 +490,8 @@ fn expand_space(name: &Name) -> Name {
     if name.as_bytes() == b"I" {
         return Name::new(b"Indexed".to_vec());
     }
+    // not a repair: ISO 32000-2 §8.9.7 (Table 92) abbreviates only the names it lists; any other
+    // name is already the full name.
     expand_device_space(name).unwrap_or_else(|| name.clone())
 }
 
@@ -584,6 +586,7 @@ fn data_extent(
         // So the first filter of the chain is asked where its own data ends —
         // `pdf_syntax::Delimiting` is the shapes an answer takes, and
         // `Document::filtered_extent` is the one call that puts the question.
+        // not a repair: a slice bound of the content held, not a value the file states.
         let tail = content.get(start..).unwrap_or_default();
         match document.filtered_extent(dict, tail) {
             EncodedExtent::Ends(length) => {
@@ -689,6 +692,7 @@ fn terminator_at(content: &[u8], at: usize) -> Terminator {
     }
     // `cursor` never passes the end, so this is `Some` and the empty slice is the case where
     // the white space ran to the last byte held.
+    // not a repair: a slice bound of the content held, not a value the file states.
     let rest = content.get(cursor..).unwrap_or_default();
     if rest.len() < 2 {
         return if b"EI".starts_with(rest) {

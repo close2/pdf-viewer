@@ -263,6 +263,8 @@ impl XrefTable {
             .and_then(|size| u32::try_from(size).ok())
             .unwrap_or_default();
         self.highest_stated_number()
+            // not a repair: no section holds an entry, a count of this reader's, not a value the
+            // file states.
             .unwrap_or_default()
             .saturating_add(1)
             .max(size)
@@ -597,6 +599,8 @@ fn cover_of(free: Vec<FreeRun>) -> Vec<FreeRun> {
     }
     cover
         .into_iter()
+        // not a repair: a run's length computed from the sections read, not a value the file
+        // states.
         .filter_map(|(first, (end, section))| {
             // A painted piece lies inside one of `free`'s runs, whose count was a `u32`.
             let count = u32::try_from(end.saturating_sub(u64::from(first))).ok()?;
@@ -677,6 +681,8 @@ impl FreeRuns {
     fn highest(&self) -> Option<u32> {
         self.runs
             .last_key_value()
+            // not a repair: the highest number of the runs this reader computed, not a value the
+            // file states.
             .and_then(|(_, &end)| u32::try_from(end.saturating_sub(1)).ok())
     }
 
@@ -826,6 +832,7 @@ fn header_position(file: &FileBytes) -> Option<usize> {
 fn header_past_window(file: &FileBytes) -> Option<usize> {
     const PDF: [u8; 5] = *b"%PDF-";
     const FDF: [u8; 5] = *b"%FDF-";
+    // not a repair: a read error of the file's source, not a value the file states.
     let whole = file.whole().ok()?;
     let from = HEADER_SEARCH_WINDOW.saturating_sub(PDF.len().saturating_sub(1));
     whole
@@ -1659,8 +1666,12 @@ fn read_xref_stream(
     let stated: u64 = index
         .chunks(2)
         .filter_map(|pair| pair.get(1).copied())
+        // not a repair: the stated count is already clamped non-negative, so the conversion is an
+        // arithmetic guard on this reader's total.
         .map(|count| u64::try_from(count.max(0)).unwrap_or(0))
         .sum();
+    // not a repair: the number of records the data carries, this reader's count, not a value the
+    // file states.
     let carried = u64::try_from(data.len().checked_div(row).unwrap_or(0)).unwrap_or(u64::MAX);
     let lost = stated.saturating_sub(carried);
 
@@ -1675,6 +1686,8 @@ fn read_xref_stream(
     // 0.4 % of `Document::open` on ISO 32000-2; a stream's free records are reserved for and never
     // written, which costs address space, at most 24 bytes a record within the budget, and no
     // resident memory.
+    // not a repair: a capacity bound taken from this reader's two counts, not a value the file
+    // states.
     let readable = usize::try_from(stated.min(carried)).unwrap_or(usize::MAX);
     let capacity = if readable <= budget {
         readable
@@ -1756,6 +1769,7 @@ fn read_records(
             cursor = cursor.saturating_add(row);
 
             let Ok(number) =
+                // not a repair: `offset` is this loop's own counter, never negative, so the conversion cannot fail.
                 u32::try_from(u64::from(first).saturating_add(u64::try_from(offset).unwrap_or(0)))
             else {
                 continue;
@@ -1828,6 +1842,8 @@ enum StreamRead {
 /// Counted from the type field alone, which is one byte in every file anyone writes; a record
 /// with no type field is type 1 (Table 17's `/W`: "If the first element is zero, the type field
 /// shall not be present, and shall default to Type 1").
+// not a repair: a count that sizes the budget check only; the records themselves are read, and
+// repaired, elsewhere.
 fn in_use_records(data: &[u8], row: usize, layout: &RecordLayout, index: &[i64]) -> usize {
     let stated: usize = index
         .chunks(2)
@@ -1952,6 +1968,7 @@ fn unrepresentable_records(data: &[u8], row: usize, layout: &RecordLayout, index
                 return false;
             };
             cursor = cursor.saturating_add(row);
+            // not a repair: `offset` is this loop's own counter, never negative, so the conversion cannot fail.
             if u32::try_from(u64::from(first).saturating_add(u64::try_from(offset).unwrap_or(0)))
                 .is_err()
             {
@@ -2159,6 +2176,7 @@ fn find_startxref(file: &FileBytes) -> Option<(usize, bool)> {
     // The whole file, backwards: the second look reads every byte, so a file on disk is read
     // whole and kept, or refused by name where it cannot be held — in which case there is no
     // `startxref` this reader can find and the caller's scan will refuse the same way.
+    // not a repair: a read error of the file's source, not a value the file states.
     last_startxref_from(file.whole().ok()?, 0).map(|found| (found, true))
 }
 

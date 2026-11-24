@@ -552,6 +552,8 @@ fn layered_page(
         let page = pages
             .index_of(*id)
             .and_then(|index| pages.get(index))
+            // not a repair: a page not in the page tree is read as a detached page of this
+            //   program's own, not a value the file states.
             .unwrap_or_else(|| pages.detached(dict));
         let (content, issues) = page.content_with_report(document);
         if !issues.is_empty() {
@@ -570,6 +572,7 @@ fn layered_page(
         }
         form.insert(
             name(b"Length"),
+            // not a repair: the length of content this program holds, not a value the file states.
             Object::Integer(i64::try_from(content.len()).ok()?),
         );
         let key = format!("T{index}");
@@ -588,6 +591,7 @@ fn layered_page(
     let mut contents = Dictionary::new();
     contents.insert(
         name(b"Length"),
+        // not a repair: the length of content this program holds, not a value the file states.
         Object::Integer(i64::try_from(painting.len()).ok()?),
     );
     let mut out = Dictionary::new();
@@ -635,6 +639,8 @@ fn carried_page(
     let page = pages
         .index_of(id)
         .and_then(|index| pages.get(index))
+        // not a repair: a page not in the page tree is read as a detached page of this program's
+        //   own, not a value the file states.
         .unwrap_or_else(|| pages.detached(dict));
     let (content, issues) = page.content_with_report(source);
     if !issues.is_empty() {
@@ -652,6 +658,7 @@ fn carried_page(
     let mut stream = Dictionary::new();
     stream.insert(
         name(b"Length"),
+        // not a repair: the length of content this program holds, not a value the file states.
         Object::Integer(i64::try_from(content.len()).ok()?),
     );
     let mut out = Dictionary::new();

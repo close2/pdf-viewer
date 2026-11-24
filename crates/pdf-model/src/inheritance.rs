@@ -235,6 +235,7 @@ pub(crate) struct Lineages {
 impl Lineages {
     /// The memo's entry for `id`, if it has one. A poisoned lock is read past for the reason
     /// `pdf_syntax::Document`'s own caches are: every write is one insert of a value the bytes
+    // not a repair: a lock's poisoning, not a value the file states.
     /// determine, so a panic between two leaves a memo merely smaller.
     fn get(&self, id: ObjectId) -> Option<Arc<Resolved>> {
         self.resolved
@@ -306,6 +307,7 @@ impl Inherited {
         }
         if !written.is_empty() {
             let mut resolved = memo
+                // not a repair: a lock's poisoning, not a value the file states.
                 .resolved
                 .write()
                 .unwrap_or_else(PoisonError::into_inner);
@@ -332,6 +334,7 @@ impl Inherited {
     /// `key`'s nearest stated value, references resolved, or `Null` where nothing states it.
     pub(crate) fn get(&self, document: &Document, key: &str) -> Object {
         self.chain()
+            // not a repair: a key no ancestor states is absent (Null), which is no default value.
             .into_iter()
             .map(|dict| document.get_key(dict, key))
             .find(|value| !value.is_null())

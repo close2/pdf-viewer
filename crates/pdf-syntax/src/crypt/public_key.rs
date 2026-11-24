@@ -467,6 +467,8 @@ fn filter_key_length(
         Method::AesV3 => 32,
         Method::AesV2 | Method::Identity => 16,
         Method::Rc4 => match get_in(entry, "Length", resolve).as_integer() {
+            // not a repair: the quotient of a multiple of 8 within 40..=128 always fits a `usize`,
+            // so the default is never taken.
             Some(bits @ 40..=128) if bits % 8 == 0 => usize::try_from(bits / 8).unwrap_or(16),
             None => 16,
             Some(other) => {

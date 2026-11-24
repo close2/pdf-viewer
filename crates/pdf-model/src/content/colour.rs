@@ -658,6 +658,7 @@ impl Interpreter<'_> {
     /// intent (ADR 1001).
     pub(super) fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
+        // not a repair: a caller's own name for a device space, not an entry the file states.
         ColourSpace::parse_under(self.document, &named, resources, self.reading()).unwrap_or(
             match name {
                 // A family name always resolves, so this arm answers only a caller naming
@@ -773,6 +774,7 @@ impl Interpreter<'_> {
 )]
 fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<ProcessTints> {
     match space {
+        // not a repair: an operand-count check that yields no tints, not a default substituted.
         ColourSpace::Cmyk => <[f32; 4]>::try_from(values).ok().map(ProcessTints::device),
         // §8.6.5.7's implicit conversion, which is the press's to decide when the colour is
         // painted: `ProcessTints::on` (ADR 1996).
@@ -1064,6 +1066,8 @@ impl SolidSource {
                 [grey] => Some(Self::Gray(grey)),
                 _ => None,
             },
+            // not a repair: an operand-count check that yields no colour, not a default
+            // substituted.
             ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
             // The family itself, however this selection read it (§11.7.2, ADR 2276).
             ColourSpace::Cmyk | ColourSpace::Icc { .. } if readings.reads(space) => {
@@ -1130,6 +1134,8 @@ impl SolidSource {
             Self::Space(source) => {
                 let read =
                     read_where_painted(conversion, &source.space, source.device_cmyk.as_ref());
+                // not a repair: the space this reader read the colour in, not a value the file
+                // states.
                 conversion.paint(read.as_ref().unwrap_or(&source.space), &source.values)
             }
         }
@@ -1277,6 +1283,8 @@ fn device_cmyk_at(conversion: &Conversion) -> ColourSpace {
                 .output_intent()
                 .filter(|intent| intent.components() == 4)
         })
+        // not a repair: this reader's choice of CMYK space when no output intent is set, not a
+        // value the file states.
         .unwrap_or(ColourSpace::Cmyk)
 }
 

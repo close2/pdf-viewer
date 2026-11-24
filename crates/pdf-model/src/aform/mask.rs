@@ -60,6 +60,8 @@ pub fn print_mask(mask: &str, source: &str) -> String {
             '*' => {
                 out.push_str(&pending);
                 pending.clear();
+                // not a repair: the tail of the source after this reader's own cursor, not a value
+                //   the file states.
                 for c in source.get(next..).unwrap_or_default() {
                     push_cased(&mut out, *c, case);
                 }
@@ -173,6 +175,8 @@ impl Special {
             return false;
         }
         let digits = digit_count(text);
+        // not a repair: the maximum of a set of lengths this program computed, empty only when
+        //   there is none.
         let most = self.complete().iter().copied().max().unwrap_or(0);
         if will_commit {
             self.complete().contains(&digits)

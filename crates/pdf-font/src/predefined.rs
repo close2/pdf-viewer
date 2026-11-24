@@ -111,6 +111,7 @@ fn resolve_unicode(name: &str, depth: u32) -> Option<crate::tounicode::ToUnicode
     }
     if let Some(held) = ucs2_cache()
         .lock()
+        // not a repair: a poisoned cache lock means no cached map, not a value the file states.
         .ok()
         .and_then(|held| held.get(name).cloned())
     {
@@ -266,6 +267,7 @@ fn resolve(name: &str, depth: u32) -> Option<CMap> {
     if depth > MAX_DEPTH {
         return None;
     }
+    // not a repair: a poisoned cache lock means no cached map, not a value the file states.
     if let Some(held) = cache().lock().ok().and_then(|held| held.get(name).cloned()) {
         return held;
     }
@@ -313,6 +315,7 @@ pub(crate) fn used_by(source: &[u8]) -> Option<String> {
 fn entry(name: &str) -> Option<&'static (&'static str, usize, usize, usize)> {
     let at = PREDEFINED
         .binary_search_by(|(held, ..)| (*held).cmp(name))
+        // not a repair: a name looked up in this program's own index, not a value the file states.
         .ok()?;
     PREDEFINED.get(at)
 }
@@ -327,6 +330,7 @@ fn inflate(name: &str) -> Option<Vec<u8>> {
     let read = flate2::read::DeflateDecoder::new(source)
         .take(plain as u64)
         .read_to_end(&mut into)
+        // not a repair: the compiled-in table's own stream, not a value of the file.
         .ok()?;
     (read == plain).then_some(into)
 }

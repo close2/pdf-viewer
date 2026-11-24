@@ -197,6 +197,8 @@ impl Program {
                 let Ok(code) = u8::try_from(code) else {
                     continue;
                 };
+                // not a repair: an index computation guarded against overflow, this reader's
+                // arithmetic.
                 if custom
                     && !self
                         .assigned
@@ -208,6 +210,8 @@ impl Program {
                 }
                 *slot = encoding
                     .map(code)
+                    // not a repair: a width conversion that declines where the value does not fit;
+                    // nothing is substituted.
                     .and_then(|glyph| u16::try_from(glyph.to_u32()).ok());
             }
         }
@@ -342,11 +346,13 @@ impl Program {
 fn assigned_codes(data: &[u8]) -> Box<[bool; 256]> {
     let mut assigned = Box::new([false; 256]);
     let cleartext = match find(data, b"eexec") {
+        // not a repair: an index computation guarded against overflow, this reader's arithmetic.
         Some(at) => data.get(..at).unwrap_or(data),
         None => data,
     };
     let mut rest = cleartext;
     while let Some(at) = find(rest, b"dup ") {
+        // not a repair: an index computation guarded against overflow, this reader's arithmetic.
         rest = rest.get(at.saturating_add(4)..).unwrap_or_default();
         let mut fields = rest.splitn(3, u8::is_ascii_whitespace);
         let (Some(code), Some(name), Some(tail)) = (fields.next(), fields.next(), fields.next())

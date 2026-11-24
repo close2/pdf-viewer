@@ -188,6 +188,7 @@ impl Readings {
     /// has brought the record to its end: the reading in force where nothing the flag
     /// reinterprets was painted, since then any reading describes the scope.
     pub(super) fn seen(self) -> AlphaSourcesSeen {
+        // not a repair: the reading this reader recorded, not a value the file states.
         self.painted.unwrap_or(AlphaSourcesSeen::of(self.in_force))
     }
 

@@ -377,6 +377,7 @@ impl FontCache {
     /// invariant across fields, every write is one insertion into one map, and the worst a
     /// poisoned cache can cost is a font loaded twice.
     fn kept(&self) -> std::sync::MutexGuard<'_, Kept> {
+        // not a repair: a poisoned lock of this reader's own cache, not a value the file states.
         self.held
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

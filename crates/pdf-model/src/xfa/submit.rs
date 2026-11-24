@@ -107,6 +107,7 @@ impl Submit {
                 .map(str::to_owned)
         };
         Self {
+            // not a repair: XFA 3.3 page 858 defaults an absent submit format to xdp.
             format: stated("format").unwrap_or_else(|| "xdp".to_owned()),
             target: stated("target"),
             text_encoding: stated("textEncoding"),

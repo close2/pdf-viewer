@@ -398,6 +398,8 @@ impl Encryption {
         }
 
         let version = get("V").as_integer().unwrap_or(0);
+        // not a repair: an absent or unreadable /R reads as 0, which the match below refuses by
+        // name; no default is carried.
         let revision = get("R").as_integer().unwrap_or(0);
         let owner_entry = get("O").as_string().unwrap_or_default().to_vec();
         let user_entry = get("U").as_string().unwrap_or_default().to_vec();
@@ -518,6 +520,8 @@ impl Encryption {
             permissions: Permissions::from_flags(
                 flags,
                 owner,
+                // not a repair: the conversion cannot fail after the match above, as the comment
+                // says; it is a bound, not a value the file states.
                 u8::try_from(revision).unwrap_or_default(),
             ),
         })
@@ -827,6 +831,8 @@ fn object_key(key: &[u8], method: Method, id: ObjectId) -> Vec<u8> {
     let generation = id.generation.to_le_bytes();
     let mut hash = md5::Md5::new();
     hash.update(key);
+    // not a repair: the low three bytes of a four-byte array this reader just made, not a value the
+    // file states.
     hash.update(number.get(..3).unwrap_or_default());
     hash.update(generation);
     if method == Method::AesV2 {
@@ -838,6 +844,7 @@ fn object_key(key: &[u8], method: Method, id: ObjectId) -> Vec<u8> {
     // (d) "Use the first (n + 5) bytes, up to a maximum of 16, of the output".
     let take = key.len().saturating_add(5).min(16);
     let digest = hash.finalize();
+    // not a repair: `take` is at most 16 by the line above, so the range exists.
     digest.get(..take).unwrap_or(&digest).to_vec()
 }
 
@@ -976,6 +983,7 @@ fn unwrap_owner_entry(padded: &[u8; 32], input: &AuthenticateLegacy<'_>) -> Opti
     }
     digest.truncate(input.length);
 
+    // not a repair: a /O too short to test fails authentication; no value stands in.
     let mut purported: [u8; 32] = input.owner_entry.get(..32)?.try_into().ok()?;
     if input.revision == 2 {
         rc4_apply(&digest, &mut purported)?;
@@ -1154,6 +1162,8 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
         };
 
         // (c) and (d): the first 16 bytes of E, big-endian, modulo 3 choose the hash.
+        // not a repair: the output of this reader's own AES step, which is whole blocks, so the
+        // range exists.
         let head = e.get(..16).unwrap_or_default();
         let remainder = head.iter().fold(0u32, |accumulator, byte| {
             // 256 ≡ 1 (mod 3), so the remainder of a big-endian byte string is the
@@ -1167,6 +1177,8 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
             _ => sha2::Sha512::digest(&e).to_vec(),
         };
 
+        // not a repair: the output of this reader's own AES step is never empty, so the default is
+        // never taken.
         last_of_e = e.last().copied().unwrap_or(0);
         round = round.saturating_add(1);
     }
@@ -1658,6 +1670,8 @@ fn xor_each(key: &[u8], value: u8) -> Vec<u8> {
 
 /// Applies RC4 in place, returning `None` for a key length the cipher does not accept.
 fn rc4_apply(key: &[u8], data: &mut [u8]) -> Option<()> {
+    // not a repair: the cipher library's refusal is returned as `None` for the caller to report; no
+    // value stands in.
     let mut cipher = rc4::Rc4::new_from_slice(key).ok()?;
     cipher.apply_keystream(data);
     Some(())
@@ -1684,6 +1698,8 @@ fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let mut out = vec![0u8; body.len()];
     let plain_len = match key.len() {
         16 => cbc::Decryptor::<Aes128>::new_from_slices(key, iv)
+            // not a repair: the cipher library's refusals are returned as `None` for the caller to
+            // report; no value stands in.
             .ok()?
             .decrypt_padded_b2b::<Pkcs7>(body, &mut out)
             .ok()?
@@ -1721,6 +1737,8 @@ fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 /// is why the output buffer is a block longer than the input rounded down.
 fn aes_cbc_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let mut iv = [0u8; AES_BLOCK];
+    // not a repair: a failed platform entropy read is returned as `None` for the caller to report;
+    // no value stands in.
     getrandom::fill(&mut iv).ok()?;
     aes_cbc_encrypt_with_iv(key, iv, data)
 }
@@ -1739,6 +1757,8 @@ fn aes_cbc_encrypt_with_iv(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Opti
     let mut body = vec![0u8; padded];
     let written = match key.len() {
         16 => cbc::Encryptor::<Aes128>::new_from_slices(key, &iv)
+            // not a repair: the cipher library's refusals are returned as `None` for the caller to
+            // report; no value stands in.
             .ok()?
             .encrypt_padded_b2b::<Pkcs7>(data, &mut body)
             .ok()?
@@ -1800,6 +1820,8 @@ fn aes_cbc_decrypt_raw_with(
 
     match (direction, key.len()) {
         (Direction::Encrypt, 16) => {
+            // not a repair: the cipher library's refusal is returned as `None` for the caller to
+            // report; no value stands in.
             let mut cipher = cbc::Encryptor::<Aes128>::new_from_slices(key, iv).ok()?;
             for block in blocks {
                 cipher.encrypt_block(block.into());
@@ -1812,6 +1834,8 @@ fn aes_cbc_decrypt_raw_with(
             }
         }
         (Direction::Decrypt, 32) => {
+            // not a repair: the cipher library's refusal is returned as `None` for the caller to
+            // report; no value stands in.
             let mut cipher = cbc::Decryptor::<Aes256>::new_from_slices(key, iv).ok()?;
             for block in blocks {
                 cipher.decrypt_block(block.into());
@@ -1849,6 +1873,8 @@ fn verified_perms(
     if revision < 5 || key.is_empty() {
         return (None, None);
     }
+    // not a repair: an absent /Perms reads as no bytes, which `perms_block` cannot decode, and the
+    // match below reports it as `UnboundPermissions::Absent`; no value stands in.
     match perms_block(key, perms.as_string().unwrap_or_default()) {
         Some(block) => (Some(block), None),
         None if revision == 6 => (
@@ -1876,6 +1902,8 @@ fn verified_perms(
 /// states (ADR 2962). A block without the marker is unreadable, and then the plaintext `/P` is
 /// all the file offers.
 fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
+    // not a repair: a /Perms that is not one block, or that no cipher can read, yields `None` and
+    // the caller reports it; no value stands in.
     let mut block = <[u8; AES_BLOCK]>::try_from(perms.get(..AES_BLOCK)?).ok()?;
     // Algorithm 13 step (a): AES-256 in ECB mode over one block, which is one application of
     // the block cipher and so needs no mode at all. The clause used to say "with an
@@ -1892,6 +1920,8 @@ fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
         return None;
     }
     Some(PermsBlock {
+        // not a repair: a four-byte range of a sixteen-byte array this reader just decrypted, so
+        // the range exists.
         flags: u32::from_le_bytes(<[u8; 4]>::try_from(block.get(..4)?).ok()?),
         encrypt_metadata: block.get(8) == Some(&b'T'),
     })
@@ -2061,6 +2091,7 @@ fn fill_48(out: &mut [u8; 48], hash: &[u8], validation: &[u8], key_salt: &[u8]) 
 /// reader could not open, and there is one place to get it right.
 fn wrap_key(intermediate: &[u8], key: &[u8; 32]) -> Option<[u8; 32]> {
     let wrapped = aes_cbc_encrypt_raw(intermediate, [0; AES_BLOCK], key)?;
+    // not a repair: the length of this reader's own AES output, not a value the file states.
     <[u8; 32]>::try_from(wrapped.as_slice()).ok()
 }
 
@@ -2095,6 +2126,8 @@ fn perms_entry(
     // cipher, so there is no mode to configure; Errata Collection 3's Issue #24 struck the
     // initialisation vector out of all three of the clause's ECB sentences for that reason
     // (ADR 0253), and this function is the writing half of what `perms_block` reads.
+    // not a repair: the cipher library's refusal is returned as `None` for the caller to report; no
+    // value stands in.
     let cipher = Aes256::new_from_slice(key).ok()?;
     cipher.encrypt_block((&mut block).into());
     Some(block)

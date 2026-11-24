@@ -249,6 +249,8 @@ impl Tree {
     /// 1.7 namespace is not a type.
     #[must_use]
     pub fn standard_role(&self, document: &Document, element: &Dictionary) -> Option<StandardType> {
+        // not a repair: an element whose type is no standard one answers None; nothing is put in
+        // its place.
         self.mapped_role(document, element).standard.ok()
     }
 

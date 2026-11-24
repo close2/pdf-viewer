@@ -132,6 +132,8 @@ impl LoadedFont {
             return None;
         }
         let glyph = match &self.mapping {
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
             CodeMapping::Composite { cmap, glyphs } => {
                 cmap.cid(code).and_then(|cid| glyphs.glyph(cid))

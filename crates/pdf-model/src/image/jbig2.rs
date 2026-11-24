@@ -97,6 +97,8 @@ pub(super) fn jbig2_bilevel(
 
     let decoded = pdf_sandbox::decode(&Request::Jbig2 {
         data: &source.data,
+        // not a repair: ISO 32000-2 §7.3.9 treats a null or absent /JBIG2Globals (Table 12) as no
+        // entry; any other type is refused above.
         globals: globals.as_deref().unwrap_or_default(),
     })
     .map_err(ImageError::from)?;

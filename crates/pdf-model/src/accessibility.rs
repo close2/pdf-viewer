@@ -187,6 +187,8 @@ fn emit(
             past = past.saturating_add(1);
         }
 
+        // not a repair: a slice of this reader's own text cut at offsets it computed, not a value
+        // the file states.
         push(text.get(cursor..start).unwrap_or_default(), language, runs);
         let inner = item.language.as_deref().or(language);
         if let Some(phrase) = item.phrase() {
@@ -196,6 +198,8 @@ fn emit(
             let mut said = 0;
             let mut speaking = inner;
             for (offset, escaped) in &item.phrase_languages {
+                // not a repair: a slice of this reader's own text cut at offsets it computed, not a
+                // value the file states.
                 push(
                     phrase.get(said..*offset).unwrap_or_default(),
                     speaking,
@@ -208,6 +212,8 @@ fn emit(
             push_break(runs);
         } else if depth < MAX_NESTING {
             emit(
+                // not a repair: a slice of this reader's own text cut at offsets it computed, not a
+                // value the file states.
                 text,
                 items.get(index.saturating_add(1)..past).unwrap_or_default(),
                 start,
@@ -222,6 +228,8 @@ fn emit(
         cursor = end;
         index = past;
     }
+    // not a repair: a slice of this reader's own text cut at offsets it computed, not a value the
+    // file states.
     push(text.get(cursor..to).unwrap_or_default(), language, runs);
 }
 

@@ -266,6 +266,8 @@ impl ViewState {
         let taking: Vec<ObjectId> = widgets
             .iter()
             .copied()
+            // not a repair: a script's override of the read-only flag when one has set it, else
+            //   the file's own flag stands; nothing is replaced.
             .filter(|widget| !read_only.unwrap_or_else(|| is_read_only(document, *widget)))
             .collect();
         // A selected button is its on-state name, with the widget kept beside it, and a value of a
@@ -275,6 +277,8 @@ impl ViewState {
         else {
             return 0;
         };
+        // not a repair: the user's own typed text, or the text a script's key handler changed it
+        //   to, not a value the file states.
         let value = selection.as_ref().unwrap_or(value);
         // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
         // a keystroke script judges the characters before any widget takes them, and a refusal
@@ -322,6 +326,8 @@ impl ViewState {
                 value: {
                     let typed = Some(Object::String(
                         pdf_syntax::text_string::encode_text_string(
+                            // not a repair: the user's own typed text, or the text a script's key
+                            //   handler changed it to, not a value the file states.
                             taken.as_deref().unwrap_or(text),
                         )
                         .into(),
@@ -393,6 +399,8 @@ impl ViewState {
         match value {
             Entered::Text(whole) => {
                 self.begin_typing(document, name, taking);
+                // not a repair: the user's own typed text, or the text a script's key handler
+                //   changed it to, not a value the file states.
                 let full = scripts::fills(document, taking, whole, taken.unwrap_or(whole));
                 self.hold_typing(name, Some((whole, full)));
             }
@@ -752,6 +760,8 @@ fn admitted<'s>(
         ),
         _ => (None, None),
     };
+    // not a repair: the user's own typed text, or the text a script's key handler changed it to,
+    //   not a value the file states.
     let shape = selection.as_ref().unwrap_or(value);
     match taking.first() {
         Some(widget) if !takes(document, *widget, scripted(*widget), shape) => None,
@@ -876,6 +886,8 @@ pub(super) fn accepted(document: &Document, widgets: &[ObjectId], value: &str) -
             limit = limit.min(prefix);
         }
     }
+    // not a repair: a cut of the user's own text at a limit; text shorter than the limit stays
+    //   whole, not a value the file states.
     value.get(..limit).unwrap_or(value).to_owned()
 }
 
@@ -1003,6 +1015,8 @@ impl FieldName {
     /// The name §14.9.3 says a user interface shall show, which is `/TU` where there is one.
     #[must_use]
     pub fn shown(&self) -> &str {
+        // not a repair: ISO 32000-2 §14.9.3, as the doc comment says: the name shown is /TU where
+        //   there is one, else the field's own name.
         self.alternative.as_deref().unwrap_or(&self.qualified)
     }
 }

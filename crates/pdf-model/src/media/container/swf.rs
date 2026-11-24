@@ -111,6 +111,7 @@ pub(super) fn timeline(bytes: &[u8]) -> Result<Timeline, String> {
 /// The header's length covers the eight bytes before the stream, so the stream inflates to that
 /// many less, and the decode is limited to it: a stream that inflates to more is refused as the
 /// decoder's own bound, one that inflates to less ends short and is refused here.
+// not a repair: a length past usize is refused, nothing is substituted.
 fn inflate(stream: &[u8], length: u32) -> Result<Vec<u8>, String> {
     let inflated = usize::try_from(length)
         .ok()
@@ -181,6 +182,7 @@ fn string(bytes: &[u8], version: u8) -> Result<(String, &[u8]), String> {
                 .to_owned(),
         );
     };
+    // not a repair: a slice cut at an index this reader computed, not a value the file states.
     Ok((name, rest.get(1..).unwrap_or_default()))
 }
 
@@ -195,6 +197,7 @@ fn encoded_u32(bytes: &mut Bytes<'_>) -> Option<u32> {
             break;
         }
     }
+    // not a repair: the value is masked to 32 bits just before, so the conversion cannot fail.
     u32::try_from(value & u64::from(u32::MAX)).ok()
 }
 

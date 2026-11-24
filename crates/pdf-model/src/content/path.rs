@@ -109,6 +109,7 @@ impl Interpreter<'_> {
             // §11.6.4.4's constants lifted on to §11.7.4.4's first-bullet group. A tiling
             // pattern's cell takes it too — the cell's own marks are the part the bullet
             // paints at an alpha of 1.0, and the group applies the stated one once.
+            // not a repair: a graphics state this reader derived, not a value the file states.
             let painting = lifted.as_ref().unwrap_or(&*state);
             // Whether a part painted through a tiling pattern composites by its cell's own
             // marks, which the state at this operator does not say (`Interpreter::tile`).
@@ -478,6 +479,8 @@ impl Interpreter<'_> {
                 fill_rule: FillRule::NonZero,
                 parent,
             })
+            // not a repair: a refused clip (the list's budget) is no clip, not a value the file
+            // states.
             .ok()
     }
 }

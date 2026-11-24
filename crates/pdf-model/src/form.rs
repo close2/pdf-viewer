@@ -515,6 +515,8 @@ fn read(
         // (ADR 2980): a host told the stored flag would offer an edit `set_field` then refuses.
         read_only: view
             .script_read_only(qualified)
+            // not a repair: a script's override of the flag when the document's script has set
+            //   one, else the file's own flag stands (ADR 2980); nothing is replaced.
             .unwrap_or(field.flags & appearance::FLAG_READ_ONLY != 0),
         required: view
             .script_required(qualified)

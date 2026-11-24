@@ -114,6 +114,7 @@ impl WordGaps {
             return last.font;
         }
         let found = self.fonts.iter().rposition(|held| same_font(held, font));
+        // not a repair: an index into this reader's own font table, not a value the file states.
         found.unwrap_or_else(|| {
             self.fonts.push(font.clone());
             self.fonts.len().saturating_sub(1)
@@ -224,6 +225,8 @@ fn own_threshold(shares: &mut [(f32, usize)]) -> f32 {
     }
     let threshold = (low * high)
         .sqrt()
+        // not a repair: a bound on a threshold this reader inferred from positions, not a value the
+        // file states.
         .clamp(LEAST_WORD_GAP_SHARE, WORD_GAP_SHARE);
     let (moved, words) = shares
         .iter()

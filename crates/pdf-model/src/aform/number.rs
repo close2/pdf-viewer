@@ -123,6 +123,8 @@ pub fn make_number(text: &str) -> Option<f64> {
     if digits == 0 || points > 1 {
         return None;
     }
+    // not a repair: the text is the user's input; one that is no number is rejected, no value is
+    //   substituted.
     let value: f64 = normalised.parse().ok()?;
     value.is_finite().then_some(value)
 }
@@ -175,6 +177,7 @@ pub fn number_text(value: f64) -> String {
     if negative {
         out.push('-');
     }
+    // not a repair: a digit count of text this program built, not a value the file states.
     let k = i64::try_from(digits.len()).unwrap_or(i64::MAX);
     let n = i64::from(point);
     if k <= n && n <= 21 {
@@ -183,6 +186,8 @@ pub fn number_text(value: f64) -> String {
             out.push('0');
         }
     } else if 0 < n && n <= 21 {
+        // not a repair: a split point and slices of digits this program built, not values the file
+        //   states.
         let split = usize::try_from(n).unwrap_or(0);
         out.push_str(digits.get(..split).unwrap_or_default());
         out.push('.');
@@ -195,6 +200,7 @@ pub fn number_text(value: f64) -> String {
         out.push_str(&digits);
     } else {
         let exponent = n.saturating_sub(1);
+        // not a repair: slices of digits this program built, not values the file states.
         out.push_str(digits.get(..1).unwrap_or_default());
         if digits.len() > 1 {
             out.push('.');
@@ -214,6 +220,8 @@ pub fn number_text(value: f64) -> String {
 /// notation, so that no digit is invented here.
 fn decimal(value: f64) -> (bool, String, i32) {
     let text = format!("{:e}", value.abs());
+    // not a repair: an exponent of a number this program formatted itself, not a value the file
+    //   states.
     let (mantissa, exponent) = text.split_once('e').unwrap_or((&text, "0"));
     let exponent: i32 = exponent.parse().unwrap_or(0);
     let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
@@ -245,12 +253,15 @@ fn rounded(value: f64, places: u32) -> (bool, String, String) {
     let mut integer_len = point_i;
     if point_i <= 0 {
         // Leading zeros between the point and the first significant digit.
+        // not a repair: a padding count computed from digits this program built, not a value the
+        //   file states.
         let pad = usize::try_from(point_i.unsigned_abs()).unwrap_or(0);
         let mut padded = vec![0_u8; pad.saturating_add(1)];
         padded.append(&mut all);
         all = padded;
         integer_len = 1;
     }
+    // not a repair: a length computed from digits this program built, not a value the file states.
     let wanted = usize::try_from(integer_len.saturating_add(places_i)).unwrap_or(0);
     while all.len() <= wanted {
         all.push(0);
@@ -276,6 +287,8 @@ fn rounded(value: f64, places: u32) -> (bool, String, String) {
             integer_len = integer_len.saturating_add(1);
         }
     }
+    // not a repair: a split point and slices of digits this program built, not values the file
+    //   states.
     let split = usize::try_from(integer_len).unwrap_or(0).min(all.len());
     let to_text = |part: &[u8]| -> String {
         part.iter()
@@ -292,6 +305,8 @@ fn rounded(value: f64, places: u32) -> (bool, String, String) {
 
 /// `places` as a length, bounded by what [`MAX_PLACES`] allows a caller to ask for.
 fn places_len(places: u32) -> usize {
+    // not a repair: a count of places bounded by this reader's own limit, not a value the file
+    //   states.
     usize::try_from(places.min(MAX_PLACES)).unwrap_or(0)
 }
 
@@ -399,6 +414,7 @@ pub(crate) fn number_keystroke(text: &str, point: char, will_commit: bool) -> bo
     if text.is_empty() {
         return true;
     }
+    // not a repair: text with no sign has nothing to strip, not a value the file states.
     let body = text.strip_prefix(['+', '-']).unwrap_or(text);
     let mut digits = 0_usize;
     let mut points = 0_usize;
@@ -513,6 +529,8 @@ fn significant(value: f64) -> f64 {
     if !value.is_finite() || value == 0.0 {
         return value;
     }
+    // not a repair: a number this program formatted itself and reads back, not a value the file
+    //   states.
     format!("{value:.14e}").parse().unwrap_or(value)
 }
 

@@ -213,6 +213,8 @@ pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     for index in 0..usize::from(count) {
         let entry = 12usize.checked_add(index.checked_mul(16)?)?;
         let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let offset = usize::try_from(be32(entry.checked_add(8)?)?).ok()?;
         let length = usize::try_from(be32(entry.checked_add(12)?)?).ok()?;
         // No table begins inside the table directory; see [`sfnt_tables`] for what a font
@@ -248,6 +250,8 @@ pub(crate) fn repaired_loca_format(data: &[u8]) -> Option<Vec<u8>> {
     // Short offsets are stored halved, which is why the last one is doubled to compare.
     let short = be16(loca.checked_add(entries.checked_sub(1)?.checked_mul(2)?)?)
         .map(|value| usize::from(value).checked_mul(2));
+    // not a repair: a width conversion that declines where the value does not fit; nothing is
+    // substituted.
     let long = be32(loca.checked_add(entries.checked_sub(1)?.checked_mul(4)?)?)
         .and_then(|value| usize::try_from(value).ok());
     let fits = |width: usize, last: Option<usize>| {
@@ -303,6 +307,8 @@ pub(crate) fn sfnt_tables(data: &[u8]) -> Option<BTreeMap<Vec<u8>, (usize, usize
     for index in 0..usize::from(count) {
         let entry = 12usize.checked_add(index.checked_mul(16)?)?;
         let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let offset = usize::try_from(be32(data, entry.checked_add(8)?)?).ok()?;
         let length = usize::try_from(be32(data, entry.checked_add(12)?)?).ok()?;
         // **No table begins inside the table directory.** The directory is bytes a document
@@ -344,6 +350,7 @@ fn rewritten_sfnt(
     for (tag, bytes) in replacements {
         // Which directory entry names this table, found by tag rather than by position: the
         // directory is sorted by tag and a caller has no business assuming where one sits.
+        // not a repair: an index computation guarded against overflow, this reader's arithmetic.
         let entry = (0..count).find(|index| {
             12usize
                 .checked_add(index.checked_mul(16).unwrap_or(usize::MAX))
@@ -351,6 +358,8 @@ fn rewritten_sfnt(
                 .is_some_and(|found| found == tag.as_slice())
         })?;
         let at = 12usize.checked_add(entry.checked_mul(16)?)?;
+        // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+        // declines on overflow.
         let offset = u32::try_from(out.len()).ok()?;
         let length = u32::try_from(bytes.len()).ok()?;
         out.extend_from_slice(bytes);
@@ -426,6 +435,8 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
 
     // Short offsets are stored halved; the entries are compared in `glyf`'s own units either
     // way, which is what lets one test serve both formats.
+    // not a repair: a width conversion that declines where the value does not fit; nothing is
+    // substituted.
     let offset = |index: usize| -> Option<usize> {
         let at = loca_at.checked_add(index.checked_mul(width)?)?;
         if width == 4 {
@@ -447,6 +458,7 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
     }
 
     let count = usize::from(be16(data, 4)?);
+    // not a repair: an index computation guarded against overflow, this reader's arithmetic.
     let entry = (0..count).find(|index| {
         12usize
             .checked_add(index.checked_mul(16).unwrap_or(usize::MAX))
@@ -458,6 +470,8 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
         .checked_add(LENGTH)?;
     let mut repaired = data.to_vec();
     let slot = repaired.get_mut(at..at.checked_add(4)?)?;
+    // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+    // declines on overflow.
     slot.copy_from_slice(&u32::try_from(needed).ok()?.to_be_bytes());
     Some(repaired)
 }
@@ -608,6 +622,8 @@ pub(crate) fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
+    // not a repair: a width conversion that declines where the value does not fit; nothing is
+    // substituted.
     let offset = |index: usize| -> Option<usize> {
         let at = loca_at.checked_add(index.checked_mul(width)?)?;
         if long {
@@ -627,6 +643,8 @@ pub(crate) fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
     let mut rebuilt: Vec<u8> = Vec::with_capacity(glyf_length);
     let mut offsets: Vec<u32> = Vec::with_capacity(entries);
     for (index, start) in starts.get(..glyphs)?.iter().enumerate() {
+        // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+        // declines on overflow.
         offsets.push(u32::try_from(rebuilt.len()).ok()?);
         // **An empty glyph stays empty.** The glyph table's own standard says a glyph with no
         // outline is written by giving it and its successor the same offset, and that statement
@@ -654,6 +672,8 @@ pub(crate) fn repaired_loca_order(data: &[u8]) -> Option<Vec<u8>> {
             rebuilt.push(0);
         }
     }
+    // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+    // declines on overflow.
     offsets.push(u32::try_from(rebuilt.len()).ok()?);
 
     let mut loca = Vec::with_capacity(offsets.len().checked_mul(4)?);
@@ -682,6 +702,8 @@ pub(crate) fn glyph_length(glyf: &[u8], start: usize) -> Option<usize> {
 
     let contours = i16::from_be_bytes([*glyf.get(start)?, *glyf.get(start.checked_add(1)?)?]);
     if contours >= 0 {
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let contours = usize::try_from(contours).ok()?;
         let mut at = start
             .checked_add(HEADER)?
@@ -823,6 +845,8 @@ pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Optio
 
     let mut restated = Vec::with_capacity(glyphs.checked_mul(4)?);
     for glyph in 0..glyphs {
+        // not a repair: a glyph this program restated takes its new advance, any other keeps the
+        // font's own.
         let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph);
         let advance = u16::try_from(glyph)
             .ok()
@@ -835,6 +859,8 @@ pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Optio
         .get(hhea_at..hhea_at.checked_add(hhea_length)?)?
         .to_vec();
     hhea.get_mut(NUMBER_OF_H_METRICS..NUMBER_OF_H_METRICS.checked_add(2)?)?
+        // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+        // declines on overflow.
         .copy_from_slice(&u16::try_from(glyphs).ok()?.to_be_bytes());
 
     let out = rewritten_sfnt(data, &tables, &[(b"hhea", hhea), (b"hmtx", restated)])?;
@@ -884,6 +910,7 @@ pub(crate) fn without_records_past_the_end(data: &[u8]) -> Option<Vec<u8>> {
         if end > data.len() as u64 {
             continue;
         }
+        // not a repair: a writer's bounds; a record past `usize` declines the restatement (`None`) rather than reading anything in its place.
         let at = usize::try_from(*offset).ok()?;
         let bytes = data.get(at..usize::try_from(end).ok()?)?;
         kept.push((tag.as_slice(), bytes));
@@ -936,6 +963,8 @@ pub(crate) fn with_tables(data: &[u8], replacements: &[(&[u8; 4], Vec<u8>)]) -> 
 /// The directory is the tables' own: [`sfnt_tables`] hands them over sorted by tag, which is the
 /// order ISO/IEC 14496-22 requires of the records. Every table begins on a four-byte boundary.
 fn laid_out(data: &[u8], kept: &[(&[u8], &[u8])]) -> Option<Vec<u8>> {
+    // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+    // declines on overflow.
     let count = u16::try_from(kept.len()).ok()?;
     if count == 0 {
         return None;
@@ -956,6 +985,8 @@ fn laid_out(data: &[u8], kept: &[(&[u8], &[u8])]) -> Option<Vec<u8>> {
         out.extend_from_slice(tag);
         // The checksum is written as zero and restated below, over the layout this is building.
         out.extend_from_slice(&[0; 4]);
+        // not a repair: a count or offset this writer computes, narrowed to the field's width; it
+        // declines on overflow.
         out.extend_from_slice(&u32::try_from(at).ok()?.to_be_bytes());
         out.extend_from_slice(&u32::try_from(bytes.len()).ok()?.to_be_bytes());
         body.extend_from_slice(bytes);
@@ -990,6 +1021,8 @@ pub(crate) fn checksummed(mut data: Vec<u8>) -> Option<Vec<u8>> {
     for index in 0..count {
         let entry = 12usize.checked_add(index.checked_mul(16)?)?;
         let tag = data.get(entry..entry.checked_add(4)?)?.to_vec();
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let offset = usize::try_from(be32(&data, entry.checked_add(8)?)?).ok()?;
         let length = usize::try_from(be32(&data, entry.checked_add(12)?)?).ok()?;
         if tag == b"head" {

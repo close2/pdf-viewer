@@ -210,6 +210,8 @@ fn split_outside_quotes(text: &str, separator: char) -> Vec<&str> {
             Some(open) if character == open => quote = None,
             None if character == '"' || character == '\'' => quote = Some(character),
             None if character == separator => {
+                // not a repair: a slice of the style text at positions this program found, not a
+                //   value the file states.
                 parts.push(text.get(start..at).unwrap_or_default());
                 start = at.saturating_add(character.len_utf8());
             }
@@ -622,6 +624,8 @@ fn character_property(
             // where `/DR` holds one (`layout`'s `Faces`), and said where none is found.
             let wanted = value.trim().to_ascii_lowercase();
             if let Some(at) = STRETCHES.iter().position(|name| *name == wanted) {
+                // not a repair: an index into the table of nine widths, which always fits a byte,
+                //   not a value the file states.
                 character.stretch = u8::try_from(at).unwrap_or(NORMAL_STRETCH);
             }
         }
@@ -820,6 +824,8 @@ fn tab_stops(value: &str, size: Linear) -> (Vec<TabStop>, bool) {
                     _ => {}
                 }
             }
+            // not a repair: slices of the style text at ends this program found, and a last word
+            //   with nothing after it, not values the file states.
             let stated = rest.get(..end).unwrap_or_default();
             let (read, page) = read_leader(stated, size);
             leader = read;
@@ -1096,6 +1102,8 @@ fn font_shorthand(value: &str, parent_size: Linear, character: &mut Character, b
     };
     let rest = tokens
         .get(index.saturating_add(1)..)
+        // not a repair: the tokens after the one this program just read; none left is an empty
+        //   rest, not a value the file states.
         .unwrap_or_default()
         .join(" ");
     let named = families(&rest);

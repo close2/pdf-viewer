@@ -299,6 +299,7 @@ pub fn character_for(name: &str) -> Option<char> {
 /// back as anything without this.
 #[must_use]
 pub fn text_for(name: &str) -> Option<String> {
+    // not a repair: a split always yields a first piece, so the fallback is never taken.
     let stem = name.split('.').next().unwrap_or(name);
     // The common case is one component and a name the list knows as one character, which is
     // every ordinary encoding: answered without splitting or allocating.

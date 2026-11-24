@@ -131,6 +131,8 @@ impl<'a> Reader<'a> {
     /// Takes the next character.
     fn bump(&mut self) -> Option<char> {
         let next = self.peek()?;
+        // not a repair: the rest of the call text after a character this reader just took, not a
+        //   value the file states.
         self.rest = self.rest.get(next.len_utf8()..).unwrap_or_default();
         Some(next)
     }
@@ -238,6 +240,8 @@ impl<'a> Reader<'a> {
             if digits == 0 {
                 return None;
             }
+            // not a repair: a hex run that does not parse rejects the call as unread, it supplies
+            //   no value.
             let value = u64::from_str_radix(hex.get(..digits)?, 16).ok()?;
             self.rest = hex.get(digits..).unwrap_or_default();
             #[expect(
@@ -281,6 +285,7 @@ impl<'a> Reader<'a> {
             length = at;
         }
         let text = start.get(..length)?;
+        // not a repair: text that does not parse rejects the call as unread, it supplies no value.
         let value: f64 = text.parse().ok()?;
         self.rest = start.get(length..).unwrap_or_default();
         Some(if negative { -value } else { value })

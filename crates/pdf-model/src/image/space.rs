@@ -191,6 +191,8 @@ impl Decode {
     pub(super) fn from_pairs(stated: &[f32], space: &ColourSpace, bits: u32) -> Self {
         // 2^n − 1, the largest sample the depth can carry, and the formula's x max.
         let max = (1u32 << bits.min(16)).saturating_sub(1);
+        // not a repair: an arithmetic guard on this reader's own table sizes, not a value the file
+        // states.
         let span = f32::from(u16::try_from(max.max(1)).unwrap_or(u16::MAX));
 
         let mut values = Vec::with_capacity(space.components());
@@ -208,6 +210,8 @@ impl Decode {
             let (floor, ceiling) = space.permitted(component);
             let table = (0..=max)
                 .map(|raw| {
+                    // not a repair: an arithmetic guard on this reader's own table sizes, not a
+                    // value the file states.
                     let sample = f32::from(u16::try_from(raw).unwrap_or(u16::MAX));
                     // D min + x × (D max − D min) ÷ (2^n − 1), with the multiplication
                     // before the division: an `Indexed` space's default pair is
@@ -234,6 +238,8 @@ impl Decode {
             .get(component)
             .and_then(|table| table.get(raw))
             .copied()
+            // not a repair: an index into this reader's own lookup table, not a value the file
+            // states.
             .unwrap_or(0.0)
     }
 

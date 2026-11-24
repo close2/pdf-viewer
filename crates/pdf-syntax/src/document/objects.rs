@@ -242,6 +242,8 @@ impl Document {
                 Some((_, Object::Reference(_))) | None => Held::Unread,
                 Some((generation, _)) if *generation != id.generation => Held::NotADictionary,
                 Some((_, object)) => object.as_dict().map_or(Held::NotADictionary, |dict| {
+                    // not a repair: ISO 32000-2 §7.3.7 treats an absent entry as a null one
+                    // ("treated the same as if the entry does not exist").
                     Held::Entry(dict.get(key).cloned().unwrap_or(Object::Null))
                 }),
             }
@@ -255,6 +257,8 @@ impl Document {
             Held::Unread => self
                 .resolve(&Object::Reference(id))
                 .as_dict()
+                // not a repair: ISO 32000-2 §7.3.7 treats an absent entry as a null one ("treated
+                // the same as if the entry does not exist").
                 .map(|dict| dict.get(key).cloned().unwrap_or(Object::Null)),
         }
     }

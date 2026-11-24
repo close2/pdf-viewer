@@ -100,6 +100,7 @@ impl Interpreter<'_> {
                 Some(_) => None,
                 None => self.alternate_image(&stream.dict, &label),
             };
+            // not a repair: the image this reader chose to draw, not a value the file states.
             let drawn = alternate.as_ref().unwrap_or(&stream);
             // Table 87's `/Measure` is the named image's, and an alternate is another rendition of
             // that image (§8.9.5.4), so the base image's entry is the one read. Its bounds are
@@ -261,15 +262,27 @@ impl Interpreter<'_> {
     /// coordinate system as this matrix concatenated with the transform in force at the
     /// `gs` — the same reading of the same entry that `Do` makes, and one worth making
     /// once.
+    ///
+    /// An absent `/Matrix` is Table 93's "Default value: the identity matrix" and no repair; one
+    /// that is not six numbers is read as far as it goes, and the page says so.
     pub(super) fn matrix(&mut self, dict: &Dictionary) -> Option<Transform> {
         let entry = self.document.get_key(dict, "Matrix");
-        let items = entry.as_array()?;
+        if matches!(entry, Object::Null) {
+            return None;
+        }
+        let Some(items) = entry.as_array() else {
+            self.record_repair(&crate::repair::FORM_MATRIX_MALFORMED);
+            return None;
+        };
         let values: Vec<f32> = items
             .iter()
             .map(|item| self.document.resolve(item))
             .filter_map(|item| item.as_number())
             .map(narrow)
             .collect();
+        if items.len() != 6 || values.len() != 6 {
+            self.record_repair(&crate::repair::FORM_MATRIX_MALFORMED);
+        }
         (values.len() >= 6).then(|| {
             Transform::new(
                 values[0], values[1], values[2], values[3], values[4], values[5],
@@ -305,15 +318,24 @@ impl Interpreter<'_> {
     }
 
     /// Reads a rectangle entry as four numbers, in the order the file wrote them.
+    ///
+    /// Every caller reads a form's `/BBox`, which Table 93 makes required: one absent, or not four
+    /// numbers, is drawn as far as it goes, and the page says so.
     pub(super) fn rectangle(&mut self, dict: &Dictionary, key: &str) -> Option<[f32; 4]> {
         let entry = self.document.get_key(dict, key);
-        let items = entry.as_array()?;
+        let Some(items) = entry.as_array() else {
+            self.record_repair(&crate::repair::FORM_BBOX_UNUSABLE);
+            return None;
+        };
         let values: Vec<f32> = items
             .iter()
             .map(|item| self.document.resolve(item))
             .filter_map(|item| item.as_number())
             .map(narrow)
             .collect();
+        if items.len() != 4 || values.len() != 4 {
+            self.record_repair(&crate::repair::FORM_BBOX_UNUSABLE);
+        }
         (values.len() >= 4).then(|| [values[0], values[1], values[2], values[3]])
     }
 }
@@ -404,6 +426,7 @@ impl<'a> Interpreter<'a> {
         let named = reference
             .file
             .display_name()
+            // not a repair: a label for this reader's report, not a value the file states.
             .unwrap_or_else(|| "an unnamed file".to_owned());
         match supply.find(&reference) {
             Outcome::NoneSupplied => None,

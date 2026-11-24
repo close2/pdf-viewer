@@ -82,6 +82,8 @@ pub(super) fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32
 /// How many columns or rows an inclusive index range spans, and never fewer than one.
 pub(super) fn extent(first: i32, last: i32) -> usize {
     usize::try_from(last.saturating_sub(first).saturating_add(1))
+        // not a repair: an arithmetic guard on this reader's index range, not a value the file
+        // states.
         .unwrap_or(usize::MAX)
         .max(1)
 }
@@ -103,6 +105,7 @@ fn span(low: f32, high: f32, step: f32, cell_low: f32, cell_high: f32) -> (i32, 
     /// Bounds the index range so a huge path or a tiny step cannot overflow.
     const LIMIT: f32 = 1e6;
 
+    // not a repair: a bound of this reader's on the index range, not a value the file states.
     let first = ((low - cell_high) / step).floor().clamp(-LIMIT, LIMIT);
     let last = ((high - cell_low) / step).ceil().clamp(-LIMIT, LIMIT);
     #[expect(
@@ -185,6 +188,8 @@ impl Interpreter<'_> {
         if let Some(lattice) = pdf_render::snap_lattice(stated, step, extent, pixels_per_unit) {
             return (lattice.to_page, step);
         }
+        // not a repair: this reader's own lattice step where snapping does not apply, not a value
+        // the file states.
         let step = pdf_render::snap_steps(stated, step, pixels_per_unit).unwrap_or(step);
         (stated, step)
     }

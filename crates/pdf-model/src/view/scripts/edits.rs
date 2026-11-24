@@ -201,6 +201,8 @@ impl ViewState {
         }
         let indices: Vec<usize> = indices
             .iter()
+            // not a repair: a script's indices narrowed to indices; one out of range names no
+            //   widget, no value is substituted.
             .filter_map(|index| usize::try_from(*index).ok())
             .collect();
         let scripted = widgets
@@ -274,6 +276,8 @@ impl ViewState {
             ));
             return;
         };
+        // not a repair: a script's widget index narrowed to an index and judged against the
+        //   widgets next, not a value the file states.
         let index = widget.map_or(0, |index| usize::try_from(index).unwrap_or(usize::MAX));
         if index >= widgets.len() {
             self.report(format!(
@@ -308,6 +312,8 @@ impl ViewState {
         let widgets: Vec<ObjectId> = match widget {
             None => all.clone(),
             Some(index) => {
+                // not a repair: a script's widget index narrowed to an index; one out of range is
+                //   reported, no value is substituted.
                 let Some(one) = usize::try_from(index).ok().and_then(|index| all.get(index)) else {
                     self.report(format!(
                         "{field}: a script set Field.{} on its widget {index}, and \
@@ -425,6 +431,8 @@ impl ViewState {
             .optional_content
             .as_ref()
             .and_then(|content| content.name(document, group))
+            // not a repair: a label this program writes into its own report, not a value the file
+            //   states.
             .unwrap_or_else(|| format!("object {number}"));
         let already = self
             .optional_content

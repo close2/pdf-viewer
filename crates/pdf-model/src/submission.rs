@@ -911,6 +911,8 @@ fn chosen(
             // The flag as the document's own script last set it, over the file's (ADR 2980).
             let required = view
                 .script_required(name)
+                // not a repair: the script's flag, when it set one, stands over the file's; viewer
+                // state, not a file value.
                 .unwrap_or(field.flags & FLAG_REQUIRED != 0);
             if required {
                 owed.push(format!(
@@ -990,6 +992,8 @@ fn exported(
                         .is_on(document, dict)
                 })
             });
+            // not a repair: no field in the chain states /Opt, so there are no options to map from,
+            // an absent entry.
             let options = field
                 .chain()
                 .into_iter()
@@ -1038,6 +1042,7 @@ pub(crate) fn choice_export(
     value: &Object,
     indices: Option<&[usize]>,
 ) -> Object {
+    // not a repair: the caller's own optional list of indices, not an entry the file states.
     let named: Vec<&crate::form::Choice> = indices
         .unwrap_or_default()
         .iter()
@@ -1209,6 +1214,8 @@ fn selected_file(
     if let Some(chosen) = view.chosen_file(name) {
         return Selected::Carried(SelectedFile {
             name: Some(chosen.pathname.clone()),
+            // not a repair: HTML 4.01 section 17.13.4.2 names application/octet-stream where no
+            // type is given.
             media_type: chosen
                 .media_type
                 .clone()
@@ -1238,6 +1245,8 @@ fn selected_file(
                 Ok(decoded) => Selected::Carried(SelectedFile {
                     name: specification.display_name(),
                     // Table 44's `/Subtype` is the stream's own media type where it states one.
+                    // not a repair: HTML 4.01 section 17.13.4.2 names application/octet-stream
+                    // where no type is given.
                     media_type: attachment
                         .media_type
                         .unwrap_or_else(|| "application/octet-stream".to_owned()),
@@ -1693,6 +1702,8 @@ fn fdf_annotation(
         }
     }
     out.insert(
+        // not a repair: an ordinal this reader counted, widened to the integer a dictionary holds,
+        // not a file value.
         Name::new(&b"Page"[..]),
         Object::Integer(i64::try_from(ordinal).unwrap_or(i64::MAX)),
     );
@@ -2109,6 +2120,8 @@ fn excluded_by_xfdf(flags: crate::action::SubmitFlags, owed: &mut Vec<String>) {
 }
 
 /// The object number of the next thing written after the catalog, which is object 1.
+// not a repair: an object number this reader counted for the file it writes, not a value the file
+// states.
 fn next_object(written: usize) -> u32 {
     u32::try_from(written).unwrap_or(u32::MAX).saturating_add(2)
 }
@@ -2122,6 +2135,8 @@ fn next_object(written: usize) -> u32 {
 /// body that a server is about to read is a trade nobody here has measured.
 fn stream(mut dict: Dictionary, data: Vec<u8>) -> Object {
     dict.insert(
+        // not a repair: a length of data this reader holds, widened to the integer a dictionary
+        // holds.
         Name::new(&b"Length"[..]),
         Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
     );
@@ -2189,6 +2204,8 @@ fn embedded_file_spec(stream: ObjectId, name: Option<&str>) -> Object {
 fn embedded_file_dictionary(size: usize, media_type: &str) -> Dictionary {
     let mut params = Dictionary::new();
     params.insert(
+        // not a repair: a size of data this reader holds, widened to the integer a dictionary
+        // holds.
         Name::new(&b"Size"[..]),
         Object::Integer(i64::try_from(size).unwrap_or(i64::MAX)),
     );

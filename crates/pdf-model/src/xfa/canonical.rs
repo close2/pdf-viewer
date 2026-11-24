@@ -99,6 +99,8 @@ pub(crate) fn weekday(year: u16, month: u8, day: u8) -> u8 {
         + 5 * century)
         .rem_euclid(7);
     let sunday_first = (answer + 6).rem_euclid(7) + 1;
+    // not a repair: a weekday number from this reader's own arithmetic, always 1 to 7, not a file
+    // value.
     u8::try_from(sunday_first).unwrap_or(1)
 }
 
@@ -108,6 +110,8 @@ pub(crate) fn from_day_of_year(year: u16, day: u16) -> Option<(u8, u8)> {
     for month in 1..=12 {
         let length = u16::from(days_in_month(year, month));
         if left >= 1 && left <= length {
+            // not a repair: a day of month already checked against the month's length, so it fits
+            // u8.
             return Some((month, u8::try_from(left).ok()?));
         }
         left = left.checked_sub(length)?;
@@ -117,6 +121,8 @@ pub(crate) fn from_day_of_year(year: u16, day: u16) -> Option<(u8, u8)> {
 
 fn digits(text: &str, count: usize) -> Option<u16> {
     (text.len() == count && text.bytes().all(|b| b.is_ascii_digit()))
+        // not a repair: the text was just checked to be digits, so a failure of the parse is only
+        // an overflow, refused.
         .then(|| text.parse().ok())
         .flatten()
 }
@@ -153,6 +159,7 @@ pub(crate) fn date(text: &str) -> Option<Date> {
     let month = match parts.next() {
         None => return Some(only_year),
         Some(part) => match digits(part, 2) {
+            // not a repair: a month already matched to 1 to 12, so it fits u8.
             Some(month @ 1..=12) => u8::try_from(month).ok()?,
             _ => return None,
         },
@@ -169,6 +176,7 @@ pub(crate) fn date(text: &str) -> Option<Date> {
     (parts.next().is_none() && day >= 1 && day <= u16::from(days_in_month(year, month))).then(
         || Date {
             month: Some(month),
+            // not a repair: a day already checked against the month's length, so it fits u8.
             day: u8::try_from(day).ok(),
             ..only_year
         },
@@ -208,6 +216,7 @@ pub(crate) fn time(text: &str) -> Option<(Time, Option<&str>)> {
     let mut values = [None; 3];
     for ((field, limit), value) in fields.iter().zip(limits).zip(values.iter_mut()) {
         match digits(field, 2) {
+            // not a repair: a field already checked against its limit, so it fits u8.
             Some(read) if read <= limit => *value = u8::try_from(read).ok(),
             _ => return None,
         }
@@ -264,12 +273,15 @@ pub(crate) fn is_date_time(text: &str) -> bool {
 /// well-formed expression; the examples are what this reads it from, so a lone `.` or a bare
 /// exponent are not numbers.
 pub(crate) fn is_number(text: &str) -> bool {
+    // not a repair: stripping an optional sign while parsing, not a value the file states.
     let text = text.strip_prefix(['+', '-']).unwrap_or(text);
     let (mantissa, exponent) = match text.find(['e', 'E']) {
         // `e` and `E` are one byte, so the exponent starts one byte on.
         Some(at) => (&text[..at], text.get(at.saturating_add(1)..)),
         None => (text, None),
     };
+    // not a repair: splitting the text being parsed at its radix point, not a value the file
+    // states.
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     let all_digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
     if !all_digits(whole) || !all_digits(fraction) || (whole.is_empty() && fraction.is_empty()) {
@@ -278,6 +290,7 @@ pub(crate) fn is_number(text: &str) -> bool {
     match exponent {
         None => true,
         Some(exponent) => {
+            // not a repair: stripping an optional sign while parsing, not a value the file states.
             let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
             !exponent.is_empty() && all_digits(exponent)
         }
@@ -304,6 +317,7 @@ pub(crate) fn decimal(text: &str) -> Option<Decimal> {
         return None;
     }
     let negative = text.starts_with('-');
+    // not a repair: stripping an optional sign while parsing, not a value the file states.
     let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
     let (whole, fraction) = match unsigned.split_once('.') {
         Some((whole, fraction)) => (whole, Some(fraction.to_owned())),

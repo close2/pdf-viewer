@@ -105,6 +105,8 @@ impl Helmert {
         if !matches!(values.len(), 3 | 6 | 7) || !values.iter().all(|value| value.is_finite()) {
             return Err(refused());
         }
+        // not a repair: the length was checked to be 3, 6 or 7, so an index past it is a term the
+        // shift does not have.
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
         Ok(Self {
             translation: [at(0), at(1), at(2)],

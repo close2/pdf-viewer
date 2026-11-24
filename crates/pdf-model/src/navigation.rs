@@ -195,6 +195,8 @@ pub struct Transition {
 #[must_use]
 pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> {
     let dict = document.resolve(page.get("Trans")?);
+    // not a repair: an absent key is looked up as null, which the readers below take as absent, not
+    // a value the file states.
     let dict = dict.as_dict()?;
     let name = |key: &str| {
         document
@@ -229,6 +231,8 @@ pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> 
     } else {
         number("D").map_or(1.0, narrow)
     };
+    // not a repair: an absent key is looked up as null, which the readers below take as absent, not
+    // a value the file states.
     let direction = match document.resolve(dict.get("Di").unwrap_or(&Object::Null)) {
         Object::Name(name) if name.as_bytes() == b"None" => Direction::None,
         other => Direction::Degrees(other.as_number().map_or(0.0, narrow)),
@@ -247,6 +251,8 @@ pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> 
         direction,
         scale: number("SS").map_or(1.0, narrow),
         opaque: matches!(
+            // not a repair: an absent key is looked up as null, which the readers below take as
+            // absent, not a value the file states.
             document.resolve(dict.get("B").unwrap_or(&Object::Null)),
             Object::Boolean(true)
         ),
@@ -331,6 +337,8 @@ pub struct Node {
 pub fn steps(document: &Document, page: &Dictionary) -> Vec<Node> {
     let mut out = Vec::new();
     let mut seen: Vec<ObjectId> = Vec::new();
+    // not a repair: an absent key is looked up as null, which the readers below take as absent, not
+    // a value the file states.
     let mut entry = page.get("PresSteps").cloned().unwrap_or(Object::Null);
     while out.len() < MAX_NODES {
         if let Object::Reference(id) = entry {
@@ -344,6 +352,8 @@ pub fn steps(document: &Document, page: &Dictionary) -> Vec<Node> {
             break;
         };
         out.push(Node {
+            // not a repair: an absent key is looked up as null, which the readers below take as
+            // absent, not a value the file states.
             forward: crate::action::read(document, node.get("NA").unwrap_or(&Object::Null)),
             backward: crate::action::read(document, node.get("PA").unwrap_or(&Object::Null)),
             duration: node

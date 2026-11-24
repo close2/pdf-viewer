@@ -324,6 +324,8 @@ pub(crate) fn truetype_code_table(
                 // `names` because §9.10.2's second method applies where "the glyph selection
                 // algorithm (see 9.6.5) uses a glyph name" — which here it now has.
                 let ignored = ignored_names.as_ref()?;
+                // not a repair: a width conversion that declines where the value does not fit;
+                // nothing is substituted.
                 let index = usize::try_from(code).ok()?;
                 let glyph_name = ignored.get(index).filter(|n| !n.is_empty())?;
                 let glyph = named_glyph(&post, &subtables, charset.as_ref(), glyph_name)?;
@@ -336,6 +338,8 @@ pub(crate) fn truetype_code_table(
                 subtables
                     .all
                     .is_none()
+                    // not a repair: a width conversion that declines where the value does not fit;
+                    // nothing is substituted.
                     .then(|| u16::try_from(code).ok())
                     .flatten()
             });
@@ -485,6 +489,8 @@ fn as_character(subtables: &Subtables<'_>, code: u32) -> Option<u16> {
 /// A glyph index beyond `u16` cannot appear in a `TrueType` font — `maxp` states the count
 /// as a `u16` — so this discards nothing a well-formed font can produce.
 fn narrow_glyph(glyph: GlyphId) -> Option<u16> {
+    // not a repair: a width conversion that declines where the value does not fit; nothing is
+    // substituted.
     u16::try_from(glyph.to_u32()).ok()
 }
 

@@ -55,6 +55,7 @@ impl Interpreter<'_> {
         if map.is_none() && !self.transfers.is_live() {
             return;
         }
+        // not a repair: a slice of this reader's own command list, not a value the file states.
         let tiles = self
             .list
             .commands()
@@ -99,6 +100,7 @@ impl Interpreter<'_> {
         let mut reading = reading;
         let now = self.list.command_count();
         if reading != painted && now > mark {
+            // not a repair: a slice of this reader's own command list, not a value the file states.
             let tiles = self.list.commands().get(mark..).unwrap_or_default();
             // The two routes `wrap_tiling` takes to one group whose raster is its shape: a
             // group it always builds — a stroke's region, or the state's own parameters — and
@@ -238,6 +240,7 @@ impl Interpreter<'_> {
     /// nothing in the cell blends, or the enclosing knockout group's initial backdrop is
     /// transparent — and a cell that blends stays inline for `compose_tiling` to seal.
     fn wrap_inline_tiles(&mut self, mark: usize, reading: AlphaSourcesSeen, state: &GraphicsState) {
+        // not a repair: a slice of this reader's own command list, not a value the file states.
         let tiles = self.list.commands().get(mark..).unwrap_or_default();
         let isolated = self.enclosing_knockout == Some(KnockoutKind::Isolated)
             || !any_command(tiles, &command_blends);

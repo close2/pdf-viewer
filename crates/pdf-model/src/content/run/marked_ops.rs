@@ -103,9 +103,14 @@ impl Interpreter<'_> {
         } else {
             Vec::new()
         };
-        let mcid = self
-            .property_list(resources, operands.get(1))
-            .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
+        let list = self.property_list(resources, operands.get(1));
+        // §14.6.2: a property list named by the operand "shall be defined as a named resource
+        // in the Properties subdictionary"; one the resources do not hold states nothing, and an
+        // optional-content sequence naming it is shown (`hides` above).
+        if list.is_none() && matches!(operands.get(1), Some(Object::Name(_))) {
+            self.record_repair(&crate::repair::PROPERTY_LIST_UNRESOLVED);
+        }
+        let mcid = list.and_then(|list| self.document.get_key(&list, "MCID").as_integer());
         self.open_marking(mcid);
         marked.push(Marked {
             hides,
@@ -252,6 +257,10 @@ impl Interpreter<'_> {
                 self.associated
                     .push((section.starts_at..self.text.len(), attachment));
             }
+        } else {
+            // Table 352's `BMC` and `BDC` are each "terminated by a balancing EMC operator",
+            // and this one balances nothing.
+            self.record_repair(&crate::repair::MARKED_CONTENT_UNBALANCED);
         }
     }
 }

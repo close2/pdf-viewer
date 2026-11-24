@@ -744,6 +744,8 @@ impl<'a> Parser<'a> {
     /// clause's "except within strings, streams, and comments". A gap ends it: one byte of damage
     /// on a literal string's `(` turns its contents into entries. ADR 0787, and `doc/todo/03` section 36.
     pub fn parse_damaged_dictionary(&mut self) -> Option<DamagedDictionary> {
+        // not a repair: a header that does not parse names no damaged dictionary and returns
+        // `None`; no value stands in.
         let id = self.parse_object_header().ok()?;
         if self.lexer.next_token() != Some(Token::DictOpen) {
             return None;
@@ -780,6 +782,8 @@ const ENDSTREAM_SPAN: usize = b"endstream".len().saturating_add(2);
 /// input, or whitespace that runs to the input's end, is an answer the window could not give,
 /// and the count says so by reaching past it. See [`Parser::examined`].
 pub(crate) fn endstream_examined(input: &[u8], offset: usize) -> (bool, usize) {
+    // not a repair: an offset past the input reads as no bytes, the end of the input, not a value
+    // the file states.
     let rest = input.get(offset..).unwrap_or_default();
     let trimmed = rest
         .iter()

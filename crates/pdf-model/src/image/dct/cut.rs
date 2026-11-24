@@ -93,6 +93,8 @@ impl Huffman {
         let mut index = 0usize;
         for (length, count) in (1u8..=16).zip(counts) {
             let length_u32 = u32::from(length);
+            // not a repair: a failed conversion declines the cut and the stream is decoded whole;
+            // no value is substituted.
             offset[usize::from(length)] = i32::try_from(index).ok()? - i32::try_from(code).ok()?;
             for _ in 0..count {
                 let symbol = *symbols.get(index)?;
@@ -110,6 +112,8 @@ impl Huffman {
                 index += 1;
             }
             if count > 0 {
+                // not a repair: a failed conversion declines the cut and the stream is decoded
+                // whole; no value is substituted.
                 largest[usize::from(length)] = i32::try_from(code).ok()? - 1;
             }
             code <<= 1;
@@ -133,6 +137,8 @@ impl Huffman {
     fn decode(&self, bits: &mut Bits<'_>) -> Option<u8> {
         bits.refill();
         let prefix = bits.peek(16);
+        // not a repair: a failed conversion declines the cut and the stream is decoded whole; no
+        // value is substituted.
         let entry = self.fast[usize::try_from(prefix >> 7).ok()?];
         if entry != 0 {
             bits.consume(u32::from(entry >> 8));
@@ -145,6 +151,8 @@ impl Huffman {
                 bits.consume(length);
                 return self
                     .symbols
+                    // not a repair: a failed conversion declines the cut and the stream is decoded
+                    // whole; no value is substituted.
                     .get(usize::try_from(code + self.offset[at]).ok()?)
                     .copied();
             }
@@ -170,6 +178,8 @@ impl<'a> Bits<'a> {
     fn at(bytes: &'a [u8], at: u64) -> Self {
         let mut bits = Self {
             bytes,
+            // not a repair: an index or a shift of this reader's own bit reader, not a value the
+            // file states.
             next: usize::try_from(at / 8).unwrap_or(usize::MAX),
             held: 0,
             count: 0,
@@ -196,6 +206,8 @@ impl<'a> Bits<'a> {
 
     /// The next `n` bits, `n` at most 32 and at most what is held, without consuming them.
     fn peek(&self, n: u32) -> u64 {
+        // not a repair: an index or a shift of this reader's own bit reader, not a value the file
+        // states.
         self.held.checked_shr(64_u32.saturating_sub(n)).unwrap_or(0)
     }
 
@@ -217,6 +229,8 @@ impl<'a> Bits<'a> {
     /// Where the reader is, in bits from the start of the data.
     fn position(&self) -> u64 {
         u64::try_from(self.next)
+            // not a repair: an index or a shift of this reader's own bit reader, not a value the
+            // file states.
             .unwrap_or(u64::MAX)
             .saturating_mul(8)
             .saturating_sub(u64::from(self.count))
@@ -262,6 +276,8 @@ impl Writer {
         let mut bits = Bits::at(bytes, from);
         let mut left = to.saturating_sub(from);
         while left > 0 {
+            // not a repair: an index or a shift of this reader's own bit reader, not a value the
+            // file states.
             let take = u32::try_from(left.min(32)).unwrap_or(32);
             let value = bits.receive(take);
             self.write(value, take);
@@ -367,6 +383,8 @@ pub(super) fn decode_at(
     let encodable = bands.iter().all(|band| {
         band.decoded.0 == 0
             || rows
+                // not a repair: an index or a shift of this reader's own bit reader, not a value
+                // the file states.
                 .get(usize::try_from(band.decoded.0).unwrap_or(usize::MAX))
                 .is_some_and(|row| {
                     row.first
@@ -439,6 +457,8 @@ fn read<'a>(data: &'a [u8], scan: &FirstScan) -> Option<Frame<'a>> {
                 if sof.is_some() || *body.first()? != 8 {
                     return None;
                 }
+                // not a repair: a failed conversion declines the cut and the stream is decoded
+                // whole; no value is substituted.
                 let lines = u32::try_from(field(at.checked_add(3)?)?).ok()?;
                 let width = u32::try_from(field(at.checked_add(5)?)?).ok()?;
                 let count = usize::from(*body.get(5)?);
@@ -458,6 +478,8 @@ fn read<'a>(data: &'a [u8], scan: &FirstScan) -> Option<Frame<'a>> {
             0xC4 => {
                 let mut rest = body;
                 while let Some((&class_and_id, after)) = rest.split_first() {
+                    // not a repair: a failed conversion declines the cut and the stream is decoded
+                    // whole; no value is substituted.
                     let counts: &[u8; 16] = after.get(..16)?.try_into().ok()?;
                     let total = counts.iter().map(|&n| usize::from(n)).sum::<usize>();
                     let symbols = after.get(16..16usize.checked_add(total)?)?;
@@ -603,6 +625,8 @@ fn unstuffed(data: &[u8], scan: &FirstScan) -> Option<Vec<u8>> {
               sum is under 2^12"
 )]
 fn extend(value: u64, size: u32) -> i32 {
+    // not a repair: an index or a shift of this reader's own bit reader, not a value the file
+    // states.
     let value = i32::try_from(value).unwrap_or(0);
     if size == 0 {
         0
@@ -623,6 +647,8 @@ fn extend(value: u64, size: u32) -> i32 {
 fn pass(frame: &Frame<'_>) -> Option<(Vec<RowStart>, u64)> {
     let mut bits = Bits::at(&frame.entropy, 0);
     let mut predictions = vec![0i32; frame.components.len()];
+    // not a repair: a failed conversion declines the cut and the stream is decoded whole; no value
+    // is substituted.
     let mut rows = Vec::with_capacity(usize::try_from(frame.mcu_rows).ok()?);
     let tables = frame
         .components
@@ -682,6 +708,8 @@ fn pass(frame: &Frame<'_>) -> Option<(Vec<RowStart>, u64)> {
         rows.push(RowStart { bit, first });
     }
     let end = bits.position();
+    // not a repair: a failed conversion declines the cut and the stream is decoded whole; no value
+    // is substituted.
     let carried = u64::try_from(frame.entropy.len()).ok()?.checked_mul(8)?;
     (end <= carried).then_some((rows, end))
 }
@@ -713,6 +741,8 @@ fn codestream(frame: &Frame<'_>, rows: &[RowStart], end: u64, band: Band) -> Opt
     } else {
         last.checked_sub(first)?.checked_mul(frame.mcu_lines)?
     };
+    // not a repair: a failed conversion declines the cut and the stream is decoded whole; no value
+    // is substituted.
     let lines = u16::try_from(lines).ok()?;
     let start = rows.get(usize::try_from(first).ok()?)?;
     let stop = if finishes {
@@ -724,6 +754,8 @@ fn codestream(frame: &Frame<'_>, rows: &[RowStart], end: u64, band: Band) -> Opt
     let mut writer = Writer {
         out: Vec::with_capacity(
             usize::try_from(stop.saturating_sub(start.bit) / 8)
+                // not a repair: a failed conversion declines the cut and the stream is decoded
+                // whole; no value is substituted.
                 .ok()?
                 .saturating_add(64),
         ),

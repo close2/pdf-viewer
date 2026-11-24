@@ -224,6 +224,7 @@ pub(super) fn ccitt_bilevel(
     // broken in a way that shifts every sample after the first run. That stays a refusal.
     let columns = u32::try_from(integer("Columns", 1728)?)
         .map_err(|_| refused("Columns", "is not a width in pixels"))?;
+    // not a repair: an arithmetic overflow guard on a width, not a value the file states.
     let padded = width.checked_next_multiple_of(8).unwrap_or(width);
     if columns != width && columns != padded {
         return Err(ImageError::Malformed {
@@ -240,6 +241,7 @@ pub(super) fn ccitt_bilevel(
     let black_is_1 = flag("BlackIs1", false)?;
     let parameters = pdf_sandbox::CcittParameters {
         // Infallible: `k` is a sign, -1, 0 or 1, which every `i32` holds.
+        // not a repair: a sign (-1, 0 or 1) that every i32 holds, not a value the file states.
         k: i32::try_from(k).unwrap_or_default(),
         columns,
         rows: ccitt_rows(stated_rows, end_of_block, height),

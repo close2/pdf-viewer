@@ -228,6 +228,7 @@ impl Destination {
         };
         let name = document.resolve(items.get(1)?);
         let name = name.as_name()?;
+        // not a repair: a slice bound of the array's length, not a value the file states.
         let rest = items.get(2..).unwrap_or_default();
         Some(Self {
             target,

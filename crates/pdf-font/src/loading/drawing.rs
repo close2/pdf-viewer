@@ -60,6 +60,8 @@ impl LoadedFont {
     #[must_use]
     pub fn outline(&self, code: Code) -> Option<Arc<Path>> {
         // A refusal is kept in the cache rather than dropped here, and `outline_refusal` reads it.
+        // not a repair: a refusal is kept in the cache and read through `outline_refusal`; nothing
+        // is substituted.
         self.drawing(self.drawn_glyph(code)?).unwrap_or(None)
     }
 
@@ -107,6 +109,8 @@ impl LoadedFont {
     /// without a code and must not build a second cache to do it: a face drawing an interface's
     /// own text reuses the same few dozen glyphs exactly as a page does.
     pub(super) fn cached_outline(&self, placed: Placed) -> Option<Arc<Path>> {
+        // not a repair: a refusal is kept in the cache and read through `outline_refusal`; nothing
+        // is substituted.
         self.drawing(placed).unwrap_or(None)
     }
 
@@ -346,6 +350,7 @@ impl LoadedFont {
             Program::BareCff => cff::glyph_count(&self.data).ok(),
             Program::Type1 => None,
         };
+        // not a repair: a glyph count narrowed to the 16-bit index width; a larger count declines.
         let Some(count) = count.and_then(|count| u16::try_from(count).ok()) else {
             return false;
         };
@@ -400,6 +405,7 @@ fn without_point_contours(path: Path) -> Path {
             }
             end = end.saturating_add(1);
         }
+        // not a repair: an index computation guarded against overflow, this reader's arithmetic.
         let contour = commands.get(start..end).unwrap_or_default();
         // A run of `h` alone names no point and is kept as the program stated it.
         if first.is_some() && one_point {

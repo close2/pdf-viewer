@@ -64,6 +64,8 @@ impl Name {
     /// Returns the name as text, if it happens to be valid UTF-8.
     #[must_use]
     pub fn as_str(&self) -> Option<&str> {
+        // not a repair: invalid UTF-8 is answered with `None` for the caller to decide; no value
+        // stands in.
         std::str::from_utf8(&self.0).ok()
     }
 
@@ -169,6 +171,7 @@ impl std::borrow::Borrow<[u8]> for Name {
 
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // not a repair: display text for a person; nothing reads the name back from it.
         write!(f, "/{}", self.as_str().unwrap_or("<non-utf8>"))
     }
 }

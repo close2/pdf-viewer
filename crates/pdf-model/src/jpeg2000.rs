@@ -531,6 +531,7 @@ impl Codestream {
     /// component, so the conversion cannot lose anything.
     #[must_use]
     pub fn components(&self) -> u16 {
+        // not a repair: a component count of this reader's, not a value the file states.
         u16::try_from(self.depths.len()).unwrap_or(u16::MAX)
     }
 
@@ -814,6 +815,7 @@ impl<'a> Headers<'a> {
                 .collect();
             seen.sort_unstable();
             seen.dedup();
+            // not a repair: a count of entries this program collected, not a value the file states.
             return Some(u32::try_from(seen.len()).unwrap_or(u32::MAX));
         }
         self.image
@@ -881,6 +883,8 @@ fn next_box(data: &[u8], at: usize) -> Result<Option<Found<'_>>, HeaderError> {
         // holds every remaining byte, and is therefore the last one.
         0 => (BOX_HEADER, rest.len()),
         1 => {
+            // not a repair: a field the box is too short to hold becomes the typed error below, not
+            // a default.
             let extended = rest
                 .get(BOX_HEADER..EXTENDED_BOX_HEADER)
                 .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
@@ -911,9 +915,12 @@ fn next_box(data: &[u8], at: usize) -> Result<Option<Found<'_>>, HeaderError> {
     if length < header || length > rest.len() {
         return Err(HeaderError::BoxLength {
             at,
+            // not a repair: a length converted for the typed error that reports it, not a value the
+            // file states.
             length: u64::try_from(length).unwrap_or(u64::MAX),
         });
     }
+    // not a repair: the check above holds header..length within the box, so the slice cannot miss.
     let payload = rest.get(header..length).unwrap_or_default();
     Ok(Some(Found {
         kind,
@@ -968,6 +975,7 @@ fn parse_colour<'a>(
         needed: NEEDED,
     })?;
     let method = fields[0];
+    // not a repair: the check above holds NEEDED bytes, so the slice cannot miss.
     let rest = payload.get(NEEDED..).unwrap_or_default();
 
     // T.801 Table M.22 makes the remainder of the box a function of `METH`. The Vendor Colour
@@ -975,6 +983,8 @@ fn parse_colour<'a>(
     // definition, and the table tells a reader to ignore the second outright.
     let (enumerated, parameters, profile) = match method {
         ColourSpecification::ENUMERATED => {
+            // not a repair: a field the box is too short to hold becomes the typed error below, not
+            // a default.
             let value = rest
                 .get(..ENUMERATED)
                 .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
@@ -987,6 +997,7 @@ fn parse_colour<'a>(
             // M.11.7.3.1: the `EP` field is every byte after `EnumCS` to the end of the box.
             (
                 Some(value),
+                // not a repair: the read above holds ENUMERATED bytes, so the slice cannot miss.
                 rest.get(ENUMERATED..).unwrap_or_default(),
                 None,
             )
@@ -1027,6 +1038,7 @@ fn parse_file_type(payload: &[u8]) -> Result<FileType, HeaderError> {
     Ok(FileType {
         brand: [fields[0], fields[1], fields[2], fields[3]],
         version: u32::from_be_bytes([fields[4], fields[5], fields[6], fields[7]]),
+        // not a repair: the check above holds NEEDED bytes, so the slice cannot miss.
         compatibility: payload
             .get(NEEDED..)
             .unwrap_or_default()
@@ -1044,6 +1056,8 @@ fn parse_fragments(payload: &[u8]) -> Result<Vec<Fragment>, HeaderError> {
     const COUNT: usize = 2;
     /// `OFF`, `LEN` and `DR`: eight, four and two bytes.
     const EACH: usize = 14;
+    // not a repair: a field the box is too short to hold becomes the typed error below, not a
+    // default.
     let count = payload
         .get(..COUNT)
         .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
@@ -1166,6 +1180,8 @@ fn parse_channels(payload: &[u8]) -> Result<Vec<Channel>, HeaderError> {
     /// Each description is `Cn`, `Typ` and `Asoc`, two bytes each.
     const EACH: usize = 6;
 
+    // not a repair: a field the box is too short to hold becomes the typed error below, not a
+    // default.
     let count = payload
         .get(..COUNT)
         .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
@@ -1279,6 +1295,7 @@ fn read_component_transforms(data: &[u8], codestream: &mut Codestream) {
             if psot == 0 {
                 break;
             }
+            // not a repair: a 32-bit length widened to an offset, not a value the file states.
             at = start.saturating_add(usize::try_from(psot).unwrap_or(usize::MAX));
             tile_part = None;
             continue;

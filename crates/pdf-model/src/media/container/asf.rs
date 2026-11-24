@@ -79,6 +79,7 @@ pub(super) fn timeline(bytes: &[u8]) -> Result<Timeline, String> {
     }
     // Two reserved bytes close the Header Object's own fields, 30 bytes in all.
     let _reserved = file.take(2).ok_or_else(|| truncated("ASF Header Object"))?;
+    // not a repair: a size past usize is refused as truncated, nothing is substituted.
     let inside = size
         .checked_sub(OBJECT_HEADER + 6)
         .and_then(|inside| usize::try_from(inside).ok())
@@ -96,6 +97,7 @@ pub(super) fn timeline(bytes: &[u8]) -> Result<Timeline, String> {
         let (Some(id), Some(size)) = (objects.array::<16>(), objects.u64_le()) else {
             return Err(truncated("ASF header object"));
         };
+        // not a repair: a size past usize is refused as truncated, nothing is substituted.
         let data = size
             .checked_sub(OBJECT_HEADER)
             .and_then(|data| usize::try_from(data).ok())
@@ -192,6 +194,7 @@ fn markers(data: &[u8], out: &mut Vec<Marker>) -> Result<(), String> {
             fields.u32_le(),
         ) else {
             return Err(truncated("ASF Marker Object"));
+            // not a repair: a length past usize is refused as truncated, nothing is substituted.
         };
         let wide = usize::try_from(length)
             .ok()

@@ -447,6 +447,8 @@ impl ViewState {
             let mut from = 0;
             for (slot, place) in slots.iter().zip(&places) {
                 requests
+                    // not a repair: a range of this program's own list of actions at positions it
+                    //   computed, not a value the file states.
                     .extend(self.perform_all(document, actions.get(from..*place).unwrap_or(&[])));
                 from = place.saturating_add(1);
                 if let Some(script) = slot.and_then(|index| scripts.get(index)) {
@@ -461,6 +463,8 @@ impl ViewState {
                     ran.add(one);
                 }
             }
+            // not a repair: a range of this program's own list of actions at positions it
+            //   computed, not a value the file states.
             requests.extend(self.perform_all(document, actions.get(from..).unwrap_or(&[])));
             ran
         } else {
@@ -1293,6 +1297,7 @@ fn walk_one(document: &Document, entry: &Object, walked: &mut Walked) {
             walked.unread.push(why);
         }
     }
+    // not a repair: an absent /Next is carried as null, no value is substituted.
     let next = action.get("Next").cloned().unwrap_or(Object::Null);
     match document.resolve(&next) {
         Object::Array(items) => {

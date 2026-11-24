@@ -103,6 +103,8 @@ pub(super) fn combine_on_the_finer_grid(
         along
             .saturating_mul(source as usize)
             .checked_div(combined)
+            // not a repair: a sample or an index of a buffer this reader built, not a value the
+            // file states.
             .unwrap_or(0)
     };
     // **A column's source is a function of the column alone**, so it is asked once per column
@@ -116,6 +118,8 @@ pub(super) fn combine_on_the_finer_grid(
         .collect();
     let combine = |pixel: &[u8], above: &[u8], out: &mut [u8]| {
         let colour = [
+            // not a repair: a sample or an index of a buffer this reader built, not a value the
+            // file states.
             pixel.first().copied().unwrap_or(0),
             pixel.get(1).copied().unwrap_or(0),
             pixel.get(2).copied().unwrap_or(0),
@@ -128,6 +132,8 @@ pub(super) fn combine_on_the_finer_grid(
             .saturating_mul(u16::from(opacity))
             .saturating_add(127)
             .checked_div(255)
+            // not a repair: a sample or an index of a buffer this reader built, not a value the
+            // file states.
             .unwrap_or(0);
         out.copy_from_slice(&[
             colour[0],
@@ -175,6 +181,8 @@ pub(super) fn combine_on_the_finer_grid(
                 let pixel = image
                     .data
                     .get(at..at.saturating_add(4))
+                    // not a repair: a sample or an index of a buffer this reader built, not a value
+                    // the file states.
                     .unwrap_or(&[0, 0, 0, 0]);
                 let above = mask
                     .data
@@ -279,6 +287,8 @@ pub(super) fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> V
         let start = cell
             .saturating_mul(source)
             .checked_div(target)
+            // not a repair: a sample or an index of a buffer this reader built, not a value the
+            // file states.
             .unwrap_or(0)
             .min(source.saturating_sub(1));
         let end = cell
@@ -297,6 +307,8 @@ pub(super) fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> V
                 .flat_map(|y| (x0..x1).map(move |x| y.saturating_mul(from_w).saturating_add(x)))
                 .map(|at| {
                     usize::try_from(at)
+                        // not a repair: an index into a buffer this reader built, not a value the
+                        // file states.
                         .ok()
                         .and_then(|at| alpha.get(at))
                         .copied()
@@ -311,6 +323,8 @@ pub(super) fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> V
             let mean = sum
                 .saturating_add(count / 2)
                 .checked_div(count)
+                // not a repair: a sample or an index of a buffer this reader built, not a value the
+                // file states.
                 .unwrap_or(0);
             out.push(u8::try_from(mean).unwrap_or(u8::MAX));
         }

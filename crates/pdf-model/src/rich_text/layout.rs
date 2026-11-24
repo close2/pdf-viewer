@@ -250,6 +250,8 @@ impl Styles {
 
     fn index(&self, style: &Character) -> usize {
         self.0
+            // not a repair: a style's position in this program's own list of known styles, which
+            //   holds it, not a value the file states.
             .iter()
             .position(|known| known == style)
             .unwrap_or_default()
@@ -643,6 +645,8 @@ fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool, u8)
                 .iter()
                 .position(|width| width.replace('-', "") == stated)
             {
+                // not a repair: an index into the table of nine widths, which always fits a byte,
+                //   not a value the file states.
                 stretch = u8::try_from(at).unwrap_or(NORMAL_STRETCH);
             }
         }
@@ -832,6 +836,8 @@ impl<'a> Shaping<'a> {
             pdf_font::pairs::scripts(&letters)
         });
         byte.and_then(|byte| {
+            // not a repair: a position found in this program's own table of characters, not a
+            //   value the file states.
             self.characters
                 .binary_search_by_key(&byte, |(at, _)| *at)
                 .ok()
@@ -868,6 +874,8 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                 Piece::Tab(count) => {
                     // The face a leader's characters are looked for in first: the nearest of
                     // the paragraph style's path.
+                    // not a repair: the first face of a style's path, an index into this program's
+                    //   own list, not a value the file states.
                     let face = faces.path(&paragraph.strut).first().copied().unwrap_or(0);
                     items.push(Item::Glyph(Atom::tab(
                         *count,
@@ -905,6 +913,8 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                         next = next.saturating_add(1);
                     }
                     let mut atoms = encode_items(
+                        // not a repair: a range of this program's own shaped glyphs, not a value
+                        //   the file states.
                         shaping.shaped.get(from..next).unwrap_or_default(),
                         &shaping.characters,
                         shaping.levels,
@@ -1436,6 +1446,8 @@ fn break_lines(
             // glyph — the plain layout's rule ([`variable_text`]'s `wrap`).
             let at = last_space
                 .filter(|at| *at < line.len())
+                // not a repair: a break position among this line's own atoms, not a value the file
+                //   states.
                 .unwrap_or(line.len().saturating_sub(1));
             let carried = line.split_off(at);
             let wraps_at = carried.first().and_then(|atom| atom.byte).unwrap_or(begins);
@@ -1446,6 +1458,8 @@ fn break_lines(
             reached = advances(measure, &paragraph.block, &line, root, Some(0.0))
                 .last()
                 .copied()
+                // not a repair: the advance of the carried atoms, empty only when none carries,
+                //   not a value the file states.
                 .unwrap_or_default();
             last_space = None;
             limit = rest_width;
@@ -1463,6 +1477,8 @@ fn break_lines(
 
 /// The glyphs a tab at `at` aligns: those after it, up to the next tab or line break.
 fn aligned_by(items: &[Item], at: usize) -> Vec<Atom> {
+    // not a repair: the atoms after a tab at an index this program holds, not a value the file
+    //   states.
     items
         .get(at.saturating_add(1)..)
         .unwrap_or_default()
@@ -1537,6 +1553,7 @@ fn trimmed(atoms: &[Atom]) -> &[Atom] {
         .iter()
         .rposition(|atom| !atom.space)
         .map_or(0, |at| at.saturating_add(1));
+    // not a repair: a prefix of this program's own atoms, not a value the file states.
     atoms.get(..end).unwrap_or_default()
 }
 
@@ -1579,6 +1596,8 @@ fn stack(
                         paragraph.map_or(0.0, |paragraph| paragraph.block.margins[0].at(root));
                     y -= bottom.max(top);
                 }
+                // not a repair: the specification's own default for an absent line height, the
+                //   tallest thing on the line (*Line Spacing*, page 1191).
                 let step = line_height.unwrap_or_else(|| {
                     // *Line Spacing*'s default, the tallest thing on the line (page 1191): the
                     // plain layout's 13/12 of the size for a line of one size, made of the
@@ -1597,6 +1616,8 @@ fn stack(
         .last()
         .and_then(|line| paragraphs.get(line.paragraph))
         .map_or(0.0, |paragraph| paragraph.block.margins[2].at(root));
+    // not a repair: the last baseline of lines this program stacked, absent only when there is no
+    //   line, not a value the file states.
     let total = -(baselines.last().copied().unwrap_or(0.0) + last_descent)
         + bottom_margin
         + area.margin_bottom.at(root);
@@ -1712,6 +1733,8 @@ fn place_line(
         // box; whether it overflows is asked in cells.
         fit.too_wide |= measure.widths(shown, root) > width;
         fit.too_many |= many;
+        // not a repair: the last edge of a line this program laid out, not a value the file
+        //   states.
         *advance = advance.max(placed.edges.last().copied().unwrap_or(start) - start);
         return Some(Line {
             atoms: shown.to_vec(),
@@ -1737,6 +1760,7 @@ fn place_line(
         (start, width, (!reversed).then_some(start - origin)),
         request,
     );
+    // not a repair: the last edge of a line this program laid out, not a value the file states.
     let used = edges.last().copied().unwrap_or(x)
         - x
         - gap * variable_text::count(shown.iter().filter(|atom| atom.space).count());
@@ -1794,6 +1818,8 @@ fn tab_line(
     (origin, start, width): (f32, f32, f32),
     (right_to_left, quadding): (bool, Quadding),
 ) -> TabLine {
+    // not a repair: an absent text alignment in the markup is the field's own quadding, read
+    //   elsewhere; no value is made up.
     let align = block.align.unwrap_or(match quadding {
         Quadding::Left => Align::Left,
         Quadding::Centred => Align::Centre,
@@ -1900,6 +1926,8 @@ fn tab_groups(logical: &[Atom], line_levels: &[u8]) -> Vec<TabGroup> {
     for (_, members) in &mut groups {
         let group_levels: Vec<u8> = members
             .iter()
+            // not a repair: a level looked up by an index of this program's own lines, not a value
+            //   the file states.
             .map(|index| line_levels.get(*index).copied().unwrap_or_default())
             .collect();
         if group_levels.iter().any(|level| level % 2 == 1) {
@@ -2000,7 +2028,10 @@ fn aligned(
             })
             .collect()
     });
+    // not a repair: the last advance of a line this program laid out, not a value the file states.
     let used = advanced.last().copied().unwrap_or_default();
+    // not a repair: an absent text alignment in the markup is the field's own quadding, read
+    //   elsewhere; no value is made up.
     let align = paragraph.block.align.unwrap_or(match request.quadding {
         Quadding::Left => Align::Left,
         Quadding::Centred => Align::Centre,
@@ -2048,6 +2079,8 @@ fn advances(
     for (index, atom) in atoms.iter().enumerate() {
         at += match from_margin {
             Some(from_margin) if atom.tab > 0 => {
+                // not a repair: the atoms after the one at this index of this program's own line,
+                //   not a value the file states.
                 let group: Vec<Atom> = atoms
                     .get(index.saturating_add(1)..)
                     .unwrap_or_default()
@@ -2121,6 +2154,7 @@ fn lead(
             .iter()
             .position(|atom| atom.radix)
             .map_or(whole, |radix| {
+                // not a repair: a range of this program's own atoms, not a value the file states.
                 measure.widths(group.get(..radix).unwrap_or_default(), root)
             }),
     }
@@ -2259,6 +2293,8 @@ fn line_levels(atoms: &[Atom], span: (usize, usize), levels: Option<&Levels>) ->
         .map(|atom| {
             atom.byte
                 .and_then(|byte| by_byte.get(byte.saturating_sub(span.0)).copied())
+                // not a repair: a lookup by a byte offset of this program's own map, not a value
+                //   the file states.
                 .unwrap_or_default()
         })
         .collect()
@@ -2282,6 +2318,7 @@ fn comb_line(
     cells: u32,
     request: &Request,
 ) -> (CombLine, bool) {
+    // not a repair: a cell count widened to a count, not a value the file states.
     let count = variable_text::count(usize::try_from(cells).unwrap_or(usize::MAX)).max(1.0);
     let used = variable_text::count(shown.len());
     let first = match request.quadding {
@@ -2319,6 +2356,8 @@ fn line_extent(
         paragraphs
             .get(line.paragraph)
             .and_then(|paragraph| paragraph.tag.as_deref())
+            // not a repair: the tag of a paragraph this program built, absent for one with no list
+            //   marker, not a value the file states.
             .unwrap_or_default()
     } else {
         &[]
@@ -2329,6 +2368,8 @@ fn line_extent(
             (a.max(ascent), d.min(descent), t.max(tall))
         }));
     }
+    // not a repair: an empty line measures as its paragraph's strut, this program's own measure,
+    //   not a value the file states.
     extent.unwrap_or_else(|| {
         paragraphs
             .get(line.paragraph)
@@ -2456,6 +2497,7 @@ fn write_line(
         // boundary after it is where the next group starts.
         if first.tab > 0 {
             if let Some((_, leader)) = line.leaders.iter().find(|(at, _)| *at == start) {
+                // not a repair: edges of a line this program laid out, not values the file states.
                 let from = line.edges.get(start).copied().unwrap_or(line.x);
                 let to = line
                     .edges
@@ -2490,6 +2532,8 @@ fn write_line(
                 }
             }
         }
+        // not a repair: a range of this program's own atoms and the edge it starts at, not values
+        //   the file states.
         let group = line.atoms.get(start..end).unwrap_or_default();
         // Each group is written at the boundary the line was placed with, so the stream and a
         // host's answers read one set of positions.
@@ -2848,6 +2892,8 @@ pub(crate) fn one_style(document: &Document, request: &Request) -> Result<OneSty
             })
         })
         .or_else(|| first.map(|paragraph| paragraph.strut.clone()))
+        // not a repair: the paragraph's own first style or this program's root style, and a face
+        //   index of its own list, not values the file states.
         .unwrap_or_else(Character::root);
     let index = faces.path(&style).first().copied().unwrap_or_default();
     let mut default_appearance = request.default_appearance.to_vec();
@@ -2923,6 +2969,7 @@ impl Alignment {
                 .is_some_and(|(_, letter)| letter.is_whitespace())
         };
         let fill = |map: &mut Vec<usize>, range: std::ops::Range<usize>, to: usize| {
+            // not a repair: a range of this program's own map, not a value the file states.
             for slot in map.get_mut(range).unwrap_or_default() {
                 *slot = to;
             }
@@ -2979,6 +3026,8 @@ impl Alignment {
             .get(rich)
             .or_else(|| self.to_value.last())
             .copied()
+            // not a repair: an index of this program's own position map, clamped to its last
+            //   entry, not a value the file states.
             .unwrap_or_default()
     }
 
@@ -2988,6 +3037,8 @@ impl Alignment {
             .get(value)
             .or_else(|| self.to_rich.last())
             .copied()
+            // not a repair: an index of this program's own position map, clamped to its last
+            //   entry, not a value the file states.
             .unwrap_or_default()
     }
 }
@@ -3021,6 +3072,8 @@ fn answer(plan: &Plan, request: &Request, alignment: &Alignment) -> Answers {
                 if let (Some(slot), Some(atom)) = (bytes.get_mut(*index), line.atoms.get(shown_at))
                 {
                     *slot = Stood {
+                        // not a repair: a byte offset of this program's own atoms, not a value the
+                        //   file states.
                         byte: atom.byte.unwrap_or(line.span.0),
                         tab: atom.tab > 0,
                     };
@@ -3103,6 +3156,7 @@ fn edge(line: &Line, shown: usize) -> f32 {
         .get(shown)
         .or_else(|| line.edges.last())
         .copied()
+        // not a repair: an edge of a line this program laid out, not a value the file states.
         .unwrap_or(line.x)
 }
 

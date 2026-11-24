@@ -192,6 +192,8 @@ fn shift_method(name: &str, code: Option<i64>) -> Option<Shift> {
     let plain = normalised(name);
     let plain = ["geocentricdomain", "geog2ddomain", "geog3ddomain"]
         .iter()
+        // not a repair: stripping a domain suffix from the name being matched, not a value the file
+        // states.
         .find_map(|domain| plain.strip_suffix(domain))
         .unwrap_or(&plain);
     match plain {
@@ -210,6 +212,8 @@ fn shift_method(name: &str, code: Option<i64>) -> Option<Shift> {
 fn shift_parameter(name: &str, code: Option<i64>) -> Option<usize> {
     if let Some(code) = code {
         return code
+            // not a repair: a code outside the shift-parameter range is refused (None), nothing is
+            // put in its place.
             .checked_sub(8605)
             .and_then(|index| usize::try_from(index).ok())
             .filter(|index| *index < SHIFT_PARAMETERS.len());
@@ -290,6 +294,8 @@ fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShi
     {
         *slot = value.ok_or(Refusal::MissingParameter {
             method: "a Helmert transformation",
+            // not a repair: the name of a parameter for a refusal message, from this reader's own
+            // list, not a file value.
             parameter: SHIFT_PARAMETERS.get(index).copied().unwrap_or("parameter"),
         })?;
     }

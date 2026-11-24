@@ -141,6 +141,7 @@ impl Interpreter<'_> {
         // are about the object as it composites and `state` is what says that.
         let lifted =
             (parts.first_bullet == FirstBullet::Group).then(|| state.with_opaque_constants());
+        // not a repair: a graphics state this reader derived, not a value the file states.
         let paints = lifted.as_ref().unwrap_or(state);
         let size = state.text.size;
         let scale = state.text.horizontal_scale;

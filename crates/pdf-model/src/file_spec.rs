@@ -417,6 +417,8 @@ impl FileSpec {
             // "removing the file name component from the specification of the containing PDF
             // file": the last component is the file's own name, whatever it is.
             let keep = containing.len().saturating_sub(1);
+            // not a repair: a slice cut at an index this reader computed, not a value the file
+            // states.
             containing
                 .get(..keep)
                 .unwrap_or_default()

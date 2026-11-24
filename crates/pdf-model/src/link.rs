@@ -106,6 +106,7 @@ pub(crate) fn read(
         return None;
     }
     let rect = rectangle(document, annotation)?;
+    // not a repair: an absent /A is Null, the entry's absence, not a default value.
     let actions = crate::action::read(
         document,
         annotation.get("A").unwrap_or(&pdf_syntax::Object::Null),
@@ -234,6 +235,8 @@ fn inside(quad: &[f32; 8], x: f32, y: f32) -> bool {
         let Some((x0, y0)) = points.get(index).copied() else {
             continue;
         };
+        // not a repair: a vertex index wrapped by this reader's own count, not a value the file
+        // states.
         // The next vertex, wrapping to the first, which is what closes the quadrilateral.
         let next = index.saturating_add(1).checked_rem(count).unwrap_or(0);
         let Some((x1, y1)) = points.get(next).copied() else {

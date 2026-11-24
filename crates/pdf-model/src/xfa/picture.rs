@@ -179,6 +179,8 @@ fn opener(rest: &str) -> Option<Opener<'_>> {
     let mut subcategory = None;
     if category.is_some() && rest[at..].starts_with('.') {
         let tail = &rest[at + 1..];
+        // not a repair: the end of a name found in this reader's own scan of the picture, not a
+        // value the file states.
         let length = tail
             .find(|c: char| !c.is_ascii_alphabetic())
             .unwrap_or(tail.len());
@@ -350,6 +352,8 @@ fn predefined(
             };
             let pattern = locales.pattern(locale, Patterns::Number, name)?;
             Ok(if integer {
+                // not a repair: taking the text before the first period of a locale pattern, not a
+                // value the file states.
                 pattern.split('.').next().unwrap_or(pattern).to_owned()
             } else {
                 pattern.to_owned()
@@ -570,6 +574,8 @@ fn tokens(
         }
     }
     if purpose == Purpose::Format {
+        // not a repair: the position of a token in this reader's own list, none meaning no radix,
+        // not a file value.
         let radix = out
             .iter()
             .position(|t| matches!(t, Token::Radix(..)))
@@ -623,6 +629,8 @@ fn symbol(
     locale: &str,
     locales: &LocaleSet,
 ) -> Result<(Token, usize), String> {
+    // not a repair: the caller hands this function a nonempty run of the picture, so the space is
+    // unreachable.
     let c = chars.first().copied().unwrap_or(' ');
     let digits = |field, min, max, range| Ok((Token::Digits(field, min, max, range), run));
     let names = |field, list, base| -> Result<(Token, usize), String> {
@@ -676,6 +684,8 @@ fn symbol(
 
 /// One numeric symbol of pages 1177–1178 at the start of `chars`.
 fn num_symbol(chars: &[char], locale: &str, locales: &LocaleSet) -> Result<(Token, usize), String> {
+    // not a repair: the caller hands this function a nonempty run of the picture, so the space is
+    // unreachable.
     let c = chars.first().copied().unwrap_or(' ');
     let next = chars.get(1).copied();
     let symbol = |name| locales.symbol(locale, false, name).map(str::to_owned);
@@ -1078,6 +1088,8 @@ fn finish(category: Category, read: &Read) -> Option<String> {
                 return None;
             }
             let (whole, fraction) = if read.percent {
+                // not a repair: a number with no fraction digits has an empty fraction, not a value
+                // the file states.
                 hundredth(&read.whole, read.fraction.as_deref().unwrap_or(""))
             } else {
                 (read.whole.clone(), read.fraction.clone())
@@ -1142,6 +1154,8 @@ fn date(read: &Read) -> Option<Date> {
             (Some(month), Some(day))
         }
         (Some(month), day, None) => (
+            // not a repair: a month or day outside u8 is refused (None), nothing is put in its
+            // place.
             Some(u8::try_from(month).ok()?),
             day.map(u8::try_from).transpose().ok()?,
         ),
@@ -1197,6 +1211,8 @@ fn time(read: &Read) -> Option<Time> {
     let second = read.field(Field::Second).filter(|_| minute.is_some());
     let millisecond = read.field(Field::Millisecond).filter(|_| second.is_some());
     Some(Time {
+        // not a repair: an hour, minute or second outside u8 is refused (None), nothing is put in
+        // its place.
         hour: u8::try_from(hour).ok()?,
         minute: minute.map(u8::try_from).transpose().ok()?,
         second: second.map(u8::try_from).transpose().ok()?,

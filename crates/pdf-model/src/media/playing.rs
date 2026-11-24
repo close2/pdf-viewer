@@ -225,6 +225,8 @@ impl Playing {
                             .to_owned(),
                     );
                 }
+                // not a repair: ISO 32000-2 §12.6.4.9 (Table 212) defaults an absent /Synchronous and
+                // /Mix to false, and a wrong type is noted above.
             }
             None => playing.synchronous = synchronous.unwrap_or(false),
         }

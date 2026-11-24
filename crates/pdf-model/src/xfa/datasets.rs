@@ -340,6 +340,8 @@ impl Datasets {
         let mut out = String::with_capacity(self.text.len());
         let mut from = 0;
         for (range, text) in edits {
+            // not a repair: a slice of this reader's own text between edit ranges it computed, not
+            // a value the file states.
             out.push_str(self.text.get(from..range.start).unwrap_or(""));
             out.push_str(&text);
             from = range.end;

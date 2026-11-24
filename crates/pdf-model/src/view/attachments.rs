@@ -136,6 +136,8 @@ impl ViewState {
                 file_name: Some(filed.filing.name.clone()),
                 description: filed.filing.description.clone(),
                 media_type: filed.filing.media_type.clone(),
+                // not a repair: the byte count of the data this program holds, not a value the
+                //   file states.
                 size: i64::try_from(filed.filing.bytes.len()).ok(),
                 created: None,
                 modified: None,

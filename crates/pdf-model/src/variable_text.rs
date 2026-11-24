@@ -1074,6 +1074,8 @@ fn machine_set(
     asked.standard = false;
     let program = pdf_font::substitute::installed_covering_embeddable(asked, &wanted)?;
     let (dict, by_character) = machine_font(&program, &glyphs)?;
+    // not a repair: the dictionary is this program's own, built for an installed font; a failed
+    //   load gives up this route, no value is substituted.
     let font = std::sync::Arc::new(pdf_font::LoadedFont::load(document, &dict, label).ok()?);
     let identity = pdf_font::cmap::CMap::identity();
     let again = encode(

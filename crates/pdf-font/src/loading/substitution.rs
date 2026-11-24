@@ -147,6 +147,8 @@ impl LoadedFont {
         };
         let font = FontRef::new(data).ok()?;
         if let Some(glyph) = font.charmap().map(character) {
+            // not a repair: a width conversion that declines where the value does not fit; nothing
+            // is substituted.
             let glyph = u16::try_from(glyph.to_u32()).ok()?;
             return Some((
                 character,
@@ -158,6 +160,8 @@ impl LoadedFont {
         // it: the face this machine offers for the character itself does (ADR 3067).
         let (index, borrowed) = borrowing.face_for(character, self.own_downward())?;
         let font = FontRef::new(&borrowed.data).ok()?;
+        // not a repair: a width conversion that declines where the value does not fit; nothing is
+        // substituted.
         let glyph = u16::try_from(font.charmap().map(character)?.to_u32()).ok()?;
         Some((
             character,
@@ -274,6 +278,8 @@ impl LoadedFont {
         }
         match &self.mapping {
             CodeMapping::Named(_) => {
+                // not a repair: a width conversion that declines where the value does not fit;
+                // nothing is substituted.
                 let index = usize::try_from(code.value()).ok()?;
                 let name = self
                     .glyph_names

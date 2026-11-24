@@ -1009,6 +1009,8 @@ fn fractional_text(value: f64, format: &NumberFormat) -> String {
                 return integer(whole + 1.0, format);
             }
             if !format.keep_denominator {
+                // not a repair: a divisor this reader computed from the fraction by gcd, an
+                // arithmetic guard not a file value.
                 let divisor = gcd(numerator, denominator).max(1);
                 numerator = numerator.checked_div(divisor).unwrap_or(numerator);
                 denominator = denominator.checked_div(divisor).unwrap_or(denominator);
@@ -1018,6 +1020,8 @@ fn fractional_text(value: f64, format: &NumberFormat) -> String {
         Fraction::Decimal => {
             // "[T]he precision of a decimal display; it shall be a multiple of 10", so /D 100
             // is two places. Low-order zeros are truncated "unless FD is true".
+            // not a repair: the number of places is an arithmetic conversion of a nonzero
+            // denominator, not a file value.
             let places = usize::try_from(format.denominator.max(1).ilog10()).unwrap_or(2);
             let text = format!("{:.*}", places, value.abs().fract());
             let digits = text.split_once('.').map_or(String::new(), |(_, rest)| {
@@ -1039,6 +1043,7 @@ fn fractional_text(value: f64, format: &NumberFormat) -> String {
 /// Greatest common divisor, for reducing a fraction.
 fn gcd(mut a: u32, mut b: u32) -> u32 {
     while b != 0 {
+        // not a repair: an arithmetic guard against a zero divisor in this reader's own gcd.
         (a, b) = (b, a.checked_rem(b).unwrap_or(0));
     }
     a

@@ -324,6 +324,8 @@ pub fn page_as_form(
     // A name in the `/Pages` tree is a page of the page tree, so §7.7.3.4's inheritance runs up
     // its `/Parent`; a `/Templates` name is outside the tree and "shall have no Parent", so it
     // inherits nothing. `Pages::get` is the first reading and `Pages::detached` the second.
+    // not a repair: a page this reader builds when the tree reaches none, not a value the file
+    // states.
     let page = pages
         .index_of(id)
         .and_then(|index| pages.get(index))
@@ -362,6 +364,7 @@ pub fn page_as_form(
     // and §7.3.8.2's `/Length` is their own count. `crate::view::ViewState` gives the stream an
     // object number when it is saved, which §7.3.8.1 requires of a stream in a file.
     form.insert(
+        // not a repair: a length this program computed, not a value the file states.
         pdf_syntax::Name::new(&b"Length"[..]),
         Object::Integer(i64::try_from(content.len()).ok()?),
     );

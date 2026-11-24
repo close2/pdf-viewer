@@ -142,6 +142,8 @@ impl Interpreter<'_> {
         } else {
             let start = self.text.len();
             let named = font.text(code, &mut self.text);
+            // not a repair: a slice of the text this reader accumulated, not a value the file
+            // states.
             Readback::of(named, self.text.get(start..).unwrap_or_default())
         })
     }
@@ -311,6 +313,7 @@ impl Interpreter<'_> {
     ///   withheld. A replacement that keeps a hyphen keeps the break, as a hard hyphen at a line's
     ///   end does everywhere else in the readback.
     pub(in crate::content) fn cut_replaced(&mut self, starts_at: usize, replacement: &str) {
+        // not a repair: a slice of the text this reader accumulated, not a value the file states.
         let cut = self.text.get(starts_at..).unwrap_or_default();
         let separator =
             self.word_gaps.last_separator == Some(starts_at) && cut.starts_with([' ', '\n']);
@@ -350,6 +353,7 @@ impl Interpreter<'_> {
         let thresholds = self.word_gaps.thresholds();
         let mut removed: Vec<usize> = Vec::new();
         for step in &self.word_gaps.steps {
+            // not a repair: this reader's own word-gap threshold, not a value the file states.
             let share = thresholds.get(step.font).copied().unwrap_or(WORD_GAP_SHARE);
             if step.along > step.space * share {
                 continue;
@@ -374,6 +378,8 @@ impl Interpreter<'_> {
         let mut kept = String::with_capacity(self.text.len().saturating_sub(removed.len()));
         let mut from = 0;
         for &at in &removed {
+            // not a repair: a slice of the text this reader accumulated, not a value the file
+            // states.
             kept.push_str(self.text.get(from..at).unwrap_or_default());
             from = at.saturating_add(1);
         }

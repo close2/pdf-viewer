@@ -500,6 +500,8 @@ fn data_values(container: &Container, value: &Change) -> Vec<String> {
 ///   chapter 24. A date or time element given a full date-time keeps the part it holds and
 ///   truncates the rest (pages 666 and 868), which is no error.
 fn inconsistency(kind: &str, digits: Digits, text: &str) -> Option<String> {
+    // not a repair: stripping an optional sign from the text being checked, parsing and not a value
+    // the file states.
     let number = |text: &str| -> Option<(usize, usize)> {
         let unsigned = text.strip_prefix('-').unwrap_or(text);
         let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
@@ -510,6 +512,8 @@ fn inconsistency(kind: &str, digits: Digits, text: &str) -> Option<String> {
     let fails = |reason: &str| Some(reason.to_owned());
     match kind {
         "integer" => {
+            // not a repair: stripping an optional sign while parsing, not a value the file
+            // states.
             let unsigned = text.strip_prefix('-').unwrap_or(text);
             let integer = !unsigned.is_empty() && unsigned.bytes().all(|b| b.is_ascii_digit());
             if integer {
@@ -532,6 +536,8 @@ fn inconsistency(kind: &str, digits: Digits, text: &str) -> Option<String> {
                 return Some(format!(
                     "has {fraction} digits after the point where the decimal states at most {} \
                      (fracDigits, page 671)",
+                    // not a repair: the figure reported in a message was already tested present
+                    // just above, not a file value.
                     digits.fraction.unwrap_or_default()
                 ));
             }

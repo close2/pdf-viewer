@@ -136,6 +136,7 @@ fn bookmark_states(document: &Document) -> (Vec<BookmarkState>, bool) {
         if states.len() >= MAX_BOOKMARKS {
             return (states, false);
         }
+        // not a repair: a count of states this program holds, not a value the file states.
         let place = u32::try_from(states.len()).unwrap_or(u32::MAX);
         states.push(BookmarkState {
             number: item.id.number,

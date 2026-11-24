@@ -274,6 +274,8 @@ impl Event {
     /// a save — sets no primary property.
     #[must_use]
     pub fn for_action(primary: Option<Self>, activity: &str) -> Self {
+        // not a repair: an action no person raised has no primary event, so this reader builds an
+        // empty one.
         let mut event = primary.unwrap_or_else(|| Self::new(activity, 0, false, None));
         event.cancel = Some(false);
         event
@@ -351,6 +353,8 @@ pub(super) fn property(
             event.name
         ));
     }
+    // not a repair: the position in this reader's own list of event properties, not a value the
+    // file states.
     let at = CARRIED
         .iter()
         .position(|carried| *carried == name)
@@ -420,6 +424,7 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
     let name = CARRIED.get(node.checked_sub(containers)?)?;
     let event = event?;
     let replaced = event.replaced.as_ref();
+    // not a repair: a count this reader made, widened for the script, not a value the file states.
     let count = |n: usize| Scalar::Number(f64::from(u32::try_from(n).unwrap_or(u32::MAX)));
     // A boolean property is 1 or 0, as `reenter` and `cancelAction` are.
     let flag = |on: bool| Scalar::Number(if on { 1.0 } else { 0.0 });
@@ -467,6 +472,8 @@ pub(super) fn assign(
     value: Scalar,
 ) -> Result<u64, String> {
     let name = node
+        // not a repair: the name of an event property from this reader's own list, a label for a
+        // message only.
         .checked_sub(containers)
         .and_then(|at| CARRIED.get(at))
         .copied()
@@ -508,6 +515,8 @@ pub(super) fn assign(
         Scalar::Number(n)
             if n.is_finite()
                 && *n >= 0.0
+                // not a repair: a length this reader holds, widened for a comparison, not a value
+                // the file states.
                 && *n <= f64::from(u32::try_from(length).unwrap_or(u32::MAX)) =>
         {
             Ok(n.trunc() as usize)
@@ -523,6 +532,8 @@ pub(super) fn assign(
                 Scalar::Number(n) => n.to_string(),
                 Scalar::Null => String::new(),
             };
+            // not a repair: a length of this reader's own text against its own budget, not a value
+            // the file states.
             let cost = u64::try_from(text.len()).unwrap_or(u64::MAX);
             replaced.change = text;
             Ok(cost)
