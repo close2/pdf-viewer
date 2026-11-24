@@ -184,10 +184,16 @@ fn a_movie_action_finds_its_annotation_by_title_and_hands_the_movie_over() {
     );
 }
 
-/// `Stop`, `Pause` and `Resume` act on nothing playing: each is said and none hands a file over.
+/// `Stop`, `Pause` and `Resume` reach the movie annotation as Table 214's operations do (ADR
+/// 3594): each becomes an operation on the clip associated with it, which a movie this program
+/// plays answers and the window says is "no effect" otherwise; none hands a file over.
 #[test]
-fn stop_pause_and_resume_hand_nothing_over_and_say_so() {
-    for operation in ["Stop", "Pause", "Resume"] {
+fn stop_pause_and_resume_operate_on_the_movie_annotation() {
+    for (operation, expected) in [
+        ("Stop", viewer_core::MediaOperation::Stop),
+        ("Pause", viewer_core::MediaOperation::Pause),
+        ("Resume", viewer_core::MediaOperation::Resume),
+    ] {
         let events = activated(
             document(
                 "",
@@ -198,11 +204,12 @@ fn stop_pause_and_resume_hand_nothing_over_and_say_so() {
         );
         assert!(handed(&events).is_empty(), "{operation}: {events:?}");
         assert!(
-            notes(&events)
-                .iter()
-                .any(|note| note.contains("nothing plays in this program")),
-            "{operation}: {:?}",
-            notes(&events)
+            events.iter().any(|event| matches!(
+                event,
+                Event::OperateMedia { annotation, operation, .. }
+                    if *annotation == pdf_syntax::ObjectId::new(4, 0) && *operation == expected
+            )),
+            "{operation}: {events:?}"
         );
     }
 }

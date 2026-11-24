@@ -113,6 +113,20 @@ impl Window {
         Some((raster, placed))
     }
 
+    /// The controller bar's three facts for the clip whose picture is shown, where it asks for one:
+    /// `quorra_window_controller` (Table 307's `/ShowControls`, ADR 3595).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no picture is shown or the clip asks for no bar.
+    pub fn controller(&self) -> Result<viewer_host::video::Controller, Status> {
+        self.placed_picture().ok_or(Status::NoAnswer)?;
+        self.state
+            .pictures
+            .controller(Instant::now())
+            .ok_or(Status::NoAnswer)
+    }
+
     /// The picture shown over its screen annotation now: `quorra_window_picture`.
     ///
     /// # Errors

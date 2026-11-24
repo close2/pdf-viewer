@@ -262,6 +262,14 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_controller(
+        nint window,
+        int* playing,
+        ulong* position_ms,
+        long* length_ms);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_window_take_owed(nint window, nint* owed);
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]

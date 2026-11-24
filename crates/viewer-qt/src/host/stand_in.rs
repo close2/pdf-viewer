@@ -37,6 +37,11 @@ impl Host {
         {
             let view = describe(&shown.raster, shown.origin, shown.extent);
             ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
+            // The controller bar over the picture (ADR 3595).
+            if let Some(bar) = self.shown_bar() {
+                let view = describe(&bar.raster, bar.origin, bar.extent);
+                ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
+            }
         }
     }
 

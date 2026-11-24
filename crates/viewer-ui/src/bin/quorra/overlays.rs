@@ -561,6 +561,8 @@ pub(crate) struct Overlays {
     selection: Option<pdf_render::DisplayList>,
     /// A clip's picture over its screen annotation, on a window the processor draws (ADR 3545).
     picture: Option<pdf_render::DisplayList>,
+    /// The controller bar over the clip's rectangle, on either kind of window (ADR 3595).
+    controller: Option<pdf_render::DisplayList>,
     /// What is selected inside a form field (ADR 0225).
     field_selection: Option<pdf_render::DisplayList>,
     /// §12.5.1's focus ring, round whatever the tab key last landed on.
@@ -615,6 +617,7 @@ impl Overlays {
             matches: app.matches_list(edge, width, height),
             selection: app.selection_list(edge, width, height),
             picture: app.picture_list(width, height),
+            controller: app.controller_list(width, height),
             field_selection: app.field_selection_list(edge, width, height),
             focus: app.focus_list(edge, width, height),
             caret: app.caret_list(edge, width, height, false),
@@ -641,6 +644,7 @@ impl Overlays {
             // A clip's picture over its screen annotation is the page's, and every piece of
             // chrome is over it (ADR 3545).
             self.picture.as_ref(),
+            self.controller.as_ref(),
             self.annex_o_highlight.as_ref(),
             self.matches.as_ref(),
             self.selection.as_ref(),

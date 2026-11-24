@@ -1133,6 +1133,42 @@ pub unsafe extern "C" fn quorra_window_picture(
     }
 }
 
+/// Table 307's movie controller bar for the clip whose picture is shown (ADR 3595): `*playing` 1
+/// while the clip runs and 0 while it is paused or held, `*position_ms` its place in its pass, and
+/// `*length_ms` the pass's length or -1 where it is not known — what a host draws its own bar from.
+/// `QUORRA_NO_ANSWER` where no picture is shown or the clip asks for no bar.
+///
+/// # Safety
+///
+/// See the module documentation. Every pointer is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_controller(
+    window: *const Window,
+    playing: *mut i32,
+    position_ms: *mut u64,
+    length_ms: *mut i64,
+) -> c_int {
+    let (Some(window), Some(playing), Some(position_ms), Some(length_ms)) = (
+        window.as_ref(),
+        playing.as_mut(),
+        position_ms.as_mut(),
+        length_ms.as_mut(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    match window.controller() {
+        Ok(controller) => {
+            *playing = i32::from(controller.playing);
+            *position_ms = u64::try_from(controller.position.as_millis()).unwrap_or(u64::MAX);
+            *length_ms = controller.length.map_or(-1, |length| {
+                i64::try_from(length.as_millis()).unwrap_or(i64::MAX)
+            });
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// Copies the clip's picture into a buffer the caller owns, sized from [`quorra_window_picture`]'s
 /// `bytes`; a shorter one answers `QUORRA_BUFFER_TOO_SMALL` and nothing is written,
 /// `QUORRA_NO_ANSWER` where no picture is shown.

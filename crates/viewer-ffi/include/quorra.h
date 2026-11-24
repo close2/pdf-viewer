@@ -2398,6 +2398,13 @@ int32_t quorra_window_picture(const quorra_window *window, uint32_t *width, uint
                               uint32_t *shown_width, uint32_t *shown_height);
 int32_t quorra_window_picture_copy(const quorra_window *window, uint8_t *into, size_t cap,
                                    size_t *written);
+/* Table 307's movie controller bar for the clip whose picture is shown (ADR 3595), as three facts
+ * a host draws its own bar from, along the bottom of the picture's rectangle: *playing 1 while the
+ * clip runs and 0 while it is paused or held at its start, *position_ms its place in its pass, and
+ * *length_ms the pass's length, -1 where it is not known. QUORRA_NO_ANSWER where no picture is
+ * shown or the clip asks for no bar. quorra_window_key's Space pauses and resumes it. */
+int32_t quorra_window_controller(const quorra_window *window, int32_t *playing,
+                                 uint64_t *position_ms, int64_t *length_ms);
 /* Everything owed since the last call, as a batch freed with quorra_owed_free. */
 int32_t quorra_window_take_owed(quorra_window *window, quorra_owed **owed);
 void quorra_owed_free(quorra_owed *owed);

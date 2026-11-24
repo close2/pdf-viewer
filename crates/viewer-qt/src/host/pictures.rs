@@ -75,6 +75,32 @@ impl Host {
             .map(|at| at.saturating_duration_since(now))
     }
 
+    /// The controller bar over the bottom of the clip's rectangle, where the clip in hand asks for
+    /// one — Table 307's `/ShowControls` (ADR 3595) — placed as the picture is, or `None`.
+    pub(super) fn shown_bar(&self) -> Option<Shown<'static>> {
+        let (_, document, screen) = self.state.pictures.picture()?;
+        if document != self.state.documents.focused() {
+            return None;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return None;
+        };
+        let (raster, covered) = self.state.pictures.controller_bar(quad, Instant::now())?;
+        let (origin, extent) = viewer_host::video::Placed {
+            left: 0,
+            top: 0,
+            right: raster.width,
+            bottom: raster.height,
+            quad: covered,
+        }
+        .bounding_box();
+        Some(Shown {
+            raster: std::borrow::Cow::Owned(raster),
+            origin,
+            extent,
+        })
+    }
+
     /// The picture held up, placed over its screen annotation — where the clip's document is the
     /// one in front and the annotation is on a page now placed — or `None`.
     ///

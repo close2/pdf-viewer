@@ -61,7 +61,9 @@ fn shown(file: Arc<[u8]>) -> Shown {
         associated: Some(SCREEN),
         auto_play: true,
         repeat: 1.0,
-        cut: false,
+        duration: pdf_model::media::SimpleDuration::Intrinsic,
+        section: pdf_model::media::Section::WHOLE,
+        controls: false,
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
     }
@@ -258,5 +260,41 @@ fn a_pause_mid_clip_holds_its_place_and_a_resume_goes_on() {
     assert!(
         after.iter().all(|index| *index > paused_at),
         "nothing before the pause's place again: paused at {paused_at}, then {after:?}"
+    );
+}
+
+/// **A section cuts the pictures through the real worker** (§13.2.4.3, ADR 3593): a clip of ten
+/// pictures 40 ms apart with a section from 120 ms to 280 ms shows pictures 3 to 6 and no other —
+/// the decode starts at the section's beginning and stops at its end — and its end is said with
+/// those four. The wrong answer excluded: the whole clip shown from picture 0, as it was while
+/// only the sound was cut.
+#[test]
+fn a_section_shows_only_its_pictures() {
+    let (file, samples) = clip(10);
+    let (mut player, wakes) = player();
+    let mut cut = shown(file);
+    cut.section = pdf_model::media::Section {
+        begin: 0.12,
+        end: Some(0.28),
+    };
+    player.play(cut);
+    let (indices, said) = play_until(&mut player, &wakes, &samples, |seen| {
+        matches!(seen, Seen::Ended(_) | Seen::Refused(_) | Seen::Stopped(_))
+    });
+    assert!(
+        indices.iter().all(|index| (3..=6).contains(index)),
+        "only the section's pictures: {indices:?}"
+    );
+    assert!(!indices.is_empty(), "a picture was shown; said {said:?}");
+    let Some(Seen::Ended(ended)) = said.last() else {
+        panic!("the clip ended: {said:?}");
+    };
+    let dropped = 4 - indices.len();
+    assert_eq!(
+        ended,
+        &format!(
+            "the clip: ended after {} pictures, {dropped} dropped late",
+            indices.len()
+        )
     );
 }

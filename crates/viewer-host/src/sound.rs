@@ -29,7 +29,7 @@ pub mod clock;
 mod convert;
 pub mod helper;
 mod painting;
-mod passes;
+pub(crate) mod passes;
 mod window;
 
 use std::collections::VecDeque;

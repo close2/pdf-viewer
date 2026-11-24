@@ -946,7 +946,8 @@ fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
         .bool(playing.mix)
         .f64(playing.section.begin)
         .f64(playing.section.end.unwrap_or(-1.0))
-        .u8(playing.fit.value());
+        .u8(playing.fit.value())
+        .bool(playing.controls);
 }
 
 /// [`write_playing`]'s other half. The confined side is the less trusted one, so each number is
@@ -1007,6 +1008,7 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
                 value: u32::from(fit),
             })?
         },
+        controls: reader.bool("whether a clip shows a controller bar")?,
     })
 }
 

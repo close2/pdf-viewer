@@ -840,6 +840,31 @@ fn sample_count(table: &[Atom<'_>]) -> Option<u32> {
     fields.u32_be()
 }
 
+/// The time scale of an ISO base media file's movie — its `mvhd` box's "number of time units that
+/// pass in one second" (ISO/IEC 14496-12 section 8.2.2.3) — which a §13.4 movie activation
+/// dictionary's `/Start` and `/Duration` are counted in where they name no scale of their own
+/// (Table 307, ADR 3594).
+///
+/// # Errors
+///
+/// The sentence a person is told: a file that is not an ISO base media file, holds no `moov` or
+/// `mvhd` box, or states a time scale of zero, which counts no time.
+pub fn movie_time_scale(bytes: &[u8]) -> Result<u32, String> {
+    let mut budget = Budget { visited: 0 };
+    let top = boxes(bytes, 0, &mut budget)?;
+    let Some(moov) = first(&top, *b"moov") else {
+        return Err("its file holds no moov box, so it states no presentation".into());
+    };
+    let movie = children(moov, &mut budget)?;
+    let (scale, _) = first(&movie, *b"mvhd")
+        .and_then(|mvhd| scale_and_duration(mvhd.payload))
+        .ok_or_else(|| truncated("mvhd box"))?;
+    if scale == 0 {
+        return Err("its movie header states a time scale of zero, which counts no time".into());
+    }
+    Ok(scale)
+}
+
 /// An ISO base media file's timeline.
 fn base_media(bytes: &[u8]) -> Result<Timeline, String> {
     let mut budget = Budget { visited: 0 };

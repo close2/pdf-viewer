@@ -111,6 +111,13 @@ impl Fit {
 }
 
 /// How a sound is played: §13.2.5's play parameters, with each default the tables state.
+///
+/// One field per table entry: Tables 291, 212 and 307 state `/A`, `/Synchronous`, `/Mix` and
+/// `/ShowControls` as four independent flags with four independent defaults.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one field per table entry; the tables state four independent flags"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Playing {
     /// Table 291's `/V` as a fraction of the recorded level: "the desired volume level as a
@@ -136,11 +143,14 @@ pub struct Playing {
     pub section: Section,
     /// Table 291's `/F`, which only a clip with pictures is fitted by.
     pub fit: Fit,
+    /// Table 307's `/ShowControls`, "whether to display a movie controller bar while playing the
+    /// movie": a bar this program draws over the clip's pictures (ADR 3594).
+    pub controls: bool,
 }
 
 impl Default for Playing {
     /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/F` 5,
-    /// `/Synchronous` and `/Mix` false.
+    /// `/Synchronous`, `/Mix` and `/ShowControls` false.
     fn default() -> Self {
         Self {
             level: 1.0,
@@ -151,6 +161,7 @@ impl Default for Playing {
             mix: false,
             section: Section::WHOLE,
             fit: Fit::PlayersDefault,
+            controls: false,
         }
     }
 }

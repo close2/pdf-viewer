@@ -25,9 +25,10 @@
 //! over (a sound shorter than its pictures) or where the clip never sounds.
 //!
 //! **What a play parameter does to the pictures.** Table 291's `/A` false holds the clip at its
-//! start until it is resumed; `/RC` repeats it in whole passes (a fraction of a pass rounds up); a
-//! simple duration (`/D`) is not applied to the pictures, nor a §13.2.4.3 section, and the
-//! sentence for such a clip says so.
+//! start until it is resumed; §13.2.4.3's section places each pass on the movie's timeline and cuts
+//! its pictures at the section's end; a simple duration (`/D`) shorter than the pictures cuts them
+//! and a longer one holds the last picture up until it has elapsed; `/RC` counts the passes, a
+//! fraction of one cutting the last (`timeline`, ADR 3593) — the sound's own cuts, on its clock.
 //!
 //! **Stop, pause and resume** reach the pictures as they reach a sound (ADR 3433): a pause stops
 //! the decoding and keeps the clock's place; a resume decodes from the last sync sample at or
@@ -48,9 +49,12 @@ use viewer_core::{DocumentId, MediaOperation};
 use crate::sound::clock::MediaClock;
 use crate::sound::{Listening, SoundTime, Wake};
 
+pub mod controller;
 pub mod screens;
+mod timeline;
 mod window;
 
+pub use controller::{BAR_HEIGHT, Controller, Pressed};
 pub use window::{Looked, Pictures};
 
 /// How many decoded pictures may wait for their time: enough that a picture is always in hand
@@ -69,6 +73,18 @@ const WAITING_LOOK: Duration = Duration::from_millis(5);
 pub const DECODING_LOOK: Duration = Duration::from_millis(4);
 
 impl InHand {
+    /// Where the pass's pictures ended, in its own time: one interval after the last picture, or
+    /// the cut.
+    fn pictures_end(&self) -> Duration {
+        self.last_at.saturating_add(self.interval)
+    }
+
+    /// When the pass in hand ends, in its own time, once its pictures are over: `None` for an
+    /// infinite duration, whose last picture is held until the clip is stopped.
+    fn ends(&self) -> Option<Duration> {
+        self.timeline.ends(self.pictures_end())
+    }
+
     /// The clip's time at `now`, read and kept: its sound's heard time while the sound is in hand,
     /// `None` while the sound has not begun, and the clip's own clock otherwise — taken up from
     /// the sound's last time at the moment the sound is found over.
@@ -122,10 +138,14 @@ pub struct Shown {
     pub associated: Option<ObjectId>,
     /// Table 291's `/A`: whether the clip starts at once.
     pub auto_play: bool,
-    /// Table 291's `/RC`: zero for ever, otherwise the passes, a fraction rounded up.
+    /// Table 291's `/RC`: zero for ever, otherwise the passes, a fraction of one cutting the last.
     pub repeat: f64,
-    /// Whether a simple duration or a section was stated, which the pictures do not follow yet.
-    pub cut: bool,
+    /// Table 291's `/D`, which each pass lasts (ADR 3593).
+    pub duration: pdf_model::media::SimpleDuration,
+    /// §13.2.4.3's section of the clip each pass plays (ADR 3593).
+    pub section: pdf_model::media::Section,
+    /// Table 307's `/ShowControls`: whether a controller bar is drawn over the pictures (ADR 3595).
+    pub controls: bool,
     /// Table 291's `/F`: how a picture is fitted to the rectangle ([`placed`]).
     pub fit: pdf_model::media::Fit,
     /// Table 294's floating or full-screen window the pictures are shown in instead of a
@@ -156,10 +176,9 @@ impl Shown {
                 .map(|rendition| rendition.annotation),
             auto_play: playing.auto_play,
             repeat: playing.repeat,
-            cut: !matches!(
-                playing.duration,
-                pdf_model::media::SimpleDuration::Intrinsic
-            ) || playing.section != pdf_model::media::Section::WHOLE,
+            duration: playing.duration,
+            section: playing.section,
+            controls: playing.controls,
             fit: playing.fit,
             window: sound.window.clone(),
         })
@@ -493,12 +512,15 @@ struct InHand {
     pass_start: Duration,
     /// The passes begun, counting this one.
     passes: u32,
+    /// Where each pass begins on the movie's timeline, where its pictures are cut and how long it
+    /// lasts (ADR 3593).
+    timeline: timeline::Timeline,
     /// The last picture's size in samples, which [`VideoPlayer::placed`] fits.
     size: Option<(u32, u32)>,
     /// The first picture not yet due, kept from the queue.
     next: Option<(Duration, pdf_media_worker::video::Picture)>,
-    /// The newest picture's time in the pass, and the interval before it: the pass ends one
-    /// interval after its last picture, which is shown for that long.
+    /// The newest picture's time in the pass, and the interval before it: the pass's pictures end
+    /// one interval after the last, which is shown for that long.
     last_at: Duration,
     interval: Duration,
     /// How this pass's decode ended, kept until its last picture's interval has run.
@@ -581,9 +603,16 @@ impl VideoPlayer {
             clock.freeze(now);
         }
         let label = shown.label.clone();
-        let cut = shown.cut;
         let auto_play = shown.auto_play;
         let file = Arc::clone(&shown.file);
+        let timeline = timeline::Timeline::new(&pdf_model::media::Playing {
+            duration: shown.duration,
+            section: shown.section,
+            repeat: shown.repeat,
+            ..pdf_model::media::Playing::default()
+        });
+        let begin = timeline.begin();
+        let unknown_fraction = timeline.first_fraction_unknown();
         self.in_hand = Some(InHand {
             shown,
             clock,
@@ -594,6 +623,7 @@ impl VideoPlayer {
             generation: 0,
             pass_start: Duration::ZERO,
             passes: 1,
+            timeline,
             next: None,
             last_at: Duration::ZERO,
             interval: Duration::ZERO,
@@ -601,12 +631,15 @@ impl VideoPlayer {
             shown_count: 0,
             dropped: 0,
         });
-        let generation = self.decode(file, Duration::ZERO);
+        let generation = self.decode(file, begin);
         if let Some(hand) = self.in_hand.as_mut() {
             hand.generation = generation;
         }
-        let caveat = if cut {
-            "; its simple duration or section governs its sound, and its pictures play whole"
+        // A repeat count below one under the intrinsic duration cuts a pass whose length only its
+        // own decode teaches, so its pictures are shown whole and that is said (trap 5).
+        let caveat = if unknown_fraction {
+            "; its repeat count is less than one pass, whose length is not known until its \
+             pictures have been decoded, so they are shown whole"
         } else {
             ""
         };
@@ -711,7 +744,8 @@ impl VideoPlayer {
         let from = hand
             .clip_time(now)
             .unwrap_or(hand.time)
-            .saturating_sub(hand.pass_start);
+            .saturating_sub(hand.pass_start)
+            .saturating_add(hand.timeline.begin());
         hand.clock.freeze(now);
         hand.running = true;
         hand.over = None;
@@ -868,9 +902,10 @@ impl VideoPlayer {
     pub fn next_due(&self, now: Instant) -> Option<Instant> {
         let hand = self.in_hand.as_ref().filter(|hand| hand.running)?;
         let at = match (&hand.next, &hand.over) {
-            (Some((at, _)), _) => *at,
-            // The pass's end has nothing after it to wake the window, so it is a time of its own.
-            (None, Some(_)) => hand.last_at.saturating_add(hand.interval),
+            (Some((at, _)), _) => hand.timeline.in_pass(*at),
+            // The pass's end has nothing after it to wake the window, so it is a time of its own;
+            // an infinite duration's has none.
+            (None, Some(_)) => hand.ends()?,
             (None, None) => return None,
         };
         // A clip waiting for its sound to begin is looked at again shortly: the sound's start
@@ -887,11 +922,13 @@ impl VideoPlayer {
     pub fn due(&mut self, now: Instant) -> Option<Frame> {
         let mut newest: Option<(Duration, pdf_media_worker::video::Picture)> = None;
         let mut over = None;
+        let mut cut_decode = false;
         {
             let running = self.running.as_ref()?;
             let hand = self.in_hand.as_mut().filter(|hand| hand.running)?;
             // The pictures wait while the sound they follow has not begun.
             let clip_time = hand.clip_time(now)?.saturating_sub(hand.pass_start);
+            let cut_at = hand.timeline.cut();
             while hand.over.is_none() {
                 let (at, picture) = match hand.next.take() {
                     Some(next) => next,
@@ -913,12 +950,21 @@ impl VideoPlayer {
                         Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
                     },
                 };
-                if at > clip_time {
+                let in_pass = hand.timeline.in_pass(at);
+                // §13.2.4.3's section ends, or the pass's duration has run: this picture and every
+                // later one of the pass are cut, its pictures end here, and the decode is stopped.
+                if let Some(cut) = cut_at.filter(|cut| in_pass >= *cut) {
+                    hand.interval = cut.saturating_sub(hand.last_at);
+                    hand.over = Some(Ok((at, None)));
+                    cut_decode = true;
+                    break;
+                }
+                if in_pass > clip_time {
                     hand.next = Some((at, picture));
                     break;
                 }
-                hand.interval = at.saturating_sub(hand.last_at);
-                hand.last_at = at;
+                hand.interval = in_pass.saturating_sub(hand.last_at);
+                hand.last_at = in_pass;
                 if newest.replace((at, picture)).is_some() {
                     hand.dropped = hand.dropped.saturating_add(1);
                 }
@@ -926,7 +972,7 @@ impl VideoPlayer {
             // A refusal ends the clip at once; a decode that finished ends the pass once its last
             // picture has been up for its interval.
             let finished = match &hand.over {
-                Some(Ok(_)) => clip_time >= hand.last_at.saturating_add(hand.interval),
+                Some(Ok(_)) => hand.ends().is_some_and(|ends| clip_time >= ends),
                 Some(Err(_)) => true,
                 None => false,
             };
@@ -938,6 +984,9 @@ impl VideoPlayer {
                     hand.dropped = hand.dropped.saturating_add(1);
                 }
             }
+        }
+        if cut_decode {
+            self.retire();
         }
         if let Some(result) = over {
             self.pass_over(result);
@@ -972,6 +1021,55 @@ impl VideoPlayer {
         placed(hand.shown.fit, hand.size?, quad)
     }
 
+    /// What the controller bar shows at `now`, for a clip in hand that asks for one — Table 307's
+    /// `/ShowControls` (ADR 3595) — and `None` otherwise: whether it runs, its place in its pass,
+    /// and the pass's length where that is known.
+    #[must_use]
+    pub fn controller(&self, now: Instant) -> Option<Controller> {
+        let hand = self.in_hand.as_ref().filter(|hand| hand.shown.controls)?;
+        let time = if hand.running {
+            hand.peek_time(now).unwrap_or(hand.time)
+        } else {
+            hand.time
+        };
+        let length = hand
+            .timeline
+            .length()
+            .or_else(|| hand.over.as_ref().and_then(|_| hand.ends()));
+        let position = time.saturating_sub(hand.pass_start);
+        Some(Controller {
+            playing: hand.running,
+            position: length.map_or(position, |length| position.min(length)),
+            length,
+        })
+    }
+
+    /// The controller bar over `quad`, the clip's rectangle in window pixels, and the
+    /// quadrilateral along its bottom the bar covers, where the clip in hand asks for one (ADR
+    /// 3595).
+    #[must_use]
+    pub fn controller_bar(
+        &self,
+        quad: [f32; 8],
+        now: Instant,
+    ) -> Option<(pdf_render::Raster, [f32; 8])> {
+        let controller = self.controller(now)?;
+        let (bar, width) = controller::over(quad)?;
+        Some((controller.bar(width)?, bar))
+    }
+
+    /// A press on the controller bar at `x` pixels from its left edge ([`Controller::pressed`]):
+    /// the button pauses a running clip and resumes a paused or held one. Answers whether it acted.
+    pub fn press(&mut self, x: u32) -> bool {
+        if self.controller(Instant::now()).is_none() {
+            return false;
+        }
+        match Controller::pressed(x) {
+            Pressed::PlayPause => self.pause() || self.resume(),
+            Pressed::Bar => false,
+        }
+    }
+
     /// Whether the window should draw the picture it holds: a clip is in hand. A clip that ended,
     /// was stopped or refused leaves the rectangle to the page.
     #[must_use]
@@ -993,19 +1091,20 @@ impl VideoPlayer {
                 let Some(hand) = self.in_hand.as_mut() else {
                     return;
                 };
-                // §13.2.5's repeat count, in whole passes: zero repeats for ever.
-                let repeat = hand.shown.repeat;
-                let more = repeat <= 0.0 || f64::from(hand.passes) < repeat;
-                if more {
+                // §13.2.5's repeat count, a fraction of a pass cutting the last (ADR 3593).
+                let pictures_end = hand.pictures_end();
+                let ends = hand.ends();
+                if hand.timeline.pass_over(pictures_end) {
                     hand.passes = hand.passes.saturating_add(1);
-                    // The next pass begins where the clock stands as this one's last picture has
-                    // been up for its interval.
-                    hand.pass_start = hand.time.max(hand.pass_start);
+                    // The next pass begins where this one ended — its pictures' end, or its
+                    // duration where the last picture was held up for the rest of it.
+                    hand.pass_start = hand.pass_start.saturating_add(ends.unwrap_or(pictures_end));
                     hand.next = None;
                     hand.last_at = Duration::ZERO;
                     hand.interval = Duration::ZERO;
                     let file = Arc::clone(&hand.shown.file);
-                    let generation = self.decode(file, Duration::ZERO);
+                    let begin = hand.timeline.begin();
+                    let generation = self.decode(file, begin);
                     if let Some(hand) = self.in_hand.as_mut() {
                         hand.generation = generation;
                     }

@@ -203,6 +203,41 @@ impl App {
     }
 }
 
+impl App {
+    /// The controller bar over the bottom of the clip's rectangle, where the clip in hand asks for
+    /// one — Table 307's `/ShowControls` (ADR 3595) — drawn by the processor and laid over the
+    /// picture on either kind of window, the overlays' pixels being the window's.
+    pub(crate) fn controller_list(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Option<pdf_render::DisplayList> {
+        let quad = self.picture_quad()?;
+        let (bar, covered) = self.video.as_ref()?.controller_bar(quad, Instant::now())?;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+        list.push(DrawCommand::Image {
+            image: ImageSource::Decoded(pdf_render::Image {
+                width: bar.width,
+                height: bar.height,
+                data: Arc::from(bar.data.as_slice()),
+                // Drawn at its own size, pixel for pixel.
+                interpolate: false,
+                sample_alpha: SampleAlpha::Shape,
+            }),
+            transform: unit_square_onto(covered),
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        Some(list)
+    }
+}
+
 /// The image's unit square onto `quad`, corners clockwise from its top-left in pixels with y
 /// downwards: §8.9.5's image space puts an image's first row at the unit square's `y = 1`, so that
 /// edge goes to the quadrilateral's first side and the square's origin to its last corner.

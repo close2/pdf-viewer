@@ -196,6 +196,31 @@ impl Pictures {
             .window_picture(self.raster.as_ref(), inner)
     }
 
+    /// The controller bar for the clip in hand, over its rectangle `quad` in window pixels, where
+    /// the clip asks for one: the bar, and the quadrilateral along the rectangle's bottom it covers
+    /// ([`super::controller::over`], ADR 3595).
+    #[must_use]
+    pub fn controller_bar(
+        &self,
+        quad: [f32; 8],
+        now: Instant,
+    ) -> Option<(pdf_render::Raster, [f32; 8])> {
+        self.player.as_ref()?.controller_bar(quad, now)
+    }
+
+    /// What the controller bar shows at `now`, where the clip in hand asks for one
+    /// ([`VideoPlayer::controller`]).
+    #[must_use]
+    pub fn controller(&self, now: Instant) -> Option<super::Controller> {
+        self.player.as_ref()?.controller(now)
+    }
+
+    /// A press on the controller bar, `x` pixels from its left edge: the button pauses or resumes
+    /// the clip. Answers whether it acted ([`VideoPlayer::press`]).
+    pub fn press_bar(&mut self, x: u32) -> bool {
+        self.player.as_mut().is_some_and(|player| player.press(x))
+    }
+
     /// The picture held up and the document and screen annotation it is drawn over.
     #[must_use]
     pub fn picture(&self) -> Option<(&pdf_render::Raster, DocumentId, ObjectId)> {

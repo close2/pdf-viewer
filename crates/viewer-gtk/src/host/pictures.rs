@@ -72,6 +72,9 @@ const RETRY: std::time::Duration = std::time::Duration::from_millis(5);
 pub(super) struct HeldUp {
     /// Made at the first picture, in the page layer.
     widget: Option<gtk4::Picture>,
+    /// The controller bar over the rectangle's bottom, made at the first clip that asks for one
+    /// (Table 307's `/ShowControls`, ADR 3595).
+    bar: Option<gtk4::Picture>,
     /// Counts the timeouts armed; one whose number is not this one's is stale.
     armed: u64,
     /// The window of its own a clip that Table 294's `/W` 0 or 1 asks for is shown in, while one
@@ -97,7 +100,9 @@ impl Host {
             self.say(said.sentence());
         }
         self.keep_the_media_window();
-        if looked.changed {
+        // A sentence is a change of state — paused, showing again — which the controller bar's
+        // button shows, so the bar is drawn again with it.
+        if looked.changed || !looked.said.is_empty() {
             self.hold_up_the_picture();
         }
         self.arm_the_next_look(now);
@@ -128,7 +133,7 @@ impl Host {
         if self.shown.media_window.is_some() {
             self.hold_up_in_the_media_window();
         }
-        let placed = self
+        let screen = self
             .state
             .pictures
             .picture()
@@ -138,7 +143,10 @@ impl Host {
                     Answer::Screen(quad) => Some((raster, quad)),
                     _ => None,
                 },
-            )
+            );
+        // The bar goes over the picture, so it is held up after it.
+        let screen_quad = screen.map(|(_, quad)| quad);
+        let placed = screen
             // Fitted by the clip's Table 291 `/F` (ADR 3553): the part of the picture shown, over
             // the part of the rectangle it covers.
             .and_then(|(raster, quad)| {
@@ -150,6 +158,7 @@ impl Host {
                 widget.set_paintable(gtk4::gdk::Paintable::NONE);
                 widget.set_visible(false);
             }
+            self.hold_up_the_bar(None);
             return;
         };
         let texture = match texture {
@@ -169,6 +178,44 @@ impl Host {
             widget
         });
         // Over every page picture, which the placement adds to the same layer as it needs them.
+        if fixed.last_child().as_ref() != Some(widget.upcast_ref()) {
+            widget.insert_after(&fixed, fixed.last_child().as_ref());
+        }
+        let (width, height) = (texture.width(), texture.height());
+        widget.set_paintable(Some(&texture));
+        widget.set_size_request(width, height);
+        widget.set_visible(true);
+        fixed.set_child_transform(widget, Some(&placement(quad, (width, height), self.scale)));
+        self.hold_up_the_bar(screen_quad);
+    }
+
+    /// Puts the controller bar over the bottom of `screen`, the clip's rectangle, where the clip in
+    /// hand asks for one, and takes it down otherwise (ADR 3595). Drawn again with each picture, so
+    /// its time and track move as the clip plays.
+    fn hold_up_the_bar(&mut self, screen: Option<[f32; 8]>) {
+        let bar = screen.and_then(|quad| self.state.pictures.controller_bar(quad, Instant::now()));
+        let Some((raster, quad)) = bar else {
+            if let Some(widget) = &self.shown.bar {
+                widget.set_visible(false);
+            }
+            return;
+        };
+        let texture = match crate::page::texture(&raster) {
+            Ok(texture) => texture,
+            Err(refused) => {
+                self.say(&format!("a clip's controller bar was not shown: {refused}"));
+                return;
+            }
+        };
+        let fixed = self.ui.fixed.clone();
+        let widget = self.shown.bar.get_or_insert_with(|| {
+            let widget = gtk4::Picture::new();
+            widget.set_content_fit(gtk4::ContentFit::Fill);
+            widget.set_can_shrink(false);
+            widget.set_can_target(false);
+            fixed.put(&widget, 0.0, 0.0);
+            widget
+        });
         if fixed.last_child().as_ref() != Some(widget.upcast_ref()) {
             widget.insert_after(&fixed, fixed.last_child().as_ref());
         }

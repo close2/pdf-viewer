@@ -11,16 +11,16 @@ use pdf_model::media::{Playing, SimpleDuration};
 
 /// One iteration of the simple duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Pass {
+pub(crate) struct Pass {
     /// The frames from the sound's start that sound.
-    pub(super) sounding: u64,
+    pub(crate) sounding: u64,
     /// The frames frozen after them, in silence; `None` for ever, where the duration is infinite.
-    pub(super) frozen: Option<u64>,
+    pub(crate) frozen: Option<u64>,
 }
 
 /// The passes one sound is played as, in order.
 #[derive(Debug, Clone)]
-pub(super) struct Passes {
+pub(crate) struct Passes {
     /// The sound's own length: §13.2.5's intrinsic duration, in frames.
     intrinsic: u64,
     /// One pass's length in frames, `None` where Table 292's `/S` is `F`.
@@ -34,7 +34,7 @@ pub(super) struct Passes {
 
 impl Passes {
     /// The passes `playing` asks of a sound `intrinsic` frames long, on a device of `rate`.
-    pub(super) fn new(playing: &Playing, intrinsic: u64, rate: u32) -> Self {
+    pub(crate) fn new(playing: &Playing, intrinsic: u64, rate: u32) -> Self {
         let simple = match playing.duration {
             SimpleDuration::Intrinsic => Some(intrinsic),
             SimpleDuration::Infinite => None,
@@ -50,7 +50,7 @@ impl Passes {
 
     /// The sound's length, learned once its last run arrived: passes cut while it was still
     /// arriving were cut as if it were endless, and those to come are cut to it (ADR 3457).
-    pub(super) fn learned(&mut self, intrinsic: u64) {
+    pub(crate) fn learned(&mut self, intrinsic: u64) {
         self.intrinsic = intrinsic;
         if self.intrinsic_duration {
             self.simple = Some(intrinsic);
@@ -62,7 +62,7 @@ impl Passes {
     /// duration is stated in seconds the frames it no longer sounds are frozen instead (Table 291's
     /// "the media is logically frozen"). A pass of the sound's own length, or an endless one,
     /// freezes nothing more.
-    pub(super) fn restated(&self, pass: Pass, from: u64) -> Pass {
+    pub(crate) fn restated(&self, pass: Pass, from: u64) -> Pass {
         let end = from.saturating_add(pass.sounding);
         let sounded_to = end.min(self.intrinsic).max(from);
         let cut = end.saturating_sub(sounded_to);
@@ -80,7 +80,7 @@ impl Passes {
     /// The next pass, or `None` once the repeat count is spent. A pass of no length ends the sound
     /// even under a count of zero: a duration of nothing repeated for ever is still nothing, and a
     /// player that looped on it would spin without a frame reaching the device.
-    pub(super) fn next_pass(&mut self) -> Option<Pass> {
+    pub(crate) fn next_pass(&mut self) -> Option<Pass> {
         let fraction = match &mut self.left {
             None => 1.0,
             Some(left) if *left <= 0.0 => return None,
@@ -136,7 +136,7 @@ fn frames_of(frames: f64) -> u64 {
 
 /// Table 291's `/V` applied: each sample scaled by the level and held to full scale, since a level
 /// above the recorded one asks for more than a sample can carry. Nothing is done at the default.
-pub(super) fn levelled(samples: &mut [f32], level: f64) {
+pub(crate) fn levelled(samples: &mut [f32], level: f64) {
     if (level - 1.0).abs() < f64::EPSILON {
         return;
     }

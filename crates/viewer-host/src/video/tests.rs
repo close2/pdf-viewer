@@ -25,7 +25,9 @@ fn shown(repeat: f64) -> Shown {
         associated: Some(ObjectId::new(9, 0)),
         auto_play: true,
         repeat,
-        cut: false,
+        duration: pdf_model::media::SimpleDuration::Intrinsic,
+        section: pdf_model::media::Section::WHOLE,
+        controls: false,
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
     }
@@ -48,6 +50,12 @@ fn holding(shown: Shown) -> (VideoPlayer, SyncSender<Decoded>, Instant) {
     let now = Instant::now();
     let mut clock = MediaClock::new(CLOCK_RATE);
     clock.freeze(now);
+    let timeline = timeline::Timeline::new(&pdf_model::media::Playing {
+        duration: shown.duration,
+        section: shown.section,
+        repeat: shown.repeat,
+        ..pdf_model::media::Playing::default()
+    });
     player.in_hand = Some(InHand {
         shown,
         clock,
@@ -58,6 +66,7 @@ fn holding(shown: Shown) -> (VideoPlayer, SyncSender<Decoded>, Instant) {
         generation: 1,
         pass_start: Duration::ZERO,
         passes: 1,
+        timeline,
         next: None,
         last_at: Duration::ZERO,
         interval: Duration::ZERO,
@@ -317,4 +326,125 @@ fn a_window_of_its_own_shows_its_background_and_then_its_picture() {
     let at = |x: usize, y: usize| &drawn.data[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
     assert_eq!(at(0, 0), &[128, 128, 128, 255], "the picture at the left");
     assert_eq!(at(3, 1), &[0, 0, 255, 255], "the background at the right");
+}
+
+/// §13.2.4.3's section from 1 s to 1.1 s (ADR 3593): the pass's first picture is the one at 1 s,
+/// shown at once; the picture at 1.12 s is past the section's end and is cut, never shown; and the
+/// clip ends when the last picture before the cut has been up until the cut. The wrong answer
+/// excluded: the whole clip shown from its start, as before the section reached the pictures.
+#[test]
+fn a_section_places_and_cuts_the_pictures() {
+    let mut shown = shown(1.0);
+    shown.section = pdf_model::media::Section {
+        begin: 1.0,
+        end: Some(1.1),
+    };
+    let (mut player, outbox, began) = holding(shown);
+    drop(player.seen());
+    for millis in [1000, 1040, 1080, 1120] {
+        send(&outbox, 1, millis);
+    }
+    let ms = Duration::from_millis;
+    assert_eq!(player.due(began).expect("the section's start").at, ms(1000));
+    assert_eq!(player.due(began + ms(50)).expect("1.04 s").at, ms(1040));
+    assert_eq!(player.due(began + ms(90)).expect("1.08 s").at, ms(1080));
+    assert!(player.holds_a_picture(), "up until the cut at 100 ms");
+    assert!(player.due(began + ms(100)).is_none(), "1.12 s is cut");
+    assert!(!player.holds_a_picture());
+    assert_eq!(
+        player.seen().last(),
+        Some(&Seen::Ended(
+            "the clip \"c.mp4\": ended after 3 pictures, 0 dropped late".to_owned()
+        ))
+    );
+}
+
+/// Table 291's `/D` of 0.2 s over 0.12 s of pictures, twice (ADR 3593): the last picture is held up
+/// from 120 ms until the duration has elapsed — "the player shall freeze the media in its final
+/// state until the simple duration has elapsed" — and the second pass begins at 200 ms on the
+/// clock, where the sound's second pass begins, rather than where the pictures ran out.
+#[test]
+fn a_longer_duration_holds_the_last_picture_until_it_has_elapsed() {
+    let mut shown = shown(2.0);
+    shown.duration = pdf_model::media::SimpleDuration::Seconds(0.2);
+    let (mut player, outbox, began) = holding(shown);
+    for millis in [0, 40, 80] {
+        send(&outbox, 1, millis);
+    }
+    outbox
+        .send(Decoded::Over {
+            generation: 1,
+            result: Ok((Duration::from_millis(80), None)),
+        })
+        .expect("queued");
+    let ms = Duration::from_millis;
+    assert!(player.due(began + ms(85)).is_some());
+    assert!(player.due(began + ms(150)).is_none());
+    let hand = player.in_hand.as_ref().expect("held, frozen");
+    assert_eq!(hand.passes, 1);
+    assert_eq!(
+        player.next_due(began + ms(150)),
+        Some(began + ms(200)),
+        "the window is woken when the duration has elapsed"
+    );
+    assert!(player.due(began + ms(205)).is_none());
+    let hand = player.in_hand.as_ref().expect("the second pass");
+    assert_eq!((hand.passes, hand.pass_start), (2, ms(200)));
+}
+
+/// A duration of 0.1 s over pictures that run longer (ADR 3593): the picture at 0.12 s is cut and
+/// the pass ends at 0.1 s.
+#[test]
+fn a_shorter_duration_cuts_the_pictures() {
+    let mut shown = shown(1.0);
+    shown.duration = pdf_model::media::SimpleDuration::Seconds(0.1);
+    let (mut player, outbox, began) = holding(shown);
+    drop(player.seen());
+    for millis in [0, 40, 80, 120] {
+        send(&outbox, 1, millis);
+    }
+    let ms = Duration::from_millis;
+    assert!(player.due(began + ms(85)).is_some());
+    assert!(player.holds_a_picture());
+    assert!(player.due(began + ms(100)).is_none());
+    assert_eq!(
+        player.seen().last(),
+        Some(&Seen::Ended(
+            "the clip \"c.mp4\": ended after 1 pictures, 2 dropped late".to_owned()
+        ))
+    );
+}
+
+/// Table 307's `/ShowControls` (ADR 3595): a clip that asks for the bar answers what it shows —
+/// running, at its place in the pass, the pass's length once a stated duration gives it — and a
+/// press on its button pauses the clip, after which the bar says so; a clip that does not ask has
+/// no bar.
+#[test]
+fn a_clip_that_asks_for_the_bar_answers_it_and_a_press_pauses_it() {
+    let mut asked = shown(1.0);
+    asked.controls = true;
+    asked.duration = pdf_model::media::SimpleDuration::Seconds(2.0);
+    let (mut player, outbox, began) = holding(asked);
+    send(&outbox, 1, 0);
+    let ms = Duration::from_millis;
+    assert!(player.due(began + ms(50)).is_some());
+    let controller = player.controller(began + ms(50)).expect("a bar");
+    assert!(controller.playing);
+    assert_eq!(controller.position, ms(50));
+    assert_eq!(controller.length, Some(ms(2000)));
+    let quad = [0.0, 0.0, 120.0, 0.0, 120.0, 90.0, 0.0, 90.0];
+    let (bar, covered) = player
+        .controller_bar(quad, began + ms(50))
+        .expect("the bar over the rectangle");
+    assert_eq!((bar.width, bar.height), (120, BAR_HEIGHT));
+    assert_eq!(covered[1], 70.0);
+    assert!(player.press(2), "the button pauses the clip");
+    assert!(
+        !player
+            .controller(Instant::now())
+            .expect("still a bar")
+            .playing
+    );
+    let (plain, _, _) = holding(shown(1.0));
+    assert!(plain.controller(began).is_none());
 }

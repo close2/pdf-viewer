@@ -12,6 +12,13 @@
 //! "self-describing" one, in both clauses' words — so each becomes a [`Clip`] the way a viable
 //! §13.2.4.2 clip does, and crosses through the same event (`doc/questions/A631`, ADR 2382).
 //!
+//! **A movie this program shows itself** — an embedded MP4 file of `video/` type, for a host whose
+//! player shows video (ADR 3594) — is played in the movie annotation's rectangle, or in a floating
+//! window where Table 307's `/FWScale` asks for one, and is told the activation entries this
+//! player honours: `/Start` and `/Duration` as §13.2.4.3's section, `/Volume`, `/ShowControls`,
+//! `/Mode`'s `Once`, `Open` and `Repeat`, `/FWScale` and `/FWPosition`. Those it cannot honour are
+//! said, as for the hand-off.
+//!
 //! **What the hand-off cannot carry is said, never dropped** (trap 5): Table 307's activation
 //! entries and Table 212's playing parameters are each something a player would have to be *told*,
 //! and a player handed only the file is told nothing, so every one the document states becomes a
@@ -20,7 +27,10 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-use super::{Clip, Data, Playing};
+use super::{
+    Background, Clip, Data, Floating, MonitorSpecifier, Offscreen, Players, Playing, Position,
+    Processor, Relative, Resize, Section, Window, WindowKind,
+};
 use crate::file_spec::FileSpec;
 
 /// Table 307's entries, in the table's order: how a movie is to be presented, which a player
@@ -59,6 +69,7 @@ pub fn movie(
     document: &Document,
     annotation: &Dictionary,
     action: Option<&Dictionary>,
+    processor: Processor<'_>,
 ) -> Result<Clip, String> {
     let activation = document.get_key(annotation, "A");
     if action.is_none() && matches!(activation, Object::Boolean(false)) {
@@ -100,7 +111,7 @@ pub fn movie(
     {
         unhonoured.push(format!("Table 306's /Rotate {degrees}"));
     }
-    Ok(Clip {
+    let mut clip = Clip {
         content_type: content_type(&data),
         data,
         temporary_file: None,
@@ -109,7 +120,401 @@ pub fn movie(
         played_here: false,
         background: None,
         window: None,
+    };
+    let shows_it = processor.players == Players::AlsoVideoHere
+        && matches!(clip.data, Data::Embedded(_))
+        && clip
+            .content_type
+            .as_deref()
+            .is_some_and(super::container::is_mp4_video);
+    if shows_it {
+        let stated = |key: &str| {
+            action
+                .map(|action| document.get_key(action, key))
+                .filter(|value| !matches!(value, Object::Null))
+                .or_else(|| {
+                    activation
+                        .as_dict()
+                        .map(|activation| document.get_key(activation, key))
+                })
+                // not a repair: an entry neither dictionary states is absent, and the reading below
+                // applies Table 307's default for it.
+                .unwrap_or(Object::Null)
+        };
+        let told = told(document, movie, &clip.data, &stated, processor);
+        // This player is told Table 307; what it sets aside, each entry says itself.
+        clip.unhonoured
+            .retain(|entry| !entry.starts_with("Table 307's /"));
+        clip.unhonoured.extend(told.set_aside);
+        clip.playing = told.playing;
+        clip.window = told.window;
+        clip.background = Some(Background::default());
+        clip.played_here = true;
+    }
+    Ok(clip)
+}
+
+/// What this program's own player is told of a movie it shows: the play parameters, the floating
+/// window `/FWScale` asks for, and a sentence for each of Table 307's entries it does not honour,
+/// or honours only in part (ADR 3594).
+struct Told {
+    playing: Playing,
+    window: Option<Window>,
+    set_aside: Vec<String>,
+}
+
+/// Table 307's entries read for this program's player, each looked up by `stated` — the movie
+/// action's value where it states one, the activation dictionary's otherwise (§12.6.4.10).
+///
+/// - `/Start` and `/Duration`, "the starting time" and "the duration of the movie segment to be
+///   played", become §13.2.4.3's section, counted in the movie's own time scale (its `mvhd` box)
+///   unless an array names another.
+/// - `/Volume` is "in the range -1.0 to 1.0 … negative values shall mute the sound": the level is
+///   the number from zero up, and silence below it — the reading Table 212's `/Volume` has (ADR
+///   3341).
+/// - `/Mode`: `Once` plays one pass; `Repeat` plays "repeatedly from beginning to end until
+///   stopped", a repeat count of zero; `Open` plays "and leave\[s] the movie controller bar open",
+///   which this player reads as the last picture held, with the bar where one is shown, until the
+///   movie is stopped — an infinite duration. `Palindrome`'s backward half would decode each group
+///   of pictures backwards from its sync sample, which the media worker does not do; the movie is
+///   played forward repeatedly instead, and that is said.
+/// - `/Rate` other than 1 — "the initial speed" — is said and the movie played at its own speed:
+///   the pictures follow the sound's device clock (ADR 3555), which runs at the recording's rate.
+/// - `/Synchronous` true — "the movie player shall retain control until the movie is completed or
+///   dismissed by the user" — is said: the window stays the reader's while the movie plays, and
+///   Escape dismisses it.
+/// - `/FWScale` "implies that the movie shall be played in a floating window" of `(numerator ÷
+///   denominator) × Aspect` pixels, placed by `/FWPosition` on the screen.
+fn told(
+    document: &Document,
+    movie: &Dictionary,
+    data: &Data,
+    stated: &dyn Fn(&str) -> Object,
+    processor: Processor<'_>,
+) -> Told {
+    let mut told = Told {
+        playing: Playing::default(),
+        window: None,
+        set_aside: Vec::new(),
+    };
+    let start = stated("Start");
+    let duration = stated("Duration");
+    if !matches!((&start, &duration), (Object::Null, Object::Null)) {
+        match section(document, data, &start, &duration) {
+            Ok(section) => told.playing.section = section,
+            Err(why) => told
+                .set_aside
+                .push(format!("Table 307's /Start and /Duration, because {why}")),
+        }
+    }
+    match stated("Volume") {
+        Object::Null => {}
+        value => match value.as_number().filter(|volume| volume.is_finite()) {
+            // not a repair: Table 307's /Volume is "in the range -1.0 to 1.0" and "negative values
+            // shall mute the sound"; a number past the range is held to it, the reading Table 212's
+            // /Volume has (ADR 3341).
+            Some(volume) => told.playing.level = volume.clamp(0.0, 1.0),
+            None => told
+                .set_aside
+                .push("Table 307's /Volume, because its value is not a number".to_owned()),
+        },
+    }
+    match stated("ShowControls") {
+        Object::Boolean(flag) => told.playing.controls = flag,
+        Object::Null => {}
+        _ => told
+            .set_aside
+            .push("Table 307's /ShowControls, because its value is not a boolean".to_owned()),
+    }
+    let mode = stated("Mode");
+    match mode.as_name().map(pdf_syntax::Name::as_bytes) {
+        None if matches!(mode, Object::Null) => {}
+        Some(b"Once") => {}
+        Some(b"Repeat") => told.playing.repeat = 0.0,
+        Some(b"Open") => told.playing.duration = super::SimpleDuration::Infinite,
+        Some(b"Palindrome") => {
+            told.playing.repeat = 0.0;
+            told.set_aside.push(
+                "Table 307's /Mode /Palindrome's backward half, because this program's media \
+                 worker decodes pictures forward only, so the movie plays forward repeatedly \
+                 until stopped"
+                    .to_owned(),
+            );
+        }
+        _ => told.set_aside.push(
+            "Table 307's /Mode, because it is none of Once, Open, Repeat and Palindrome, so the \
+             movie plays once"
+                .to_owned(),
+        ),
+    }
+    if let Some(rate) = stated("Rate")
+        .as_number()
+        .filter(|rate| (rate - 1.0).abs() >= f64::EPSILON)
+    {
+        told.set_aside.push(format!(
+            "Table 307's /Rate {rate}, because this program's player plays a movie at its \
+             recorded speed, its pictures following the sound device's clock"
+        ));
+    }
+    if matches!(stated("Synchronous"), Object::Boolean(true)) {
+        told.set_aside.push(
+            "Table 307's /Synchronous true, because the window stays the reader's while the \
+             movie plays (Escape dismisses it)"
+                .to_owned(),
+        );
+    }
+    match floating(document, movie, stated, processor) {
+        Ok((window, nearest)) => {
+            told.window = window;
+            told.set_aside.extend(nearest);
+        }
+        Err(why) => told.set_aside.push(why),
+    }
+    told
+}
+
+/// Table 307's `/Start` and `/Duration` as §13.2.4.3's section, in seconds.
+fn section(
+    document: &Document,
+    data: &Data,
+    start: &Object,
+    duration: &Object,
+) -> Result<Section, String> {
+    let mut scale = None;
+    let mut seconds = |value: &Object, what: &str| -> Result<Option<f64>, String> {
+        if matches!(value, Object::Null) {
+            return Ok(None);
+        }
+        let (time, stated_scale) = time_and_scale(document, value)
+            .ok_or_else(|| format!("its {what} is not a time in any of the table's three forms"))?;
+        let units = if let Some(units) = stated_scale {
+            units
+        } else {
+            if scale.is_none() {
+                scale = Some(movie_scale(document, data)?);
+            }
+            // not a repair: `scale` was set on the line above.
+            scale.unwrap_or(1)
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a time past 2⁵³ units is past any movie a person watches; the seconds it \
+                      rounds to are as near as an f64 holds"
+        )]
+        let at = time as f64 / f64::from(units);
+        Ok(Some(at))
+    };
+    // not a repair: "If this entry is omitted, the movie shall be played from the beginning" (Table
+    // 307's /Start).
+    let begin = seconds(start, "/Start")?.unwrap_or(0.0);
+    let length = seconds(duration, "/Duration")?;
+    Ok(Section {
+        begin,
+        end: length.map(|length| begin + length),
     })
+}
+
+/// One of Table 307's time forms: an integer; an eight-byte string, "a 64-bit twos-complement
+/// integer, most significant byte first"; or an array of either and "an integer specifying the
+/// time scale in units per second". A negative time is none: "nominally a non-negative 64-bit
+/// integer".
+fn time_and_scale(document: &Document, value: &Object) -> Option<(u64, Option<u32>)> {
+    let time = |value: &Object| -> Option<u64> {
+        match value {
+            // not a repair: a negative time or a string not of eight bytes is none of Table 307's
+            // forms; the caller sets /Start and /Duration aside and says so.
+            Object::Integer(time) => u64::try_from(*time).ok(),
+            Object::String(bytes) => {
+                let bytes: [u8; 8] = (**bytes).try_into().ok()?;
+                u64::try_from(i64::from_be_bytes(bytes)).ok()
+            }
+            _ => None,
+        }
+    };
+    match value {
+        Object::Array(items) => match items.as_slice() {
+            [stated, units] => {
+                let units = document
+                    .resolve(units)
+                    .as_integer()
+                    // not a repair: a scale that is not a positive integer counts no time; the
+                    // caller sets the entry aside and says so.
+                    .and_then(|units| u32::try_from(units).ok())
+                    .filter(|units| *units > 0)?;
+                Some((time(&document.resolve(stated))?, Some(units)))
+            }
+            _ => None,
+        },
+        other => Some((time(other)?, None)),
+    }
+}
+
+/// The movie's own time scale, read from its file's `mvhd` box.
+fn movie_scale(document: &Document, data: &Data) -> Result<u32, String> {
+    let Data::Embedded(file) = data else {
+        return Err(
+            "the movie's file is not embedded, so its time scale cannot be read".to_owned(),
+        );
+    };
+    let bytes = document.decoded_stream_data(&file.stream).ok_or_else(|| {
+        "the movie's file states a filter or an encryption this program cannot undo".to_owned()
+    })?;
+    super::container::movie_time_scale(&bytes)
+}
+
+/// Table 307's floating window: `None` where `/FWScale` is absent — "the movie shall be played in
+/// the annotation rectangle" — and the window otherwise, `(numerator ÷ denominator) × Aspect`
+/// pixels, centred where `/FWPosition` places it on the screen holding the document window.
+///
+/// `/FWPosition` is "relative" in each axis from 0.0 to 1.0, and Table 295's `/P` — which the
+/// host's windows are placed by (ADR 3586) — names the nine points where each is 0, 0.5 or 1; a
+/// position between them is placed at the nearest and said.
+///
+/// Answers the sentence for a position placed at the nearest point beside the window.
+///
+/// # Errors
+///
+/// The sentence for a window this host does not open, an `/FWScale` that is not two positive
+/// integers, and a movie that states no `/Aspect` to scale.
+fn floating(
+    document: &Document,
+    movie: &Dictionary,
+    stated: &dyn Fn(&str) -> Object,
+    processor: Processor<'_>,
+) -> Result<(Option<Window>, Option<String>), String> {
+    let scale = stated("FWScale");
+    if matches!(scale, Object::Null) {
+        return Ok((None, None));
+    }
+    if !processor.screens.windows {
+        return Err(
+            "Table 307's /FWScale, because this window opens no floating window of its own, so \
+             the movie plays in the annotation's rectangle"
+                .to_owned(),
+        );
+    }
+    let pair = |object: &Object| -> Option<(i64, i64)> {
+        match object.as_array()? {
+            [first, second] => Some((
+                document.resolve(first).as_integer()?,
+                document.resolve(second).as_integer()?,
+            )),
+            _ => None,
+        }
+    };
+    let Some((numerator, denominator)) =
+        pair(&scale).filter(|(numerator, denominator)| *numerator > 0 && *denominator > 0)
+    else {
+        return Err(
+            "Table 307's /FWScale, because it is not two positive integers, so the movie plays \
+             in the annotation's rectangle"
+                .to_owned(),
+        );
+    };
+    let Some((width, height)) = pair(&document.get_key(movie, "Aspect"))
+        .filter(|(width, height)| *width > 0 && *height > 0)
+    else {
+        return Err(
+            "Table 307's /FWScale, because Table 306's /Aspect, which it scales, is not stated as \
+             two positive integers, so the movie plays in the annotation's rectangle"
+                .to_owned(),
+        );
+    };
+    let scaled = |side: i64| -> u32 {
+        // Each factor is a positive i64, so the product fits an i128 and the divisor is not zero.
+        let pixels = i128::from(side)
+            .saturating_mul(i128::from(numerator))
+            .checked_div(i128::from(denominator))
+            // not a repair: the product of two positive integers past an i128 is past every window
+            // this reader opens, which the next line holds to u32.
+            .unwrap_or(i128::MAX);
+        // not a repair: a window this reader opens is at least one pixel and at most what a u32
+        // counts, its own bound on what it opens.
+        u32::try_from(pixels.max(1)).unwrap_or(u32::MAX)
+    };
+    let (position, nearest_said) = position(document, stated)?;
+    let window = Window {
+        kind: WindowKind::Floating(Floating {
+            size: (scaled(width), scaled(height)),
+            // "with respect to the screen": the monitor Table 304's default finds, the one holding
+            // the largest part of the document window.
+            relative: Relative::Monitor,
+            position,
+            offscreen: Offscreen::OnScreen,
+            // Table 307 asks for no title bar, close control or resizing; the window keeps the
+            // first two so that a person can see what it is and close it (ADR 3587).
+            title_bar: true,
+            user_close: true,
+            resize: Resize::Fixed,
+            title: None,
+        }),
+        monitor: MonitorSpecifier::Largest,
+        colour: Background::DEFAULT_COLOUR,
+    };
+    Ok((Some(window), nearest_said))
+}
+
+/// Table 295's `/P`, numbered row by row from the upper left.
+const GRID: [[i64; 3]; 3] = [[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+
+/// Table 307's `/FWPosition` as the nearest of Table 295's nine positions, with the sentence for a
+/// position between them, which is placed at the nearest.
+///
+/// # Errors
+///
+/// The sentence for a value that is not two numbers.
+fn position(
+    document: &Document,
+    stated: &dyn Fn(&str) -> Object,
+) -> Result<(Position, Option<String>), String> {
+    let mut nearest_said = None;
+    let position = match stated("FWPosition").as_array().map(|items| {
+        items
+            .iter()
+            .map(|item| document.resolve(item).as_number())
+            .collect::<Vec<_>>()
+    }) {
+        None => Position::CENTRE,
+        Some(numbers) => match numbers.as_slice() {
+            [Some(horizontal), Some(vertical)] => {
+                let step = |fraction: f64| -> u8 {
+                    // not a repair: /FWPosition's numbers are each "in the range 0.0 to 1.0", and
+                    // one past it is placed at the nearest edge, which is the window's own
+                    // placement rule (Table 295's /O).
+                    let fraction = fraction.clamp(0.0, 1.0);
+                    if fraction < 0.25 {
+                        0
+                    } else if fraction <= 0.75 {
+                        1
+                    } else {
+                        2
+                    }
+                };
+                let on_grid = |fraction: f64| [0.0, 0.5, 1.0].contains(&fraction);
+                if !(on_grid(*horizontal) && on_grid(*vertical)) {
+                    nearest_said = Some(format!(
+                        "Table 307's /FWPosition [{horizontal} {vertical}] in part, because a \
+                         window is placed at one of Table 295's nine positions, so it stands at \
+                         the nearest"
+                    ));
+                }
+                GRID.get(usize::from(step(*vertical)))
+                    .and_then(|row| row.get(usize::from(step(*horizontal))))
+                    .and_then(|value| Position::of_value(*value))
+                    // not a repair: every value of GRID is one of Table 295's nine, so `of_value`
+                    // answers each.
+                    .unwrap_or(Position::CENTRE)
+            }
+            _ => {
+                return Err(
+                    "Table 307's /FWPosition, because it is not two numbers, so the movie plays \
+                     in the annotation's rectangle"
+                        .to_owned(),
+                );
+            }
+        },
+    };
+    Ok((position, nearest_said))
 }
 
 /// The clip a sound object is handed over as, or the sentence saying why there is none.
@@ -264,7 +669,13 @@ mod tests {
             "<< /Type /Filespec /F (clip.mov) /EF << /F 4 0 R >> >>",
             "<< /Type /EmbeddedFile /Subtype /video#2Fquicktime /Length 4 >>\nstream\nmoov\nendstream",
         ]);
-        let clip = movie(&doc, &dict(&doc, 2), None).expect("the movie is handed over");
+        let clip = movie(
+            &doc,
+            &dict(&doc, 2),
+            None,
+            crate::media::Processor::default(),
+        )
+        .expect("the movie is handed over");
         assert_eq!(clip.content_type.as_deref(), Some("video/quicktime"));
         assert!(matches!(clip.data, Data::Embedded(_)), "{:?}", clip.data);
         assert_eq!(clip.temporary_file, None, "Table 286 stands over no movie");
@@ -278,6 +689,103 @@ mod tests {
         );
     }
 
+    /// A host whose player shows video (ADR 3594).
+    fn shows_video(windows: bool) -> crate::media::Processor<'static> {
+        crate::media::Processor {
+            players: crate::media::Players::AlsoVideoHere,
+            screens: crate::media::Screens {
+                windows,
+                placed: true,
+                monitors: [true; 7],
+            },
+            ..crate::media::Processor::default()
+        }
+    }
+
+    /// An embedded MP4 movie shown here is told Table 307's entries (ADR 3594): `/Start` 600 and
+    /// `/Duration` 1200 in a stated scale of 600 a second are the section from 1 s to 3 s;
+    /// `/Volume` 0.5 the level; `/ShowControls` the bar; `/Mode /Repeat` a count of zero; `/FWScale`
+    /// [1 2] over an `/Aspect` of [320 240] a floating window of 160 by 120 pixels, `/FWPosition`
+    /// [0 1] Table 295's lower-left. The action's `/Volume` overrides the activation's (§12.6.4.10).
+    /// What it cannot honour — `/Rate`, `/Rotate` — is still said.
+    #[test]
+    fn a_movie_shown_here_is_told_table_307() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F 3 0 R /Rotate 90 \
+             /Aspect [320 240] >> /A << /Start [600 600] /Duration [1200 600] /Volume 0.25 \
+             /ShowControls true /Mode /Repeat /Rate 2 /FWScale [1 2] /FWPosition [0 1] >> >>",
+            "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+            "<< /S /Movie /Volume 0.5 >>",
+        ]);
+        let action = dict(&doc, 5);
+        let clip = movie(&doc, &dict(&doc, 2), Some(&action), shows_video(true))
+            .expect("the movie is shown");
+        assert!(clip.played_here);
+        assert_eq!(clip.playing.section.begin, 1.0);
+        assert_eq!(clip.playing.section.end, Some(3.0));
+        assert_eq!(clip.playing.level, 0.5);
+        assert!(clip.playing.controls);
+        assert_eq!(clip.playing.repeat, 0.0);
+        let window = clip.window.as_ref().expect("a floating window");
+        match &window.kind {
+            crate::media::WindowKind::Floating(floating) => {
+                assert_eq!(floating.size, (160, 120));
+                assert_eq!(floating.position.value(), 6);
+            }
+            crate::media::WindowKind::FullScreen => panic!("not full screen"),
+        }
+        assert_eq!(clip.unhonoured.len(), 2, "{:?}", clip.unhonoured);
+        assert!(clip.unhonoured[0].starts_with("Table 306's /Rotate 90"));
+        assert!(clip.unhonoured[1].starts_with("Table 307's /Rate 2"));
+        // The same movie for a host that opens no window plays in the annotation's rectangle, and
+        // for one that shows no video is handed on as before.
+        let in_place = movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown");
+        assert!(in_place.window.is_none());
+        assert!(
+            in_place
+                .unhonoured
+                .iter()
+                .any(|said| said.contains("/FWScale"))
+        );
+        let handed = movie(
+            &doc,
+            &dict(&doc, 2),
+            None,
+            crate::media::Processor::default(),
+        )
+        .expect("handed on");
+        assert!(!handed.played_here);
+    }
+
+    /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` plays forward
+    /// repeatedly and says its backward half is set aside (ADR 3594).
+    #[test]
+    fn open_holds_and_palindrome_is_said() {
+        let movie_with = |mode: &str| {
+            let doc = document(&[
+                "<< /Type /Catalog >>",
+                &format!(
+                    "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F 3 0 R >> \
+                     /A << /Mode /{mode} >> >>"
+                ),
+                "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+                "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+            ]);
+            movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown")
+        };
+        let open = movie_with("Open");
+        assert_eq!(
+            open.playing.duration,
+            crate::media::SimpleDuration::Infinite
+        );
+        assert!(open.unhonoured.is_empty(), "{:?}", open.unhonoured);
+        let palindrome = movie_with("Palindrome");
+        assert_eq!(palindrome.playing.repeat, 0.0);
+        assert!(palindrome.unhonoured[0].contains("Palindrome"));
+    }
+
     /// Table 189's `/A false` withholds the annotation's own activation and not a movie action's,
     /// whose dictionary the clause makes the stronger statement.
     #[test]
@@ -287,7 +795,12 @@ mod tests {
             "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F (clip.mov) >> /A false >>",
             "<< /S /Movie /Annotation 2 0 R /Rate 2 >>",
         ]);
-        let clicked = movie(&doc, &dict(&doc, 2), None);
+        let clicked = movie(
+            &doc,
+            &dict(&doc, 2),
+            None,
+            crate::media::Processor::default(),
+        );
         assert!(
             clicked
                 .as_ref()
@@ -295,7 +808,13 @@ mod tests {
             "{clicked:?}"
         );
         let action = dict(&doc, 3);
-        let played = movie(&doc, &dict(&doc, 2), Some(&action)).expect("the action plays it");
+        let played = movie(
+            &doc,
+            &dict(&doc, 2),
+            Some(&action),
+            crate::media::Processor::default(),
+        )
+        .expect("the action plays it");
         assert!(
             matches!(&played.data, Data::File(name) if name == "clip.mov"),
             "a simple file specification is Table 306's too: {:?}",
@@ -311,7 +830,13 @@ mod tests {
             "<< /Type /Catalog >>",
             "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] >>",
         ]);
-        let why = movie(&doc, &dict(&doc, 2), None).expect_err("no movie, no hand-off");
+        let why = movie(
+            &doc,
+            &dict(&doc, 2),
+            None,
+            crate::media::Processor::default(),
+        )
+        .expect_err("no movie, no hand-off");
         assert!(why.contains("/Movie required"), "{why}");
     }
 
