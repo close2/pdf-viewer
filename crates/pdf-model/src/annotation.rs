@@ -224,10 +224,7 @@ fn toggles_no_view(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
-    let stated = document
-        .get_key(annotation, "F")
-        .as_integer()
-        .unwrap_or_default();
+    let stated = flags_as_stated(document, annotation);
     let flags = view
         .flags
         .map_or(stated, |change| change.applied_to(stated));
@@ -703,10 +700,7 @@ fn stated_flags(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> i64 {
-    let stated = document
-        .get_key(annotation, "F")
-        .as_integer()
-        .unwrap_or_default();
+    let stated = flags_as_stated(document, annotation);
     view.flags
         .map_or(stated, |change| change.applied_to(stated))
 }
@@ -957,10 +951,7 @@ pub(crate) fn present(
     if is_watermark(document, annotation) {
         return false;
     }
-    let stated = document
-        .get_key(annotation, "F")
-        .as_integer()
-        .unwrap_or_default();
+    let stated = flags_as_stated(document, annotation);
     let flags = view
         .flags
         .map_or(stated, |change| change.applied_to(stated));
@@ -1495,6 +1486,8 @@ fn construct(
             // §8.10.2's box is a *form XObject's*, and a construction is not one: the clause
             // that states this subtype's geometry is what decides whether `/Rect` bounds it.
             bbox: constructed.bounded.then_some(rect),
+            // not a repair: ISO 32000-2 §12.5.2 (Table 166) defaults an absent /CA to 1.0; a
+            // present value of the wrong type or range is `opacity`'s, not this default's.
             fill_alpha: opacity(document, annotation, "ca")
                 .or(stroke_alpha)
                 .unwrap_or(1.0),
@@ -1592,10 +1585,36 @@ fn blend_mode(document: &Document, annotation: &Dictionary) -> Option<String> {
 
 /// Reads one of Table 166's opacity entries, clamped to the range it states.
 fn opacity(document: &Document, annotation: &Dictionary, key: &'static str) -> Option<f32> {
-    document
-        .get_key(annotation, key)
-        .as_number()
-        .map(|value| narrow(value).clamp(0.0, 1.0))
+    // Table 166 gives `/CA` and `/ca` a number from 0.0 to 1.0: one outside the range is read as
+    // the nearer end, and one of another type as absent, each logged as
+    // `ANNOTATION_ENTRY_UNUSABLE`.
+    let stated = document.get_key(annotation, key);
+    let value = stated.as_number();
+    if value.is_none_or(|value| !(0.0..=1.0).contains(&value)) && !stated.is_null() {
+        annotation_entry_unusable(document);
+    }
+    value.map(|value| narrow(value).clamp(0.0, 1.0))
+}
+
+/// Table 166's `/F`, which defaults to 0 where absent; one that is not an integer is read the
+/// same way, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
+fn flags_as_stated(document: &Document, annotation: &Dictionary) -> i64 {
+    let stated = document.get_key(annotation, "F");
+    let flags = stated.as_integer();
+    if flags.is_none() && !stated.is_null() {
+        annotation_entry_unusable(document);
+    }
+    flags.unwrap_or_default()
+}
+
+/// Logs an annotation entry this reader read past. The reader is handed the annotation's
+/// dictionary and not its object, so the repair is placed at the file.
+#[cold]
+pub(crate) fn annotation_entry_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::ANNOTATION_ENTRY_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }
 
 /// What `/AP /N` resolved to.

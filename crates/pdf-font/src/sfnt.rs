@@ -972,6 +972,7 @@ fn laid_out(data: &[u8], kept: &[(&[u8], &[u8])]) -> Option<Vec<u8>> {
     // ISO/IEC 14496-22 defines the three search fields off the table count: the entry selector is
     // the largest power of two no greater than it, and the range shift is what the binary search
     // it describes does not cover.
+    // not a repair: an overflow guard on the table count this program computed.
     let selector = u16::try_from(15u32.checked_sub(count.leading_zeros())?).ok()?;
     let search = 16u16.checked_mul(1u16.checked_shl(u32::from(selector))?)?;
     let mut out = data.get(..4)?.to_vec();

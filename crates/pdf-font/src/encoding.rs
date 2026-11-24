@@ -340,6 +340,8 @@ fn push_component(component: &str, out: &mut String) {
             .chunks(4)
             .map(|group| {
                 std::str::from_utf8(group)
+                    // not a repair: a glyph name that is not `uniXXXX` is an
+                    // ordinary name, not a departure.
                     .ok()
                     .and_then(|group| u32::from_str_radix(group, 16).ok())
                     .and_then(char::from_u32)

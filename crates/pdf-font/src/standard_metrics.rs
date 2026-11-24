@@ -96,6 +96,8 @@ impl StandardFont {
             Self::Courier => {
                 return HELVETICA_WIDTHS
                     .binary_search_by_key(&glyph_name, |(name, _)| name)
+                    // not a repair: a lookup in this program's compiled-in
+                    // table, not a value of the file.
                     .ok()
                     .map(|_| COURIER_WIDTH);
             }
@@ -112,6 +114,7 @@ impl StandardFont {
         };
         table
             .binary_search_by_key(&glyph_name, |(name, _)| name)
+            // not a repair: a lookup in this program's compiled-in table, not a value of the file.
             .ok()
             .and_then(|index| table.get(index))
             .map(|(_, width)| f32::from(*width))

@@ -167,6 +167,8 @@ fn descend(
     // A leaf's or the root's own pairs. The clause says a node has `/Kids` or the pairs entry
     // "but not both"; a file writing both is answered by whichever holds the key, which is
     // more than the clause promises and costs nothing.
+    // not a repair: an absent entry reads as Null so that the `let` below sees no array; the entry
+    // is optional by node kind, not a value the file states.
     if let Object::Array(pairs) = resolve(node.get(key.entries()).unwrap_or(&Object::Null)) {
         // `[key1 value1 key2 value2 …]`, so the keys are the even positions.
         for pair in pairs.as_chunks::<2>().0 {
@@ -179,6 +181,8 @@ fn descend(
         }
     }
 
+    // not a repair: an absent entry reads as Null so that the `let` below sees no array; the entry
+    // is optional by node kind, not a value the file states.
     let Object::Array(kids) = resolve(node.get("Kids").unwrap_or(&Object::Null)) else {
         return None;
     };
@@ -212,6 +216,8 @@ fn descend(
 /// A node with no `/Limits`, or with limits this key cannot be compared against, is admitted:
 /// see [`lookup`] for why a missing hint widens the search rather than ending it.
 fn admits(node: &Dictionary, key: &TreeKey<'_>, resolve: &dyn Fn(&Object) -> Object) -> bool {
+    // not a repair: an absent entry reads as Null so that the `let` below sees no array; the entry
+    // is optional by node kind, not a value the file states.
     let Object::Array(limits) = resolve(node.get("Limits").unwrap_or(&Object::Null)) else {
         return true;
     };
@@ -342,6 +348,8 @@ fn collect<T>(
     if depth > MAX_DEPTH {
         return;
     }
+    // not a repair: an absent entry reads as Null so that the `let` below sees no array; the entry
+    // is optional by node kind, not a value the file states.
     if let Object::Array(pairs) = resolve(node.get(entry).unwrap_or(&Object::Null)) {
         for pair in pairs.as_chunks::<2>().0 {
             let (Some(key), Some(value)) = (pair.first(), pair.get(1)) else {
@@ -354,6 +362,8 @@ fn collect<T>(
             push(resolve(key), value.clone(), out);
         }
     }
+    // not a repair: an absent entry reads as Null so that the `let` below sees no array; the entry
+    // is optional by node kind, not a value the file states.
     let Object::Array(kids) = resolve(node.get("Kids").unwrap_or(&Object::Null)) else {
         return;
     };

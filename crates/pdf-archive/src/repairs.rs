@@ -178,6 +178,15 @@ pub static MAPPING: &[Mapped] = &[
     base("model/transfer-function-unreadable"),
     base("model/form-matrix-malformed"),
     base("model/form-bbox-unusable"),
+    base("model/form-resources-not-a-dictionary"),
+    base("model/catalog-display-entry-unusable"),
+    base("model/viewer-preference-unusable"),
+    base("model/action-entry-unusable"),
+    base("model/annotation-entry-unusable"),
+    base("model/field-entry-unusable"),
+    base("model/alpha-constant-out-of-range"),
+    base("model/halftone-unreadable"),
+    base("model/halftone-transfer-function-unreadable"),
     // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
     // font a content stream renders: the program the file embeds is not the one the window drew,
     // and the converter answers the row by writing the program as this reader read it
@@ -211,6 +220,9 @@ pub static MAPPING: &[Mapped] = &[
     // compared without the file stating it; it reads these at the fonts a content stream renders.
     rows("font/widths-malformed", &[WIDTHS_AGREE]),
     rows("font/cid-widths-malformed", &[WIDTHS_AGREE]),
+    // A CMap stream's `/WMode` read as the nearer mode: the file's departure, and no row of this
+    // part states a rule for it.
+    base("font/wmode-unusable"),
     no_row("font/to-unicode-past-a-bound", A_BOUND_OF_THIS_READER),
 ];
 

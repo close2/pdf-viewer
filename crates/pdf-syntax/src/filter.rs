@@ -530,6 +530,8 @@ fn unfilter_average(row: &mut [u8], above: &[u8], bpp: usize) {
         } else {
             0
         };
+        // not a repair: a neighbour that does not exist is zero as the PNG filters define; an index
+        // into this reader's row buffers, not a value the file states.
         let up = above.get(index).copied().unwrap_or(0);
         if let Some(value) = row.get_mut(index) {
             *value = value.wrapping_add(u8::midpoint(left, up));
@@ -546,11 +548,15 @@ fn unfilter_paeth(row: &mut [u8], above: &[u8], bpp: usize) {
             let earlier = index.saturating_sub(bpp);
             (
                 row.get(earlier).copied().unwrap_or(0),
+                // not a repair: a neighbour that does not exist is zero as the PNG filters define,
+                // not a value the file states.
                 above.get(earlier).copied().unwrap_or(0),
             )
         } else {
             (0, 0)
         };
+        // not a repair: the row above is absent for the first row and reads as zero, as the PNG
+        // filters define.
         let up = above.get(index).copied().unwrap_or(0);
         if let Some(value) = row.get_mut(index) {
             *value = value.wrapping_add(paeth(left, up, up_left));
@@ -975,11 +981,15 @@ impl Lzw {
                     break;
                 }
                 self.spill
+                    // not a repair: lookups in the decoder's own code table, which this reader
+                    // fills, not values the file states.
                     .push(self.suffix.get(index).copied().unwrap_or(0));
                 walk = self.prefix.get(index).copied().unwrap_or(0);
             }
             self.spill.reverse();
             if extends {
+                // not a repair: the first byte of a spill this reader just filled; never empty
+                // after the walk above.
                 let first = self.spill.first().copied().unwrap_or(0);
                 self.spill.push(first);
             }
@@ -1436,7 +1446,7 @@ pub fn stage(filter: &[u8], parms: Option<&Dictionary>) -> Option<Stage> {
     Some(match filter {
         b"FlateDecode" | b"Fl" => Stage::Inflate,
         b"LZWDecode" | b"LZW" => Stage::Lzw {
-            // A repair, recorded by the document as syntax/stream-data-undecodable (ADR 3477).
+            // A repair, recorded by the document as `STREAM_DATA_UNDECODABLE` (ADR 3477).
             early_change: early_change(parms).ok()?,
         },
         b"ASCIIHexDecode" | b"AHx" => Stage::AsciiHex,
@@ -2326,6 +2336,8 @@ impl Pump {
                 ),
                 // The first stage's input is the whole encoded buffer, and there is never any
                 // more of it than the file holds.
+                // not a repair: a range of this reader's own buffer by its own progress count, not
+                // a value the file states.
                 None => (self.data.get(self.at..).unwrap_or_default(), true),
             };
 
@@ -2481,6 +2493,8 @@ impl Inflate {
         let status = self
             .decoder
             .decompress(body, out, flate2::FlushDecompress::None);
+        // not a repair: the decoder's byte counts saturate at the platform's width; counts of this
+        // reader's, not values the file states.
         let read = usize::try_from(self.decoder.total_in().saturating_sub(before_in))
             .unwrap_or(usize::MAX);
         let wrote = usize::try_from(self.decoder.total_out().saturating_sub(before_out))
@@ -3047,7 +3061,7 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
         });
     }
     match damage {
-        // A repair, recorded by the document as syntax/stream-data-undecodable (ADR 3477).
+        // A repair, recorded by the document as `STREAM_DATA_UNDECODABLE` (ADR 3477).
         Some(_) if out.is_empty() => Err(FilterRefusal::Corrupt),
         Some(damage) => Ok(Decoded::damaged(out, damage)),
         None => Ok(Decoded::whole(out)),

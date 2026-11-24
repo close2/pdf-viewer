@@ -265,6 +265,8 @@ pub(super) fn unpack(
         let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
             .get(start..start.saturating_add(available))
+            // not a repair: `available` is bounded by the data's length, so the range is always in
+            // range; the default is unreachable and no value of the file's.
             .unwrap_or_default();
         // Whole samples only: a sample whose last bits are past the end of the data was never
         // written, and half of one is not a colour.
@@ -488,6 +490,8 @@ pub(super) fn unpack_matted_eight_bit_device(
         let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
             .get(start..start.saturating_add(available))
+            // not a repair: `available` is bounded by the data's length, so the range is always in
+            // range; the default is unreachable and no value of the file's.
             .unwrap_or_default();
         let first = y.saturating_mul(width);
         let alphas = alpha
@@ -561,6 +565,8 @@ fn unpack_eight_bit_device(
         let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
             .get(start..start.saturating_add(available))
+            // not a repair: `available` is bounded by the data's length, so the range is always in
+            // range; the default is unreachable and no value of the file's.
             .unwrap_or_default();
         match tables {
             [_] if identity => {
@@ -744,6 +750,8 @@ fn unpack_packed(
         let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
             .get(start..start.saturating_add(available))
+            // not a repair: `available` is bounded by the data's length, so the range is always in
+            // range; the default is unreachable and no value of the file's.
             .unwrap_or_default();
         fill(row, row_pixels, &table.runs);
     }
@@ -1059,6 +1067,8 @@ pub(super) fn levels_drawn(
 ) -> [bool; 256] {
     let mut levels = [false; 256];
     let mut bytes = [false; 256];
+    // not a repair: the caller passes a one-component depth of at most eight bits, so the clamp only
+    // bounds this reader's own shift widths.
     let bits = bits.clamp(1, 8);
     // not a repair: an index, a count or a table of this reader's own, not a value the file states.
     let width_bits = usize::try_from(bits).unwrap_or(8);
@@ -1076,6 +1086,8 @@ pub(super) fn levels_drawn(
         let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
             .get(start..start.saturating_add(available))
+            // not a repair: `available` is bounded by the data's length, so the range is always in
+            // range; the default is unreachable and no value of the file's.
             .unwrap_or_default();
         let carried = available
             .saturating_mul(8)
@@ -1118,6 +1130,7 @@ pub(super) fn levels_drawn(
 /// Reads bit `index` of a packed row, most significant bit first.
 fn sample_bit(row: &[u8], index: usize) -> bool {
     let byte = row.get(index / 8).copied().unwrap_or(0);
+    // not a repair: `index % 8` is below eight, so the conversion cannot fail.
     let shift = 7u32.saturating_sub(u32::try_from(index % 8).unwrap_or(0));
     (byte >> shift) & 1 == 1
 }

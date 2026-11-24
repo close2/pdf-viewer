@@ -109,6 +109,10 @@ classes! {
     ENCODING_NAME_UNKNOWN = "font/encoding-name-unknown", "ISO 32000-2 §9.6.5.1",
         "an /Encoding or /BaseEncoding naming none of the predefined encodings was read as no \
          base encoding, the program's own standing in its place";
+    /// An embedded `CMap`'s `/WMode` of another type, or neither 0 nor 1.
+    WMODE_UNUSABLE = "font/wmode-unusable", "ISO 32000-2 §9.7.5.3",
+        "a CMap stream's /WMode that is not the integer 0 or 1 was read as the nearer of the two, \
+         or as 0";
 
     // ---- bounds of this reader ---------------------------------------------------------------
 

@@ -1279,12 +1279,12 @@ fn child_step(document: &Document, step: &Dictionary) -> Option<TargetStep> {
         return Some(TargetStep::NamedChild(pdf_syntax::text_string(name)));
     }
     let page = match document.get_key(step, "P") {
-        Object::Integer(index) => AttachmentPage::Index(usize::try_from(index).ok()?),
+        Object::Integer(index) => AttachmentPage::Index(index_or_logged(document, index)?),
         Object::String(bytes) => AttachmentPage::Named(pdf_syntax::text_string(&bytes)),
         _ => return None,
     };
     let annotation = match document.get_key(step, "A") {
-        Object::Integer(index) => AttachmentIndex::Index(usize::try_from(index).ok()?),
+        Object::Integer(index) => AttachmentIndex::Index(index_or_logged(document, index)?),
         Object::String(bytes) => AttachmentIndex::Name(pdf_syntax::text_string(&bytes)),
         _ => return None,
     };
@@ -1799,11 +1799,16 @@ fn submit_form(document: &Document, dict: &Dictionary) -> Option<Action> {
     // records.
     let url = spec.url().or_else(|| spec.display_name())?;
     let fields = field_targets(document, dict);
-    let flags = document
-        .get_key(dict, "Flags")
+    // Table 237 defaults an absent `/Flags` to 0; one that is no 32-bit flag word is read the
+    // same way, and logged as `ACTION_ENTRY_UNUSABLE`.
+    let stated = document.get_key(dict, "Flags");
+    let flags = stated
         .as_integer()
-        .and_then(|flags| u32::try_from(flags).ok())
-        .map_or(SubmitFlags::default(), SubmitFlags);
+        .and_then(|flags| u32::try_from(flags).ok());
+    if flags.is_none() && !stated.is_null() {
+        action_entry_unusable(document);
+    }
+    let flags = flags.map_or(SubmitFlags::default(), SubmitFlags);
     let charset = match document.get_key(dict, "CharSet") {
         Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
         _ => None,
@@ -1903,7 +1908,7 @@ fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
         // clause names the *object*.
         Object::Reference(id) => ThreadTarget::Object(*id),
         stated => match document.resolve(stated) {
-            Object::Integer(index) => ThreadTarget::Index(usize::try_from(index).ok()?),
+            Object::Integer(index) => ThreadTarget::Index(index_or_logged(document, index)?),
             Object::String(bytes) => ThreadTarget::Title(pdf_syntax::text_string(&bytes)),
             _ => return None,
         },
@@ -1911,7 +1916,7 @@ fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
     let bead = match dict.get("B") {
         Some(Object::Reference(id)) => Some(BeadTarget::Object(*id)),
         Some(stated) => match document.resolve(stated) {
-            Object::Integer(index) => Some(BeadTarget::Index(usize::try_from(index).ok()?)),
+            Object::Integer(index) => Some(BeadTarget::Index(index_or_logged(document, index)?)),
             _ => None,
         },
         None => None,
@@ -1943,7 +1948,9 @@ fn uri(document: &Document, dict: &Dictionary) -> Option<Uri> {
         return None;
     };
     let stated = String::from_utf8_lossy(&bytes).into_owned();
-    let is_map = boolean(&document.get_key(dict, "IsMap")).unwrap_or(false);
+    // not a repair: Table 207 defaults an absent `/IsMap` to false; one of another type is logged
+    // by `boolean`.
+    let is_map = boolean(document, dict, "IsMap").unwrap_or(false);
 
     // An absolute reference is its own answer: RFC 3986 section 5.2.2's first branch takes
     // the whole of it from the reference, and the one thing it would still do — removing the dot
@@ -2012,7 +2019,9 @@ fn set_ocg_state(document: &Document, dict: &Dictionary) -> SetOcgState {
     }
     SetOcgState {
         changes,
-        preserve_radio_buttons: boolean(&document.get_key(dict, "PreserveRB")).unwrap_or(true),
+        // not a repair: Table 217 defaults an absent `/PreserveRB` to true; one of another type
+        // is logged by `boolean`.
+        preserve_radio_buttons: boolean(document, dict, "PreserveRB").unwrap_or(true),
     }
 }
 
@@ -2041,17 +2050,42 @@ fn hide(document: &Document, dict: &Dictionary) -> Hide {
     }
     Hide {
         targets,
-        hide: boolean(&document.get_key(dict, "H")).unwrap_or(true),
+        hide: boolean(document, dict, "H").unwrap_or(true),
     }
 }
 
-/// §7.3.2's boolean, or `None` for anything else — including an absent entry, which is how
-/// both of the defaults above are stated.
-fn boolean(object: &Object) -> Option<bool> {
-    match object {
-        Object::Boolean(value) => Some(*value),
-        _ => None,
+/// §7.3.2's boolean entry `key`, or `None` for anything else — an absent entry, which is how
+/// the defaults above are stated, and one of another type, which is read the same way and logged
+/// as `ACTION_ENTRY_UNUSABLE`.
+fn boolean(document: &Document, dict: &Dictionary, key: &str) -> Option<bool> {
+    match document.get_key(dict, key) {
+        Object::Boolean(value) => Some(value),
+        Object::Null => None,
+        _ => {
+            action_entry_unusable(document);
+            None
+        }
     }
+}
+
+/// An index Tables 205 and 208 state as an integer, which names nothing when it is negative: the
+/// target is dropped, and the drop logged as `ACTION_ENTRY_UNUSABLE`.
+fn index_or_logged(document: &Document, index: i64) -> Option<usize> {
+    let index = usize::try_from(index).ok();
+    if index.is_none() {
+        action_entry_unusable(document);
+    }
+    index
+}
+
+/// Logs an action entry this reader read past. An action dictionary is often direct and the
+/// reader is handed no object to name, so the repair is placed at the file.
+#[cold]
+fn action_entry_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::ACTION_ENTRY_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }
 
 /// One element of `/T`, in either of the two forms Table 214 gives an element.

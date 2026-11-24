@@ -665,6 +665,8 @@ fn control(document: &Document, field: &Field, annotation: &Dictionary) -> Contr
                 do_not_spell_check: set(appearance::FLAG_DO_NOT_SPELL_CHECK),
                 commit_on_selection: set(appearance::FLAG_COMMIT_ON_SELECTION),
                 selected: selected(document, field, &options),
+                // not a repair: Table 234 defaults an absent `/TI` to 0, and one that names no
+                // index is logged by `inherited_number`.
                 top: inherited_number(document, field, annotation, "TI")
                     .and_then(|top| usize::try_from(top).ok())
                     .unwrap_or_default(),
@@ -751,8 +753,15 @@ pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -
                 items
                     .iter()
                     .filter_map(|entry| document.resolve(entry).as_integer())
-                    .filter_map(|index| usize::try_from(index).ok())
-                    .filter(|index| *index < options.len())
+                    .filter_map(|index| {
+                        // An index that is negative or past the options names none of them: it
+                        // is dropped, and logged as `FIELD_ENTRY_UNUSABLE`.
+                        let index = usize::try_from(index).ok().filter(|i| *i < options.len());
+                        if index.is_none() {
+                            field_entry_unusable(document);
+                        }
+                        index
+                    })
                     .collect(),
             )
         })
@@ -807,7 +816,23 @@ pub(crate) fn inherited_number(
         .into_iter()
         .find_map(|source| document.get_key(source, key).as_integer())
         .or_else(|| document.get_key(annotation, key).as_integer())?;
-    u32::try_from(stated).ok()
+    // A count or an index the table states as an integer is no count when it is negative: it is
+    // read as absent, and logged as `FIELD_ENTRY_UNUSABLE`.
+    let number = u32::try_from(stated).ok();
+    if number.is_none() {
+        field_entry_unusable(document);
+    }
+    number
+}
+
+/// Logs a field entry this reader read past, placed at the file: the reader holds the field's
+/// dictionaries and not their objects.
+#[cold]
+fn field_entry_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::FIELD_ENTRY_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }
 
 #[cfg(test)]

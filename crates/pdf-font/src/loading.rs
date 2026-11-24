@@ -495,6 +495,7 @@ fn parsed_program(
 fn with_readable_font_dicts(
     data: Arc<[u8]>,
     program: Program,
+    // not a repair: a program that does not open is left as it is and refused later, not repaired.
 ) -> (Arc<[u8]>, Option<cff::FontDictRepair>) {
     let repair = match program {
         Program::BareCff => cff::readable_font_dicts(&data).ok().flatten(),
@@ -634,6 +635,7 @@ impl Borrowing {
         }
         // Searched outside the lock: the search reads files, and the answer does not depend on
         // what another thread asked meanwhile.
+        // not a repair: the face is this machine's installed font, not a value of the file.
         let data = substitute::installed_covering_styled(self.request, self.style, &[character]);
         let face = data.and_then(|data| {
             let (_, units_per_em) = parsed_program(Program::Sfnt, &data, "").ok()?;
@@ -651,6 +653,8 @@ impl Borrowing {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let index = face.map(|face| {
             held.faces
+                // not a repair: an index into this reader's own face list, not a
+                // value the file states.
                 .iter()
                 .position(|known| known.data == face.data)
                 .unwrap_or_else(|| {
@@ -702,6 +706,7 @@ fn composite_substitute(
 ///
 /// Asked only of a font whose program the document did not embed: an embedded program is the
 /// document's face, kerned by what it states.
+// not a repair: a `/BaseFont` that is not UTF-8 is none of the fourteen names, so no pairs.
 fn published_pairs(document: &Document, dict: &Dictionary) -> Option<crate::pairs::Pairs> {
     let base_font = document.get_key(dict, "BaseFont");
     let name = std::str::from_utf8(base_font.as_name()?.as_bytes()).ok()?;
@@ -789,6 +794,7 @@ fn class_faces(
             } else {
                 &[]
             };
+            // not a repair: the face is this machine's installed font, not a value of the file.
             let style = substitute::Style::derive(document, descendant, Some(&merged));
             let data = substitute::installed_covering_styled(request, style, wanted)?;
             let (_, units_per_em) = parsed_program(Program::Sfnt, &data, name).ok()?;
@@ -1278,6 +1284,7 @@ fn program_site(document: &Document, dict: &Dictionary) -> pdf_syntax::Site {
     let holder = document
         .get_key(dict, "DescendantFonts")
         .as_array()
+        // not a repair: a simple font's own dictionary holds its program when no descendant exists.
         .and_then(<[Object]>::first)
         .and_then(|item| document.resolve(item).as_dict().cloned())
         .unwrap_or_else(|| dict.clone());
@@ -1361,6 +1368,8 @@ fn both_symbol_flags(document: &Document, descriptor: Option<&Dictionary>) -> bo
 ///
 /// [`collection_gap`]: crate::composite::collection_gap
 fn encoding_name(document: &Document, dict: &Dictionary) -> Option<String> {
+    // not a repair: a name that is not UTF-8 is neither `Identity-H` nor `Identity-V`, the
+    // only names asked.
     let name = document.get_key(dict, "Encoding");
     let name = name.as_name()?;
     std::str::from_utf8(name.as_bytes()).ok().map(str::to_owned)

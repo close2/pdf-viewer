@@ -794,9 +794,29 @@ pub(crate) fn construct(
 }
 
 /// The document's interactive form dictionary (§12.7.3), if the catalog names one.
+///
+/// An `/AcroForm` of another type is read as none, and logged as `FIELD_ENTRY_UNUSABLE`.
 fn interactive_form(document: &Document) -> Option<Dictionary> {
+    // not a repair: a catalog that cannot be read is fatal to the document
+    // (`SyntaxError::TrailerMissing`), and nothing is read in its place.
     let catalog = document.catalog().ok()?;
-    document.get_key(&catalog, "AcroForm").as_dict().cloned()
+    let entry = document.get_key(&catalog, "AcroForm");
+    let form = entry.as_dict().cloned();
+    if form.is_none() && !entry.is_null() {
+        document.record_repair(
+            &crate::repair::FIELD_ENTRY_UNUSABLE,
+            pdf_syntax::Site::WholeFile,
+        );
+    }
+    form
+}
+
+/// [`interactive_form`], or an empty dictionary where the document has none: Table 29 makes
+/// `/AcroForm` optional, and a document without one states no entry of it.
+fn interactive_form_or_empty(document: &Document) -> Dictionary {
+    // not a repair: an absent interactive form states no entries; one of the wrong type has been
+    // logged by `interactive_form`.
+    interactive_form(document).unwrap_or_default()
 }
 
 /// Table 224's `/DR`, "a resource dictionary … containing default resources … that shall be
@@ -807,10 +827,9 @@ fn interactive_form(document: &Document) -> Option<Dictionary> {
 /// up — not only a field's. A document with no interactive form dictionary has none, and a
 /// `/DA` naming a font is then naming nothing, which is reported by name.
 fn default_resources(document: &Document) -> Dictionary {
-    interactive_form(document)
-        .map(|form| document.get_key(&form, "DR"))
-        .and_then(|resources| resources.as_dict().cloned())
-        .unwrap_or_default()
+    interactive_form(document).map_or_else(Dictionary::new, |form| {
+        dictionary_entry(document, &form, "DR", &crate::repair::FIELD_ENTRY_UNUSABLE)
+    })
 }
 
 /// An existing appearance stream with §12.7.4.3's new marks spliced into it.
@@ -866,6 +885,7 @@ pub(crate) fn regenerate(
     }
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    // not a repair: which dictionary the entries are read from, not a value the file states.
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
         .map_or_default(|border| border.thickness());
@@ -1031,11 +1051,12 @@ fn find_tx_marked_content(stream: &[u8]) -> Option<usize> {
 
 /// A stream's own `/Resources`, which §12.7.4.3 has `/DR` added to rather than replaced.
 fn stream_resources(document: &Document, stream: &pdf_syntax::Stream) -> Dictionary {
-    document
-        .get_key(&stream.dict, "Resources")
-        .as_dict()
-        .cloned()
-        .unwrap_or_default()
+    dictionary_entry(
+        document,
+        &stream.dict,
+        "Resources",
+        &crate::repair::FORM_RESOURCES_NOT_A_DICTIONARY,
+    )
 }
 
 /// Copies `/DR`'s resources into a stream's own, keeping the stream's where both name one.
@@ -1520,11 +1541,12 @@ pub(crate) fn scripted_entries(
                 };
                 style
                     .get_or_insert_with(|| {
-                        document
-                            .get_key(annotation, "BS")
-                            .as_dict()
-                            .cloned()
-                            .unwrap_or_default()
+                        dictionary_entry(
+                            document,
+                            annotation,
+                            "BS",
+                            &crate::repair::ANNOTATION_ENTRY_UNUSABLE,
+                        )
                     })
                     .insert(Name::new(key.as_bytes()), value);
             }
@@ -1601,7 +1623,7 @@ fn scripted_appearance(
     font: Option<(Option<String>, Option<f64>)>,
     mut appended: Vec<String>,
 ) -> Option<(Name, Object)> {
-    let form = interactive_form(document).unwrap_or_default();
+    let form = interactive_form_or_empty(document);
     let sources: Vec<&Dictionary> = field
         .chain()
         .into_iter()
@@ -1671,6 +1693,7 @@ pub(crate) fn form_font(document: &Document, asked: &str) -> Option<(String, Str
     }
     let resource = String::from_utf8_lossy(found.0.as_bytes()).into_owned();
     Some((
+        // not a repair: the resource name this reader read from `/DA`, a string of its own.
         base_of(found.1).unwrap_or_else(|| resource.clone()),
         resource,
     ))
@@ -1733,11 +1756,12 @@ fn caption_entry(property: &crate::view::Property) -> (&'static str, String) {
 
 /// A widget's own `/MK`, copied, or an empty one: what a script's property is written into.
 fn widget_characteristics(document: &Document, annotation: &Dictionary) -> Dictionary {
-    document
-        .get_key(annotation, "MK")
-        .as_dict()
-        .cloned()
-        .unwrap_or_default()
+    dictionary_entry(
+        document,
+        annotation,
+        "MK",
+        &crate::repair::ANNOTATION_ENTRY_UNUSABLE,
+    )
 }
 
 /// The widget dictionary as a script's properties leave it, for a construction to read.
@@ -1802,7 +1826,7 @@ fn is_toggling(document: &Document, annotation: &Dictionary) -> bool {
 /// the name that denotes it where `/DR` defines none.
 pub(crate) fn draws_dingbats(document: &Document, annotation: &Dictionary) -> bool {
     let field = Field::read(document, annotation, FieldValue::Stored);
-    let form = interactive_form(document).unwrap_or_default();
+    let form = interactive_form_or_empty(document);
     let sources: Vec<&Dictionary> = field
         .chain()
         .into_iter()
@@ -1815,11 +1839,7 @@ pub(crate) fn draws_dingbats(document: &Document, annotation: &Dictionary) -> bo
     let Some(name) = operators.font.as_ref() else {
         return false;
     };
-    let resources = document
-        .get_key(&form, "DR")
-        .as_dict()
-        .cloned()
-        .unwrap_or_default();
+    let resources = dictionary_entry(document, &form, "DR", &crate::repair::FIELD_ENTRY_UNUSABLE);
     let (font, _) = variable_text::resolve_font(document, &resources, name);
     document
         .get_key(&font, "BaseFont")
@@ -2678,6 +2698,7 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// and the inference from it is not.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let (endings, unknown_ending) = line_endings(document, annotation);
+    // not a repair: an unreadable `/L` is refused out loud as `Refusal::Missing` below.
     let ends = points(document, annotation, "L").unwrap_or_default();
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
         return Err(Refusal::Missing("/L"));
@@ -3360,6 +3381,7 @@ fn widget(
     let value = view.value;
     let rect = rectangle(document, annotation)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    // not a repair: which dictionary the entries are read from, not a value the file states.
     let source = characteristics.as_ref().unwrap_or(annotation);
     let background = colour(document, source, "BG")?;
     let border = Border::read(document, annotation, source, "BC")?;
@@ -4260,7 +4282,7 @@ fn field_text(
         FieldKind::Signature => return Ok(None),
     };
 
-    let form = interactive_form(document).unwrap_or_default();
+    let form = interactive_form_or_empty(document);
     let sources: Vec<&Dictionary> = field
         .chain()
         .into_iter()
@@ -4432,6 +4454,7 @@ fn one_style_laid_out(
         box_: route.box_,
         default_appearance: &one.default_appearance,
         resources: &resources,
+        // not a repair: the route's quadding is computed by this reader, not stated by the file.
         quadding: one.quadding.unwrap_or(route.quadding),
         shape: route.shape,
         asked: route.asked,
@@ -4787,6 +4810,7 @@ fn frame(
         return None;
     }
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    // not a repair: which dictionary the entries are read from, not a value the file states.
     let source = characteristics.as_ref().unwrap_or(annotation);
     let width = Border::read(document, annotation, source, "BC")
         .map_or_default(|border| border.thickness());
@@ -4836,6 +4860,7 @@ fn laid_out_in(
             .flatten();
     }
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    // not a repair: which dictionary the entries are read from, not a value the file states.
     let source = characteristics.as_ref().unwrap_or(annotation);
     field_text(
         document,
@@ -4988,12 +5013,13 @@ pub(crate) fn accepted_prefix(
     // through. A different box here would accept text the appearance then clips.
     let rect = rectangle(document, annotation).ok()?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    // not a repair: which dictionary the entries are read from, not a value the file states.
     let source = characteristics.as_ref().unwrap_or(annotation);
     let border = Border::read(document, annotation, source, "BC").ok()?;
     let rect = Rotation::read(document, source)?.content_box(rect);
     let box_ = inset(rect, border.width);
 
-    let form = interactive_form(document).unwrap_or_default();
+    let form = interactive_form_or_empty(document);
     let sources: Vec<&Dictionary> = field
         .chain()
         .into_iter()
@@ -5399,7 +5425,7 @@ fn free_text_layout(
     if text.is_empty() && asked == Asked::default() {
         return Ok(None);
     }
-    let form = interactive_form(document).unwrap_or_default();
+    let form = interactive_form_or_empty(document);
     let sources = [annotation, &form];
     let Some(default_appearance) = variable_text::bytes(document, &sources, "DA") else {
         return Err(Refusal::Text(Owed::NoFont));
@@ -6139,6 +6165,8 @@ impl Border {
     /// in full and a colour no clause states at all — see [`free_text_border`].
     fn geometry(document: &Document, annotation: &Dictionary, colour: Colour) -> Self {
         let entry = document.get_key(annotation, "Border");
+        // not a repair: Table 166 defaults an absent `/Border` to `[0 0 1]`, which the empty
+        // array's reading below is; one of the wrong shape is logged by `border_is_unusable`.
         let border = entry.as_array().unwrap_or_default();
 
         // Table 166's NOTE states the precedence — "If an annotation dictionary includes the BS
@@ -6155,6 +6183,11 @@ impl Border {
                 let (width, style, dash) = Self::from_style_dictionary(document, style);
                 (width, style, dash, [0.0, 0.0])
             } else {
+                if border_is_unusable(document, &entry) {
+                    crate::annotation::annotation_entry_unusable(document);
+                }
+                // not a repair: the defaults of an absent `/Border` (Table 166, `[0 0 1]`); an
+                // array of the wrong shape has been logged as `ANNOTATION_ENTRY_UNUSABLE`.
                 let width = number(document, border.get(2)).unwrap_or(DEFAULT_BORDER_WIDTH);
                 let fourth = border.get(3).map(|item| document.resolve(item));
                 let dash = fourth
@@ -6166,6 +6199,7 @@ impl Border {
                 } else {
                     Style::Solid
                 };
+                // not a repair: as above, the absent array's defaults, the departure logged.
                 let radii = [
                     number(document, border.first()).unwrap_or_default(),
                     number(document, border.get(1)).unwrap_or_default(),
@@ -6187,11 +6221,15 @@ impl Border {
     }
 
     /// Reads Table 168's width, style and dash out of a `/BS` dictionary.
+    ///
+    /// Table 168 defaults an absent `/W` to 1; one that is not a number is read the same way, and
+    /// logged as `ANNOTATION_ENTRY_UNUSABLE`.
     fn from_style_dictionary(document: &Document, style: &Dictionary) -> (f32, Style, Vec<f32>) {
-        let width = document
-            .get_key(style, "W")
-            .as_number()
-            .map_or(DEFAULT_BORDER_WIDTH, narrow);
+        let stated = document.get_key(style, "W");
+        if stated.as_number().is_none() && !stated.is_null() {
+            crate::annotation::annotation_entry_unusable(document);
+        }
+        let width = stated.as_number().map_or(DEFAULT_BORDER_WIDTH, narrow);
         let name = document.get_key(style, "S");
         let kind = match name.as_name().map(Name::as_bytes) {
             Some(b"D") => Style::Dashed,
@@ -6204,11 +6242,15 @@ impl Border {
         };
         let dash = if kind == Style::Dashed {
             let entry = document.get_key(style, "D");
-            entry
+            let stated = entry
                 .as_array()
-                .and_then(|values| numbers(document, values))
-                // Table 168's default for `/D` is `[3]`.
-                .unwrap_or_else(|| vec![3.0])
+                .and_then(|values| numbers(document, values));
+            if stated.is_none() && !entry.is_null() {
+                crate::annotation::annotation_entry_unusable(document);
+            }
+            // not a repair: Table 168's default for an absent `/D` is `[3]`; one that is not an
+            // array of numbers has been logged as `ANNOTATION_ENTRY_UNUSABLE` above.
+            stated.unwrap_or_else(|| vec![3.0])
         } else {
             Vec::new()
         };
@@ -6425,6 +6467,7 @@ impl Stream {
         let Some((name, reference)) = self.icon else {
             return resources;
         };
+        // not a repair: the resources this reader is building, not a value the file states.
         let key = Name::new(b"XObject".to_vec());
         let mut forms = resources
             .get_by_name(&key)
@@ -6915,16 +6958,26 @@ fn line_endings(document: &Document, annotation: &Dictionary) -> ([Ending; 2], O
 /// Reads one of Table 166's colour arrays.
 fn colour(document: &Document, dict: &Dictionary, key: &'static str) -> Result<Colour, Refusal> {
     let entry = document.get_key(dict, key);
+    // Table 166's colour arrays are of numbers "in the range 0.0 to 1.0". An absent array is no
+    // colour; one of another type or holding another value is read as none, and a component
+    // outside the range as the nearer end, each logged as `ANNOTATION_ENTRY_UNUSABLE`.
     let Some(values) = entry.as_array() else {
+        if !entry.is_null() {
+            crate::annotation::annotation_entry_unusable(document);
+        }
         return Ok(Colour::None);
     };
     let Some(read) = numbers(document, values) else {
+        crate::annotation::annotation_entry_unusable(document);
         return Ok(Colour::None);
     };
     let mut components = [0.0; 4];
     match read.len() {
         0 => Ok(Colour::None),
         count @ (1 | 3 | 4) => {
+            if read.iter().any(|value| !(0.0..=1.0).contains(value)) {
+                crate::annotation::annotation_entry_unusable(document);
+            }
             for (slot, value) in components.iter_mut().zip(&read) {
                 *slot = value.clamp(0.0, 1.0);
             }
@@ -6963,4 +7016,46 @@ fn narrow(value: f64) -> f32 {
     {
         value as f32
     }
+}
+
+/// Whether a `/Border` the file states departs from Table 166's shape: an array of three numbers,
+/// the horizontal and vertical corner radii and the width, and optionally a fourth, a dash array
+/// of numbers. An absent entry is the table's default and no departure.
+fn border_is_unusable(document: &Document, entry: &Object) -> bool {
+    if entry.is_null() {
+        return false;
+    }
+    let Some(items) = entry.as_array() else {
+        return true;
+    };
+    let numbers_first = items
+        .iter()
+        .take(3)
+        .all(|item| document.resolve(item).as_number().is_some());
+    let dash_fits = items.get(3).is_none_or(|item| {
+        document
+            .resolve(item)
+            .as_array()
+            .is_some_and(|values| numbers(document, values).is_some())
+    });
+    !(matches!(items.len(), 3 | 4) && numbers_first && dash_fits)
+}
+
+/// The dictionary entry `key` of `dict`, or an empty one where it is absent: every entry read
+/// this way is optional, and an absent one states nothing. One of another type is read the same
+/// way, and logged as `class`.
+fn dictionary_entry(
+    document: &Document,
+    dict: &Dictionary,
+    key: &str,
+    class: &'static pdf_syntax::RepairClass,
+) -> Dictionary {
+    let entry = document.get_key(dict, key);
+    if let Some(found) = entry.as_dict() {
+        return found.clone();
+    }
+    if !entry.is_null() {
+        document.record_repair(class, pdf_syntax::Site::WholeFile);
+    }
+    Dictionary::new()
 }

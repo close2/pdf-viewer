@@ -147,12 +147,27 @@ pub fn composite_cmap(
     // Table 118's `/WMode` and the file's own must agree — "The value of this entry shall be
     // the same as the value of WMode in the CMap file" — so a font is refused if *either*
     // asks for vertical writing rather than only the one a reader happens to consult.
-    let dictionary_wmode = encoding
-        .as_stream()
-        .map(|stream| document.get_key(&stream.dict, "WMode"))
-        .and_then(|value| value.as_integer())
-        .unwrap_or(0);
-    if i64::from(cmap.wmode()) != dictionary_wmode.clamp(0, 1) {
+    //
+    // Table 118 defaults an absent `/WMode` to 0; one of another type, or neither 0 nor 1, is
+    // read as the nearer mode and logged as `WMODE_UNUSABLE`.
+    let stated = encoding.as_stream().map_or(Object::Null, |stream| {
+        document.get_key(&stream.dict, "WMode")
+    });
+    let dictionary_wmode = match stated {
+        Object::Null => 0,
+        Object::Integer(mode @ 0..=1) => mode,
+        other => {
+            if let Some(stream) = encoding.as_stream() {
+                crate::repair::noted(
+                    document,
+                    &crate::repair::WMODE_UNUSABLE,
+                    crate::repair::site(&stream.dict, "WMode"),
+                );
+            }
+            other.as_integer().unwrap_or(0).clamp(0, 1)
+        }
+    };
+    if i64::from(cmap.wmode()) != dictionary_wmode {
         return Err(unsupported(
             "a CMap whose /WMode disagrees with the one in its own stream",
         ));

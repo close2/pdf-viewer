@@ -938,6 +938,8 @@ pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl Fn
         budget = budget.saturating_sub(section.entries.in_use.len());
         let hybrid = section
             .trailer
+            // A departure here is recorded as `XREF_CHAIN_CUT` by `read_from_startxref`, which
+            // reads the same chain.
             .get("XRefStm")
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
@@ -1210,6 +1212,7 @@ fn read_from_startxref(
         // A `/Prev` that is not an offset names a section no reader can find.
         let Some(previous) = stated
             .as_integer()
+            // A departure here is recorded as `XREF_CHAIN_CUT` by `declare_unreached` (below).
             .and_then(|value| usize::try_from(value).ok())
         else {
             break;
@@ -1796,6 +1799,8 @@ fn stream_fields(
         .map(|entry| {
             entry
                 .as_integer()
+                // A departure here sets `fields_repaired`, recorded as `XREF_STREAM_FIELDS`
+                // (below).
                 .and_then(|v| usize::try_from(v).ok())
                 .unwrap_or_else(|| {
                     fields_repaired = true;
@@ -1810,6 +1815,7 @@ fn stream_fields(
     let size = dict
         .get("Size")
         .and_then(Object::as_integer)
+        // A departure here is recorded as `XREF_STREAM_FIELDS` (below).
         .and_then(|size| u32::try_from(size).ok());
     fields_repaired |= size.is_none();
     let size = size.unwrap_or(0);
@@ -1877,6 +1883,7 @@ fn subsections_from(index: &[i64], from_pair: usize, first: u32, reached: i64) -
         };
         let (start, remaining) = if pair_index == from_pair {
             (
+                // not a repair: `reached` is a count of this reader's, not a value the file states.
                 u64::from(first).saturating_add(u64::try_from(reached).unwrap_or(0)),
                 count.max(0).saturating_sub(reached),
             )
@@ -2193,6 +2200,7 @@ fn last_startxref_from(input: &[u8], from: usize) -> Option<usize> {
         .saturating_add(b"startxref".len());
     let mut lexer = crate::lexer::Lexer::at(input, after);
     match lexer.next_token() {
+        // A startxref this cannot use leaves the table to be rebuilt, recorded as `XREF_REBUILT`.
         Some(crate::Token::Integer(offset)) => usize::try_from(offset).ok(),
         _ => None,
     }
@@ -2217,6 +2225,7 @@ fn find_trailer_from(input: &[u8], offset: usize, limits: Limits) -> (Option<Dic
     let mut parser = Parser::at(input, at, limits);
     let trailer = parser
         .parse_object()
+        // A trailer that does not parse is recorded as `TRAILER_UNREADABLE` by `finish`.
         .ok()
         .and_then(|object| object.as_dict().cloned());
     (trailer, parser.examined())
@@ -2232,6 +2241,7 @@ fn find_trailer_by_scan(input: &[u8], limits: Limits) -> Option<Dictionary> {
         .rposition(|window| window == b"trailer")?;
     Parser::at(input, found.saturating_add(b"trailer".len()), limits)
         .parse_object()
+        // A trailer that does not parse leaves the table scanned, recorded as `XREF_REBUILT`.
         .ok()
         .and_then(|object| object.as_dict().cloned())
 }

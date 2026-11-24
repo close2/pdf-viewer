@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use pdf_render::BlendMode;
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Object, RepairClass};
 
 use super::colour::{BlackPoint, Intent};
 use super::report::{DASH_NOT_NUMBERS, Unsupported};
@@ -140,7 +140,15 @@ impl TransferState {
 /// `HalftoneName` entry, **or if the requested halftone name does not exist on the device**, the
 /// halftone's parameters may be defined by the other entries in the dictionary". This device has no
 /// halftones of its own to name, so the second branch is always the one taken.
-fn halftone_transfer(document: &Document, state: &Dictionary) -> Option<[Component; 3]> {
+///
+/// What the file stated and this reader could not read is pushed onto `repaired`, for the caller to
+/// log at its content site: an `/HT` of another type or name, and a `TransferFunction` that is no
+/// function.
+fn halftone_transfer(
+    document: &Document,
+    state: &Dictionary,
+    repaired: &mut Vec<&'static RepairClass>,
+) -> Option<[Component; 3]> {
     let entry = document.get_key(state, "HT");
     if entry.is_null() {
         return None;
@@ -148,12 +156,18 @@ fn halftone_transfer(document: &Document, state: &Dictionary) -> Option<[Compone
     if let Some(name) = entry.as_name() {
         // Table 57 gives this entry exactly one name. Any other is a halftone nobody defined, and
         // leaving the parameter alone is what an unreadable state means everywhere else here.
+        if name.as_bytes() != b"Default" {
+            repaired.push(&crate::repair::HALFTONE_UNREADABLE);
+        }
         return (name.as_bytes() == b"Default").then(Component::default_all);
     }
     let halftone = match &entry {
         Object::Dictionary(dict) => dict.clone(),
         Object::Stream(stream) => stream.dict.clone(),
-        _ => return None,
+        _ => {
+            repaired.push(&crate::repair::HALFTONE_UNREADABLE);
+            return None;
+        }
     };
     if document.get_key(&halftone, "HalftoneType").as_integer() == Some(5) {
         // "Its keys shall be name objects representing the names of individual colourants or
@@ -166,10 +180,10 @@ fn halftone_transfer(document: &Document, state: &Dictionary) -> Option<[Compone
                 Object::Null => document.resolve(&default),
                 named => named,
             };
-            component_transfer(document, &component)
+            component_transfer(document, &component, repaired)
         }));
     }
-    let one = component_transfer(document, &entry);
+    let one = component_transfer(document, &entry, repaired);
     Some([one.clone(), one.clone(), one])
 }
 
@@ -181,27 +195,42 @@ fn halftone_transfer(document: &Document, state: &Dictionary) -> Option<[Compone
 /// > graphics state for the same component.
 ///
 /// > The name Identity may be used to specify the identity function.
-fn component_transfer(document: &Document, halftone: &Object) -> Component {
+///
+/// An absent entry is the clause's `Optional` and no repair; one present and unreadable is pushed
+/// onto `repaired`, and so is a Type 5 component that is no halftone.
+fn component_transfer(
+    document: &Document,
+    halftone: &Object,
+    repaired: &mut Vec<&'static RepairClass>,
+) -> Component {
     let dict = match halftone {
         Object::Dictionary(dict) => dict,
         Object::Stream(stream) => &stream.dict,
-        _ => return Component::Unsaid,
+        Object::Null => return Component::Unsaid,
+        _ => {
+            repaired.push(&crate::repair::HALFTONE_UNREADABLE);
+            return Component::Unsaid;
+        }
     };
     let entry = document.get_key(dict, "TransferFunction");
+    if entry.is_null() {
+        return Component::Unsaid;
+    }
     if let Some(name) = entry.as_name() {
         // `Identity` is the only name Table 128 gives this entry; another names a function this
         // file did not supply, which is the `/TR` case one clause up and takes the same answer.
-        return if name.as_bytes() == b"Identity" {
-            Component::Identity
-        } else {
-            Component::Unsaid
-        };
+        if name.as_bytes() == b"Identity" {
+            return Component::Identity;
+        }
+        repaired.push(&crate::repair::HALFTONE_TRANSFER_FUNCTION_UNREADABLE);
+        return Component::Unsaid;
     }
-    crate::function::Function::parse(document, &entry)
-        .ok()
-        .map_or(Component::Unsaid, |function| {
-            Component::Function(Arc::new(function))
-        })
+    if let Ok(function) = crate::function::Function::parse(document, &entry) {
+        Component::Function(Arc::new(function))
+    } else {
+        repaired.push(&crate::repair::HALFTONE_TRANSFER_FUNCTION_UNREADABLE);
+        Component::Unsaid
+    }
 }
 
 impl Component {
@@ -259,6 +288,19 @@ impl Interpreter<'_> {
         value
     }
 
+    /// An alpha constant `/CA` or `/ca`, which ISO 32000-2 §11.3.7.2 bounds:
+    ///
+    /// > All of the shape and opacity inputs shall have values in the range 0.0 to 1.0
+    /// > (inclusive), with a default value of 1.0.
+    ///
+    /// A value outside it is read as the nearer end, and the page says so.
+    fn alpha_constant(&self, stated: f64) -> f32 {
+        if !(0.0..=1.0).contains(&stated) {
+            self.record_repair(&crate::repair::ALPHA_CONSTANT_OUT_OF_RANGE);
+        }
+        clamp_unit(stated)
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Table 57 read once, entry by entry, in the table's own order — which is where a \
@@ -310,10 +352,10 @@ impl Interpreter<'_> {
         // `/SMask`, `/AIS` and `/TK` are skipped there, and the rest of the dictionary applies.
         let transparency = !self.shape_only_glyph;
         if transparency && let Some(alpha) = self.typed_entry(dict, "ca", Object::as_number) {
-            state.fill_alpha = clamp_unit(alpha);
+            state.fill_alpha = self.alpha_constant(alpha);
         }
         if transparency && let Some(alpha) = self.typed_entry(dict, "CA", Object::as_number) {
-            state.stroke_alpha = clamp_unit(alpha);
+            state.stroke_alpha = self.alpha_constant(alpha);
         }
         // Table 57 `/D`: the line dash pattern, "expressed as an array of the form
         // [ dashArray dashPhase ]". The same pattern the `d` operator sets, written as a
@@ -413,9 +455,13 @@ impl Interpreter<'_> {
                     moved = true;
                 }
             }
-            if let Some(halftone) = halftone_transfer(self.document, dict) {
+            let mut repaired = Vec::new();
+            if let Some(halftone) = halftone_transfer(self.document, dict, &mut repaired) {
                 state.transfer.halftone = halftone;
                 moved = true;
+            }
+            for class in repaired {
+                self.record_repair(class);
             }
             if moved {
                 state.transfer.compose();
@@ -585,6 +631,8 @@ fn clamp_unit(value: f64) -> f32 {
         reason = "clamped to 0.0..=1.0 before narrowing, so the conversion is exact"
     )]
     {
+        // not a repair: its one caller has logged a value outside the range as
+        // `ALPHA_CONSTANT_OUT_OF_RANGE` before it is clamped here.
         value.clamp(0.0, 1.0) as f32
     }
 }

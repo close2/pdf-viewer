@@ -98,11 +98,13 @@ pub(crate) struct SimpleMetrics<'a> {
 /// > An array of ( LastChar - FirstChar + 1) numbers, each element being the glyph width for
 /// > the character code that equals FirstChar plus the array index.
 pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<u32, f32> {
-    // `/Widths` is indexed from `/FirstChar`.
-    let first = document
-        .get_key(dict, "FirstChar")
-        .as_integer()
-        .unwrap_or(0);
+    // `/Widths` is indexed from `/FirstChar`, which Table 109 requires beside it: widths stated
+    // with no integer `/FirstChar` are read from code 0, and logged as `WIDTHS_MALFORMED`.
+    let first = document.get_key(dict, "FirstChar").as_integer();
+    if first.is_none() && document.get_key(dict, "Widths").as_array().is_some() {
+        widths_malformed(document, dict);
+    }
+    let first = first.unwrap_or(0);
     let last = document.get_key(dict, "LastChar").as_integer();
     let mut widths = BTreeMap::new();
     let array = document.get_key(dict, "Widths");

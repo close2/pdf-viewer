@@ -202,9 +202,14 @@ impl Interpreter<'_> {
         // `font` makes for `Tf` (ADR 0115), which matters because a page's `/Fm0` and a form's
         // `/Fm0` are two objects as often as they are one, and reaching past the dictionary that
         // names them is how a reader draws the wrong one and says nothing (ADR 0255).
-        let form_resources = self
-            .document
-            .get_key(&stream.dict, "Resources")
+        //
+        // A `/Resources` that Table 93 does not allow, a dictionary, is a repair the page logs: a
+        // stream is read as its dictionary, anything else as the entry's absence.
+        let stated = self.document.get_key(&stream.dict, "Resources");
+        if !matches!(stated, Object::Null | Object::Dictionary(_)) {
+            self.record_repair(&crate::repair::FORM_RESOURCES_NOT_A_DICTIONARY);
+        }
+        let form_resources = stated
             .as_dict()
             .cloned()
             .unwrap_or_else(|| self.page_resources.as_ref().clone());
@@ -574,6 +579,8 @@ impl<'a> Interpreter<'a> {
         match self.transparency_group(proxy) {
             None => self.run_imported_page(&imported, &inner, state),
             Some(group) => {
+                // A `/Resources` of the wrong type is `FORM_RESOURCES_NOT_A_DICTIONARY`, logged
+                // where the form itself is drawn; this reads the same entry a second time.
                 let resources = self
                     .document
                     .get_key(proxy, "Resources")

@@ -102,6 +102,7 @@ impl<'a> Subtables<'a> {
 /// put a `cmap`, and that is a different answer from an sfnt that carries none, which is an
 /// empty list.
 pub(crate) fn cmap_subtables(data: &[u8]) -> Option<Vec<(u16, u16)>> {
+    // not a repair: `None` is the documented answer "not an sfnt", which states nothing.
     let font = FontRef::new(data).ok()?;
     let Ok(cmap) = font.cmap() else {
         return Some(Vec::new());

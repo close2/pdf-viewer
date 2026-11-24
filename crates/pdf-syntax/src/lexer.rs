@@ -581,6 +581,8 @@ impl<'a> Lexer<'a> {
         while self.peek().is_some_and(is_regular) {
             self.position = self.position.saturating_add(1);
         }
+        // not a repair: a range of the input by this reader's own cursor, not a value the file
+        // states.
         self.input.get(start..self.position).unwrap_or_default()
     }
 
@@ -590,6 +592,8 @@ impl<'a> Lexer<'a> {
     /// [`Self::next_token`] and it ask this one statement of it.
     #[inline]
     fn fixed_format_token(&mut self) -> Option<Token<'a>> {
+        // not a repair: a range of the input by this reader's own cursor, not a value the file
+        // states.
         let rest = self.input.get(self.position..).unwrap_or_default();
         let (value, taken) = fixed_format_number(rest)?;
         if rest.get(taken).copied().is_some_and(is_regular) {
@@ -707,6 +711,8 @@ impl<'a> Lexer<'a> {
                             // not a convention. Errata Collection 3's Issue #494 retitles
                             // the escape "[b]yte with value ddd in octal" and confirms the
                             // same reading from the other side (ADR 0253).
+                            // not a repair: the value is masked to one byte, so the conversion
+                            // cannot fail.
                             out.push(u8::try_from(value & 0xff).unwrap_or(0));
                         }
                         // not a repair: §7.3.4.2, "[i]f the character following the REVERSE
@@ -1072,6 +1078,8 @@ fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
 
     match point {
         // Fits because the mantissa holds at most 15 decimal digits.
+        // not a repair: the mantissa holds at most 15 digits, so it fits an i64; a count of this
+        // reader's.
         None => i64::try_from(mantissa).ok().map(|magnitude| {
             (
                 Fixed::Integer(if negative { -magnitude } else { magnitude }),
@@ -1171,6 +1179,8 @@ fn salvage_number(text: &[u8]) -> Option<(f64, usize)> {
     }
     // Every byte before `read` is ASCII and spells one sign, digits and at most one point,
     // which `f64::from_str` accepts — so neither step can refuse, and neither is unwrapped.
+    // not a repair: a Result of parsing text this function has just checked, not a value the file
+    // states.
     let prefix = std::str::from_utf8(text.get(..read)?).ok()?;
     prefix
         .parse::<f64>()

@@ -36,7 +36,7 @@
 //! `/ViewArea`, `/ViewClip`, `/PrintArea` or `/PrintClip`**, so the half of this clause that
 //! can change a pixel has no corpus witness and is implemented from the clause alone.
 
-use pdf_syntax::{Dictionary, Document, Name, Object};
+use pdf_syntax::{Dictionary, Document, Name, Object, RepairClass, Site};
 
 use crate::page::Boundary;
 
@@ -195,7 +195,7 @@ impl Opening {
     ///
     /// A name outside either table is not a value this processor can honour, so it produces the
     /// entry's default rather than an error — Table 29 states one for both, and `Use0` is what
-    /// one corpus document writes.
+    /// one corpus document writes — and is logged as a repair of the catalog.
     #[must_use]
     pub fn read(document: &Document) -> Self {
         let Ok(catalog) = document.catalog() else {
@@ -208,17 +208,21 @@ impl Opening {
     #[must_use]
     pub fn in_catalog(document: &Document, catalog: &Dictionary) -> Self {
         Self {
-            mode: named(document, catalog, "PageMode", page_mode).unwrap_or_default(),
-            layout: named(document, catalog, "PageLayout", |name| {
+            // not a repair: Table 29 defaults both entries where absent; a value of the wrong kind
+            // is logged as `CATALOG_DISPLAY_ENTRY_UNUSABLE` by `named`.
+            mode: named(document, catalog, "PageMode", CATALOG_ENTRY, page_mode)
+                .unwrap_or_default(),
+            layout: named(document, catalog, "PageLayout", CATALOG_ENTRY, |name| {
                 Some(match name.as_bytes() {
                     b"OneColumn" => PageLayout::OneColumn,
                     b"TwoColumnLeft" => PageLayout::TwoColumnLeft,
                     b"TwoColumnRight" => PageLayout::TwoColumnRight,
                     b"TwoPageLeft" => PageLayout::TwoPageLeft,
                     b"TwoPageRight" => PageLayout::TwoPageRight,
-                    // Including `SinglePage` itself, and including a name Table 29 does not
-                    // define: both are the entry's default.
-                    _ => PageLayout::SinglePage,
+                    b"SinglePage" => PageLayout::SinglePage,
+                    // A name Table 29 does not define is read as the default, and logged as
+                    // `CATALOG_DISPLAY_ENTRY_UNUSABLE`.
+                    _ => return None,
                 })
             })
             .unwrap_or_default(),
@@ -316,29 +320,33 @@ impl ViewerPreferences {
     pub fn in_catalog(document: &Document, catalog: &Dictionary) -> Self {
         let preferences = document.get_key(catalog, "ViewerPreferences");
         let Some(preferences) = preferences.as_dict() else {
+            if !preferences.is_null() {
+                document.record_repair(CATALOG_ENTRY, catalog_site(document));
+            }
             return Self::default();
         };
 
+        // Table 147 gives each of these one type; a value of another is read as absent, and
+        // logged as the preference it is.
         let flag = |key: &str| match document.get_key(preferences, key) {
             Object::Boolean(value) => Some(value),
-            _ => None,
-        };
-        let boundary = |key: &str| {
-            document
-                .get_key(preferences, key)
-                .as_name()
-                .and_then(Boundary::read)
-        };
-        let print_scaling = named(document, preferences, "PrintScaling", |name| {
-            match name.as_bytes() {
-                b"None" => Some(PrintScaling::NoScaling),
-                // "If this entry has an unrecognised value, AppDefault shall be used", which
-                // includes the name `AppDefault` itself.
-                _ => Some(PrintScaling::AppDefault),
+            Object::Null => None,
+            _ => {
+                document.record_repair(PREFERENCE, catalog_site(document));
+                None
             }
-        })
-        .unwrap_or_default();
+        };
+        let boundary = |key: &str| named(document, preferences, key, PREFERENCE, Boundary::read);
+        // "If this entry has an unrecognised value, AppDefault shall be used", which includes the
+        // name `AppDefault` itself and a value of another type: the clause's own reading, so no
+        // repair is logged for it.
+        let print_scaling = match document.get_key(preferences, "PrintScaling").as_name() {
+            Some(name) if name.as_bytes() == b"None" => PrintScaling::NoScaling,
+            _ => PrintScaling::AppDefault,
+        };
 
+        // not a repair: each default below is Table 147's for an absent entry; a value of the
+        // wrong kind is logged as `VIEWER_PREFERENCE_UNUSABLE` by `named` and `flag` first.
         Self {
             hide_toolbar: flag("HideToolbar").unwrap_or(false),
             hide_menubar: flag("HideMenubar").unwrap_or(false),
@@ -346,10 +354,12 @@ impl ViewerPreferences {
             fit_window: flag("FitWindow").unwrap_or(false),
             center_window: flag("CenterWindow").unwrap_or(false),
             display_doc_title: flag("DisplayDocTitle").unwrap_or(false),
+            // Table 147's default where absent; logged as `VIEWER_PREFERENCE_UNUSABLE` otherwise.
             non_full_screen_page_mode: named(
                 document,
                 preferences,
                 "NonFullScreenPageMode",
+                PREFERENCE,
                 // Table 147 lists five of Table 29's six here — four as printed and
                 // `UseAttachments` by errata issue #275 — and the one it leaves out is refused
                 // rather than accepted: `FullScreen` would be the entry's own condition read as
@@ -357,27 +367,37 @@ impl ViewerPreferences {
                 |name| page_mode(name).filter(|mode| !matches!(mode, PageMode::FullScreen)),
             )
             .unwrap_or_default(),
-            direction: named(document, preferences, "Direction", |name| {
-                match name.as_bytes() {
+            direction: named(
+                document,
+                preferences,
+                "Direction",
+                PREFERENCE,
+                |name| match name.as_bytes() {
                     b"L2R" => Some(Direction::LeftToRight),
                     b"R2L" => Some(Direction::RightToLeft),
                     _ => None,
-                }
-            })
+                },
+            )
             .unwrap_or_default(),
+            // not a repair: Table 147 defaults each boundary to `CropBox` where absent; one of
+            // the wrong kind is logged as `VIEWER_PREFERENCE_UNUSABLE` by `named`.
             view_area: boundary("ViewArea").unwrap_or(Boundary::Crop),
             view_clip: boundary("ViewClip").unwrap_or(Boundary::Crop),
             print_area: boundary("PrintArea").unwrap_or(Boundary::Crop),
             print_clip: boundary("PrintClip").unwrap_or(Boundary::Crop),
             print_scaling,
-            duplex: named(document, preferences, "Duplex", |name| {
-                match name.as_bytes() {
+            duplex: named(
+                document,
+                preferences,
+                "Duplex",
+                PREFERENCE,
+                |name| match name.as_bytes() {
                     b"Simplex" => Some(Duplex::Simplex),
                     b"DuplexFlipShortEdge" => Some(Duplex::FlipShortEdge),
                     b"DuplexFlipLongEdge" => Some(Duplex::FlipLongEdge),
                     _ => None,
-                }
-            }),
+                },
+            ),
             pick_tray_by_pdf_size: flag("PickTrayByPDFSize"),
             print_page_range: page_range(document, preferences),
             num_copies: document.get_key(preferences, "NumCopies").as_integer(),
@@ -387,18 +407,42 @@ impl ViewerPreferences {
     }
 }
 
+/// The class a catalog's display entry of the wrong type or name is logged as.
+const CATALOG_ENTRY: &RepairClass = &crate::repair::CATALOG_DISPLAY_ENTRY_UNUSABLE;
+
+/// The class a viewer preference of the wrong type or name is logged as.
+const PREFERENCE: &RepairClass = &crate::repair::VIEWER_PREFERENCE_UNUSABLE;
+
+/// Where a repair of the catalog's entries is logged: the catalog, where the trailer names it.
+fn catalog_site(document: &Document) -> Site {
+    document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .map_or(Site::WholeFile, Site::Object)
+}
+
 /// Reads a name-valued entry through a table of the names the clause defines.
 ///
-/// `None` for an absent entry *and* for a name outside the table, which are the same thing
-/// here: Table 147 gives every one of these a default, and a name the standard does not
-/// define is not a value this processor can honour.
+/// `None` for an absent entry *and* for a value outside the table: Tables 29 and 147 give every
+/// one of these a default, and a name the standard does not define is not a value this processor
+/// can honour. The second is the file's departure, and is logged as `class` at the catalog.
 fn named<T>(
     document: &Document,
-    preferences: &Dictionary,
+    dictionary: &Dictionary,
     key: &str,
+    class: &'static RepairClass,
     read: impl Fn(&Name) -> Option<T>,
 ) -> Option<T> {
-    read(document.get_key(preferences, key).as_name()?)
+    let entry = document.get_key(dictionary, key);
+    if entry.is_null() {
+        return None;
+    }
+    let value = entry.as_name().and_then(read);
+    if value.is_none() {
+        document.record_repair(class, catalog_site(document));
+    }
+    value
 }
 
 /// Table 147's `/PrintPageRange`, as the pairs the clause defines.

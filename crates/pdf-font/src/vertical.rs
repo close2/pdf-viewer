@@ -135,6 +135,7 @@ impl Downward {
     /// face's own `vert` and `vrt2` are read from `data` (a face borrowed for characters the
     /// font's own face does not draw, ADR 3067). `None` for bytes that are not an `sfnt`.
     pub(crate) fn for_face(&self, data: &[u8]) -> Option<Box<Self>> {
+        // not a repair: `None` is the documented answer for bytes that are not an sfnt.
         let font = FontRef::new(data).ok()?;
         Some(Box::new(Self {
             registry: self.registry.clone(),

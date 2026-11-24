@@ -76,6 +76,8 @@ impl LoadedFont {
                 .collect()
         };
         match self.program {
+            // not a repair: `None` is documented as "cannot be answered honestly";
+            // this is a listing.
             Program::Type1 => Some(names(&self.type1.as_ref()?.code_to_glyph().ok()?)),
             Program::BareCff => match CodeToGlyph::read(&self.data).ok()? {
                 CodeToGlyph::Named(keyed) => Some(names(&keyed)),
@@ -112,6 +114,8 @@ impl LoadedFont {
                 CodeToGlyph::Named(_) => None,
             },
             Program::Sfnt => {
+                // not a repair: `None` is documented as "the program cannot be
+                // read at all"; this is a listing.
                 let font = FontRef::new(&self.data).ok()?;
                 let count = font.maxp().ok()?.num_glyphs();
                 Some((0..count).collect())

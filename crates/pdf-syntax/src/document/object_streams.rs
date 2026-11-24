@@ -32,6 +32,8 @@ fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Option<(Vec<(u3
     if usize::try_from(count).is_ok_and(|count| count > crate::xref::MAX_XREF_ENTRIES) {
         return None;
     }
+    // A header shorter than `/First` reads as damaged, which `expand_object_stream` records as
+    // `OBJECT_STREAM_HEADER`.
     let mut header = crate::lexer::Lexer::new(data.get(..first).unwrap_or_default());
     let mut pairs = Vec::new();
     let mut damaged = false;
@@ -222,20 +224,36 @@ impl Document {
             // permitted, and following it would be a route to unbounded recursion.
             return None;
         };
-        let (_, object) = self.parse_at(offset)?;
+        let (stream_id, object) = self.parse_at(offset)?;
         let stream = object.as_stream()?;
+        // A refusal is recorded as `STREAM_DATA_UNDECODABLE` by `decoded_stream_data_reported`.
         let decoded = self.decoded_stream_data_reported(stream).ok()?;
 
-        let count = self.get_key(&stream.dict, "N").as_integer().unwrap_or(0);
-        let first = self
+        // Table 16's `/N` and `/First` are required: one missing or unusable, and a header short or
+        // out of order, is `OBJECT_STREAM_HEADER`, as `expand_object_stream` records it; the log
+        // keeps one repair per class and site, so a stream both read is logged once.
+        let header_repair = || {
+            self.record_repair(&repair::OBJECT_STREAM_HEADER, Site::Object(stream_id));
+        };
+        let count = self.get_key(&stream.dict, "N").as_integer();
+        if count.is_none() {
+            header_repair();
+        }
+        let Some(first) = self
             .get_key(&stream.dict, "First")
             .as_integer()
-            .and_then(|value| usize::try_from(value).ok())?;
-        let numbers = object_stream_pairs(&decoded.data, first, count)?
-            .0
-            .into_iter()
-            .map(|(number, _)| number)
-            .collect();
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            header_repair();
+            return None;
+        };
+        // An `/N` that is not an integer is read as 0 here, and logged as `OBJECT_STREAM_HEADER`
+        // above.
+        let (pairs, damaged) = object_stream_pairs(&decoded.data, first, count.unwrap_or(0))?;
+        if damaged {
+            header_repair();
+        }
+        let numbers = pairs.into_iter().map(|(number, _)| number).collect();
         Some((numbers, decoded.data.len()))
     }
 

@@ -266,3 +266,138 @@ fn a_form_with_no_bbox_and_a_short_matrix_is_logged_at_the_content() {
         []
     );
 }
+
+/// Table 93: a form's `/Resources` is a dictionary. An integer there is read as absent, the form's
+/// names then looked up in the page's, and logged at the content that invoked it.
+#[test]
+fn a_form_with_resources_of_the_wrong_type_is_logged_at_the_content() {
+    let box_ = "/BBox [0 0 1 1]";
+    has(
+        &page_with_resources("/Fm0 Do", "<< >>", &format!("{box_} /Resources 7")),
+        &repair::FORM_RESOURCES_NOT_A_DICTIONARY,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page_with_resources(
+            "/Fm0 Do",
+            "<< >>",
+            &format!("{box_} /Resources << >>")
+        )),
+        []
+    );
+}
+
+/// ISO 32000-2 §11.3.7.2: "All of the shape and opacity inputs shall have values in the range
+/// 0.0 to 1.0 (inclusive)". A `/CA` of 2 is read as 1, and logged.
+#[test]
+fn an_alpha_constant_out_of_range_is_logged_at_the_content() {
+    let box_ = "/BBox [0 0 1 1]";
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /CA 2 >>", box_),
+        &repair::ALPHA_CONSTANT_OUT_OF_RANGE,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            "<< /CA 0.5 /ca 1 >>",
+            box_
+        )),
+        []
+    );
+}
+
+/// Table 57's `/HT` is a dictionary, a stream or the name `/Default`, and Table 128's
+/// `/TransferFunction` a function or `/Identity`. Each of the wrong kind is logged.
+#[test]
+fn an_unreadable_halftone_and_its_transfer_function_are_logged_at_the_content() {
+    let box_ = "/BBox [0 0 1 1]";
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /HT 5 >>", box_),
+        &repair::HALFTONE_UNREADABLE,
+        Site::Content(Some(PAGE)),
+    );
+    has(
+        &page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            "<< /HT << /HalftoneType 1 /TransferFunction /Inverted >> >>",
+            box_,
+        ),
+        &repair::HALFTONE_TRANSFER_FUNCTION_UNREADABLE,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            "<< /HT << /HalftoneType 1 /TransferFunction /Identity >> >>",
+            box_
+        )),
+        []
+    );
+}
+
+/// A document whose catalog states `extra`.
+fn catalog(extra: &str) -> Document {
+    file(&[
+        format!("<< /Type /Catalog /Pages 2 0 R {extra} >>"),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+    ])
+}
+
+fn logged_alone(document: &Document) -> Vec<(&'static str, Site)> {
+    document
+        .repairs()
+        .into_iter()
+        .map(|repair| (repair.class.name, repair.at))
+        .collect()
+}
+
+/// Table 29's `/PageLayout` names one of six layouts and Table 147's `/HideToolbar` is a boolean:
+/// a name outside the table and a value of another type are read as the defaults, and logged at
+/// the catalog. `/PrintScaling`'s unrecognised value is the clause's own `AppDefault`.
+#[test]
+fn display_entries_and_viewer_preferences_of_the_wrong_kind_are_logged_at_the_catalog() {
+    let document = catalog("/PageLayout /Sideways");
+    let _ = pdf_model::viewer_preferences::Opening::read(&document);
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::CATALOG_DISPLAY_ENTRY_UNUSABLE.name,
+            Site::Object(ObjectId::new(1, 0))
+        )]
+    );
+    let document = catalog("/ViewerPreferences << /HideToolbar 1 >>");
+    let _ = pdf_model::viewer_preferences::ViewerPreferences::read(&document);
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::VIEWER_PREFERENCE_UNUSABLE.name,
+            Site::Object(ObjectId::new(1, 0))
+        )]
+    );
+    let document = catalog(
+        "/PageLayout /TwoPageLeft /ViewerPreferences << /HideToolbar true /PrintScaling /Fit >>",
+    );
+    let _ = pdf_model::viewer_preferences::Opening::read(&document);
+    let _ = pdf_model::viewer_preferences::ViewerPreferences::read(&document);
+    assert_eq!(logged_alone(&document), []);
+}
+
+/// Table 215's `/H` is a boolean: one of another type is read as its default, and logged.
+#[test]
+fn an_action_entry_of_the_wrong_type_is_logged() {
+    let document = catalog("");
+    let action = pdf_syntax::Object::Dictionary(
+        pdf_syntax::Parser::new(b"<< /S /Hide /T (a) /H 1 >>")
+            .parse_object()
+            .expect("the action parses")
+            .as_dict()
+            .expect("a dictionary")
+            .clone(),
+    );
+    let _ = pdf_model::action::read(&document, &action);
+    assert_eq!(
+        logged_alone(&document),
+        [(repair::ACTION_ENTRY_UNUSABLE.name, Site::WholeFile)]
+    );
+}

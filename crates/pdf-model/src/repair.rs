@@ -175,6 +175,46 @@ classes! {
     FORM_BBOX_UNUSABLE = "model/form-bbox-unusable", "ISO 32000-2 §8.10.2",
         "a form with no /BBox of four numbers was drawn unclipped, or clipped to the first four \
          numbers its /BBox holds";
+    /// A catalog's `/PageMode`, `/PageLayout` or `/ViewerPreferences` of a type or name Table 29
+    /// does not give it.
+    CATALOG_DISPLAY_ENTRY_UNUSABLE = "model/catalog-display-entry-unusable", "ISO 32000-2 §7.7.2",
+        "a catalog's /PageMode, /PageLayout or /ViewerPreferences of a type or a name Table 29 does \
+         not give it was read as absent, and the entry's default used";
+    /// A viewer preference of a type or name Table 147 does not give it.
+    VIEWER_PREFERENCE_UNUSABLE = "model/viewer-preference-unusable", "ISO 32000-2 §12.2",
+        "a viewer preference of a type or a name Table 147 does not give it was read as absent, \
+         and the entry's default used";
+    /// An action's entry of a type or value its table does not give it.
+    ACTION_ENTRY_UNUSABLE = "model/action-entry-unusable", "ISO 32000-2 §12.6.4",
+        "an action entry of a type or value its table does not give it was read as absent: a \
+         boolean or flag word as its default, a negative index as naming no target";
+    /// An annotation's entry of a type or value its table does not give it.
+    ANNOTATION_ENTRY_UNUSABLE = "model/annotation-entry-unusable", "ISO 32000-2 §12.5.2",
+        "an annotation entry of a type or value its table does not give it was read as absent, \
+         or a number outside its range as the nearer end of it";
+    /// An interactive form dictionary, or a field's entry, of a type or value its table does not
+    /// give it.
+    FIELD_ENTRY_UNUSABLE = "model/field-entry-unusable", "ISO 32000-2 §12.7",
+        "an /AcroForm, or a field entry, of a type or value its table does not give it was read \
+         as absent, and an index naming no option dropped";
+    /// A form's `/Resources` present and not a dictionary.
+    FORM_RESOURCES_NOT_A_DICTIONARY = "model/form-resources-not-a-dictionary",
+        "ISO 32000-2 §8.10.2",
+        "a form's /Resources that is not a dictionary was read as the dictionary of a stream, or \
+         else as absent, the form's names then looked up in the page's resources";
+    /// A graphics state's `/CA` or `/ca` outside the range 0.0 to 1.0.
+    ALPHA_CONSTANT_OUT_OF_RANGE = "model/alpha-constant-out-of-range", "ISO 32000-2 §11.3.7.2",
+        "an alpha constant outside the range 0.0 to 1.0 was read as the nearer end of the range";
+    /// A halftone's `/HT` of a type Table 57 does not give it, or naming a halftone other than
+    /// `/Default`.
+    HALFTONE_UNREADABLE = "model/halftone-unreadable", "ISO 32000-2 §8.4.5",
+        "an /HT that is no halftone dictionary, stream or the name Default was ignored, and the \
+         halftone's transfer function left as it was";
+    /// A halftone's `/TransferFunction` that is no function and not the name `/Identity`.
+    HALFTONE_TRANSFER_FUNCTION_UNREADABLE = "model/halftone-transfer-function-unreadable",
+        "ISO 32000-2 §10.6.5.2",
+        "a halftone's /TransferFunction that could not be read was ignored, and the transfer \
+         function of the graphics state used for its component";
 }
 
 #[cfg(test)]

@@ -204,6 +204,8 @@ impl Program {
                         .assigned
                         .get(usize::from(code))
                         .copied()
+                        // not a repair: an index lookup in this reader's
+                        // own table of assigned codes.
                         .unwrap_or(false)
                 {
                     continue;

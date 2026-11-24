@@ -26,6 +26,8 @@ impl LoadedFont {
         };
         cmap.cid(code)
             .or_else(|| cmap.notdef_cid(code))
+            // not a repair: ISO 32000-2 §9.7.6.3 selects CID 0 for a code that no CMap mapping
+            // or notdef mapping covers.
             .unwrap_or(0)
     }
 
@@ -191,6 +193,7 @@ impl LoadedFont {
     /// exactly the confident wrong mark a placeholder exists to avoid.
     #[must_use]
     pub fn character_glyph(&self, character: char) -> Option<CharacterGlyph> {
+        // not a repair: `None` is the documented answer "this face draws no such character".
         let program = FontRef::new(&self.data).ok()?;
         let glyph = program.charmap().map(character)?;
         if glyph.to_u32() == u32::from(NOTDEF_GLYPH) {
