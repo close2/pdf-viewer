@@ -25,11 +25,15 @@
 //!   [`super::Loss::DamagedDataAsDecoded`] — ADR 3473's construction for ASCII data cut before its
 //!   marker, which this leaves to that row where it is the whole of a stream's damage. A
 //!   `/DecodeParms` that does not pair with its `/Filter` is answered where a restatement
-//!   re-encodes the stream anyway, and refused by name elsewhere.
-//! - **Data no stage decodes at all** (`syntax/stream-data-undecodable`) has no bytes to write, and
-//!   whether the output still carries the stream is another rewrite's to say — a metadata packet
-//!   written afresh, a font program substituted, a page photographed. So it is left to the output's
-//!   own check, whose refusal names each class the output's log still holds (ADR 3521).
+//!   re-encodes the stream anyway, and refused by name elsewhere unless a photograph takes the
+//!   stream off its page. The streams searched are those the output carries, the ones the
+//!   cross-reference table omits and the rewrite still copies included (ADR 3549).
+//! - **Data no stage decodes at all** (`syntax/stream-data-undecodable`) has no bytes to write.
+//!   Where the stream is a function — a role no rewrite here replaces — on a page no photograph
+//!   takes, it is refused by name before anything is written (ADR 3551). Any other role's stream
+//!   another rewrite may still drop — a metadata packet written afresh, a font program
+//!   substituted — so it is left to the output's own check, whose refusal names each class the
+//!   output's log still holds (ADR 3521).
 //!
 //! The log places stream damage at the whole file, because the decoder is handed data without its
 //! object, so the streams are found here by decoding each one the output carries again.
@@ -82,6 +86,10 @@ pub(super) struct Answered {
     /// Each class of repair made inside a content stream, with the page or form whose content it
     /// was; [`settled`] answers or refuses them once the content rewrites are known.
     content: Vec<(&'static RepairClass, Option<ObjectId>)>,
+    /// The streams the output would carry byte for byte that section 5.1 cannot admit and no
+    /// rewrite here answers, each with the sentence that refuses it; [`settled`] refuses the
+    /// first one no photograph takes off its page (ADR 3551).
+    refused: Vec<(ObjectId, Because)>,
 }
 
 impl Answered {
@@ -127,6 +135,7 @@ pub(super) fn answer(
     }
     let mut damaged = false;
     let mut unpaired = false;
+    let mut undecodable = false;
     let mut content = Vec::new();
     for logged in document.repairs() {
         if !pdf_archive::repairs::breaches_row(logged.class.name, BASE_STANDARD) {
@@ -138,9 +147,10 @@ pub(super) fn answer(
         }
         damaged |= logged.class.name == repair::STREAM_DATA_DAMAGED.name;
         unpaired |= logged.class.name == repair::DECODE_PARMS_MISMATCHED.name;
+        undecodable |= logged.class.name == repair::STREAM_DATA_UNDECODABLE.name;
     }
-    let mut answered = if damaged || unpaired {
-        restated(document, target, (damaged, unpaired))?
+    let mut answered = if damaged || unpaired || undecodable {
+        restated(document, target, (damaged, unpaired, undecodable))?
     } else {
         Answered::default()
     };
@@ -167,6 +177,13 @@ pub(super) fn settled(
     (photographed, taken_off): (&BTreeSet<ObjectId>, &BTreeSet<ObjectId>),
 ) -> Result<Answered, Because> {
     let mut answered = answered?;
+    if let Some((_, because)) = answered
+        .refused
+        .iter()
+        .find(|(id, _)| !taken_off.contains(id))
+    {
+        return Err(*because);
+    }
     answered.at.retain(|id, _| !taken_off.contains(id));
     answered
         .streams
@@ -217,14 +234,20 @@ fn content_streams_of(document: &Document, id: ObjectId) -> Vec<ObjectId> {
 fn restated(
     document: &Document,
     target: Target,
-    (damaged, unpaired): (bool, bool),
+    (damaged, unpaired, undecodable): (bool, bool, bool),
 ) -> Result<Answered, Because> {
     let examination = pdf_archive::Examination::new(document, target);
     let reach = pdf_archive::Reach::of(&examination);
     let mut out = Answered::default();
     let (mut found_damage, mut found_unpaired) = (false, false);
     let programs = font_programs(examination.objects());
-    for (id, object) in examination.objects() {
+    let unlisted = carried_and_unlisted(document, examination.objects());
+    let population = examination
+        .objects()
+        .iter()
+        .map(|(id, object)| (*id, object, reach.reaches(*id)))
+        .chain(unlisted.iter().map(|(id, object)| (*id, object, true)));
+    for (id, object, carried) in population {
         let Object::Stream(stream) = object else {
             continue;
         };
@@ -235,12 +258,18 @@ fn restated(
         // A stream nothing reaches is not written, so there is nothing of it to restate; a font
         // program's cut is the font routes' to answer — written whole, dropped for the face the
         // window drew, or substituted (ADR 3256) — and the output's own check holds them to it.
-        if !reach.reaches(*id) || programs.contains(id) || cut_ascii_data_alone(document, stream) {
+        if !carried || programs.contains(&id) || cut_ascii_data_alone(document, stream) {
+            continue;
+        }
+        if undecodable && is_a_function(document, stream) && refused_as_corrupt(document, stream) {
+            out.refused
+                .push((id, Because::TheFence(UNDECODABLE_FUNCTION)));
             continue;
         }
         let Some((stage, damage)) = damage else {
             if parameters_off {
-                return Err(Because::NotBuiltYet(PARAMETERS_UNPAIRED));
+                out.refused
+                    .push((id, Because::NotBuiltYet(PARAMETERS_UNPAIRED)));
             }
             continue;
         };
@@ -253,7 +282,7 @@ fn restated(
             damage: described(damage),
             encoded: stream.data.len(),
         });
-        out.at.insert(*id, written);
+        out.at.insert(id, written);
     }
     if unpaired && !found_unpaired {
         return Err(Because::NotBuiltYet(PARAMETERS_UNPAIRED));
@@ -262,6 +291,74 @@ fn restated(
         return Err(Because::NotBuiltYet(NOT_FOUND));
     }
     Ok(out)
+}
+
+/// The objects the output carries that no cross-reference section names, each with its value.
+///
+/// The population the requirements bind is the cross-reference table's, because ISO 19005-2
+/// section 6.1.4 exempts an object no section names; but the whole-file rewrite copies everything
+/// the catalog and `/Info` reach, and `pdf_syntax::Document::get` loads an object a section
+/// declares and holds no entry for by its own `N G obj` header, so such an object is in the output
+/// under a table that names it.
+/// Stream data damaged there is damage the output's check finds, so it is restated with the
+/// rest (ADR 3549): govdocs1 `027613.pdf`'s table names 260 objects of a 429-page file, and the
+/// streams it cut short are page content streams it does not list.
+fn carried_and_unlisted(
+    document: &Document,
+    listed: &[(ObjectId, Object)],
+) -> Vec<(ObjectId, Object)> {
+    let named: BTreeSet<u32> = listed.iter().map(|(id, _)| id.number).collect();
+    let trailer = document.trailer();
+    let mut queue: std::collections::VecDeque<ObjectId> = ["Root", "Info"]
+        .into_iter()
+        .filter_map(|key| trailer.get(key).and_then(Object::as_reference))
+        .collect();
+    let mut seen: BTreeSet<ObjectId> = queue.iter().copied().collect();
+    let mut out = Vec::new();
+    while let Some(id) = queue.pop_front() {
+        let value = document.get(id);
+        let mut pending = vec![&value];
+        while let Some(object) = pending.pop() {
+            match object {
+                Object::Reference(next) => {
+                    if seen.insert(*next) {
+                        queue.push_back(*next);
+                    }
+                }
+                Object::Array(items) => pending.extend(items),
+                Object::Dictionary(entries) => pending.extend(entries.iter().map(|(_, v)| v)),
+                Object::Stream(stream) => pending.extend(stream.dict.iter().map(|(_, v)| v)),
+                _ => {}
+            }
+        }
+        if !named.contains(&id.number) && value != Object::Null {
+            out.push((id, value));
+        }
+    }
+    out
+}
+
+/// Whether `stream` is a function dictionary's stream (ISO 32000-2 §7.10.1: a sampled function,
+/// Type 0, or a PostScript calculator function, Type 4, is a stream).
+fn is_a_function(document: &Document, stream: &Stream) -> bool {
+    document
+        .get_key(&stream.dict, "FunctionType")
+        .as_integer()
+        .is_some_and(|kind| kind == 0 || kind == 4)
+}
+
+/// Whether a stage of `stream`'s filter refuses its data as the file's departure from §7.4 —
+/// the refusal `pdf_syntax` logs as `syntax/stream-data-undecodable` — rather than for a bound
+/// this reader keeps or a filter it lacks.
+fn refused_as_corrupt(document: &Document, stream: &Stream) -> bool {
+    matches!(
+        document.decoded_stream_data_reported(stream),
+        Err(pdf_syntax::StreamRefusal::Filter {
+            why: pdf_syntax::filter::FilterRefusal::Corrupt
+                | pdf_syntax::filter::FilterRefusal::Parameter { .. },
+            ..
+        })
+    )
 }
 
 /// Every stream a font descriptor names as its program (ISO 32000-2 §9.9's Table 124 keys).
@@ -414,6 +511,13 @@ const PARAMETERS_UNPAIRED: &str = "a stream of this file states a /DecodeParms a
      requires; which parameters belong to which filter is this reader's guess, and restating the \
      stream on that guess is not built (ADR 3521)";
 
+/// Why a function whose data no stage decodes stops the conversion.
+const UNDECODABLE_FUNCTION: &str = "a function stream of this file holds data its filter cannot \
+     decode (syntax/stream-data-undecodable, ISO 32000-2 §7.4), which ISO 19005 section 5.1 does \
+     not admit; the function is carried byte for byte on a page no photograph takes, no rewrite \
+     of this converter replaces it, and writing it as anything else would state samples the \
+     producer never wrote (ADR 3551)";
+
 /// Why a damaged stream that cannot be re-encoded stops the conversion.
 const NOT_REENCODED: &str = "a stream of this file decodes only in part \
      (syntax/stream-data-damaged, ISO 32000-2 §7.4), which ISO 19005 section 5.1 does not admit, \
@@ -430,6 +534,96 @@ const NOT_FOUND: &str = "this reader decoded some stream data of this file only 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// zlib data of `0 0 m 10 10 l S` whose Adler-32 is wrong: decoded whole, damaged at its check.
+    const CHECK_VALUE_WRONG: [u8; 20] = [
+        120, 156, 51, 80, 48, 80, 200, 85, 48, 52, 0, 161, 28, 133, 96, 0, 23, 4, 3, 240,
+    ];
+    /// zlib framing over a block of a type RFC 1951 does not define: nothing decodes.
+    const NO_BLOCK: [u8; 8] = [120, 156, 255, 255, 255, 255, 255, 255];
+
+    /// A file of `objects`, numbered from one, whose cross-reference section declares them all and
+    /// holds the entries of the first `listed` only, so the rest are declared and unread.
+    fn file(objects: &[Vec<u8>], listed: usize) -> Document {
+        let size = objects.len().saturating_add(1);
+        let mut bytes = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(b"\nendobj\n");
+        }
+        let start = bytes.len();
+        bytes.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+        for offset in offsets.iter().take(listed) {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(
+            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n")
+                .as_bytes(),
+        );
+        Document::open(bytes).expect("the file opens")
+    }
+
+    fn stream(dictionary: &str, data: &[u8]) -> Vec<u8> {
+        let mut body = format!("<< {dictionary} /Length {} >>\nstream\n", data.len()).into_bytes();
+        body.extend_from_slice(data);
+        body.extend_from_slice(b"\nendstream");
+        body
+    }
+
+    /// The damaged content stream of a page sits at an object the table omits, as `027613.pdf`'s
+    /// do, and the rewrite copies it: it is found, and its damage with it (ADR 3549).
+    #[test]
+    fn a_stream_the_table_omits_and_the_rewrite_carries_is_searched() {
+        let document = file(
+            &[
+                b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>".to_vec(),
+                stream("/Filter /FlateDecode", &CHECK_VALUE_WRONG),
+            ],
+            3,
+        );
+        let listed: Vec<(ObjectId, Object)> = document
+            .xref()
+            .object_numbers()
+            .map(|number| {
+                let id = document.defined_id(number);
+                (id, document.get(id))
+            })
+            .collect();
+        let unlisted = carried_and_unlisted(&document, &listed);
+        let ids: Vec<ObjectId> = unlisted.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, [ObjectId::new(4, 0)]);
+        let Object::Stream(content) = &unlisted[0].1 else {
+            panic!("object 4 is the page's content stream");
+        };
+        assert!(first_damage(&document, content).is_some());
+    }
+
+    /// A function whose data no stage decodes is told from one that decodes and from a stream
+    /// that is no function (ADR 3551).
+    #[test]
+    fn an_undecodable_function_is_told_apart() {
+        let document = file(&[b"<< /Type /Catalog >>".to_vec()], 1);
+        let read = |body: Vec<u8>| {
+            let mut parser = pdf_syntax::Parser::new(&body);
+            match parser.parse_object().expect("a stream") {
+                Object::Stream(stream) => stream,
+                other => panic!("not a stream: {other:?}"),
+            }
+        };
+        let function = "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 \
+             /Filter /FlateDecode";
+        let broken = read(stream(function, &NO_BLOCK));
+        let sound = read(stream(function, &CHECK_VALUE_WRONG));
+        let content = read(stream("/Filter /FlateDecode", &NO_BLOCK));
+        assert!(is_a_function(&document, &broken) && refused_as_corrupt(&document, &broken));
+        assert!(!refused_as_corrupt(&document, &sound));
+        assert!(!is_a_function(&document, &content));
+    }
 
     /// Each sentence names a class `pdf_syntax` or `pdf_model` declares, under that class's own
     /// clause.

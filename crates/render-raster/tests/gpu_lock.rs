@@ -52,6 +52,14 @@ fn gpu_lock_child() {
             println!("{HOLDING}");
             std::thread::sleep(PLANTED);
         }
+        // A holder that holds until its parent closes its input, so that the order of two events
+        // — a section's end and this hold's — is the parent's to set rather than a clock's.
+        "held-open" => {
+            let _held = gpu_lock::Hold::when(true, "planted-holder");
+            println!("{HOLDING}");
+            std::io::Read::read_to_end(&mut std::io::stdin(), &mut Vec::new())
+                .expect("the holder's input reads to its end");
+        }
         // A section the harness declares hardware without any adapter: the lock's own mechanism.
         "declared" => drop(gpu_lock::Hold::when(true, "declared-section")),
         // A declared section named by the parent, held for a moment so that two are told apart
@@ -179,6 +187,13 @@ fn a_section_waits_for_a_planted_holder() {
 
 /// The seam on a processor's adapter: a lavapipe bring-up and frame take no lock, so they finish
 /// while the planted holder still holds it, and leave no hold in the log.
+///
+/// The holder holds until this parent closes its input, which it does only once the section has
+/// ended, so a section that finished at all finished inside the hold: the judgement is the order
+/// of the two events, which no load on the machine can change (ADR 3134). A section that asked for
+/// the lock instead waits for a hold that is never released until its own bound —
+/// `GPU_LOCK_TIMEOUT`, shortened here so that the defect is reported rather than waited out — and
+/// panics naming the lock (ADR 3550).
 #[test]
 fn a_processor_s_adapter_never_waits() {
     if !Path::new(LAVAPIPE).exists() {
@@ -186,22 +201,51 @@ fn a_processor_s_adapter_never_waits() {
         return;
     }
     let (lock, log) = scratch("lavapipe");
-    let holder = plant(&lock, &log);
-    let asked = Instant::now();
+    let mut holder = child("held-open", &lock, &log, &[])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("the planted holder starts");
+    let release = holder.stdin.take().expect("the holder's input");
+    let out = holder.stdout.take().expect("the holder's output");
+    let mut rest = std::io::BufRead::lines(std::io::BufReader::new(out));
+    assert!(
+        rest.by_ref()
+            .any(|line| line.is_ok_and(|line| line.contains(HOLDING))),
+        "the planted holder never held the lock"
+    );
     let output = child(
         "device",
         &lock,
         &log,
-        &[("VK_ICD_FILENAMES", LAVAPIPE), ("WGPU_BACKEND", "vulkan")],
+        &[
+            ("VK_ICD_FILENAMES", LAVAPIPE),
+            ("WGPU_BACKEND", "vulkan"),
+            (gpu_lock::TIMEOUT, "20"),
+        ],
     )
     .output()
     .expect("the section runs");
-    let elapsed = asked.elapsed();
-    holder.finish();
+    let still_holding = holder.try_wait().expect("the holder's state").is_none();
+    drop(release);
+    rest.for_each(drop);
+    assert!(
+        holder.wait().expect("the holder ends").success(),
+        "the planted holder failed"
+    );
     let said = String::from_utf8_lossy(&output.stdout);
+    let complained = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !complained.contains("was held by another process"),
+        "a processor's section waited for the planted hold:\n{complained}"
+    );
     assert!(
         output.status.success(),
-        "the lavapipe child failed:\n{said}"
+        "the lavapipe child failed:\n{said}\n{complained}"
+    );
+    assert!(
+        still_holding,
+        "the planted holder let go before the section ended"
     );
     assert!(
         said.contains("Cpu"),
@@ -211,10 +255,6 @@ fn a_processor_s_adapter_never_waits() {
         waited(&log, "bring-up"),
         None,
         "a processor's bring-up took the lock"
-    );
-    assert!(
-        elapsed < PLANTED,
-        "the lavapipe section took {elapsed:?}, as long as the planted hold"
     );
 }
 

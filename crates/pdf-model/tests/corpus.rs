@@ -347,7 +347,7 @@ const FOUND_BY_SCANNING: [&str; 5] = [
 /// is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs 1413 and 1414 set
 /// its Arabic joined and right to left in a face from the machine; four are no route the standard
 /// states; the rest are the file's (ADR 1401, ADR 1411).
-const INCOMPLETE: [&str; 67] = [
+const INCOMPLETE: [&str; 71] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -404,6 +404,13 @@ const INCOMPLETE: [&str; 67] = [
     // `BT` then `Q` and the stream ends: a special graphics state operator inside a text object,
     // which §9.4.1 does not admit, and no `ET`.
     "issue14165.pdf",
+    // Text operators outside a text object, which §9.4.2 and §9.4.3 admit only inside one, each
+    // drawn as stated and said (ADR 3353): `issue9458`'s page ends one text object with `ET ET`;
+    // `bug1065245`'s states `n ET Q` twice with no `BT`; `issue10388_reduced`'s states `Tm` and
+    // `TJ` with no `BT` before them.
+    "issue9458.pdf",
+    "bug1065245.pdf",
+    "issue10388_reduced.pdf",
     // `/GS0` states `/BG /Identity` and `/UCR /Identity`: Table 57 types both entries as a
     // function and gives neither a name, so neither sets anything (§10.4.2.4, ADR 2549).
     "endchar.pdf",
@@ -450,6 +457,9 @@ const INCOMPLETE: [&str; 67] = [
     // The check box's on appearance has no `/BBox`, which Table 93 requires and §12.5.5 needs.
     "checkbox-bad-appearance.pdf",
     "checkbox_no_appearance.pdf",
+    // A widget whose `/AP /N` holds appearance states and which states no `/AS`, which Table 166
+    // requires there, so no state is selected and nothing is drawn (ADR 3416).
+    "issue15557.pdf",
     // A `/DA` naming a font in a form with no `/DR` (§12.7.4.3), and a `/Contents` whose flate
     // data will not inflate.
     "poppler-395-0-fuzzed.pdf",
@@ -1001,6 +1011,12 @@ fn an_annotation_refusal(detail: &str) -> Option<(Whose, &'static str)> {
         _ if has("/DR does not define") => (
             Whose::TheFile,
             "a /DA naming a font the form's /DR does not define (§12.7.4.3)",
+        ),
+        // Table 166: `/AS` is "Required if the appearance dictionary AP contains one or more
+        // subdictionaries", so a state dictionary with no state named is the file's to answer.
+        _ if has("no /AS names one") => (
+            Whose::TheFile,
+            "an /AP of appearance states with no /AS naming one (Table 166)",
         ),
         _ if has("no appearance stream") => (
             Whose::TheFile,
