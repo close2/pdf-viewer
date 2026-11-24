@@ -77,8 +77,8 @@ const HEADER_UNREAD: &str = "the published program this composite font's CMap na
 /// Why a font whose descendant disagrees with the program's character collection is refused.
 const COLLECTIONS_DISAGREE: &str = "the published program this composite font's CMap name denotes \
      describes a character collection its descendant CIDFont does not — another Registry or \
-     Ordering, or a lower Supplement — and ISO 19005-2 section 6.2.11.3.1 holds an embedded CMap \
-     and its CIDFont to one collection, so the embedding would make the file fail there instead";
+     Ordering — and ISO 19005-2 section 6.2.11.3.1 holds an embedded CMap and its CIDFont to one \
+     collection, so the embedding would make the file fail there instead";
 
 /// Why a font this converter cannot reach as an object is not answered.
 const FONT_NOT_AN_OBJECT: &str = "a composite font naming an undefined CMap is not a dictionary \
@@ -184,7 +184,7 @@ fn header(program: &[u8]) -> Option<Header> {
     })
 }
 
-/// Whether a composite font's descendant describes the collection the program does.
+/// Whether a composite font's descendant names the registry and ordering the program does.
 fn collections_agree(document: &Document, font: &Dictionary, header: &Header) -> bool {
     let descendant = document
         .get_key(font, "DescendantFonts")
@@ -198,12 +198,11 @@ fn collections_agree(document: &Document, font: &Dictionary, header: &Header) ->
         return false;
     };
     let text = |key: &str| document.get_key(&info, key).as_string().map(<[u8]>::to_vec);
+    // The supplement is not compared here: a descendant stating a later one than the program
+    // fails `fonts/cid-system-info-agrees-with-the-cmap` on the same predefined name, and
+    // `super::collections` answers that finding by restating the descendant's (ADR 3582).
     text("Registry").as_deref() == Some(header.registry.as_slice())
         && text("Ordering").as_deref() == Some(header.ordering.as_slice())
-        && document
-            .get_key(&info, "Supplement")
-            .as_integer()
-            .is_some_and(|supplement| supplement >= header.supplement)
 }
 
 /// The stream §9.7.5.3 asks for, holding the published program unchanged.

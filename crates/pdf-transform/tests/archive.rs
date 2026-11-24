@@ -12379,24 +12379,79 @@ fn keep_everything_embeds_a_published_cmap_the_file_names_and_the_output_validat
 }
 
 #[test]
-fn a_published_cmap_is_not_embedded_under_a_font_whose_collection_it_does_not_describe() {
-    // ISO 19005-2 section 6.2.11.3.1 holds an embedded CMap and its CIDFont to one character
-    // collection, the font's supplement at least the CMap's. `UniJIS-UTF32-H` states Adobe-Japan1
-    // supplement 7, so under a descendant stating 6 the embedding would fail there instead — and
-    // the refusal names why rather than writing a file the validator then rejects.
+fn a_published_cmap_is_embedded_under_a_font_of_an_earlier_supplement() {
+    // ISO 19005-2 section 6.2.11.3.1, as the PDF/A working group's agreed erratum corrects it
+    // (pdf-association/pdf-issues #77, ADR 3582): the CIDFont's supplement is at most the CMap's.
+    // `UniJIS-UTF32-H` states Adobe-Japan1 supplement 7, so a descendant stating 6 is the
+    // producer's least supplement under a later CMap, and the program is embedded over it.
     let source = a_composite_font_naming("UniJIS-UTF32-H", 6);
     let target = Target::Two(Level::B);
     let plan = plan_from(&keep_everything(), target);
     let (report, output) = convert_with_plan(&source, &plan);
-    assert!(output.is_none(), "nothing is written");
-    let Decision::Refused(because) = decision(&report, "fonts/cmap-embedded-or-predefined") else {
-        panic!("refused by name");
-    };
-    assert!(
-        because.sentence().contains("6.2.11.3.1"),
-        "{}",
-        because.sentence()
+    let output = output.expect("the CMap is embedded and the file is written");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{:?}",
+        holds(&output, target)
+            .failures()
+            .map(|failed| failed.id)
+            .collect::<Vec<_>>()
     );
+    assert_eq!(conversion(&report).embedded_cmaps.len(), 1);
+}
+
+#[test]
+fn a_font_of_a_later_supplement_than_its_predefined_cmap_is_given_the_cmaps() {
+    // The converse, over a CMap on the base standard's list: `EUC-H`'s program states Adobe-Japan1
+    // supplement 1 and the descendant states 2, which the corrected clause fails. The supplement
+    // is read by nothing (ISO 32000-2 Table 114), and every CID `EUC-H` reaches is in its own
+    // supplement, so the descendant is given the CMap's and the encoding stays the predefined
+    // name (ADR 3582).
+    let source = a_composite_font_naming("EUC-H", 2);
+    let target = Target::Two(Level::B);
+    let row = "fonts/cid-system-info-agrees-with-the-cmap";
+    let before: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert_eq!(
+        before,
+        vec![row],
+        "the fixture fails the supplement and nothing else"
+    );
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Stated { rewrite, .. } = decision(&report, row) else {
+        panic!("the row is answered: {:?}", decision(&report, row));
+    };
+    assert_eq!(rewrite, Rewrite::CollectionRestated);
+    let output = output.expect("the file is written");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{:?}",
+        holds(&output, target)
+            .failures()
+            .map(|failed| failed.id)
+            .collect::<Vec<_>>()
+    );
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let font = font_resource(&held);
+    assert_eq!(
+        held.get_key(&font, "Encoding"),
+        pdf_syntax::Object::Name(pdf_syntax::object::Name::new(&b"EUC-H"[..]))
+    );
+    let descendant = held
+        .get_key(&font, "DescendantFonts")
+        .as_array()
+        .and_then(|fonts| fonts.first().cloned())
+        .map(|first| held.resolve(&first))
+        .expect("one descendant");
+    let descendant = descendant.as_dict().expect("a dictionary");
+    let info = held.get_key(descendant, "CIDSystemInfo");
+    let info = info.as_dict().expect("a CIDSystemInfo");
+    assert_eq!(held.get_key(info, "Supplement").as_integer(), Some(1));
 }
 
 #[test]

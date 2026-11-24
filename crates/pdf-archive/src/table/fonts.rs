@@ -229,7 +229,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         id: "fonts/cid-system-info-agrees-with-the-cmap",
         asks: "A composite font whose encoding is not one of the identity CMaps shall have the \
                same registry and ordering in the CIDFont and in the CMap, and the CIDFont's \
-               supplement shall be at least the CMap's.",
+               supplement shall be at most the CMap's (the clause as the PDF/A working group's \
+               agreed erratum corrects it).",
         clauses: Clauses::both("6.2.11.3.1", "6.2.10.3.1"),
         applies: Applies::Always,
         check: Check::Implemented(cid_system_info_agrees_with_the_cmap),
@@ -1368,7 +1369,8 @@ static PREDEFINED_CMAPS: &[&str] = &[
     "Identity-V",
 ];
 
-/// ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1.
+/// ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1, as the PDF/A working group's
+/// agreed erratum corrects them.
 ///
 /// The clause exempts the identity `CMaps` outright and otherwise asks the two `CIDSystemInfo`
 /// dictionaries to describe one character collection, which is ISO 32000-2 §9.7.3's own
@@ -1377,74 +1379,103 @@ static PREDEFINED_CMAPS: &[&str] = &[
 /// > In order for a CIDFont and a CMap to be compatible, their Registry and Ordering values
 /// > shall be the same.
 ///
-/// on top of which the PDF/A clause adds that the `CIDFont`'s supplement is at least the `CMap`'s,
-/// so that every CID the `CMap` can produce exists in the font.
+/// on top of which the PDF/A clause bounds the `CIDFont`'s supplement by the `CMap`'s. The printed
+/// clause says *greater than or equal to*; the PDF/A Technical Working Group agreed that wording
+/// was wrong and published the correction, *less than or equal to*, at
+/// <https://pdf-issues.pdfa.org/19005-4-2020/clause06.html#H6.2.10.3.1> (pdf-association/pdf-issues
+/// #77). A working-group-agreed erratum is the standard and the printed text is retired
+/// (`CLAUDE.md` principle 5, ADR 3581), so this compares `CIDFontSupplement <= CMapSupplement`
+/// (ADR 3582). The reason #77 gives is a `CMap`'s: supplements only add CIDs, so a `CMap` of a
+/// later supplement than its font still means every CID the font's collection names, and a
+/// producer states the least supplement that covers its font's glyphs.
 ///
-/// **Only an embedded `CMap` is compared, and the reason is no longer that the answer is out of
-/// reach.** A predefined `CMap`'s `CIDSystemInfo` is stated by the `CMap` program rather than by
-/// the file — and this tree carries those programs: `data/cmaps` holds Adobe's 239 files, every one
-/// of which states its own `/Registry`, `/Ordering` and `/Supplement`, and `pdf_font::predefined`
-/// already reads them for their mappings. So the fact is here, in the strongest form there is: a
-/// predefined `CMap` *is* its program, which is why this answer does not depend on which edition of
-/// the base standard happens to print a table of them.
-///
-/// What is not settled is whether the clause should be *applied* to it. PDF Association issue
-/// #77 — determining the supplement of a predefined `CMap` — is open and parked, and a great many
-/// conforming files state a descendant supplement below the `CMap`'s. Reporting them all is a
-/// decision about a contested reading rather than a gap in this tree's data, so it is the project
-/// owner's to take. Until then a font naming a predefined `CMap` is passed over, and this
-/// paragraph records that the material for the other choice is already on disk.
+/// **A predefined `CMap` is compared as well, by the collection its own program states.** Its
+/// `CIDSystemInfo` is stated by the `CMap` program rather than by the file, and `data/cmaps` holds
+/// Adobe's programs, every one of which states its `/Registry`, `/Ordering` and `/Supplement`
+/// ([`pdf_font::predefined::collection`]) — a predefined `CMap` *is* its program. What #77 still
+/// holds open is whether a validator should instead take a predefined `CMap`'s supplement from
+/// the newest collection the base standard has a processor support; the program's own statement
+/// is the lower of the two, so a font that meets it meets either reading. A name this binary
+/// carries no program for is passed over here and refused by
+/// `fonts/cmap-embedded-or-predefined`.
 fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("Type0") {
             return;
         }
-        let Object::Stream(cmap) = document.get_key(font, "Encoding") else {
+        let Some(stated) = cmap_collection(document, font) else {
             return;
         };
-        let (Object::Dictionary(stated), Some((_, cid_font))) = (
-            document.get_key(&cmap.dict, "CIDSystemInfo"),
-            descendant(document, font),
-        ) else {
+        let Some((_, cid_font)) = descendant(document, font) else {
             return;
         };
         let Object::Dictionary(used) = document.get_key(&cid_font, "CIDSystemInfo") else {
             return;
         };
-        for key in ["Registry", "Ordering"] {
-            let (Some(one), Some(other)) = (
-                document
-                    .get_key(&stated, key)
-                    .as_string()
-                    .map(<[u8]>::to_vec),
-                document.get_key(&used, key).as_string().map(<[u8]>::to_vec),
-            ) else {
+        let text = |key: &str| document.get_key(&used, key).as_string().map(<[u8]>::to_vec);
+        for (key, one) in [("Registry", &stated.0), ("Ordering", &stated.1)] {
+            let (Some(one), Some(other)) = (one, text(key)) else {
                 continue;
             };
-            if one != other {
+            if *one != other {
                 findings.record(
                     site.place_named(key),
                     format!("the CMap and its CIDFont state different {key} strings"),
                 );
             }
         }
-        let (Some(stated), Some(used)) = (
-            document.get_key(&stated, "Supplement").as_integer(),
-            document.get_key(&used, "Supplement").as_integer(),
-        ) else {
+        let (Some(stated), Some(used)) =
+            (stated.2, document.get_key(&used, "Supplement").as_integer())
+        else {
             return;
         };
-        if used < stated {
+        if used > stated {
             findings.record(
                 site.place_named("Supplement"),
                 format!(
-                    "the CIDFont's supplement {used} is below the CMap's {stated}, so the CMap \
-                     can name CIDs the font does not have"
+                    "the CIDFont's supplement {used} is above the CMap's {stated}, where the \
+                     agreed correction of the clause bounds it by the CMap's"
                 ),
             );
         }
     });
+}
+
+/// A `CIDSystemInfo`'s `Registry`, `Ordering` and `Supplement`, each where it is stated.
+type StatedCollection = (Option<Vec<u8>>, Option<Vec<u8>>, Option<i64>);
+
+/// The `Registry`, `Ordering` and `Supplement` a `Type0` font's `CMap` states: an embedded one's
+/// in its stream's `/CIDSystemInfo`, a predefined one's in its own program; `None` for an identity
+/// `CMap`, which the clause exempts, and for a `CMap` stating no `CIDSystemInfo` this can read.
+fn cmap_collection(document: &Document, font: &Dictionary) -> Option<StatedCollection> {
+    match document.get_key(font, "Encoding") {
+        Object::Stream(cmap) => {
+            let Object::Dictionary(stated) = document.get_key(&cmap.dict, "CIDSystemInfo") else {
+                return None;
+            };
+            let text = |key: &str| {
+                document
+                    .get_key(&stated, key)
+                    .as_string()
+                    .map(<[u8]>::to_vec)
+            };
+            Some((
+                text("Registry"),
+                text("Ordering"),
+                document.get_key(&stated, "Supplement").as_integer(),
+            ))
+        }
+        Object::Name(name) => {
+            let name = name.as_str()?;
+            if matches!(name, "Identity-H" | "Identity-V") {
+                return None;
+            }
+            let (registry, ordering, supplement) = pdf_font::predefined::collection(name)?;
+            Some((Some(registry), Some(ordering), Some(supplement)))
+        }
+        _ => None,
+    }
 }
 
 /// ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2.
@@ -1574,6 +1605,48 @@ pub fn fonts_naming_an_undefined_cmap(
             && !PREDEFINED_CMAPS.contains(&name.as_str())
         {
             out.push((id, name));
+        }
+    });
+    out
+}
+
+/// Every `CIDFont` that is an object of its own, under a composite font of any shape, whose
+/// registry and ordering are its `CMap`'s and whose supplement is above the `CMap`'s, with the
+/// `CMap`'s supplement.
+///
+/// `cid_system_info_agrees_with_the_cmap`'s supplement finding read as a list, reaching the
+/// `Type0` fonts a resource dictionary writes directly as well: the entry a converter restates is
+/// in the descendant, so the descendant's object is what it edits (ADR 3582).
+#[must_use]
+pub fn cid_fonts_above_their_cmaps(
+    document: &Document,
+    target: crate::Target,
+) -> BTreeMap<ObjectId, i64> {
+    let exam = Examination::new(document, target);
+    let mut out = BTreeMap::new();
+    for_each_font(&exam, |_, font| {
+        if subtype(document, font).as_deref() != Some("Type0") {
+            return;
+        }
+        let Some((Some(registry), Some(ordering), Some(stated))) = cmap_collection(document, font)
+        else {
+            return;
+        };
+        let Some((Some(id), cid_font)) = descendant(document, font) else {
+            return;
+        };
+        let Object::Dictionary(used) = document.get_key(&cid_font, "CIDSystemInfo") else {
+            return;
+        };
+        let text = |key: &str| document.get_key(&used, key).as_string().map(<[u8]>::to_vec);
+        if text("Registry") == Some(registry)
+            && text("Ordering") == Some(ordering)
+            && document
+                .get_key(&used, "Supplement")
+                .as_integer()
+                .is_some_and(|used| used > stated)
+        {
+            out.insert(id, stated);
         }
     });
     out
@@ -5141,8 +5214,28 @@ mod tests {
     }
 
     #[test]
-    fn a_cid_system_info_is_compared_only_against_an_embedded_cmap() {
+    fn a_cid_system_info_is_compared_against_an_embedded_and_a_predefined_cmap() {
         let mismatched = document(
+            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+             2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding 3 0 R \
+             /DescendantFonts [4 0 R] >>\nendobj\n\
+             3 0 obj\n<< /Type /CMap /Length 0 \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> >>\n\
+             stream\n\nendstream\nendobj\n\
+             4 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> >>\nendobj\n",
+        );
+        let found = findings(&mismatched, cid_system_info_agrees_with_the_cmap);
+        assert_eq!(
+            found.len(),
+            2,
+            "the orderings differ and the supplement is above the CMap's: {found:?}"
+        );
+
+        // The agreed erratum's direction (pdf-issues #77, ADR 3582): a CIDFont of an earlier
+        // supplement than its CMap's is what a producer stating its font's least supplement
+        // writes, and it conforms.
+        let earlier = document(
             "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
              2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding 3 0 R \
              /DescendantFonts [4 0 R] >>\nendobj\n\
@@ -5150,25 +5243,42 @@ mod tests {
              /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 4 >> >>\n\
              stream\n\nendstream\nendobj\n\
              4 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
-             /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> >>\nendobj\n",
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> >>\nendobj\n",
         );
-        let found = findings(&mismatched, cid_system_info_agrees_with_the_cmap);
         assert_eq!(
-            found.len(),
-            2,
-            "the orderings differ and the supplement is below the CMap's: {found:?}"
+            findings(&earlier, cid_system_info_agrees_with_the_cmap),
+            [] as [String; 0]
         );
 
-        let predefined = document(
-            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
-             2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding /UniJIS-UCS2-H \
-             /DescendantFonts [3 0 R] >>\nendobj\n\
-             3 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
-             /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 0 >> >>\nendobj\n",
+        // `EUC-H`'s program states Adobe-Japan1 supplement 1, so a descendant of supplement 2
+        // fails on the supplement, and one of another ordering on the ordering.
+        let predefined = |ordering: &str, supplement: u8| {
+            document(&format!(
+                "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+                 2 0 obj\n<< /Type /Font /Subtype /Type0 /Encoding /EUC-H \
+                 /DescendantFonts [3 0 R] >>\nendobj\n\
+                 3 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /CIDSystemInfo << /Registry \
+                 (Adobe) /Ordering ({ordering}) /Supplement {supplement} >> >>\nendobj\n"
+            ))
+        };
+        assert_eq!(
+            findings(
+                &predefined("Japan1", 2),
+                cid_system_info_agrees_with_the_cmap
+            )
+            .len(),
+            1
         );
-        assert!(
-            findings(&predefined, cid_system_info_agrees_with_the_cmap).is_empty(),
-            "a predefined CMap's own CIDSystemInfo is not in the file, so nothing is compared"
+        assert_eq!(
+            findings(&predefined("GB1", 0), cid_system_info_agrees_with_the_cmap).len(),
+            1
+        );
+        assert_eq!(
+            findings(
+                &predefined("Japan1", 1),
+                cid_system_info_agrees_with_the_cmap
+            ),
+            [] as [String; 0]
         );
     }
 

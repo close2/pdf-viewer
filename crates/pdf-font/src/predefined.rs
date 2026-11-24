@@ -257,6 +257,43 @@ pub fn builds_on(program: &[u8]) -> Option<String> {
     used_by(program)
 }
 
+/// The character collection a predefined `CMap`'s own program states — its `/CIDSystemInfo`'s
+/// `Registry`, `Ordering` and `Supplement` — where this binary carries the program and the program
+/// states all three as Adobe's files write them, `/Key value def`.
+///
+/// ISO 32000-2 Table 118 has an embedded `CMap`'s dictionary repeat the `CIDSystemInfo` its
+/// `CMap` file states; a predefined `CMap` is that file, so its collection is read from it rather
+/// than from a table printed beside the standard (ADR 3582).
+#[must_use]
+pub fn collection(name: &str) -> Option<(Vec<u8>, Vec<u8>, i64)> {
+    let program = inflate(name)?;
+    let text = String::from_utf8_lossy(&program);
+    let tokens: Vec<&str> = text
+        .lines()
+        // not a repair: `split` always yields a first piece, the whole line where no `%` is.
+        .map(|line| line.split('%').next().unwrap_or_default())
+        .flat_map(str::split_whitespace)
+        .collect();
+    let after = |key: &str| {
+        tokens
+            .windows(3)
+            .find(|run| run[0] == key && run[2] == "def")
+            .map(|run| run[1])
+    };
+    let string = |token: &str| {
+        token
+            .strip_prefix('(')
+            .and_then(|rest| rest.strip_suffix(')'))
+            .map(|inner| inner.as_bytes().to_vec())
+    };
+    Some((
+        string(after("/Registry")?)?,
+        string(after("/Ordering")?)?,
+        // not a repair: a program this binary carries that states no integer states no supplement.
+        after("/Supplement")?.parse().ok()?,
+    ))
+}
+
 /// The names this binary carries, in order, for a test that wants to walk them all.
 pub fn names() -> impl Iterator<Item = &'static str> {
     PREDEFINED.iter().map(|(name, ..)| *name)
@@ -356,7 +393,26 @@ fn ucs2_cache() -> &'static Ucs2Cache {
 mod tests {
     use std::collections::HashMap;
 
-    use super::{cid_to_unicode, cmap, exists, names, used_by};
+    use super::{cid_to_unicode, cmap, collection, exists, names, used_by};
+
+    /// Each program states its own collection: `EUC-H`'s header carries `/Registry (Adobe) def`,
+    /// `/Ordering (Japan1) def` and `/Supplement 1 def`, and `90ms-RKSJ-V`'s `Supplement 2`; every
+    /// carried program states one, which is what lets ISO 19005's comparison read it (ADR 3582).
+    #[test]
+    fn a_predefined_cmap_states_its_own_collection() {
+        assert_eq!(
+            collection("EUC-H"),
+            Some((b"Adobe".to_vec(), b"Japan1".to_vec(), 1))
+        );
+        assert_eq!(
+            collection("90ms-RKSJ-V").map(|(.., supplement)| supplement),
+            Some(2)
+        );
+        assert_eq!(collection("No-Such-CMap"), None);
+        for name in names() {
+            assert!(collection(name).is_some(), "{name} states no collection");
+        }
+    }
 
     /// §9.10.2 step (e), on the collection its own example names: CID 1 of Adobe-Japan1 is the
     /// space, which the file states as `<0001> <003c> <0020>` — a range beginning at U+0020.

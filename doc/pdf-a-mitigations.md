@@ -1790,17 +1790,20 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · **built where this 
   supplement, so no glyph and no extracted character moves; what the paragraphs below call a
   relabelling is a relabelling of a statement nothing consults there. Where the collection *is*
   read, they stand.
+- **Built, the supplement alone** — where the two name one registry and ordering and only the
+  `CIDFont`'s supplement is above the `CMap`'s, a predefined `CMap`'s collection read from its
+  published program, the descendant is given the `CMap`'s supplement, embedded program or not, and
+  under a `Type0` font written directly where the descendant is an object (ADR 3582). Nothing reads
+  a `CIDFont`'s supplement, and every CID the `CMap` reaches is in the `CMap`'s own supplement.
 - **Mitigation** — **none**, and session 1175 read the clauses against that verdict rather than
   taking it. It holds, and one sentence of it was too strong.
   - **The clause is symmetric where it is about Registry and Ordering** — both parts say "the
     corresponding Registry and Ordering strings in **both** CIDSystemInfo dictionaries shall be
     identical" — so the file does not say which side to move, exactly as this entry said.
-  - **And directional where it is about Supplement**: the CIDFont's shall be at least the CMap's.
-    That half has an arithmetic answer and it is the wrong one. §9.7.3's Table 114 says a supplement
-    "shall not be used in determining compatibility" and that supplements only *add* CIDs, so
-    raising the number costs no glyph — and it asserts that the font program holds the CIDs of the
-    higher supplement, which is the thing the clause exists to guarantee and which this converter
-    cannot make true. `doc/questions/A48`: never fill in an absence.
+  - **And directional where it is about Supplement**: the `CIDFont`'s at most the `CMap`'s, as the
+    PDF/A TWG's agreed erratum corrects the printed direction (pdf-issues #77; ADR 3581 makes such
+    an erratum the standard). That half has the arithmetic answer above: lowering the descendant's
+    number to the `CMap`'s restates a statement nothing reads.
   - **What is too strong is "nothing in the file says which its producer meant".** Often something
     does. §9.7.4.2 makes the CIDFont dictionary's entry a *copy* — "[t]he CIDFont program identifies
     the character collection by a CIDSystemInfo dictionary, which should be copied into the PDF
@@ -1816,11 +1819,6 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · **built where this 
     reader and an embedded CMap program's `/CIDSystemInfo`, neither of which this converter has.
 - **What this entry used to say about making them agree** — that it relabels every CID — remains
   the reason a `supply` naming a collection is withheld.
-- **veraPDF reads the supplement bound backwards.** Its 1.30.3 test for the clause requires the
-  CIDFont's supplement at most the CMap's; both parts say at least, and their note gives the reason
-  (the font holds glyphs for every CID the CMap reaches). This validator reads the text, so the three
-  outputs veraPDF fails there alone (`issue11555`, `noembed-eucjp`, `noembed-jis7`) are its
-  disagreement, not a finding (ADR 2307 section 4).
 - **By target** — none.
 - **From a configuration** — `supply` is conceivable — an operator naming the collection they know
   their producer used — but it is the one `supply` that cannot be checked against anything, and a

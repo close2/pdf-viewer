@@ -80,44 +80,6 @@ enum Ruling {
 /// Keyed by the corpus file's own name, which is stable and which names the clause it is about.
 static ADJUDICATED: &[(&str, Ruling, &str)] = &[
     (
-        "veraPDF test suite 6-2-10-3-1-t01-pass-a.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "ISO 19005-4 section 6.2.10.3.1 requires the CIDFont's Supplement to be greater than or \
-        equal \
-         to the CMap's; this file states 1 against the CMap's 2 and is named a pass. Its \
-         sibling `-t01-fail-c` states the *converse* and is named a fail, so the corpus has the \
-         comparison inverted rather than merely disagreeing at a boundary. ISO 19005-2 \
-         section 6.2.11.3.1's NOTE settles the direction by explaining the purpose: the \
-         requirement \
-         ensures the font has glyphs for all CIDs the CMap can reference, which is a floor on \
-         the font and not a ceiling.",
-    ),
-    (
-        "veraPDF test suite 6-2-10-3-1-t01-fail-c.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "the same inversion seen from the other side: the CIDFont's Supplement is greater than \
-         the CMap's, which the clause permits in as many words, and the corpus expects a \
-         failure.",
-    ),
-    // The same two files again under part 2, whose section 6.2.11.3.1 states the rule in the same
-    // words. That the inversion appears in both halves of the corpus is what makes it a
-    // property of the corpus rather than a slip in one file.
-    (
-        "veraPDF test suite 6-2-11-3-1-t01-pass-d.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "ISO 19005-2 section 6.2.11.3.1, the same inversion as `6-2-10-3-1-t01-pass-a`: the file's \
-        own \
-         outline says the CIDFont's Supplement is less than the CMap's, and the clause requires \
-         it to be greater than or equal.",
-    ),
-    (
-        "veraPDF test suite 6-2-11-3-1-t01-fail-c.pdf",
-        Ruling::SpecAgainstTheCorpus,
-        "ISO 19005-2 section 6.2.11.3.1, the converse: the CIDFont's Supplement is greater than \
-        the \
-         CMap's, which the clause permits, and the corpus expects a failure.",
-    ),
-    (
         "veraPDF test suite 6-2-5-t03-fail-b.pdf",
         Ruling::SpecAgainstTheCorpus,
         "ISO 19005-2 section 6.2.5 permits a halftone's `TransferFunction` only where the base \

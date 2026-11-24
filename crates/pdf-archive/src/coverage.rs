@@ -2654,8 +2654,9 @@ static READINGS: &[Reading] = &[
             },
             Sentence {
                 says: "otherwise the registry and ordering strings agree between the CIDFont's \
-                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at least the \
-                       CMap's",
+                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at most the \
+                       CMap's, the printed comparison reversed by the PDF/A working group's agreed \
+                       erratum",
                 carried: Carried::By(&["fonts/cid-system-info-agrees-with-the-cmap"]),
             },
         ],
@@ -4764,8 +4765,9 @@ static READINGS: &[Reading] = &[
             },
             Sentence {
                 says: "otherwise the registry and ordering values agree between the CIDFont's \
-                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at least the \
-                       CMap's",
+                       and the CMap's CIDSystemInfo, and the CIDFont's supplement is at most the \
+                       CMap's, the printed comparison reversed by the PDF/A working group's agreed \
+                       erratum",
                 carried: Carried::By(&["fonts/cid-system-info-agrees-with-the-cmap"]),
             },
         ],

@@ -1,0 +1,181 @@
+---
+subset: PDF 2.0
+isodoc: ISO 32000-2:2020
+title: 10. Rendering
+last_modified_date: 10 November 2025
+parent: ISO 32000-2:2020 PDF 2.0
+nav_order: 10
+---
+
+<nav class="subclauses">
+<ul class="noprint">
+  <li>10.3 CIE-Based colour to device colour
+    <ul>
+    <li><a href="#H10.3.1">10.3.1 General</a>
+    </li>
+    </ul>
+  </li>
+  <li>10.4 Conversions among device colour spaces
+    <ul>
+      <li>10.4.2 Classic colour conversion methods
+        <ul>
+          <li><a href="#H10.4.2.2">10.4.2.2 Conversion between DeviceGray and DeviceRGB</a>
+          </li>
+          <li><a href="#H10.4.2.3">10.4.2.3 Conversion between DeviceGray and DeviceCMYK</a>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>10.6 Halftones
+    <ul>
+    <li>10.6.5 Halftone dictionaries
+     <ul>
+      <li><a href="#H10.6.5.3">10.6.5.3 Type 6 halftones</a>
+      </li>
+      <li><a href="#H10.6.5.6">10.6.5.6 Type 5 halftones</a>
+      </li>
+     </ul>
+    </li>
+    </ul>
+  </li>
+  <li>10.7 Scan conversion details
+   <ul>
+    <li><a href="#H10.7.2">10.7.2 Flatness tolerance</a>
+    </li>
+   </ul>
+  </li>
+</ul>
+</nav>
+<hr>
+
+<div class="isostyle">
+<div class="fixedpopup" id="issuelink">
+    Issue #xxxx
+</div>
+
+<p class="fake-h1">{{ page.title }}</p>
+
+<h2 id="H10.3">10.3 CIE-Based colour to device colour</h2>
+
+<h3 id="H10.3.1">10.3.1 General</h3>
+
+<p>...</p>
+
+<p class="location">Change the last paragraph as follows:</p>
+
+<p>
+Conversion from a CIE-based source colour to a CIE-based destination colour shall be performed based on <del onMouseEnter="mouseEnter(this)" data-issue="181" data-iso="approved">ISO 15076-1:2010 (ICC.1:2010)</del>
+<ins onMouseEnter="mouseEnter(this)" data-issue="181" data-iso="approved">the appropriate ICC specification (see "Table 66 - ICC profile versions supported by <b>ICCBased</b> colour spaces")</ins>.
+</p>
+
+<h2 id="H10.4">10.4 Conversions among device colour spaces</h2>
+
+<h3 id="H10.4.2">10.4.2 Classic colour conversion methods</h3>
+
+<h4 id="H10.4.2.2">10.4.2.2 Conversion between DeviceGray and DeviceRGB</h4>
+
+<p class="location">Change the formula as follows:</p>
+
+<p style="margin-left:50px;"><i>
+red = <del onMouseEnter="mouseEnter(this)" data-issue="640">grey</del><ins onMouseEnter="mouseEnter(this)" data-issue="640">gray</ins><br/>
+green = <del onMouseEnter="mouseEnter(this)" data-issue="640">grey</del><ins onMouseEnter="mouseEnter(this)" data-issue="640">gray</ins><br/>
+blue = <del onMouseEnter="mouseEnter(this)" data-issue="640">grey</del><ins onMouseEnter="mouseEnter(this)" data-issue="640">gray</ins>
+</i></p>
+
+<h4 id="H10.4.2.3">10.4.2.3 Conversion between DeviceGray and DeviceCMYK</h4>
+
+<p class="location">Change the formula as follows:</p>
+
+<p style="margin-left:50px;"><i>
+cyan = 0.0<br/>
+magenta = 0.0<br/>
+yellow = 0.0<br/>
+black = 1.0 - <del onMouseEnter="mouseEnter(this)" data-issue="640">grey</del><ins onMouseEnter="mouseEnter(this)" data-issue="640">gray</ins>
+</i></p>
+
+<h2 id="H10.6">10.6 Halftones</h2>
+
+<h3 id="H10.6.5">10.6.5 Halftone dictionaries</h3>
+
+<h4 id="H10.6.5.3">10.6.5.3 Type 6 halftones</h4>
+
+<p class="location">Change Table 129 as follows:</p>
+
+<table>
+  <caption id="Table129">Table 129 - Additional entries specific to a Type 6 halftone dictionary</caption>
+  <tr>
+    <th>Key</th>
+    <th>Type</th>
+    <th>Value</th>
+  </tr>
+  <tr>
+    <td><b>TransferFunction</b></td>
+    <td>function or<br/>name</td>
+    <td>
+      <p>
+      (<i>Optional</i>) A transfer function, which overrides the current transfer function in the graphics state for the same component. 
+      <del onMouseEnter="mouseEnter(this)" data-issue="310" data-iso="approved">The name <i>Identity</i> may be used to specify the identity function (see 10.5, "Transfer functions").</del>
+      <ins onMouseEnter="mouseEnter(this)" data-issue="310" data-iso="approved">This entry shall be present if the dictionary is a component of a Type 5 halftone (see 10.6.5.6, "Type 5 halftones") and represents either a nonprimary or nonstandard primary colour component (see 10.5, "Transfer functions"). The name <i>Identity</i> may be used to specify the identity function.</ins>
+      </p>
+      <p class="hangingindent">
+        NOTE PDF versions to 1.7 required that this entry be present if the dictionary is a component of a Type 5 halftone (see 10.6.5.6, "Type 5 halftones") and represents either a non-primary or non-standard primary colour component.
+      </p>
+    </td>
+  </tr>
+</table>
+
+<h4 id="H10.6.5.6">10.6.5.6 Type 5 halftones</h4>
+
+<p class="location">Change Table 132 as follows:</p>
+
+<table>
+  <caption id="Table132">Table 132 - Entries in a Type 5 halftone dictionary</caption>
+  <tr>
+    <th>Key</th>
+    <th>Type</th>
+    <th>Value</th>
+  </tr>
+  <tr>
+    <td><b>any colorant name</b></td>
+    <td>dictionary or<br/>stream</td>
+    <td>
+      <p>(<i>Required, one per colourant</i>) The halftone corresponding to the colourant or colour component named by the key. The halftone may be of any Type other than 5.</p>
+      <p class="hangingindent"><ins onMouseEnter="mouseEnter(this)" data-issue="310" data-iso="approved">
+      NOTE As stated for each of the other halftone types the referenced halftone will have a <b>TransferFunction</b> if it represents a nonprimary or nonstandard primary colour component.
+      </ins></p>
+    </td>
+  </tr>
+  <tr>
+    <td><b>Default</b></td>
+    <td>dictionary or<br/>stream</td>
+    <td>
+    (<i>Required</i>) A halftone that shall be used for any colourant or colour component that does not have an entry of its own.
+    <del onMouseEnter="mouseEnter(this)" data-issue="12" data-iso="approved">The value shall not be 5.</del>
+    <ins onMouseEnter="mouseEnter(this)" data-issue="12" data-iso="approved">The halftone shall not be a Type 5 halftone.</ins>
+    If there are any nonprimary colourants, the default halftone shall have a transfer function.
+    </td>
+  </tr>
+</table>
+
+<p>...</p>
+
+<p class="location">Delete the paragraph below the bulleted list (above EXAMPLE) as follows:</p>
+
+<p><del onMouseEnter="mouseEnter(this)" data-issue="311" data-iso="approved">
+When a halftone dictionary of some other Type appears as the value of an entry in a Type 5 halftone dictionary, it shall apply only to the single colourant or colour component named by that entry's key. This is in contrast to such a dictionary's being used as the current halftone parameter in the graphics state, which shall apply to all colour components. If nonprimary colourants are requested when the current halftone is defined by any means other than a Type 5 halftone dictionary, the gray halftone screen and transfer function shall be used for all such colourants.
+</del></p>
+
+<h2 id="H10.7">10.7 Scan conversion details</h2>
+
+<h3 id="H10.7.2">10.7.2 Flatness tolerance</h3>
+
+<p class="location">Change the first paragraph as follows:</p>
+
+<p>
+The <i>flatness tolerance</i> controls the maximum permitted distance in device pixels between the mathematically correct path and an approximation constructed from straight line segments, as shown in "Figure 69 — Flatness tolerance". Flatness may be specified as the operand of the <b>i</b> operator (see "Table 56 — Graphics state operators") or as the value of the <b>FL</b> entry in a graphics state parameter dictionary (see "Table 57 — Entries in a graphics state parameter dictionary"). 
+<del onMouseEnter="mouseEnter(this)" data-issue="371" data-iso="approved">It shall be a positive number.</del>
+<ins onMouseEnter="mouseEnter(this)" data-issue="371" data-iso="approved">It shall be a number in the range 0 to 100 inclusive, where a value of 0 shall specify the output device's default flatness tolerance. The value indicates the maximum error tolerance measured in output device pixels.</ins>
+</p>
+
+</div>

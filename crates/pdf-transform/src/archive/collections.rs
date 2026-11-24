@@ -2,8 +2,9 @@
 //!
 //! ISO 19005-2 section 6.2.11.3.1 and ISO 19005-4 section 6.2.10.3.1 require a composite font whose
 //! encoding is not an identity `CMap` to name the same registry and ordering in its `CIDFont` and in
-//! its `CMap`, with the `CIDFont`'s supplement at least the `CMap`'s. ISO 32000-2 §9.7.3 says what
-//! the three entries are:
+//! its `CMap`, with the `CIDFont`'s supplement at most the `CMap`'s — the clause as the PDF/A
+//! working group's agreed erratum corrects it (pdf-association/pdf-issues #77, ADR 3582). ISO
+//! 32000-2 §9.7.3 says what the three entries are:
 //!
 //! > A character collection shall be uniquely identified by the Registry , Ordering , and
 //! > Supplement entries in the CIDSystemInfo dictionary
@@ -22,6 +23,17 @@
 //! `CIDFont`'s entry is read by nothing this reader draws or extracts, and it is restated as the
 //! `CMap`'s. Every other font keeps the refusal, by the sentence that says which condition it
 //! failed.
+//!
+//! **Where the two already name one registry and ordering, only the supplement moves, and it moves
+//! for every font.** The supplement is the one entry no reading takes, embedded program or not,
+//! so writing the `CMap`'s into a `CIDFont` that stated a later one changes nothing drawn or
+//! extracted; every CID the `CMap` reaches lies in the `CMap`'s own supplement, which is what #77
+//! has a producer state for its font. A predefined `CMap`'s collection is the one its published
+//! program states (`pdf_font::predefined::collection`), and a predefined `CMap` of another
+//! registry or ordering keeps a refusal of its own: the font's collection is all there is to
+//! restate, and restating it would relabel the glyphs. The supplement is restated in the
+//! descendant, so a `Type0` font a resource dictionary writes directly is answered too where its
+//! descendant is an object of its own (`pdf_archive::cid_fonts_above_their_cmaps`).
 
 use std::collections::BTreeMap;
 
@@ -36,8 +48,14 @@ const REQUIREMENT: &str = "fonts/cid-system-info-agrees-with-the-cmap";
 /// Why a font the requirement failed at that is no object of its own keeps its refusal.
 const NOT_AN_OBJECT: &str = "a composite font whose CIDFont and CMap name different character \
      collections is written directly inside another object, or is not a Type 0 font over an \
-     embedded CMap and a CIDFont stating a CIDSystemInfo, so there is no font dictionary this \
-     conversion restates the collection in";
+     embedded or predefined CMap and a CIDFont stating a CIDSystemInfo, so there is no font \
+     dictionary this conversion restates the collection in";
+
+/// Why a font over a predefined `CMap` of another collection keeps its refusal.
+const PREDEFINED_ELSEWHERE: &str = "a composite font's CIDFont names another registry or ordering \
+     than the predefined CMap its encoding names, and a predefined CMap's collection is its \
+     published program's, so there is no statement this conversion could restate without \
+     relabelling the font's glyphs";
 
 /// Why a font whose collection this reader reads keeps its refusal.
 const READ_BY_THIS_READER: &str = "a composite font's CIDFont and CMap name different character \
@@ -65,19 +83,30 @@ pub(super) fn restated(
     input: &pdf_archive::Report,
 ) -> Result<Restated, Because> {
     let (named, elsewhere) = super::sites::objects_named(input, &[REQUIREMENT])?;
-    if elsewhere {
-        return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
-    }
     let mut out = Restated::default();
+    if elsewhere {
+        // A `Type0` font a resource dictionary writes directly is no object, but its descendant
+        // can be, and a supplement above the `CMap`'s is the descendant's entry. Every other
+        // finding at no object stays unanswered, and the output's validation refuses it.
+        let above = pdf_archive::cid_fonts_above_their_cmaps(document, input.target);
+        if above.is_empty() {
+            return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
+        }
+        for (at, supplement) in above {
+            let held = document.get(at);
+            let info = held
+                .as_dict()
+                .map(|cid_font| document.get_key(cid_font, "CIDSystemInfo"));
+            let Some(Object::Dictionary(mut info)) = info else {
+                return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
+            };
+            info.insert(Name::new(&b"Supplement"[..]), Object::Integer(supplement));
+            out.at.insert(at, info);
+        }
+    }
     for id in named {
         let font = document.get(id);
         let font = font.as_dict().ok_or(Because::NotBuiltYet(NOT_AN_OBJECT))?;
-        let Object::Stream(cmap) = document.get_key(font, "Encoding") else {
-            return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
-        };
-        let Object::Dictionary(stated) = document.get_key(&cmap.dict, "CIDSystemInfo") else {
-            return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
-        };
         let descendants = document.get_key(font, "DescendantFonts");
         let first = descendants
             .as_array()
@@ -90,17 +119,43 @@ pub(super) fn restated(
         let Object::Dictionary(used) = document.get_key(descendant, "CIDSystemInfo") else {
             return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
         };
-        let vertical = matches!(document.get_key(&cmap.dict, "WMode").as_integer(), Some(1));
-        if !unread(
-            document,
-            descendant,
-            &collection(document, &used),
-            &collection(document, &stated),
-            vertical,
-        ) {
-            return Err(Because::NotBuiltYet(READ_BY_THIS_READER));
-        }
-        let restated = restatement(document, &stated);
+        let restated = match document.get_key(font, "Encoding") {
+            Object::Stream(cmap) => {
+                let Object::Dictionary(stated) = document.get_key(&cmap.dict, "CIDSystemInfo")
+                else {
+                    return Err(Because::NotBuiltYet(NOT_AN_OBJECT));
+                };
+                let old = collection(document, &used);
+                let new = collection(document, &stated);
+                let vertical =
+                    matches!(document.get_key(&cmap.dict, "WMode").as_integer(), Some(1));
+                if (old.is_none() || old != new)
+                    && !unread(document, descendant, &old, &new, vertical)
+                {
+                    return Err(Because::NotBuiltYet(READ_BY_THIS_READER));
+                }
+                restatement(document, &stated)
+            }
+            Object::Name(name) => {
+                let (registry, ordering, supplement) = name
+                    .as_str()
+                    .and_then(pdf_font::predefined::collection)
+                    .ok_or(Because::NotBuiltYet(NOT_AN_OBJECT))?;
+                let stated = (
+                    String::from_utf8_lossy(&registry).into_owned(),
+                    String::from_utf8_lossy(&ordering).into_owned(),
+                );
+                if collection(document, &used) != Some(stated) {
+                    return Err(Because::NotBuiltYet(PREDEFINED_ELSEWHERE));
+                }
+                let mut info = Dictionary::new();
+                info.insert(Name::new(&b"Registry"[..]), Object::String(registry.into()));
+                info.insert(Name::new(&b"Ordering"[..]), Object::String(ordering.into()));
+                info.insert(Name::new(&b"Supplement"[..]), Object::Integer(supplement));
+                info
+            }
+            _ => return Err(Because::NotBuiltYet(NOT_AN_OBJECT)),
+        };
         match first.as_reference() {
             Some(at) => out.at.insert(at, restated),
             None => out.within.insert(id, restated),

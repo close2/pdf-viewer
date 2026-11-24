@@ -69,10 +69,10 @@ pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
 pub use crate::table::fonts::{
-    Table124Row, cmap_is_predefined, direct_cid_fonts_stating_no_cid_to_gid_map,
-    direct_fonts_stating_no_font_type, fonts_naming_an_undefined_cmap, owes_a_cid_to_gid_map,
-    program_read_repaired, program_stopping_short, program_unparsed, table_124_rows,
-    type3_encoding,
+    Table124Row, cid_fonts_above_their_cmaps, cmap_is_predefined,
+    direct_cid_fonts_stating_no_cid_to_gid_map, direct_fonts_stating_no_font_type,
+    fonts_naming_an_undefined_cmap, owes_a_cid_to_gid_map, program_read_repaired,
+    program_stopping_short, program_unparsed, table_124_rows, type3_encoding,
 };
 pub use crate::table::graphics::{
     Beside, CmykProfileUse, IccTagShortfall, cmyk_profile_uses, icc_profile_component_count,

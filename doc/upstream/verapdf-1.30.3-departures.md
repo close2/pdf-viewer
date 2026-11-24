@@ -1,6 +1,6 @@
 # veraPDF 1.30.3: four readings the archive census found plainly veraPDF's
 
-Status: **filed upstream** (2026-11-24 on `veraPDF/veraPDF-library`: #1668, #1669, #1670, #1671; drafted ADR 3447). Each section below the line is one issue as it would go
+Status: **filed upstream** (2026-11-24 on `veraPDF/veraPDF-library`: #1668, #1669, #1670, #1671; drafted ADR 3447); #1668 closed the same day, the departure ours under the agreed erratum (ADR 3582); #1669–#1671 re-read against the errata, still veraPDF's (ADR 3584). Each section below the line is one issue as it would go
 to `veraPDF/veraPDF-library` (the first to `veraPDF/veraPDF-validation-profiles`); a person files
 them. ISO 19005 is cited by clause and paraphrased, never quoted (`doc/third-party-data.md`);
 ISO 32000-2 is quoted from `doc/md/`. Each was found by `tools/verapdf-census.py` on round 2181's
@@ -14,6 +14,13 @@ with their reason.
 ## 1. Profiles: ISO 19005-2 6.2.11.3.1 test 1 compares the Supplement entries the other way round
 
 **Filed**: https://github.com/veraPDF/veraPDF-library/issues/1668
+
+**Closed, 2026-11-24 — the erratum governs, and the departure was ours.** MaximPlusov closed
+#1668 the day it was filed: the PDF/A TWG agreed the printed wording was wrong (pdf-association/
+pdf-issues #77) and the correction, *less than or equal to*, is published at
+https://pdf-issues.pdfa.org/19005-4-2020/clause06.html#H6.2.10.3.1. Under ADR 3581 that correction
+is the standard; `pdf-archive` now compares as the profile does (ADR 3582). The section below is
+kept as it was filed.
 
 **Profile**: `PDFA-2B.xml` (and the other part 2 and part 3 profiles), rule `6.2.11.3.1` test 1;
 `PDFA-4.xml`, rule `6.2.10.3.1` test 1. Both end in `CIDFontSupplement <= CMapSupplement`.

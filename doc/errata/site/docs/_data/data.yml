@@ -1,0 +1,119 @@
+toc:
+  - standard: ISO 32000-2:2020
+    subfolderitems:
+      - ref: 'Introduction'
+        url:  clause00.html
+      - ref: 'Clause 2: Normative references'
+        url:  clause02.html
+      - ref: 'Clause 3: Terms and definitions'
+        url:  clause03.html
+      - ref: 'Clause 4: Notation'
+        url:  clause04.html
+      - ref: 'Clause 7: Syntax'
+        url:  clause07.html
+      - ref: 'Clause 8: Graphics'
+        url:  clause08.html
+      - ref: 'Clause 9: Text'
+        url:  clause09.html
+      - ref: 'Clause 10: Rendering'
+        url:  clause10.html
+      - ref: 'Clause 11: Transparency'
+        url:  clause11.html
+      - ref: 'Clause 12: Interactive features'
+        url:  clause12.html
+      - ref: 'Clause 13: Multimedia features'
+        url:  clause13.html
+      - ref: 'Clause 14: Document interchange'
+        url:  clause14.html
+      - ref: 'Annex A: (informative) Operator Summary'
+        url:  clauseAnnexA.html
+      - ref: 'Annex D: (normative) Character sets and encodings'
+        url:  clauseAnnexD.html
+      - ref: 'Annex E: (normative) Extending PDF'
+        url:  clauseAnnexE.html
+      - ref: 'Annex F: (normative) Linearized PDF'
+        url:  clauseAnnexF.html
+      - ref: 'Annex H: (informative) Example PDF files'
+        url:  clauseAnnexH.html
+      - ref: 'Annex L: (normative) Parent-child relationships between the standard structure elements in the standard structure namespace for PDF 2.0'
+        url:  clauseAnnexL.html
+      - ref: 'Annex O: (normative) Fragment identifiers'
+        url:  clauseAnnexO.html
+      - ref: 'Annex Q: (normative) Method for determining transparency on a page'
+        url:  clauseAnnexQ.html
+      - ref: 'Bibliography'
+        url:  clauseBibliography.html
+
+  - standard: ISO 19005-4:2020
+    subfolderitems:
+      - ref: 'Clause 6: Technical requirements'
+        url:  clause06.html
+
+  - standard: ISO 15930-9:2020
+    subfolderitems:
+
+  - standard: ISO 16612-3:2020
+    subfolderitems:
+
+  - standard: ISO 21757-1:2020
+    subfolderitems:
+      - ref: 'Clause 2: Normative references'
+        url:  clause02.html
+      - ref: 'Clause 3: Terms and definitions'
+        url:  clause03.html
+      - ref: 'Clause 10: ECMAScript API'
+        url:  clause10.html
+      - ref: 'Clause 12: Object overview'
+        url:  clause12.html
+
+  - standard: ISO TS 32001:2022
+    subfolderitems:
+      - ref: 'Clause 5: Digital signature enhancements'
+        url:  clause05.html
+
+  - standard: ISO TS 32002:2022
+    subfolderitems:
+      - ref: 'Clause 1: Scope'
+        url:  clause01.html
+      - ref: 'Clause 5: Digital signature enhancements'
+        url:  clause05.html
+
+  - standard: ISO TS 32003:2023
+    subfolderitems:
+      - ref: 'Clause 5: Proposed Changes'
+        url:  clause05.html
+
+  - standard: ISO TS 32005:2023
+    subfolderitems:
+      - ref: 'Clause 7: Parent-child relationships between the standard structure elements in the standard structure namespace for PDF 2.0 and PDF 1.7'
+        url:  clause07.html
+
+  - standard: ISO TS 32007:2024
+    subfolderitems:
+      - ref: 'Clause 4: RichMedia annotations with glTF assets'
+        url:  clause04.html
+
+  - standard: ISO 14289-1:2014
+    subfolderitems:
+
+  - standard: ISO 14739-1:2014
+    subfolderitems:
+
+  - standard: WTPDF 1.0
+    subfolderitems:
+      - ref: 'Clause 6: Conformance'
+        url:  clause06.html
+      - ref: 'Clause 8: File format requirements'
+        url:  clause08.html
+
+  - standard: PDF Declarations
+    subfolderitems:
+      - ref: 'Clause 7: PDF Declaration syntax'
+        url:  clause07.html
+      - ref: 'Clause 8: PDF Declaration requirements'
+        url:  clause08.html
+
+  - standard: ISO 16684-2:2014
+    subfolderitems:
+      - ref: 'Annex C: (informative) RELAX NG schema for the XMP namespace'
+        url:  clauseAnnexC.html

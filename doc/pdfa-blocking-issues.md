@@ -67,7 +67,7 @@ programs share.
 |---|---|---|---|---|
 | `issue7901` | 4 | 6.2.11.5, 6.2.10.5 (Glyph) | the window drew through a `/CIDToGIDMap` §9.7.4.2 does not use for a name-keyed CFF | ours: new row, program written CID-keyed (ADR 3446) |
 | `T02-05-01_004`, `_008` | 4 each | 6.2.4.3-4 (DeviceGray) | text shown before any `Tf` was not counted as a use of the fill colour space | ours: counted (ADR 3445) |
-| `noembed-eucjp`, `noembed-jis7`, `issue11555` | 2 each | 6.2.11.3.1-1 (Type0) | the CIDFont's Supplement is at least the CMap's, as the clause asks | veraPDF's: the profile compares `<=`; filed upstream as veraPDF-library #1668 |
+| `noembed-eucjp`, `noembed-jis7`, `issue11555` | 2 each | 6.2.11.3.1-1 (Type0) | the predefined CMap was passed over, and the comparison was the printed one, which the PDF/A TWG's agreed erratum reverses (pdf-issues #77) | ours: the erratum governs (ADR 3581); the row compares `<=` and reads a predefined CMap's program, and the descendant's supplement is restated to the CMap's; veraPDF passes all twelve outputs (ADR 3582). #1668 closed by veraPDF, pointing at the erratum |
 | `calgray`, `calrgb` | 4 each | 6.2.2-1 (`re%`) | §7.2.3 makes `%` a delimiter | veraPDF's; filed upstream as veraPDF-library #1669 |
 | `issue7872` | 2 | 6.1.13-11 (box) | §7.3.10 admits indirect numbers as a rectangle's elements | veraPDF's; filed upstream as veraPDF-library #1670 |
 | `issue3566` | 4 | 6.2.11.5, 6.2.10.5, 6.2.10.7 | TN 5176's supplement gives code 174 SID 266 `ff`, 599.53 against 599 | veraPDF's; filed upstream as veraPDF-library #1671 |

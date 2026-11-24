@@ -83,7 +83,9 @@ const COLLECTION_RESTATED: &str = "an embedded CIDFont in this file named a char
      the font is restated only where this reader consults the collection for nothing - no CID to \
      Unicode table, vertical forms or glyph classes of either collection - so no glyph and no \
      character extracted changes. What changes is the CIDFont's statement of which collection \
-     its CIDs are numbered in";
+     its CIDs are numbered in. A CIDFont naming its CMap's registry and ordering under a later \
+     supplement, embedded or not, is given the CMap's supplement, which ISO 32000-2 Table 114 \
+     says shall not be used in determining compatibility and which no reading takes";
 
 const CID_TO_GID_REINTERPRETS: &str = "an embedded Type 2 CIDFont in this file stated no \
      CIDToGIDMap, and now states Identity. ISO 32000-1's table gives Identity as that entry's own \
@@ -187,9 +189,10 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/cidset-lists-every-cid-in-the-program",
         answer: Answer::Mechanical(Rewrite::DescriptorSetRemoved),
     },
-    // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1: the CIDFont's collection
-    // restated as its CMap's where this reader reads it for nothing, and refused by
-    // `super::super::collections`'s sentence elsewhere (ADR 2717).
+    // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1, as the agreed erratum
+    // corrects them: the CIDFont's collection restated as its CMap's where this reader reads it
+    // for nothing, its supplement alone wherever only the supplement disagrees, and refused by
+    // `super::super::collections`'s sentence elsewhere (ADRs 2717, 3582).
     // ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 through §9.7.6.1's Table 119:
     // a Type 0 font naming no `CIDFont` that this reader draws nothing for is given one that draws
     // nothing, and every other is refused by `super::super::fonts::no_descendant`'s sentences

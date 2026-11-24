@@ -1238,10 +1238,11 @@ pub enum Rewrite {
     /// extracts reads the `CIDFont`'s.
     ///
     /// ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1: the two name the same
-    /// registry and ordering, the `CIDFont`'s supplement at least the `CMap`'s. An embedded
-    /// program's glyphs are selected without the entry (ISO 32000-2 §9.7.4.2), so the `CIDFont`'s
-    /// statement is the one restated, and only where this reader reads it for nothing
-    /// (`super::collections`, ADR 2717).
+    /// registry and ordering, the `CIDFont`'s supplement at most the `CMap`'s (the agreed
+    /// erratum, ADR 3582). An embedded program's glyphs are selected without the entry (ISO
+    /// 32000-2 §9.7.4.2), so the `CIDFont`'s statement is the one restated, and only where this
+    /// reader reads it for nothing (`super::collections`, ADR 2717); the supplement alone is read
+    /// by nothing for any font.
     CollectionRestated,
     /// Every optional content configuration that states no `/Name` is given the one the
     /// operator's `name-template` makes, numbered past every name the file already uses.
@@ -1867,8 +1868,9 @@ impl Rewrite {
                  pixel grid"
             }
             Self::CollectionRestated => {
-                "an embedded CIDFont whose character collection disagreed with its CMap's names \
-                 the CMap's, a statement nothing selecting or reading its glyphs consulted"
+                "a CIDFont whose character collection disagreed with its CMap's names the \
+                 CMap's, a statement nothing selecting or reading its glyphs consulted: an \
+                 embedded font's whole collection, or any font's supplement alone"
             }
             Self::FilterNamesSpelledOut => {
                 "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \

@@ -218,6 +218,10 @@ the definition of correct. The direction of inference runs one way: agreement ra
 confidence that we understood the specification; disagreement is a question to take back to
 the specification, never a target to move toward.
 
+**An erratum the standard's working group agreed is the standard**: where one — published on
+pdf-issues.pdfa.org, or recorded as agreed in `pdf-association/pdf-issues` — corrects a clause, the
+corrected text governs and the printed text is recorded as retired (the owner, 2026-11-24; ADR 3581).
+
 In practice:
 
 - A test's expected value must be derivable from the specification, and its comment must
